@@ -41,12 +41,14 @@ import { writeRunRecord, type CollabRunRecord } from './archive.js';
 import {
   addWorktree,
   commitAll,
+  cwdPeerReader,
   detectGit,
   git,
   headSha,
   peerReaderFor,
   removeWorktree,
   resolveBase,
+  tryInitGitRepo,
 } from './worktrees.js';
 import { PeerSupervisor, type PeerSupervisorOptions, type Supervisor } from './peer-supervisor.js';
 import { integrate } from './integrate.js';
@@ -64,6 +66,12 @@ const BOOT_DEADLINE_MS = 90_000;
 export interface CollabDeps {
   readonly cwd?: string;
   readonly config?: CollabConfig;
+  /** One-line override for `concurrency` without a full config (tests + a future
+   *  desktop pref). Ignored when `config` is provided. */
+  readonly concurrencyOverride?: 'parallel' | 'sequential';
+  /** Injection seam — defaults to the real git detector. Lets a test force the
+   *  no-git (cwd-parallel) path deterministically even where git is installed. */
+  readonly detectGit?: (cwd: string) => Promise<{ installed: boolean; repo: boolean }>;
   readonly createSupervisor?: (opts: PeerSupervisorOptions, hub: CollaborationHub) => Supervisor;
 }
 
@@ -78,7 +86,9 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     return;
   }
 
-  const cfg = deps.config ?? resolveCollabConfig();
+  const cfg =
+    deps.config ??
+    resolveCollabConfig(undefined, deps.concurrencyOverride ? { concurrency: deps.concurrencyOverride } : undefined);
   const cwd = deps.cwd ?? process.cwd();
   const task = lastUserPromptText(ctx) ?? '';
   if (!task.trim()) {
@@ -116,25 +126,34 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
   try {
     mkdirSync(collabRunDir(runId), { recursive: true });
 
-  const { installed: gitInstalled, repo: gitRepo } = await detectGit(cwd);
-  const parallel = cfg.concurrency === 'parallel' && gitRepo;
-  archiveParallel = parallel;
+  // GIT-FIRST execution. We prefer the git-worktree path (true isolation + a
+  // clean, conflict-aware merge). If this folder isn't a git repo yet, quietly
+  // try to make it one so it STILL gets that — so most "plain folder" runs get
+  // full isolation. Only when git genuinely can't be used (not installed, or
+  // init/commit throws) do we fall back to running the team in PARALLEL directly
+  // in the shared workspace, coordinated by the file-lock board. The user never
+  // sees git/worktree/lock jargon — the engine just picks the safest mechanism.
+  const { installed: gitInstalled, repo: alreadyGitRepo } = await (deps.detectGit ?? detectGit)(cwd);
+  let gitRepo = alreadyGitRepo;
+  if (!gitRepo && gitInstalled && cfg.concurrency !== 'sequential') {
+    gitRepo = await tryInitGitRepo(cwd).catch(() => false);
+  }
+  const execMode = resolveExecMode(cfg, gitRepo);
+  const usesGit = execMode === 'git-parallel';
+  const runsParallel = execMode !== 'sequential';
+  archiveParallel = runsParallel;
   archiveGitRepo = gitRepo;
-  if (!parallel) {
-    yield await ctx.emit(
-      plugin(ctx, 'collab_fallback_sequential', {
-        reason: !gitInstalled
-          ? 'git is not installed — running agents sequentially in your workspace'
-          : !gitRepo
-            ? 'this folder is not a git repository — running agents sequentially in your workspace'
-            : 'sequential mode selected',
-      }),
-    );
+  // Internal diagnostic (not user-facing jargon). Keep the legacy
+  // collab_fallback_sequential ONLY for the explicit sequential mode, so the
+  // existing UI + tests still observe it where it still applies.
+  yield await ctx.emit(plugin(ctx, 'collab_exec_mode', { mode: execMode, gitInstalled, gitRepo }));
+  if (execMode === 'sequential') {
+    yield await ctx.emit(plugin(ctx, 'collab_fallback_sequential', { reason: 'sequential mode — one agent at a time' }));
   }
 
   // Base commit (git path only). A dirty tree is snapshotted so work is never lost.
   let baseSha = '';
-  if (parallel) {
+  if (usesGit) {
     const base = await resolveBase(cwd, { snapshotDirty: true });
     baseSha = base.baseSha;
   }
@@ -150,7 +169,9 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     socketPath: hubSocketPath(runId),
     task,
     roster: [architectEntry],
-    peerReader: peerReaderFor(worktrees, baseSha),
+    // git: read each agent's worktree. non-git: every agent shares one tree, so
+    // peer-read is just "read the live shared workspace".
+    peerReader: usesGit ? peerReaderFor(worktrees, baseSha) : cwdPeerReader(cwd),
   });
   registerActiveHub(String(ctx.sessionId), hub);
   unsubscribe = hub.subscribe((e) => {
@@ -167,7 +188,9 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
   };
   supervisor = (deps.createSupervisor ?? ((o) => new PeerSupervisor(o)))(supervisorOpts, hub);
 
-    yield await ctx.emit(plugin(ctx, 'collab_started', { task, parallel, gitInstalled, gitRepo }));
+    // Keep `parallel` (the chat-model folder binds it) — cwd-parallel IS parallel
+    // — and add execMode for finer-grained consumers.
+    yield await ctx.emit(plugin(ctx, 'collab_started', { task, parallel: runsParallel, execMode, gitInstalled, gitRepo }));
 
     // Distil the user's conversation for the whole team. BRIEF.md is a CONCISE
     // SUMMARY (goal + key requirements/constraints/decisions) — one coordinator
@@ -259,8 +282,10 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     }
     yield await ctx.emit(plugin(ctx, 'collab_roster_confirmed', { roster }));
 
-    // Commit the scaffold (CONTRACTS.md, roster.json, any stubs) so worktrees inherit it.
-    if (parallel) {
+    // Commit the scaffold (CONTRACTS.md, roster.json, any stubs) so worktrees
+    // inherit it. Non-git: the scaffold + brief are already physically in cwd, so
+    // every shared-workspace peer sees them with no commit/checkout.
+    if (usesGit) {
       await commitAll(cwd, 'moxxy-collab: scaffold contracts');
       baseSha = await headSha(cwd);
       mkdirSync(worktreeRoot(runId), { recursive: true });
@@ -268,7 +293,7 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
 
     // --- Phase 1: implementers ---
     const doneIds: string[] = [];
-    if (parallel) {
+    if (execMode === 'git-parallel') {
       for (const entry of roster) {
         hub.state.addAgent(entry);
         const wt = worktreePath(runId, entry.id);
@@ -281,8 +306,30 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
       await waitForAgents(hub, supervisor, roster.map((r) => r.id), ctx.signal, cfg.wallClockMs);
       yield* surfaceFailures(ctx, hub, supervisor, roster.map((r) => r.id));
       for (const r of roster) if (statusOf(hub, r.id) === 'done') doneIds.push(r.id);
+    } else if (execMode === 'cwd-parallel') {
+      // No git: run the whole team in parallel directly in the shared workspace,
+      // coordinated by the file-lock board. Pre-seed each agent's declared
+      // ownedPaths as a claim so ownership is enforced from the very first edit;
+      // an overlap means the architect mis-decomposed — surface it but still run.
+      for (const entry of roster) {
+        hub.state.addAgent(entry);
+        if (entry.ownedPaths?.length) {
+          const res = hub.state.boardClaim(entry.id, entry.ownedPaths);
+          if (!res.ok) {
+            yield await ctx.emit(
+              plugin(ctx, 'collab_ownership_overlap', { id: entry.id, paths: entry.ownedPaths, ownedBy: res.ownedBy }),
+            );
+          }
+        }
+        const charterFile = writeCharterFile(runId, entry);
+        supervisor.spawn({ entry, cwd, mode: COLLAB_PEER_MODE_NAME, ...(charterFile ? { charterFile } : {}) });
+        yield await ctx.emit(plugin(ctx, 'collab_agent_spawned', { id: entry.id, role: entry.role }));
+      }
+      await waitForAgents(hub, supervisor, roster.map((r) => r.id), ctx.signal, cfg.wallClockMs);
+      yield* surfaceFailures(ctx, hub, supervisor, roster.map((r) => r.id));
+      for (const r of roster) if (statusOf(hub, r.id) === 'done') doneIds.push(r.id);
     } else {
-      // Sequential fallback (no git): one agent at a time, in the shared workspace.
+      // Explicit sequential mode: one agent at a time, in the shared workspace.
       for (const entry of roster) {
         if (ctx.signal.aborted) break;
         hub.state.addAgent(entry);
@@ -303,9 +350,9 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
       return;
     }
 
-    // --- Phase 2: integrate (git path only; sequential edits are already in cwd) ---
+    // --- Phase 2: integrate (git path only; shared-workspace edits are already in cwd) ---
     let mergeNote = '';
-    if (parallel && doneIds.length > 0) {
+    if (usesGit && doneIds.length > 0) {
       const result = await integrate({
         repoCwd: cwd,
         runId,
@@ -337,10 +384,17 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     const summaryBlock = summaries.length
       ? summaries.map((s) => `- **${s.agentId}**: ${s.summary}`).join('\n')
       : '(no agent reported a completion summary)';
+    // For the lock-coordinated shared-workspace path there's no merge step — the
+    // edits are already live in the workspace. Add a light review nudge.
+    const cwdNote =
+      execMode === 'cwd-parallel'
+        ? 'The team worked together directly in your workspace; please review the result.'
+        : '';
+    const tail = [mergeNote, cwdNote].filter(Boolean).join('\n\n');
     yield await ctx.emit(
       assistant(
         ctx,
-        `Collaboration complete — ${doneIds.length}/${roster.length} agents finished.\n\n${summaryBlock}${mergeNote ? `\n\n${mergeNote}` : ''}`,
+        `Collaboration complete — ${doneIds.length}/${roster.length} agents finished.\n\n${summaryBlock}${tail ? `\n\n${tail}` : ''}`,
       ),
     );
     completed = true;
@@ -472,6 +526,23 @@ function slug(s: string): string {
 /** Normalize an architect-proposed role to a short, safe label. `'architect'` is
  *  reserved for the coordinator's planner, so a proposed 'architect' falls back to
  *  'implementer'. Anything unparseable also falls back to 'implementer'. */
+/**
+ * How the team is executed:
+ * - `git-parallel`: each agent in its own git worktree; staged, conflict-aware
+ *   merge into the user's branch (full isolation). The default whenever git is
+ *   usable — including a folder we just `git init`'d for the user.
+ * - `cwd-parallel`: no git available — agents run in parallel in the SHARED
+ *   workspace, coordinated only by the advisory file-lock board.
+ * - `sequential`: one agent at a time in the shared workspace (the safe, slow
+ *   fallback; only when the user explicitly pins concurrency: 'sequential').
+ */
+type ExecMode = 'git-parallel' | 'cwd-parallel' | 'sequential';
+
+function resolveExecMode(cfg: CollabConfig, gitRepo: boolean): ExecMode {
+  if (cfg.concurrency === 'sequential') return 'sequential';
+  return gitRepo ? 'git-parallel' : 'cwd-parallel';
+}
+
 function cleanRole(raw: unknown): string {
   if (typeof raw !== 'string') return 'implementer';
   const r = raw.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);

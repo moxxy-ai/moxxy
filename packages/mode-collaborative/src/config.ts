@@ -18,7 +18,11 @@ export interface CollabConfig {
   readonly mergePolicy: 'auto-into-branch' | 'stage-only';
   /** Run the project's build/test on staging before promoting. */
   readonly verifyGate: boolean;
-  /** Parallel worktrees (git) vs sequential single-workspace (non-git fallback). */
+  /** `'parallel'` (default): git (incl. an auto-init'd folder) → worktrees + merge;
+   *  no git → agents run in parallel in the shared workspace, coordinated by file
+   *  locks. `'sequential'`: one agent at a time in the shared workspace (the safe,
+   *  slow fallback). NOTE: `resolveCollabConfig()` is currently called without
+   *  persisted prefs, so `'sequential'` isn't yet reachable from user prefs. */
   readonly concurrency: 'parallel' | 'sequential';
   /** Per-peer iteration cap. */
   readonly peerMaxIterations: number;
