@@ -40,6 +40,11 @@ export interface RosterEntry {
   readonly ownedPaths?: ReadonlyArray<string>;
   /** Optional per-agent model override (defaults to the coordinator's). */
   readonly model?: string;
+  /** Architect-authored persona + responsibilities + quality bar + collaboration
+   *  + definition-of-done for THIS agent, suited to this task. Becomes the peer's
+   *  system-prompt prefix. Optional — a missing charter falls back to the generic
+   *  peer prompt. */
+  readonly charter?: string;
 }
 
 /** A roster entry plus live runtime state, held by the hub. */

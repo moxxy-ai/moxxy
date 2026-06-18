@@ -14,6 +14,8 @@ export const COLLAB_ENV = {
   Subtask: 'MOXXY_COLLAB_SUBTASK',
   ParentTask: 'MOXXY_COLLAB_PARENT_TASK',
   RunnerSocket: 'MOXXY_RUNNER_SOCKET',
+  /** Path (never the body) of this agent's architect-authored role charter. */
+  CharterFile: 'MOXXY_COLLAB_CHARTER_FILE',
 } as const;
 
 let clientPromise: Promise<CollabHubClient | null> | null = null;

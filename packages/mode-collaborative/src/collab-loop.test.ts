@@ -237,6 +237,57 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(byId.sneaky).toBe('implementer');
   });
 
+  it('passes each peer its architect-authored charter (capped) and keeps it OUT of the committed tree', async () => {
+    const repo = await initRepo();
+    const { ctx } = fakeCtx();
+    const spawned: Array<{ id: string; charterFile?: string; content: string | null }> = [];
+    const longCharter = 'You are the WRITER. '.repeat(200); // >2000 chars → must be capped
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd, charterFile }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# C\n');
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                { id: 'writer', name: 'Writer', role: 'writer', subtask: 'docs', ownedPaths: ['intro.md'], charter: longCharter },
+              ]),
+            );
+            hub.state.markDone('architect', 'done');
+          } else {
+            spawned.push({
+              id: entry.id,
+              charterFile,
+              content: charterFile ? readFileSync(charterFile, 'utf8') : null,
+            });
+            writeFileSync(join(cwd, 'intro.md'), '# intro\n');
+            hub.state.boardClaim(entry.id, ['intro.md']);
+            hub.state.markDone(entry.id, 'done');
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const writer = spawned.find((s) => s.id === 'writer')!;
+    expect(writer.charterFile).toBeTruthy();
+    expect(writer.content).toContain('You are the WRITER.');
+    // capped at 2000 (+ trailing newline)
+    expect(writer.content!.trimEnd().length).toBeLessThanOrEqual(2000);
+    // the charter lives in the run dir, NOT the committed scaffold/worktree
+    expect(existsSync(join(repo, '.moxxy-collab', 'charter-writer.md'))).toBe(false);
+    expect(writer.charterFile).not.toContain(repo);
+  });
+
   it('does NOT hang on a failed agent: surfaces it and completes with the others', async () => {
     const repo = await initRepo();
     const { ctx, events } = fakeCtx();
