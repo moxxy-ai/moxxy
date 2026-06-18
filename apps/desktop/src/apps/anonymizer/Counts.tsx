@@ -5,20 +5,51 @@ import { CATEGORY_LABELS } from './labels';
 export function Counts({ counts, total }: { counts: PiiCounts; total: number }): JSX.Element {
   const rows = (Object.keys(counts) as PiiCategory[]).filter((c) => counts[c] > 0);
   if (total === 0) {
-    return <span style={{ fontSize: 13, color: 'var(--color-text-dim)' }}>Nothing detected.</span>;
+    return (
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 7,
+          alignSelf: 'flex-start',
+          padding: '6px 12px',
+          borderRadius: 999,
+          fontSize: 12.5,
+          color: 'var(--color-text-muted)',
+          background: 'var(--color-input-soft)',
+          border: '1px solid var(--color-card-border)',
+        }}
+      >
+        Nothing detected yet.
+      </div>
+    );
   }
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-      <span style={{ fontSize: 13, fontWeight: 600 }}>{total} redacted:</span>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12.5,
+          fontWeight: 700,
+          padding: '3px 10px',
+          borderRadius: 999,
+          color: '#fff',
+          background: 'var(--color-primary-strong)',
+        }}
+      >
+        {total} redacted
+      </span>
       {rows.map((c) => (
         <span
           key={c}
           style={{
             fontSize: 12,
-            padding: '2px 8px',
+            padding: '3px 9px',
             borderRadius: 999,
-            background: 'var(--color-bg-card)',
-            border: '1px solid var(--color-border)',
+            background: 'var(--color-surface)',
+            border: '1px solid var(--color-card-border)',
             color: 'var(--color-text-muted)',
           }}
         >
