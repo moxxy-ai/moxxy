@@ -5,13 +5,12 @@ import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
-import { AboutTab } from './AboutTab';
 import { MobileTab } from './MobileTab';
-import { AppearanceTab } from './AppearanceTab';
+import { PreferencesTab } from './PreferencesTab';
 import { SearchBox } from './settings-primitives';
 import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
 
-type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'mobile' | 'appearance' | 'about';
+type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'mobile' | 'preferences';
 
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'providers', label: 'Providers' },
@@ -19,13 +18,12 @@ const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
   { id: 'skills', label: 'Skills' },
   { id: 'vault', label: 'Vault' },
   { id: 'mobile', label: 'Mobile' },
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'about', label: 'About' },
+  { id: 'preferences', label: 'Preferences' },
 ];
 
 // Tabs that don't read the runner-backed settings slice — render them outside
-// the shared loading / error chrome (like About).
-const STANDALONE_TABS: ReadonlySet<Tab> = new Set<Tab>(['about', 'mobile', 'appearance']);
+// the shared loading / error chrome (like Preferences / Mobile).
+const STANDALONE_TABS: ReadonlySet<Tab> = new Set<Tab>(['preferences', 'mobile']);
 
 /**
  * Tabbed settings panel — providers, MCP servers, skills, vault. Each tab
@@ -83,11 +81,10 @@ export function SettingsPanel({
         }}
       >
 
-      {/* About + Mobile are independent of the runner-backed settings slice —
-          render them without the shared loading / error chrome below. */}
-      {tab === 'about' && <AboutTab />}
+      {/* Preferences + Mobile are independent of the runner-backed settings
+          slice — render them without the shared loading / error chrome below. */}
+      {tab === 'preferences' && <PreferencesTab />}
       {tab === 'mobile' && <MobileTab />}
-      {tab === 'appearance' && <AppearanceTab />}
 
       {!STANDALONE_TABS.has(tab) && s.error && (
         <div
