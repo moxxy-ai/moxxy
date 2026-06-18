@@ -37,6 +37,65 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-18 — Repo-wide quality + performance sweep (audit-driven)
+
+A 240-agent, adversarially-verified audit of the whole monorepo produced
+**41 clusters / 205 confirmed findings** (full report + machine findings in
+`.claude/audits/quality-sweep-2026-06-18.md` and
+`.claude/audits/quality-sweep-findings.json`). This ledger entry tracks what the
+sweep **retired** and what it **deliberately deferred** (the deferred set is the
+standing backlog — pick from it, newest-audit-first, on the next pass).
+
+**Retired by this sweep (all test-backed, gates green):**
+- **Dead CDP screencast plumbing** (the 2026-06-17 dormant-debt entry below) —
+  removed from `plugin-browser`.
+- **Skills gallery `SearchBox` duplication** (the 2026-06-17 entry below) — now
+  uses the shared primitive.
+- **`REMOTE_DISALLOWED_COMMANDS`** deprecated maintenance burden + ~16 other
+  proven-dead exports/modules (router.ts, PhaseMarker, unused matchers, …).
+- **Banned `(x as unknown as {…}).f =` private-field poke** (was the only
+  repo-wide hit, in `runner-supervisor.test.ts`) → replaced with a DI seam;
+  plus the `run-child` `as unknown as` casts.
+- **Invariant #5 gaps** in core preferences, plugins-admin config, config
+  plugin, channel-web tunnel-settings, desktop-host chat-log, cli skills audit
+  log, runner provider-enable → all now `createMutex`-serialized + atomic-write;
+  added `writeFileAtomicSync` to the SDK and adopted it at the sync sites.
+- **8 copy-paste registries** → `ActiveDefRegistry`/`DefMapRegistry` bases;
+  **per-vendor OpenAI-compat provider copy-paste** → `defineOpenAICompatProvider`.
+- **Confirmed security/correctness bugs:** view-spec `isSafeViewUrl` whitespace
+  XSS bypass (SDK + web walls), broker SSRF-via-redirect + symlink/TOCTOU +
+  unbounded buffers + non-idempotent wrapping + inproc no-abort, permission
+  deny-rules failing open on a bad regex, OAuth refresh race + stale token
+  fields, isolator SIGTERM→SIGKILL escalation + cwd + signal wiring, several
+  unbounded IPC payloads, provider-overwrite hijack, completedTurns leak, ESM
+  `require` on the Linux clipboard path.
+
+**Deferred (tracked backlog — see findings.json cluster ids):**
+- **PERF (highest value, needs byte-identical golden tests):** the O(n²)/turn
+  chat-model block re-fold on desktop + TUI (`t2-chatmodel-fold-perf`); indexing
+  `EventLog.ofType/byTurn` + fusing the per-call projection/elision/lazy-tool
+  rescans (`t2-eventlog-elision-scans`); the misc quadratic hotspots
+  (`t2-perf-quadratic-misc`); bounding the live in-memory event window. These are
+  load-bearing pure folds (invariants #4/#6) — each wants its own PR with a
+  golden-output harness, not a blind change.
+- **Generics:** a generic `JsonCollectionStore<T>` / `createJsonFileStore`
+  unifying the 5 hand-rolled JSON stores (`t2-json-store-block`); the
+  `requirements.targetInfo` table-drive; shared one-shot-stream + frontmatter
+  parser + external-store + OAuth helpers (`t2-oneshot-stream-helper`,
+  `t2-frontmatter-parser-dup`, `t2-external-store-dup`, `t2-shared-oauth-helpers`).
+- **Boundaries:** wall the Node-only SDK helpers behind a `./server` subpath +
+  widen dep-cruiser to the renderer/mobile-poc (`t2-sdk-server-subpath`); the
+  permission `inputMatches` anchoring (`u40-2`, changes match semantics);
+  unify `~/.moxxy` path derivation (`t2-moxxy-home-paths`).
+- **Completion:** wire or remove the desktop per-provider reasoning-effort
+  control (`t2-security`/`c15`/R1); the half-built encrypted-reasoning round-trip
+  (`u99-1`).
+- **Long tail:** the remaining confirmed logic bugs (`t2-confirmed-logic-bugs`,
+  `t2-more-logic-bugs`), embedding correctness + lifecycle/shutdown clusters,
+  and all of Tier-3 (god-file splits `t3-god-files`, the test-harness gap
+  `t3-test-harness`, and the long-tail review/test/consistency/perf/dead-code/
+  types/atomicity/completion clusters). Triage newest-first.
+
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 
 - **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with
