@@ -23,4 +23,12 @@ export interface HandlerContext {
   readonly prefsMutex: Mutex;
   /** Push the fresh registry snapshot to every attached client. */
   readonly broadcastInfo: () => void;
+  /**
+   * Directory holding the persisted session JSONLs. Used by
+   * `session.loadHistory` (v10) ONLY as the disk fallback when the runner's
+   * in-memory log doesn't reach the start of history (a tail-seeded log) —
+   * the common case pages straight out of the in-memory log. Defaults to
+   * core's `defaultSessionsDir()`; overridable for tests.
+   */
+  readonly sessionsDir?: string;
 }

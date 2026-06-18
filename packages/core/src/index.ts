@@ -56,9 +56,12 @@ export {
   defaultSessionsDir,
   readIndex as readSessionIndex,
   restoreEvents as restoreSessionEvents,
+  readEventPage as readSessionEventPage,
+  pageEvents,
   deleteSession,
   type SessionMeta,
   type SessionPersistenceOpts,
+  type EventPage,
 } from './sessions/persistence.js';
 export {
   PluginHost,

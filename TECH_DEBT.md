@@ -100,6 +100,16 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
 3. **Dual on-disk history consolidation** — likewise a designed, deferred decision
    (the NDJSON store is the renderer's only history source under `replay:'none'`;
    consolidating means migrating to paged runner-log reads, with real counter-risks).
+   **Runner-side foundation landed (2026-06-18):** runner protocol v10 adds the
+   paged `session.loadHistory` ({ before, limit } → { events, prevCursor }) backed
+   by a core paged-JSONL reader (`readSessionEventPage`/`pageEvents`), and the
+   runner now seals stream-without-seal turns into a REAL `assistant_message` so
+   its log is the complete authoritative history (no more renderer-only synth).
+   The client method is version-gated (`requireServerProtocol(10)`); against an
+   older runner it throws an actionable error the renderer can catch to fall back
+   to NDJSON, and the desktop FLOOR was deliberately NOT raised. **Remaining:** the
+   renderer migration to read history from the runner (with the NDJSON read
+   fallback retained) — a separate desktop-facing PR.
 4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
    `init` boot a full session and never `close()`) — minor; a correct fix must drain
    persistence before exit (premature exit would drop the last event).

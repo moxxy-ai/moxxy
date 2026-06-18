@@ -63,6 +63,8 @@ import {
   type PermissionCheckParams,
   type ReplayStartNotification,
   type RunTurnResult,
+  type SessionLoadHistoryParams,
+  type SessionLoadHistoryResult,
   type SurfaceDataNotification,
   type SurfaceListResult,
   type TurnCompleteNotification,
@@ -420,6 +422,30 @@ export class RemoteSession implements ClientSession {
    */
   async reset(): Promise<void> {
     await this.peer.request(RunnerMethod.SessionReset, {});
+  }
+
+  /**
+   * Page the runner's AUTHORITATIVE event history (protocol v10). Backs the
+   * desktop's dual-history retirement — the renderer reads transcript history
+   * from the runner instead of its own NDJSON chat store. Newest-first paging:
+   * pass `before: null` for the newest page, then feed each result's
+   * `prevCursor` back as `before` to walk older pages until `prevCursor` is
+   * `null` (start of history).
+   *
+   * GATED on the server reporting protocol v10+. Against an OLDER runner this
+   * throws a clear, actionable error (not a raw method-not-found) — the desktop
+   * CATCHES it and falls back to its existing NDJSON path, so no transcript
+   * ever goes blank when the runner predates this method.
+   */
+  async loadHistory(
+    before: number | null,
+    limit: number,
+  ): Promise<SessionLoadHistoryResult> {
+    this.requireServerProtocol(10, 'Loading session history from the runner');
+    return this.peer.request<SessionLoadHistoryResult>(RunnerMethod.SessionLoadHistory, {
+      before,
+      limit,
+    } satisfies SessionLoadHistoryParams);
   }
 
   getInfo(): SessionInfo {

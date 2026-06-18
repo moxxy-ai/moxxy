@@ -54,6 +54,7 @@ import {
   handleSurfaceClose,
   handleModeSetActive,
   handleSessionSetReasoning,
+  handleSessionLoadHistory,
   handlePermissionAddAllow,
   handleCommandRun,
   type HandlerContext,
@@ -209,6 +210,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.RunTurn, (raw) => this.handleRunTurn(client, raw));
     peer.handle(RunnerMethod.Abort, (raw) => this.handleAbort(client, raw));
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
+    peer.handle(RunnerMethod.SessionLoadHistory, (raw) => handleSessionLoadHistory(ctx, raw));
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
     peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
@@ -332,6 +334,16 @@ export class RunnerServer {
       } finally {
         this.turnControllers.delete(turnId);
         client.turns.delete(turnId);
+        // LOG COMPLETENESS: a turn can stream assistant text (assistant_chunk
+        // events) yet never SEAL it with an assistant_message — e.g. the
+        // provider errors or the turn aborts mid-stream after some text landed.
+        // The renderer used to paper over this by SYNTHESIZING the missing
+        // assistant_message on turn-complete, so that reply existed in NO runner
+        // log. Persist a REAL one here (before turn.complete) so the runner log
+        // is the complete authoritative history — and it streams to every mirror
+        // as a normal event. No-op on the normal sealed path. Awaited so the
+        // event is on the wire/disk before clients learn the turn finished.
+        await this.sealUnsealedStreamedText(turnId);
         this.broadcast(RunnerNotification.TurnComplete, {
           turnId,
           ...(error ? { error } : {}),
@@ -391,6 +403,44 @@ export class RunnerServer {
     }
     this.session.log.clear();
     return {};
+  }
+
+  /**
+   * If this turn streamed assistant text (`assistant_chunk`) that no
+   * `assistant_message` ever sealed, append a REAL `assistant_message` to the
+   * authoritative log so it persists + replays like any other reply. Mirrors
+   * the desktop renderer's old turn-complete synthesis exactly: it accumulates
+   * chunk deltas and clears them on an `assistant_message`, then synthesizes
+   * from whatever text remains — so we seal only the trailing run of chunks
+   * AFTER the turn's last `assistant_message` (an empty/whitespace remainder is
+   * a no-op, which is the normal sealed path). The append flows through
+   * `session.log` → persistence + the broadcast stream, so mirrors ingest it as
+   * a normal event and never need to synthesize their own.
+   */
+  private async sealUnsealedStreamedText(turnId: TurnId): Promise<void> {
+    const events = this.session.log.byTurn(turnId);
+    if (events.length === 0) return;
+    let unsealed = '';
+    for (const event of events) {
+      if (event.type === 'assistant_message') unsealed = '';
+      else if (event.type === 'assistant_chunk') unsealed += event.delta;
+    }
+    if (!unsealed.trim()) return; // normal sealed path (or no text) — nothing to do
+    try {
+      await this.session.log.append({
+        type: 'assistant_message',
+        sessionId: this.session.id,
+        turnId,
+        source: 'model',
+        content: unsealed,
+        // The turn ended without the provider sealing the message (error/abort
+        // after partial text); 'end_turn' matches the renderer's prior synth.
+        stopReason: 'end_turn',
+      });
+    } catch {
+      // Sealing is best-effort completeness, not correctness-critical: a failed
+      // append must not break turn-complete fan-out or abort handling.
+    }
   }
 
   private handleSetResolver(client: ConnectedClient, raw: unknown): Record<string, never> {
