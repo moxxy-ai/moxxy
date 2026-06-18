@@ -3,10 +3,36 @@ import {
   VIEW_PRIMITIVES,
   VIEW_COMPONENTS,
   DEFAULT_VIEW_TAGS,
+  countNodes,
   defineViewRenderer,
   defineTunnelProvider,
+  type ViewNode,
   type ViewTagSpec,
 } from './index.js';
+
+describe('countNodes', () => {
+  const text = (value: string): ViewNode => ({ kind: 'text', value });
+  const el = (tag: string, children: ViewNode[] = []): ViewNode => ({
+    kind: 'element',
+    tag,
+    props: {},
+    children,
+  });
+
+  it('counts a single text node as 1', () => {
+    expect(countNodes(text('hi'))).toBe(1);
+  });
+
+  it('counts an element plus its descendants', () => {
+    const tree = el('col', [el('row', [text('a'), text('b')]), text('c')]);
+    // col + row + a + b + c = 5
+    expect(countNodes(tree)).toBe(5);
+  });
+
+  it('counts a leaf element as 1', () => {
+    expect(countNodes(el('hr'))).toBe(1);
+  });
+});
 
 describe('view vocabulary integrity', () => {
   const all = DEFAULT_VIEW_TAGS;

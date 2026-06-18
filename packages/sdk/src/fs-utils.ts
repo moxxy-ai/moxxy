@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -36,6 +37,36 @@ export async function writeFileAtomic(
     await rename(tmp, target);
   } catch (err) {
     await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * Synchronous twin of {@link writeFileAtomic}, for the few call sites that
+ * cannot be async — boot/bootstrap and self-update gates that run before the
+ * event loop is the right tool. Same crash-atomic guarantee: write a unique
+ * sibling temp file, then `rename` it over the target. Hand-rolled
+ * `mkdirSync + writeFileSync(tmp) + renameSync` copies should call this instead.
+ */
+export function writeFileAtomicSync(
+  target: string,
+  data: string | Uint8Array,
+  opts: WriteFileAtomicOptions = {},
+): void {
+  mkdirSync(dirname(target), { recursive: true });
+  const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(tmp, data, { encoding: opts.encoding ?? 'utf8' });
+    // chmod explicitly: writeFileSync's mode option is masked by umask, but a
+    // 0o600 secret file must be exactly 0o600 regardless of the host umask.
+    if (opts.mode != null) chmodSync(tmp, opts.mode);
+    renameSync(tmp, target);
+  } catch (err) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* best-effort cleanup */
+    }
     throw err;
   }
 }

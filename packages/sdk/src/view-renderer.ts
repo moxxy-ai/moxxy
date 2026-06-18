@@ -176,3 +176,13 @@ export const VIEW_COMPONENTS: ReadonlyArray<ViewTagSpec> = [
 
 /** The default renderer's full allow-list (primitives + components). */
 export const DEFAULT_VIEW_TAGS: ReadonlyArray<ViewTagSpec> = [...VIEW_PRIMITIVES, ...VIEW_COMPONENTS];
+
+/**
+ * Count element + text nodes in a view tree (the `nodeCount` a `present_view`
+ * tool reports). Single source of truth: core's parser and the plugin-view tool
+ * both import this rather than re-implementing the recursion.
+ */
+export function countNodes(node: ViewNode): number {
+  if (node.kind === 'text') return 1;
+  return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
+}

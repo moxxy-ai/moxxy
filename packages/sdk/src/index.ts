@@ -173,7 +173,7 @@ export type {
   ViewTagSpec,
   ViewRendererDef,
 } from './view-renderer.js';
-export { VIEW_PRIMITIVES, VIEW_COMPONENTS, DEFAULT_VIEW_TAGS, isSafeViewUrl } from './view-renderer.js';
+export { VIEW_PRIMITIVES, VIEW_COMPONENTS, DEFAULT_VIEW_TAGS, isSafeViewUrl, countNodes } from './view-renderer.js';
 export type {
   TunnelProviderDef,
   TunnelHandle,
@@ -183,8 +183,16 @@ export type {
 } from './tunnel.js';
 export { spawnCliTunnel, isCliTunnelAvailable } from './tunnel.js';
 export { isRetryableError, toFriendlyError, zodToJsonSchema, estimateTextTokens, type StopReason } from './provider-utils.js';
-export { writeFileAtomic, moxxyHome, moxxyPath, type WriteFileAtomicOptions } from './fs-utils.js';
+export {
+  writeFileAtomic,
+  writeFileAtomicSync,
+  moxxyHome,
+  moxxyPath,
+  type WriteFileAtomicOptions,
+} from './fs-utils.js';
 export { createMutex, type Mutex } from './mutex.js';
+export { assertNever } from './assert.js';
+export { compareSemver, parseSemverCore } from './semver.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
 export {
   resolveChannelToken,
