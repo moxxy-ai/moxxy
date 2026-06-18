@@ -1,6 +1,8 @@
 import {
   FlatList,
+  Modal,
   Pressable,
+  ScrollView,
   Text,
   View,
   type NativeScrollEvent,
@@ -12,6 +14,7 @@ import { summarizeAttachment } from '@/attachments';
 import type {
   AssistantTranscriptItem,
   SubagentGroupTranscriptItem,
+  SubagentTranscriptItem,
   SystemGroupTranscriptItem,
   ToolGroupTranscriptItem,
   TranscriptItem,
@@ -20,7 +23,8 @@ import type { PromptAttachment } from '@/clientFrames';
 import { shouldLoadOlderFromScroll, shouldShowThinkingIndicator } from '@/chatListState';
 import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
 import { buildMessageActions } from '@/messageActions';
-import { buildToolGroupUi } from '@/toolGroupUi';
+import { buildSubagentDetailUi, selectSubagentDetailAgent } from '@/subagentDetailUi';
+import { buildToolDetailUi, buildToolGroupUi, type ToolDetailUi } from '@/toolGroupUi';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
@@ -297,7 +301,16 @@ function AssistantMessage({
 
 function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }) {
   const [open, setOpen] = useState(false);
+  const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(() => new Set());
   const ui = buildToolGroupUi(group.tools);
+  const toggleTool = useCallback((toolId: string) => {
+    setExpandedToolIds((current) => {
+      const next = new Set(current);
+      if (next.has(toolId)) next.delete(toolId);
+      else next.add(toolId);
+      return next;
+    });
+  }, []);
 
   return (
     <View
@@ -351,35 +364,14 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
           <Text className="text-[16px] font-bold text-dim">{open ? '-' : '+'}</Text>
         </Pressable>
         {open ? (
-          <View className="mt-2 overflow-hidden rounded-block border border-cardBorder bg-cardBg">
-            {group.tools.map((tool, index) => (
-              <View
+          <View style={{ gap: 8, marginTop: 8 }}>
+            {group.tools.map((tool) => (
+              <ExpandableToolCard
                 key={tool.id}
-                style={{
-                  borderTopColor: '#e3e5f0',
-                  borderTopWidth: index === 0 ? 0 : 1,
-                  paddingHorizontal: 10,
-                  paddingVertical: 8,
-                }}
-              >
-                <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
-                  <View
-                    style={{
-                      backgroundColor: statusColor(tool.status),
-                      borderRadius: 999,
-                      height: 7,
-                      width: 7,
-                    }}
-                  />
-                  <Text className="text-[12px] font-bold text-text">{tool.name}</Text>
-                  <Text className="text-[11px] font-bold text-dim">{statusLabel(tool.status)}</Text>
-                </View>
-                {tool.summary ? (
-                  <Text className="mt-1 text-[11px] leading-4 text-muted" numberOfLines={2}>
-                    {tool.summary}
-                  </Text>
-                ) : null}
-              </View>
+                tool={buildToolDetailUi(tool)}
+                expanded={expandedToolIds.has(tool.id)}
+                onToggle={() => toggleTool(tool.id)}
+              />
             ))}
           </View>
         ) : null}
@@ -390,6 +382,8 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
 
 function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscriptItem }) {
   const [open, setOpen] = useState(group.status === 'running');
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const selectedAgent = selectSubagentDetailAgent(group, selectedAgentId);
   const accent = group.status === 'failed' ? '#ef4444' : group.status === 'running' ? '#8b5cf6' : '#16a34a';
   const tint = group.status === 'failed' ? '#fee2e2' : group.status === 'running' ? '#f5f3ff' : '#ecfdf5';
 
@@ -431,14 +425,33 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
         {open ? (
           <View style={{ borderLeftColor: '#c7d2fe', borderLeftWidth: 1, gap: 6, marginTop: 6, paddingLeft: 10 }}>
             {group.agents.map((agent) => (
-              <View key={agent.id} style={{ minWidth: 0 }}>
-                <Text className="text-[12px] font-semibold text-muted" numberOfLines={1}>
-                  {agent.label} · {agent.toolCallCount} {agent.toolCallCount === 1 ? 'tool' : 'tools'}
-                  {formatAgentTokens(agent.tokensUsed)}
-                </Text>
-                <Text style={{ color: agent.status === 'failed' ? '#ef4444' : accent, fontSize: 11, fontWeight: '800' }}>
-                  {agent.status === 'done' ? 'Done' : agent.status === 'failed' ? 'Failed' : 'running'}
-                </Text>
+              <Pressable
+                key={agent.id}
+                accessibilityHint="Opens the subagent response and tool details"
+                accessibilityLabel={`Open ${agent.label} details`}
+                accessibilityRole="button"
+                onPress={() => setSelectedAgentId(agent.id)}
+                style={({ pressed }) => ({
+                  backgroundColor: pressed ? 'rgba(139, 92, 246, 0.08)' : 'transparent',
+                  borderRadius: 10,
+                  minHeight: 44,
+                  minWidth: 0,
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                })}
+              >
+                <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text className="text-[12px] font-semibold text-muted" numberOfLines={1}>
+                      {agent.label} · {agent.toolCallCount} {agent.toolCallCount === 1 ? 'tool' : 'tools'}
+                      {formatAgentTokens(agent.tokensUsed)}
+                    </Text>
+                    <Text style={{ color: agent.status === 'failed' ? '#ef4444' : accent, fontSize: 11, fontWeight: '800' }}>
+                      {agent.status === 'done' ? 'Done' : agent.status === 'failed' ? 'Failed' : 'running'}
+                    </Text>
+                  </View>
+                  <MobileIcon name="chevronRight" size={15} strokeWidth={2.4} color="#94a3b8" />
+                </View>
                 {agent.error ? (
                   <Text className="mt-1 text-[11px] leading-4 text-red" numberOfLines={2}>
                     {agent.error}
@@ -449,13 +462,260 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
                     {agent.finalPreview}
                   </Text>
                 ) : null}
-              </View>
+              </Pressable>
             ))}
           </View>
         ) : null}
       </View>
+      <SubagentDetailModal agent={selectedAgent} onClose={() => setSelectedAgentId(null)} />
     </View>
   );
+}
+
+function SubagentDetailModal({
+  agent,
+  onClose,
+}: {
+  readonly agent: SubagentTranscriptItem | null;
+  readonly onClose: () => void;
+}) {
+  if (!agent) return null;
+  return <SubagentDetailModalContent agent={agent} onClose={onClose} />;
+}
+
+function SubagentDetailModalContent({
+  agent,
+  onClose,
+}: {
+  readonly agent: SubagentTranscriptItem;
+  readonly onClose: () => void;
+}) {
+  const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleTool = useCallback((toolId: string) => {
+    setExpandedToolIds((current) => {
+      const next = new Set(current);
+      if (next.has(toolId)) next.delete(toolId);
+      else next.add(toolId);
+      return next;
+    });
+  }, []);
+  const ui = buildSubagentDetailUi(agent);
+  const tone = subagentDetailTone(ui.statusTone);
+
+  return (
+    <Modal
+      animationType="fade"
+      transparent
+      visible
+      onRequestClose={onClose}
+    >
+      <View
+        accessibilityViewIsModal
+        style={{
+          backgroundColor: 'rgba(15, 23, 42, 0.48)',
+          flex: 1,
+          justifyContent: 'center',
+          paddingHorizontal: 20,
+          paddingVertical: 42,
+        }}
+      >
+        <Pressable
+          accessibilityLabel="Close subagent details"
+          accessibilityRole="button"
+          onPress={onClose}
+          style={{
+            bottom: 0,
+            left: 0,
+            position: 'absolute',
+            right: 0,
+            top: 0,
+          }}
+        />
+        <View
+          style={{
+            alignSelf: 'center',
+            backgroundColor: '#ffffff',
+            borderColor: '#e3e5f0',
+            borderRadius: 22,
+            borderWidth: 1,
+            maxHeight: '86%',
+            overflow: 'hidden',
+            shadowColor: '#0f172a',
+            shadowOffset: { width: 0, height: 18 },
+            shadowOpacity: 0.22,
+            shadowRadius: 34,
+            width: '100%',
+          }}
+        >
+          <View
+            style={{
+              alignItems: 'center',
+              borderBottomColor: '#eef0f7',
+              borderBottomWidth: 1,
+              flexDirection: 'row',
+              gap: 12,
+              paddingHorizontal: 18,
+              paddingVertical: 16,
+            }}
+          >
+            <View
+              style={{
+                alignItems: 'center',
+                backgroundColor: '#f5f3ff',
+                borderRadius: 12,
+                height: 42,
+                justifyContent: 'center',
+                width: 42,
+              }}
+            >
+              <MobileIcon name="agent" size={20} strokeWidth={2.5} color="#7c3aed" />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text className="text-[17px] font-black text-text" numberOfLines={1}>{ui.title}</Text>
+              <Text className="mt-0.5 text-[12px] font-semibold text-muted" numberOfLines={1}>{ui.subtitle}</Text>
+            </View>
+            <View
+              style={{
+                backgroundColor: tone.tint,
+                borderRadius: 999,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+              }}
+            >
+              <Text style={{ color: tone.accent, fontSize: 11, fontWeight: '900' }}>{ui.statusLabel}</Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close subagent details"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onClose}
+              style={({ pressed }) => ({
+                alignItems: 'center',
+                backgroundColor: pressed ? '#eef0f7' : '#f8fafc',
+                borderRadius: 999,
+                height: 44,
+                justifyContent: 'center',
+                width: 44,
+              })}
+            >
+              <MobileIcon name="x" size={19} strokeWidth={2.5} color="#64748b" />
+            </Pressable>
+          </View>
+          <ScrollView
+            contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingVertical: 16 }}
+            showsVerticalScrollIndicator
+          >
+            <View>
+              <Text className="text-[11px] font-black uppercase text-dim">{ui.meta}</Text>
+            </View>
+            <View>
+              <Text className="text-[13px] font-black text-text">{ui.responseTitle}</Text>
+              <View
+                style={{
+                  backgroundColor: '#f8fafc',
+                  borderColor: '#e3e5f0',
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  marginTop: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Text className="text-[13px] leading-5 text-text">{ui.responseText}</Text>
+              </View>
+            </View>
+            <View>
+              <Text className="text-[13px] font-black text-text">{ui.toolsTitle}</Text>
+              {ui.emptyToolsText ? (
+                <Text className="mt-2 text-[12px] leading-5 text-dim">{ui.emptyToolsText}</Text>
+              ) : null}
+              <View style={{ gap: 8, marginTop: 8 }}>
+                {ui.tools.map((tool) => (
+                  <ExpandableToolCard
+                    key={tool.id}
+                    tool={tool}
+                    expanded={expandedToolIds.has(tool.id)}
+                    onToggle={() => toggleTool(tool.id)}
+                  />
+                ))}
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ExpandableToolCard({
+  tool,
+  expanded,
+  onToggle,
+}: {
+  readonly tool: ToolDetailUi;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
+}) {
+  const toolTone = toolDetailTone(tool.statusTone);
+  return (
+    <Pressable
+      accessibilityHint={expanded ? 'Collapses tool details' : 'Expands tool details'}
+      accessibilityLabel={`${tool.name} ${tool.statusLabel}`}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      onPress={onToggle}
+      style={({ pressed }) => ({
+        backgroundColor: pressed ? '#f8fafc' : '#ffffff',
+        borderColor: expanded ? toolTone.border : '#e3e5f0',
+        borderRadius: 14,
+        borderWidth: 1,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+      })}
+    >
+      <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 22 }}>
+        <View style={{ backgroundColor: toolTone.accent, borderRadius: 999, height: 7, width: 7 }} />
+        <Text className="flex-1 text-[12px] font-black text-text" numberOfLines={1}>{tool.name}</Text>
+        <Text style={{ color: toolTone.accent, fontSize: 11, fontWeight: '900' }}>{tool.statusLabel}</Text>
+        <MobileIcon name={expanded ? 'chevronDown' : 'chevronRight'} size={15} strokeWidth={2.5} color="#94a3b8" />
+      </View>
+      {tool.summary ? (
+        <Text className="mt-1 text-[11px] leading-4 text-muted" numberOfLines={expanded ? undefined : 2}>
+          {tool.summary}
+        </Text>
+      ) : null}
+      {expanded ? (
+        <View
+          style={{
+            backgroundColor: '#f8fafc',
+            borderColor: '#e3e5f0',
+            borderRadius: 12,
+            borderWidth: 1,
+            marginTop: 8,
+            paddingHorizontal: 10,
+            paddingVertical: 8,
+          }}
+        >
+          <Text className="text-[10px] font-black uppercase text-dim">{tool.detailLabel}</Text>
+          <Text className="mt-1 text-[11px] leading-4 text-text">
+            {tool.detail ?? 'No details captured yet.'}
+          </Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function subagentDetailTone(status: 'running' | 'done' | 'failed'): { readonly accent: string; readonly tint: string } {
+  if (status === 'failed') return { accent: '#ef4444', tint: '#fee2e2' };
+  if (status === 'done') return { accent: '#16a34a', tint: '#ecfdf5' };
+  return { accent: '#8b5cf6', tint: '#f5f3ff' };
+}
+
+function toolDetailTone(status: 'running' | 'ok' | 'error'): { readonly accent: string; readonly border: string } {
+  if (status === 'error') return { accent: '#ef4444', border: '#fecaca' };
+  if (status === 'ok') return { accent: '#16a34a', border: '#bbf7d0' };
+  return { accent: '#ec4899', border: '#f9a8d4' };
 }
 
 function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptItem }) {
@@ -492,18 +752,6 @@ function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptIt
       </View>
     </View>
   );
-}
-
-function statusColor(status: 'running' | 'ok' | 'error'): string {
-  if (status === 'ok') return '#16a34a';
-  if (status === 'error') return '#ef4444';
-  return '#ec4899';
-}
-
-function statusLabel(status: 'running' | 'ok' | 'error'): string {
-  if (status === 'ok') return 'ok';
-  if (status === 'error') return 'failed';
-  return 'running';
 }
 
 function formatAgentTokens(tokens: number | null): string {

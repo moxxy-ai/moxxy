@@ -11,6 +11,7 @@ export type MobileIconName =
   | 'gateway'
   | 'search'
   | 'chevronDown'
+  | 'chevronRight'
   | 'more'
   | 'edit'
   | 'copy'
@@ -136,6 +137,8 @@ function IconPaths({ name, color, strokeWidth }: Required<Pick<MobileIconProps, 
       );
     case 'chevronDown':
       return <Path {...props} d="m6 9 6 6 6-6" />;
+    case 'chevronRight':
+      return <Path {...props} d="m9 6 6 6-6 6" />;
     case 'menu':
       return (
         <>

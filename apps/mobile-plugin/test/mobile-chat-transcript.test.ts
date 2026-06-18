@@ -103,8 +103,88 @@ describe('mobile chat transcript model', () => {
         collapsed: true,
         summary: '1 ok · 1 running',
         tools: [
-          { id: 'call-1', name: 'Read', status: 'ok', summary: 'path: a.ts' },
+          { id: 'call-1', name: 'Read', status: 'ok', summary: 'path: a.ts', resultSummary: 'ok' },
           { id: 'call-2', name: 'Bash', status: 'running', summary: 'command: pwd' },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps tool result details so mobile can expand completed tools', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Sprawdź stronę' },
+      {
+        id: 't1',
+        type: 'tool_call_requested',
+        callId: 'fetch-1',
+        name: 'web_fetch',
+        input: { url: 'https://example.com', format: 'markdown' },
+      },
+      {
+        id: 't2',
+        type: 'tool_result',
+        callId: 'fetch-1',
+        ok: true,
+        output: { text: 'HTTP 200 Example Domain body text' },
+      },
+    ]);
+
+    expect(transcript).toEqual([
+      { id: 'u1', kind: 'user', text: 'Sprawdź stronę' },
+      {
+        id: 'tools:fetch-1',
+        kind: 'tool-group',
+        title: 'Tools',
+        collapsed: true,
+        summary: '1 ok',
+        tools: [
+          {
+            id: 'fetch-1',
+            name: 'web_fetch',
+            status: 'ok',
+            summary: 'url: https://example.com · format: markdown',
+            resultSummary: 'HTTP 200 Example Domain body text',
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps tool error details so mobile can expand failed tools', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Kliknij' },
+      {
+        id: 't1',
+        type: 'tool_call_requested',
+        callId: 'click-1',
+        name: 'computer_click',
+        input: { x: 12, y: 24 },
+      },
+      {
+        id: 't2',
+        type: 'tool_result',
+        callId: 'click-1',
+        ok: false,
+        error: { message: 'System Events error -25208' },
+      },
+    ]);
+
+    expect(transcript).toEqual([
+      { id: 'u1', kind: 'user', text: 'Kliknij' },
+      {
+        id: 'tools:click-1',
+        kind: 'tool-group',
+        title: 'Tools',
+        collapsed: true,
+        summary: '1 failed',
+        tools: [
+          {
+            id: 'click-1',
+            name: 'computer_click',
+            status: 'error',
+            summary: 'x: 12 · y: 24',
+            error: 'System Events error -25208',
+          },
         ],
       },
     ]);
@@ -130,8 +210,8 @@ describe('mobile chat transcript model', () => {
         summary: '2 failed · 1 running',
         tools: [
           { id: 'call-running', name: 'Read', status: 'running', summary: 'path: a.ts' },
-          { id: 'call-error', name: 'Bash', status: 'error', summary: 'command: bad' },
-          { id: 'call-is-error', name: 'Fetch', status: 'error', summary: 'url: https://example.com' },
+          { id: 'call-error', name: 'Bash', status: 'error', summary: 'command: bad', error: 'boom' },
+          { id: 'call-is-error', name: 'Fetch', status: 'error', summary: 'url: https://example.com', error: 'failed' },
         ],
       },
     ]);
@@ -153,7 +233,7 @@ describe('mobile chat transcript model', () => {
         collapsed: true,
         summary: '1 ok',
         tools: [
-          { id: 'bridge-call', name: 'Read', status: 'ok', summary: 'path: a.ts' },
+          { id: 'bridge-call', name: 'Read', status: 'ok', summary: 'path: a.ts', resultSummary: 'ok' },
         ],
       },
     ]);
@@ -179,7 +259,7 @@ describe('mobile chat transcript model', () => {
         collapsed: true,
         summary: '1 ok',
         tools: [
-          { id: 'call-1', name: 'Bash', status: 'ok', summary: 'command: pwd' },
+          { id: 'call-1', name: 'Bash', status: 'ok', summary: 'command: pwd', resultSummary: 'ok' },
         ],
       },
     ]);

@@ -27,6 +27,7 @@ import {
   z,
   type ModeContext,
   type MoxxyEvent,
+  type UserPromptAttachment,
 } from '@moxxy/sdk';
 import { FakeProvider, textReply } from '@moxxy/testing';
 import {
@@ -336,7 +337,9 @@ interface PermissionCheck {
     ctx: { toolDescription?: string },
   ) => Promise<{ mode: string }>;
 }
-function fakeRemote(): {
+function fakeRemote(options: {
+  readonly runTurn?: (prompt: string, opts: unknown) => AsyncIterable<unknown>;
+} = {}): {
   remote: RemoteSession;
   captured: { permission?: PermissionCheck };
   fireInfoChanged: () => void;
@@ -349,6 +352,7 @@ function fakeRemote(): {
       captured.permission = r;
     },
     setApprovalResolver: () => undefined,
+    runTurn: options.runTurn ?? (async function* runTurn() {}),
     onClose: () => undefined,
     onInfoChanged: (fn: () => void) => {
       infoListeners.add(fn);
@@ -411,5 +415,38 @@ describe('SessionDriver info-changed forwarding', () => {
     driver.dispose();
     fireInfoChanged();
     expect(sent.filter((f) => f.channel === 'session.info.changed')).toHaveLength(1);
+  });
+});
+
+describe('SessionDriver inline attachments', () => {
+  it('passes mobile inline attachments directly to the remote session turn', async () => {
+    const inlineAttachments: ReadonlyArray<UserPromptAttachment> = [
+      {
+        kind: 'image',
+        content: 'AQID',
+        mediaType: 'image/png',
+        name: 'phone-screen.png',
+      },
+    ];
+    let receivedPrompt = '';
+    let receivedOpts: { attachments?: ReadonlyArray<UserPromptAttachment> } | null = null;
+    const { remote } = fakeRemote({
+      runTurn: async function* runTurn(
+        prompt: string,
+        opts: { attachments?: ReadonlyArray<UserPromptAttachment> },
+      ) {
+        receivedPrompt = prompt;
+        receivedOpts = opts;
+      },
+    });
+    const { win, sent } = fakeWindow();
+    const driver = new SessionDriver(remote, win, 'ws-inline');
+
+    await driver.runTurn('Przeanalizuj obraz', undefined, undefined, inlineAttachments);
+    await waitFor(() => sent.some((frame) => frame.channel === 'runner.turn.complete'));
+
+    expect(receivedPrompt).toBe('Przeanalizuj obraz');
+    expect(receivedOpts?.attachments).toEqual(inlineAttachments);
+    driver.dispose();
   });
 });

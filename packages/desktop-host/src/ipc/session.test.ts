@@ -126,3 +126,48 @@ describe('session.setAutoApprove handler', () => {
     }
   });
 });
+
+describe('session.runTurn handler', () => {
+  it('forwards remote inline attachments to the session driver', async () => {
+    const inlineAttachments = [
+      {
+        kind: 'image' as const,
+        content: 'AQID',
+        mediaType: 'image/png',
+        name: 'phone-screen.png',
+      },
+    ];
+    const runTurn = vi.fn().mockResolvedValue({ turnId: 'turn-inline' });
+    drivers.set('ws-inline', { runTurn } as unknown as SessionDriver);
+    const pool = {
+      activeWorkspaceId: () => 'ws-inline',
+      get: (id: string) =>
+        id === 'ws-inline'
+          ? ({
+              getCwd: () => '/tmp/moxxy-test',
+              remote: () => null,
+            } as unknown as RunnerSupervisor)
+          : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    try {
+      await handlers.get('session.runTurn')!({
+        workspaceId: 'ws-inline',
+        prompt: 'Przeanalizuj obraz',
+        inlineAttachments,
+      });
+
+      expect(runTurn).toHaveBeenCalledWith(
+        'Przeanalizuj obraz',
+        undefined,
+        undefined,
+        inlineAttachments,
+      );
+    } finally {
+      drivers.delete('ws-inline');
+    }
+  });
+});

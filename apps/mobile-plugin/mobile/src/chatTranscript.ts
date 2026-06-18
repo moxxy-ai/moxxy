@@ -39,6 +39,8 @@ export interface ToolTranscriptItem {
   readonly name: string;
   readonly status: 'running' | 'ok' | 'error';
   readonly summary: string;
+  readonly resultSummary?: string;
+  readonly error?: string;
 }
 
 export interface SubagentGroupTranscriptItem {
@@ -58,7 +60,19 @@ export interface SubagentTranscriptItem {
   status: 'running' | 'done' | 'failed';
   toolCallCount: number;
   tokensUsed: number | null;
+  responseText: string;
   finalPreview: string | null;
+  stopReason: string | null;
+  error: string | null;
+  readonly toolCalls: SubagentToolTranscriptItem[];
+}
+
+export interface SubagentToolTranscriptItem {
+  readonly id: string;
+  name: string;
+  status: 'running' | 'ok' | 'error';
+  summary: string;
+  resultSummary: string | null;
   error: string | null;
 }
 
@@ -189,8 +203,11 @@ export function buildCommittedChatTranscript(
         status: 'running',
         toolCallCount: 0,
         tokensUsed: null,
+        responseText: '',
         finalPreview: null,
+        stopReason: null,
         error: null,
+        toolCalls: [],
       };
       subagents.set(childSessionId, agent);
       if (!currentSubagentGroup) {
@@ -215,17 +232,58 @@ export function buildCommittedChatTranscript(
     const group = subagentGroupsByChildId.get(childSessionId);
     if (!agent || !group) return;
 
+    if (subtype === 'subagent_chunk') {
+      agent.responseText += firstText(payload.delta, payload.text, payload.content);
+      return;
+    }
+
     if (subtype === 'subagent_tool_call') {
       agent.toolCallCount += 1;
+      agent.toolCalls.push({
+        id: subagentToolCallId(payload, `${childSessionId}:tool-${agent.toolCallCount}`),
+        name: firstText(payload.name, payload.toolName, payload.command, payload.title) || 'Tool',
+        status: 'running',
+        summary: summarizeToolInput(payload.input),
+        resultSummary: null,
+        error: null,
+      });
+      refreshSubagentGroup(group);
+      return;
+    }
+
+    if (subtype === 'subagent_tool_result') {
+      const callId = subagentToolCallId(payload, `${childSessionId}:result-${agent.toolCalls.length + 1}`);
+      const existing = agent.toolCalls.find((tool) => tool.id === callId);
+      const error = summarizeToolError(payload.error);
+      const next: SubagentToolTranscriptItem = {
+        id: callId,
+        name: existing?.name || firstText(payload.name, payload.toolName, payload.command, payload.title) || 'Tool',
+        status: error || payload.ok === false ? 'error' : 'ok',
+        summary: existing?.summary || summarizeToolInput(payload.input),
+        resultSummary: error ? null : summarizeToolOutput(payload.output),
+        error: error || null,
+      };
+      if (existing) {
+        existing.name = next.name;
+        existing.status = next.status;
+        existing.summary = next.summary;
+        existing.resultSummary = next.resultSummary;
+        existing.error = next.error;
+      } else {
+        agent.toolCalls.push(next);
+      }
       refreshSubagentGroup(group);
       return;
     }
 
     if (subtype === 'subagent_completed') {
       const error = firstText(payload.error, payload.message, payload.reason);
+      const text = firstText(payload.finalPreview, payload.output, payload.text);
       agent.status = error ? 'failed' : 'done';
       agent.tokensUsed = numberOrNull(payload.tokensUsed);
-      agent.finalPreview = oneLine(firstText(payload.finalPreview, payload.output, payload.text)) || null;
+      agent.responseText = text || agent.responseText;
+      agent.finalPreview = oneLine(text || agent.responseText) || null;
+      agent.stopReason = firstText(payload.stopReason) || null;
       agent.error = error || null;
       refreshSubagentGroup(group);
       if (group.status !== 'running') closeSubagentRun();
@@ -424,6 +482,7 @@ function upsertTool(
     name: firstText(event.name, event.toolName, event.command, event.title) || existing?.name || 'Tool',
     status,
     summary: summarizeToolInput(event.input) || existing?.summary || firstText(event.command, event.path, event.title),
+    ...toolResultDetails(event, status, existing),
   };
   if (!existing) return [...tools, next];
   return tools.map((tool) =>
@@ -433,9 +492,35 @@ function upsertTool(
           name: next.name || tool.name,
           status,
           summary: next.summary || tool.summary,
+          ...(next.resultSummary ? { resultSummary: next.resultSummary } : {}),
+          ...(next.error ? { error: next.error } : {}),
         }
       : tool,
   );
+}
+
+function toolResultDetails(
+  event: Record<string, unknown>,
+  status: ToolTranscriptItem['status'],
+  existing?: ToolTranscriptItem,
+): Pick<ToolTranscriptItem, 'resultSummary' | 'error'> {
+  if (status === 'ok') {
+    const resultSummary = summarizeToolOutput(firstDefined(
+      event.output,
+      event.result,
+      event.content,
+      event.message,
+      event.body,
+    )) || existing?.resultSummary;
+    return resultSummary ? { resultSummary } : {};
+  }
+  if (status === 'error') {
+    const error = summarizeToolError(event.error)
+      || summarizeToolOutput(firstDefined(event.output, event.result, event.content, event.message, event.body))
+      || existing?.error;
+    return error ? { error } : {};
+  }
+  return {};
 }
 
 function toolStatus(type: string, event: Record<string, unknown>): ToolTranscriptItem['status'] {
@@ -471,6 +556,32 @@ function summarizeToolInput(value: unknown): string {
     .join(' · ');
 }
 
+function summarizeToolOutput(value: unknown): string {
+  if (typeof value === 'string') return limitSummary(oneLine(value));
+  if (!value || typeof value !== 'object') return primitiveSummary(value);
+  const maybeText = firstText(
+    (value as Record<string, unknown>).text,
+    (value as Record<string, unknown>).content,
+    (value as Record<string, unknown>).message,
+    (value as Record<string, unknown>).forModel,
+  );
+  return limitSummary(maybeText || summarizeToolInput(value));
+}
+
+function summarizeToolError(value: unknown): string {
+  if (typeof value === 'string') return limitSummary(oneLine(value));
+  if (!value || typeof value !== 'object') return '';
+  return limitSummary(firstText(
+    (value as Record<string, unknown>).message,
+    (value as Record<string, unknown>).reason,
+    (value as Record<string, unknown>).kind,
+  ));
+}
+
+function limitSummary(value: string): string {
+  return value.length > 240 ? `${value.slice(0, 237)}...` : value;
+}
+
 function primitiveSummary(value: unknown): string {
   if (typeof value === 'string') return oneLine(value);
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -499,6 +610,16 @@ function toolCallId(event: Record<string, unknown>): string {
   );
 }
 
+function subagentToolCallId(payload: Record<string, unknown>, fallback: string): string {
+  return firstText(
+    payload.callId,
+    payload.toolCallId,
+    payload.toolUseId,
+    payload.tool_call_id,
+    payload.tool_use_id,
+  ) || fallback;
+}
+
 function hasErrorPayload(value: unknown): boolean {
   if (textOf(value).length > 0) return true;
   if (!value || typeof value !== 'object') return false;
@@ -520,6 +641,10 @@ function firstText(...values: unknown[]): string {
     if (text.trim().length > 0) return text;
   }
   return '';
+}
+
+function firstDefined(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined && value !== null);
 }
 
 function oneLine(value: string): string {

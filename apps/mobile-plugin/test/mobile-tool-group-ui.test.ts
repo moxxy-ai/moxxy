@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildToolGroupUi } from '../mobile/src/toolGroupUi';
+import { buildToolDetailUi, buildToolGroupUi } from '../mobile/src/toolGroupUi';
 
 describe('mobile tool group ui', () => {
   it('surfaces running as the primary collapsed status', () => {
@@ -21,6 +21,42 @@ describe('mobile tool group ui', () => {
       statusLabel: 'failed',
       summary: '1 failed · 1 running',
       pulse: false,
+    });
+  });
+
+  it('builds expandable detail copy for a completed main-agent tool', () => {
+    expect(buildToolDetailUi({
+      id: 'fetch-1',
+      name: 'web_fetch',
+      status: 'ok',
+      summary: 'url: https://example.com',
+      resultSummary: 'HTTP 200 Example Domain',
+    })).toEqual({
+      id: 'fetch-1',
+      name: 'web_fetch',
+      statusLabel: 'ok',
+      statusTone: 'ok',
+      summary: 'url: https://example.com',
+      detailLabel: 'Result',
+      detail: 'HTTP 200 Example Domain',
+    });
+  });
+
+  it('builds expandable detail copy for a failed tool', () => {
+    expect(buildToolDetailUi({
+      id: 'click-1',
+      name: 'computer_click',
+      status: 'error',
+      summary: 'x: 12 · y: 24',
+      error: 'System Events error -25208',
+    })).toEqual({
+      id: 'click-1',
+      name: 'computer_click',
+      statusLabel: 'failed',
+      statusTone: 'error',
+      summary: 'x: 12 · y: 24',
+      detailLabel: 'Error',
+      detail: 'System Events error -25208',
     });
   });
 });
