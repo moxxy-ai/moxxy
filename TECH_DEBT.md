@@ -51,10 +51,31 @@ a cross-package boundary change (e.g. `u117-3` retry semantics, `u40-2` permissi
 anchoring, relocating voice tools to a new package) and are called out at their
 original entries — those are scoped follow-ups, not open quality debt.
 
-**No open findings remain from this audit.** Going forward this file resumes its
-normal role: the standing ledger where each future change retires ≥1 item and new
-debt is logged on sight (AGENTS.md → "Tech debt is a standing job"). A living
-codebase keeps accruing debt; the audit backlog itself is cleared.
+**No open findings remain from this audit.** A final pass (wave 12) closed the
+last deferred-for-scope items by implementing them: the SDK Node-only helpers now
+live behind a `@moxxy/sdk/server` subpath (dropped from the browser/RN-safe main
+barrel; every node-side consumer re-pointed; dep-cruiser widened to cruise the
+renderer + mobile-poc with a `no-node-builtins-in-renderer` error rule), the
+duplicated PCM16 MIME constant + the `/compact` flow now route through the SDK,
+`computeElisionState` is memoized + threaded once per iteration, and workflow
+`onError:'retry'` now honours `step.retries`.
+
+**Two items were closed as deliberate by-design decisions (not silent debt):**
+- `RequirementChecker.targetInfo` keeps its explicit per-kind `switch`. Each kind
+  reads a different registry with different active/version semantics; a clever
+  kind→table indirection in a correctness-critical requirement gate trades
+  clarity + safety for a DRY win that isn't worth it. The switch is the right
+  shape; kept intentionally (closes types-generics-5's table-drive half).
+- Voice-admin tools stay decomposed **in-place** within `cli/setup` (wave 10).
+  The atomicity goal (no god-function) is met; promoting them to a standalone
+  `@moxxy/plugin-voice-admin` package is a packaging-boundary preference, not a
+  quality fix, and is deliberately a non-goal for cli-bundled builtins.
+
+Going forward this file resumes its normal role: the standing ledger where each
+future change retires ≥1 item and new debt is logged on sight (AGENTS.md → "Tech
+debt is a standing job"). A living codebase under active development keeps
+accruing debt (this very sweep integrated the concurrently-merged anonymizer +
+mode-collaborative features mid-flight); the audit backlog itself is cleared.
 
 ---
 
