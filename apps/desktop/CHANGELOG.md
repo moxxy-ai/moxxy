@@ -1,5 +1,15 @@
 # @moxxy/desktop
 
+## 0.12.5
+
+### Patch Changes
+
+- @moxxy/desktop-host@0.7.5
+- @moxxy/cli@0.14.2
+- @moxxy/runner@0.2.11
+- @moxxy/ipc-server-ws@0.1.22
+- @moxxy/plugin-channel-mobile@0.1.23
+
 ## 0.12.4
 
 ### Patch Changes

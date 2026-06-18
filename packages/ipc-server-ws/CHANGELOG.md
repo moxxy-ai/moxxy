@@ -1,5 +1,11 @@
 # @moxxy/ipc-server-ws
 
+## 0.1.22
+
+### Patch Changes
+
+- @moxxy/runner@0.2.11
+
 ## 0.1.21
 
 ### Patch Changes

@@ -1,8 +1,15 @@
 {
   "name": "@moxxy/plugin-provider-openai",
-  "version": "0.0.23",
+  "version": "0.1.0",
   "description": "OpenAI (and OpenAI-compatible: z.ai, xAI, Google, Ollama/local) LLMProvider plugin for moxxy. Streams Chat Completions with tool_calls; translates moxxy ProviderRequest/Event ↔ the OpenAI wire shape. Register it into an @moxxy/core Session to route turns to OpenAI-compatible models.",
-  "keywords": ["moxxy", "agent", "provider", "openai", "llm", "tool-calls"],
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "openai",
+    "llm",
+    "tool-calls"
+  ],
   "homepage": "https://moxxy.ai",
   "bugs": {
     "url": "https://github.com/moxxy-ai/moxxy/issues"

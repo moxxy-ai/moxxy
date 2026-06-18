@@ -1,5 +1,12 @@
 # @moxxy/plugin-provider-claude-code
 
+## 0.1.19
+
+### Patch Changes
+
+- Updated dependencies [6c48c28]
+  - @moxxy/plugin-provider-anthropic@0.2.0
+
 ## 0.1.18
 
 ### Patch Changes

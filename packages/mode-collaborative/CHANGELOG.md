@@ -1,5 +1,12 @@
 # @moxxy/mode-collaborative
 
+## 0.2.3
+
+### Patch Changes
+
+- @moxxy/runner@0.2.11
+- @moxxy/plugin-collab@0.1.4
+
 ## 0.2.2
 
 ### Patch Changes

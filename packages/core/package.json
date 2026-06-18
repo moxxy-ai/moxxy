@@ -1,8 +1,16 @@
 {
   "name": "@moxxy/core",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "description": "The moxxy runtime as a programmatic library: the agentic Session + runTurn loop, the event log, the plugin host, every block registry (providers, tools, modes, compactors, cache strategies, channels, …), session persistence, and the permission engine. Pair with @moxxy/sdk to build and embed moxxy agents in your own code.",
-  "keywords": ["moxxy", "agent", "agentic", "llm", "runtime", "framework", "plugins"],
+  "keywords": [
+    "moxxy",
+    "agent",
+    "agentic",
+    "llm",
+    "runtime",
+    "framework",
+    "plugins"
+  ],
   "homepage": "https://moxxy.ai",
   "bugs": {
     "url": "https://github.com/moxxy-ai/moxxy/issues"
