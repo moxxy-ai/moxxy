@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@moxxy/core": "workspace:*",
+    "@moxxy/desktop-app-sdk": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
