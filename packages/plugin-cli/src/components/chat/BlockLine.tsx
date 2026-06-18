@@ -6,6 +6,7 @@ import { LiveToolBlock } from './LiveToolBlock.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
 import { SubagentScopeView } from './SubagentScopeView.js';
 import { SubagentGroupView } from './SubagentGroupView.js';
+import { CollabScopeView } from './CollabScopeView.js';
 import {
   blocksEquivalent,
   countToolCalls,
@@ -40,6 +41,9 @@ export const BlockLine: React.FC<BlockLineProps> = memo(
     }
     if (block.kind === 'live-tools') {
       return <LiveToolBlock block={block} expanded={expandToolOutputs} />;
+    }
+    if (block.kind === 'collab') {
+      return <CollabScopeView scope={block} />;
     }
     return <SkillScopeView scope={block} expandToolOutputs={expandToolOutputs} />;
   },

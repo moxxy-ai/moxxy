@@ -22,6 +22,7 @@ import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import type { View } from './shell/ViewHeader';
 import { ContextRail, type RailPane } from './shell/ContextRail';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
+import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
@@ -238,6 +239,11 @@ export function App(): JSX.Element {
       {view === 'workflows' && (
         <main className="col-main col-main--flat">
           <WorkflowsPanel onView={setView} />
+        </main>
+      )}
+      {view === 'collaborate' && (
+        <main className="col-main col-main--flat">
+          <CollaboratePanel onView={setView} workspaceId={activeWorkspaceId} />
         </main>
       )}
       {view === 'settings' && (

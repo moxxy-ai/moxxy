@@ -4,7 +4,7 @@ import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollap
 
 /** Top-level main-content views. Chat ↔ Workflows switch via the header's
  *  `ViewSwitcher`; Settings is reached from the sidebar. */
-export type View = 'chat' | 'workflows' | 'settings';
+export type View = 'chat' | 'workflows' | 'collaborate' | 'settings';
 
 /**
  * Shared section header — one 64px chrome bar so Chat / Workflows /
@@ -114,9 +114,10 @@ export function Segmented<T extends string>({
   );
 }
 
-const SWITCH_ITEMS: ReadonlyArray<{ readonly id: 'chat' | 'workflows'; readonly label: string }> = [
+const SWITCH_ITEMS: ReadonlyArray<{ readonly id: 'chat' | 'workflows' | 'collaborate'; readonly label: string }> = [
   { id: 'chat', label: 'Chat' },
   { id: 'workflows', label: 'Workflows' },
+  { id: 'collaborate', label: 'Collaborate' },
 ];
 
 /** Chat ↔ Workflows segmented switcher — the leading element of every

@@ -12,7 +12,75 @@ export type Block =
   | SkillScopeBlock
   | SubagentBlock
   | SubagentGroupBlock
-  | LiveToolBlockData;
+  | LiveToolBlockData
+  | CollaborationBlock;
+
+/** One agent on a collaborative team (from collab_agent_* + roster events). */
+export interface CollabAgentView {
+  readonly id: string;
+  name: string;
+  role: string;
+  /** pending | working | done | crashed | ... (mirrors the hub AgentStatus). */
+  status: string;
+  subtask: string | null;
+  summary: string | null;
+}
+
+/** One inter-agent (or human) message on the shared bus. */
+export interface CollabMsgView {
+  readonly id: string;
+  readonly from: string;
+  readonly to: string;
+  readonly subject?: string;
+  readonly body: string;
+  readonly atMs: number;
+}
+
+/** One shared task-board item. */
+export interface CollabTaskView {
+  readonly id: string;
+  title: string;
+  status: string;
+  owner: string | null;
+}
+
+/** One shared contract (agreed interface/boundary). */
+export interface CollabContractView {
+  readonly id: string;
+  title: string;
+  owner: string;
+  status: string;
+  version: number;
+}
+
+/**
+ * Aggregated view of one collaborative run, folded from the coordinator's
+ * `collab_*` plugin_event stream (pluginId `@moxxy/mode-collaborative`). The
+ * separate agent PROCESSES stream their own full transcripts over their own
+ * runner sockets (attached on demand by the desktop); this block holds the
+ * team-level picture: roster, messages, board, contracts, control, outcome.
+ */
+export interface CollaborationBlock {
+  kind: 'collab';
+  readonly id: string;
+  task: string;
+  /** Parallel git-worktree run vs the sequential single-workspace fallback. */
+  parallel: boolean;
+  /** Why the run fell back to sequential (git missing / not a repo), if it did. */
+  fallbackReason: string | null;
+  readonly startedAtMs: number;
+  completedAtMs: number | null;
+  readonly agents: CollabAgentView[];
+  readonly messages: CollabMsgView[];
+  readonly tasks: CollabTaskView[];
+  readonly contracts: CollabContractView[];
+  readonly conflicts: Array<{ agentId: string; files: ReadonlyArray<string> }>;
+  /** Live human step-in state (pause / directive). */
+  control: { paused: boolean; directive?: string } | null;
+  summary: string | null;
+  doneCount: number | null;
+  totalCount: number | null;
+}
 
 /**
  * Aggregated view of one spawned subagent. Built from the plugin_event
