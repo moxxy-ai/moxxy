@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
+import { createPatchStore, runOptimistic, type PatchStore } from './externalStore.js';
 import { connectionStore } from './useConnection.js';
 import type { Desk, DeskSession, DesksOverview } from '@moxxy/desktop-ipc-contract';
 
@@ -50,30 +51,30 @@ const INITIAL: DesksState = { desks: [], activeId: null, loading: true, error: n
  * sync off one refresh, mirroring {@link connectionStore} / chatStore.
  */
 class DesksStore {
-  private state: DesksState = INITIAL;
-  private listeners = new Set<() => void>();
+  private readonly store: PatchStore<DesksState> = createPatchStore(INITIAL);
   private started = false;
 
+  private get state(): DesksState {
+    return this.store.getSnapshot();
+  }
+
   subscribe = (fn: () => void): (() => void) => {
-    this.listeners.add(fn);
+    const unsub = this.store.subscribe(fn);
     // Lazy-load on the first subscriber so the data arrives once and is
     // shared, instead of every mounting consumer firing its own fetch.
     if (!this.started) {
       this.started = true;
       void this.refresh();
     }
-    return () => {
-      this.listeners.delete(fn);
-    };
+    return unsub;
   };
 
   /** Cached snapshot — referentially stable until {@link set} swaps it,
    *  as useSyncExternalStore requires. */
-  getSnapshot = (): DesksState => this.state;
+  getSnapshot = this.store.getSnapshot;
 
   private set(patch: Partial<DesksState>): void {
-    this.state = { ...this.state, ...patch };
-    for (const l of this.listeners) l();
+    this.store.set(patch);
   }
 
   refresh = async (): Promise<void> => {
@@ -122,21 +123,23 @@ class DesksStore {
     // chat routing key is the desk's ACTIVE SESSION id (the runner-pool
     // key), not the desk id itself.
     const prev = this.state.activeId;
-    const prevConn = connectionStore.active$();
-    const desk = this.state.desks.find((d) => d.id === id);
-    this.set({ activeId: id });
-    connectionStore.setActive(desk?.activeSessionId ?? id);
-    try {
-      await api().invoke('desks.setActive', { id });
-      await this.refresh();
-      // Re-sync in case the host resolved a different active session than
-      // the (possibly stale) one we predicted.
-      const fresh = this.state.desks.find((d) => d.id === id);
-      if (fresh?.activeSessionId) connectionStore.setActive(fresh.activeSessionId);
-    } catch (e) {
-      this.set({ activeId: prev, error: toErrorMessage(e) });
-      if (prevConn) connectionStore.setActive(prevConn);
-    }
+    await runOptimistic(
+      connectionStore,
+      () => {
+        const desk = this.state.desks.find((d) => d.id === id);
+        this.set({ activeId: id });
+        connectionStore.setActive(desk?.activeSessionId ?? id);
+      },
+      async () => {
+        await api().invoke('desks.setActive', { id });
+        await this.refresh();
+        // Re-sync in case the host resolved a different active session than
+        // the (possibly stale) one we predicted.
+        const fresh = this.state.desks.find((d) => d.id === id);
+        if (fresh?.activeSessionId) connectionStore.setActive(fresh.activeSessionId);
+      },
+      (e) => this.set({ activeId: prev, error: toErrorMessage(e) }),
+    );
   };
 
   rename = async (id: string, name: string): Promise<void> => {
@@ -174,24 +177,26 @@ class DesksStore {
     // render. The host's sessions.setActive activates the owning desk too.
     const prevActive = this.state.activeId;
     const prevDesks = this.state.desks;
-    const prevConn = connectionStore.active$();
-    const desk = this.state.desks.find((d) => d.sessions.some((s) => s.id === id));
-    if (desk) {
-      this.set({
-        activeId: desk.id,
-        desks: this.state.desks.map((d) =>
-          d.id === desk.id ? { ...d, activeSessionId: id } : d,
-        ),
-      });
-    }
-    connectionStore.setActive(id);
-    try {
-      await api().invoke('sessions.setActive', { id });
-      await this.refresh();
-    } catch (e) {
-      this.set({ activeId: prevActive, desks: prevDesks, error: toErrorMessage(e) });
-      if (prevConn) connectionStore.setActive(prevConn);
-    }
+    await runOptimistic(
+      connectionStore,
+      () => {
+        const desk = this.state.desks.find((d) => d.sessions.some((s) => s.id === id));
+        if (desk) {
+          this.set({
+            activeId: desk.id,
+            desks: this.state.desks.map((d) =>
+              d.id === desk.id ? { ...d, activeSessionId: id } : d,
+            ),
+          });
+        }
+        connectionStore.setActive(id);
+      },
+      async () => {
+        await api().invoke('sessions.setActive', { id });
+        await this.refresh();
+      },
+      (e) => this.set({ activeId: prevActive, desks: prevDesks, error: toErrorMessage(e) }),
+    );
   };
 
   renameSession = async (id: string, name: string): Promise<void> => {

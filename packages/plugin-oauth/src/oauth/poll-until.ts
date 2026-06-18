@@ -10,6 +10,8 @@
  * to apply a `slow_down` bump.
  */
 
+import { MoxxyError } from '@moxxy/sdk';
+
 export interface PollState {
   /** Mutable so the polling fn can bump on `slow_down`. */
   intervalMs: number;
@@ -42,26 +44,38 @@ export async function pollUntil<T>(
 
   let first = true;
   while (Date.now() < deadline) {
-    if (opts.signal?.aborted) throw new Error(`${label} aborted`);
+    if (opts.signal?.aborted) throw abortedError(label);
     if (!first || leadingWait) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
-      await sleep(Math.min(state.intervalMs, remaining), opts.signal);
+      await sleep(Math.min(state.intervalMs, remaining), opts.signal, label);
     }
     first = false;
     const result = await fn(state);
     if ('done' in result) return result.done;
   }
-  throw new Error(`${label} timed out waiting for completion`);
+  throw new MoxxyError({
+    code: 'OAUTH_FLOW_TIMEOUT',
+    message: `${label} timed out waiting for completion`,
+    context: { label, timeout_ms: opts.timeoutMs },
+  });
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+function abortedError(label: string): MoxxyError {
+  return new MoxxyError({
+    code: 'NETWORK_ABORTED',
+    message: `${label} aborted`,
+    context: { label },
+  });
+}
+
+function sleep(ms: number, signal: AbortSignal | undefined, label: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(new Error('aborted'));
+    if (signal?.aborted) return reject(abortedError(label));
     const t = setTimeout(resolve, ms);
     const onAbort = (): void => {
       clearTimeout(t);
-      reject(new Error('aborted'));
+      reject(abortedError(label));
     };
     signal?.addEventListener('abort', onAbort, { once: true });
   });

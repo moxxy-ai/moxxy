@@ -3,11 +3,14 @@
  * installs it via npm on demand while streaming install progress to a log
  * box, and only enables Continue once the CLI is present. Applies on
  * first run and whenever the recovery gate detects the CLI went missing.
+ *
+ * State + install lifecycle come from the shared `useOnboarding().install`
+ * controller (the same one NodeStep uses for Node) — running/progress/error
+ * and a `run()` that installs the CLI and refreshes `status` — so this step
+ * never re-implements the probe/subscribe/install dance.
  */
 
-import { useEffect, useState } from 'react';
-import { toErrorMessage } from '@moxxy/client-core';
-import { api } from '@moxxy/client-core';
+import { useOnboarding } from '@moxxy/client-core';
 import { StepCard, Nav, PrimaryButton, SuccessRow, Pulse } from '../chrome';
 
 export function CliStep({
@@ -17,58 +20,27 @@ export function CliStep({
   readonly onNext: () => void;
   readonly onBack: () => void;
 }): JSX.Element {
-  type State = 'probing' | 'present' | 'missing' | 'installing' | 'failed';
-  const [state, setState] = useState<State>('probing');
-  const [logLines, setLogLines] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void api()
-      .invoke('onboarding.status')
-      .then((status) => {
-        if (cancelled) return;
-        setState(status.cliPath ? 'present' : 'missing');
-      })
-      .catch(() => {
-        if (!cancelled) setState('missing');
-      });
-    const off = api().subscribe('onboarding.install.progress', (line: string) => {
-      setLogLines((cur) => [...cur.slice(-200), line]);
-    });
-    return () => {
-      cancelled = true;
-      off();
-    };
-  }, []);
-
-  const install = async (): Promise<void> => {
-    setState('installing');
-    setLogLines([]);
-    setError(null);
-    try {
-      const code = await api().invoke('onboarding.installMoxxyCli');
-      if (code === 0) setState('present');
-      else {
-        setState('failed');
-        setError(`npm exit ${code}`);
-      }
-    } catch (e) {
-      setState('failed');
-      setError(toErrorMessage(e));
-    }
-  };
+  const ob = useOnboarding();
+  const present = ob.status?.cliInstalled ?? false;
+  const installing = ob.install.running;
+  // The controller carries a thrown-exception message in `error` and a
+  // non-zero npm exit in `lastExitCode`. Surface either as the red failure
+  // line (mirroring the prior inline `npm exit N` / thrown-message handling).
+  const exitCode = ob.install.lastExitCode;
+  const error =
+    ob.install.error ?? (exitCode !== null && exitCode !== 0 ? `npm exit ${exitCode}` : null);
+  const failed = !installing && !present && error !== null;
+  const probing = ob.loading && !present && !installing;
+  const log = ob.install.progress;
 
   return (
     <StepCard
       title="Install moxxy"
       sub="The moxxy CLI runs your agent locally. We use npm to install it."
     >
-      {state === 'probing' && <Pulse label="Looking for moxxy on your PATH…" />}
-      {state === 'present' && (
-        <SuccessRow text="moxxy is installed and ready." />
-      )}
-      {(state === 'missing' || state === 'failed') && (
+      {probing && <Pulse label="Looking for moxxy on your PATH…" />}
+      {present && <SuccessRow text="moxxy is installed and ready." />}
+      {!present && !installing && !probing && (
         <div
           style={{
             padding: '14px 16px',
@@ -82,18 +54,18 @@ export function CliStep({
           }}
         >
           <div style={{ fontWeight: 600 }}>
-            {state === 'missing' ? 'moxxy isn\'t installed yet.' : 'Install failed.'}
+            {failed ? 'Install failed.' : 'moxxy isn\'t installed yet.'}
           </div>
           {error && <div style={{ color: 'var(--color-red)' }}>{error}</div>}
-          <PrimaryButton onClick={() => void install()}>
-            {state === 'failed' ? 'Try again' : 'Install moxxy'}
+          <PrimaryButton onClick={() => void ob.install.run()}>
+            {failed ? 'Try again' : 'Install moxxy'}
           </PrimaryButton>
         </div>
       )}
-      {state === 'installing' && (
+      {installing && (
         <>
           <Pulse label="Installing moxxy via npm…" />
-          {logLines.length > 0 && (
+          {log.length > 0 && (
             <pre
               className="mono"
               style={{
@@ -108,12 +80,12 @@ export function CliStep({
                 whiteSpace: 'pre-wrap',
               }}
             >
-              {logLines.slice(-40).join('\n')}
+              {log.slice(-40).join('\n')}
             </pre>
           )}
         </>
       )}
-      <Nav onBack={onBack} onNext={onNext} nextDisabled={state !== 'present'} />
+      <Nav onBack={onBack} onNext={onNext} nextDisabled={!present} />
     </StepCard>
   );
 }

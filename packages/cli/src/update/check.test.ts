@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -108,6 +108,29 @@ describe('readCachedCheck / refreshCheck', () => {
     await refreshCheck('0.5.3', { cacheFile, fetchImpl: stubFetch('0.5.5'), now: 42 });
     const cached = readCachedCheck('0.5.3', { cacheFile });
     expect(cached).toEqual({ current: '0.5.3', latest: '0.5.5', updateAvailable: true });
+  });
+
+  it('honors MOXXY_HOME for the default cache file (no cacheFile override)', async () => {
+    // The default cache path is derived via the shared moxxyPath() helper, which
+    // routes through $MOXXY_HOME. Without an explicit cacheFile, writer and reader
+    // must agree under the overridden home so the cache is actually reused.
+    const home = mkdtempSync(path.join(os.tmpdir(), 'mox-home-'));
+    const prev = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = home;
+    try {
+      await refreshCheck('0.5.3', { fetchImpl: stubFetch('0.5.5'), now: 7 });
+      // The cache must land under $MOXXY_HOME, not the real ~/.moxxy.
+      expect(existsSync(path.join(home, 'update-check.json'))).toBe(true);
+      // And the reader (also defaulting) must round-trip it back.
+      expect(readCachedCheck('0.5.3')).toEqual({
+        current: '0.5.3',
+        latest: '0.5.5',
+        updateAvailable: true,
+      });
+    } finally {
+      if (prev === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = prev;
+    }
   });
 
   it('two concurrent refreshChecks leave a parseable cache file (atomic tmp+rename)', async () => {

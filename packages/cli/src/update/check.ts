@@ -9,11 +9,9 @@
  * an error — a version check must never break the CLI or stall TUI startup.
  */
 
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
 
-import { writeFileAtomicSync } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomicSync } from '@moxxy/sdk';
 
 import { fetchLatest, type FetchLatestOpts } from './registry.js';
 
@@ -34,7 +32,7 @@ interface CacheShape {
 }
 
 function defaultCacheFile(): string {
-  return path.join(os.homedir(), '.moxxy', 'update-check.json');
+  return moxxyPath('update-check.json');
 }
 
 /**

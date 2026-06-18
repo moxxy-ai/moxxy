@@ -20,7 +20,7 @@
 
 import { classifyHttpStatus, MoxxyError } from '@moxxy/sdk';
 import type { TokenSet } from '../oauth/types.js';
-import { parseTokenResponse } from '../oauth/token-exchange.js';
+import { exchangeCodeForToken } from '../oauth/token-exchange.js';
 import type {
   DeviceFlowAdapter,
   DeviceFlowInit,
@@ -113,34 +113,17 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
         // Two-step: poll returns a server-side authorization_code we
         // exchange via the standard token endpoint. The redirect_uri
         // here is the issuer's device callback — a registered value,
-        // not a URI we listen on.
-        const exchangeRes = await fetch(opts.tokenUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'authorization_code',
+        // not a URI we listen on. Route through the shared exchange
+        // helper so this dialect can't drift from browser-flow.
+        return {
+          done: await exchangeCodeForToken({
+            tokenUrl: opts.tokenUrl,
             code: data.authorization_code,
-            redirect_uri: exchangeRedirectUri,
-            client_id: clientId,
-            code_verifier: data.code_verifier,
-          }).toString(),
-        });
-        if (!exchangeRes.ok) {
-          const text = await exchangeRes.text().catch(() => '');
-          throw (
-            classifyHttpStatus(exchangeRes.status, {
-              url: opts.tokenUrl,
-              body: text || exchangeRes.statusText,
-            }) ??
-            new MoxxyError({
-              code: 'AUTH_INVALID',
-              message: `Token endpoint returned ${exchangeRes.status}: ${text || exchangeRes.statusText}`,
-              context: { status: exchangeRes.status, url: opts.tokenUrl },
-            })
-          );
-        }
-        const json = (await exchangeRes.json()) as Record<string, unknown>;
-        return { done: parseTokenResponse(json) };
+            redirectUri: exchangeRedirectUri,
+            clientId,
+            codeVerifier: data.code_verifier,
+          }),
+        };
       }
       // OpenAI's "still waiting" signal — 403 or 404 with no further detail.
       if (res.status === 403 || res.status === 404) {
