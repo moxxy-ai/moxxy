@@ -10,7 +10,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, statSync } from 'node:fs';
 import path, { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
 import type { NodeProbe } from '@moxxy/desktop-ipc-contract';
@@ -164,8 +164,34 @@ export async function updateCli(userDataDir: string, window: BrowserWindow): Pro
     proc.stdout?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.stderr?.on('data', (b: Buffer) => stream(window, b.toString()));
     proc.on('error', reject);
-    proc.on('exit', (code) => resolve(code ?? -1));
+    proc.on('exit', (code) => {
+      // npm (and pnpm's store) can drop the executable bit on node-pty's macOS
+      // `spawn-helper`, which makes the terminal surface silently fall back to a
+      // dead piped shell. Repair it here so a fresh install gets a real PTY on
+      // first use. The runner also self-heals at spawn time, so this is belt-and-
+      // suspenders; never let it fail the install.
+      if (code === 0) chmodNodePtyHelpers(target);
+      resolve(code ?? -1);
+    });
   });
+}
+
+/** Re-add the executable bit to node-pty's prebuilt `spawn-helper` under a
+ *  freshly-installed CLI prefix (see {@link updateCli}). Best-effort + silent. */
+function chmodNodePtyHelpers(prefixRoot: string): void {
+  const base = path.join(prefixRoot, 'node_modules', 'node-pty');
+  const candidates = [
+    path.join(base, 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'),
+    path.join(base, 'build', 'Release', 'spawn-helper'),
+  ];
+  for (const file of candidates) {
+    try {
+      const st = statSync(file);
+      if (!(st.mode & 0o111)) chmodSync(file, st.mode | 0o111);
+    } catch {
+      /* not present / not permitted — runtime self-heal covers it */
+    }
+  }
 }
 
 function stream(window: BrowserWindow, chunk: string): void {

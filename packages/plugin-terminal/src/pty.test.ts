@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
-import { TerminalProcessImpl } from './pty.js';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { makeExecutable, TerminalProcessImpl } from './pty.js';
 
 const MAX_SCROLLBACK = 200_000;
 
@@ -21,6 +24,38 @@ function fakeChild(): {
   proc.stdin = { write: () => {}, end: () => {} };
   return { stdout: proc.stdout, stderr: proc.stderr, proc };
 }
+
+describe('makeExecutable (node-pty spawn-helper repair)', () => {
+  let dir: string | null = null;
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+  });
+
+  it('adds the executable bit to a file that lacks it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'moxxy-pty-'));
+    const file = join(dir, 'spawn-helper');
+    writeFileSync(file, 'binary');
+    // Simulate the stripped-bit state that breaks node-pty's posix_spawnp.
+    const noExec = statSync(file).mode;
+    expect(noExec & 0o111).toBe(0);
+
+    expect(makeExecutable(file)).toBe(true);
+    expect(statSync(file).mode & 0o111).not.toBe(0);
+  });
+
+  it('is idempotent on an already-executable file', () => {
+    dir = mkdtempSync(join(tmpdir(), 'moxxy-pty-'));
+    const file = join(dir, 'spawn-helper');
+    writeFileSync(file, 'binary', { mode: 0o755 });
+    expect(makeExecutable(file)).toBe(true);
+    expect(statSync(file).mode & 0o111).not.toBe(0);
+  });
+
+  it('returns false (no throw) for a missing file', () => {
+    expect(makeExecutable(join(tmpdir(), 'moxxy-does-not-exist', 'spawn-helper'))).toBe(false);
+  });
+});
 
 describe('TerminalProcessImpl scrollback (hysteresis trim)', () => {
   it('keeps scrollback bounded to the cap and returns the true tail', () => {

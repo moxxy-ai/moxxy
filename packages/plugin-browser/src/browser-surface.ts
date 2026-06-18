@@ -1,5 +1,12 @@
 import { defineSurface, type SurfaceInstance } from '@moxxy/sdk';
-import { browserSidecarCall, type BrowserSessionDeps } from './browser-session.js';
+import {
+  browserSidecarCall,
+  closeBrowserSidecar,
+  resolveBrowserInstallRoot,
+  sidecarErrorKind,
+  type BrowserSessionDeps,
+} from './browser-session.js';
+import { installPlaywrightPackage } from './sidecar/install.js';
 
 /**
  * The `browser` surface: a live, in-window view of the SAME Playwright page the
@@ -43,13 +50,28 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
       let timer: ReturnType<typeof setInterval> | null = null;
       let inFlight = false;
       let fails = 0;
+      // Set once we detect the `playwright` npm package isn't installed. Polling
+      // pauses (no point retrying an import that will keep failing) and the pane
+      // shows an Install affordance; an `install` input clears it.
+      let needsInstall = false;
+      let installing = false;
 
       const emit = (payload: unknown): void => {
         for (const cb of dataSubs) cb(payload);
       };
 
+      const stopPolling = (): void => {
+        if (timer) clearInterval(timer);
+        timer = null;
+      };
+      const startPolling = (): void => {
+        if (timer) return;
+        void tick();
+        timer = setInterval(() => void tick(), FRAME_INTERVAL_MS);
+      };
+
       const tick = async (): Promise<void> => {
-        if (inFlight) return; // don't pile up frames if the page is busy
+        if (inFlight || needsInstall || installing) return; // don't pile up / retry a known-missing dep
         inFlight = true;
         try {
           const frame = (await browserSidecarCall('frame', {}, deps)) as Frame;
@@ -57,6 +79,19 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
           fails = 0;
           emit({ type: 'frame', base64: frame.base64, mime: frame.mediaType, url: frame.url });
         } catch (err) {
+          // The `playwright` npm package is simply absent — recoverable. Pause
+          // polling and ask the user (the download is ~200MB) rather than spin on
+          // a failing import or dump a raw "not installed" error.
+          if (sidecarErrorKind(err) === 'needs-install') {
+            needsInstall = true;
+            stopPolling();
+            emit({
+              type: 'status',
+              needsInstall: true,
+              text: 'The browser engine (Playwright) is not installed. It is a one-time ~200MB download.',
+            });
+            return;
+          }
           // The first failures are usually the browser still launching (or a
           // one-time binary install). Only surface a hard error once it's
           // clearly not transient, so the user isn't left on a silent spinner.
@@ -79,8 +114,33 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
       };
 
       // Kick an immediate frame (launches the browser), then poll.
-      void tick();
-      timer = setInterval(() => void tick(), FRAME_INTERVAL_MS);
+      startPolling();
+
+      const runInstall = async (): Promise<void> => {
+        if (installing) return;
+        installing = true;
+        stopPolling();
+        emit({ type: 'status', text: 'Installing browser engine… (one-time, ~200MB)' });
+        try {
+          await installPlaywrightPackage({
+            rootDir: resolveBrowserInstallRoot(deps),
+            onProgress: (line) => emit({ type: 'status', text: line }),
+          });
+          // The sidecar cached its failed `import('playwright')`; drop it so the
+          // next frame call respawns a fresh sidecar that imports the now-present
+          // package.
+          await closeBrowserSidecar();
+          needsInstall = false;
+          fails = 0;
+          emit({ type: 'status', text: 'Installed. Starting browser…' });
+          startPolling();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          emit({ type: 'status', needsInstall: true, text: `Install failed: ${message}` });
+        } finally {
+          installing = false;
+        }
+      };
 
       return {
         id: 'browser',
@@ -90,10 +150,20 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
           return () => dataSubs.delete(cb);
         },
         snapshot: () =>
-          last
-            ? { type: 'frame', base64: last.base64, mime: last.mediaType, url: last.url }
-            : { type: 'status', text: 'Starting browser…' },
+          needsInstall
+            ? {
+                type: 'status',
+                needsInstall: true,
+                text: 'The browser engine (Playwright) is not installed. It is a one-time ~200MB download.',
+              }
+            : last
+              ? { type: 'frame', base64: last.base64, mime: last.mediaType, url: last.url }
+              : { type: 'status', text: 'Starting browser…' },
         input: async (msg) => {
+          if (msg.type === 'install') {
+            await runInstall();
+            return;
+          }
           const vw = last?.width ?? 1280;
           const vh = last?.height ?? 720;
           if (msg.type === 'navigate' && typeof msg.url === 'string') {

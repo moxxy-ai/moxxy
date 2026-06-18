@@ -15,7 +15,7 @@ import { closeBrowserSidecar, type SidecarStream } from './browser-session.js';
 const FRAME_INTERVAL_MS = 450;
 const FAIL_GRACE = 4;
 
-type Reply = { ok: true; result: unknown } | { ok: false; message: string };
+type Reply = { ok: true; result: unknown } | { ok: false; message: string; kind?: string };
 
 interface FakeSidecar {
   spawn: (path: string) => SidecarStream;
@@ -43,7 +43,7 @@ function makeControllableSpawn(): FakeSidecar {
         const r = handler(reqMsg.method, reqMsg.params);
         const reply = r.ok
           ? { id: reqMsg.id, ok: true, result: r.result }
-          : { id: reqMsg.id, ok: false, error: { message: r.message } };
+          : { id: reqMsg.id, ok: false, error: { message: r.message, kind: r.kind } };
         stdout.write(JSON.stringify(reply) + '\n');
       }
     });
@@ -183,6 +183,31 @@ describe('browser surface polling lifecycle', () => {
     expect(statuses).toEqual([{ type: 'status', text: 'Browser disconnected: page crashed' }]);
     // The stale frame is still available via snapshot.
     expect(surface.snapshot()).toMatchObject({ type: 'frame' });
+
+    surface.close();
+  });
+
+  it('a needs-install error pauses polling and emits an install prompt', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler(() => ({ ok: false, message: 'Playwright is not installed.', kind: 'needs-install' }));
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    const events: Array<{ type: string; needsInstall?: boolean; text?: string }> = [];
+    surface.onData((p) => events.push(p as { type: string; needsInstall?: boolean }));
+
+    await flush(); // the kick tick() hits the needs-install reply immediately
+    expect(events).toEqual([
+      expect.objectContaining({ type: 'status', needsInstall: true }),
+    ]);
+    // Snapshot for a late viewer also reports the install affordance.
+    expect(surface.snapshot()).toMatchObject({ type: 'status', needsInstall: true });
+
+    // Polling is paused: no further `frame` calls reach the sidecar (we don't
+    // spin on an import that will keep failing).
+    const before = sidecar.received.length;
+    await vi.advanceTimersByTimeAsync(FRAME_INTERVAL_MS * 4);
+    await flush();
+    expect(sidecar.received.length).toBe(before);
 
     surface.close();
   });

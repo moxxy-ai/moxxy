@@ -1,6 +1,12 @@
 export type BrowserKind = 'chromium' | 'firefox' | 'webkit';
 
-export type ErrorKind = 'init' | 'navigation' | 'runtime' | 'timeout' | 'unknown';
+export type ErrorKind =
+  | 'init'
+  | 'needs-install' // the `playwright` npm package itself isn't installed yet
+  | 'navigation'
+  | 'runtime'
+  | 'timeout'
+  | 'unknown';
 
 export interface Req {
   readonly id: string;

@@ -257,8 +257,29 @@ item — the debt it *creates* is logged here on sight:
   a real PTY when the binary builds (it's N-API, ABI-stable like
   `@napi-rs/keyring`, so the desktop's `pnpm deploy --prod` bundle works without
   electron-rebuild). Falls back to the dependency-free piped shell when absent.
-  **Remaining:** verify the real PTY in a *packaged* desktop launch (Electron-as-
-  node ABI) — can't be checked in the normal gate.
+  **RESOLVED 2026-06-18 — the "verify real PTY in a packaged launch" was hiding a
+  bug the gate can't see: node-pty loaded but `pty.spawn` threw `posix_spawnp
+  failed` because its macOS `prebuilds/<plat>/spawn-helper` ships WITHOUT the
+  exec bit — true in BOTH pnpm (dev) and npm-into-the-CLI-prefix (packaged).**
+  The throw was swallowed into the piped fallback, which is not an interactive
+  terminal (no TTY line discipline: a viewer's `\r` is never turned into `\n`,
+  nothing echoes), so every install showed a live-looking prompt that ignored all
+  input. **Fix:** `pty.ts` `ensureSpawnHelperExecutable()` chmods the helper
+  before spawn + retries once; `desktop-host/installer.ts` chmods it after
+  `npm install`; the surface now reports an honest "Terminal unavailable" status
+  (`backend === 'pipe'` → `ptyError`) instead of a silently-dead box. **Dormant
+  debt:** the piped fallback is deliberately NOT made interactive (node-pty now
+  works for everyone) — if a no-prebuild platform ever needs it, it must gain
+  CR→LF translation + local echo.
+- **Browser surface offers a one-click Playwright install (ask-first).** When the
+  `playwright` npm package is absent, `sidecar/install.ts` `importPlaywright`
+  tags the failure `needs-install` (vs `init`); the kind rides the JSON-RPC reply
+  (`browser-session.ts`), the surface pauses polling + emits a `needsInstall`
+  status, and an `install` input runs `installPlaywrightPackage` (npm + the
+  Chromium engine, ~200MB) into `resolveBrowserInstallRoot()` with streamed
+  progress, then restarts the sidecar. **Constraint:** the install runs in the
+  runner via PATH-resolved `npm`/`npx` (same assumption as the existing browser-
+  binary auto-install) — a GUI launch must keep node/npm on the runner's PATH.
 - **Surfaces are desktop-only — deliberately off the mobile WS allow-list**
   (`REMOTE_ALLOWED_COMMANDS`). A sandboxed shell/browser over a tunnel is a real
   feature with its own threat model; revisit when mobile needs it.

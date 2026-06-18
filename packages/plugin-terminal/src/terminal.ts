@@ -70,6 +70,17 @@ export function buildTerminalSurface() {
       };
       const unsubData = proc.onData((data) => emit({ type: 'data', data }));
       const unsubExit = proc.onExit((code) => emit({ type: 'exit', code }));
+      // Honest degraded state: without a real PTY the pane can't function as an
+      // interactive terminal (no echo, a viewer's Enter never reaches the shell).
+      // Tell the viewer rather than presenting a box that silently ignores input.
+      if (proc.backend === 'pipe') {
+        emit({
+          type: 'status',
+          text: proc.ptyError
+            ? `Terminal unavailable: the PTY backend failed to start (${proc.ptyError}).`
+            : 'Terminal unavailable: a real PTY backend (node-pty) is not available.',
+        });
+      }
       return {
         id: 'terminal',
         kind: 'terminal',
@@ -77,7 +88,12 @@ export function buildTerminalSurface() {
           dataSubs.add(cb);
           return () => dataSubs.delete(cb);
         },
-        snapshot: () => ({ type: 'snapshot', data: proc.scrollback(), backend: proc.backend }),
+        snapshot: () => ({
+          type: 'snapshot',
+          data: proc.scrollback(),
+          backend: proc.backend,
+          ptyError: proc.ptyError,
+        }),
         input: (msg) => {
           if (msg.type === 'data' && typeof msg.data === 'string') proc.write(msg.data);
         },

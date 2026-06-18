@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
@@ -15,17 +15,29 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // Set when the runner can't start a real PTY (node-pty unavailable / failed):
+  // the piped fallback isn't an interactive terminal, so we show why instead of
+  // letting the box silently ignore keystrokes.
+  const [degraded, setDegraded] = useState<string | null>(null);
 
   // Mount xterm once. The surface hook (below) feeds it data + receives input.
   const surface = useSurface(workspaceId, 'terminal', {
     onSnapshot: (snap) => {
-      const s = snap as { data?: string } | undefined;
+      const s = snap as { data?: string; backend?: string; ptyError?: string | null } | undefined;
       if (s?.data && termRef.current) termRef.current.write(s.data);
+      if (s?.backend === 'pipe') {
+        setDegraded(
+          s.ptyError
+            ? `The PTY backend failed to start (${s.ptyError}).`
+            : 'A real PTY backend (node-pty) is not available.',
+        );
+      }
     },
     onData: (payload) => {
-      const p = payload as { type?: string; data?: string };
+      const p = payload as { type?: string; data?: string; text?: string };
       if (p?.type === 'data' && typeof p.data === 'string') termRef.current?.write(p.data);
       else if (p?.type === 'exit') termRef.current?.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n');
+      else if (p?.type === 'status' && typeof p.text === 'string') setDegraded(p.text);
     },
   });
   // Stable ref so the mount effect can reach the latest input/resize senders.
@@ -109,9 +121,9 @@ export function TerminalPane({ workspaceId }: { readonly workspaceId: string | n
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {surface.error && (
+      {(surface.error || degraded) && (
         <div style={{ padding: '8px 12px', fontSize: 11.5, color: 'var(--color-danger, #f87171)' }}>
-          Terminal unavailable: {surface.error}
+          Terminal unavailable: {surface.error ?? degraded}
         </div>
       )}
       <div

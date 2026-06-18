@@ -23,12 +23,89 @@ export async function importPlaywright(): Promise<{
   try {
     return (await import('playwright')) as never;
   } catch (err) {
+    const underlying = err instanceof Error ? err.message : String(err);
+    // Distinguish "the npm package isn't installed" (recoverable — the surface
+    // can offer a one-click install, see `installPlaywrightPackage`) from any
+    // other import failure. The `kind` rides the JSON-RPC reply so the browser
+    // surface shows an "Install" affordance instead of a dead-end error.
     throw new SidecarError(
       `Playwright is not installed. Run \`pnpm add playwright\` (or \`npm i playwright\`) and then \`npx playwright install\` in the moxxy install dir.\n` +
-        `Underlying: ${err instanceof Error ? err.message : String(err)}`,
-      'init',
+        `Underlying: ${underlying}`,
+      isModuleNotFound(underlying) ? 'needs-install' : 'init',
     );
   }
+}
+
+/** True when an import failure is "the `playwright` package can't be found"
+ *  (vs. a load/runtime error inside an installed package). */
+function isModuleNotFound(message: string): boolean {
+  return (
+    /cannot find (package|module) ['"]?playwright/i.test(message) ||
+    /ERR_MODULE_NOT_FOUND/i.test(message) ||
+    /failed to resolve ['"]?playwright/i.test(message)
+  );
+}
+
+export interface InstallPlaywrightOptions {
+  /** Directory whose `node_modules` should receive `playwright` — the CLI
+   *  install root (e.g. `<userData>/cli`). `npm` runs with this as its cwd. */
+  readonly rootDir: string;
+  /** Which browser engine binary to download after the npm package lands. */
+  readonly browser?: BrowserKind;
+  /** Per-line progress (npm/npx stdout+stderr) for streaming to the UI. */
+  readonly onProgress?: (line: string) => void;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * Install the `playwright` npm package into `rootDir`, then download the browser
+ * engine binary — the two halves the desktop browser surface needs. Driven by
+ * the surface AFTER the user consents (the download is ~200MB). Streams progress
+ * via `onProgress`; resolves on success, rejects with the failing step's output.
+ *
+ * Lives next to {@link importPlaywright} (which reports the `needs-install` that
+ * triggers this) but is invoked in the RUNNER process — `rootDir`'s node_modules
+ * is the one the sidecar later imports `playwright` from.
+ */
+export async function installPlaywrightPackage(opts: InstallPlaywrightOptions): Promise<void> {
+  const which = opts.browser ?? 'chromium';
+  opts.onProgress?.(`Installing the playwright npm package into ${opts.rootDir}…`);
+  await runProcess('npm', ['install', '--no-fund', '--no-audit', 'playwright'], opts);
+  opts.onProgress?.(`Downloading the ${which} browser engine (~150MB, one-time)…`);
+  await runProcess('npx', ['playwright', 'install', which], opts);
+  opts.onProgress?.('Playwright installed.');
+}
+
+/** Spawn a child, forward its output to `onProgress`, resolve on exit-0. */
+function runProcess(cmd: string, args: string[], opts: InstallPlaywrightOptions): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (opts.signal?.aborted) return reject(new Error('install aborted'));
+    const child = spawn(cmd, args, { cwd: opts.rootDir, stdio: ['ignore', 'pipe', 'pipe'] });
+    let tail = '';
+    const onChunk = (chunk: Buffer): void => {
+      const text = chunk.toString('utf8');
+      for (const line of text.split(/\r?\n/)) if (line.trim()) opts.onProgress?.(line);
+      tail = (tail + text).slice(-4000);
+    };
+    child.stdout.on('data', onChunk);
+    child.stderr.on('data', onChunk);
+    const onAbort = (): void => {
+      child.kill();
+    };
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
+    child.once('error', (err) => {
+      opts.signal?.removeEventListener('abort', onAbort);
+      reject(err);
+    });
+    child.once('close', (code) => {
+      opts.signal?.removeEventListener('abort', onAbort);
+      if (code === 0) resolve();
+      else
+        reject(
+          new Error(`\`${cmd} ${args.join(' ')}\` failed (exit ${code}): ${tail.trim() || '(no output)'}`),
+        );
+    });
+  });
 }
 
 /**

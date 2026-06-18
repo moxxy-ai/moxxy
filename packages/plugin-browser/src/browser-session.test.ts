@@ -5,6 +5,7 @@ import type { ToolContext } from '@moxxy/sdk';
 import {
   buildBrowserSessionTool,
   closeBrowserSidecar,
+  resolveBrowserInstallRoot,
   type SidecarStream,
 } from './browser-session.js';
 import { setSsrfDnsResolver } from './ssrf-guard.js';
@@ -27,6 +28,18 @@ const baseCtx = (): ToolContext => ({
   signal: new AbortController().signal,
   log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
   logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+});
+
+describe('resolveBrowserInstallRoot', () => {
+  it('returns the prefix root (the node_modules parent) for a packaged sidecar path', () => {
+    // The real installed layout: <root>/node_modules/@moxxy/cli/dist/sidecar.js
+    const sidecarPath = '/Users/me/Library/App/cli/node_modules/@moxxy/cli/dist/sidecar.js';
+    expect(resolveBrowserInstallRoot({ sidecarPath })).toBe('/Users/me/Library/App/cli');
+  });
+
+  it('falls back to the sidecar dir when no node_modules is on the path', () => {
+    expect(resolveBrowserInstallRoot({ sidecarPath: '/opt/app/dist/sidecar.js' })).toBe('/opt/app/dist');
+  });
 });
 
 function makeFakeSpawn(handler: (req: { id: string; method: string; params?: unknown }) => unknown): {

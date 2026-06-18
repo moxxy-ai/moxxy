@@ -178,7 +178,7 @@ class Sidecar {
       id?: string;
       ok?: boolean;
       result?: unknown;
-      error?: { message: string };
+      error?: { message: string; kind?: string };
       notice?: string;
     };
     try {
@@ -200,9 +200,12 @@ class Sidecar {
         p.resolve(reply.result);
       }
     } else {
-      p.reject(
-        new MoxxyError({ code: 'INTERNAL', message: reply.error?.message ?? 'sidecar error' }),
-      );
+      // Carry the sidecar's typed `kind` on the rejected error so the surface
+      // can tell "playwright not installed" (offer an Install button) apart from
+      // a generic failure. MoxxyError doesn't model it, so attach it as a tag.
+      const err = new MoxxyError({ code: 'INTERNAL', message: reply.error?.message ?? 'sidecar error' });
+      if (reply.error?.kind) (err as MoxxyError & { sidecarKind?: string }).sidecarKind = reply.error.kind;
+      p.reject(err);
     }
   }
 
@@ -288,6 +291,30 @@ function getSidecar(deps?: BrowserSessionDeps): Sidecar {
 function defaultSidecarPath(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   return path.join(here, 'sidecar.js');
+}
+
+/** The sidecar-supplied error tag (see {@link Sidecar.handleLine}); 'needs-install'
+ *  means the `playwright` npm package isn't present yet. */
+export function sidecarErrorKind(err: unknown): string | undefined {
+  return (err as { sidecarKind?: string } | null)?.sidecarKind;
+}
+
+/**
+ * The directory whose `node_modules` the sidecar imports `playwright` from — the
+ * CLI install root (e.g. `<userData>/cli`). Found by walking up from the sidecar
+ * file to the nearest `node_modules` ancestor and returning ITS parent. Falls
+ * back to the sidecar's own dir if no `node_modules` is on the path (dev/tests).
+ */
+export function resolveBrowserInstallRoot(deps?: BrowserSessionDeps): string {
+  const start = deps?.sidecarPath ?? defaultSidecarPath();
+  let dir = path.dirname(start);
+  for (let i = 0; i < 12; i += 1) {
+    if (path.basename(dir) === 'node_modules') return path.dirname(dir);
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return path.dirname(start);
 }
 
 function defaultSpawn(scriptPath: string): SidecarStream {

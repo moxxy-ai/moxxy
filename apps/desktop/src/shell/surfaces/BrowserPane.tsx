@@ -9,6 +9,9 @@ interface BrowserFrame {
   readonly url?: string;
   /** Carried by `{ type: 'status' }` payloads — launch progress or a hard error. */
   readonly text?: string;
+  /** Set on a status when the Playwright engine isn't installed — the pane shows
+   *  an "Install" button (the download is ~200MB, so we ask first). */
+  readonly needsInstall?: boolean;
 }
 
 /**
@@ -22,6 +25,8 @@ interface BrowserFrame {
 export function BrowserPane({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element {
   const [frame, setFrame] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [needsInstall, setNeedsInstall] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const [url, setUrl] = useState('');
   const [editingUrl, setEditingUrl] = useState('');
   const imgRef = useRef<HTMLDivElement | null>(null);
@@ -31,8 +36,16 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
     if (p?.type === 'frame' && typeof p.base64 === 'string') {
       setFrame(`data:${p.mime ?? 'image/jpeg'};base64,${p.base64}`);
       setStatus(null);
+      setNeedsInstall(false);
+      setInstalling(false);
     } else if (p?.type === 'status') {
       setStatus(typeof p.text === 'string' ? p.text : null);
+      // A `needsInstall` status re-arms the button (e.g. an install that failed);
+      // any other status during install is progress, so leave `installing` as-is.
+      if (p.needsInstall) {
+        setNeedsInstall(true);
+        setInstalling(false);
+      }
     }
     if (typeof p?.url === 'string') {
       setUrl(p.url);
@@ -48,6 +61,13 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
     if (!u) return;
     const withScheme = /^https?:\/\//i.test(u) ? u : `https://${u}`;
     surface.input({ type: 'navigate', url: withScheme });
+  };
+
+  const startInstall = (): void => {
+    setInstalling(true);
+    setNeedsInstall(false);
+    setStatus('Installing browser engine… (one-time, ~200MB)');
+    surface.input({ type: 'install' });
   };
 
   // Translate a pointer event in the frame box to normalized page coords.
@@ -132,8 +152,39 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         {frame ? (
           <img src={frame} alt={url || 'browser'} style={{ width: '100%', height: 'auto', display: 'block' }} />
         ) : (
-          <div style={{ padding: 24, fontSize: 12, color: 'var(--color-text-dim)', textAlign: 'center' }}>
-            {status ?? (surface.ready ? 'Loading…' : 'Starting browser…')}
+          <div
+            style={{
+              padding: 24,
+              fontSize: 12,
+              color: 'var(--color-text-dim)',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 12,
+            }}
+          >
+            <div>{status ?? (surface.ready ? 'Loading…' : 'Starting browser…')}</div>
+            {(needsInstall || installing) && (
+              <button
+                type="button"
+                onClick={startInstall}
+                disabled={installing}
+                style={{
+                  padding: '7px 14px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  cursor: installing ? 'default' : 'pointer',
+                  background: installing ? 'var(--color-text-dim)' : 'var(--color-accent, #6366f1)',
+                  opacity: installing ? 0.7 : 1,
+                }}
+              >
+                {installing ? 'Installing…' : 'Install browser engine (~200MB)'}
+              </button>
+            )}
           </div>
         )}
       </div>

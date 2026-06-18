@@ -9,6 +9,7 @@ function fakeTerminal(): TerminalProcess & { feed(s: string): void } {
   let listener: ((d: string) => void) | null = null;
   return {
     backend: 'pipe',
+    ptyError: null,
     onData: (cb) => {
       listener = cb;
       return () => {
