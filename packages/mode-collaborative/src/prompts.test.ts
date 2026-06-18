@@ -10,6 +10,14 @@ describe('collaboration prompts', () => {
     }
   });
 
+  it('describe the brief as a summary + offer CONVERSATION.md for on-demand recall', () => {
+    for (const p of [COLLAB_ARCHITECT_PROMPT, COLLAB_PEER_PROMPT]) {
+      expect(p).toContain('.moxxy-collab/CONVERSATION.md');
+    }
+    // the shared prompt must say the full transcript is NOT auto-loaded
+    expect(COLLAB_PEER_PROMPT.toLowerCase()).toContain('do not load it wholesale');
+  });
+
   it('tell agents to reply to the human (not go silent on a directive/DM)', () => {
     for (const p of [COLLAB_ARCHITECT_PROMPT, COLLAB_PEER_PROMPT]) {
       expect(p).toContain('collab_send to "human"');

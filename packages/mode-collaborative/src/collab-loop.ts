@@ -24,6 +24,7 @@ import {
   COLLAB_PLUGIN_ID,
   COLLAB_SCAFFOLD_DIR,
   BRIEF_FILENAME,
+  CONVERSATION_FILENAME,
   ROSTER_FILENAME,
   collabBranch,
   collabRunDir,
@@ -33,7 +34,8 @@ import {
   worktreeRoot,
 } from './constants.js';
 import { resolveCollabConfig, type CollabConfig } from './config.js';
-import { buildBrief } from './brief.js';
+import { buildBrief, buildConversation, heuristicSummary } from './brief.js';
+import { summarizeConversation } from './summarize.js';
 import { writeRunRecord, type CollabRunRecord } from './archive.js';
 import {
   addWorktree,
@@ -166,16 +168,35 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
 
     yield await ctx.emit(plugin(ctx, 'collab_started', { task, parallel, gitInstalled, gitRepo }));
 
-    // Distil the user's conversation into a shared BRIEF the whole team inherits
-    // (the overall goal + intent — not just each agent's narrow subtask). Written
-    // into the scaffold up front so the architect reads it, and committed with the
-    // scaffold (parallel) so every worktree gets it. Best-effort: a brief-write
-    // failure must never sink the run.
+    // Distil the user's conversation for the whole team. BRIEF.md is a CONCISE
+    // SUMMARY (goal + key requirements/constraints/decisions) — one coordinator
+    // LLM call, with a deterministic heuristic fallback — so the N peers don't
+    // each re-ingest the raw transcript. The full conversation goes to
+    // CONVERSATION.md for on-demand recall (never auto-loaded). BOTH are written
+    // here, before the architect spawns + before the scaffold commit, so the
+    // architect reads them and worktrees inherit them. Best-effort throughout: a
+    // brief failure must never sink the run.
     try {
-      briefText = buildBrief(task, ctx.log.slice());
+      const events = ctx.log.slice();
       mkdirSync(join(cwd, COLLAB_SCAFFOLD_DIR), { recursive: true });
+      writeFileSync(join(cwd, COLLAB_SCAFFOLD_DIR, CONVERSATION_FILENAME), buildConversation(task, events));
+      const llmSummary = await summarizeConversation({
+        task,
+        events,
+        provider: ctx.provider,
+        model: ctx.model,
+        signal: ctx.signal,
+      }).catch(() => null);
+      const summary = llmSummary ?? heuristicSummary(task, events);
+      briefText = buildBrief(task, summary);
       writeFileSync(join(cwd, COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME), briefText);
-      yield await ctx.emit(plugin(ctx, 'collab_brief_written', { path: join(COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME) }));
+      yield await ctx.emit(
+        plugin(ctx, 'collab_brief_written', {
+          path: join(COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME),
+          conversationPath: join(COLLAB_SCAFFOLD_DIR, CONVERSATION_FILENAME),
+          summarized: Boolean(llmSummary),
+        }),
+      );
     } catch {
       // brief is an enhancement, not a prerequisite
     }

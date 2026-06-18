@@ -18,9 +18,14 @@ export const COLLAB_SCAFFOLD_DIR = '.moxxy-collab';
 export const CONTRACTS_FILENAME = 'CONTRACTS.md';
 /** Architect's machine-readable roster proposal, read by the coordinator. */
 export const ROSTER_FILENAME = 'roster.json';
-/** Coordinator-written brief: the overall goal + the user's conversation/intent,
- *  so every spawned agent inherits the full picture (not just its subtask). */
+/** Coordinator-written brief: a CONCISE summary (goal + key requirements/
+ *  constraints/decisions) every spawned agent reads up front — not the raw
+ *  transcript. */
 export const BRIEF_FILENAME = 'BRIEF.md';
+/** The full conversation, written for ON-DEMAND recall only — never loaded into
+ *  an agent's context by default. An agent reads/greps it if it needs a detail
+ *  the brief summary omits. */
+export const CONVERSATION_FILENAME = 'CONVERSATION.md';
 
 /** A short, filesystem-safe run id from the session + turn ids. */
 export function collabRunId(sessionId: string, turnId: string): string {
