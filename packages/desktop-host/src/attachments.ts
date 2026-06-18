@@ -28,6 +28,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { parseOfficeAsync } from 'officeparser';
+import { extractPdfText } from './pdf-text.js';
 
 /** Image extensions we forward as inline base64 with a real mediaType. */
 const IMAGE_MEDIA_TYPES: Readonly<Record<string, string>> = {
@@ -205,8 +206,9 @@ function legacyDocToText(buf: Buffer): string | null {
   return text.length >= 16 ? text : null;
 }
 
-/** Extract plain text from an Office/ODF/PDF buffer. Returns null on failure
- *  (corrupt / unsupported / empty) so the caller can skip rather than throw. */
+/** Extract plain text from an Office/ODF buffer via officeparser. Returns null
+ *  on failure (corrupt / unsupported / empty) so the caller can skip rather than
+ *  throw. NOT for PDFs — those go through {@link extractPdf}. */
 async function extractText(buf: Buffer, name: string): Promise<string | null> {
   try {
     const text = await parseOfficeAsync(buf, { outputErrorToConsole: false });
@@ -218,11 +220,43 @@ async function extractText(buf: Buffer, name: string): Promise<string | null> {
 }
 
 /**
+ * Extract plain text from a PDF buffer. Tries pdfjs-dist first — it reads the
+ * text layer AND AcroForm field values, and handles far more PDFs than
+ * officeparser's stale bundled pdf.js (which silently returns "" for many
+ * ordinary text PDFs — the bug this fixes).
+ *
+ *   - pdfjs got text/fields → use it.
+ *   - pdfjs opened the PDF but found no text and no fields → it's image-only
+ *     (a scan); return null. We do NOT fall back to officeparser here: it can't
+ *     do better on an image-only PDF, and its stale bundled worker can emit an
+ *     unhandled rejection on some byte layouts.
+ *   - pdfjs could not open the PDF (corrupt/encrypted) → last-resort
+ *     officeparser, then null.
+ */
+async function extractPdf(buf: Buffer, name: string): Promise<string | null> {
+  const result = await extractPdfText(buf);
+  if (result.kind === 'text') return result.text;
+  if (result.kind === 'empty') {
+    console.warn(
+      `[attachments] no extractable text in ${name} (likely a scanned / image-only PDF)`,
+    );
+    return null;
+  }
+  // pdfjs could not parse the file — give officeparser a shot before giving up.
+  const viaOffice = await extractText(buf, name);
+  if (viaOffice && viaOffice.trim().length > 0) return viaOffice;
+  console.warn(`[attachments] could not extract text from PDF ${name}`);
+  return null;
+}
+
+/**
  * Extract plain text from an already-read document BUFFER, dispatching by magic
  * bytes + the supplied `name`'s extension. The format-handling core shared by
  * {@link parseFileToText} (path-based — the picker flow) and the anonymizer's
  * drag-and-drop path (which sends the bytes the renderer already holds). Handles:
- *   - PDF + Office/ODF (`.docx`/`.xlsx`/`.pptx`/`.odt`/`.ods`/`.odp`) → officeparser
+ *   - PDF (`.pdf`)           → pdfjs-dist (text layer + AcroForm fields), with an
+ *                              officeparser fallback (see {@link extractPdf})
+ *   - Office/ODF (`.docx`/`.xlsx`/`.pptx`/`.odt`/`.ods`/`.odp`) → officeparser
  *   - RTF (`.rtf`)            → a dependency-free control-word stripper
  *   - legacy Word (`.doc`)   → best-effort printable-run recovery from the OLE doc
  *   - text / code            → UTF-8 (a NUL byte ⇒ binary ⇒ null)
@@ -231,8 +265,12 @@ async function extractText(buf: Buffer, name: string): Promise<string | null> {
  */
 export async function parseBufferToText(buf: Buffer, name: string): Promise<string | null> {
   const ext = path.extname(name).toLowerCase();
-  // PDF (by extension or magic bytes) or Office/ODF → officeparser.
-  if (isPdf(buf, ext) || OFFICE_EXTENSIONS.has(ext)) {
+  // PDF (by extension or magic bytes) → pdfjs (text layer + AcroForm fields),
+  // falling back to officeparser. Office/ODF → officeparser.
+  if (isPdf(buf, ext)) {
+    return extractPdf(buf, name);
+  }
+  if (OFFICE_EXTENSIONS.has(ext)) {
     return extractText(buf, name);
   }
   // RTF → strip control words locally (officeparser doesn't handle RTF, and the
@@ -299,7 +337,7 @@ export async function buildAttachments(
             name: f.name,
           });
         } else {
-          const text = await extractText(buf, f.name);
+          const text = await extractPdf(buf, f.name);
           if (text) out.push(await largeFileFallback(text, f.name, null));
           else
             console.warn(

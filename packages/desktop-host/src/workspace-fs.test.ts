@@ -100,6 +100,27 @@ describe('readFile shaping', () => {
     expect(typeof r.base64).toBe('string');
   });
 
+  it('previews an Office/ODF doc as its extracted text, not raw bytes', async () => {
+    // RTF is an Office-family format parseBufferToText handles dependency-free,
+    // so it exercises the office-text branch without needing a real .docx zip.
+    const rtf = '{\\rtf1\\ansi\\deff0 Hello \\b Jane Doe\\b0 from Berlin.\\par}';
+    await writeFile(path.join(root, 'memo.rtf'), rtf);
+    const r = await readFile(root, 'memo.rtf');
+    expect(r.kind).toBe('text');
+    expect(r.text).toBe(true);
+    expect(r.content).toContain('Hello Jane Doe from Berlin');
+    // No RTF control words leak into the preview.
+    expect(r.content).not.toMatch(/\\rtf1|\\par/);
+  });
+
+  it('confirms (no preview) for an Office doc with no extractable text', async () => {
+    // A .docx that is not a valid zip → no text → a clear confirm, not garbage.
+    await writeFile(path.join(root, 'broken.docx'), Buffer.from('PK\x03\x04 not a real docx'));
+    const r = await readFile(root, 'broken.docx');
+    expect(r.kind).toBe('confirm');
+    expect(r.reason).toBe('binary');
+  });
+
   it('returns empty text for a non-file path', async () => {
     await mkdir(path.join(root, 'adir'));
     const r = await readFile(root, 'adir');

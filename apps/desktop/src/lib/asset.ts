@@ -2,9 +2,9 @@
  * Resolve a `public/` asset URL that works in BOTH the dev server and the
  * packaged `file://` build.
  *
- * Vite serves `public/` at the dev-server root (`/new-animation.gif`) but in a
+ * Vite serves `public/` at the dev-server root (`/logo.png`) but in a
  * production build the renderer is loaded from `file://…/dist/index.html`
- * with a relative base (`./`). A hard-coded absolute `"/new-animation.gif"` in JSX
+ * with a relative base (`./`). A hard-coded absolute `"/logo.png"` in JSX
  * is a string literal Vite never rewrites, so under `file://` it resolves to
  * the filesystem root and 404s — that's the broken logos/avatars in the
  * packaged app. Prefixing `import.meta.env.BASE_URL` (`/` in dev, `./` in the

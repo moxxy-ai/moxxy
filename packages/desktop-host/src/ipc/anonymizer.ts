@@ -9,14 +9,15 @@
  *   - `anonymizer.pickDocument`  — native open dialog (remembers the pick so the
  *     follow-up parse is authorized).
  *   - `anonymizer.parseDocument` — read + extract text from the picked/workspace
- *     file. NO provider, NO runner, NO network — only readFile + officeparser
- *     (see {@link parseFileToText}). Provenance-gated before any byte is read.
+ *     file. NO provider, NO runner, NO network — only readFile + local parsers
+ *     (pdfjs for PDFs, officeparser for Office/ODF — see {@link parseFileToText}).
+ *     Provenance-gated before any byte is read.
  *   - `anonymizer.saveRedacted`  — write the redacted text to a user-chosen path
  *     (save dialog only; never auto-writes anywhere).
  */
 
-import { basename } from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { basename, extname } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 
 import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
@@ -26,10 +27,24 @@ import { authorizeAttachments, rememberPickedAttachment } from '../attachment-au
 import { parseFileToText, parseBufferToText } from '../attachments.js';
 import { handle } from './shared';
 
+/** True when these bytes are a PDF (by `%PDF-` magic). */
+function looksLikePdf(buf: Buffer): boolean {
+  return buf.length >= 5 && buf.toString('latin1', 0, 5) === '%PDF-';
+}
+
+/** The error to show when extraction yields nothing — a PDF with no text layer
+ *  is almost always a scan, which only OCR (out of scope) could read. */
+function noTextError(isPdf: boolean): string {
+  return isPdf
+    ? 'No text found in this PDF — it looks like a scanned image (no selectable text). ' +
+        'Scanned documents need OCR, which the offline anonymizer does not do.'
+    : 'Could not extract text from this document.';
+}
+
 /** Document extensions the anonymizer can parse. Mirrors the picker filter and
- *  {@link parseFileToText}'s capabilities (PDF + Office/ODF via officeparser,
- *  legacy `.doc` + `.rtf` via the local recovery helpers, everything else as
- *  UTF-8 text). */
+ *  {@link parseFileToText}'s capabilities (PDF via pdfjs — text layer + AcroForm
+ *  fields, Office/ODF via officeparser, legacy `.doc` + `.rtf` via the local
+ *  recovery helpers, everything else as UTF-8 text). */
 const DOCUMENT_EXTENSIONS = [
   'pdf', 'doc', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp', 'rtf',
   'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'html', 'xml',
@@ -88,7 +103,13 @@ export function registerAnonymizerHandlers(pool: RunnerPool, desks: DeskStore): 
     }
     // No provider, no runner, no network — just local extraction.
     const text = await parseFileToText(path);
-    return text ? { text } : { error: 'Could not extract text from this document.' };
+    if (text) return { text };
+    // Distinguish a scanned PDF (image, no text layer) from a truly unsupported
+    // file so the user knows it isn't a bug.
+    const isPdf =
+      extname(path).toLowerCase() === '.pdf' ||
+      (await readFile(path).then(looksLikePdf).catch(() => false));
+    return { error: noTextError(isPdf) };
   });
 
   handle('anonymizer.parseDocumentBytes', async ({ name, dataBase64 }) => {
@@ -102,7 +123,9 @@ export function registerAnonymizerHandlers(pool: RunnerPool, desks: DeskStore): 
     const buf = Buffer.from(dataBase64, 'base64');
     if (buf.byteLength === 0) return { error: 'The dropped file was empty.' };
     const text = await parseBufferToText(buf, name);
-    return text ? { text } : { error: 'Could not extract text from this document.' };
+    if (text) return { text };
+    const isPdf = extname(name).toLowerCase() === '.pdf' || looksLikePdf(buf);
+    return { error: noTextError(isPdf) };
   });
 
   handle('anonymizer.saveRedacted', async ({ suggestedName, content }) => {

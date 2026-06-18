@@ -51,7 +51,7 @@ export function Shell({
       >
         <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <img
-            src={asset('new-animation.gif')}
+            src={asset('logo.png')}
             alt=""
             aria-hidden
             style={{ height: 40, width: 'auto', objectFit: 'contain', imageRendering: 'pixelated' }}

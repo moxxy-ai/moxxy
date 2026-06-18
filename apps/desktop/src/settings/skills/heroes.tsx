@@ -19,7 +19,7 @@ export function LoadingHero(): JSX.Element {
       }}
     >
       <img
-        src={asset('new-animation.gif')}
+        src={asset('logo.png')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

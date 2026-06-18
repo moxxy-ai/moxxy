@@ -33,7 +33,8 @@
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "officeparser": "~5.1.1"
+    "officeparser": "~5.1.1",
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "@moxxy/testing": "workspace:*",

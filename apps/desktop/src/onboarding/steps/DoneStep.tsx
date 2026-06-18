@@ -25,7 +25,7 @@ export function DoneStep({ onComplete }: { readonly onComplete: () => void }): J
       }}
     >
       <img
-        src={asset('new-animation.gif')}
+        src={asset('logo.png')}
         alt=""
         aria-hidden
         style={{ width: 200, height: 'auto', imageRendering: 'pixelated' }}

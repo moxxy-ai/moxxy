@@ -107,24 +107,26 @@ export function Segmented<T extends string>({
   );
 }
 
-/** The inline grey-track / white-pill row — the un-collapsed look. `navRef`
- *  lets the responsive wrapper read its natural width. */
+/** The inline grey-track / white-pill row — the un-collapsed look. When
+ *  `measureOnly` it is rendered solely so the responsive wrapper can read its
+ *  natural width (the parent hides it): it drops the testids — so they don't
+ *  duplicate the dropdown's — and is taken out of the tab order. */
 function PillRow<T extends string>({
   items,
   value,
   onChange,
   testIdPrefix,
-  navRef,
+  measureOnly = false,
 }: {
   readonly items: ReadonlyArray<{ readonly id: T; readonly label: string }>;
   readonly value: T | null;
   readonly onChange: (id: T) => void;
   readonly testIdPrefix: string;
-  readonly navRef?: React.Ref<HTMLElement>;
+  readonly measureOnly?: boolean;
 }): JSX.Element {
   return (
     <nav
-      ref={navRef}
+      aria-hidden={measureOnly || undefined}
       style={{
         display: 'inline-flex',
         gap: 2,
@@ -139,8 +141,9 @@ function PillRow<T extends string>({
           <button
             key={t.id}
             type="button"
-            data-testid={`${testIdPrefix}${t.id}`}
+            data-testid={measureOnly ? undefined : `${testIdPrefix}${t.id}`}
             data-active={active}
+            tabIndex={measureOnly ? -1 : undefined}
             onClick={() => onChange(t.id)}
             style={pillStyle(active)}
           >
@@ -169,18 +172,22 @@ function pillStyle(active: boolean): React.CSSProperties {
 /**
  * The responsive shell around an inline Segmented row.
  *
- * Fit detection without a duplicate DOM subtree: the live inline row is
- * always rendered first; while it's shown we snapshot its NATURAL width
- * (`scrollWidth`) into a ref. A ResizeObserver on the outer (shrinkable)
- * container then compares that remembered natural width against the available
- * width and flips `collapsed`. Snapshotting the width (rather than re-reading
- * the live row, which shrinks once collapsed) breaks the classic flip-flop
- * loop — the decision input never changes just because we collapsed. When the
- * container later grows back past the natural width we expand and re-snapshot.
+ * Fit detection: the inline row is ALWAYS mounted as a measuring layer at its
+ * natural width (`flex-shrink:0`) inside a shrinkable, clipping outer box whose
+ * width tracks the available slot. `collapsed = row's natural width >
+ * box's available width`. Crucially the measuring layer stays mounted even while
+ * collapsed (hidden via `visibility`, but still laid out), so `available >=
+ * natural` is detected the instant room returns.
  *
- * In a DOM without ResizeObserver (the real renderer's jsdom unit env) it
- * stays expanded — the wide-window default — so the inline tabs render exactly
- * as before and existing tab-by-text/-testid tests keep passing.
+ * This is the fix for the earlier "collapsed all the time / stuck on wide
+ * screens" bug: the previous version unmounted the live row on collapse and
+ * remembered a stale natural width, while the box then shrink-wrapped the small
+ * collapsed button — so `available` looked tiny and it could never tell it would
+ * fit again. Any transient narrow moment (window opening, a resize) wedged it
+ * collapsed forever.
+ *
+ * In a DOM without ResizeObserver (jsdom unit env) it stays expanded — the
+ * wide-window default — so existing tab-by-testid tests keep passing.
  */
 function CollapsibleSegmented<T extends string>({
   items,
@@ -195,43 +202,37 @@ function CollapsibleSegmented<T extends string>({
   readonly testIdPrefix: string;
   readonly collapsedLabel: string;
 }): JSX.Element {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const navRef = useRef<HTMLElement | null>(null);
-  // Last natural (un-squeezed) width of the inline row, captured while it was
-  // displayed. Survives the collapse so the fit decision stays stable.
-  const naturalWidthRef = useRef(0);
+  const outerRef = useRef<HTMLDivElement | null>(null);
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const menuRootRef = useRef<HTMLDivElement | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [open, setOpen] = useState(false);
-  const menuRootRef = useRef<HTMLDivElement | null>(null);
 
-  // Re-evaluate fit on container/window resize and whenever the items change.
+  // Re-evaluate fit on slot/window resize and whenever the items/value change.
   useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const outer = outerRef.current;
+    const measure = measureRef.current;
+    if (!outer || !measure) return;
     if (typeof ResizeObserver === 'undefined') return; // jsdom — stay expanded.
 
     const evaluate = (): void => {
-      // Refresh the remembered natural width whenever the live row is shown.
-      const nav = navRef.current;
-      if (nav) naturalWidthRef.current = nav.scrollWidth;
-      const natural = naturalWidthRef.current;
-      const available = container.clientWidth;
-      // No layout yet (0 widths) → don't collapse. +1 slack absorbs sub-pixel
-      // rounding so we don't collapse on an exact fit.
-      if (natural <= 0 || available <= 0) {
-        setCollapsed(false);
-        return;
-      }
+      // The measuring layer is always mounted at the row's natural width, so
+      // this reads the true content width whether or not we're collapsed; the
+      // outer box's clientWidth is the available slot (it shrinks below content
+      // via min-width:0). +1 slack absorbs sub-pixel rounding.
+      const natural = measure.scrollWidth;
+      const available = outer.clientWidth;
+      if (natural <= 0 || available <= 0) return; // pre-layout — don't flip
       setCollapsed(natural > available + 1);
     };
 
     evaluate();
     const ro = new ResizeObserver(evaluate);
-    ro.observe(container);
+    ro.observe(outer);
     return () => ro.disconnect();
   }, [items, value]);
 
-  // When folded shut, dismiss on outside-click / Escape — matching RailMenu /
+  // When folded open, dismiss on outside-click / Escape — matching RailMenu /
   // the workspace RowMenu anchored-dropdown pattern.
   useEffect(() => {
     if (!open) return;
@@ -249,33 +250,61 @@ function CollapsibleSegmented<T extends string>({
     };
   }, [open]);
 
+  // Close the menu if a resize folds the group back out (the trigger is gone).
+  useEffect(() => {
+    if (!collapsed) setOpen(false);
+  }, [collapsed]);
+
   const activeLabel = items.find((t) => t.id === value)?.label ?? collapsedLabel;
 
   return (
     <div
-      ref={containerRef}
+      ref={outerRef}
       style={{
-        minWidth: 0, // allow the flex item to shrink so width tracks the squeeze
+        position: 'relative',
         display: 'flex',
         alignItems: 'center',
-        // While expanded, clip the inline row to its squeezed box so it can't
-        // spill past the header in the one frame before the observer collapses
-        // it. When collapsed, overflow MUST stay visible — the dropdown is
-        // absolutely positioned below this box.
+        minWidth: 0, // shrink below content so clientWidth tracks the slot, not the row
+        // Clip the natural-width measuring layer when squeezed. Must go visible
+        // once collapsed so the absolutely-positioned dropdown isn't clipped.
         overflow: collapsed ? 'visible' : 'hidden',
       }}
     >
-      {collapsed ? (
+      {/* Always-mounted measuring layer: the real inline row at natural width
+          (flex-shrink:0). Hidden but still laid out when collapsed, so the fit
+          check keeps seeing the true natural width and can re-expand. */}
+      <div
+        ref={measureRef}
+        style={{
+          display: 'flex',
+          flexShrink: 0,
+          visibility: collapsed ? 'hidden' : undefined,
+          pointerEvents: collapsed ? 'none' : undefined,
+        }}
+      >
+        <PillRow
+          items={items}
+          value={value}
+          onChange={onChange}
+          testIdPrefix={testIdPrefix}
+          measureOnly={collapsed}
+        />
+      </div>
+      {collapsed && (
         <div
           ref={menuRootRef}
-          // The header pane sits inside a `transform`ed ancestor, which traps
-          // an absolutely-positioned child's z-index in a local stacking
-          // context. Lift this anchor while open so the dropdown paints ABOVE
-          // the page content instead of being covered. (See the same note on
-          // the workspace RowMenu.)
+          // Absolutely positioned so it does NOT contribute to the outer box's
+          // width — the hidden measuring layer is what defines (and lets us
+          // measure) that. The header sits inside a `transform`ed ancestor,
+          // which traps an absolute child's z-index in a local stacking context,
+          // so lift this anchor while open to paint above page content.
           style={{
-            position: 'relative',
-            display: 'inline-flex',
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
             zIndex: open ? 50 : undefined,
           }}
         >
@@ -290,7 +319,7 @@ function CollapsibleSegmented<T extends string>({
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
-              padding: '7px 12px',
+              padding: '6px 12px',
               fontSize: 13,
               fontWeight: 600,
               borderRadius: 11,
@@ -368,14 +397,6 @@ function CollapsibleSegmented<T extends string>({
             </div>
           )}
         </div>
-      ) : (
-        <PillRow
-          items={items}
-          value={value}
-          onChange={onChange}
-          testIdPrefix={testIdPrefix}
-          navRef={navRef}
-        />
       )}
     </div>
   );

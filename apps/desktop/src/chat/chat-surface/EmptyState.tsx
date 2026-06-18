@@ -12,7 +12,7 @@ export function EmptyState({ ready }: { readonly ready: boolean }): JSX.Element 
     >
       <div>
         <img
-          src={asset('new-animation.gif')}
+          src={asset('logo.png')}
           alt=""
           aria-hidden="true"
           className={ready ? '' : 'moxxy-avatar-loader'}

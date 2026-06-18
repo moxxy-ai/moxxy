@@ -32,6 +32,20 @@ const IMAGE_MEDIA_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
+/** Office / OpenDocument extensions we preview as EXTRACTED TEXT rather than as
+ *  a confirm-gated binary blob (they are zip containers — raw bytes are useless
+ *  to a human). Text is pulled via the same offline parser the anonymizer uses. */
+const OFFICE_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.docx',
+  '.xlsx',
+  '.pptx',
+  '.odt',
+  '.ods',
+  '.odp',
+  '.rtf',
+  '.doc',
+]);
+
 const HIDDEN_PREFIX = '.';
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -107,8 +121,9 @@ export interface ReadFileResult {
 
 /**
  * Read a workspace file for the "Open" viewer, with the SAME cwd-scoping +
- * symlink guard as {@link listDir}. Images render inline; text/code render as
- * UTF-8 (truncated past {@link MAX_READ_BYTES}). Anything that looks binary, or
+ * symlink guard as {@link listDir}. Images + PDFs render inline (base64);
+ * Office/ODF docs render as their EXTRACTED text; text/code render as UTF-8
+ * (truncated past {@link MAX_READ_BYTES}). Anything else that looks binary, or
  * is larger than {@link CONFIRM_BYTES}, returns `kind: 'confirm'` so the UI can
  * ask before opening (a huge blob decoded into the renderer can crash it) — a
  * `force` re-read then decodes it as text anyway. `relPath` must resolve inside
@@ -146,6 +161,27 @@ export async function readFile(
       mediaType: imageType ?? 'application/pdf',
       base64: buf.toString('base64'),
     };
+  }
+
+  // Office / OpenDocument (zip containers): the raw bytes are NUL-heavy binary,
+  // so the generic binary gate would only offer to show garbage. Instead pull
+  // the document's plain text via the offline parser and show THAT. Falls
+  // through to a clear "no preview" confirm if nothing extractable is found.
+  if (OFFICE_EXTENSIONS.has(ext)) {
+    if (byteLength > INLINE_MAX_BYTES && !opts.force) {
+      return { ...base, kind: 'confirm', reason: 'large', content: '', byteLength };
+    }
+    const buf = await fsReadFile(abs);
+    const { parseBufferToText } = await import('./attachments.js');
+    const text = await parseBufferToText(buf, path.basename(abs));
+    if (text && text.trim().length > 0) {
+      const truncated = Buffer.byteLength(text, 'utf8') > MAX_READ_BYTES;
+      const shown = truncated ? text.slice(0, MAX_READ_BYTES) : text;
+      return { ...base, kind: 'text', content: shown, truncated, text: true, byteLength };
+    }
+    // No extractable text (e.g. an image-only PDF or empty doc) — let the user
+    // know rather than dumping zip bytes into a <pre>.
+    return { ...base, kind: 'confirm', reason: 'binary', content: '', byteLength };
   }
 
   // Read only the head window via a handle, so a multi-GB file never loads whole.

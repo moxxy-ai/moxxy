@@ -168,7 +168,7 @@ export function Pulse({ label }: { readonly label: string }): JSX.Element {
       }}
     >
       <img
-        src={asset('new-animation.gif')}
+        src={asset('logo.png')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader moxxy-avatar-loader--sm"

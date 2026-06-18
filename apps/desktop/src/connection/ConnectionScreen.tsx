@@ -83,7 +83,7 @@ export function ConnectionScreen({
         }}
       >
         <img
-          src={asset('new-animation.gif')}
+          src={asset('logo.png')}
           alt=""
           aria-hidden="true"
           style={{ width: 120, height: 'auto', objectFit: 'contain' }}

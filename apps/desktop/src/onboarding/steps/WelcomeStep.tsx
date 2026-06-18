@@ -14,7 +14,7 @@ export function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.El
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 18 }}
     >
       <img
-        src={asset('new-animation.gif')}
+        src={asset('logo.png')}
         alt=""
         aria-hidden
         className="moxxy-avatar-loader"
