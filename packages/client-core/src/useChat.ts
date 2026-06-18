@@ -153,6 +153,12 @@ export function ChatStoreBridge(): null {
         chatStore.setAutoApprove(workspaceId, enabled);
       },
     );
+    const offChatCleared = api().subscribe(
+      'chat.cleared',
+      ({ workspaceId }: { workspaceId: string }) => {
+        chatStore.clearLocal(workspaceId);
+      },
+    );
     const offAsk = wireAskBridge();
     return () => {
       offEvent();
@@ -160,6 +166,7 @@ export function ChatStoreBridge(): null {
       offComplete();
       offModel();
       offAutoApprove();
+      offChatCleared();
       offAsk();
     };
   }, [transportRevision]);

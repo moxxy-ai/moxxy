@@ -15,6 +15,7 @@
  */
 
 import type { RunnerPool } from '../runner-pool';
+import { broadcastHostEvent } from '../event-bus';
 import { handle, resolveSupervisor } from './shared';
 
 /**
@@ -67,6 +68,7 @@ export function registerChatHandlers(pool: RunnerPool): void {
   handle('chat.clearLog', async ({ workspaceId }) => {
     const { clearLog } = await import('../chat-log');
     await clearLog(workspaceId);
+    broadcastHostEvent('chat.cleared', { workspaceId });
   });
   handle('chat.migrate', async ({ workspaces }) => {
     const { migrate } = await import('../chat-log');

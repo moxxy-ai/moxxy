@@ -361,4 +361,30 @@ describe('chatStore initial history loading', () => {
 
     expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
   });
+
+  it('ignores stale initial history that resolves after a remote clear', async () => {
+    const workspaceId = 'session-clear-during-load';
+    const stale = userPrompt('event-stale', 'old history');
+    let resolveLoad:
+      | ((value: { events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }) => void)
+      | null = null;
+    const persistence: ChatPersistence = {
+      loadSegment() {
+        return new Promise((resolve) => {
+          resolveLoad = resolve;
+        });
+      },
+      async append() {},
+      async clear() {},
+    };
+    chatStore.setPersistence(persistence);
+
+    const loading = chatStore.loadInitial(workspaceId);
+    (chatStore as unknown as { clearLocal: (id: string) => void }).clearLocal(workspaceId);
+    resolveLoad?.({ events: [stale], prevCursor: null });
+    await loading;
+
+    expect(chatStore.getChat(workspaceId).events).toEqual([]);
+    expect(chatStore.getChat(workspaceId).loading).toBe(false);
+  });
 });

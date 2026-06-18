@@ -81,6 +81,8 @@ export interface Slot {
   usage: UsageSnapshot;
   /** Manual compaction in flight (composer lock). */
   compacting: boolean;
+  /** Bumped whenever local history is reset so in-flight page loads are ignored. */
+  resetEpoch: number;
 }
 
 export const EMPTY_QUEUE: ReadonlyArray<QueuedTurn> = Object.freeze([]);
@@ -125,6 +127,7 @@ export function createSlot(): Slot {
     loadingOlder: false,
     usage: EMPTY_USAGE,
     compacting: false,
+    resetEpoch: 0,
   };
 }
 

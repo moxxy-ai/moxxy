@@ -309,6 +309,17 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   the live assistant preview as a cheap tail item, and renders chat with `FlatList`
   virtualization.
 
+## 2026-06-18 — cross-surface action clear sync
+
+- **Retired (found + fixed same PR): desktop Actions → Clear/New could leave mobile
+  showing stale chat history.** `chatStore.clear()` cleared the initiating renderer and
+  truncated the host NDJSON log, but there was no host-level event telling other
+  attached clients to drop their local transcript windows. The desktop host now
+  broadcasts `chat.cleared` after `chat.clearLog`, and `ChatStoreBridge` mirrors it with
+  a local-only clear so mobile, desktop, and future WS clients stay in lockstep without
+  echoing another persistence clear. The client store also invalidates in-flight history
+  loads so a stale `chat.loadSegment` response cannot resurrect pre-clear events.
+
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 
 - **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with

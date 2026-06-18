@@ -62,6 +62,8 @@ export interface IpcEvents {
   'session.model.changed': { workspaceId: string; model: string | null };
   /** The shared per-session auto-approve flag changed. */
   'session.autoApprove.changed': { workspaceId: string; enabled: boolean };
+  /** The workspace transcript was cleared by another attached surface. */
+  'chat.cleared': { workspaceId: string };
   /** A turn started from any attached surface. */
   'runner.turn.started': {
     workspaceId: string;

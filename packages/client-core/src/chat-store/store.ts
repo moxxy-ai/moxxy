@@ -291,6 +291,7 @@ class ChatStore {
     slot.loadingInitial = true; // show the spinner while the read is in flight
     slot.snap = null;
     this.emit();
+    const epoch = slot.resetEpoch;
     try {
       // Prefer the runner, but only adopt it as the source if it actually
       // yields RENDERED rows. An empty result — no runner backend, a `<v10`
@@ -298,6 +299,7 @@ class ChatStore {
       // through to the NDJSON mirror so its history is never hidden behind an
       // empty runner session.
       const runner = await this.collectRunnerInitial(workspaceId);
+      if (slot.resetEpoch !== epoch) return;
       if (runner && runner.events.length > 0) {
         slot.historySource = 'runner';
         this.prependFresh(slot, runner.events);
@@ -310,14 +312,18 @@ class ChatStore {
           null,
           INITIAL_WINDOW,
         );
+        if (slot.resetEpoch !== epoch) return;
         slot.loaded = events.length > 0 || prevCursor !== null;
         this.prependFresh(slot, events);
         slot.oldestCursor = prevCursor;
         slot.hasOlder = prevCursor !== null;
       }
     } catch {
-      slot.loaded = false; // allow a retry on the next open
+      if (slot.resetEpoch === epoch) {
+        slot.loaded = false; // allow a retry on the next open
+      }
     } finally {
+      if (slot.resetEpoch !== epoch) return;
       slot.loadingInitial = false;
       slot.snap = null;
       this.emit();
@@ -354,9 +360,11 @@ class ChatStore {
     const slot = this.slots.get(workspaceId);
     if (!slot || !slot.hasOlder || slot.loadingOlder || !this.persistence) return;
     slot.loadingOlder = true;
+    const epoch = slot.resetEpoch;
     try {
       if (slot.historySource === 'runner') {
         const runner = await this.loadRunnerWindow(workspaceId, slot.oldestCursor, OLDER_PAGE);
+        if (slot.resetEpoch !== epoch) return;
         if (runner) {
           this.prependFresh(slot, runner.events);
           slot.oldestCursor = runner.prevCursor;
@@ -371,6 +379,7 @@ class ChatStore {
           slot.oldestCursor,
           OLDER_PAGE,
         );
+        if (slot.resetEpoch !== epoch) return;
         this.prependFresh(slot, events);
         slot.oldestCursor = prevCursor;
         slot.hasOlder = prevCursor !== null;
@@ -378,6 +387,7 @@ class ChatStore {
     } catch {
       /* leave hasOlder set so the user can retry by scrolling */
     } finally {
+      if (slot.resetEpoch !== epoch) return;
       // Reset snap + emit in finally (like loadInitial) so the error path
       // also notifies subscribers — otherwise loadingOlder flips to false
       // with no re-render and the spinner/snapshot can wedge.
@@ -533,17 +543,36 @@ class ChatStore {
   /** Reset a workspace's transcript without removing the workspace. */
   clear(workspaceId: string): void {
     const slot = this.ensure(workspaceId);
-    applyAction(slot.rt, { type: 'clear' });
-    slot.oldestCursor = null;
-    slot.hasOlder = false;
-    slot.usage = EMPTY_USAGE;
-    slot.snap = null;
-    this.unreadDirty = true;
+    this.resetSlot(slot);
     void this.persistence?.clear(workspaceId).catch(() => {});
     this.emit();
   }
 
+  /** Mirror a clear that already happened on another surface / host. */
+  clearLocal(workspaceId: string): void {
+    const slot = this.ensure(workspaceId);
+    this.resetSlot(slot);
+    this.emit();
+  }
+
   // ---- internals ---------------------------------------------------------
+
+  private resetSlot(slot: Slot): void {
+    slot.resetEpoch += 1;
+    applyAction(slot.rt, { type: 'clear' });
+    slot.oldestCursor = null;
+    slot.hasOlder = false;
+    slot.loaded = true;
+    slot.loadingInitial = false;
+    slot.loadingOlder = false;
+    slot.usage = EMPTY_USAGE;
+    slot.compacting = false;
+    slot.snap = null;
+    this.unreadDirty = true;
+    if (this.activeId !== null && this.slots.get(this.activeId) === slot) {
+      slot.lastSeenRev = slot.rt.rev;
+    }
+  }
 
   private ensure(workspaceId: string): Slot {
     let slot = this.slots.get(workspaceId);

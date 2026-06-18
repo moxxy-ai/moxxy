@@ -205,4 +205,32 @@ describe('client bridges after transport replacement', () => {
 
     await waitFor(() => expect(chatStore.getAutoApprove('auto-sync')).toBe(true));
   });
+
+  it('mirrors remote chat clears without echoing another persistence clear', async () => {
+    const bridge = fakeApi('clear-sync');
+    configureTransport(bridge.api);
+    render(<ChatStoreBridge />);
+
+    act(() => {
+      bridge.emit('runner.event', {
+        workspaceId: 'clear-sync',
+        event: userPrompt('clear-sync', 'event-before-clear', 'history that should disappear'),
+      });
+    });
+
+    await waitFor(() =>
+      expect(chatStore.getChat('clear-sync').events).toEqual([
+        expect.objectContaining({ id: 'event-before-clear' }),
+      ]),
+    );
+
+    act(() => {
+      bridge.emit('chat.cleared', { workspaceId: 'clear-sync' });
+    });
+
+    await waitFor(() => expect(chatStore.getChat('clear-sync').events).toEqual([]));
+    expect(bridge.invoke).not.toHaveBeenCalledWith('chat.clearLog', {
+      workspaceId: 'clear-sync',
+    });
+  });
 });
