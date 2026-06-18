@@ -1,5 +1,11 @@
 # @moxxy/mobile-poc
 
+## 0.0.21
+
+### Patch Changes
+
+- @moxxy/client-core@0.8.8
+
 ## 0.0.20
 
 ### Patch Changes

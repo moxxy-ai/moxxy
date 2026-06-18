@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mode-collaborative",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Agentic-collaborative mode: a coordinator that spawns a team of separate agent runner processes (an architect + implementers) working in parallel git worktrees, coordinated via the @moxxy/plugin-collab hub (messages, task board/file-locks, contracts, peer-read, human step-in), then integrates their work with a staged, conflict-resolving merge.",
   "type": "module",
   "main": "./dist/index.js",
