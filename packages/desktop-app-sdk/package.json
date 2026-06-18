@@ -1,0 +1,39 @@
+{
+  "name": "@moxxy/desktop-app-sdk",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The contract for moxxy desktop mini-apps: the moxxy-app.json manifest schema + capability list, the host<->app bridge protocol, and the tiny browser client an app imports to call host services over postMessage. Lets anyone (or an agent) build a sandboxed web app that installs into the desktop Apps gallery.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
