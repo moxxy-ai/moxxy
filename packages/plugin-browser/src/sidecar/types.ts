@@ -66,14 +66,6 @@ export interface RouteHandle {
   continue(): Promise<void>;
 }
 
-/** Minimal slice of a Chrome DevTools Protocol session (Playwright's
- *  `CDPSession`) — used for the live browser-surface screencast. */
-export interface CDPSession {
-  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
-  on(event: string, handler: (params: unknown) => void): void;
-  detach(): Promise<void>;
-}
-
 export interface PlaywrightHandle {
   // Loosely typed so we can avoid importing the playwright types at compile time —
   // they're an optional peer dependency.
@@ -83,8 +75,6 @@ export interface PlaywrightHandle {
     close(): Promise<void>;
     /** Optional because the type is a loose projection; real Playwright contexts always have it. */
     route?(pattern: string, handler: (route: RouteHandle) => Promise<void> | void): Promise<void>;
-    /** Chromium-only CDP session for screencast (the live browser surface). */
-    newCDPSession?(page: PageHandle): Promise<CDPSession>;
   };
   readonly page: PageHandle;
 }
@@ -93,8 +83,21 @@ export function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function badParams(msg: string): Error {
-  const e = new Error(msg);
-  (e as Error & { kind?: string }).kind = 'runtime';
-  return e;
+/**
+ * An error carrying a typed {@link ErrorKind} so the dispatch layer can map it
+ * onto the wire reply's `error.kind` without poking an untyped `kind` property
+ * onto a bare `Error`.
+ */
+export class SidecarError extends Error {
+  constructor(
+    message: string,
+    readonly kind: ErrorKind,
+  ) {
+    super(message);
+    this.name = 'SidecarError';
+  }
+}
+
+export function badParams(msg: string): SidecarError {
+  return new SidecarError(msg, 'runtime');
 }

@@ -1,4 +1,5 @@
 import type { LLMProvider, ModelDescriptor, ProviderEvent, ProviderRequest } from '@moxxy/sdk';
+import { estimateTextTokens } from '@moxxy/sdk';
 import { hashRequest } from './hash.js';
 
 export type ScriptedReply = ReadonlyArray<ProviderEvent>;
@@ -41,12 +42,28 @@ export class FakeProvider implements LLMProvider {
     this.received.push(req);
     this.onRequest?.(req);
     const hash = hashRequest(req);
-    const reply = this.byHash[hash] ?? this.script[this.cursor++];
-    if (!reply) {
-      throw new Error(
-        `FakeProvider: no scripted reply for request (cursor=${this.cursor - 1}, hash=${hash}). ` +
-          `Pass script[] or byHash{} when constructing.`,
-      );
+    // byHash mode is exact-match-or-bust: a non-empty map that lacks this
+    // request's hash is a test-author error, not a cue to fall through to the
+    // script (which would silently consume a cursor slot meant for a different
+    // request and mask the mismatch). Throw without touching the cursor.
+    const known = Object.keys(this.byHash);
+    let reply: ScriptedReply | undefined;
+    if (known.length > 0) {
+      reply = this.byHash[hash];
+      if (!reply) {
+        throw new Error(
+          `FakeProvider: no byHash reply for request (hash=${hash}). ` +
+            `Known hashes: ${known.join(', ')}.`,
+        );
+      }
+    } else {
+      reply = this.script[this.cursor++];
+      if (!reply) {
+        throw new Error(
+          `FakeProvider: no scripted reply for request (cursor=${this.cursor - 1}, hash=${hash}). ` +
+            `Pass script[] or byHash{} when constructing.`,
+        );
+      }
     }
     for (const event of reply) {
       yield event;
@@ -58,7 +75,7 @@ export class FakeProvider implements LLMProvider {
       (req.system ?? '') +
       req.messages.map((m) => m.content.map((c) => ('text' in c ? c.text : JSON.stringify(c))).join('')).join('') +
       (req.tools ?? []).map((t) => t.name + t.description).join('');
-    return Math.ceil(blob.length / 4);
+    return estimateTextTokens(blob);
   }
 
   reset(): void {

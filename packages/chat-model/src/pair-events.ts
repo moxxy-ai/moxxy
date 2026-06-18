@@ -98,7 +98,10 @@ function handleSubagentEvent(
   if (e.subtype === 'subagent_completed') {
     block.completedAtMs = new Date(e.ts).getTime();
     block.stopReason = String(payload.stopReason ?? '');
-    block.tokensUsed = typeof payload.tokensUsed === 'number' ? payload.tokensUsed : 0;
+    // `null` until a total arrives (the type is number | null): a missing
+    // total must stay null so the renderer omits the token segment entirely
+    // rather than showing a misleading "0".
+    block.tokensUsed = typeof payload.tokensUsed === 'number' ? payload.tokensUsed : null;
     const text = typeof payload.text === 'string' ? payload.text : '';
     if (text) block.finalPreview = oneLine(text);
     if (typeof payload.error === 'string') block.error = payload.error;

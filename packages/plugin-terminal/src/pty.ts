@@ -16,7 +16,6 @@
  */
 
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
-import os from 'node:os';
 
 /** Minimal slice of node-pty we use — declared locally so typecheck never needs
  *  `@types/node-pty` (the dep is optional). */
@@ -184,9 +183,4 @@ export async function createTerminalProcess(cwd: string): Promise<TerminalProces
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   return new TerminalProcessImpl('pipe', null, child);
-}
-
-/** Home dir helper for surfaces that want a sane default cwd. */
-export function homeCwd(): string {
-  return os.homedir();
 }

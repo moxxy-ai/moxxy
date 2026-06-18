@@ -1,4 +1,4 @@
-import { isSafeViewUrl } from '@moxxy/sdk';
+import { countNodes, isSafeViewUrl } from '@moxxy/sdk';
 import type {
   AttrSpec,
   ViewDoc,
@@ -502,8 +502,7 @@ export function validateDoc(doc: ViewDoc, allowList: ReadonlyArray<ViewTagSpec>)
   return errors;
 }
 
-/** Count element + text nodes (for tool result `nodeCount`). */
-export function countNodes(node: ViewNode): number {
-  if (node.kind === 'text') return 1;
-  return 1 + node.children.reduce((sum, c) => sum + countNodes(c), 0);
-}
+// Count element + text nodes (for tool result `nodeCount`). The recursion now
+// lives in @moxxy/sdk so core's parser and the plugin-view tool share one
+// implementation; re-exported here to keep core's public export shape.
+export { countNodes };

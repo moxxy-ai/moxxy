@@ -114,10 +114,10 @@ describe('RunnerSupervisor', () => {
   it('restart() waits for the child to exit before letting the loop respawn', async () => {
     const sup = new RunnerSupervisor(path.join(tmp, 'serve.sock'));
     const child = makeFakeChild();
-    // Reach into the private field — the supervisor only ever assigns the
+    // Use the supervisor's test seam — the supervisor only ever assigns the
     // child from its own spawn path, and spawning a real `moxxy serve` in a
     // unit test is exactly what we're avoiding.
-    (sup as unknown as { child: ChildProcess | null }).child = child.proc;
+    sup.__setChildForTest(child.proc);
 
     let settled = false;
     const done = sup.restart().then(() => {
@@ -133,20 +133,16 @@ describe('RunnerSupervisor', () => {
 
     child.exit(0);
     await done;
-    expect(
-      (sup as unknown as { child: ChildProcess | null }).child,
-    ).toBeNull();
+    expect(sup.__childForTest()).toBeNull();
   });
 
   it('restart() resolves immediately when the child has already exited', async () => {
     const sup = new RunnerSupervisor(path.join(tmp, 'serve.sock'));
     const child = makeFakeChild();
     child.exit(0);
-    (sup as unknown as { child: ChildProcess | null }).child = child.proc;
+    sup.__setChildForTest(child.proc);
     await sup.restart();
-    expect(
-      (sup as unknown as { child: ChildProcess | null }).child,
-    ).toBeNull();
+    expect(sup.__childForTest()).toBeNull();
   });
 
   it('surfaces a TERMINAL protocol-incompatible phase instead of looping forever on a persistent mismatch', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect } from 'react';
 import { api } from '@moxxy/client-core';
 import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
 
@@ -9,12 +9,11 @@ import type { DeepLinkPayload } from '@moxxy/desktop-ipc-contract';
  * renderer is listening; {@link DeepLinkBridge} drains the buffer on mount and
  * subscribes for live ones.
  *
- * This is transport only — it records the latest link and a short history so
- * feature code (workspace routing, action handlers) can subscribe later. No
+ * This is transport only — it fans `deepLink:received` out to subscribers so
+ * feature code (workspace routing, action handlers) can wire in later. No
  * routing is wired yet.
  */
 class DeepLinkStore {
-  private last: DeepLinkPayload | null = null;
   private listeners = new Set<() => void>();
 
   subscribe = (fn: () => void): (() => void) => {
@@ -24,13 +23,8 @@ class DeepLinkStore {
     };
   };
 
-  push(link: DeepLinkPayload): void {
-    this.last = link;
+  push(_link: DeepLinkPayload): void {
     for (const l of this.listeners) l();
-  }
-
-  latest(): DeepLinkPayload | null {
-    return this.last;
   }
 }
 
@@ -64,9 +58,4 @@ export function DeepLinkBridge(): null {
   }, []);
 
   return null;
-}
-
-/** Read the most recently received deep-link (or null). For future routing. */
-export function useLatestDeepLink(): DeepLinkPayload | null {
-  return useSyncExternalStore(deepLinkStore.subscribe, () => deepLinkStore.latest());
 }

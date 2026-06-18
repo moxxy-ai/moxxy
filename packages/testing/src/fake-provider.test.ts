@@ -54,6 +54,25 @@ describe('FakeProvider', () => {
     expect(final).toBe('via-hash');
   });
 
+  it('byHash miss throws a byHash error without advancing the cursor', async () => {
+    // A non-empty byHash map that lacks the request's hash is a hard error,
+    // not a cue to fall through to the script — and it must NOT consume a
+    // cursor slot, so a later matching request still resolves.
+    const matching = req();
+    const h = hashRequest(matching);
+    const p = new FakeProvider({ byHash: { [h]: textReply('matched') } });
+
+    const mismatch = { ...req(), system: 'different-system' };
+    await expect(async () => {
+      for await (const _ of p.stream(mismatch)) void _;
+    }).rejects.toThrow(/no byHash reply.*Known hashes:/s);
+
+    // Cursor untouched: the matching request still resolves via byHash.
+    let final = '';
+    for await (const e of p.stream(matching)) if (e.type === 'text_delta') final += e.delta;
+    expect(final).toBe('matched');
+  });
+
   it('records received requests', async () => {
     const p = new FakeProvider({ script: [textReply('x')] });
     const r = req();

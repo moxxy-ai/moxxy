@@ -19,8 +19,3 @@ const ACCENT_HEX: Record<StepKindMeta['accent'], string> = {
 export function accentHex(accent: StepKindMeta['accent']): string {
   return ACCENT_HEX[accent] ?? '#ec4899';
 }
-
-/** A translucent wash of the accent, for node card backgrounds. */
-export function accentWash(accent: StepKindMeta['accent']): string {
-  return `color-mix(in oklab, ${accentHex(accent)} 8%, var(--color-card-bg))`;
-}

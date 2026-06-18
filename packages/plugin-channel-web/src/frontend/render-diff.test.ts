@@ -74,4 +74,13 @@ describe('FileDiffView', () => {
     const html = render({ ...baseDisplay, truncated: true });
     expect(html).toContain('diff truncated');
   });
+
+  it('keeps the compact "+X −Y" count glyph (not the prose fileDiffSummary form)', () => {
+    // The dedup pulls rowsOf/gutter/verb from @moxxy/sdk/tool-display but
+    // deliberately keeps the local plusMinus: the shared fileDiffSummary
+    // renders "Added N lines, removed M line", which this header must NOT use.
+    const html = render(baseDisplay);
+    expect(html).toContain('+2 −1');
+    expect(html).not.toContain('Added 2 lines');
+  });
 });

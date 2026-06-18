@@ -1,3 +1,4 @@
+import { assertNever } from '@moxxy/sdk';
 import type {
   MoxxyRequirement,
   RequirementCheck,
@@ -52,13 +53,6 @@ export interface RequirementRegistryOptions {
     list(): ReadonlyArray<SynthesizerDef>;
     getActiveName(): string | null;
   };
-}
-
-export function formatRequirementIssues(check: RequirementCheck): string {
-  return check.issues
-    .filter((issue) => !issue.requirement.optional)
-    .map((issue) => issue.message)
-    .join('; ');
 }
 
 interface RegisteredPlugin {
@@ -197,6 +191,8 @@ export class RequirementRegistry {
       }
       case 'runtime':
         return null;
+      default:
+        return assertNever(kind);
     }
   }
 }

@@ -228,6 +228,46 @@ describe('provider_test', () => {
   });
 });
 
+describe('onInit logger guard', () => {
+  // A registry whose register() always throws drives onInit down its per-entry
+  // catch → log?.warn path. These tests pin the runtime guard that replaced the
+  // old ad-hoc `(ctx as { logger?: … }).logger` structural cast.
+  class ThrowingRegistry extends FakeRegistry {
+    override register(): void {
+      throw new Error('boom');
+    }
+  }
+
+  beforeEach(async () => {
+    await fs.writeFile(
+      cfgPath,
+      JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }),
+      'utf8',
+    );
+  });
+
+  it('warns through a conforming host logger', async () => {
+    const warn = vi.fn();
+    const plugin = buildProviderAdminPlugin({ providerRegistry: new ThrowingRegistry(), configPath: cfgPath });
+    await plugin.hooks!.onInit!({ logger: { warn } } as never);
+    expect(warn).toHaveBeenCalledWith(
+      'provider-admin: failed to register "zai"',
+      expect.any(Object),
+    );
+  });
+
+  it('ignores a non-conforming logger instead of crashing', async () => {
+    const plugin = buildProviderAdminPlugin({ providerRegistry: new ThrowingRegistry(), configPath: cfgPath });
+    // `logger.warn` is a string, not a function — the guard must reject it
+    // (a blanket cast would have called a non-function and thrown).
+    await expect(
+      plugin.hooks!.onInit!({ logger: { warn: 'nope' } } as never),
+    ).resolves.toBeUndefined();
+    // A ctx with no logger at all is likewise a clean no-op.
+    await expect(plugin.hooks!.onInit!({} as never)).resolves.toBeUndefined();
+  });
+});
+
 describe('onInit', () => {
   it('re-registers everything stored on disk', async () => {
     // Pre-seed providers.json the way it would look after a previous session.

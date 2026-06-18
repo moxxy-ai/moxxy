@@ -3,7 +3,6 @@ import {
   STEP_KINDS,
   stepKindMeta,
   uniqueId,
-  WORKFLOW_ERROR_KEY,
   wouldCreateCycle,
   type BuilderAction,
   type BuilderEdge,
@@ -266,6 +265,15 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     if (rejectTimer.current) clearTimeout(rejectTimer.current);
     rejectTimer.current = setTimeout(() => setReject(null), 2600);
   }, []);
+
+  // Clear a pending reject-flash timer on unmount so it can't fire setReject
+  // after the canvas is gone.
+  useEffect(
+    () => () => {
+      if (rejectTimer.current) clearTimeout(rejectTimer.current);
+    },
+    [],
+  );
 
   // --- node move (body drag) ---
   const onBodyPointerDown = useCallback(
@@ -1326,5 +1334,3 @@ function preview(text: string): string {
 function labelOf(node: BuilderNode): string {
   return node.label || node.id;
 }
-
-export { WORKFLOW_ERROR_KEY };

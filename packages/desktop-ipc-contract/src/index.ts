@@ -1082,35 +1082,6 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'workflows.resume',
 ]);
 
-/**
- * @deprecated Use {@link REMOTE_ALLOWED_COMMANDS} — enforcement is now
- * allow-by-default-deny, not blocklist-based. Retained for UI affordance-gating:
- * a renderer can still read this to gray out the host-only controls it shows. It
- * is the set of commands the desktop renderer surfaces that are NOT in the remote
- * allow-list (the native pickers, focus-window control, app relaunch, and the
- * gateway-control commands), so its prior consumers keep working. The WS bus no
- * longer consults it — anything outside {@link REMOTE_ALLOWED_COMMANDS} is
- * refused, this set or not.
- */
-export const REMOTE_DISALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcCommandName>([
-  'desks.pickFolder',
-  'session.pickAttachment',
-  'focus.close',
-  'focus.restoreMain',
-  'focus.resize',
-  'app.relaunch',
-  // Installs + relaunches the host app — host-only, like app.relaunch (and a
-  // remote client must never be able to make the host swap its own binary).
-  'app.updateShell',
-  // Bridge control: a remote client driving over the WS bridge must never be
-  // able to toggle the gateway off, read the pairing token, or rotate it (which
-  // would let it lock out the host or hand itself a fresh credential). These are
-  // reachable only over the in-process Electron transport.
-  'mobileGateway.status',
-  'mobileGateway.setEnabled',
-  'mobileGateway.rotateToken',
-]);
-
 // ---------- Shape the preload exposes on `window.moxxy` -------------------
 
 export type SubscribeFn = <K extends keyof IpcEvents>(

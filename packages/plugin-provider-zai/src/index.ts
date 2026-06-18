@@ -1,10 +1,6 @@
 import { defineProvider, definePlugin } from '@moxxy/sdk';
-import {
-  OpenAIProvider,
-  validateOpenAICompatKey,
-  type OpenAIProviderConfig,
-} from '@moxxy/plugin-provider-openai';
-import { AnthropicProvider, type AnthropicProviderConfig } from '@moxxy/plugin-provider-anthropic';
+import { OpenAIProvider, validateOpenAICompatKey } from '@moxxy/plugin-provider-openai';
+import { AnthropicProvider } from '@moxxy/plugin-provider-anthropic';
 import { glmModels } from './models.js';
 
 export { glmModels };
@@ -16,6 +12,27 @@ const ZAI_ANTHROPIC_BASE_URL = 'https://api.z.ai/api/anthropic';
 const ZAI_DEFAULT_MODEL = 'glm-4.6';
 
 /**
+ * Narrow the registry's untyped `Record<string, unknown>` config down to the
+ * handful of optional string fields both the OpenAI and Anthropic z.ai modes
+ * actually forward (`apiKey`/`baseURL`/`defaultModel`). A blanket
+ * `config as XProviderConfig` would silently smuggle through any wrong-typed
+ * field; this pick keeps only known-good strings so a bad value falls back to
+ * the z.ai defaults below instead of reaching the underlying client.
+ */
+function pickZaiConfig(config: Record<string, unknown>): {
+  readonly apiKey?: string;
+  readonly baseURL?: string;
+  readonly defaultModel?: string;
+} {
+  const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+  return {
+    apiKey: str(config.apiKey),
+    baseURL: str(config.baseURL),
+    defaultModel: str(config.defaultModel),
+  };
+}
+
+/**
  * z.ai in "API key" mode: the standard, pay-as-you-go endpoint, which speaks
  * the OpenAI Chat Completions protocol. Reuses the shared {@link OpenAIProvider}
  * with the vendor slug + base URL + GLM catalog forced on (so usage stats,
@@ -25,9 +42,9 @@ export const zaiProviderDef = defineProvider({
   name: 'zai',
   models: [...glmModels],
   createClient: (config) => {
-    const cfg = config as OpenAIProviderConfig;
+    const cfg = pickZaiConfig(config);
     return new OpenAIProvider({
-      ...cfg,
+      apiKey: cfg.apiKey,
       name: 'zai',
       baseURL: cfg.baseURL ?? ZAI_OPENAI_BASE_URL,
       defaultModel: cfg.defaultModel ?? ZAI_DEFAULT_MODEL,
@@ -53,9 +70,9 @@ export const zaiCodingPlanProviderDef = defineProvider({
   name: 'zai-coding-plan',
   models: [...glmModels],
   createClient: (config) => {
-    const cfg = config as AnthropicProviderConfig;
+    const cfg = pickZaiConfig(config);
     return new AnthropicProvider({
-      ...cfg,
+      apiKey: cfg.apiKey,
       name: 'zai-coding-plan',
       baseURL: cfg.baseURL ?? ZAI_ANTHROPIC_BASE_URL,
       defaultModel: cfg.defaultModel ?? ZAI_DEFAULT_MODEL,

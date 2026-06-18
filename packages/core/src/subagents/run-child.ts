@@ -24,7 +24,6 @@
 
 import type {
   EmittedEvent,
-  EventLogReader,
   ModeContext,
   MoxxyEvent,
   SessionId,
@@ -90,7 +89,7 @@ export async function runChildTurn(args: {
   const toolRegistry: ToolRegistry =
     spec.allowedTools && spec.allowedTools.length > 0
       ? buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools))
-      : (parentSession.tools as unknown as ToolRegistry);
+      : parentSession.tools;
 
   const childModel = await resolveChildModel(rt, spec, label, childSessionId);
 
@@ -382,7 +381,7 @@ function buildChildContext(
     provider: parentSession.providers.getActive(),
     tools: toolRegistry,
     skills: parentSession.skills,
-    log: childLog as unknown as EventLogReader,
+    log: childLog,
     compactor: parentSession.compactors.getActive(),
     cacheStrategy: parentSession.cacheStrategies.getActive(),
     ...(parentSession.elisionSettings ? { elision: parentSession.elisionSettings } : {}),

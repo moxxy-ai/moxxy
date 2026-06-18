@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { WorkflowsView, WorkflowSummaryView } from '@moxxy/sdk';
+import { truncate, oneLine } from '@moxxy/chat-model';
 import { Colors } from '../theme.js';
 import { Modal } from './Modal.js';
 import { useScrollableList } from './useScrollableList.js';
@@ -216,7 +217,7 @@ export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose })
               {wf.enabled ? '● ' : '○ '}
             </Text>
             <Box width={NAME_COL}>
-              <Text bold={focused}>{truncate(wf.name, NAME_COL - 1)}</Text>
+              <Text bold={focused}>{truncate(wf.name, NAME_COL - 2)}</Text>
             </Box>
             <Box width={SCOPE_COL}>
               <Text dimColor>{wf.scope}</Text>
@@ -255,12 +256,4 @@ export const WorkflowsPanel: React.FC<WorkflowsPanelProps> = ({ view, onClose })
 
 function stepMark(status: string): string {
   return status === 'completed' ? '✓' : status === 'skipped' ? '–' : status === 'failed' ? '✗' : '·';
-}
-
-function oneLine(s: string): string {
-  return s.replace(/[\r\n\t]+/g, ' ').replace(/  +/g, ' ').trim();
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + '…';
 }

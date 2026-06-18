@@ -264,6 +264,18 @@ describe('helpers', () => {
     expect(compareSemver('33.4.11-beta.1', '33.4.11')).toBe(0);
   });
 
+  it('compareSemver returns 0 for same-core tags differing only by build/prerelease suffix', () => {
+    // The tie the release-resolver's `.sort(compareSemver)` must break: two tags
+    // with the same major.minor.patch but a differing `+build` (or prerelease)
+    // suffix compare EQUAL here, so the sort alone leaves their order
+    // unspecified. Any caller picking "the highest tag" must add a secondary
+    // tie-break (e.g. `|| aTag.localeCompare(bTag)`) at the sort site to make
+    // the chosen tag deterministic.
+    expect(compareSemver('1.0.0', '1.0.0+build')).toBe(0);
+    expect(compareSemver('1.0.0+build', '1.0.0')).toBe(0);
+    expect(compareSemver('1.0.0+a', '1.0.0+b')).toBe(0);
+  });
+
   it('isCompatible needs both the Electron floor and an exact ABI', () => {
     const m = manifestFor('0.0.6');
     expect(isCompatible(m, SHELL)).toBe(true);

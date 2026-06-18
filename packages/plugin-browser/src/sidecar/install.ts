@@ -6,6 +6,7 @@
 
 import { spawn } from 'node:child_process';
 import { assertPublicUrl } from '../ssrf-guard.js';
+import { SidecarError } from './types.js';
 import type { BrowserKind, BrowserType, PageHandle, PlaywrightHandle } from './types.js';
 
 export interface LaunchResult {
@@ -22,12 +23,11 @@ export async function importPlaywright(): Promise<{
   try {
     return (await import('playwright')) as never;
   } catch (err) {
-    const e = new Error(
+    throw new SidecarError(
       `Playwright is not installed. Run \`pnpm add playwright\` (or \`npm i playwright\`) and then \`npx playwright install\` in the moxxy install dir.\n` +
         `Underlying: ${err instanceof Error ? err.message : String(err)}`,
+      'init',
     );
-    (e as Error & { kind?: string }).kind = 'init';
-    throw e;
   }
 }
 
@@ -56,12 +56,11 @@ export async function launchWithAutoInstall(
       await runPlaywrightInstall(which);
     } catch (installErr) {
       const msg = installErr instanceof Error ? installErr.message : String(installErr);
-      const e = new Error(
+      throw new SidecarError(
         `Playwright browser auto-install failed: ${msg}. ` +
           `Run \`npx playwright install ${which}\` manually in the moxxy dir.`,
+        'init',
       );
-      (e as Error & { kind?: string }).kind = 'init';
-      throw e;
     }
     process.stderr.write(`moxxy-browser: install complete, retrying launch\n`);
     return {

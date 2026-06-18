@@ -81,3 +81,21 @@ describe('sidecar dispatch goto SSRF guard', () => {
     expect(gotos).toEqual(['https://example.com/']);
   });
 });
+
+describe('sidecar dispatch removed screencast methods', () => {
+  // The CDP screencast push path was orphaned by the PR #205 polling revert and
+  // deleted. Its former methods must now fall through to the default branch and
+  // report `unknown method` (not silently succeed). Uses a pre-seeded handle so
+  // we never reach `ensurePlaywright` / a real Playwright import.
+  it.each(['startScreencast', 'stopScreencast'])(
+    'reports %s as an unknown method',
+    async (method) => {
+      const { handle } = makeFakeHandle();
+      const state: SidecarState = { handle, pendingInstallNotice: null };
+      const reply = (await dispatch(state, { id: 'r1', method, params: {} })) as Err;
+      expect(reply.ok).toBe(false);
+      expect(reply.error.kind).toBe('runtime');
+      expect(reply.error.message).toBe(`unknown method: ${method}`);
+    },
+  );
+});

@@ -89,8 +89,16 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
           const vh = last?.height ?? 720;
           if (msg.type === 'navigate' && typeof msg.url === 'string') {
             // The sidecar's goto re-runs the SSRF guard (loopback/private/
-            // metadata blocked), so a hostile URL never navigates.
-            await browserSidecarCall('goto', { url: msg.url }, deps).catch(() => undefined);
+            // metadata blocked), so a hostile URL never navigates. Unlike the
+            // pointer/key proxies below, a navigate rejection is user-meaningful
+            // (bad URL format, SSRF block) — surface it as a status line instead
+            // of swallowing it, so the user knows why the address bar did nothing.
+            try {
+              await browserSidecarCall('goto', { url: msg.url }, deps);
+            } catch (err) {
+              const text = err instanceof Error ? err.message : String(err);
+              emit({ type: 'status', text });
+            }
             void tick();
           } else if (msg.type === 'click' && typeof msg.fx === 'number' && typeof msg.fy === 'number') {
             await browserSidecarCall('mouse', { x: msg.fx * vw, y: msg.fy * vh }, deps).catch(() => undefined);

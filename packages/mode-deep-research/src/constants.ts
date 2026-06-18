@@ -116,9 +116,6 @@ Be tight. Do not narrate your process.`;
 /** Refuse plans larger than this in the initial round — guards against runaway fan-out cost. */
 export const MAX_SUBAGENTS = 6;
 
-/** Minimum subagents for fan-out to make sense; below this we still run, just smaller. */
-export const MIN_SUBAGENTS = 1;
-
 /** Maximum follow-up rounds after the initial gathering. */
 export const MAX_FOLLOWUP_ROUNDS = 2;
 
@@ -128,8 +125,6 @@ export const MAX_FOLLOWUPS_PER_ROUND = 4;
 export const MAX_REDRAFTS = 3;
 
 export const SUBAGENT_MAX_ITERATIONS = 40;
-export const PLANNING_MAX_ITERATIONS = 3;
-export const SYNTHESIS_MAX_ITERATIONS = 8;
 
 /**
  * Tools each subagent is allowed to call. Constrained to read-only web +

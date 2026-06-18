@@ -1,10 +1,10 @@
 import {
+  countNodes,
   defineTool,
   definePlugin,
   z,
   type Plugin,
   type ViewDoc,
-  type ViewNode,
   type ViewRendererDef,
 } from '@moxxy/sdk';
 
@@ -29,11 +29,6 @@ export interface BuildViewPluginOptions {
   getRenderer: () => ViewRendererDef | null;
   /** Returns the live web surface, if one is co-attached. */
   getSurface?: () => ViewSurface | null;
-}
-
-function countNodes(node: ViewNode): number {
-  if (node.kind === 'text') return 1;
-  return 1 + node.children.reduce((sum, c) => sum + countNodes(c), 0);
 }
 
 export function buildViewPlugin(opts: BuildViewPluginOptions): Plugin {

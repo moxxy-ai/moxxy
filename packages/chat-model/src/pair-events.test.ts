@@ -418,6 +418,18 @@ describe('pairToolEvents — subagent lifecycle accretion', () => {
     expect(isSettled(sub)).toBe(true);
   });
 
+  it('leaves tokensUsed null when subagent_completed carries no total', () => {
+    // A missing total must stay null (not collapse to 0) so the renderer omits
+    // the token segment rather than showing a misleading "0".
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'agent' }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn' }),
+    ]);
+    const sub = asSubagent(blocks[0]);
+    expect(sub.tokensUsed).toBeNull();
+    expect(sub.completedAtMs).not.toBeNull();
+  });
+
   it('marks a running subagent as not settled until it completes', () => {
     const blocks = pairToolEvents([
       subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'agent' }),

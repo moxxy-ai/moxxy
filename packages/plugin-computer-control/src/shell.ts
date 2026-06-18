@@ -89,61 +89,6 @@ export function runProcess(
   });
 }
 
-/** Same as runProcess but returns the captured stdout as a Buffer.
- *  Used by the screenshot tool to preserve binary PNG bytes. */
-export function runProcessBinary(
-  cmd: string,
-  args: ReadonlyArray<string>,
-  opts: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
-): Promise<{ exitCode: number; stdout: Buffer; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, [...args], { stdio: ['ignore', 'pipe', 'pipe'] });
-    const chunks: Buffer[] = [];
-    let stderr = '';
-    let settled = false;
-
-    const onAbort = (): void => {
-      if (settled) return;
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        /* ignore */
-      }
-    };
-    opts.signal?.addEventListener('abort', onAbort, { once: true });
-
-    const timer = opts.timeoutMs
-      ? setTimeout(() => {
-          if (settled) return;
-          try {
-            child.kill('SIGTERM');
-          } catch {
-            /* ignore */
-          }
-        }, opts.timeoutMs)
-      : null;
-
-    child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
-    });
-    child.once('error', (err) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
-      reject(err);
-    });
-    child.once('close', (code) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
-      resolve({ exitCode: code ?? -1, stdout: Buffer.concat(chunks), stderr });
-    });
-  });
-}
-
 /** Throw a clear error when a tool is invoked on a non-darwin host. */
 export function ensureDarwin(toolName: string): void {
   if (!IS_DARWIN) {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { Skill, SkillScope } from '@moxxy/sdk';
+import { truncate, oneLine } from '@moxxy/chat-model';
 import { Modal, type ModalTab } from './Modal.js';
 import { useScrollableList } from './useScrollableList.js';
 
@@ -109,7 +110,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ skills, mcpServers, on
           <Box key={row.key}>
             <Text {...(focused ? {} : { dimColor: true })}>{focused ? '› ' : '  '}</Text>
             <Box width={NAME_COL}>
-              <Text bold>{truncate(row.name, NAME_COL - 1)}</Text>
+              <Text bold>{truncate(row.name, NAME_COL - 2)}</Text>
             </Box>
             <Box width={SCOPE_COL}>
               <Text dimColor>{row.scope}</Text>
@@ -153,12 +154,4 @@ function orderByScope(skills: ReadonlyArray<Skill>): Skill[] {
     out.push(...list);
   }
   return out;
-}
-
-function oneLine(s: string): string {
-  return s.replace(/[\r\n\t]+/g, ' ').replace(/  +/g, ' ').trim();
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + '…';
 }

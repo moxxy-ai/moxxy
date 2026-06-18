@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import type { useSettings } from '@moxxy/client-core';
 import { TabHeader } from '../TabHeader';
-import { EmptyState } from '../settings-primitives';
+import { EmptyState, SearchBox } from '../settings-primitives';
 
 export function SkillGallery({
   skills,
@@ -54,34 +54,7 @@ export function SkillGallery({
       />
 
       {skills.length > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 9,
-            padding: '9px 12px',
-            background: 'var(--color-surface)',
-            border: '1px solid var(--color-card-border)',
-            borderRadius: 10,
-          }}
-        >
-          <Icon name="search" size={15} style={{ color: 'var(--color-text-dim)', flexShrink: 0 }} />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search skills…"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              fontSize: 13,
-              color: 'var(--color-text)',
-            }}
-          />
-        </div>
+        <SearchBox value={query} onChange={setQuery} placeholder="Search skills…" />
       )}
 
       {skills.length === 0 ? (

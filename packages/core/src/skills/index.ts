@@ -6,7 +6,6 @@ export {
   type SkillLoadOptions,
   type DiscoveredSkill,
 } from './loader.js';
-export { SkillRouter, buildSkillIndexPrompt, type SkillMatch, type RouterOptions } from './router.js';
 export {
   synthesizeSkill,
   buildSynthesizeSkillPlugin,

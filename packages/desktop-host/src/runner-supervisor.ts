@@ -163,6 +163,24 @@ export class RunnerSupervisor extends EventEmitter {
     return this.cwd;
   }
 
+  /**
+   * TEST SEAM ONLY. Inject a child handle so the teardown paths
+   * (`restart`/`setCwd`/`resetSession`/`stop`) can be exercised against a fake
+   * `ChildProcess` without spawning a real `moxxy serve`. Production code never
+   * calls this — the supervisor only ever assigns `child` from its own spawn
+   * path. Exists so tests don't poke the private field via
+   * `(sup as unknown as { child }).child =` (invariant #10).
+   */
+  __setChildForTest(proc: ChildProcess | null): void {
+    this.child = proc;
+  }
+
+  /** TEST SEAM ONLY — read back the child handle set/cleared by the teardown
+   *  paths, without reaching into the private field. */
+  __childForTest(): ChildProcess | null {
+    return this.child;
+  }
+
   snapshot(): ConnectionSnapshot {
     return {
       phase: this.currentPhase,

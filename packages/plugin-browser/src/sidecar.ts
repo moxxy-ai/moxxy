@@ -16,6 +16,7 @@
  */
 
 import * as readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { dispatch, teardown, type SidecarState } from './sidecar/dispatch.js';
 import { errMsg, type Reply, type Req } from './sidecar/types.js';
 
@@ -85,38 +86,58 @@ function startParentWatchdog(): void {
 
 let queue: Promise<void> = Promise.resolve();
 
+/**
+ * Parse one input line and chain its dispatch onto the serial request queue.
+ * `out` is the sink for replies (real run: {@link write}; tests inject a stub).
+ * Exported so a test can drive the queue without spinning up the whole stdio
+ * loop. Returns the queue tail so callers can await it.
+ *
+ * The `.catch` on the chained link is load-bearing: a throw from `out` (e.g. a
+ * broken stdout pipe) would otherwise reject `queue` permanently and strand
+ * EVERY subsequent request, since each link chains off the previous one.
+ * Swallow it here — after emitting a best-effort error reply — so the next
+ * request still serves.
+ */
+export function enqueueLine(line: string, out: (reply: Reply) => void): Promise<void> {
+  if (!line.trim()) return queue;
+  let req: Req;
+  try {
+    req = JSON.parse(line) as Req;
+  } catch {
+    out({ id: 'unknown', ok: false, error: { message: 'invalid JSON', kind: 'runtime' } });
+    return queue;
+  }
+  if (!req.id || !req.method) {
+    out({
+      id: req.id ?? 'unknown',
+      ok: false,
+      error: { message: 'request requires { id, method }', kind: 'runtime' },
+    });
+    return queue;
+  }
+  // Sequentially serve requests on the single page. Parent can pipeline by
+  // sending more requests; we serialize them inside the sidecar so a goto
+  // doesn't race a click.
+  queue = queue
+    .then(async () => {
+      const reply = await dispatch(state, req);
+      out(reply);
+    })
+    .catch((err) => {
+      try {
+        out({ id: req.id, ok: false, error: { message: errMsg(err), kind: 'runtime' } });
+      } catch {
+        /* stdout is gone too — nothing left to do but keep the queue alive */
+      }
+    });
+  return queue;
+}
+
 async function main(): Promise<void> {
   startParentWatchdog();
-  // Lets dispatch handlers push unsolicited event lines (no `id`) — the live
-  // browser surface's screencast frames ride this channel.
-  state.emit = (event) => {
-    process.stdout.write(JSON.stringify(event) + '\n');
-  };
   const rl = readline.createInterface({ input: process.stdin });
   rl.on('line', (line) => {
-    if (!line.trim()) return;
-    let req: Req;
-    try {
-      req = JSON.parse(line) as Req;
-    } catch {
-      write({ id: 'unknown', ok: false, error: { message: 'invalid JSON', kind: 'runtime' } });
-      return;
-    }
-    if (!req.id || !req.method) {
-      write({
-        id: req.id ?? 'unknown',
-        ok: false,
-        error: { message: 'request requires { id, method }', kind: 'runtime' },
-      });
-      return;
-    }
-    // Sequentially serve requests on the single page. Parent can pipeline by
-    // sending more requests; we serialize them inside the sidecar so a goto
-    // doesn't race a click.
-    queue = queue.then(async () => {
-      const reply = await dispatch(state, req);
-      write(reply);
-    });
+    void enqueueLine(line, write);
   });
   rl.once('close', () => {
     void shutdownAndExit(0);
@@ -131,7 +152,10 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((err) => {
-  process.stderr.write(`sidecar fatal: ${errMsg(err)}\n`);
-  void shutdownAndExit(1);
-});
+// Auto-run only when executed as the bin script — not when imported (tests).
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch((err) => {
+    process.stderr.write(`sidecar fatal: ${errMsg(err)}\n`);
+    void shutdownAndExit(1);
+  });
+}

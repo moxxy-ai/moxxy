@@ -20,6 +20,7 @@ import {
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { Icon } from '@moxxy/desktop-ui';
 import { FileDiffBlock } from './blocks/FileDiffBlock';
+import { preStyle, pretty } from './blocks/block-shared';
 
 type SkillScope = Extract<FoldedBlock, { kind: 'skill-scope' }>;
 
@@ -205,26 +206,4 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
       )}
     </li>
   );
-}
-
-const preStyle: React.CSSProperties = {
-  margin: 0,
-  padding: '8px 10px',
-  background: 'var(--color-surface)',
-  border: '1px solid var(--color-card-border)',
-  borderRadius: 6,
-  fontSize: 11,
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-  maxHeight: 280,
-  overflow: 'auto',
-};
-
-function pretty(value: unknown): string {
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }

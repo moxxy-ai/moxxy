@@ -232,7 +232,13 @@ export function readConfirmed(userDataDir: string): string | null {
   }
 }
 
-/** Numeric major.minor.patch compare (ignores any prerelease/build suffix). */
+/** Numeric major.minor.patch compare (ignores any prerelease/build suffix).
+ *  Intentionally a dependency-free duplicate of @moxxy/sdk's `compareSemver`:
+ *  this module is baked into the immutable desktop bootstrap and MUST NOT import
+ *  @moxxy/sdk's barrel (node built-ins only, see the file header). Keep the two
+ *  in sync by hand. NOTE: returns 0 for same-core tags that differ only in their
+ *  prerelease/build suffix (e.g. `1.0.0` vs `1.0.0+build`), so any caller that
+ *  sorts tags must add a deterministic tie-break at the sort site. */
 export function compareSemver(a: string, b: string): number {
   const parse = (s: string): number[] =>
     (s.split('-')[0] ?? '')

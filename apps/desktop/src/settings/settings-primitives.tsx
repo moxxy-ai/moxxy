@@ -96,14 +96,12 @@ export function Row({
   title,
   subtitle,
   trailing,
-  mono,
   testId,
 }: {
   readonly tile: React.ReactNode;
   readonly title: string;
   readonly subtitle?: string;
   readonly trailing?: React.ReactNode;
-  readonly mono?: boolean;
   readonly testId?: string;
 }): JSX.Element {
   return (
@@ -122,7 +120,6 @@ export function Row({
       {tile}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
-          className={mono ? 'mono' : undefined}
           style={{
             fontSize: 14,
             fontWeight: 600,

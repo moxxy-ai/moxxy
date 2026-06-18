@@ -67,6 +67,8 @@ export class SessionPersistence {
   private readonly logPath: string;
   private meta: SessionMeta;
   private indexUpdateScheduled = false;
+  /** Handle for the in-flight debounce timer, so `flush()` can cancel it. */
+  private indexTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * In-flight writes are serialized through this mutex so the file
    * stays append-ordered even when events arrive faster than the disk
@@ -128,10 +130,32 @@ export class SessionPersistence {
       this.closed = true;
       unsub();
       unsubClear();
-      // Flush a final index write so lastActivity reflects the close
-      // time even if no events arrived in the last debounce window.
+      // Schedule a final index write so lastActivity reflects the close time
+      // even if no events arrived in the last debounce window. This is the
+      // best-effort, fire-and-forget path; the debounce timer is `unref`'d, so
+      // a process that exits immediately after detach would drop it. Shutdown
+      // paths that MUST not lose the final row should `await persistence.flush()`
+      // instead — it bypasses the debounce and resolves once the row is on disk.
       this.scheduleIndexWrite();
     };
+  }
+
+  /**
+   * Force the pending (debounced) index write to happen now and resolve once
+   * the meta sidecar is on disk. Cancels the in-flight debounce timer so the
+   * write isn't also re-run on its original schedule. Intended for awaitable
+   * shutdown: `detach()` only *schedules* the final write (an `unref`'d timer
+   * an immediate `process.exit` can drop), whereas `await flush()` guarantees
+   * it completed. The steady-state debounce in `scheduleIndexWrite` is
+   * untouched, so calling this mid-session just collapses the next write early.
+   */
+  async flush(): Promise<void> {
+    if (this.indexTimer) {
+      clearTimeout(this.indexTimer);
+      this.indexTimer = null;
+    }
+    this.indexUpdateScheduled = false;
+    await this.writeIndex();
   }
 
   /**
@@ -225,16 +249,26 @@ export class SessionPersistence {
     // 250ms debounce — fast enough that the picker stays current,
     // slow enough that a chatty turn doesn't rewrite the index per
     // assistant_chunk.
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       this.indexUpdateScheduled = false;
+      this.indexTimer = null;
       void this.writeIndex();
-    }, 250).unref?.();
+    }, 250);
+    timer.unref?.();
+    this.indexTimer = timer;
   }
 
   private async writeIndex(): Promise<void> {
     try {
-      await this.ensureDir();
-      await this.ensureLogFile();
+      // Once closed (the final detach/flush write), don't re-create the dir or
+      // log file: `attach` already made them, and resurrecting a directory a
+      // concurrent `deleteSession`/teardown is removing would leave a stray
+      // sidecar behind. A live session still ensures both so an early write
+      // can't race the initial `ensureDir`.
+      if (!this.closed) {
+        await this.ensureDir();
+        await this.ensureLogFile();
+      }
       // Write ONLY this session's sidecar (`<id>.meta.json`), never a
       // read-modify-write of a shared index.json — that loses rows when two
       // moxxy processes update "their" row concurrently (each reads the index,

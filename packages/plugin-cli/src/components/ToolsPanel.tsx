@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { ToolDef } from '@moxxy/sdk';
+import { truncate, oneLine } from '@moxxy/chat-model';
 import { Colors } from '../theme.js';
 import { Modal, type ModalTab } from './Modal.js';
 import { useScrollableList } from './useScrollableList.js';
@@ -123,7 +124,7 @@ const ToolRow: React.FC<{ tool: ToolDef; focused: boolean }> = ({ tool, focused 
     <Box>
       <Text {...(focused ? {} : { dimColor: true })}>{focused ? '› ' : '  '}</Text>
       <Box width={NAME_COL}>
-        <Text bold>{truncate(tool.name, NAME_COL - 1)}</Text>
+        <Text bold>{truncate(tool.name, NAME_COL - 2)}</Text>
       </Box>
       <Box width={BADGE_COL}>
         <PermissionBadge action={perm} />
@@ -140,11 +141,3 @@ const PermissionBadge: React.FC<{ action: 'allow' | 'deny' | 'prompt' }> = ({ ac
   if (action === 'deny') return <Text color={Colors.danger}>[deny] </Text>;
   return <Text color={Colors.busy}>[prompt]</Text>;
 };
-
-function oneLine(s: string): string {
-  return s.replace(/[\r\n\t]+/g, ' ').replace(/  +/g, ' ').trim();
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : s.slice(0, n - 1) + '…';
-}

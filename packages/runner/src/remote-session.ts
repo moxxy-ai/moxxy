@@ -108,6 +108,16 @@ class TurnStream {
   }
 }
 
+/**
+ * How many buffered fast-turn completions to retain. The server fans
+ * `turn.complete` out to every client, so an observer that never runs the turn
+ * itself would grow {@link RemoteSession.completedTurns} unbounded without this
+ * cap. A real fast-turn completion is drained by `runTurn` within a tick, so the
+ * window only ever holds genuine, soon-to-be-consumed entries plus a little
+ * slack for observed (foreign) turns; dropping the oldest is always safe.
+ */
+const MAX_COMPLETED_TURNS = 64;
+
 export interface RemoteSessionOptions {
   readonly socketPath?: string;
   /** Channel role attaching, for the runner's logs. */
@@ -182,6 +192,14 @@ export class RemoteSession implements ClientSession {
    * finish. We record it here and apply it the moment the stream registers -
    * otherwise the stream would hang forever. Maps turnId -> error (or
    * undefined for a clean finish).
+   *
+   * Bounded (insertion-ordered, drop-oldest — same shape as
+   * {@link DeliveryDedupeCache} in plugin-webhooks): the server broadcasts
+   * `turn.complete` to EVERY attached client, so an observer that never calls
+   * `runTurn` for a turn (the desktop watching a TUI-driven session) would
+   * otherwise accumulate an entry per turn forever. Only the last
+   * {@link MAX_COMPLETED_TURNS} are kept; a legit fast-turn completion is
+   * consumed within a tick of arriving, so it is never the one evicted.
    */
   private readonly completedTurns = new Map<TurnId, string | undefined>();
   private permissionResolver: PermissionResolver | null = null;
@@ -214,7 +232,7 @@ export class RemoteSession implements ClientSession {
       const stream = this.turnStreams.get(turnId as TurnId);
       if (stream) stream.finish(error);
       // Record regardless: the stream may not be registered yet (fast turn).
-      else this.completedTurns.set(turnId as TurnId, error);
+      else this.recordCompletedTurn(turnId as TurnId, error);
     });
     this.peer.on(RunnerNotification.InfoChanged, (params) => {
       this.info = (params as InfoChangedNotification).info;
@@ -276,6 +294,9 @@ export class RemoteSession implements ClientSession {
     this.peer.onClose(() => {
       for (const stream of this.turnStreams.values()) stream.finish('runner disconnected');
       this.turnStreams.clear();
+      // Drop any buffered fast-turn completions too — there is no surviving
+      // `runTurn` left to consume them, so retaining them only leaks.
+      this.completedTurns.clear();
     });
 
     this.providers = this.makeProvidersView();
@@ -291,6 +312,24 @@ export class RemoteSession implements ClientSession {
     this.mcpAdmin = this.makeMcpAdminView();
     this.providerAdmin = this.makeProviderAdminView();
     this.workflows = this.makeWorkflowsView();
+  }
+
+  /**
+   * Buffer a completion whose `runTurn` stream isn't registered yet (fast turn)
+   * or that belongs to a turn this client only observes. Bounded, insertion-
+   * ordered drop-oldest — mirrors {@link DeliveryDedupeCache}: re-insert on
+   * update so a refreshed entry is the youngest, then evict the oldest once over
+   * {@link MAX_COMPLETED_TURNS}. A pending fast-turn entry is drained by
+   * `runTurn` within a tick, so it can't be the one evicted under normal load.
+   */
+  private recordCompletedTurn(turnId: TurnId, error: string | undefined): void {
+    // Map preserves insertion order; delete-then-set keeps recency accurate.
+    this.completedTurns.delete(turnId);
+    this.completedTurns.set(turnId, error);
+    if (this.completedTurns.size > MAX_COMPLETED_TURNS) {
+      const oldest = this.completedTurns.keys().next();
+      if (!oldest.done) this.completedTurns.delete(oldest.value);
+    }
   }
 
   /**
@@ -958,7 +997,7 @@ async function maybeRecoverFromMismatch(
  *  swallowed so a partial environment (no `lsof`, no permission to
  *  kill, etc.) still progresses through the rest of the recovery.
  */
-export async function killAndUnlinkRunner(
+async function killAndUnlinkRunner(
   socketPath: string,
   ports: ReadonlyArray<number> = DEFAULT_RUNNER_PORTS,
 ): Promise<void> {

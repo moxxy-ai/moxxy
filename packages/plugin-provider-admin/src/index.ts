@@ -18,6 +18,25 @@ import {
 } from './store.js';
 import type { StoredProvider } from './types.js';
 
+/** Logger surface this plugin opportunistically uses if the host wires one. */
+interface WarnLogger {
+  warn(msg: string, meta?: unknown): void;
+}
+
+/**
+ * `AppContext` doesn't declare a `logger` (warnings are best-effort), but some
+ * hosts attach one. Narrow with a runtime guard rather than asserting its shape
+ * via a blanket cast, so a non-conforming `logger` is simply ignored.
+ */
+function getWarnLogger(ctx: unknown): WarnLogger | undefined {
+  if (typeof ctx !== 'object' || ctx === null) return undefined;
+  const candidate = (ctx as { logger?: unknown }).logger;
+  if (typeof candidate === 'object' && candidate !== null && typeof (candidate as WarnLogger).warn === 'function') {
+    return candidate as WarnLogger;
+  }
+  return undefined;
+}
+
 export { providersConfigPath, readProvidersConfig, upsertStoredProvider, removeStoredProvider };
 export type { StoredProvider, StoredProviderOpenAICompat, StoredProvidersConfig } from './types.js';
 export { buildProviderDef, validateOpenAICompatKey } from './factory.js';
@@ -313,12 +332,12 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
     ],
     hooks: {
       onInit: async (ctx) => {
-        const log = (ctx as { logger?: { warn: (msg: string, meta?: unknown) => void } }).logger;
+        const log = getWarnLogger(ctx);
         let cfg;
         try {
           cfg = await readProvidersConfig(configPath);
         } catch (err) {
-          log?.warn?.('provider-admin: failed to read providers.json', {
+          log?.warn('provider-admin: failed to read providers.json', {
             err: err instanceof Error ? err.message : String(err),
           });
           return;
@@ -330,7 +349,7 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
             if (already) providerRegistry.replace(def);
             else providerRegistry.register(def);
           } catch (err) {
-            log?.warn?.(`provider-admin: failed to register "${entry.name}"`, {
+            log?.warn(`provider-admin: failed to register "${entry.name}"`, {
               err: err instanceof Error ? err.message : String(err),
             });
           }
