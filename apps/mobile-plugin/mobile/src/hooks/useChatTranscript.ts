@@ -1,8 +1,16 @@
+import { useMemo } from 'react';
 import type { MobileState } from '../protocol';
-import { buildChatTranscript } from '../chatTranscript';
+import { appendStreamingTranscript, buildCommittedChatTranscript } from '../chatTranscript';
 
 export function useChatTranscript(state: MobileState) {
-  const items = buildChatTranscript(state.chatEvents, state.streamingText);
+  const committedItems = useMemo(
+    () => buildCommittedChatTranscript(state.chatEvents),
+    [state.chatEvents],
+  );
+  const items = useMemo(
+    () => appendStreamingTranscript(committedItems, state.streamingText),
+    [committedItems, state.streamingText],
+  );
   return {
     items,
     events: state.chatEvents,

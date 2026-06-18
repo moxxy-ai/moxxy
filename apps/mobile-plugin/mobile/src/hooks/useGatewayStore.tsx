@@ -16,12 +16,12 @@ import {
 } from '@moxxy/client-core';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
-import { buildChatTranscript } from '../chatTranscript';
 import type { MobileWorkflow } from './useWorkflows';
 import { useAutoApprove } from './useAutoApprove';
 import { useCompactContext } from './useCompactContext';
 import { useComposer } from './useComposer';
 import { useGoals } from './useGoals';
+import { useChatTranscript } from './useChatTranscript';
 import { createDisabledModelSelector, useModelSelector } from './useModelSelector';
 import { usePairing, type PairingState } from './usePairing';
 import { usePermissions } from './usePermissions';
@@ -45,6 +45,7 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
   const session = useSessionSnapshot(state);
   const sessions = useSessions(state, sendFrame);
   const permissions = usePermissions(state, sendFrame);
+  const chatTranscript = useChatTranscript(state);
   const compact = useCompactContext({
     workspaceId: null,
     readOnly: true,
@@ -82,15 +83,7 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
     }),
     compact,
     chat: {
-      items: buildChatTranscript([], ''),
-      events: [],
-      streamingText: '',
-      sending: false,
-      activeTurnId: null,
-      queue: [],
-      compacting: false,
-      usage: null,
-      isEmpty: true,
+      ...chatTranscript,
       hasOlder: false,
       loadOlder: () => undefined,
     },
@@ -287,6 +280,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const session = useSessionSnapshot(state);
   const sessions = useSessions(state, sendFrame);
   const permissions = usePermissions(state, sendFrame);
+  const chatTranscript = useChatTranscript(state);
   const compact = useCompactContext({
     workspaceId: state.activeWorkspaceId,
     readOnly: state.session?.readOnly === true,
@@ -329,15 +323,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     }),
     compact,
     chat: {
-      items: buildChatTranscript(state.chatEvents, state.streamingText),
-      events: state.chatEvents,
-      streamingText: state.streamingText,
-      sending: state.sending,
-      activeTurnId: state.activeTurnId,
-      queue: state.queue,
-      compacting: state.compacting,
-      usage: state.usage,
-      isEmpty: state.chatEvents.length === 0 && state.streamingText.length === 0,
+      ...chatTranscript,
       hasOlder: coreChat.hasOlder,
       loadOlder: coreChat.loadOlder,
     },

@@ -108,6 +108,12 @@ export function buildChatTranscript(
   events: ReadonlyArray<Record<string, unknown>>,
   streamingText = '',
 ): TranscriptItem[] {
+  return appendStreamingTranscript(buildCommittedChatTranscript(events), streamingText);
+}
+
+export function buildCommittedChatTranscript(
+  events: ReadonlyArray<Record<string, unknown>>,
+): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   const itemIdCounts = new Map<string, number>();
   let assistantStreamId: string | null = null;
@@ -326,17 +332,27 @@ export function buildChatTranscript(
   flushTools();
   flushSystem();
 
+  return items;
+}
+
+export function appendStreamingTranscript(
+  items: ReadonlyArray<TranscriptItem>,
+  streamingText = '',
+): TranscriptItem[] {
   if (streamingText.trim().length > 0) {
-    pushItem({
-      id: 'assistant-stream:external',
-      kind: 'assistant',
-      label: 'Assistant',
-      text: streamingText,
-      streaming: true,
-    });
+    return [
+      ...items,
+      {
+        id: 'assistant-stream:external',
+        kind: 'assistant',
+        label: 'Assistant',
+        text: streamingText,
+        streaming: true,
+      },
+    ];
   }
 
-  return items;
+  return items as TranscriptItem[];
 }
 
 function isSubagentPluginEvent(event: Record<string, unknown>): boolean {

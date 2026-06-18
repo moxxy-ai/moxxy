@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { ScrollView } from 'react-native';
+import type { FlatList } from 'react-native';
 import type { TranscriptItem } from '../chatTranscript';
 
 export interface ChatListAutoScrollState {
@@ -52,7 +52,7 @@ export function consumeChatListContentSizeScroll(state: ChatListAutoScrollState)
 }
 
 export function useChatListAutoScroll(items: ReadonlyArray<TranscriptItem>, sending: boolean) {
-  const scrollRef = useRef<ScrollView | null>(null);
+  const scrollRef = useRef<FlatList<TranscriptItem> | null>(null);
   const contentKey = useMemo(() => buildChatListAutoScrollKey(items, sending), [items, sending]);
   const autoScrollStateRef = useRef(createChatListAutoScrollState(contentKey));
   autoScrollStateRef.current = reduceChatListAutoScrollState(autoScrollStateRef.current, contentKey);

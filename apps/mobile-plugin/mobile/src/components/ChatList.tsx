@@ -1,12 +1,13 @@
 import {
+  FlatList,
   Pressable,
-  ScrollView,
   Text,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type ListRenderItem,
 } from 'react-native';
-import { useCallback, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { summarizeAttachment } from '@/attachments';
 import type {
   AssistantTranscriptItem,
@@ -51,34 +52,46 @@ export function ChatList({
       onLoadOlder?.();
     }
   }, [hasOlder, onLoadOlder]);
+  const renderItem = useCallback<ListRenderItem<TranscriptItem>>(({ item }) => (
+    <MemoMessageBlock
+      item={item}
+      copied={copiedMessageId === item.id}
+      onCopyMessage={onCopyMessage}
+    />
+  ), [copiedMessageId, onCopyMessage]);
+  const keyExtractor = useCallback((item: TranscriptItem) => item.id, []);
+  const empty = useCallback(() => (
+    <View className="mt-20">
+      <Text className="text-[27px] font-black leading-9 text-text">Moxxy Mobile</Text>
+      <Text className="mt-3 text-[16px] leading-7 text-muted">
+        Wybierz sesję z menu albo napisz wiadomość, żeby sterować tym samym runtime z telefonu.
+      </Text>
+    </View>
+  ), []);
+  const footer = useCallback(
+    () => (shouldShowThinkingIndicator({ items, sending }) ? <ThinkingIndicator /> : null),
+    [items, sending],
+  );
+
   return (
-    <ScrollView
+    <FlatList
       ref={autoScroll.scrollRef}
+      data={items}
+      renderItem={renderItem}
+      keyExtractor={keyExtractor}
+      ListEmptyComponent={empty}
+      ListFooterComponent={footer}
       className="flex-1"
-      contentContainerClassName="gap-4 px-5 pb-5 pt-20"
       contentContainerStyle={{ gap: 16, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 82 }}
+      initialNumToRender={14}
+      maxToRenderPerBatch={10}
       onContentSizeChange={autoScroll.handleContentSizeChange}
       onScroll={handleScroll}
+      removeClippedSubviews
       scrollEventThrottle={80}
-    >
-      {items.length === 0 ? (
-        <View className="mt-20">
-          <Text className="text-[27px] font-black leading-9 text-text">Moxxy Mobile</Text>
-          <Text className="mt-3 text-[16px] leading-7 text-muted">
-            Wybierz sesję z menu albo napisz wiadomość, żeby sterować tym samym runtime z telefonu.
-          </Text>
-        </View>
-      ) : null}
-      {items.map((item) => (
-        <MessageBlock
-          key={item.id}
-          item={item}
-          copied={copiedMessageId === item.id}
-          onCopyMessage={onCopyMessage}
-        />
-      ))}
-      {shouldShowThinkingIndicator({ items, sending }) ? <ThinkingIndicator /> : null}
-    </ScrollView>
+      updateCellsBatchingPeriod={32}
+      windowSize={9}
+    />
   );
 }
 
@@ -169,6 +182,8 @@ function MessageBlock({
     </View>
   );
 }
+
+const MemoMessageBlock = memo(MessageBlock);
 
 function MessageAttachmentChip({ attachment }: { readonly attachment: PromptAttachment }) {
   const summary = summarizeAttachment(attachment);

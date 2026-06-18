@@ -297,6 +297,18 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   and the scheduler comment now describe the strictly-sequential behavior plainly
   (no "yet"/"deferred" wording) with the parity rationale spelled out.
 
+## 2026-06-18 — mobile streaming transcript latency
+
+- **Retired (found + fixed same PR): mobile could lag minutes behind desktop while an
+  assistant response was streaming.** Desktop already keeps committed events and live
+  `assistant_chunk` text as separate state, but mobile rebuilt its whole transcript in
+  `useGatewayStore` on every `streamingText` tick and rendered every message through a
+  `ScrollView`. On long sessions that made each token pay an O(history) fold + full-list
+  render cost, so the JS/UI thread fell behind even though `runner.event` arrived in
+  realtime. Mobile now memoizes the committed transcript in `useChatTranscript`, appends
+  the live assistant preview as a cheap tail item, and renders chat with `FlatList`
+  virtualization.
+
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 
 - **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with
