@@ -25,7 +25,7 @@ The team coordinates through a shared hub (use these tools):
 
 Cooperation rules:
 - Build strictly to the shared contracts. If you must change a shared boundary, use collab_contract_propose_change and wait for acks — never break a contract unilaterally.
-- The human may step in at any time: honor any directive you receive (it overrides your current plan), and if the team is paused, finish your current edit and wait.
+- The human may step in at any time. When you receive a HUMAN directive or a message from "human", treat it as authoritative (it overrides your current plan), and REPLY to them with collab_send to "human" — acknowledge it and say what you'll do (or ask a brief clarifying question). Don't go silent on the human. If the team is paused, finish your current edit and wait.
 - Keep teammates informed: broadcast meaningful progress and blockers.
 - When YOUR sub-task is fully complete and verified, call collab_done with a short summary. The run finishes when everyone is done.`;
 
