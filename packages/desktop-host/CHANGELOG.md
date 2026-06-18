@@ -1,5 +1,15 @@
 # @moxxy/desktop-host
 
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies [6c48c28]
+- Updated dependencies [6c48c28]
+  - @moxxy/desktop-app-sdk@0.2.0
+  - @moxxy/core@0.3.0
+  - @moxxy/runner@0.2.11
+
 ## 0.7.4
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @moxxy/plugin-provider-google
 
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies [6c48c28]
+  - @moxxy/plugin-provider-openai@0.1.0
+
 ## 0.0.9
 
 ### Patch Changes
