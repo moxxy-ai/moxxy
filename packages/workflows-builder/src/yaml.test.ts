@@ -85,6 +85,24 @@ describe('yaml codec — parser-only branches (canonical host YAML)', () => {
     expect(foldStrip.p).toBe('one two');
   });
 
+  it('strips block indent by the MINIMUM body indent, preserving deeper lines (u129-5)', () => {
+    // A literal block where a sub-line is indented MORE than its siblings: the
+    // extra indentation is content and must survive. Anchoring on the first
+    // line's indent did this; the regression risk was a line indented LESS
+    // than the first (below) getting its content sliced.
+    const nested = fromYaml('p: |-\n  root\n    deeper\n  back\n') as { p: string };
+    expect(nested.p).toBe('root\n  deeper\nback');
+  });
+
+  it('does not slice into a body line shallower than the first (u129-5)', () => {
+    // First body line indented 4, a later line indented 2. With first-line
+    // anchoring, `slice(4)` would eat 2 chars of the shallower line's content
+    // ("xx" -> ""). Min-indent (2) keeps both lines intact.
+    const yaml = 'p: |-\n    aaaa\n  xxyy\n';
+    const parsed = fromYaml(yaml) as { p: string };
+    expect(parsed.p).toBe('  aaaa\nxxyy');
+  });
+
   it('unquotes a single-quoted scalar with a doubled-quote escape', () => {
     const parsed = fromYaml("msg: 'it''s fine'\n") as { msg: string };
     expect(parsed.msg).toBe("it's fine");

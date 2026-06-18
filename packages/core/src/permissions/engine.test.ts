@@ -79,6 +79,19 @@ describe('PermissionEngine', () => {
     expect(e.check(call('Bash', { cmd: 'ls [' }))).toBeNull();
   });
 
+  it('inputMatches against a structured (object/array) field matches its JSON form', () => {
+    // u40-4: a structured tool-input field used to coerce to '[object Object]',
+    // so an inputMatches regex could never match it. It is now JSON-serialized.
+    const e = new PermissionEngine({
+      allow: [],
+      deny: [{ name: 'shell', inputMatches: { argv: '"--force"' } }],
+    });
+    // The deny rule matches the serialized array element.
+    expect(e.check(call('shell', { argv: ['rm', '--force'] }))?.mode).toBe('deny');
+    // …and does not match an argv without it.
+    expect(e.check(call('shell', { argv: ['ls', '-la'] }))).toBeNull();
+  });
+
   it('valid-regex deny rule still behaves exactly as before', () => {
     const e = new PermissionEngine({
       allow: [],

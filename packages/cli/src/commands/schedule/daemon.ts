@@ -65,21 +65,28 @@ async function runDaemonBackground(): Promise<number> {
 async function runDaemonForeground(): Promise<number> {
   // Boot a full session and idle while the poller (installed by the
   // scheduler plugin's onInit hook) ticks.
-  const { session, scheduler } = await setupSessionWithConfig({ cwd: process.cwd() });
+  const { session } = await setupSessionWithConfig({ cwd: process.cwd() });
   process.stdout.write(
     `${colors.bold('scheduler daemon')}  ${colors.dim('provider=' + (session.providers.getActiveName() ?? '(none)'))}\n` +
       colors.dim('                 ^C to stop. Schedules fire while this process is alive.\n'),
   );
   let stopRequested = false;
-  const shutdown = async (): Promise<void> => {
+  const shutdown = async (signal: string): Promise<void> => {
     if (stopRequested) return;
     stopRequested = true;
+    // Guarantee exit even if a hung onShutdown hook stalls close() — mirrors
+    // serve.ts so a stuck close can't strand the process.
+    const force = setTimeout(() => process.exit(0), 4000);
+    force.unref?.();
     process.stdout.write('\nstopping scheduler…\n');
-    await scheduler.poller.stop();
+    // session.close() dispatches every plugin's onShutdown hook — the scheduler
+    // poller, the webhooks listener, vault flush, etc. Stopping only the poller
+    // here would leak the webhooks port and skip graceful teardown.
+    await session.close(signal).catch(() => undefined);
     process.exit(0);
   };
-  process.on('SIGINT', () => void shutdown());
-  process.on('SIGTERM', () => void shutdown());
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
   // Idle forever — the poller uses unref'd timers, so we need a
   // long-lived handle to keep the event loop alive. setInterval at
   // a long cadence costs nothing.

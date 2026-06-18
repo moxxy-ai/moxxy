@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Text, useInput } from 'ink';
 import type { PendingToolCall, PermissionDecision } from '@moxxy/sdk';
 import { Colors } from '../theme.js';
@@ -29,10 +29,6 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({
     else if (ch === 'p') onDecide({ mode: 'allow_always' });
     else if (ch === 'n' || key.escape) onDecide({ mode: 'deny', reason: 'user declined' });
   });
-
-  useEffect(() => {
-    // Auto-focus the dialog by capturing input on mount; useInput handles it.
-  }, []);
 
   const title =
     queueDepth > 0

@@ -140,50 +140,69 @@ export function buildWorkflowRunner(args: {
    */
   async function resumeNow(runId: string, reply: string): Promise<WorkflowRunResult> {
     const checkpoint = await defaultWorkflowRunStore.load(runId);
-    const turnId = session.startTurn().turnId;
-    const spawner = createSubagentSpawner({
-      parentSession: session,
-      parentTurnId: turnId,
-      parentSignal: session.signal,
-      parentModel: activeModel(session),
-    });
-    const result = await resumeWorkflowRun(
-      runId,
-      reply,
-      {
-        spawner,
-        tools: session.tools,
-        lookup: {
-          skill: (n) => session.skills.byName(n),
-          workflow: (n) => store.lookup(n),
-        },
-        signal: session.signal,
-        now: () => Date.now(),
-        emit: (subtype, payload) =>
-          void session.log.append({
-            type: 'plugin_event',
-            sessionId: session.id,
-            turnId,
-            source: 'plugin',
-            pluginId: PLUGIN_ID,
-            subtype,
-            payload,
-          } as EmittedEvent),
-        ...(logger ? { logger } : {}),
-      },
-      defaultWorkflowRunStore,
-    );
-    // A still-paused result (a second awaitInput) is non-terminal — withhold it
-    // exactly like runNow. A completed/failed result IS terminal: deliver it.
-    if (result.status === 'paused') {
-      logger?.warn?.('workflows: run paused again awaiting operator input; not delivering to inbox', {
-        runId: result.runId,
-      });
-      return result;
+    // Apply the same in-flight guard as runNow, keyed by the checkpoint's
+    // workflow name: a resume drives the rest of the DAG (and delivers to the
+    // inbox), so letting it race a concurrent runNow of the same workflow would
+    // run two executions at once — doubling side effects and inbox deliveries.
+    const name = checkpoint?.workflow?.name;
+    if (name && inFlight.has(name)) {
+      return {
+        ok: false,
+        status: 'failed',
+        steps: [],
+        output: '',
+        error: `workflow "${name}" is already running`,
+      };
     }
-    // Resolve the workflow name from the checkpoint for inbox delivery metadata.
-    if (checkpoint?.workflow) await deliverToInbox(checkpoint.workflow, result, logger);
-    return result;
+    if (name) inFlight.add(name);
+    try {
+      const turnId = session.startTurn().turnId;
+      const spawner = createSubagentSpawner({
+        parentSession: session,
+        parentTurnId: turnId,
+        parentSignal: session.signal,
+        parentModel: activeModel(session),
+      });
+      const result = await resumeWorkflowRun(
+        runId,
+        reply,
+        {
+          spawner,
+          tools: session.tools,
+          lookup: {
+            skill: (n) => session.skills.byName(n),
+            workflow: (n) => store.lookup(n),
+          },
+          signal: session.signal,
+          now: () => Date.now(),
+          emit: (subtype, payload) =>
+            void session.log.append({
+              type: 'plugin_event',
+              sessionId: session.id,
+              turnId,
+              source: 'plugin',
+              pluginId: PLUGIN_ID,
+              subtype,
+              payload,
+            } as EmittedEvent),
+          ...(logger ? { logger } : {}),
+        },
+        defaultWorkflowRunStore,
+      );
+      // A still-paused result (a second awaitInput) is non-terminal — withhold it
+      // exactly like runNow. A completed/failed result IS terminal: deliver it.
+      if (result.status === 'paused') {
+        logger?.warn?.('workflows: run paused again awaiting operator input; not delivering to inbox', {
+          runId: result.runId,
+        });
+        return result;
+      }
+      // Resolve the workflow name from the checkpoint for inbox delivery metadata.
+      if (checkpoint?.workflow) await deliverToInbox(checkpoint.workflow, result, logger);
+      return result;
+    } finally {
+      if (name) inFlight.delete(name);
+    }
   }
 
   return { runNow, resumeNow };

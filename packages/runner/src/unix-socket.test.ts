@@ -44,6 +44,25 @@ describe('unix-socket transport (NDJSON framing)', () => {
     expect(await gotOnClient).toEqual({ reply: true });
   });
 
+  it('onConnection is single-handler, last-write-wins (u121-3)', async () => {
+    const socketPath = tmpSocket();
+    const server = await createUnixSocketServer(socketPath);
+    servers.push(server);
+
+    let firstCalls = 0;
+    server.onConnection(() => {
+      firstCalls += 1;
+    });
+    // A second register replaces the first — no fan-out.
+    const secondSaw = new Promise<Transport>((resolve) => server.onConnection(resolve));
+
+    const client = await connectUnixSocket(socketPath);
+    transports.push(client);
+    await secondSaw;
+
+    expect(firstCalls).toBe(0); // the replaced handler never fired
+  });
+
   it('preserves order and boundaries for several frames sent back-to-back', async () => {
     const socketPath = tmpSocket();
     const server = await createUnixSocketServer(socketPath);

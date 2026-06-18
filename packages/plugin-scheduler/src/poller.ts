@@ -10,14 +10,36 @@ import type { ScheduleEntry, ScheduleStore } from './store.js';
  * <= now. A one-shot schedule is due iff `runAt <= now`. Disabled
  * schedules are never due.
  */
+/**
+ * The instant a cron schedule's next fire is computed *from*: its last run,
+ * or — if it has never run — its creation time. Anchoring at `createdAt`
+ * (not `now`) is what lets a schedule created during downtime catch up: the
+ * first fire that fell in the gap is still in the past relative to the
+ * baseline, so it's due immediately. Both `isDue` (the firing decision) and
+ * `describeEntry` (the displayed next-fire) MUST use this same baseline or
+ * the UI's next-fire contradicts when the poller actually fires.
+ */
+export function cronBaseline(entry: ScheduleEntry): number {
+  return entry.lastRunAt ?? entry.createdAt;
+}
+
+/**
+ * The next fire-time of a cron schedule from its baseline, or null for a
+ * non-cron / structurally-impossible expression. Shared so the poller's
+ * `isDue` and the tools' `describeEntry` agree on a single answer.
+ */
+export function nextCronFire(entry: ScheduleEntry): Date | null {
+  if (!entry.cron) return null;
+  return nextFireTime(entry.cron, new Date(cronBaseline(entry)), entry.timeZone);
+}
+
 export function isDue(entry: ScheduleEntry, now: number): boolean {
   if (!entry.enabled) return false;
   if (entry.runAt && !entry.cron) {
     return entry.runAt <= now;
   }
   if (!entry.cron) return false;
-  const since = entry.lastRunAt ?? entry.createdAt;
-  const next = nextFireTime(entry.cron, new Date(since), entry.timeZone);
+  const next = nextCronFire(entry);
   if (!next) return false;
   return next.getTime() <= now;
 }
@@ -94,23 +116,12 @@ export class SchedulerPoller {
   }
 
   /** Fire any due schedules right now, ignoring the timer cadence.
-   *  Returns the number of schedules that ran. */
+   *  Returns the number of due schedules that were attempted — counted at the
+   *  attempt point, so a schedule that fired but failed mid-run (e.g. a
+   *  store.update throw) is still counted, unlike piggy-backing on onFired
+   *  (which only fires on a clean run). */
   async tickOnce(): Promise<number> {
-    let count = 0;
-    const original = this.opts.onFired;
-    let wrapped: SchedulerPollerOptions['onFired'];
-    if (original) {
-      wrapped = (entry, outcome) => {
-        count += 1;
-        original(entry, outcome);
-      };
-    } else {
-      wrapped = () => {
-        count += 1;
-      };
-    }
-    await this.tickWith(wrapped);
-    return count;
+    return this.tickWith(this.opts.onFired);
   }
 
   private async tick(): Promise<void> {
@@ -118,7 +129,7 @@ export class SchedulerPoller {
     await this.tickWith(this.opts.onFired);
   }
 
-  private async tickWith(onFired: SchedulerPollerOptions['onFired']): Promise<void> {
+  private async tickWith(onFired: SchedulerPollerOptions['onFired']): Promise<number> {
     const now = Date.now();
     // Reconcile skill-driven schedules first so edits/deletes to skill
     // frontmatter propagate every tick (not only on skill_created / boot).
@@ -138,10 +149,16 @@ export class SchedulerPoller {
       this.opts.logger?.error?.('scheduler: failed to read store', {
         err: err instanceof Error ? err.message : String(err),
       });
-      return;
+      return 0;
     }
+    let attempted = 0;
     for (const entry of schedules) {
       if (!isDue(entry, now)) continue;
+      // Count the attempt BEFORE running so a schedule that genuinely fired
+      // but failed mid-run (e.g. store.update throws) is still reflected in
+      // the returned count — the figure means "due-and-attempted", not "ran
+      // cleanly".
+      attempted += 1;
       try {
         const outcome = await runSchedule(entry, this.opts.runner, this.opts.store, this.opts.inbox);
         this.opts.logger?.info?.('scheduler: fired', {
@@ -157,5 +174,6 @@ export class SchedulerPoller {
         });
       }
     }
+    return attempted;
   }
 }

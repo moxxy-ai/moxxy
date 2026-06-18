@@ -196,7 +196,14 @@ async function compactSession(session: unknown) {
       ...result,
     } as EmittedEvent;
     await s.log.append(emittable);
-    const compactedEvents = result.replacedRange[1] - result.replacedRange[0] + 1;
+    // `replacedRange` is an INCLUSIVE [fromSeq, toSeq] of event `seq` VALUES,
+    // not array indices — and `seq === arrayIndex` is not guaranteed for
+    // mirrors/partial views. Differencing the seqs would OVERSTATE the count
+    // across any seq gap. Count the events actually inside the range instead.
+    const [fromSeq, toSeq] = result.replacedRange;
+    const compactedEvents = events.filter(
+      (e) => e.seq >= fromSeq && e.seq <= toSeq,
+    ).length;
     return {
       kind: 'text' as const,
       text: `context compacted: ${formatCount(compactedEvents)} ${plural(compactedEvents, 'event')}, ~${formatTokenCount(result.tokensSaved)} tokens saved`,

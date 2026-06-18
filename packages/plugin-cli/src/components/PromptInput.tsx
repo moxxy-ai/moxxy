@@ -45,6 +45,13 @@ export interface PromptInputProps {
    * through the raw-stdin parser for the same reason as `commandHotkeys`.
    */
   readonly onShiftTab?: () => void;
+  /**
+   * Ctrl+C handler. In raw mode the terminal hands us a literal `0x03` byte
+   * rather than raising SIGINT, so the app exits itself. Wire this to graceful
+   * teardown (Ink unmount + session/runner close) so a hard `process.exit`
+   * doesn't orphan the runner socket / PTY. Defaults to `process.exit(0)`.
+   */
+  readonly onInterrupt?: () => void;
   readonly externalInsert?: ExternalInsert;
 }
 
@@ -84,6 +91,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onPasteText,
   commandHotkeys,
   onShiftTab,
+  onInterrupt,
   externalInsert,
 }) => {
   const [state, dispatch] = useReducer(reducer, INITIAL);
@@ -154,6 +162,8 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   commandHotkeysRef.current = commandHotkeys;
   const onShiftTabRef = useRef(onShiftTab);
   onShiftTabRef.current = onShiftTab;
+  const onInterruptRef = useRef(onInterrupt);
+  onInterruptRef.current = onInterrupt;
   const lastExternalInsertIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -190,6 +200,11 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       onSlashDown: () => setSlashCursor((c) => Math.min(slashMatchesRef.current.length - 1, c + 1)),
       onSlashAccept: handleSlashAccept,
       onShiftTab: () => onShiftTabRef.current?.(),
+      onInterrupt: () => {
+        const fn = onInterruptRef.current;
+        if (fn) fn();
+        else process.exit(0);
+      },
       onPasteText: (text: string) => onPasteTextRef.current?.(text) ?? text,
       slashOpen: false,
       bufferRef: { current: { buffer: '', cursor: 0 } },

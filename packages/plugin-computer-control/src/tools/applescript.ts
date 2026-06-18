@@ -1,5 +1,5 @@
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
-import { ensureDarwin, runProcess } from '../shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 export const applescriptTool = defineTool({
   name: 'computer_applescript',
@@ -27,10 +27,13 @@ export const applescriptTool = defineTool({
       timeoutMs: 30_000,
     });
     if (proc.exitCode !== 0) {
+      const cause = procFailureCause(proc, 30_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `osascript failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
-        context: { tool: 'computer_applescript', exitCode: proc.exitCode },
+        message: cause
+          ? `osascript ${cause}`
+          : `osascript failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
+        context: { tool: 'computer_applescript', exitCode: proc.exitCode, timedOut: proc.timedOut ? 1 : 0 },
       });
     }
     return { ok: true, output: proc.stdout.trim() };

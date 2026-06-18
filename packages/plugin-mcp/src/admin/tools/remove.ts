@@ -26,6 +26,11 @@ export function buildRemoveServerTool(deps: RemoveServerToolDeps): ToolDef {
         }
         return { next: { servers: filtered }, result: true };
       });
+      // Runtime detach runs OUTSIDE the config mutex (the live tool registry
+      // isn't guarded by it), so a concurrent same-name add could interleave
+      // between this persist and detach. Detach is best-effort and loosely
+      // coupled to the config — the entry is authoritative, the runtime map
+      // self-heals on the next attach/restart.
       const detached = await detachServer(name);
       if (!persisted && !detached) {
         return { removed: false, name, note: `No MCP server named "${name}" was registered.` };

@@ -333,6 +333,13 @@ export async function downloadAndStage(
   if (!res.ok) throw new Error(`bundle download failed (HTTP ${res.status})`);
   const total = Number(res.headers.get('content-length')) || undefined;
   const gz = await readAll(res, (received) => report({ phase: 'download', received, total }));
+  // Reconcile the bar with the bytes actually received: a chunked / proxy-
+  // stripped response has no content-length (total undefined → indeterminate
+  // bar), and a transport-compressed content-length can differ from the
+  // decoded byte count, leaving the bar short of 100%. A final event with
+  // total === received lands it at 100% exactly. Integrity is sha256-bound,
+  // so this is cosmetic only.
+  report({ phase: 'download', received: gz.length, total: gz.length });
 
   // 2. Integrity: the gzip's hash must equal the signed manifest's.
   report({ phase: 'verify', message: 'Verifying…' });

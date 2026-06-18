@@ -69,4 +69,34 @@ describe('loadConfig', () => {
     );
     await expect(loadConfig({ cwd: tmp, skipUser: true })).rejects.toThrow(/default-export/);
   });
+
+  it('resolves each .ts config\'s relative imports against ITS OWN dir (jiti cache keyed by cwd)', async () => {
+    // Two projects in two dirs, each with a .ts config that imports a sibling
+    // module. A jiti instance binds its resolution base to the dir it was
+    // created with; a single shared instance would resolve the SECOND config's
+    // `./marker` against the FIRST dir, picking up the wrong value.
+    const dirA = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-jiti-a-'));
+    const dirB = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-jiti-b-'));
+    try {
+      await fs.writeFile(path.join(dirA, 'marker.ts'), `export const marker = 'from-A';`);
+      await fs.writeFile(
+        path.join(dirA, 'moxxy.config.ts'),
+        `import { marker } from './marker';\nexport default { provider: { name: 'x', model: marker } };`,
+      );
+      await fs.writeFile(path.join(dirB, 'marker.ts'), `export const marker = 'from-B';`);
+      await fs.writeFile(
+        path.join(dirB, 'moxxy.config.ts'),
+        `import { marker } from './marker';\nexport default { provider: { name: 'x', model: marker } };`,
+      );
+
+      const a = await loadConfig({ cwd: dirA, skipUser: true });
+      const b = await loadConfig({ cwd: dirB, skipUser: true });
+
+      expect(a.config.provider?.model).toBe('from-A');
+      expect(b.config.provider?.model).toBe('from-B');
+    } finally {
+      await fs.rm(dirA, { recursive: true, force: true });
+      await fs.rm(dirB, { recursive: true, force: true });
+    }
+  });
 });

@@ -1,5 +1,6 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { isValidCron, nextFireTime } from './cron.js';
+import { isValidCron } from './cron.js';
+import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
@@ -21,11 +22,13 @@ const cronOrTimestamp = z
   });
 
 function describeEntry(entry: ScheduleEntry): Record<string, unknown> {
-  const now = Date.now();
   let nextFireAt: number | null = null;
   if (entry.cron) {
-    const since = entry.lastRunAt ?? Math.max(entry.createdAt, now);
-    const next = nextFireTime(entry.cron, new Date(since), entry.timeZone);
+    // Share the poller's baseline (lastRunAt ?? createdAt) so the displayed
+    // next-fire agrees with when isDue actually fires — anchoring at `now`
+    // here used to hide a created-during-downtime catch-up the poller fires
+    // immediately.
+    const next = nextCronFire(entry);
     nextFireAt = next ? next.getTime() : null;
   } else if (entry.runAt && entry.enabled) {
     nextFireAt = entry.runAt;

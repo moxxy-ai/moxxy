@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { moxxyPath } from '@moxxy/sdk';
 import type { DetectedImagePath } from './image-attachments.js';
@@ -19,8 +19,50 @@ import type { DetectedImagePath } from './image-attachments.js';
 
 const CACHE_DIR = moxxyPath('image-cache');
 
+/** Reap clipboard PNGs older than this (the bytes are side-loaded into the
+ *  attachment pipeline at paste time, so a short retention is plenty). */
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CLIP_NAME_RE = /^clip-(\d+)-[a-z0-9]+\.png$/;
+
+/**
+ * Opportunistically delete stale cached clipboard images so the cache dir
+ * can't grow forever over a long-lived install (every paste used to leak a
+ * PNG with no TTL/cap). Best-effort: the embedded `clip-<ts>-` timestamp is
+ * the primary age signal, falling back to the file's mtime; any error is
+ * ignored so a sweep never breaks a paste.
+ */
+export function reapStale(dir: string, now: number = Date.now()): void {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    const m = CLIP_NAME_RE.exec(name);
+    if (!m) continue;
+    const stamp = Number(m[1]);
+    let age = Number.isFinite(stamp) ? now - stamp : Number.NaN;
+    if (!Number.isFinite(age)) {
+      try {
+        age = now - statSync(path.join(dir, name)).mtimeMs;
+      } catch {
+        continue;
+      }
+    }
+    if (age > CACHE_TTL_MS) {
+      try {
+        unlinkSync(path.join(dir, name));
+      } catch {
+        /* ignore — another process may have removed it */
+      }
+    }
+  }
+}
+
 function ensureCacheDir(): string {
   mkdirSync(CACHE_DIR, { recursive: true });
+  reapStale(CACHE_DIR, Date.now());
   return CACHE_DIR;
 }
 

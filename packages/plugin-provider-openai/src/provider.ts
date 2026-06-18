@@ -143,9 +143,16 @@ export class OpenAIProvider implements LLMProvider {
         : {}),
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
-      ...(emitReasoning && usesCompletionTokens && reasoningEffort
-        ? { reasoning_effort: reasoningEffort }
-        : {}),
+      // Send `reasoning_effort` independently of the token-field heuristic.
+      // The two are unrelated concerns: `usesCompletionTokens` picks the cap
+      // FIELD NAME for the OpenAI-hosted reasoning models, while effort applies
+      // to any reasoning backend. OpenAI-compatible vendors (z.ai GLM,
+      // DeepSeek-R1, vLLM, Ollama) honor reasoning_effort but their model ids
+      // never match the gpt-5/o1/o3 regex, so gating effort on it silently
+      // dropped a user-requested effort for exactly those backends. The
+      // descriptor's `supportsReasoning` already gates this upstream via
+      // req.reasoning.
+      ...(emitReasoning && reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       stream: true,
       // OpenAI only emits the final `usage` chunk when this is set;
       // without it `raw.usage` is null on every chunk and token usage

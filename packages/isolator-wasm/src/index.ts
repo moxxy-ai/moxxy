@@ -161,6 +161,9 @@ async function invoke(
   if (typeof exports.alloc !== 'function') {
     throw new Error(`[security:wasm] module does not export 'alloc(size: i32) -> i32'`);
   }
+  // Route broker scratch through the module's own allocator so host writes
+  // and the module's heap can never overlap (see MemoryHolder.alloc).
+  memoryHolder.alloc = (size: number) => exports.alloc(size);
   const handler = exports[call.moduleRef!.export];
   if (typeof handler !== 'function') {
     throw new Error(
@@ -200,6 +203,16 @@ async function invoke(
 
 interface MemoryHolder {
   current: WebAssembly.Memory | null;
+  /**
+   * The module's own `alloc(size) -> ptr` export, when available. Broker
+   * scratch regions are obtained from it so host writes never collide with
+   * the module's own heap (a non-trivial AssemblyScript/Rust heap easily
+   * exceeds the first 64KiB page, where the fixed-base fallback would start
+   * scribbling over live module data). When absent (e.g. unit tests that
+   * construct a bare Memory), scratch falls back to a per-memory bump
+   * allocator from a fixed base.
+   */
+  alloc?: ((size: number) => number) | null;
 }
 
 /**
@@ -226,8 +239,17 @@ export function buildWasmHostImports(
   };
 
   const sendBytes = (outPtrOut: number, outLenOut: number, bytes: Uint8Array): void => {
-    const region = reserveScratch(memOf(), bytes.length);
-    new Uint8Array(memOf().buffer, region, bytes.length).set(bytes);
+    // Prefer the module's own allocator (no collision with its heap); fall
+    // back to the fixed-base bump allocator when no alloc is bound.
+    const region =
+      bytes.length === 0
+        ? SCRATCH_BASE
+        : memoryHolder.alloc
+          ? memoryHolder.alloc(bytes.length)
+          : reserveScratch(memOf(), bytes.length);
+    if (bytes.length > 0) {
+      new Uint8Array(memOf().buffer, region, bytes.length).set(bytes);
+    }
     writePtrPair(memOf(), outPtrOut, outLenOut, region, bytes.length);
   };
 
@@ -288,7 +310,11 @@ export function buildWasmHostImports(
       outLenOut: number,
     ): number => {
       const filePath = readStr(pathPtr, pathLen);
-      const data = readStr(dataPtr, dataLen);
+      // Read the payload as raw bytes — NOT through a UTF-8 round-trip, which
+      // would lossily replace any non-UTF-8 byte with U+FFFD before it hits
+      // disk. `.slice()` copies out of the live wasm buffer (which can be
+      // detached/regrown later in the call). Mirrors read_file's byte fidelity.
+      const data = new Uint8Array(memOf().buffer, dataPtr, dataLen).slice();
       if (!pathInScope(filePath, caps.fs, cwd, 'write')) {
         return sendErr(
           outPtrOut,
@@ -298,7 +324,7 @@ export function buildWasmHostImports(
       }
       try {
         mkdirSync(path.dirname(filePath), { recursive: true });
-        writeFileSync(filePath, data, 'utf8');
+        writeFileSync(filePath, Buffer.from(data));
         writePtrPair(memOf(), outPtrOut, outLenOut, 0, 0);
         return SUCCESS;
       } catch (e) {

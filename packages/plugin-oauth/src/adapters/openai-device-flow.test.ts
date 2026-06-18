@@ -55,3 +55,35 @@ describe('openaiDeviceFlow.start — interval/expires_in coercion (u89-2)', () =
     expect(init.expiresInMs).toBe(600000);
   });
 });
+
+describe('openaiDeviceFlow.poll — abort-responsive fetch (u89-3)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('threads PollState.signal into the in-flight poll fetch', async () => {
+    const seen: Array<AbortSignal | undefined> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, reqInit?: RequestInit) => {
+        seen.push(reqInit?.signal ?? undefined);
+        // 403 = OpenAI's "still pending" signal — keeps poll() from exchanging.
+        return { ok: false, status: 403, json: async () => ({}), text: async () => '' };
+      }),
+    );
+    const controller = new AbortController();
+    const init = {
+      userCode: 'CODE-1',
+      verificationUri: opts.verificationUri,
+      intervalMs: 5000,
+      expiresInMs: 600000,
+      providerData: { deviceAuthId: 'd1', userCode: 'CODE-1', clientId: 'c1' },
+    };
+    const outcome = await openaiDeviceFlow(opts).poll(init, {
+      intervalMs: 5000,
+      signal: controller.signal,
+    });
+    expect(outcome).toEqual({ pending: true });
+    expect(seen[0]).toBe(controller.signal);
+  });
+});

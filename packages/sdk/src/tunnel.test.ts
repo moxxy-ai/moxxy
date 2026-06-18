@@ -29,6 +29,27 @@ describe('spawnCliTunnel', () => {
     await handle.close();
   });
 
+  it('u125-1: resolves a URL split across two stdout chunks', async () => {
+    // Write the URL in two separate process.stdout.write calls, split
+    // mid-host, with a tick gap so they surface as distinct 'data' events.
+    // Matching each chunk in isolation would miss it; the rolling buffer must
+    // stitch them.
+    const handle = await spawnCliTunnel({
+      cmd: process.execPath,
+      args: [
+        '-e',
+        'process.stdout.write("ready https://abc-1");' +
+          'setTimeout(()=>{process.stdout.write("23.example.test\\n");},50);' +
+          'setInterval(()=>{}, 1000);',
+      ],
+      urlRegex: URL_RE,
+      name: 'splittunnel',
+      timeoutMs: 5_000,
+    });
+    expect(handle.url).toBe('https://abc-123.example.test');
+    await handle.close();
+  });
+
   it('rejects when the child exits before emitting a URL', async () => {
     await expect(
       spawnCliTunnel({

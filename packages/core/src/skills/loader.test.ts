@@ -64,6 +64,33 @@ describe('discoverSkills', () => {
     expect(skills).toHaveLength(0);
   });
 
+  it('skips a single unreadable .md but still loads the rest of the tree (u46-5)', async () => {
+    // A permission-denied read used to throw out of loadDir and abort discovery
+    // of every remaining skill in every source. It must now degrade to skipping
+    // just the bad file. (chmod 000 has no teeth as root, so skip there.)
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return;
+    const dir = path.join(tmp, 'project');
+    await writeSkill(dir, 'good-one');
+    const badPath = path.join(dir, 'unreadable.md');
+    await fs.writeFile(
+      badPath,
+      '---\nname: unreadable\ndescription: x\ntriggers: [unreadable]\n---\nbody',
+    );
+    await fs.chmod(badPath, 0o000);
+    try {
+      const skills = await discoverSkills({
+        projectDir: dir,
+        userDir: path.join(tmp, 'noop'),
+        logger: silentLogger,
+      });
+      // The valid skill survives even though a sibling .md was unreadable.
+      expect(skills.map((s) => s.frontmatter.name)).toEqual(['good-one']);
+    } finally {
+      // Restore perms so afterEach rm can clean up.
+      await fs.chmod(badPath, 0o644).catch(() => {});
+    }
+  });
+
   it('returns empty list when directories do not exist', async () => {
     const skills = await discoverSkills({
       projectDir: path.join(tmp, 'no-project'),

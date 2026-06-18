@@ -72,4 +72,24 @@ describe('renderUnit (systemd)', () => {
     const out = renderUnit(spec, ctx);
     expect(out).toContain('plain "two words" "has\\"quote"');
   });
+
+  it('quotes Environment= values containing whitespace/quotes/backslashes', () => {
+    const spec: ServiceSpec = {
+      id: 'x',
+      description: 'd',
+      execArgs: ['run'],
+      env: { SIMPLE: 'abc', SPACED: 'a b', QUOTED: 'a"b', PATHISH: 'c:\\x', NL: 'a\nb' },
+    };
+    const out = renderUnit(spec, ctx);
+    // Plain value stays a single bare directive.
+    expect(out).toContain('Environment=SIMPLE=abc');
+    // Space, quote, backslash get a single quoted directive (not split).
+    expect(out).toContain('Environment=SPACED="a b"');
+    expect(out).toContain('Environment=QUOTED="a\\"b"');
+    expect(out).toContain('Environment=PATHISH="c:\\\\x"');
+    // A newline collapses to a space within one line — never a broken directive.
+    expect(out).toContain('Environment=NL="a b"');
+    // No directive ever spans two lines.
+    expect(out).not.toMatch(/Environment=NL=a\nb/);
+  });
 });

@@ -449,6 +449,10 @@ export class AnthropicProvider implements LLMProvider {
     );
     const systemForCount = parts.length > 0 ? parts.join('\n\n') : undefined;
     try {
+      // Mirror stream(): in OAuth mode refresh a near-expiry bearer before the
+      // request so a token we already knew was about to die doesn't 401 us
+      // straight into the (less accurate) text-estimate fallback below.
+      if (this.oauth) await this.ensureFreshOauth();
       const result = await this.client.messages.countTokens({
         model: req.model || this.defaultModel,
         ...(systemForCount !== undefined ? { system: systemForCount } : {}),

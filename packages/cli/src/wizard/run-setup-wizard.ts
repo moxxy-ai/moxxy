@@ -248,6 +248,9 @@ async function collectKey(providerId: string, controller: SetupWizardController)
 
     const s = spinner();
     s.start(`Validating ${providerId} key`);
+    // Distinguish an explicit provider rejection (the key is known-bad) from a
+    // validator-unreachable error (the key might be fine — the network failed).
+    let rejected = false;
     try {
       const result = await controller.testKey(providerId, value);
       if (result.ok) {
@@ -255,6 +258,7 @@ async function collectKey(providerId: string, controller: SetupWizardController)
         return value;
       }
       // Key was rejected by the provider — fatal-flavored, keep red.
+      rejected = true;
       s.stop(`${colors.red('✗')} ${providerId} rejected the key: ${result.message}`);
     } catch (err) {
       // Couldn't reach the validator — warn-flavored, keep yellow.
@@ -271,8 +275,11 @@ async function collectKey(providerId: string, controller: SetupWizardController)
     });
     const retry = guard(retryRaw);
     if (!retry) {
-      // Accept the unvalidated value rather than bailing — sometimes the
-      // network is the problem, not the key.
+      // Decline-after-rejection must NOT persist a key the provider already
+      // said is bad — bail out instead. Only the validator-unreachable case
+      // falls through to accept the unvalidated value, since there the network
+      // (not the key) may be the problem.
+      if (rejected) bail();
       return value;
     }
   }

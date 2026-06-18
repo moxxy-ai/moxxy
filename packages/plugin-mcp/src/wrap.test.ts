@@ -88,6 +88,39 @@ describe('wrapMcpServerTools', () => {
     expect(result).toBe('[error] no permission');
   });
 
+  it('passes through resource inline text instead of a bare [resource] (u86-3)', async () => {
+    const client = makeFakeClient();
+    vi.spyOn(client, 'callTool').mockResolvedValueOnce({
+      content: [{ type: 'resource', resource: { uri: 'file:///a.txt', mimeType: 'text/plain', text: 'hello body' } }],
+      isError: false,
+    } as never);
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    const result = await tools[0]!.handler({ url: 'x' }, baseCtx());
+    expect(result).toBe('hello body');
+  });
+
+  it('annotates a binary resource with uri/mimeType rather than swallowing it (u86-3)', async () => {
+    const client = makeFakeClient();
+    vi.spyOn(client, 'callTool').mockResolvedValueOnce({
+      content: [{ type: 'resource', resource: { uri: 'file:///a.bin', mimeType: 'application/octet-stream', blob: 'AAAA' } }],
+      isError: false,
+    } as never);
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    const result = await tools[0]!.handler({ url: 'x' }, baseCtx());
+    expect(result).toBe('[resource:file:///a.bin application/octet-stream]');
+  });
+
+  it('still placeholders an image block', async () => {
+    const client = makeFakeClient();
+    vi.spyOn(client, 'callTool').mockResolvedValueOnce({
+      content: [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }],
+      isError: false,
+    } as never);
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    const result = await tools[0]!.handler({ url: 'x' }, baseCtx());
+    expect(result).toBe('[image:image/png]');
+  });
+
   it('honors a custom tool-name prefix', async () => {
     const client = makeFakeClient();
     const tools = await wrapMcpServerTools({

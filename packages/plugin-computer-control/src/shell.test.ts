@@ -1,6 +1,6 @@
 import { MoxxyError } from '@moxxy/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ensureDarwin, runProcess } from './shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from './shell.js';
 
 describe('runProcess stdout capture (chunked, O(n) concat-at-close)', () => {
   it('captures the full stdout across many small chunks', async () => {
@@ -44,6 +44,10 @@ describe('runProcess exit/stderr/abort/timeout', () => {
     expect(res.exitCode).toBe(3);
     expect(res.stderr).toBe('boom');
     expect(res.stdout).toBe('');
+    // A genuine non-zero exit is neither a timeout nor an abort.
+    expect(res.timedOut).toBe(false);
+    expect(res.aborted).toBe(false);
+    expect(procFailureCause(res, 30_000)).toBe('');
   });
 
   it('rejects when the binary does not exist (spawn error)', async () => {
@@ -63,12 +67,21 @@ describe('runProcess exit/stderr/abort/timeout', () => {
     const res = await promise;
     // SIGTERM-killed child resolves via 'close' with a null code -> -1.
     expect(res.exitCode).toBe(-1);
+    // ...but the `aborted` flag distinguishes it from a genuine -1 exit.
+    expect(res.aborted).toBe(true);
+    expect(res.timedOut).toBe(false);
+    expect(procFailureCause(res)).toBe('aborted (turn cancelled)');
   });
 
   it('kills the child when timeoutMs elapses', async () => {
     const script = 'setTimeout(() => {}, 60_000);';
     const res = await runProcess(process.execPath, ['-e', script], { timeoutMs: 100 });
     expect(res.exitCode).toBe(-1);
+    // A timed-out child is flagged so callers can report a precise cause
+    // rather than a confusing bare `exit -1`.
+    expect(res.timedOut).toBe(true);
+    expect(res.aborted).toBe(false);
+    expect(procFailureCause(res, 100)).toBe('timed out after 100ms');
   });
 });
 

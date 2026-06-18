@@ -16,6 +16,11 @@ import { pathInScope, urlInScope } from './cap-check.js';
  */
 const MAX_BROKER_OUTPUT_BYTES = 8 * 1024 * 1024;
 
+/** Grace after a SIGTERM before escalating to an unignorable SIGKILL. A child
+ *  that traps/ignores SIGTERM (e.g. `trap '' TERM`) would otherwise keep the
+ *  broker request pending forever; this guarantees the kill lands. */
+const BROKER_KILL_GRACE_MS = 2000;
+
 /**
  * Maximum number of HTTP redirect hops `brokerFetch` will follow. Each hop's
  * target is re-validated against the tool's `caps.net` allowlist before it is
@@ -563,23 +568,47 @@ async function brokerExec(
     const errChunks: Buffer[] = [];
     let total = 0;
     let settled = false;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
+    // Send SIGTERM, then schedule an unignorable SIGKILL so a child that traps
+    // SIGTERM can't wedge the request. `clearKill` (on 'close'/'error') cancels
+    // the escalation once the child is confirmed gone, so a child that exits
+    // cleanly is never SIGKILLed post-mortem.
+    const terminate = (): void => {
+      child.kill('SIGTERM');
+      if (killTimer) return;
+      killTimer = setTimeout(() => child.kill('SIGKILL'), BROKER_KILL_GRACE_MS);
+      killTimer.unref?.();
+    };
     const timer = opts.timeoutMs
       ? setTimeout(() => {
-          child.kill('SIGTERM');
+          terminate();
           finish(() =>
             reject(new Error(`[broker:exec] '${command}' exceeded ${opts.timeoutMs}ms`)),
           );
         }, opts.timeoutMs)
       : null;
     const onAbort = (): void => {
-      child.kill('SIGTERM');
+      // Settle the promise NOW rather than waiting for 'close' — a trapped child
+      // may never emit it. The SIGKILL fallback still guarantees the child dies.
+      terminate();
+      finish(() => reject(new Error(`[broker:exec] '${command}' aborted`)));
     };
     const finish = (settle: () => void): void => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      // Deliberately do NOT clear killTimer here: when we settle via abort or
+      // timeout the child may still be alive, and the scheduled SIGKILL is what
+      // guarantees it dies. It's cleared instead when 'close'/'error' confirm
+      // the child is actually gone (see below).
       signal.removeEventListener('abort', onAbort);
       settle();
+    };
+    const clearKill = (): void => {
+      if (killTimer) {
+        clearTimeout(killTimer);
+        killTimer = null;
+      }
     };
     // Bound the buffered output so a brokered process can't stream gigabytes
     // (e.g. `yes | head -c …`) and OOM the host. Kill the child and reject the
@@ -588,7 +617,7 @@ async function brokerExec(
       if (settled) return;
       total += b.byteLength;
       if (total > MAX_BROKER_OUTPUT_BYTES) {
-        child.kill('SIGTERM');
+        terminate();
         finish(() =>
           reject(
             new Error(
@@ -604,9 +633,11 @@ async function brokerExec(
     child.stderr.on('data', (b: Buffer) => accumulate(errChunks, b));
     signal.addEventListener('abort', onAbort, { once: true });
     child.on('error', (e: Error) => {
+      clearKill();
       finish(() => reject(e));
     });
     child.on('close', (exitCode) => {
+      clearKill();
       finish(() =>
         resolve({
           stdout: Buffer.concat(outChunks).toString('utf8'),

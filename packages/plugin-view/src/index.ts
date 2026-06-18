@@ -86,7 +86,14 @@ export function buildViewPlugin(opts: BuildViewPluginOptions): Plugin {
 
 export interface PresentViewResult {
   readonly ok: boolean;
-  /** Whether a live surface received the view (false = parsed only, no surface). */
+  /**
+   * Whether a live web surface is ATTACHED (false = parsed only, no surface).
+   * NOT a delivery confirmation: the view is handed to the surface
+   * asynchronously when the channel's projector observes this tool_result, so
+   * `rendered: true` only means a surface exists to deliver to — a browser may
+   * not yet be connected to it. Do not treat it as "the user definitely sees
+   * the screen".
+   */
   readonly rendered: boolean;
   readonly url?: string;
   readonly viewId?: string;

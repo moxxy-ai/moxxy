@@ -7,10 +7,15 @@ import { defineTunnelProvider } from '@moxxy/sdk';
  */
 export const localhostTunnel = defineTunnelProvider({
   name: 'localhost',
-  open: (opts) =>
-    Promise.resolve({
-      url: `http://${opts.host}:${opts.port}`,
+  open: (opts) => {
+    // Bracket an IPv6 literal host (e.g. `::1` → `[::1]`) so the `:port`
+    // delimiter is unambiguous and the result is a valid URL. A bare IPv6
+    // host (`http://::1:4040`) is rejected by most URL parsers.
+    const host = opts.host.includes(':') ? `[${opts.host}]` : opts.host;
+    return Promise.resolve({
+      url: `http://${host}:${opts.port}`,
       close: () => Promise.resolve(),
-    }),
+    });
+  },
   isAvailable: () => Promise.resolve(true),
 });

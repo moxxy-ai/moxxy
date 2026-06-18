@@ -59,6 +59,15 @@ describe('htmlToMarkdown', () => {
     expect(md).toContain('- two');
     expect(md).toContain('[example](https://example.com)');
   });
+
+  it('keeps single-quoted and unquoted href URLs', () => {
+    const html = `
+      <p>See <a href='https://single.example'>single</a>.</p>
+      <p>And <a href=https://unquoted.example>unquoted</a>.</p>`;
+    const md = htmlToMarkdown(html);
+    expect(md).toContain('[single](https://single.example)');
+    expect(md).toContain('[unquoted](https://unquoted.example)');
+  });
 });
 
 describe('web_fetch handler', () => {

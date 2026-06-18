@@ -367,7 +367,15 @@ describe('CodexProvider.stream', () => {
     const events = await collect(provider.stream(baseRequest()));
     expect(refreshHits).toBe(1);
     expect(codexHits).toBe(2);
-    expect(events.some((e) => e.type === 'error' && /401/.test(e.message))).toBe(true);
+    // A 401 surviving the forced refresh surfaces actionable re-auth guidance
+    // (not a generic "returned 401" HTTP error), and is non-retryable.
+    const err = events.find((e) => e.type === 'error') as
+      | { type: 'error'; message: string; retryable?: boolean }
+      | undefined;
+    expect(err).toBeDefined();
+    expect(err!.message).toMatch(/moxxy login openai-codex/);
+    expect(err!.message).toMatch(/re-authenticate/i);
+    expect(err!.retryable).toBe(false);
   });
 
   it('errors clearly when no tokens are configured', async () => {

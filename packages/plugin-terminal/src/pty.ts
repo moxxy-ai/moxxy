@@ -99,6 +99,12 @@ export class TerminalProcessImpl implements TerminalProcess {
       child.stderr.on('data', (b: Buffer) => this.emitData(b.toString('utf8')));
       child.on('exit', (code) => this.emitExit(code ?? 0));
       child.on('error', () => this.emitExit(1));
+      // The child can exit (closing stdin) before the async 'exit' event flips
+      // `alive` — a write in that window can emit a broken-pipe 'error' on
+      // stdin. Swallow it here so it never goes unhandled and crashes the host.
+      child.stdin.on('error', () => {
+        /* broken pipe after shell exit — ignored */
+      });
     }
   }
 
@@ -154,8 +160,13 @@ export class TerminalProcessImpl implements TerminalProcess {
 
   write(data: string): void {
     if (!this.alive) return;
-    if (this.pty) this.pty.write(data);
-    else this.child?.stdin.write(data);
+    try {
+      if (this.pty) this.pty.write(data);
+      else this.child?.stdin.write(data);
+    } catch {
+      // The child may have exited between `alive` flipping and now, leaving a
+      // closed stdin pipe — a synchronous EPIPE here must not crash the host.
+    }
   }
 
   resize(cols: number, rows: number): void {

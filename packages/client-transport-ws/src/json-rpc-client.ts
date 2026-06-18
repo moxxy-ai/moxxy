@@ -220,6 +220,13 @@ export class WsRpcClient {
       this.setStatus('disconnected');
       return;
     }
+    // Surface the degraded state for the whole backoff window, not just once
+    // the next attempt fires. Without this the socket is already dead yet
+    // `status` (and any onStatus observer driving a connection indicator) would
+    // keep reporting `open` for up to RECONNECT_MAX_DELAY_MS. The per-attempt
+    // setStatus('reconnecting') in connect() is idempotent via the equality
+    // guard in setStatus, so this doesn't double-fire.
+    this.setStatus('reconnecting');
     // Reconnect with exponential backoff; subscriptions persist so
     // notifications resume on the next successful connection.
     const delay = Math.min(

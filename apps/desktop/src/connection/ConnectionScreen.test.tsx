@@ -139,6 +139,41 @@ describe('ConnectionScreen — protocol-incompatible (terminal)', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('surfaces the error + manual command when onUpdateCli REJECTS (not just resolves !ok)', async () => {
+    const onUpdateCli = vi.fn().mockRejectedValue(new Error('spawn npm ENOENT'));
+    const user = userEvent.setup();
+    render(
+      <ConnectionScreen
+        snapshot={snapshotWith(SERVER_OLDER)}
+        onRetry={vi.fn()}
+        onUpdateCli={onUpdateCli}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /update cli & reconnect/i }));
+
+    // A rejection must transition out of the updating spinner into the error
+    // state, not strand the button at 'updating' forever.
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/spawn npm ENOENT/i);
+    expect(
+      screen.queryByRole('button', { name: /updating the moxxy cli/i }),
+    ).toBeNull();
+  });
+
+  it('names the real cause (no updater wired) when the app is newer but onUpdateCli is absent', () => {
+    render(
+      <ConnectionScreen
+        snapshot={snapshotWith(SERVER_OLDER)}
+        onRetry={vi.fn()}
+        // no onUpdateCli prop -> canUpdate is false even though app > runner
+      />,
+    );
+    // Must NOT misattribute the dead end to the app being older than the runner.
+    expect(screen.queryByText(/older than the moxxy runner/i)).toBeNull();
+    expect(screen.getByText(/can.?t update the moxxy CLI automatically/i)).toBeTruthy();
+  });
+
   it('shows reinstall guidance and NO update button when the APP is older than the runner', () => {
     render(
       <ConnectionScreen

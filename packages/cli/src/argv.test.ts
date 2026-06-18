@@ -46,4 +46,30 @@ describe('parseArgv', () => {
   it('--version maps to version command', () => {
     expect(parseArgv(['--version'])).toMatchObject({ command: 'version' });
   });
+
+  it('boolean flag does not swallow the following positional', () => {
+    // `--allow-all` is value-less, so `bash` stays a positional (not consumed
+    // as the flag's value). Command stays tui since argv led with a flag.
+    expect(parseArgv(['--allow-all', 'bash'])).toMatchObject({
+      command: 'tui',
+      flags: { 'allow-all': true },
+      positional: ['bash'],
+    });
+  });
+
+  it('boolean flag mid-args leaves later positionals intact', () => {
+    expect(parseArgv(['plugins', '--reload', 'install'])).toMatchObject({
+      command: 'plugins',
+      flags: { reload: true },
+      positional: ['install'],
+    });
+  });
+
+  it('value flags still consume their argument', () => {
+    expect(parseArgv(['tui', '--model', 'gpt-5'])).toMatchObject({
+      command: 'tui',
+      flags: { model: 'gpt-5' },
+      positional: [],
+    });
+  });
 });

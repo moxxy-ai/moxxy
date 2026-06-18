@@ -134,6 +134,56 @@ describe('@moxxy/plugin-commands', () => {
     });
   });
 
+  // Regression for u80-4: the reported count must be the ACTUAL number of
+  // events inside the replaced seq range, not the seq SPAN — `seq` is not a
+  // dense array index for mirrors/partial views, so a gap inside the range
+  // would otherwise overstate the count.
+  it('/compact counts events in the replaced range, not the seq span (sparse seqs)', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'a' },
+      { type: 'assistant_message', seq: 1, sessionId: 'sess-1', turnId: 'turn-1', source: 'model', content: 'b', stopReason: 'end_turn' },
+      // seqs 2,3,4 are absent (e.g. a partial/mirrored view) — a gap.
+      { type: 'user_prompt', seq: 5, sessionId: 'sess-1', turnId: 'turn-2', source: 'user', text: 'c' },
+    ] as unknown as MoxxyEvent[];
+    const session = {
+      ...fakeSession,
+      signal: new AbortController().signal,
+      log: {
+        length: existing.length,
+        slice: () => existing,
+        append: async (event: EmittedEvent) => event as unknown as MoxxyEvent,
+      },
+      compactors: {
+        getActive: () => ({
+          name: 'fake-compact',
+          shouldCompact: () => false,
+          compact: async () =>
+            ({
+              type: 'compaction',
+              sessionId: 'sess-1',
+              turnId: 'turn-2',
+              source: 'compactor',
+              compactor: 'fake-compact',
+              replacedRange: [0, 5], // span = 6, but only 3 events fall inside
+              summary: 'summary',
+              tokensSaved: 1000,
+            }) as const,
+        }),
+      },
+    };
+
+    const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'compact');
+    if (!compact) throw new Error('missing command: compact');
+    const out = await compact.handler({
+      channel: 'tui',
+      sessionId: 'sess-1' as never,
+      args: '',
+      session,
+    });
+    // 3 actual events, NOT 6 (the seq span 5-0+1).
+    expect(out).toMatchObject({ kind: 'text', text: expect.stringContaining('3 events') });
+  });
+
   it('/compact exposes a pending notice for interactive channels', () => {
     const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'compact');
     expect(compact).toMatchObject({ pendingNotice: 'compacting context...' });

@@ -42,28 +42,31 @@ export interface CreateMcpPluginOptions extends McpPluginOptions {
 
 export async function createMcpPlugin(opts: CreateMcpPluginOptions): Promise<Plugin> {
   const factory = opts.clientFactory ?? defaultClientFactory;
-  const clients: McpClientLike[] = [];
-  const tools = [] as Awaited<ReturnType<typeof wrapMcpServerTools>>;
-
-  try {
-    for (const server of opts.servers) {
+  // Connect + list each server in PARALLEL: serial boot paid the sum of every
+  // server's spawn/handshake/listTools round-trip, so N servers serialized N
+  // latencies. allSettled bounds boot at the slowest server, not the sum,
+  // while still letting us close every successfully-opened client if any leg
+  // fails (the onShutdown hook is only wired once we RETURN the plugin).
+  const opened: McpClientLike[] = [];
+  const results = await Promise.allSettled(
+    opts.servers.map(async (server) => {
       const client = await factory(server, opts);
-      clients.push(client);
-      const wrapped = await wrapMcpServerTools({
-        server,
-        client,
-        toolNamePrefix: opts.toolNamePrefix,
-      });
-      tools.push(...wrapped);
-    }
-  } catch (err) {
-    // A failure partway through (e.g. the 2nd server) leaves earlier clients
-    // connected, but the onShutdown hook below is only wired once we RETURN
-    // the plugin — which we never do on throw. Close what we opened so their
-    // child processes / sockets don't leak.
-    await Promise.allSettled(clients.map((c) => c.close()));
-    throw err;
+      // Record the client the instant it opens, before listTools — so even a
+      // listTools failure can't leak its child process / socket.
+      opened.push(client);
+      return wrapMcpServerTools({ server, client, toolNamePrefix: opts.toolNamePrefix });
+    }),
+  );
+
+  const failure = results.find((r) => r.status === 'rejected');
+  if (failure) {
+    await Promise.allSettled(opened.map((c) => c.close()));
+    throw (failure as PromiseRejectedResult).reason;
   }
+
+  // Flatten in server order (map preserves index → deterministic tool order).
+  const tools = results.flatMap((r) => (r as PromiseFulfilledResult<Awaited<ReturnType<typeof wrapMcpServerTools>>>).value);
+  const clients = opened;
 
   return definePlugin({
     name: '@moxxy/plugin-mcp',

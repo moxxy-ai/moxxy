@@ -113,22 +113,34 @@ export async function listDir(cwd: string, relPath?: string): Promise<ListDirRes
       entries: [],
     };
   }
-  const names = await readdir(abs);
+  const dirents = await readdir(abs, { withFileTypes: true });
   const rows = await Promise.all(
-    names.map(async (name) => {
+    dirents.map(async (dirent) => {
+      const name = dirent.name;
       // Strip ignored directories outright + hide hidden-by-default
       // entries unless the user is already inside one.
       if (IGNORED_DIRS.has(name)) return null;
       if (name.startsWith(HIDDEN_PREFIX) && !relPath?.includes(HIDDEN_PREFIX)) {
         return null;
       }
-      try {
-        const s = await stat(path.join(abs, name));
-        const kind: 'file' | 'dir' = s.isDirectory() ? 'dir' : 'file';
-        return { name, kind } satisfies ListedEntry;
-      } catch {
-        return null;
+      // A symlink could point OUT of the workspace; reporting its name+kind
+      // would disclose the existence/kind of an out-of-sandbox target, which
+      // this module's doc-comment promises not to do (readFile already blocks
+      // opening it). Realpath the target and drop the entry if it escapes the
+      // root. Non-symlink entries are classified from the dirent directly —
+      // no extra stat() syscall, and no symlink to follow.
+      if (dirent.isSymbolicLink()) {
+        try {
+          const real = await realpath(path.join(abs, name));
+          if (!isInside(root, real)) return null;
+          const targetInfo = await stat(real);
+          return { name, kind: targetInfo.isDirectory() ? 'dir' : 'file' } satisfies ListedEntry;
+        } catch {
+          return null; // dangling / unreadable symlink — omit
+        }
       }
+      const kind: 'file' | 'dir' = dirent.isDirectory() ? 'dir' : 'file';
+      return { name, kind } satisfies ListedEntry;
     }),
   );
   const entries = rows.filter((r): r is ListedEntry => r !== null);

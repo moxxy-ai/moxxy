@@ -97,6 +97,24 @@ describe('listDir filtering + ordering', () => {
     ]);
   });
 
+  it('omits a symlink pointing outside the root but keeps in-tree symlinks (no out-of-sandbox disclosure)', async () => {
+    // An out-of-tree dir + file the listing must NOT disclose by name/kind.
+    await mkdir(path.join(outside, 'secretdir'));
+    await writeFile(path.join(outside, 'secret.txt'), 'shh');
+    await symlink(path.join(outside, 'secretdir'), path.join(root, 'escape-dir'));
+    await symlink(path.join(outside, 'secret.txt'), path.join(root, 'escape-file'));
+    // A symlink that stays inside the workspace is still listed (resolved kind).
+    await mkdir(path.join(root, 'realdir'));
+    await symlink(path.join(root, 'realdir'), path.join(root, 'inside-link'));
+    await writeFile(path.join(root, 'plain.txt'), 'x');
+
+    const r = await listDir(root);
+    const names = r.entries.map((e) => e.name).sort();
+    // Escaping symlinks are dropped; in-tree entries (incl. in-tree symlink) remain.
+    expect(names).toEqual(['inside-link', 'plain.txt', 'realdir']);
+    expect(r.entries.find((e) => e.name === 'inside-link')?.kind).toBe('dir');
+  });
+
   it('reveals hidden entries once the user is already inside a hidden path', async () => {
     await mkdir(path.join(root, '.config'));
     await writeFile(path.join(root, '.config', '.secretrc'), 'x');

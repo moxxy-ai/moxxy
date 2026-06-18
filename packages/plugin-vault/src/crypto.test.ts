@@ -32,4 +32,35 @@ describe('crypto primitives', () => {
     }
     expect(randomCode(4)).toMatch(/^\d{4}$/);
   });
+
+  it('randomCode does not cap the leading digit for wide codes (u114-3)', () => {
+    // The old 4-byte draw overflowed for digits >= 10, so the leading digits
+    // were always '0'. Confirm a 12-digit code can produce a non-zero lead.
+    const leads = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const code = randomCode(12);
+      expect(code).toMatch(/^\d{12}$/);
+      leads.add(code[0]!);
+    }
+    // The old uint32 draw pinned every leading digit to '0' for digits >= 10.
+    expect([...leads].some((d) => d !== '0')).toBe(true);
+  });
+
+  it('randomCode is not grossly biased at 6 digits (u114-3)', () => {
+    // Chi-square-lite: the leading digit should spread across 0-9, not cluster.
+    const counts = new Array(10).fill(0) as number[];
+    for (let i = 0; i < 2000; i++) {
+      counts[Number(randomCode(6)[0])]! += 1;
+    }
+    for (const c of counts) {
+      // Expected ~200 per bucket; a wide tolerance still catches a stuck/biased draw.
+      expect(c).toBeGreaterThan(80);
+    }
+  });
+
+  it('randomCode rejects invalid widths', () => {
+    expect(() => randomCode(0)).toThrow();
+    expect(() => randomCode(-1)).toThrow();
+    expect(() => randomCode(1.5)).toThrow();
+  });
 });

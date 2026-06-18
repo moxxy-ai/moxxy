@@ -219,6 +219,36 @@ describe('OpenAIProvider.stream', () => {
     expect(captured?.reasoning_effort).toBe('high');
   });
 
+  it('requests reasoning_effort for OpenAI-compatible reasoning backends (non-gpt-5 ids)', async () => {
+    // z.ai GLM / DeepSeek-R1 / vLLM / Ollama reasoning model ids never match
+    // the gpt-5/o1/o3 token-field heuristic, but they honor reasoning_effort —
+    // effort must be sent independently of that heuristic.
+    let captured: Record<string, unknown> | undefined;
+    const fake = {
+      chat: {
+        completions: {
+          create: async (body: Record<string, unknown>) => {
+            captured = body;
+            return (async function* () {
+              yield { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: fake as never });
+    for await (const _ of p.stream({
+      model: 'glm-4.6',
+      messages: [],
+      reasoning: { effort: 'high' },
+    })) {
+      // drain
+    }
+    expect(captured?.reasoning_effort).toBe('high');
+    // The token-field heuristic is unchanged: a non-gpt-5 id keeps `max_tokens`.
+    expect(captured && 'max_completion_tokens' in captured).toBe(false);
+  });
+
   it('emits a clean aborted error (not a classified error) when the signal fires mid-stream', async () => {
     const controller = new AbortController();
     const fake = {

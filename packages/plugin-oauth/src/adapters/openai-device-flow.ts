@@ -100,12 +100,13 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
       };
     },
 
-    async poll(init: DeviceFlowInit, _state: PollState): Promise<PollOutcome<TokenSet>> {
+    async poll(init: DeviceFlowInit, state: PollState): Promise<PollOutcome<TokenSet>> {
       const { deviceAuthId, userCode, clientId } = init.providerData as OpenaiDeviceState;
       const res = await fetch(pollUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ device_auth_id: deviceAuthId, user_code: userCode }),
+        ...(state.signal ? { signal: state.signal } : {}),
       });
       if (res.ok) {
         const data = (await res.json()) as {
@@ -124,6 +125,7 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
             redirectUri: exchangeRedirectUri,
             clientId,
             codeVerifier: data.code_verifier,
+            ...(state.signal ? { signal: state.signal } : {}),
           }),
         };
       }

@@ -106,4 +106,24 @@ describe('HttpChannel', () => {
     expect(warn).toHaveBeenCalledWith('http server error', expect.objectContaining({}));
     await handle.stop();
   });
+
+  it('rejects a double start, and allows a fresh start after stop (u70-5)', async () => {
+    const channel = new HttpChannel({ port: 0, authToken: 'test', allowedTools: ['noop'], logger: { info: () => {}, warn: () => {} } });
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger, permissionResolver: autoAllowResolver });
+
+    const handle = await channel.start({ session } as never);
+    expect(channel.boundPort).toBeGreaterThan(0);
+
+    // A second start while running must not silently orphan the first server.
+    await expect(channel.start({ session } as never)).rejects.toThrow(/already started/);
+
+    // After stop(), the handle is cleared and the port no longer considered held.
+    await handle.stop();
+    expect(channel.boundPort).toBe(0);
+
+    // A fresh start now succeeds (no leaked handle blocking it).
+    const handle2 = await channel.start({ session } as never);
+    expect(channel.boundPort).toBeGreaterThan(0);
+    await handle2.stop();
+  });
 });

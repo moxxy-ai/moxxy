@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { ClientSession, MoxxyEvent } from '@moxxy/sdk';
-import { WebChannel } from './channel.js';
+import { freeTcpPortIfMoxxy, WebChannel, type FreePortDeps } from './channel.js';
 import type { ServerFrame } from './protocol.js';
 import type { TunnelProviderDef } from '@moxxy/sdk';
 
@@ -346,5 +346,62 @@ describe('WebChannel', () => {
     await handle.stop();
     handle = null; // already stopped
     expect(published).toBeNull();
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('freeTcpPortIfMoxxy: identity-gate TOCTOU', () => {
+  function mkDeps(over: Partial<FreePortDeps> & { commandsByPid: Record<number, string[]> }): {
+    deps: FreePortDeps;
+    killed: Array<{ pid: number; signal: number | NodeJS.Signals }>;
+  } {
+    const killed: Array<{ pid: number; signal: number | NodeJS.Signals }> = [];
+    // Each PID gets a queue of commands returned on successive pidCommand reads,
+    // so a PID can "change identity" between the snapshot and the kill.
+    const calls: Record<number, number> = {};
+    const deps: FreePortDeps = {
+      pidsListeningOn: async () => Object.keys(over.commandsByPid).map(Number),
+      pidCommand: async (pid) => {
+        const seq = over.commandsByPid[pid] ?? [];
+        const i = Math.min(calls[pid] ?? 0, seq.length - 1);
+        calls[pid] = (calls[pid] ?? 0) + 1;
+        return seq[i] ?? '';
+      },
+      kill: (pid, signal) => {
+        killed.push({ pid, signal });
+      },
+      graceMs: 0,
+      ...over,
+    };
+    return { deps, killed };
+  }
+
+  it('skips the kill when a moxxy PID is reused by a foreign process before SIGTERM', async () => {
+    // 4242 passes the initial snapshot as moxxy, then its command flips to a
+    // foreign process before the kill: it must NOT be signalled.
+    const { deps, killed } = mkDeps({
+      commandsByPid: { 4242: ['node /usr/local/bin/moxxy serve', '/usr/bin/postgres'] },
+    });
+    const result = await freeTcpPortIfMoxxy(4242, undefined, deps);
+    expect(result).toBe(false);
+    expect(killed).toEqual([]);
+  });
+
+  it('kills a PID that stays moxxy through the re-check (SIGTERM then SIGKILL)', async () => {
+    // Stays moxxy on every read; still "alive" on the kill(pid,0) probe.
+    const { deps, killed } = mkDeps({
+      commandsByPid: { 5252: ['node moxxy serve', 'node moxxy serve', 'node moxxy serve'] },
+    });
+    const result = await freeTcpPortIfMoxxy(5252, undefined, deps);
+    expect(result).toBe(true);
+    expect(killed.map((k) => k.signal)).toEqual(['SIGTERM', 0, 'SIGKILL']);
+  });
+
+  it('leaves a foreign-from-the-start holder untouched', async () => {
+    const { deps, killed } = mkDeps({
+      commandsByPid: { 6262: ['/usr/sbin/sshd'] },
+    });
+    const result = await freeTcpPortIfMoxxy(6262, undefined, deps);
+    expect(result).toBe(false);
+    expect(killed).toEqual([]);
   });
 });

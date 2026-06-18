@@ -264,7 +264,7 @@ export async function provisionWorkspace(opts: {
   const install = await run('pnpm', ['install', '--frozen-lockfile'], dir);
   if (install.code !== 0) {
     const loose = await run('pnpm', ['install'], dir);
-    if (loose.code !== 0) return { ok: false, message: `pnpm install failed: ${trunc(install.output, 400)}`, repoDir: dir };
+    if (loose.code !== 0) return { ok: false, message: `pnpm install failed: ${trunc(loose.output, 400)}`, repoDir: dir };
   }
   return { ok: true, message: 'workspace provisioned', repoDir: dir };
 }

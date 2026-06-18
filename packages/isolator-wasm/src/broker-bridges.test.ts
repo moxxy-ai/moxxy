@@ -61,7 +61,7 @@ describe('wasm broker: broker_fs_read_file', () => {
       });
       const pathPtr = 128;
       const pathLen = writeStr(memory, pathPtr, tmp);
-      const rc = (imports.broker_fs_read_file as Function)(
+      const rc = (imports.broker_fs_read_file as (...args: number[]) => number)(
         pathPtr,
         pathLen,
         outPtrOut,
@@ -80,7 +80,7 @@ describe('wasm broker: broker_fs_read_file', () => {
     });
     const pathPtr = 128;
     const pathLen = writeStr(memory, pathPtr, '/etc/passwd');
-    const rc = (imports.broker_fs_read_file as Function)(
+    const rc = (imports.broker_fs_read_file as (...args: number[]) => number)(
       pathPtr,
       pathLen,
       outPtrOut,
@@ -102,7 +102,7 @@ describe('wasm broker: broker_fs_write_file', () => {
       const pathLen = writeStr(memory, pathPtr, tmp);
       const dataPtr = 1024;
       const dataLen = writeStr(memory, dataPtr, 'wasm-wrote-this');
-      const rc = (imports.broker_fs_write_file as Function)(
+      const rc = (imports.broker_fs_write_file as (...args: number[]) => number)(
         pathPtr,
         pathLen,
         dataPtr,
@@ -119,6 +119,35 @@ describe('wasm broker: broker_fs_write_file', () => {
     }
   });
 
+  it('writes arbitrary non-UTF-8 bytes verbatim (no lossy UTF-8 round-trip)', async () => {
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-write-bin-${Date.now()}.bin`);
+    try {
+      const { memory, imports, outPtrOut, outLenOut } = setupBridges({
+        fs: { write: [`${os.tmpdir()}/**`] },
+      });
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      // 0x80 / 0xFF are not valid standalone UTF-8 — a TextDecoder round-trip
+      // would replace them with U+FFFD (0xEF 0xBF 0xBD) and corrupt the file.
+      const payload = new Uint8Array([0x00, 0x80, 0xff, 0x41, 0xfe]);
+      const dataPtr = 2048;
+      new Uint8Array(memory.buffer, dataPtr, payload.length).set(payload);
+      const rc = (imports.broker_fs_write_file as (...args: number[]) => number)(
+        pathPtr,
+        pathLen,
+        dataPtr,
+        payload.length,
+        outPtrOut,
+        outLenOut,
+      );
+      expect(rc).toBe(0);
+      const onDisk = new Uint8Array(await fs.readFile(tmp));
+      expect(Array.from(onDisk)).toEqual(Array.from(payload));
+    } finally {
+      await fs.unlink(tmp).catch(() => undefined);
+    }
+  });
+
   it('denies out-of-scope writes with code 1 + error message', () => {
     const { memory, imports, outPtrOut, outLenOut } = setupBridges({
       fs: { write: ['/tmp/**'] },
@@ -127,7 +156,7 @@ describe('wasm broker: broker_fs_write_file', () => {
     const pathLen = writeStr(memory, pathPtr, '/etc/should-fail');
     const dataPtr = 1024;
     const dataLen = writeStr(memory, dataPtr, 'nope');
-    const rc = (imports.broker_fs_write_file as Function)(
+    const rc = (imports.broker_fs_write_file as (...args: number[]) => number)(
       pathPtr,
       pathLen,
       dataPtr,
@@ -151,7 +180,7 @@ describe('wasm broker: broker_fs_write_file', () => {
     const pathLen = writeStr(memory, pathPtr, dir);
     const dataPtr = 1024;
     const dataLen = writeStr(memory, dataPtr, 'nope');
-    const rc = (imports.broker_fs_write_file as Function)(
+    const rc = (imports.broker_fs_write_file as (...args: number[]) => number)(
       pathPtr,
       pathLen,
       dataPtr,
@@ -179,7 +208,7 @@ describe('wasm broker: broker_fs_readdir', () => {
       });
       const pathPtr = 128;
       const pathLen = writeStr(memory, pathPtr, dir);
-      const rc = (imports.broker_fs_readdir as Function)(
+      const rc = (imports.broker_fs_readdir as (...args: number[]) => number)(
         pathPtr,
         pathLen,
         outPtrOut,
@@ -199,7 +228,7 @@ describe('wasm broker: broker_fs_readdir', () => {
     });
     const pathPtr = 128;
     const pathLen = writeStr(memory, pathPtr, '/etc');
-    const rc = (imports.broker_fs_readdir as Function)(
+    const rc = (imports.broker_fs_readdir as (...args: number[]) => number)(
       pathPtr,
       pathLen,
       outPtrOut,
@@ -219,7 +248,7 @@ describe('wasm broker: broker_fs_stat', () => {
       });
       const pathPtr = 128;
       const pathLen = writeStr(memory, pathPtr, tmp);
-      const rc = (imports.broker_fs_stat as Function)(
+      const rc = (imports.broker_fs_stat as (...args: number[]) => number)(
         pathPtr,
         pathLen,
         outPtrOut,
@@ -245,7 +274,7 @@ describe('wasm broker: broker_exec', () => {
     const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');
     const argvPtr = 1024;
     const argvLen = writeStr(memory, argvPtr, JSON.stringify(['hi']));
-    const rc = (imports.broker_exec as Function)(
+    const rc = (imports.broker_exec as (...args: number[]) => number)(
       cmdPtr,
       cmdLen,
       argvPtr,
@@ -263,7 +292,7 @@ describe('wasm broker: broker_exec', () => {
     const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');
     const argvPtr = 1024;
     const argvLen = writeStr(memory, argvPtr, JSON.stringify(['hello-wasm-exec']));
-    const rc = (imports.broker_exec as Function)(
+    const rc = (imports.broker_exec as (...args: number[]) => number)(
       cmdPtr,
       cmdLen,
       argvPtr,
@@ -289,7 +318,7 @@ describe('wasm broker: broker_exec', () => {
     const cmdLen = writeStr(memory, cmdPtr, '/bin/cat');
     const argvPtr = 1024;
     const argvLen = writeStr(memory, argvPtr, JSON.stringify(['/etc/hosts']));
-    const rc = (imports.broker_exec as Function)(
+    const rc = (imports.broker_exec as (...args: number[]) => number)(
       cmdPtr,
       cmdLen,
       argvPtr,
@@ -299,6 +328,53 @@ describe('wasm broker: broker_exec', () => {
     );
     expect(rc).toBe(1);
     expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/commands allowlist/);
+  });
+});
+
+describe('wasm broker: scratch coordination with module allocator', () => {
+  it('obtains result scratch from the module allocator (no fixed-base collision)', async () => {
+    // Simulate a module whose own heap has already grown past the first
+    // 64KiB page: its alloc() hands out monotonically increasing addresses
+    // starting well above SCRATCH_BASE (65536). If the host ignored this and
+    // bump-allocated from the fixed base, its writes would clobber the
+    // module's live heap. Asserting the result lands at the allocator's
+    // address proves host scratch is routed through the module's allocator.
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-scratch-${Date.now()}.txt`);
+    await fs.writeFile(tmp, 'coordinated-scratch');
+    try {
+      _resetScratch();
+      const memory = new WebAssembly.Memory({ initial: 4 }); // 4 pages = 256KiB
+      let nextAlloc = 70_000; // past SCRATCH_BASE
+      const allocAddrs: number[] = [];
+      const alloc = (size: number): number => {
+        const addr = nextAlloc;
+        allocAddrs.push(addr);
+        nextAlloc += size;
+        return addr;
+      };
+      const imports = buildWasmHostImports({ current: memory, alloc }, {
+        fs: { read: [`${os.tmpdir()}/**`] },
+      }, '/tmp');
+      const outPtrOut = 32;
+      const outLenOut = 36;
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      const rc = (imports.broker_fs_read_file as (...args: number[]) => number)(
+        pathPtr,
+        pathLen,
+        outPtrOut,
+        outLenOut,
+      );
+      expect(rc).toBe(0);
+      // The result must have been written at the module-allocated address,
+      // NOT at the fixed SCRATCH_BASE.
+      const resultPtr = new DataView(memory.buffer).getUint32(outPtrOut, true);
+      expect(allocAddrs).toContain(resultPtr);
+      expect(resultPtr).toBeGreaterThanOrEqual(70_000);
+      expect(readResult(memory, outPtrOut, outLenOut)).toBe('coordinated-scratch');
+    } finally {
+      await fs.unlink(tmp).catch(() => undefined);
+    }
   });
 });
 

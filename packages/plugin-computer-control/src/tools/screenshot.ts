@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
-import { ensureDarwin, runProcess } from '../shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 const regionSchema = z.object({
   x: z.number().int().min(0),
@@ -76,9 +77,13 @@ export const screenshotTool = defineTool({
     // Always capture as PNG first (preserves color depth + no double
     // compression), then let `sips` resize and convert in one pass.
     // `-x` silences the camera-shutter sound.
+    // A random suffix guarantees uniqueness even for two captures in the
+    // same process within the same millisecond (pid+Date.now() alone can
+    // collide and cross-corrupt the temp files).
+    const uniq = randomUUID();
     const captureTmp = path.join(
       os.tmpdir(),
-      `moxxy-screencap-${process.pid}-${Date.now()}.png`,
+      `moxxy-screencap-${process.pid}-${Date.now()}-${uniq}.png`,
     );
     const captureArgs = ['-x', '-t', 'png'];
     if (region) {
@@ -90,10 +95,13 @@ export const screenshotTool = defineTool({
       timeoutMs: 15_000,
     });
     if (cap.exitCode !== 0) {
+      const cause = procFailureCause(cap, 15_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `screencapture failed (exit ${cap.exitCode}): ${cap.stderr.trim() || '(no stderr — likely Screen Recording permission missing — grant in System Settings → Privacy & Security)'}`,
-        context: { tool: 'computer_screenshot', exitCode: cap.exitCode },
+        message: cause
+          ? `screencapture ${cause}`
+          : `screencapture failed (exit ${cap.exitCode}): ${cap.stderr.trim() || '(no stderr — likely Screen Recording permission missing — grant in System Settings → Privacy & Security)'}`,
+        context: { tool: 'computer_screenshot', exitCode: cap.exitCode, timedOut: cap.timedOut ? 1 : 0 },
       });
     }
 
@@ -103,7 +111,7 @@ export const screenshotTool = defineTool({
     const outExt = fmt === 'jpeg' ? 'jpg' : 'png';
     const outTmp = path.join(
       os.tmpdir(),
-      `moxxy-screencap-${process.pid}-${Date.now()}-out.${outExt}`,
+      `moxxy-screencap-${process.pid}-${Date.now()}-${uniq}-out.${outExt}`,
     );
     const sipsArgs = [
       '-Z',
@@ -124,10 +132,13 @@ export const screenshotTool = defineTool({
     await fs.rm(captureTmp, { force: true });
     if (sip.exitCode !== 0) {
       await fs.rm(outTmp, { force: true });
+      const cause = procFailureCause(sip, 15_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `sips resize/convert failed (exit ${sip.exitCode}): ${sip.stderr.trim() || '(no error message)'}`,
-        context: { tool: 'computer_screenshot', exitCode: sip.exitCode },
+        message: cause
+          ? `sips resize/convert ${cause}`
+          : `sips resize/convert failed (exit ${sip.exitCode}): ${sip.stderr.trim() || '(no error message)'}`,
+        context: { tool: 'computer_screenshot', exitCode: sip.exitCode, timedOut: sip.timedOut ? 1 : 0 },
       });
     }
 

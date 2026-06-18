@@ -82,6 +82,13 @@ class WsTransport implements Transport {
       console.warn(
         `[moxxy] ws bridge: evicting slow reader (${this.ws.bufferedAmount} bytes unread past grace)`,
       );
+      // Eviction is intentionally lossy for the dropped frame — including a
+      // JSON-RPC RESPONSE frame. `send` returns no failure signal, but
+      // `terminate()` fires the socket's `'close'`, which flows through
+      // `emitClose` → `onClose`; the peer (JsonRpcPeer) rejects every pending
+      // request on close, so a caller awaiting the dropped response is recovered
+      // via that close + reconnect rather than left dangling. Do not assume
+      // `send` reliably delivers responses.
       this.ws.terminate();
       return;
     }
@@ -174,7 +181,13 @@ export async function createWebSocketTransportServer(
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   let currentToken = opts.authToken;
   let currentAllowedOrigins: readonly string[] = opts.allowedOrigins ?? [];
+  // `connections` counts ESTABLISHED sockets; `pending` counts upgrades that
+  // passed `verifyClient` (the authoritative admission gate) but haven't reached
+  // the `'connection'` event yet. The cap is checked against the SUM so two
+  // near-simultaneous handshakes can't both slip through reading the same
+  // pre-increment count — otherwise the live total transiently exceeds the cap.
   let connections = 0;
+  let pending = 0;
 
   const wss = new WebSocketServer({
     host,
@@ -187,11 +200,17 @@ export async function createWebSocketTransportServer(
         );
         return false;
       }
-      if (connections >= maxConnections) {
+      if (connections + pending >= maxConnections) {
         console.warn(`[moxxy] ws bridge: rejected upgrade — connection cap (${maxConnections}) reached`);
         return false;
       }
-      return checkWsAuth(info.req, currentToken, { allowQueryToken: opts.allowQueryToken });
+      const ok = checkWsAuth(info.req, currentToken, { allowQueryToken: opts.allowQueryToken });
+      // Reserve the slot at the moment of admission so a concurrent upgrade sees
+      // it taken. The reservation is converted to an established connection in
+      // the `'connection'` handler; an admitted upgrade that never connects
+      // (handshake aborted after auth) is reconciled by the close path below.
+      if (ok) pending += 1;
+      return ok;
     },
     // When the client offers subprotocols (the moxxy.bearer.* convention),
     // select the moxxy protocol WITHOUT echoing the token-bearing entry back.
@@ -201,6 +220,8 @@ export async function createWebSocketTransportServer(
 
   const connectionHandlers: Array<(t: Transport) => void> = [];
   wss.on('connection', (ws: WebSocket) => {
+    // Convert the verifyClient reservation into an established connection.
+    if (pending > 0) pending -= 1;
     connections += 1;
     ws.once('close', () => {
       connections -= 1;

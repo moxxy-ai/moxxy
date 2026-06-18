@@ -172,7 +172,17 @@ function ProtocolIncompatibleActions({
     if (!onUpdateCli) return;
     setStatus('updating');
     setError(null);
-    const result = await onUpdateCli();
+    let result: UpdateCliResult;
+    try {
+      result = await onUpdateCli();
+    } catch (e) {
+      // A rejected promise (rather than a resolved { ok: false }) must not
+      // strand the spinner at 'updating' forever — surface it as the error
+      // state with the manual escape hatch.
+      setError(e instanceof Error ? e.message : 'The update failed. Try the manual command below.');
+      setStatus('error');
+      return;
+    }
     if (result.ok) {
       // App.tsx has already kicked the supervisor retry; this screen will be
       // torn down as the connection phase advances. Keep the spinner up.
@@ -185,7 +195,10 @@ function ProtocolIncompatibleActions({
   const manualCommand = manualUpdateCommand(snapshot?.cliPath ?? null);
 
   if (!canUpdate) {
-    // client < server (or no updater wired): updating the CLI won't help.
+    // Two distinct dead ends land here; name the real cause so the guidance is
+    // accurate. (a) the app is older than the runner — updating the CLI can't
+    // help, reinstall the app; (b) the app is newer but no updater is wired —
+    // the in-app self-heal is unavailable, so update the CLI manually.
     return (
       <div
         role="note"
@@ -196,8 +209,18 @@ function ProtocolIncompatibleActions({
           maxWidth: 420,
         }}
       >
-        This app is older than the moxxy runner it found, so updating the CLI
-        won&rsquo;t help. Reinstall the latest moxxy desktop app to continue.
+        {appNewerThanRunner ? (
+          <>
+            This app can&rsquo;t update the moxxy CLI automatically. Update the
+            CLI manually to continue.
+          </>
+        ) : (
+          <>
+            This app is older than the moxxy runner it found, so updating the
+            CLI won&rsquo;t help. Reinstall the latest moxxy desktop app to
+            continue.
+          </>
+        )}
       </div>
     );
   }

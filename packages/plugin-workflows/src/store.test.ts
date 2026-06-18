@@ -86,4 +86,26 @@ describe('WorkflowStore CRUD', () => {
     const after = await store.save(sample('keep'));
     expect(after.path).toBe(before);
   });
+
+  it('serializes a concurrent reload against a setEnabled (no desync, no empty-map window)', async () => {
+    await store.create(sample('one'), 'user');
+    await store.create(sample('two'), 'user');
+
+    // A reload (clears+refills byName) racing a toggle (read→write→set) must
+    // not interleave. Fire both without awaiting between them.
+    const reload = store.load();
+    const toggle = store.setEnabled('one', false);
+    const [, toggled] = await Promise.all([reload, toggle]);
+
+    // The toggle landed and the reload did not lose the other workflow.
+    expect(toggled?.workflow.enabled).toBe(false);
+    const names = (await store.list()).map((w) => w.workflow.name).sort();
+    expect(names).toEqual(['one', 'two']);
+
+    // In-memory state matches disk (a fresh store sees the same toggle).
+    const fresh = new WorkflowStore({ cwd: dir, userDir: path.join(dir, 'user') });
+    await fresh.load();
+    expect((await fresh.get('one'))?.workflow.enabled).toBe(false);
+    expect((await fresh.get('two'))?.workflow.name).toBe('two');
+  });
 });

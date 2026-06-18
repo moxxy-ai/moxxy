@@ -398,6 +398,44 @@ describe('downloadAndStage hardening', () => {
     expect(readActiveVersion(tmp)).toBe('0.0.6');
   });
 
+  it('reports a final download progress event at 100% even when content-length is absent', async () => {
+    const { manifest, bundleGz } = buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from('// main'),
+      },
+    });
+    // A chunked / proxy-stripped response: no content-length header, so the
+    // per-chunk `total` is undefined and the bar would otherwise stay
+    // indeterminate. The reconciling final event must land it at 100%.
+    const fetchImpl = (async () => {
+      const r = new Response(new Uint8Array(bundleGz));
+      r.headers.delete('content-length');
+      return r;
+    }) as unknown as typeof fetch;
+
+    const progress: Array<{ phase: string; received?: number; total?: number }> = [];
+    await downloadAndStage(
+      {
+        userDataDir: tmp,
+        manifest,
+        publicKeyPem: PUBKEY,
+        onProgress: (p) => progress.push(p as { phase: string; received?: number; total?: number }),
+      },
+      { fetchImpl },
+    );
+
+    const downloads = progress.filter((p) => p.phase === 'download' && p.received !== undefined);
+    const final = downloads.at(-1)!;
+    expect(final.received).toBeGreaterThan(0);
+    expect(final.total).toBe(final.received); // lands at exactly 100%
+  });
+
   it('clears a prior poison mark on the version it installs (un-wedges a reinstall)', async () => {
     const { manifest, bundleGz } = buildAppBundle({
       version: '0.0.6',

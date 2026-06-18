@@ -69,14 +69,31 @@ describe('admin/config-io', () => {
   });
 
   it('discards a structurally-invalid (Zod-failing) config without throwing', async () => {
-    // Valid JSON, wrong shape: `servers` must be an array; an entry must
-    // carry a non-empty name. The Zod read should reject and fall back to
-    // empty rather than crash at boot.
+    // A whole row with no usable name is dropped (per-entry), and a top-level
+    // shape error (servers not an array) falls back to empty rather than crash.
     await fs.writeFile(mcpConfigPath(), JSON.stringify({ servers: [{ name: '' }] }), 'utf8');
     expect(await readMcpConfig()).toEqual({ servers: [] });
 
     await fs.writeFile(mcpConfigPath(), JSON.stringify({ servers: 'nope' }), 'utf8');
     expect(await readMcpConfig()).toEqual({ servers: [] });
+  });
+
+  it('keeps valid servers when one entry is malformed (u85-6: no whole-catalog wipe)', async () => {
+    // One good row + one nameless row. The bad row must drop ALONE — the
+    // valid server has to survive boot/list/enable/remove, not vanish.
+    await fs.writeFile(
+      mcpConfigPath(),
+      JSON.stringify({
+        servers: [
+          { kind: 'stdio', name: 'good', command: 'x' },
+          { kind: 'stdio', name: '', command: 'y' },
+        ],
+      }),
+      'utf8',
+    );
+    const back = await readMcpConfig();
+    expect(back.servers.map((s) => s.name)).toEqual(['good']);
+    expect(back.servers[0]).toMatchObject({ kind: 'stdio', name: 'good', command: 'x' });
   });
 
   describe('setServerDisabled', () => {

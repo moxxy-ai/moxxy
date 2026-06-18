@@ -281,24 +281,35 @@ function parseSequence(ctx: ParseCtx, indent: number): unknown[] {
 }
 
 function parseBlockScalar(ctx: ParseCtx, parentIndent: number, fold: boolean, strip: boolean): string {
-  const collected: string[] = [];
-  let blockIndent = -1;
+  // First collect the raw body lines (blanks kept as null markers), then strip
+  // the block's indentation by the MINIMUM indent across non-blank lines — not
+  // the first line's indent. Using the first line's indent under-sliced any
+  // later line indented LESS than it (cutting into real content); the minimum
+  // is the YAML rule and preserves the relative indentation of deeper lines.
+  const raw: Array<string | null> = [];
+  let blockIndent = Infinity;
   while (ctx.i < ctx.lines.length) {
     const line = ctx.lines[ctx.i]!;
     if (isBlank(line)) {
-      collected.push('');
+      raw.push(null);
       ctx.i++;
       continue;
     }
     const ind = indentOf(line);
     if (ind <= parentIndent) break;
-    if (blockIndent < 0) blockIndent = ind;
-    collected.push(line.slice(blockIndent));
+    if (ind < blockIndent) blockIndent = ind;
+    raw.push(line);
     ctx.i++;
   }
+  if (!Number.isFinite(blockIndent)) blockIndent = 0;
+  const lines = raw.map((l) => (l === null ? '' : l.slice(blockIndent)));
   // Trim trailing blank lines collected past the block.
-  while (collected.length > 0 && collected[collected.length - 1] === '') collected.pop();
-  const joined = fold ? collected.join(' ') : collected.join('\n');
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  // NOTE: folded (`>`) joins all lines with a single space (blank lines included
+  // as empties). The canonical emitter only ever produces literal `|`/`|-`, so
+  // fold's blank-line-as-paragraph-break nuance is not modelled here — only the
+  // literal path (the one the emitter round-trips) is treated as exact.
+  const joined = fold ? lines.join(' ') : lines.join('\n');
   return strip ? joined : joined + '\n';
 }
 

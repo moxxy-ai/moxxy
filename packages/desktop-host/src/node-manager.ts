@@ -107,10 +107,17 @@ export function managedNodeBinDir(
   }
   const nodeExe = platform === 'win32' ? 'node.exe' : path.join('bin', 'node');
   // Prefer the pinned version's folder, then any other node-v* folder.
+  // Partition rather than sort: the "pinned-first" comparator returns 0 for
+  // any pair where neither (or both) is pinned, which is NOT a strict weak
+  // ordering, so engine sort stability for the goal isn't guaranteed. A
+  // partition expresses "pinned folders first, original order otherwise"
+  // unambiguously.
   const pinned = `node-${MANAGED_NODE_VERSION}-`;
-  const candidates = entries
-    .filter((e) => e.startsWith('node-v'))
-    .sort((a, b) => (a.startsWith(pinned) ? -1 : b.startsWith(pinned) ? 1 : 0));
+  const all = entries.filter((e) => e.startsWith('node-v'));
+  const candidates = [
+    ...all.filter((e) => e.startsWith(pinned)),
+    ...all.filter((e) => !e.startsWith(pinned)),
+  ];
   for (const entry of candidates) {
     const dir = path.join(root, entry);
     if (existsSync(path.join(dir, nodeExe))) {

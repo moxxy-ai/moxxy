@@ -57,6 +57,7 @@ export class TransformersEmbedder implements EmbeddingProvider {
   private readonly explicitDim?: number;
   private readonly pipelineFactory: PipelineFactory | null;
   private readonly batchSize: number;
+  private readonly cacheDir?: string;
   private extractor: Awaited<ReturnType<PipelineFactory>> | null = null;
   private extractorPromise: Promise<Awaited<ReturnType<PipelineFactory>>> | null = null;
 
@@ -66,10 +67,12 @@ export class TransformersEmbedder implements EmbeddingProvider {
     this.explicitDim = opts.dimensions;
     this.pipelineFactory = opts.pipelineFactory ?? null;
     this.batchSize = opts.batchSize && opts.batchSize > 0 ? opts.batchSize : DEFAULT_BATCH_SIZE;
-    if (opts.cacheDir) {
-      // Honor HF caching env var so users can pin where models land.
-      process.env.HF_HOME = opts.cacheDir;
-    }
+    // Stash the cache dir; apply it only at actual model-load time (not here).
+    // Constructing an embedder must be a cheap, side-effect-free createClient
+    // (per the EmbedderDef contract) — mutating the process-global HF_HOME in
+    // the ctor meant the last-constructed embedder silently rebound the cache
+    // dir for every other instance and any other HF reader, order-dependently.
+    if (opts.cacheDir) this.cacheDir = opts.cacheDir;
   }
 
   get dim(): number | 'dynamic' {
@@ -84,7 +87,7 @@ export class TransformersEmbedder implements EmbeddingProvider {
     // process lifetime — the next embed() retries instead of re-throwing the
     // cached rejection.
     this.extractorPromise = (async () => {
-      const factory = this.pipelineFactory ?? (await loadDefaultFactory());
+      const factory = this.pipelineFactory ?? (await this.loadDefaultFactory());
       const extractor = await factory('feature-extraction', this.model);
       this.extractor = extractor;
       return extractor;
@@ -93,6 +96,16 @@ export class TransformersEmbedder implements EmbeddingProvider {
       throw err;
     });
     return await this.extractorPromise;
+  }
+
+  /** Load the real `@huggingface/transformers` pipeline, applying the pinned
+   *  cache dir via HF_HOME immediately before the import resolves the model
+   *  loader (which is when HF reads it). Scoping the env mutation to the actual
+   *  load — rather than the constructor — keeps construction side-effect-free.
+   *  Injected pipelineFactory paths (tests) never reach here. */
+  private async loadDefaultFactory(): Promise<PipelineFactory> {
+    if (this.cacheDir) process.env.HF_HOME = this.cacheDir;
+    return await loadDefaultFactory();
   }
 
   async embed(texts: ReadonlyArray<string>): Promise<ReadonlyArray<ReadonlyArray<number>>> {

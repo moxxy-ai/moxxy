@@ -31,7 +31,10 @@ export function buildWebhookRunner(session: Session): WebhookPromptRunner {
         for await (const event of runTurn(target, prompt, model ? { model } : {})) {
           if (event.type === 'assistant_message') {
             text = event.content;
-            if (event.stopReason === 'error') lastError = 'turn ended with error stop reason';
+            // The latest assistant_message is authoritative for the final
+            // outcome: a later successful round must clear an earlier round's
+            // error stop reason, otherwise a recovered turn reports as failed.
+            lastError = event.stopReason === 'error' ? 'turn ended with error stop reason' : null;
           } else if (event.type === 'error') {
             lastError = event.message;
           }

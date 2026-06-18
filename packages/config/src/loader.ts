@@ -100,20 +100,27 @@ async function loadOne(filePath: string): Promise<MoxxyConfig> {
   return parsed.data;
 }
 
-let cachedJiti: ((id: string) => unknown) | null = null;
+// Key the cache by cwd: a jiti instance binds its module-resolution /
+// interopDefault base to the dir it was created with, so a single shared
+// instance would resolve a SECOND project's `.ts` config relative imports
+// against the FIRST project's dir. Long-lived hosts (desktop/runner) load
+// configs for multiple workspaces in one process, so each cwd needs its own.
+const cachedJiti = new Map<string, (id: string) => unknown>();
 
 type JitiFactory = (cwd: string, opts?: unknown) => (id: string) => unknown;
 
 async function getJiti(cwd: string): Promise<((id: string) => unknown) | null> {
-  if (cachedJiti) return cachedJiti;
+  const existing = cachedJiti.get(cwd);
+  if (existing) return existing;
   try {
     const mod = await import('jiti');
     const factory =
       (mod as { createJiti?: JitiFactory; default?: JitiFactory }).createJiti ??
       (mod as { default?: JitiFactory }).default;
     if (!factory) return null;
-    cachedJiti = factory(cwd, { interopDefault: true });
-    return cachedJiti;
+    const instance = factory(cwd, { interopDefault: true });
+    cachedJiti.set(cwd, instance);
+    return instance;
   } catch {
     return null;
   }

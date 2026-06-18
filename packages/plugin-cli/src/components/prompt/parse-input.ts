@@ -13,6 +13,15 @@ export interface ParseCtx {
   onSlashUp: () => void;
   onSlashDown: () => void;
   onSlashAccept: () => void;
+  /**
+   * Ctrl+C handler. In raw mode the terminal delivers a literal `0x03` byte
+   * (NOT SIGINT), so the app must act on it itself. When provided, this should
+   * perform graceful teardown (restore the terminal, unmount Ink, close the
+   * session/runner) and then exit. When unset, the parser falls back to a hard
+   * `process.exit(0)` so Ctrl+C always terminates even before a handler is
+   * wired (and in unit tests).
+   */
+  onInterrupt?: () => void;
   /** Shift+Tab — cycles the active mode. No-op when unset. */
   onShiftTab?: () => void;
   onPasteText?: (text: string) => string;
@@ -107,8 +116,13 @@ export function parseInputChunk(chunk: string, ctx: ParseCtx): string {
       continue;
     }
     if (c === '\x03') {
-      // Ctrl+C → process exit.
-      process.exit(0);
+      // Ctrl+C. Prefer a graceful interrupt (restore terminal, unmount Ink,
+      // close the session/runner so its unix socket / PTY isn't orphaned).
+      // Fall back to a hard exit when no handler is wired so Ctrl+C always
+      // terminates.
+      if (ctx.onInterrupt) ctx.onInterrupt();
+      else process.exit(0);
+      return remainder;
     }
     if (c === '\x7f' || c === '\x08') {
       ctx.dispatch({ type: 'delete-back' });

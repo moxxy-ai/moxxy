@@ -7,7 +7,7 @@
  * store/model/hook code path drive a live chat loop on RN, nothing more.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -40,13 +40,14 @@ const ENV_URL = process.env.EXPO_PUBLIC_MOXXY_WS_URL;
 const ENV_TOKEN = process.env.EXPO_PUBLIC_MOXXY_WS_TOKEN;
 
 export default function App(): React.JSX.Element {
-  const [connected, setConnected] = useState<boolean>(() => {
-    if (ENV_URL) {
-      bootMobile(ENV_URL, ENV_TOKEN);
-      return true;
-    }
-    return false;
-  });
+  // Seed `connected` from the env URL WITHOUT a side effect — bootMobile
+  // mutates global transport/platform config, so running it in the useState
+  // initializer (render phase) would reconfigure on any StrictMode double-
+  // invoke / remount. Do the boot once in an effect instead.
+  const [connected, setConnected] = useState<boolean>(!!ENV_URL);
+  useEffect(() => {
+    if (ENV_URL) bootMobile(ENV_URL, ENV_TOKEN);
+  }, []);
 
   if (!connected) {
     return (
@@ -205,16 +206,23 @@ function AskPrompt({ workspaceId }: { workspaceId: string | null }): React.JSX.E
   if (!ask) return null;
 
   const allow = (): void => {
-    if (ask.kind === 'permission') askStore.respond(ask.requestId, { mode: 'allow' });
-    else askStore.respond(ask.requestId, { optionId: ask.approval?.options[0]?.id ?? '' });
+    if (ask.kind === 'permission') {
+      askStore.respond(ask.requestId, { mode: 'allow' });
+      return;
+    }
+    // Only forward a concrete option id. An approval ask with no options would
+    // otherwise resolve the parked runner with optionId:'' (not a valid id) and
+    // drop the ask locally, leaving the user unable to act — keep it pending.
+    const optionId = ask.approval?.options[0]?.id;
+    if (optionId) askStore.respond(ask.requestId, { optionId });
   };
   const deny = (): void => {
-    if (ask.kind === 'permission') askStore.respond(ask.requestId, { mode: 'deny' });
-    else
-      askStore.respond(ask.requestId, {
-        optionId:
-          ask.approval?.options.find((o) => o.danger)?.id ?? ask.approval?.defaultOptionId ?? '',
-      });
+    if (ask.kind === 'permission') {
+      askStore.respond(ask.requestId, { mode: 'deny' });
+      return;
+    }
+    const optionId = ask.approval?.options.find((o) => o.danger)?.id ?? ask.approval?.defaultOptionId;
+    if (optionId) askStore.respond(ask.requestId, { optionId });
   };
 
   const label =

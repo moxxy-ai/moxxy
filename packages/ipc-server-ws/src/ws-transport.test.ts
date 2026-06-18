@@ -115,6 +115,23 @@ describe('createWebSocketTransportServer', () => {
     await expect(connect(server.address, { headers: bearerHeaders })).rejects.toThrow();
   });
 
+  it('holds the cap hard under concurrent upgrades (no transient over-admit)', async () => {
+    const N = 3;
+    const server = await startServer({ maxConnections: N });
+    // Fire N+2 handshakes without awaiting the first's 'connection' before
+    // opening the next — the race window the soft counter could slip through.
+    const attempts = Array.from({ length: N + 2 }, () =>
+      connect(server.address, { headers: bearerHeaders }).then(
+        () => 'open' as const,
+        () => 'refused' as const,
+      ),
+    );
+    const results = await Promise.all(attempts);
+    expect(results.filter((r) => r === 'open').length).toBe(N);
+    expect(results.filter((r) => r === 'refused').length).toBe(2);
+    expect(server.clientCount()).toBe(N);
+  });
+
   it('frees a slot when a capped connection closes', async () => {
     const server = await startServer({ maxConnections: 1 });
     const first = await connect(server.address, { headers: bearerHeaders });
