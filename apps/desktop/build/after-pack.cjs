@@ -21,6 +21,20 @@ const path = require('node:path');
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return;
 
+  // Universal builds: electron-builder packs each arch into a
+  // `mac-universal-<arch>-temp` dir, then @electron/universal lipo-merges the
+  // two apps and REQUIRES every non-binary file — including
+  // `_CodeSignature/CodeResources` — to be byte-identical across both arch
+  // apps. Ad-hoc signing the per-arch temps here makes those signatures diverge
+  // and the merge aborts ("Expected all non-binary files to have identical
+  // SHAs ... Electron Framework.framework/.../CodeResources did not"). So skip
+  // the staging temps; electron-builder runs afterPack again on the MERGED
+  // universal app (a non-temp dir), which is where we ad-hoc sign instead.
+  if (context.appOutDir.endsWith('-temp')) {
+    console.log(`afterPack: skipping universal staging dir ${context.appOutDir}`);
+    return;
+  }
+
   // When a real Developer ID cert is present (CSC_LINK set), electron-builder
   // does the proper hardened-runtime signing + notarization — ad-hoc signing
   // here would clobber it. Only ad-hoc sign the unsigned fallback build.
