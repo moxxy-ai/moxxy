@@ -1,5 +1,12 @@
 # @moxxy/mobile-poc
 
+## 0.0.19
+
+### Patch Changes
+
+- Updated dependencies [389c2c8]
+  - @moxxy/client-core@0.8.6
+
 ## 0.0.18
 
 ### Patch Changes

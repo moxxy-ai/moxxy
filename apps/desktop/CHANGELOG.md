@@ -1,5 +1,47 @@
 # @moxxy/desktop
 
+## 0.13.0
+
+### Minor Changes
+
+- 5ed2671: feat(desktop): redesign the document anonymizer as a guided import → settings → output flow
+
+  Simpler, clearer UX: a three-stage layout (Import / Settings / Output). Import has
+  an Upload-vs-Paste toggle with a friendly drag-drop dropzone + file picker; Settings
+  puts the redaction categories in a proper multi-select dropdown (checkboxes + All/None)
+  alongside the mode control and custom terms; Output shows per-category counts with
+  Copy + Save. The offline engine, on-device NER, document parsing, and the bytes-not-path
+  drag-drop security model are unchanged.
+
+### Patch Changes
+
+- 0941b8d: feat(desktop): agent showcases its work in the rail + Preferences tab
+
+  **Agent opens the sidebar.** When the agent drives the browser (`browser_session`)
+  or the terminal (`terminal`), the matching Context-rail pane now opens on its own
+  so the user sees the work as it happens — no need to open the pane manually. It's
+  renderer-only (it watches the existing `runner.event` stream and reveals the pane),
+  reveals each pane at most once per session, and never auto-closes — the rail's
+  close button stays authoritative.
+
+  **Preferences tab.** The "Appearance" and "About" settings tabs are folded into a
+  single **Preferences** tab (theme + version/update + CLI), so there's one place for
+  "how the app looks and updates".
+
+  Also adds the previously-missing regression test for the browser region-capture →
+  chat-attach flow.
+
+- 389c2c8: Desktop: collapse the three separate update controls (Update CLI, Update
+  dashboard, Update app) into ONE "Update" button. A single action now brings both
+  the runner (`@moxxy/cli`, restarts live) and the desktop app (hot-update bundle,
+  or full installer when a hot-update can't deliver) to the latest version
+  together. The settings panel shows both versions; the runner update is non-fatal
+  (the bundled CLI keeps working if npm isn't available). No update-engine or IPC
+  changes — the existing primitives are just composed behind one `runUpdateAll`.
+- Updated dependencies [389c2c8]
+  - @moxxy/client-core@0.8.6
+  - @moxxy/client-platform-web@0.1.23
+
 ## 0.12.6
 
 ### Patch Changes
