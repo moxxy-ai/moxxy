@@ -195,8 +195,15 @@ export class SessionPersistence {
     // Never propagate a write error into the listener chain — but never
     // swallow it silently either: the JSONL is the session's source of
     // truth, so a failing disk must at least be loud.
+    //
+    // Serialize the append behind `ensureReady()` (memoized mkdir -p + open):
+    // `fs.appendFile` with flag 'a' creates the FILE but not its parent dir, so
+    // a first event that arrives before `attach()`'s detached `ensureReady()`
+    // resolves on a machine without `~/.moxxy/sessions` would ENOENT, latch the
+    // misleading "persistence degraded" warning, and lose that event. Because
+    // `ready` is memoized, every later append pays nothing.
     void this.writeQueue
-      .run(() => fs.appendFile(this.logPath, line, 'utf8'))
+      .run(() => this.ensureReady().then(() => fs.appendFile(this.logPath, line, 'utf8')))
       .then(() => this.noteWriteOk())
       .catch((err: unknown) => this.noteWriteFailure('append', err));
   }
@@ -245,7 +252,7 @@ export class SessionPersistence {
     };
     this.scheduleIndexWrite();
     void this.writeQueue
-      .run(() => fs.writeFile(this.logPath, '', 'utf8'))
+      .run(() => this.ensureReady().then(() => fs.writeFile(this.logPath, '', 'utf8')))
       .then(() => this.noteWriteOk())
       .catch((err: unknown) => this.noteWriteFailure('truncate', err));
   }
