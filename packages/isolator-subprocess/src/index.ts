@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { definePlugin, type Isolator, type Plugin } from '@moxxy/sdk';
 import {
+  buildBrokerEnv,
   checkAllCaps,
   handleBrokerRequest,
   LOADER_HOOK_SOURCE,
@@ -158,8 +159,6 @@ export interface SubprocessIsolatorOptions {
   readonly nodePath?: string;
 }
 
-const DEFAULT_ENV: ReadonlyArray<string> = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TERM'];
-
 /**
  * Grace period after a cooperative SIGTERM before escalating to an
  * unmaskable SIGKILL. Bounds a runaway/SIGTERM-ignoring handler so the
@@ -187,7 +186,6 @@ const KILL_GRACE_MS = 2_000;
  */
 export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): Isolator {
   const defaultTimeMs = opts.defaultTimeMs ?? 60_000;
-  const envAllowlist = opts.defaultEnvAllowlist ?? DEFAULT_ENV;
   const nodePath = opts.nodePath ?? process.execPath;
 
   return {
@@ -207,12 +205,10 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
       }
 
       const timeMs = caps.timeMs ?? defaultTimeMs;
-      const allowedEnv = caps.env ?? envAllowlist;
-      const env: Record<string, string> = {};
-      for (const key of allowedEnv) {
-        const v = process.env[key];
-        if (v !== undefined) env[key] = v;
-      }
+      // Curate the child env via the shared @moxxy/plugin-security helper so the
+      // allowlist contract is single-sourced (its BROKER_DEFAULT_ENV is the
+      // fallback when neither caps.env nor a configured allowlist is set).
+      const env = buildBrokerEnv({ env: caps.env ?? opts.defaultEnvAllowlist }, undefined);
 
       const child = spawn(nodePath, ['--input-type=module', '-e', SHIM_SOURCE], {
         cwd: call.cwd,

@@ -7,7 +7,7 @@
  * store/model/hook code path drive a live chat loop on RN, nothing more.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -127,9 +127,16 @@ function Chat(): React.JSX.Element {
 
   const phase = snapshot?.phase.phase ?? 'connecting…';
   const ready = !!workspaceId;
-  const lines = events
-    .map((event) => ({ event, line: renderLine(event) }))
-    .filter((e): e is { event: MoxxyEvent; line: Line } => e.line !== null);
+  // Derive the transcript projection from `events` only. Without the memo,
+  // typing into the composer (local `draft` state) re-renders Chat and re-folds
+  // the whole event array O(n) per keystroke for data that has not changed.
+  const lines = useMemo(
+    () =>
+      events
+        .map((event) => ({ event, line: renderLine(event) }))
+        .filter((e): e is { event: MoxxyEvent; line: Line } => e.line !== null),
+    [events],
+  );
 
   const onSend = (): void => {
     const text = draft.trim();

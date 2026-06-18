@@ -157,6 +157,40 @@ describe('handleVoiceMessage', () => {
     expect(runUserTurn).not.toHaveBeenCalled();
   });
 
+  it('logs the real HTTP status when the download fails', async () => {
+    const session = makeSession();
+    session.transcribers.register(
+      defineTranscriber({
+        name: 't',
+        createClient: () => ({ name: 't', transcribe: async () => ({ text: 'x' }) }),
+      }),
+    );
+    session.transcribers.setActive('t');
+    const { ctx, replies } = fakeCtx({ voice: { file_id: 'f' } });
+    const runUserTurn = vi.fn();
+    const warn = vi.fn();
+    await handleVoiceMessage(
+      ctx,
+      { session, busy: false },
+      { ...baseDeps(), logger: { warn } },
+      {
+        runUserTurn,
+        fetchAudio: vi.fn(async () => ({
+          ok: false,
+          status: 404,
+          statusText: 'Not Found',
+          arrayBuffer: async () => new ArrayBuffer(0),
+        })),
+      },
+    );
+    expect(replies.some((r) => /Failed to download/.test(r))).toBe(true);
+    expect(runUserTurn).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('telegram voice download failed', {
+      status: 404,
+      statusText: 'Not Found',
+    });
+  });
+
   it('handles uploaded audio (message:audio) with its own mime_type', async () => {
     const session = makeSession();
     const transcribe = vi.fn(async () => ({ text: 'recorded earlier' }));

@@ -94,7 +94,7 @@ export async function driveTurn(
     res.off('close', onClose);
   }
 
-  const finalAssistant = events.findLast?.((e) => e.type === 'assistant_message');
+  const finalAssistant = events.findLast((e) => e.type === 'assistant_message');
   const assistant =
     finalAssistant && finalAssistant.type === 'assistant_message' ? finalAssistant.content : '';
   return { events, assistant };

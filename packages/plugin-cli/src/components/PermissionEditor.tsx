@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import { PermissionEngine } from '@moxxy/core';
 
@@ -155,8 +155,6 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
     }
   });
 
-  const visible = useMemo(() => rows, [rows]);
-
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
@@ -164,10 +162,10 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
         <Text dimColor>  ({policyPath})</Text>
       </Box>
 
-      {visible.length === 0 ? (
+      {rows.length === 0 ? (
         <Text dimColor>(no rules — press `a` to add an allow rule, `D` for deny)</Text>
       ) : (
-        visible.map((row, i) => {
+        rows.map((row, i) => {
           const focused = i === cursor;
           return (
             <Box key={`${row.kind}:${row.name}:${i}`}>

@@ -22,7 +22,13 @@ export interface VoiceHandlerDeps {
 export interface VoiceHandlerCallbacks {
   readonly runUserTurn: (ctx: Context, chatId: number, text: string) => Promise<void>;
   /** Override the network fetch for tests. Defaults to global `fetch`. */
-  readonly fetchAudio?: (url: string) => Promise<{ ok: boolean; arrayBuffer(): Promise<ArrayBuffer> }>;
+  readonly fetchAudio?: (url: string) => Promise<{
+    ok: boolean;
+    /** HTTP status — surfaced in the download-failure log for diagnostics. */
+    status?: number;
+    statusText?: string;
+    arrayBuffer(): Promise<ArrayBuffer>;
+  }>;
 }
 
 /**
@@ -85,7 +91,10 @@ export async function handleVoiceMessage(
   const fetcher = cb.fetchAudio ?? ((u: string) => fetch(u));
   const response = await fetcher(url);
   if (!response.ok) {
-    deps.logger?.warn('telegram voice download failed', { status: 'ok=false' });
+    deps.logger?.warn('telegram voice download failed', {
+      ...(response.status !== undefined ? { status: response.status } : {}),
+      ...(response.statusText ? { statusText: response.statusText } : {}),
+    });
     await ctx.reply('Failed to download the voice note from Telegram.');
     return;
   }

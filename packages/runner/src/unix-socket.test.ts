@@ -86,6 +86,64 @@ describe('unix-socket transport (NDJSON framing)', () => {
     raw.destroy();
   });
 
+  it('drops a malformed frame and keeps the link alive for the next good frame', async () => {
+    const socketPath = tmpSocket();
+    const server = await createUnixSocketServer(socketPath);
+    servers.push(server);
+    const serverSide = new Promise<Transport>((resolve) => server.onConnection(resolve));
+    // Raw client so we can write an invalid JSON line followed by a valid one.
+    const raw = net.connect(socketPath);
+    await new Promise<void>((resolve) => raw.once('connect', () => resolve()));
+    const srv = await serverSide;
+
+    const received: unknown[] = [];
+    const gotGood = new Promise<void>((resolve) => {
+      srv.onFrame((f) => {
+        received.push(f);
+        resolve();
+      });
+    });
+    raw.write('garbage{not json\n{"ok":1}\n');
+    await gotGood;
+    // Exactly the valid frame is delivered; the malformed line was dropped and
+    // the transport survived (it didn't tear down on the bad line).
+    expect(received).toEqual([{ ok: 1 }]);
+
+    // The link is still usable after the malformed line.
+    const gotNext = nextFrame(srv);
+    raw.write('{"after":2}\n');
+    expect(await gotNext).toEqual({ after: 2 });
+    raw.destroy();
+  });
+
+  it('parses many small frames arriving in a single chunk (linear, in order)', async () => {
+    const socketPath = tmpSocket();
+    const server = await createUnixSocketServer(socketPath);
+    servers.push(server);
+    const serverSide = new Promise<Transport>((resolve) => server.onConnection(resolve));
+    const raw = net.connect(socketPath);
+    await new Promise<void>((resolve) => raw.once('connect', () => resolve()));
+    const srv = await serverSide;
+
+    const N = 5000;
+    const received: number[] = [];
+    const done = new Promise<void>((resolve) => {
+      srv.onFrame((f) => {
+        received.push((f as { i: number }).i);
+        if (received.length === N) resolve();
+      });
+    });
+    // One big chunk carrying N newline-delimited frames.
+    let blob = '';
+    for (let i = 0; i < N; i++) blob += `${JSON.stringify({ i })}\n`;
+    raw.write(blob);
+    await done;
+    expect(received.length).toBe(N);
+    expect(received[0]).toBe(0);
+    expect(received[N - 1]).toBe(N - 1);
+    raw.destroy();
+  });
+
   it('reclaims a stale socket file left by a crashed runner', async () => {
     const socketPath = tmpSocket();
     // Simulate a leftover file with nothing listening.

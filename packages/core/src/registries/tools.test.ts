@@ -55,7 +55,7 @@ describe('ToolRegistryImpl', () => {
     expect(result).toBe('HI');
   });
 
-  it('validates output if outputSchema present', async () => {
+  it('validates output if outputSchema present, formatting the issues into one line', async () => {
     const reg = make();
     reg.register(
       defineTool({
@@ -66,9 +66,27 @@ describe('ToolRegistryImpl', () => {
         handler: () => ({ ok: false }) as never,
       }),
     );
+    // Mirrors the input path: names the tool + offending field on a single
+    // line instead of dumping the raw multi-line ZodError.
     await expect(
       reg.execute('badShape', {}, new AbortController().signal),
-    ).rejects.toThrow(/Invalid literal value/);
+    ).rejects.toThrow(/Tool badShape produced invalid output: ok: /);
+  });
+
+  it('returns the parsed output when outputSchema passes', async () => {
+    const reg = make();
+    reg.register(
+      defineTool({
+        name: 'goodShape',
+        description: 'e',
+        inputSchema: z.object({}),
+        outputSchema: z.object({ ok: z.literal(true) }),
+        handler: () => ({ ok: true, extra: 'stripped' }) as never,
+      }),
+    );
+    // outputSchema.safeParse strips unknown keys exactly like the prior .parse did.
+    const result = await reg.execute('goodShape', {}, new AbortController().signal);
+    expect(result).toEqual({ ok: true });
   });
 
   it('unregisters', () => {

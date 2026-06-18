@@ -107,15 +107,22 @@ export async function readStoredCreds(
   const base = `oauth/${provider}`;
   const access = await vault.get(`${base}/access_token`);
   if (!access) return null;
-  const refresh = await vault.get(`${base}/refresh_token`);
-  const expiresStr = await vault.get(`${base}/expires_at`);
-  const scope = await vault.get(`${base}/scope`);
-  const tokenType = (await vault.get(`${base}/token_type`)) ?? 'Bearer';
-  const idToken = await vault.get(`${base}/id_token`);
-  const clientId = await vault.get(`${base}/client_id`);
-  const clientSecret = await vault.get(`${base}/client_secret`);
-  const tokenUrl = await vault.get(`${base}/token_url`);
-  const extrasRaw = await vault.get(`${base}/extras`);
+  // The remaining nine keys are independent reads with no ordering dependency;
+  // ensureFreshTokens runs this before every upstream LLM call, so fetch them
+  // concurrently instead of serializing ~9 vault round-trips on the hot path.
+  const [refresh, expiresStr, scope, tokenTypeRaw, idToken, clientId, clientSecret, tokenUrl, extrasRaw] =
+    await Promise.all([
+      vault.get(`${base}/refresh_token`),
+      vault.get(`${base}/expires_at`),
+      vault.get(`${base}/scope`),
+      vault.get(`${base}/token_type`),
+      vault.get(`${base}/id_token`),
+      vault.get(`${base}/client_id`),
+      vault.get(`${base}/client_secret`),
+      vault.get(`${base}/token_url`),
+      vault.get(`${base}/extras`),
+    ]);
+  const tokenType = tokenTypeRaw ?? 'Bearer';
   if (!clientId || !tokenUrl) {
     // Missing setup-meta means a partial store — refresh impossible. Treat as absent.
     return null;

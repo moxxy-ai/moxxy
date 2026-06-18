@@ -19,8 +19,8 @@ import { sendEvent } from './send-event';
 import { wsEventBus } from './event-bus';
 
 /**
- * Spawn `node --version` and return the trimmed string. Fast (250ms
- * budget); a hung child can't block the wizard.
+ * Spawn `node --version` and return the trimmed string. A hung child
+ * can't block the wizard — it's killed after a 2s budget.
  */
 export async function probeNode(): Promise<NodeProbe> {
   const bin = findExecutable('node', augmentedPaths());

@@ -56,4 +56,45 @@ describe('fixture-recorder argv parsing', () => {
       parseFlags(['--prompt', 'p', '--name', 'n', '--out', 'd', '--max-iterations', '0']),
     ).toThrow(/--max-iterations must be a positive integer/);
   });
+
+  it('returns {help:true} for empty argv, --help, and -h', () => {
+    expect(parseFlags([])).toEqual({ help: true });
+    expect(parseFlags(['--help'])).toEqual({ help: true });
+    expect(parseFlags(['-h'])).toEqual({ help: true });
+    // --help wins even when mixed with other (valid) flags.
+    expect(parseFlags(['--prompt', 'p', '--help'])).toEqual({ help: true });
+  });
+
+  it('reports each missing required flag', () => {
+    expect(() => parseFlags(['--name', 'n', '--out', 'd'])).toThrow(/--prompt is required/);
+    expect(() => parseFlags(['--prompt', 'p', '--out', 'd'])).toThrow(/--name is required/);
+    expect(() => parseFlags(['--prompt', 'p', '--name', 'n'])).toThrow(/--out is required/);
+  });
+
+  it('rejects an unknown flag', () => {
+    expect(() =>
+      parseFlags(['--prompt', 'p', '--name', 'n', '--out', 'd', '--bogus']),
+    ).toThrow(/unknown flag: --bogus/);
+  });
+
+  it('trims whitespace and drops empty entries in --allow-tools', () => {
+    const parsed = parseFlags([
+      '--prompt', 'p', '--name', 'n', '--out', 'd',
+      '--allow-tools', ' Read , , Glob ,',
+    ]) as { allowTools: string[] };
+    expect(parsed.allowTools).toEqual(['Read', 'Glob']);
+  });
+
+  it('defaults allowTools to [] and leaves optional fields undefined when omitted', () => {
+    const parsed = parseFlags(['--prompt', 'p', '--name', 'n', '--out', 'd']) as {
+      allowTools: string[];
+      model?: string;
+      maxIterations?: number;
+      verbose: boolean;
+    };
+    expect(parsed.allowTools).toEqual([]);
+    expect(parsed.model).toBeUndefined();
+    expect(parsed.maxIterations).toBeUndefined();
+    expect(parsed.verbose).toBe(false);
+  });
 });

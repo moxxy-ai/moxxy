@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { checkFsCap, checkNetCap, checkAllCaps, maskEnv } from './cap-check.js';
+import {
+  checkFsCap,
+  checkNetCap,
+  checkAllCaps,
+  maskEnv,
+  pathInScope,
+  urlInScope,
+} from './cap-check.js';
 
 describe('checkFsCap', () => {
   it('passes when no path-like input is present', () => {
@@ -137,5 +144,81 @@ describe('maskEnv', () => {
 
   it('returns empty when no allowlist is provided', () => {
     expect(maskEnv({ HOME: '/x' }, undefined)).toEqual({});
+  });
+});
+
+// pathInScope is the broker's per-syscall fs gate; it routes through the
+// internal matchesGlob, so these lock the glob edges the audit flagged
+// (single-* vs slash, /** parent special case, traversal, sibling-prefix dirs).
+describe('pathInScope (matchesGlob edges)', () => {
+  const cwd = '/work';
+  const cap = (read: string[]) => ({ read });
+
+  const cases: Array<[string, string[], boolean]> = [
+    // /** matches the dir itself and everything under it
+    ['/work', ['/work/**'], true],
+    ['/work/a/b.txt', ['/work/**'], true],
+    // sibling-prefix dir must NOT match (the /work2 vs /work/** trap)
+    ['/work2/x', ['/work/**'], false],
+    // single * stays within one segment, does not cross '/'
+    ['/work/a.txt', ['/work/*'], true],
+    ['/work/a/b.txt', ['/work/*'], false],
+    // ** crosses slashes
+    ['/work/a/b/c.txt', ['/work/**/c.txt'], true],
+    // path traversal collapses via normalize before matching
+    ['/work/../etc/passwd', ['/work/**'], false],
+    // $cwd expansion
+    ['/work/sub/x', ['$cwd/**'], true],
+    ['/elsewhere/x', ['$cwd/**'], false],
+    // literal pattern (no wildcards) only matches itself
+    ['/work/exact', ['/work/exact'], true],
+    ['/work/exactly', ['/work/exact'], false],
+  ];
+
+  it.each(cases)('read %s vs %j => %s', (filePath, globs, expected) => {
+    expect(pathInScope(filePath, cap(globs), cwd, 'read')).toBe(expected);
+  });
+
+  it('denies when no cap or empty globs', () => {
+    expect(pathInScope('/work/x', undefined, cwd, 'read')).toBe(false);
+    expect(pathInScope('/work/x', { read: [] }, cwd, 'read')).toBe(false);
+  });
+
+  it('uses the write globs for write mode', () => {
+    const c = { read: ['/work/**'], write: ['/work/out/**'] };
+    expect(pathInScope('/work/in/x', c, cwd, 'write')).toBe(false);
+    expect(pathInScope('/work/out/x', c, cwd, 'write')).toBe(true);
+  });
+});
+
+describe('urlInScope (hostMatches edges)', () => {
+  const hosts = (h: string[]) => ({ mode: 'allowlist' as const, hosts: h });
+
+  it('matches an exact host', () => {
+    expect(urlInScope('https://example.com/x', hosts(['example.com']))).toBe(true);
+  });
+
+  it('rejects a sibling host that merely ends with the pattern', () => {
+    // 'evilexample.com' must NOT match 'example.com'
+    expect(urlInScope('https://evilexample.com', hosts(['example.com']))).toBe(false);
+  });
+
+  it('matches a subdomain under a *. wildcard but not the bare apex', () => {
+    expect(urlInScope('https://api.example.com', hosts(['*.example.com']))).toBe(true);
+    // host must be strictly longer than the '.example.com' suffix
+    expect(urlInScope('https://example.com', hosts(['*.example.com']))).toBe(false);
+  });
+
+  it('honors mode none/any', () => {
+    expect(urlInScope('https://anything', { mode: 'none' })).toBe(false);
+    expect(urlInScope('https://anything', { mode: 'any' })).toBe(true);
+  });
+
+  it('rejects an unparseable URL', () => {
+    expect(urlInScope('not a url', hosts(['example.com']))).toBe(false);
+  });
+
+  it('denies when cap is undefined', () => {
+    expect(urlInScope('https://example.com', undefined)).toBe(false);
   });
 });

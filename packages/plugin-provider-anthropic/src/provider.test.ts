@@ -83,6 +83,98 @@ describe('AnthropicProvider.stream', () => {
     expect(endB).toMatchObject({ id: 'B', input: { pattern: '*.ts' } });
   });
 
+  it('translates a thinking block into reasoning_delta then a concatenated reasoning_signature', async () => {
+    const fake = fakeAnthropic([
+      { type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'let me ' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'think' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'part2' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+      { type: 'message_stop' },
+    ]);
+    const p = new AnthropicProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'm', messages: [] })) events.push(e);
+    const reasoning = events
+      .filter((e) => e.type === 'reasoning_delta')
+      .map((e) => (e as { delta: string }).delta)
+      .join('');
+    expect(reasoning).toBe('let me think');
+    const sig = events.find((e) => e.type === 'reasoning_signature');
+    // Signature deltas accumulate and flush once at content_block_stop.
+    expect(sig).toMatchObject({ signature: 'sig-part2' });
+    expect(events.filter((e) => e.type === 'reasoning_signature')).toHaveLength(1);
+  });
+
+  it('passes through a redacted_thinking block as an encrypted reasoning_signature', async () => {
+    const fake = fakeAnthropic([
+      { type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'redacted_thinking', data: 'OPAQUE' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } },
+      { type: 'message_stop' },
+    ]);
+    const p = new AnthropicProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'm', messages: [] })) events.push(e);
+    const sig = events.find((e) => e.type === 'reasoning_signature');
+    expect(sig).toMatchObject({ redacted: true, encrypted: 'OPAQUE' });
+  });
+
+  it('preserves cache_read/creation token counts from message_start through message_end', async () => {
+    const fake = fakeAnthropic([
+      {
+        type: 'message_start',
+        message: {
+          usage: {
+            input_tokens: 100,
+            output_tokens: 0,
+            cache_read_input_tokens: 80,
+            cache_creation_input_tokens: 20,
+          },
+        },
+      },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } },
+      // The delta usage only carries the final output_tokens; cache fields must survive.
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } },
+      { type: 'message_stop' },
+    ]);
+    const p = new AnthropicProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'm', messages: [] })) events.push(e);
+    expect(events[events.length - 1]).toMatchObject({
+      type: 'message_end',
+      usage: {
+        inputTokens: 100,
+        outputTokens: 5,
+        cacheReadTokens: 80,
+        cacheCreationTokens: 20,
+      },
+    });
+  });
+
+  it('yields exactly one clean aborted error when the signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fake = fakeAnthropic([
+      { type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'should not arrive' } },
+      { type: 'message_stop' },
+    ]);
+    const p = new AnthropicProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'm', messages: [], signal: controller.signal })) {
+      events.push(e);
+    }
+    const errors = events.filter((e) => e.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ message: 'aborted', retryable: false });
+    expect(events.some((e) => e.type === 'text_delta')).toBe(false);
+  });
+
   it('emits error event when stream throws', async () => {
     const fake = {
       messages: {

@@ -141,6 +141,129 @@ describe('OpenAIProvider.stream', () => {
     expect(err).toMatchObject({ retryable: true });
   });
 
+  it('emits reasoning_delta from delta.reasoning_content when req.reasoning is set', async () => {
+    const fake = fakeOpenAI([
+      { choices: [{ index: 0, delta: { reasoning_content: 'thinking… ' } }] },
+      { choices: [{ index: 0, delta: { reasoning_content: 'done' } }] },
+      { choices: [{ index: 0, delta: { content: 'answer' } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    ]);
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({
+      model: 'gpt-5.4-mini',
+      messages: [],
+      reasoning: { effort: 'low' },
+    })) {
+      events.push(e);
+    }
+    const reasoning = events
+      .filter((e) => e.type === 'reasoning_delta')
+      .map((e) => (e as { delta: string }).delta)
+      .join('');
+    expect(reasoning).toBe('thinking… done');
+  });
+
+  it('handles the alternate delta.reasoning field name', async () => {
+    const fake = fakeOpenAI([
+      { choices: [{ index: 0, delta: { reasoning: 'alt-field' } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    ]);
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-5.4-mini', messages: [], reasoning: true })) {
+      events.push(e);
+    }
+    const reasoning = events.find((e) => e.type === 'reasoning_delta');
+    expect(reasoning).toMatchObject({ delta: 'alt-field' });
+  });
+
+  it('ignores reasoning deltas when req.reasoning is absent or false', async () => {
+    for (const reasoning of [undefined, false]) {
+      const fake = fakeOpenAI([
+        { choices: [{ index: 0, delta: { reasoning_content: 'should be dropped' } }] },
+        { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+      ]);
+      const p = new OpenAIProvider({ client: fake as never });
+      const events = [];
+      for await (const e of p.stream({ model: 'gpt-5.4-mini', messages: [], reasoning })) {
+        events.push(e);
+      }
+      expect(events.some((e) => e.type === 'reasoning_delta')).toBe(false);
+    }
+  });
+
+  it('requests reasoning_effort for reasoning models when reasoning is enabled', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const fake = {
+      chat: {
+        completions: {
+          create: async (body: Record<string, unknown>) => {
+            captured = body;
+            return (async function* () {
+              yield { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] };
+            })();
+          },
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({
+      model: 'gpt-5.4-mini',
+      messages: [],
+      reasoning: { effort: 'high' },
+    })) {
+      events.push(e);
+    }
+    expect(captured?.reasoning_effort).toBe('high');
+  });
+
+  it('emits a clean aborted error (not a classified error) when the signal fires mid-stream', async () => {
+    const controller = new AbortController();
+    const fake = {
+      chat: {
+        completions: {
+          create: async () =>
+            (async function* () {
+              yield { choices: [{ index: 0, delta: { content: 'partial' } }] };
+              // The host cancels; the SDK rejects the iterator with an AbortError.
+              controller.abort();
+              throw Object.assign(new Error('Request was aborted'), { name: 'AbortError' });
+            })(),
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-4o', messages: [], signal: controller.signal })) {
+      events.push(e);
+    }
+    const err = events.find((e) => e.type === 'error');
+    expect(err).toMatchObject({ message: 'aborted', retryable: false });
+  });
+
+  it('emits a clean aborted error when create() rejects after the signal fired', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fake = {
+      chat: {
+        completions: {
+          create: async () => {
+            throw Object.assign(new Error('Request was aborted'), { name: 'AbortError' });
+          },
+        },
+      },
+    };
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-4o', messages: [], signal: controller.signal })) {
+      events.push(e);
+    }
+    const err = events.find((e) => e.type === 'error');
+    expect(err).toMatchObject({ message: 'aborted', retryable: false });
+  });
+
   it('countTokens returns a positive estimate', async () => {
     const p = new OpenAIProvider({ client: fakeOpenAI([]) as never });
     const n = await p.countTokens({

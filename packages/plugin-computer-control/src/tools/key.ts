@@ -68,21 +68,7 @@ export const keyTool = defineTool({
   async handler({ key, modifiers }, ctx) {
     ensureDarwin('computer_key');
     const mods = modifiers ?? [];
-    const usingClause = mods.length > 0 ? ` using {${mods.map(modifierClause).join(', ')}}` : '';
-    let script: string;
-    const lower = key.toLowerCase();
-    if (lower in KEY_CODES) {
-      script = `tell application "System Events" to key code ${KEY_CODES[lower]}${usingClause}`;
-    } else if (key.length === 1) {
-      const literal = `"${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-      script = `tell application "System Events" to keystroke ${literal}${usingClause}`;
-    } else {
-      throw new MoxxyError({
-        code: 'TOOL_ERROR',
-        message: `unknown key "${key}". Use a single character or one of: ${Object.keys(KEY_CODES).join(', ')}.`,
-        context: { tool: 'computer_key', key },
-      });
-    }
+    const script = buildKeyScript(key, mods);
     const proc = await runProcess('osascript', ['-e', script], {
       ...(ctx.signal ? { signal: ctx.signal } : {}),
       timeoutMs: 10_000,
@@ -97,6 +83,29 @@ export const keyTool = defineTool({
     return { ok: true, key, modifiers: mods };
   },
 });
+
+/**
+ * Build the `osascript -e` body for a single key chord. Named keys go
+ * through `key code N`, single characters through `keystroke "x"`, and a
+ * multi-char unknown key throws. Pure (no I/O) so it can be unit-tested.
+ */
+export function buildKeyScript(key: string, modifiers: ReadonlyArray<Modifier>): string {
+  const usingClause =
+    modifiers.length > 0 ? ` using {${modifiers.map(modifierClause).join(', ')}}` : '';
+  const lower = key.toLowerCase();
+  if (lower in KEY_CODES) {
+    return `tell application "System Events" to key code ${KEY_CODES[lower]}${usingClause}`;
+  }
+  if (key.length === 1) {
+    const literal = `"${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    return `tell application "System Events" to keystroke ${literal}${usingClause}`;
+  }
+  throw new MoxxyError({
+    code: 'TOOL_ERROR',
+    message: `unknown key "${key}". Use a single character or one of: ${Object.keys(KEY_CODES).join(', ')}.`,
+    context: { tool: 'computer_key', key },
+  });
+}
 
 function modifierClause(m: Modifier): string {
   // AppleScript uses "command down", "shift down", "option down",

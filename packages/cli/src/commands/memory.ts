@@ -161,7 +161,9 @@ async function statOf(entry: MemoryEntry): Promise<MemoryStat> {
   };
 }
 
-function groupByType(stats: ReadonlyArray<MemoryStat>): ReadonlyArray<[MemoryType, MemoryStat[]]> {
+export function groupByType(
+  stats: ReadonlyArray<MemoryStat>,
+): ReadonlyArray<[MemoryType, MemoryStat[]]> {
   const order: MemoryType[] = ['fact', 'preference', 'project', 'reference'];
   const groups = new Map<MemoryType, MemoryStat[]>();
   for (const t of order) groups.set(t, []);
@@ -173,13 +175,13 @@ function groupByType(stats: ReadonlyArray<MemoryStat>): ReadonlyArray<[MemoryTyp
   return [...groups.entries()].filter(([, items]) => items.length > 0);
 }
 
-function formatSize(bytes: number): string {
+export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
-function formatRelative(d: Date): string {
+export function formatRelative(d: Date): string {
   const diffMs = Date.now() - d.getTime();
   const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   if (days <= 0) return 'today';

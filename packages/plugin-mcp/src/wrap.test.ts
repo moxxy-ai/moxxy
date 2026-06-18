@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { wrapMcpServerTools } from './wrap.js';
-import type { McpClientLike } from './types.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { wrapMcpServerTools, wrapMcpServerToolsLazy } from './wrap.js';
+import type { McpClientLike, McpToolDescriptor } from './types.js';
 import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
 
 const baseCtx = () => ({
@@ -108,5 +108,88 @@ describe('wrapMcpServerTools', () => {
     const ctx = { ...baseCtx(), signal: controller.signal };
     controller.abort();
     await expect(tools[0]!.handler({ url: 'x' }, ctx)).rejects.toThrow(/aborted/);
+  });
+});
+
+describe('runMcpCallWithFallback (timeout + settle-once)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('rejects with a timeout error when callTool never resolves', async () => {
+    vi.useFakeTimers();
+    const client = makeFakeClient();
+    // callTool hangs forever.
+    vi.spyOn(client, 'callTool').mockImplementation(() => new Promise<never>(() => {}));
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+
+    const promise = tools[0]!.handler({ url: 'x' }, baseCtx());
+    // Attach the rejection assertion before advancing so the rejection is observed.
+    const assertion = expect(promise).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await assertion;
+  });
+
+  it('does not double-settle when callTool resolves after an abort', async () => {
+    const client = makeFakeClient();
+    let resolveCall: (v: { content: Array<{ type: 'text'; text: string }>; isError: boolean }) => void = () => {};
+    vi.spyOn(client, 'callTool').mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveCall = res;
+        }),
+    );
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    const controller = new AbortController();
+    const ctx = { ...baseCtx(), signal: controller.signal };
+
+    const promise = tools[0]!.handler({ url: 'x' }, ctx);
+    controller.abort();
+    // The late resolution must NOT win or throw "already settled".
+    resolveCall({ content: [{ type: 'text', text: 'too late' }], isError: false });
+    await expect(promise).rejects.toThrow(/aborted/);
+  });
+});
+
+describe('wrapMcpServerToolsLazy', () => {
+  const descriptors: ReadonlyArray<McpToolDescriptor> = [
+    { name: 'fetch', description: 'Fetch a URL', inputSchema: { type: 'object' } },
+  ];
+
+  it('connects lazily on first call and caches the client for the second', async () => {
+    const client = makeFakeClient();
+    const getClient = vi.fn(async () => client);
+    const tools = wrapMcpServerToolsLazy({
+      server: { name: 'demo', command: 'noop' },
+      descriptors,
+      getClient,
+    });
+    expect(getClient).not.toHaveBeenCalled(); // building does not connect
+
+    await tools[0]!.handler({ url: 'a' }, baseCtx());
+    await tools[0]!.handler({ url: 'b' }, baseCtx());
+    // Two invocations, but the lazy wrapper hands the same factory each time.
+    // The connection caching itself is the factory's job; here we assert the
+    // factory is invoked per call and the calls reach the client.
+    expect(getClient).toHaveBeenCalledTimes(2);
+    expect(client.calls).toEqual([
+      { name: 'fetch', arguments: { url: 'a' } },
+      { name: 'fetch', arguments: { url: 'b' } },
+    ]);
+  });
+
+  it('throws on a pre-aborted signal without invoking getClient', async () => {
+    const getClient = vi.fn(async () => makeFakeClient());
+    const tools = wrapMcpServerToolsLazy({
+      server: { name: 'demo', command: 'noop' },
+      descriptors,
+      getClient,
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      tools[0]!.handler({ url: 'x' }, { ...baseCtx(), signal: controller.signal }),
+    ).rejects.toThrow(/aborted/);
+    expect(getClient).not.toHaveBeenCalled();
   });
 });

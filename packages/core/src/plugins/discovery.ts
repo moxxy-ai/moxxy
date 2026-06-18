@@ -31,10 +31,19 @@ export async function discoverPlugins(opts: DiscoveryOptions): Promise<ReadonlyA
       opts.logger.debug('discovery: failed to list packages in root', { root, err: String(err) });
       continue;
     }
-    for (const pkgPath of pkgsDirs) {
-      if (seen.has(pkgPath)) continue;
+    // Dedupe by path FIRST (cheap, order-preserving), then read the unique
+    // manifests in parallel — the reads are independent fs.readFile + parse.
+    // Promise.all preserves array order, so the emitted order is identical to
+    // the prior sequential loop.
+    const uniquePaths = pkgsDirs.filter((pkgPath) => {
+      if (seen.has(pkgPath)) return false;
       seen.add(pkgPath);
-      const manifest = await readPluginManifest(pkgPath, opts.logger);
+      return true;
+    });
+    const manifests = await Promise.all(
+      uniquePaths.map((pkgPath) => readPluginManifest(pkgPath, opts.logger)),
+    );
+    for (const manifest of manifests) {
       if (manifest) out.push(manifest);
     }
   }
@@ -57,22 +66,26 @@ async function listPackageDirs(root: string): Promise<string[]> {
   const entries: import('node:fs').Dirent[] = await fs
     .readdir(root, { withFileTypes: true })
     .catch((): import('node:fs').Dirent[] => []);
-  const out: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-    const full = path.join(root, entry.name);
-    if (entry.name.startsWith('@')) {
-      const sub: import('node:fs').Dirent[] = await fs
-        .readdir(full, { withFileTypes: true })
-        .catch((): import('node:fs').Dirent[] => []);
-      for (const s of sub) {
-        if (s.isDirectory() || s.isSymbolicLink()) out.push(path.join(full, s.name));
+  // Resolve each top-level entry to its contributed package dirs in parallel
+  // (scoped `@org` dirs need their own readdir), then flatten in entry order so
+  // the result matches the prior sequential walk.
+  const perEntry = await Promise.all(
+    entries.map(async (entry): Promise<string[]> => {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) return [];
+      const full = path.join(root, entry.name);
+      if (entry.name.startsWith('@')) {
+        const sub: import('node:fs').Dirent[] = await fs
+          .readdir(full, { withFileTypes: true })
+          .catch((): import('node:fs').Dirent[] => []);
+        return sub
+          .filter((s) => s.isDirectory() || s.isSymbolicLink())
+          .map((s) => path.join(full, s.name));
       }
-    } else if (entry.name !== '.bin' && entry.name !== '.pnpm') {
-      out.push(full);
-    }
-  }
-  return out;
+      if (entry.name !== '.bin' && entry.name !== '.pnpm') return [full];
+      return [];
+    }),
+  );
+  return perEntry.flat();
 }
 
 async function readPluginManifest(

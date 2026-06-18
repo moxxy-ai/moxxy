@@ -74,15 +74,14 @@ export async function mutateMcpConfig<T>(
  * the admin plugin's runtime API for that.
  */
 export async function setServerDisabled(name: string, disabled: boolean): Promise<McpStoredServer | null> {
-  return configMutex.run(async () => {
-    const cfg = await readMcpConfig();
+  return mutateMcpConfig((cfg) => {
     const idx = cfg.servers.findIndex((s) => s.name === name);
-    if (idx < 0) return null;
+    // Unknown name → same reference skips the write (mutateMcpConfig no-op).
+    if (idx < 0) return { next: cfg, result: null };
     const updated: McpStoredServer = { ...cfg.servers[idx]!, disabled };
     const nextServers = [...cfg.servers];
     nextServers[idx] = updated;
-    await writeMcpConfig({ servers: nextServers });
-    return updated;
+    return { next: { servers: nextServers }, result: updated };
   });
 }
 
@@ -91,12 +90,11 @@ export async function setServerDisabled(name: string, disabled: boolean): Promis
  * removed. Does NOT touch a live session's tool registry.
  */
 export async function removeServerFromConfig(name: string): Promise<boolean> {
-  return configMutex.run(async () => {
-    const cfg = await readMcpConfig();
+  return mutateMcpConfig((cfg) => {
     const before = cfg.servers.length;
     const next = cfg.servers.filter((s) => s.name !== name);
-    if (next.length === before) return false;
-    await writeMcpConfig({ servers: next });
-    return true;
+    // Nothing matched → same reference skips the write (mutateMcpConfig no-op).
+    if (next.length === before) return { next: cfg, result: false };
+    return { next: { servers: next }, result: true };
   });
 }

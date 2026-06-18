@@ -53,10 +53,15 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
   handle('desks.pickFolder', async () => {
     const window =
       BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
-    const result = await dialog.showOpenDialog(window ?? null!, {
+    const opts: Electron.OpenDialogOptions = {
       title: 'Bind a desk to a folder',
       properties: ['openDirectory', 'createDirectory'],
-    });
+    };
+    // Use the honest parentless overload when no window exists rather than
+    // coercing an intentionally-null value with `null!`.
+    const result = window
+      ? await dialog.showOpenDialog(window, opts)
+      : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0]!;
   });

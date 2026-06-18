@@ -11,6 +11,8 @@ import {
   IpcError,
   publishDriver,
   resolveCtx,
+  resolveDriver,
+  resolveSupervisor,
   unpublishDriver,
   whenDriverReady,
 } from './shared';
@@ -123,5 +125,59 @@ describe('resolveCtx', () => {
     const pool = fakePool({ active: 'w1', supervisors: { w1: sup } });
     const ctx = resolveCtx(pool, { workspaceId: 'w1' });
     expect(ctx.session).toBe(session);
+  });
+});
+
+// The active-fallback rule that connection.retry / session.abortTurn now route
+// through (instead of re-implementing `?? activeWorkspaceId()` inline).
+describe('resolveSupervisor', () => {
+  it('defaults to the active workspace when no id is given', () => {
+    const sup = { remote: () => null };
+    const pool = fakePool({ active: 'w1', supervisors: { w1: sup } });
+    expect(resolveSupervisor(pool)).toBe(sup as unknown);
+  });
+
+  it('uses the explicit id over the active one', () => {
+    const a = { remote: () => null };
+    const b = { remote: () => null };
+    const pool = fakePool({ active: 'wa', supervisors: { wa: a, wb: b } });
+    expect(resolveSupervisor(pool, 'wb')).toBe(b as unknown);
+  });
+
+  it('returns null when there is no active workspace', () => {
+    const pool = fakePool({ active: null, supervisors: {} });
+    expect(resolveSupervisor(pool)).toBeNull();
+  });
+});
+
+describe('resolveDriver', () => {
+  it('defaults to the active workspace driver', () => {
+    const id = 'ws-rd-active';
+    const d = fakeDriver(id);
+    publishDriver(id, d);
+    const pool = fakePool({ active: id, supervisors: {} });
+    expect(resolveDriver(pool)).toBe(d);
+    unpublishDriver(id);
+  });
+
+  it('uses the explicit id over the active one', () => {
+    const da = fakeDriver('wa');
+    const db = fakeDriver('wb');
+    publishDriver('wa', da);
+    publishDriver('wb', db);
+    const pool = fakePool({ active: 'wa', supervisors: {} });
+    expect(resolveDriver(pool, 'wb')).toBe(db);
+    unpublishDriver('wa');
+    unpublishDriver('wb');
+  });
+
+  it('returns undefined when there is no active workspace', () => {
+    const pool = fakePool({ active: null, supervisors: {} });
+    expect(resolveDriver(pool)).toBeUndefined();
+  });
+
+  it('returns undefined when the resolved id has no driver yet', () => {
+    const pool = fakePool({ active: 'ws-no-driver', supervisors: {} });
+    expect(resolveDriver(pool)).toBeUndefined();
   });
 });

@@ -112,6 +112,21 @@ function rankCosine(
   return ranked.slice(0, limit);
 }
 
+// Count non-overlapping occurrences of `needle` in `haystack` without
+// allocating the intermediate array `haystack.split(needle)` would build.
+// Identical result to `split(needle).length - 1` for the non-empty tokens
+// `tokenize` yields. Tokens are `[a-z0-9_-]+`, so there are no overlap or
+// empty-needle edge cases to worry about.
+function countOccurrences(haystack: string, needle: string): number {
+  let n = 0;
+  let i = haystack.indexOf(needle);
+  while (i !== -1) {
+    n += 1;
+    i = haystack.indexOf(needle, i + needle.length);
+  }
+  return n;
+}
+
 function entryForEmbedding(entry: MemoryEntry): string {
   return [
     entry.frontmatter.name,
@@ -135,7 +150,7 @@ function scoreEntry(entry: MemoryEntry, tokens: ReadonlyArray<string>): number {
   let score = 0;
   for (const t of tokens) {
     if (!t) continue;
-    const matches = haystack.split(t).length - 1;
+    const matches = countOccurrences(haystack, t);
     if (matches > 0) {
       score += matches;
       if (entry.frontmatter.name.toLowerCase().includes(t)) score += 3;

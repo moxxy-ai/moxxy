@@ -19,6 +19,9 @@ export class CommandRegistry {
     if (this.commands.has(cmd.name)) {
       throw new Error(`Command already registered: /${cmd.name}`);
     }
+    if (this.aliases.has(cmd.name)) {
+      throw new Error(`Command name already in use as an alias: /${cmd.name}`);
+    }
     this.commands.set(cmd.name, cmd);
     for (const alias of cmd.aliases ?? []) {
       if (this.aliases.has(alias) || this.commands.has(alias)) {

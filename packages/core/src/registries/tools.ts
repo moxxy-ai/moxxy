@@ -86,13 +86,7 @@ export class ToolRegistryImpl implements ToolRegistry {
     // the model exactly which fields are off and why, so it can retry.
     const parseResult = tool.inputSchema.safeParse(input);
     if (!parseResult.success) {
-      const issues = parseResult.error.issues
-        .map((iss) => {
-          const path = iss.path.length ? iss.path.join('.') : '(root)';
-          return `${path}: ${iss.message}`;
-        })
-        .join('; ');
-      throw new Error(`Invalid input for ${name}: ${issues}`);
+      throw new Error(`Invalid input for ${name}: ${formatZodIssues(parseResult.error)}`);
     }
     const parsed = parseResult.data;
 
@@ -109,9 +103,34 @@ export class ToolRegistryImpl implements ToolRegistry {
     };
 
     const result = await tool.handler(parsed, ctx);
-    if (tool.outputSchema) return tool.outputSchema.parse(result);
+    if (tool.outputSchema) {
+      // Mirror the input path: format an output-schema mismatch (a plugin bug)
+      // into the same single-line message instead of letting the raw 20-line
+      // ZodError surface, and name the offending tool + fields.
+      const outResult = tool.outputSchema.safeParse(result);
+      if (!outResult.success) {
+        throw new Error(
+          `Tool ${name} produced invalid output: ${formatZodIssues(outResult.error)}`,
+        );
+      }
+      return outResult.data;
+    }
     return result;
   }
+}
+
+/**
+ * Format a ZodError's issues into a single-line, model-friendly string
+ * (`path: message; path: message`). Used by both input and output validation
+ * so the raw multi-line ZodError JSON noise never reaches the model.
+ */
+function formatZodIssues(error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }): string {
+  return error.issues
+    .map((iss) => {
+      const path = iss.path.length ? iss.path.join('.') : '(root)';
+      return `${path}: ${iss.message}`;
+    })
+    .join('; ');
 }
 
 function emptyLog(): EventLogReader {

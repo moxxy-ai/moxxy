@@ -1,7 +1,7 @@
 import { toFriendlyError, type ProviderEvent, type StopReason } from '@moxxy/sdk';
 import { handleSseEvent } from './sse-event-handler.js';
 import { CODEX_RESPONSES_URL } from '../oauth.js';
-import type { PendingFunctionCall, ResponsesSseEvent } from './stream-types.js';
+import { parseToolArgs, type PendingFunctionCall, type ResponsesSseEvent } from './stream-types.js';
 
 export function toErrorEvent(err: unknown): ProviderEvent {
   return {
@@ -44,15 +44,18 @@ export async function* consumeResponsesSse(
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        // SSE frames are separated by blank lines (\n\n). Some servers emit
-        // \r\n\r\n; normalize first.
-        buffer = buffer.replace(/\r\n/g, '\n');
-
-        let sep: number;
-        while ((sep = buffer.indexOf('\n\n')) !== -1) {
-          const frame = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          for (const line of frame.split('\n')) {
+        // SSE frames are separated by blank lines. Some servers emit \r\n\r\n;
+        // match either form at the separator and line boundaries rather than
+        // rescanning the whole accumulated buffer with a global CRLF replace on
+        // every chunk. A `\r` split across two reads is handled because the
+        // boundary regexes tolerate the optional `\r`.
+        let m: RegExpExecArray | null;
+        const sepRe = /\r?\n\r?\n/g;
+        while ((m = sepRe.exec(buffer)) !== null) {
+          const frame = buffer.slice(0, m.index);
+          buffer = buffer.slice(m.index + m[0].length);
+          sepRe.lastIndex = 0;
+          for (const line of frame.split(/\r?\n/)) {
             if (!line.startsWith('data:')) continue;
             const payload = line.slice(5).trimStart();
             if (!payload || payload === '[DONE]') continue;
@@ -98,16 +101,8 @@ export async function* consumeResponsesSse(
     // truncated stream shouldn't drop the entire tool-use sequence).
     for (const entry of pending.values()) {
       if (entry.emittedStart) {
-        let input: unknown = {};
-        if (entry.args) {
-          try {
-            input = JSON.parse(entry.args);
-          } catch {
-            input = { _rawPartial: entry.args };
-          }
-        }
         sawToolCall = true;
-        yield { type: 'tool_use_end', id: entry.callId || entry.id, input };
+        yield { type: 'tool_use_end', id: entry.callId || entry.id, input: parseToolArgs(entry.args) };
       }
     }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { terminalPlugin } from './index.js';
-import { getSharedTerminal } from './terminal.js';
+import { buildTerminalSurface, getSharedTerminal } from './terminal.js';
 import type { TerminalProcess } from './pty.js';
 
 describe('plugin-terminal', () => {
@@ -49,5 +49,44 @@ describe('plugin-terminal', () => {
     expect(a).toBe(b);
     expect(spawns).toBe(1);
     expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  // u112-5: the surface's viewer fan-out must isolate a throwing viewer so it
+  // does not abort delivery to the other viewers (matches pty.ts emitData).
+  it('surface emit() isolates a throwing viewer from the others', async () => {
+    // Capture the data callback the surface registers on the shared process so
+    // the test can drive a frame through the real emit() loop.
+    let pushData: ((d: string) => void) | undefined;
+    const create = async (): Promise<TerminalProcess> => ({
+      backend: 'pipe',
+      onData: (cb) => {
+        pushData = cb;
+        return () => {};
+      },
+      onExit: () => () => {},
+      scrollback: () => '',
+      write: () => {},
+      resize: () => {},
+      kill: () => {},
+      alive: true,
+    });
+
+    const cwd = `/tmp/emit-${Math.random()}`;
+    // Pre-seed the shared map so the surface's getSharedTerminal(ctx.cwd) reuses
+    // this fake (no real PTY spawn).
+    await getSharedTerminal(cwd, create);
+
+    const surface = buildTerminalSurface();
+    const instance = await surface.open({ cwd });
+
+    const second = vi.fn();
+    instance.onData(() => {
+      throw new Error('bad viewer');
+    });
+    instance.onData(second);
+
+    // Drive a frame; the shared process relays it through the surface's emit().
+    expect(() => pushData?.('hello')).not.toThrow();
+    expect(second).toHaveBeenCalledWith({ type: 'data', data: 'hello' });
   });
 });

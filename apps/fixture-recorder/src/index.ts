@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * fixture-recorder — drives a single moxxy turn against the real Anthropic
- * API and writes the recorded ProviderEvents to a JSONL fixture the test
- * harness can replay in CI.
+ * API and writes the recorded ProviderEvents to a pretty-printed JSON fixture
+ * (`<name>.<hash>.json`) the test harness can replay in CI.
  *
  * Usage:
  *   ANTHROPIC_API_KEY=sk-... moxxy-record \
@@ -43,7 +43,7 @@ interface Flags {
   verbose: boolean;
 }
 
-const HELP = `moxxy-record — record an Anthropic turn into a JSONL fixture
+const HELP = `moxxy-record — record an Anthropic turn into a pretty-printed JSON fixture
 
 required:
   --prompt "..."      the user prompt to drive

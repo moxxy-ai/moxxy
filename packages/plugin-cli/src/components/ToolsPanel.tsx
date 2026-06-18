@@ -73,6 +73,10 @@ export const ToolsPanel: React.FC<ToolsPanelProps> = ({ tools, onClose }) => {
   }
 
   const slice = filtered.slice(scroll.visible.start, scroll.visible.end);
+  // Read the tty width ONCE per render (like SkillsPanel/WorkflowsPanel) rather
+  // than re-reading process.stdout.columns inside every visible ToolRow.
+  const termWidth = process.stdout.columns ?? 80;
+  const descWidth = Math.max(20, termWidth - NAME_COL - BADGE_COL - 12);
   const subtitle =
     filtered.length === 0
       ? `0 of ${sorted.length}  ·  no tools in this filter`
@@ -98,7 +102,7 @@ export const ToolsPanel: React.FC<ToolsPanelProps> = ({ tools, onClose }) => {
       {slice.map((t, i) => {
         const absoluteIndex = scroll.visible.start + i;
         const focused = absoluteIndex === scroll.cursor;
-        return <ToolRow key={t.name} tool={t} focused={focused} />;
+        return <ToolRow key={t.name} tool={t} focused={focused} descWidth={descWidth} />;
       })}
       {scroll.canScrollDown ? (
         <Text dimColor>{`  ↓ ${filtered.length - scroll.visible.end} more below`}</Text>
@@ -115,10 +119,12 @@ function matchesTab(tool: ToolDef, tab: TabId): boolean {
   return action === 'deny';
 }
 
-const ToolRow: React.FC<{ tool: ToolDef; focused: boolean }> = ({ tool, focused }) => {
+const ToolRow: React.FC<{ tool: ToolDef; focused: boolean; descWidth: number }> = ({
+  tool,
+  focused,
+  descWidth,
+}) => {
   const perm = tool.permission?.action ?? 'allow';
-  const termWidth = process.stdout.columns ?? 80;
-  const descWidth = Math.max(20, termWidth - NAME_COL - BADGE_COL - 12);
   const desc = oneLine(tool.description ?? '');
   return (
     <Box>

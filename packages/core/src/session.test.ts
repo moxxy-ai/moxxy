@@ -187,4 +187,30 @@ describe('Session', () => {
     expect(viaCheck.mode).toBe('allow');
     expect(prompted).toBe(1);
   });
+
+  it('resolver passes non-check members (e.g. abortAll) through to the underlying resolver with correct `this`', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    const abortAll = vi.fn();
+    // A resolver carrying an extra member that reads private-ish state via
+    // `this` — the Proxy must forward both the call and the receiver binding.
+    const inner = {
+      name: 'channel-resolver',
+      _closedReason: 'shutting down',
+      check: async () => ({ mode: 'allow' as const }),
+      abortAll,
+      reasonViaThis(): string {
+        return this._closedReason;
+      },
+    };
+    s.setPermissionResolver(inner as never);
+
+    const wrapped = s.resolver as unknown as {
+      abortAll: (reason?: string) => void;
+      reasonViaThis: () => string;
+    };
+    wrapped.abortAll('bye');
+    expect(abortAll).toHaveBeenCalledWith('bye');
+    // `this` is bound through the proxy so a method reading sibling state works.
+    expect(wrapped.reasonViaThis()).toBe('shutting down');
+  });
 });

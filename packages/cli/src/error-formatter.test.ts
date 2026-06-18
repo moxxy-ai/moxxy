@@ -54,4 +54,28 @@ describe('formatErrorForCli', () => {
     expect(out).toContain('context: url=https://x status=0');
     expect(out).toContain('caused by Error: inner');
   });
+
+  it('caps the cause chain at 5 links on a very deep chain', () => {
+    // Build a 7-deep cause chain; only the first 5 links should be rendered.
+    let cause: Error | undefined;
+    for (let i = 7; i >= 1; i -= 1) {
+      const e = new Error(`level ${i}`);
+      if (cause) (e as { cause?: unknown }).cause = cause;
+      cause = e;
+    }
+    const err = new MoxxyError({ code: 'INTERNAL', message: 'top', cause });
+    const out = strip(formatErrorForCli(err, { debug: true }));
+    const links = out.split('\n').filter((l) => l.includes('caused by'));
+    expect(links).toHaveLength(5);
+  });
+
+  it('does not hang on a self-referential cause chain', () => {
+    const a = new Error('loop');
+    (a as { cause?: unknown }).cause = a;
+    const err = new MoxxyError({ code: 'INTERNAL', message: 'top', cause: a });
+    const out = strip(formatErrorForCli(err, { debug: true }));
+    // The depth cap bounds the self-loop to exactly 5 rendered links.
+    const links = out.split('\n').filter((l) => l.includes('caused by'));
+    expect(links).toHaveLength(5);
+  });
 });

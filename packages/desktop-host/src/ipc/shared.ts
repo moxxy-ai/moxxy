@@ -144,6 +144,19 @@ export function resolveSupervisor(
   return id ? pool.get(id) : null;
 }
 
+/**
+ * Resolve the {@link SessionDriver} for a workspace, defaulting to the pool's
+ * active workspace when no id is given — the same "default to active" rule
+ * {@link resolveSupervisor} owns, kept in one place so a future change to how
+ * "active" is chosen doesn't silently skip the driver-targeting handlers.
+ * Returns `undefined` (no throw) when there is no active workspace or no driver
+ * yet; callers that require one use {@link mustDriver} on the resolved id.
+ */
+export function resolveDriver(pool: RunnerPool, workspaceId?: string): SessionDriver | undefined {
+  const id = workspaceId ?? pool.activeWorkspaceId();
+  return id ? drivers.get(id) : undefined;
+}
+
 export function mustSession(pool: RunnerPool, workspaceId?: string): SessionLike {
   // RemoteSession implements ClientSession (which extends SessionLike), so it is
   // a SessionLike directly — no cast needed.

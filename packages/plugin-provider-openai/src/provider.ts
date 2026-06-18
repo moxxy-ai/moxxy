@@ -165,6 +165,14 @@ export class OpenAIProvider implements LLMProvider {
         req.signal ? { signal: req.signal } : undefined,
       )) as unknown as AsyncIterable<unknown>;
     } catch (err) {
+      // A cancel can surface as a thrown AbortError from the create() await —
+      // report the clean terminal 'aborted' event (parity with the Anthropic
+      // provider) so callers that suppress error UI on user cancel don't get a
+      // noisy classified provider error.
+      if (req.signal?.aborted) {
+        yield { type: 'error', message: 'aborted', retryable: false };
+        return;
+      }
       yield { type: 'error', ...toFriendlyError(err, { provider: this.name }) };
       return;
     }
@@ -239,6 +247,13 @@ export class OpenAIProvider implements LLMProvider {
         }
       }
     } catch (err) {
+      // The SDK rejects the iterator with an AbortError once req.signal fires;
+      // emit the clean 'aborted' event instead of a classified provider error
+      // (parity with the Anthropic provider and the in-loop abort check above).
+      if (req.signal?.aborted) {
+        yield { type: 'error', message: 'aborted', retryable: false };
+        return;
+      }
       yield { type: 'error', ...toFriendlyError(err, { provider: this.name }) };
       return;
     }

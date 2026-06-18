@@ -186,6 +186,29 @@ interface DateParts {
   readonly minute: number;
 }
 
+// Memoized Intl.DateTimeFormat per IANA zone. Formatters are stateless, so
+// caching them across the (potentially long) minute-walk avoids re-allocating
+// one on every cursor step for explicit-zone crons.
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  let fmt = formatterCache.get(timeZone);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    formatterCache.set(timeZone, fmt);
+  }
+  return fmt;
+}
+
 function decomposeInZone(d: Date, timeZone?: string): DateParts {
   // Local time decomposition. We deliberately default to system-local —
   // a user saying "every day at 9 AM" overwhelmingly means their wall
@@ -200,18 +223,11 @@ function decomposeInZone(d: Date, timeZone?: string): DateParts {
       minute: d.getMinutes(),
     };
   }
-  // Intl-based decomposition for explicit zones. Slower (allocates a
-  // formatter) but correctness > perf on a per-minute poll.
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  // Intl-based decomposition for explicit zones. A formatter is stateless,
+  // so memoize one per IANA zone — `nextFireTime` can walk many minute steps
+  // for a sparse cron and was previously allocating a fresh formatter on each
+  // step. Correctness is unchanged; only the per-step allocation is removed.
+  const fmt = formatterFor(timeZone);
   const parts: Record<string, string> = {};
   for (const part of fmt.formatToParts(d)) parts[part.type] = part.value;
   const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };

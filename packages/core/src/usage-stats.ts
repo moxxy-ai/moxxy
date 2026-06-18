@@ -79,10 +79,15 @@ export async function mergeUsageStats(
   delta: Record<string, ModelUsageTotals>,
   filePath: string = usageStatsPath(),
 ): Promise<UsageStatsFile> {
+  // An empty delta writes nothing, so there's no read-modify-write to
+  // serialize: skip the mutex entirely and read the current file directly. A
+  // session with no recorded usage produces an empty delta on every shutdown,
+  // so this avoids needless I/O + contention on the common no-op path.
+  const keys = Object.keys(delta);
+  if (keys.length === 0) return loadUsageStats(filePath);
+
   return mergeMutex.run(async () => {
-    const keys = Object.keys(delta);
     const current = await loadUsageStats(filePath);
-    if (keys.length === 0) return current;
 
     const now = new Date().toISOString();
     const models: Record<string, StoredModelUsage> = { ...current.models };

@@ -1,6 +1,12 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import type { LLMProvider, ModelDescriptor, ProviderEvent, ProviderRequest } from '@moxxy/sdk';
+import {
+  type LLMProvider,
+  type ModelDescriptor,
+  type ProviderEvent,
+  type ProviderRequest,
+  writeFileAtomic,
+} from '@moxxy/sdk';
 import { hashRequest } from './hash.js';
 
 export type FixtureMode = 'replay' | 'record' | 'passthrough';
@@ -95,8 +101,10 @@ export class RecordedProvider implements LLMProvider {
   }
 
   private async writeFixture(fixture: Fixture): Promise<void> {
-    await fs.mkdir(this.fixtureDir, { recursive: true });
-    await fs.writeFile(this.fixturePath(fixture.hash), JSON.stringify(fixture, null, 2));
+    // Atomic write (tmp + rename, per repo invariant 5) so an interrupted
+    // record run (Ctrl-C mid-write) can never leave a torn fixture that then
+    // fails JSON.parse on the next replay. writeFileAtomic mkdir's the dir.
+    await writeFileAtomic(this.fixturePath(fixture.hash), JSON.stringify(fixture, null, 2));
   }
 }
 

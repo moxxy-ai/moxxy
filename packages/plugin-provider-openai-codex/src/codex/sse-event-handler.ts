@@ -1,5 +1,10 @@
 import type { ProviderEvent, StopReason } from '@moxxy/sdk';
-import type { PendingFunctionCall, ResponsesSseEvent, SseStepResult } from './stream-types.js';
+import {
+  parseToolArgs,
+  type PendingFunctionCall,
+  type ResponsesSseEvent,
+  type SseStepResult,
+} from './stream-types.js';
 
 /**
  * Map a single Responses-API SSE event to zero or more moxxy ProviderEvents.
@@ -87,14 +92,7 @@ export function handleSseEvent(
     if (!entry) return {};
     pending.delete(id);
     if (typeof ev.arguments === 'string' && ev.arguments) entry.args = ev.arguments;
-    let input: unknown = {};
-    if (entry.args) {
-      try {
-        input = JSON.parse(entry.args);
-      } catch {
-        input = { _rawPartial: entry.args };
-      }
-    }
+    const input = parseToolArgs(entry.args);
     const outId = entry.callId || entry.id;
     const events: ProviderEvent[] = [];
     if (!entry.emittedStart && entry.name) {

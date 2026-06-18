@@ -108,6 +108,15 @@ describe('admin/config-io', () => {
       await writeMcpConfig({ servers: [{ kind: 'stdio', name: 'a', command: 'x' }] });
       expect(await setServerDisabled('ghost', true)).toBeNull();
     });
+
+    it('does not rewrite the file when the server is unknown (no-op skip)', async () => {
+      await writeMcpConfig({ servers: [{ kind: 'stdio', name: 'a', command: 'x' }] });
+      const before = await fs.stat(mcpConfigPath());
+      await new Promise((r) => setTimeout(r, 10));
+      expect(await setServerDisabled('ghost', true)).toBeNull();
+      const after = await fs.stat(mcpConfigPath());
+      expect(after.mtimeMs).toBe(before.mtimeMs);
+    });
   });
 
   describe('removeServerFromConfig', () => {

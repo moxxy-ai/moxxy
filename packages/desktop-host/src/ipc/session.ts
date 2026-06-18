@@ -19,11 +19,11 @@ import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
 import { persistImageBlob } from '../attachments.js';
 import {
-  drivers,
   getInProcessPlugins,
   handle,
   mustDriver,
   resolveCtx,
+  resolveDriver,
   resolveSupervisor,
   waitForSessionState,
 } from './shared';
@@ -58,9 +58,8 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     return driver.runTurn(prompt, model, safe);
   });
   handle('session.abortTurn', async ({ workspaceId, turnId }) => {
-    const id = workspaceId ?? pool.activeWorkspaceId();
-    if (!id) return;
-    drivers.get(id)?.abortTurn(turnId);
+    // Active-workspace fallback lives in resolveDriver, not inline here.
+    resolveDriver(pool, workspaceId)?.abortTurn(turnId);
   });
   handle('session.setProvider', async ({ workspaceId, provider }) => {
     const { session, supervisor } = resolveCtx(pool, { workspaceId });
@@ -159,7 +158,7 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   handle('session.pickAttachment', async () => {
     const window =
       BrowserWindowApi.getFocusedWindow() ?? BrowserWindowApi.getAllWindows()[0];
-    const result = await dialog.showOpenDialog(window ?? null!, {
+    const opts: Electron.OpenDialogOptions = {
       title: 'Attach a file to the next prompt',
       properties: ['openFile'],
       // Steer the picker toward what the agent can actually use: documents,
@@ -182,7 +181,12 @@ export function registerSessionHandlers(pool: RunnerPool): void {
         { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] },
         { name: 'All files', extensions: ['*'] },
       ],
-    });
+    };
+    // Use the honest parentless overload when no window exists rather than
+    // coercing an intentionally-null value with `null!`.
+    const result = window
+      ? await dialog.showOpenDialog(window, opts)
+      : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
     const picked = result.filePaths[0]!;
     // Remember the user's choice so the later runTurn that references it is

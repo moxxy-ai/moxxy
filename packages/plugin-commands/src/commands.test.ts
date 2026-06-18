@@ -232,4 +232,136 @@ describe('@moxxy/plugin-commands', () => {
       source: 'compactor',
     });
   });
+
+  // u80-6: the early-return / error branches of compactSession.
+  const runCompact = (session: unknown) => {
+    const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'compact');
+    if (!compact) throw new Error('missing command: compact');
+    return compact.handler({ channel: 'tui', sessionId: 'sess-1' as never, args: '', session });
+  };
+
+  it('/compact errors when there is no active compactor', async () => {
+    const out = await runCompact({ ...fakeSession, compactors: { getActive: () => null } });
+    expect(out).toEqual({ kind: 'error', message: 'no active compactor configured' });
+  });
+
+  it('/compact reports an empty event log', async () => {
+    const out = await runCompact({
+      ...fakeSession,
+      compactors: { getActive: () => ({ name: 'c', shouldCompact: () => false, compact: async () => ({}) }) },
+      log: { length: 0, slice: () => [], append: async () => undefined },
+    });
+    expect(out).toEqual({ kind: 'text', text: 'nothing to compact: event log is empty' });
+  });
+
+  it('/compact surfaces a compactor throw as kind:error', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'x' },
+    ] as unknown as MoxxyEvent[];
+    const out = await runCompact({
+      ...fakeSession,
+      signal: new AbortController().signal,
+      log: { length: existing.length, slice: () => existing, append: async () => undefined },
+      compactors: {
+        getActive: () => ({
+          name: 'c',
+          shouldCompact: () => false,
+          compact: async () => {
+            throw new Error('compactor exploded');
+          },
+        }),
+      },
+    });
+    expect(out).toEqual({ kind: 'error', message: 'compactor exploded' });
+  });
+
+  it('/compact reports "nothing to compact yet" when tokensSaved <= 0', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'x' },
+    ] as unknown as MoxxyEvent[];
+    const out = await runCompact({
+      ...fakeSession,
+      signal: new AbortController().signal,
+      log: { length: existing.length, slice: () => existing, append: async () => undefined },
+      compactors: {
+        getActive: () => ({
+          name: 'c',
+          shouldCompact: () => false,
+          compact: async () =>
+            ({ type: 'compaction', compactor: 'c', replacedRange: [0, 0], summary: 'noop', tokensSaved: 0 }) as const,
+        }),
+      },
+    });
+    expect(out).toEqual({ kind: 'text', text: 'nothing to compact yet' });
+  });
+
+  it('/compact reports "nothing to compact yet" when the summary is blank', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'x' },
+    ] as unknown as MoxxyEvent[];
+    const out = await runCompact({
+      ...fakeSession,
+      signal: new AbortController().signal,
+      log: { length: existing.length, slice: () => existing, append: async () => undefined },
+      compactors: {
+        getActive: () => ({
+          name: 'c',
+          shouldCompact: () => false,
+          compact: async () =>
+            ({ type: 'compaction', compactor: 'c', replacedRange: [0, 0], summary: '   ', tokensSaved: 999 }) as const,
+        }),
+      },
+    });
+    expect(out).toEqual({ kind: 'text', text: 'nothing to compact yet' });
+  });
+
+  it('/compact formats a >=1M token-savings count with the M suffix', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'x' },
+    ] as unknown as MoxxyEvent[];
+    const out = await runCompact({
+      ...fakeSession,
+      signal: new AbortController().signal,
+      log: { length: existing.length, slice: () => existing, append: async () => undefined },
+      compactors: {
+        getActive: () => ({
+          name: 'c',
+          shouldCompact: () => false,
+          compact: async () =>
+            ({ type: 'compaction', compactor: 'c', replacedRange: [0, 0], summary: 's', tokensSaved: 2_000_000 }) as const,
+        }),
+      },
+    });
+    expect(out.kind).toBe('text');
+    if (out.kind === 'text') expect(out.text).toContain('~2M tokens saved');
+  });
+
+  it('/help <command> shows a single command detail with usage and aliases', async () => {
+    const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'help');
+    if (!compact) throw new Error('missing command: help');
+    const out = await compact.handler({
+      channel: 'tui',
+      sessionId: 'sess-1' as never,
+      args: 'exit',
+      session: fakeSession,
+    });
+    expect(out.kind).toBe('text');
+    if (out.kind === 'text') {
+      expect(out.text).toContain('/exit');
+      expect(out.text).toContain('aliases:');
+      expect(out.text).toContain('/quit');
+    }
+  });
+
+  it('/help <unknown> reports no such command', async () => {
+    const help = (commandsPlugin.commands ?? []).find((c) => c.name === 'help');
+    if (!help) throw new Error('missing command: help');
+    const out = await help.handler({
+      channel: 'tui',
+      sessionId: 'sess-1' as never,
+      args: 'nope',
+      session: fakeSession,
+    });
+    expect(out).toEqual({ kind: 'text', text: 'no command named "/nope" (try /help)' });
+  });
 });

@@ -60,7 +60,13 @@ export function buildTerminalSurface() {
       const proc = await getSharedTerminal(ctx.cwd);
       const dataSubs = new Set<(payload: unknown) => void>();
       const emit = (payload: unknown): void => {
-        for (const cb of dataSubs) cb(payload);
+        for (const cb of dataSubs) {
+          try {
+            cb(payload);
+          } catch {
+            /* a bad viewer must not break the stream (matches pty.ts emitData) */
+          }
+        }
       };
       const unsubData = proc.onData((data) => emit({ type: 'data', data }));
       const unsubExit = proc.onExit((code) => emit({ type: 'exit', code }));

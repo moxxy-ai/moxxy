@@ -2,6 +2,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Transport, TransportServer } from './transport.js';
+import { isRunnerUp } from './socket-path.js';
 
 /** Minimal logging surface the transport needs (structurally matches
  *  `@moxxy/core`'s `Logger`, so `session.logger` plugs straight in). */
@@ -36,10 +37,15 @@ class NdjsonTransport implements Transport {
 
   private onData(chunk: string): void {
     this.buffer += chunk;
-    let newline = this.buffer.indexOf('\n');
+    // Walk frame boundaries with a cursor and slice the unconsumed remainder
+    // exactly once at the end. Re-slicing the buffer per frame is O(k·L) when a
+    // single chunk carries k frames (each slice copies the whole remainder); a
+    // cursor keeps the per-chunk cost O(L).
+    let start = 0;
+    let newline = this.buffer.indexOf('\n', start);
     while (newline >= 0) {
-      const line = this.buffer.slice(0, newline);
-      this.buffer = this.buffer.slice(newline + 1);
+      const line = this.buffer.slice(start, newline);
+      start = newline + 1;
       if (line.trim().length > 0) {
         let parsed: unknown;
         try {
@@ -50,8 +56,9 @@ class NdjsonTransport implements Transport {
         }
         if (parsed !== undefined) this.frameHandler?.(parsed);
       }
-      newline = this.buffer.indexOf('\n');
+      newline = this.buffer.indexOf('\n', start);
     }
+    this.buffer = start > 0 ? this.buffer.slice(start) : this.buffer;
   }
 
   private emitClose(err?: Error): void {
@@ -255,15 +262,9 @@ function warnWindowsPipeAclOnce(logger: SocketLogger, pipePath: string): void {
 
 async function reclaimStaleSocket(socketPath: string): Promise<void> {
   if (!fs.existsSync(socketPath)) return;
-  const alive = await new Promise<boolean>((resolve) => {
-    const probe = net.connect(socketPath);
-    const finish = (up: boolean): void => {
-      probe.destroy();
-      resolve(up);
-    };
-    probe.once('connect', () => finish(true));
-    probe.once('error', () => finish(false));
-  });
+  // Reuse the canonical liveness probe (isRunnerUp) so the "is something
+  // answering this address" definition lives in exactly one place.
+  const alive = await isRunnerUp(socketPath);
   if (!alive) {
     try {
       fs.unlinkSync(socketPath);

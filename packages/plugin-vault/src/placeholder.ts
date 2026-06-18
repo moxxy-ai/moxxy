@@ -38,11 +38,14 @@ export async function resolveValue(value: unknown, vault: VaultStore): Promise<u
     return Promise.all(value.map((v) => resolveValue(v, vault)));
   }
   if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = await resolveValue(v, vault);
-    }
-    return out;
+    // Resolve object properties concurrently (mirrors the array branch); each
+    // leaf may await vault.get(), so serializing them needlessly serializes I/O.
+    const pairs = await Promise.all(
+      Object.entries(value as Record<string, unknown>).map(
+        async ([k, v]) => [k, await resolveValue(v, vault)] as const,
+      ),
+    );
+    return Object.fromEntries(pairs);
   }
   return value;
 }

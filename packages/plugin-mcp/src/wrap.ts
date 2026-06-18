@@ -63,7 +63,12 @@ export interface WrapOptions {
 export async function wrapMcpServerTools(opts: WrapOptions): Promise<ToolDef[]> {
   const prefix = opts.toolNamePrefix ?? defaultToolNamePrefix;
   const list = await opts.client.listTools();
-  return list.tools.map((descriptor) => wrapOneTool(descriptor, opts.server.name, opts.client, prefix));
+  // Eager path: the connection is already open, so the resolver is a trivial
+  // thunk over the live client.
+  const resolveClient = (): Promise<McpClientLike> => Promise.resolve(opts.client);
+  return list.tools.map((descriptor) =>
+    wrapOneMcpTool(descriptor, opts.server.name, resolveClient, prefix),
+  );
 }
 
 /**
@@ -83,14 +88,22 @@ export interface WrapLazyOptions {
 export function wrapMcpServerToolsLazy(opts: WrapLazyOptions): ToolDef[] {
   const prefix = opts.toolNamePrefix ?? defaultToolNamePrefix;
   return opts.descriptors.map((descriptor) =>
-    wrapOneLazyTool(descriptor, opts.server.name, opts.getClient, prefix),
+    wrapOneMcpTool(descriptor, opts.server.name, opts.getClient, prefix),
   );
 }
 
-function wrapOneLazyTool(
+/**
+ * Single tool builder shared by the eager and lazy paths. They differ only in
+ * how the client is obtained: the eager path passes a thunk over a live client,
+ * the lazy path passes a `getClient` factory that connects on first call (and
+ * caches the connection for subsequent calls). Everything else — name, schema,
+ * permission, abort checks, the timeout/abort race, and result rendering — is
+ * identical, so it lives here once.
+ */
+function wrapOneMcpTool(
   descriptor: McpToolDescriptor,
   serverName: string,
-  getClient: () => Promise<McpClientLike>,
+  resolveClient: () => Promise<McpClientLike>,
   prefix: (s: string, t: string) => string,
 ): ToolDef {
   const wrappedName = prefix(serverName, descriptor.name);
@@ -102,34 +115,10 @@ function wrapOneLazyTool(
     permission: { action: 'prompt' },
     handler: async (input, ctx) => {
       if (ctx.signal.aborted) throw new Error('aborted');
-      // Lazy connection — pays the network/spawn cost only on first
-      // call. Subsequent calls reuse the cached client.
-      const client = await getClient();
-      if (ctx.signal.aborted) throw new Error('aborted');
-      const result = await runMcpCallWithFallback(
-        client.callTool({ name: descriptor.name, arguments: input }),
-        ctx.signal,
-        wrappedName,
-      );
-      return renderResult(result.content, result.isError);
-    },
-  });
-}
-
-function wrapOneTool(
-  descriptor: McpToolDescriptor,
-  serverName: string,
-  client: McpClientLike,
-  prefix: (s: string, t: string) => string,
-): ToolDef {
-  const wrappedName = prefix(serverName, descriptor.name);
-  return defineTool({
-    name: wrappedName,
-    description: descriptor.description ?? `MCP tool ${descriptor.name} on server ${serverName}`,
-    inputSchema: z.record(z.string(), z.unknown()),
-    inputJsonSchema: descriptor.inputSchema ?? { type: 'object' },
-    permission: { action: 'prompt' },
-    handler: async (input, ctx) => {
+      // For the lazy path this pays the network/spawn cost only on first call
+      // (the factory caches its connection); for the eager path it resolves
+      // immediately to the already-open client.
+      const client = await resolveClient();
       if (ctx.signal.aborted) throw new Error('aborted');
       const result = await runMcpCallWithFallback(
         client.callTool({ name: descriptor.name, arguments: input }),

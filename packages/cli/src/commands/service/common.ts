@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, constants } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -97,7 +97,10 @@ export function cliBin(): string {
 
 export async function fileExists(p: string): Promise<boolean> {
   try {
-    await readFile(p);
+    // Existence check only — `access` avoids reading the whole file into
+    // memory (these unit/plist files are tiny, but this is on every service
+    // op) and correctly reports a permission-denied-but-present file.
+    await access(p, constants.F_OK);
     return true;
   } catch {
     return false;

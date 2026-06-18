@@ -40,6 +40,15 @@ export class HookDispatcherImpl implements HookDispatcher {
     this.entries = plugins.map((plugin) => ({ plugin, hooks: plugin.hooks ?? {} }));
   }
 
+  /**
+   * Whether any registered plugin declares an `onEvent` hook. Lets the
+   * per-event fan-out skip building an AppContext (which clones the whole
+   * `process.env`) when no plugin would consume it — the common case.
+   */
+  hasEventHooks(): boolean {
+    return this.entries.some((e) => typeof e.hooks.onEvent === 'function');
+  }
+
   async dispatchInit(ctx: AppContext): Promise<void> {
     for (const e of this.entries) await this.safe(e, 'onInit', () => e.hooks.onInit?.(ctx));
   }

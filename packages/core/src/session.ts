@@ -267,7 +267,13 @@ export class Session implements ClientSession, SessionRuntime {
     // Fan every appended event out to plugin `onEvent` hooks. Without this
     // wiring the hook is dead code — declared on the SDK, dispatched by
     // HookDispatcherImpl, but nothing ever calls dispatchEvent.
-    this.log.subscribe((event) => this.dispatcher.dispatchEvent(event, this.appContext()));
+    this.log.subscribe((event) => {
+      // appContext() clones the whole process.env; only pay that per-event cost
+      // when a plugin actually has an onEvent hook to receive it. With none,
+      // dispatchEvent would iterate an empty hook list anyway.
+      if (!this.dispatcher.hasEventHooks()) return;
+      return this.dispatcher.dispatchEvent(event, this.appContext());
+    });
   }
 
   get signal(): AbortSignal {

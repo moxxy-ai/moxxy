@@ -10,6 +10,7 @@ import {
 } from '@moxxy/sdk';
 import { defaultUserWorkflowsDir } from './loader.js';
 import { serializeWorkflow } from './schema.js';
+import { slugify, triggerSummary } from './format.js';
 import type { WorkflowStore } from './store.js';
 
 /**
@@ -218,17 +219,6 @@ function statusMark(status: string): string {
   return status === 'completed' ? '✓' : status === 'skipped' ? '–' : status === 'failed' ? '✗' : '·';
 }
 
-function triggerSummary(on: import('@moxxy/sdk').WorkflowTrigger | undefined): string {
-  if (!on) return 'on-demand';
-  const parts: string[] = [];
-  if (on.schedule?.cron) parts.push(`cron(${on.schedule.cron})`);
-  if (on.schedule?.runAt) parts.push('runAt');
-  if (on.afterWorkflow) parts.push(`after(${[on.afterWorkflow].flat().join(',')})`);
-  if (on.fileChanged) parts.push('fileChanged');
-  if (on.webhook) parts.push(`webhook(${on.webhook})`);
-  return parts.length > 0 ? parts.join('+') : 'on-demand';
-}
-
 async function readLastRun(dir: string | undefined, name: string): Promise<string | null> {
   if (!dir) return null;
   let files: string[];
@@ -246,7 +236,16 @@ async function readLastRun(dir: string | undefined, name: string): Promise<strin
   for (const file of candidates) {
     try {
       const raw = await fs.readFile(path.join(dir, file), 'utf8');
-      const lines = raw.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
+      // Only the `run` header and `step` lines feed the summary; the trailing
+      // `output` line carries the (potentially huge) final workflow output and
+      // is never shown here, so skip parsing it. The engine always serializes
+      // it as `{"kind":"output",…}` (kind-first), so a cheap prefix check is
+      // exact. (engine.ts:writeRunRecord)
+      const lines = raw
+        .trim()
+        .split('\n')
+        .filter((l) => !l.startsWith('{"kind":"output"'))
+        .map((l) => JSON.parse(l) as Record<string, unknown>);
       const run = lines.find((l) => l.kind === 'run');
       if (run?.workflow !== name) continue; // a sibling workflow's record — skip
       const steps = lines.filter((l) => l.kind === 'step');
@@ -263,10 +262,6 @@ async function readLastRun(dir: string | undefined, name: string): Promise<strin
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}\n… (truncated)` : s;
-}
-
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }
 
 function starterTemplate(slug: string): string {

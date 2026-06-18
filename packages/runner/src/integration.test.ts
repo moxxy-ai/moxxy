@@ -672,6 +672,48 @@ describe('runner end-to-end', () => {
     expect(titles).toContain('proceed?');
   });
 
+  it('takes the default option for a scoped turn whose client does not handle approvals (no host fallback pestered)', async () => {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('unused')] }));
+    let decided: { optionId: string } | undefined;
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'runner-test-approval-default',
+        modes: [
+          defineMode({
+            name: 'approval-default-mode',
+            run: async function* (modeCtx) {
+              decided = await modeCtx.approval?.confirm({
+                title: 'proceed?',
+                body: 'plan goes here',
+                options: [
+                  { id: 'yes', label: 'Yes' },
+                  { id: 'no', label: 'No' },
+                ],
+                defaultOptionId: 'yes',
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.modes.setActive('approval-default-mode');
+    // Install a host fallback resolver that, if reached, would pick a different
+    // option — so we can prove the scoped+!handles path does NOT fall through.
+    session.setApprovalResolver({
+      name: 'host-fallback',
+      confirm: async () => ({ optionId: 'no' }),
+    });
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    // Attach a client but DO NOT call setApprovalResolver → handlesApproval=false.
+    const remote = await attach(socketPath);
+
+    for await (const _event of remote.runTurn('go')) void _event;
+    // Headless semantics: the default option, not the host fallback's 'no'.
+    expect(decided).toEqual({ optionId: 'yes' });
+  });
+
   it('fires onClose and flips connected when the runner stops', async () => {
     const socketPath = tmpSocket();
     const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));

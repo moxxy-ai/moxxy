@@ -66,6 +66,39 @@ describe('resolveValue', () => {
       flag: true,
     });
   });
+
+  it('preserves object key insertion order', async () => {
+    const result = (await resolveValue(
+      { z: '${vault:API_KEY}', a: 'lit', m: '${vault:CHAT_ID}' },
+      vault,
+    )) as Record<string, unknown>;
+    expect(Object.keys(result)).toEqual(['z', 'a', 'm']);
+    expect(result).toEqual({ z: 'sk-xyz', a: 'lit', m: '42' });
+  });
+
+  it('resolves object properties concurrently (overlapped awaits)', async () => {
+    // Wrap vault.get with a small delay + concurrency counter; if object
+    // properties resolved sequentially, max concurrency would be 1.
+    let active = 0;
+    let maxActive = 0;
+    const realGet = vault.get.bind(vault);
+    vault.get = async (name: string) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 10));
+      try {
+        return await realGet(name);
+      } finally {
+        active--;
+      }
+    };
+    const result = (await resolveValue(
+      { a: '${vault:API_KEY}', b: '${vault:CHAT_ID}', c: '${vault:API_KEY}' },
+      vault,
+    )) as Record<string, unknown>;
+    expect(result).toEqual({ a: 'sk-xyz', b: '42', c: 'sk-xyz' });
+    expect(maxActive).toBeGreaterThan(1);
+  });
 });
 
 describe('containsPlaceholder', () => {

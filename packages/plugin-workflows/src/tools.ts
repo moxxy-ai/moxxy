@@ -19,6 +19,7 @@ import { runWorkflow } from './engine.js';
 import { parseWorkflowYaml, serializeWorkflow } from './schema.js';
 import type { EditableScope, WorkflowStore } from './store.js';
 import type { WorkflowLogger } from './loader.js';
+import { triggerSummary } from './format.js';
 
 export const WORKFLOWS_PLUGIN_NAME = '@moxxy/plugin-workflows';
 
@@ -339,13 +340,3 @@ function validateTool(deps: WorkflowToolDeps): ToolDef {
   });
 }
 
-function triggerSummary(on: import('@moxxy/sdk').WorkflowTrigger | undefined): string {
-  if (!on) return 'on-demand';
-  const parts: string[] = [];
-  if (on.schedule?.cron) parts.push(`cron(${on.schedule.cron})`);
-  if (on.schedule?.runAt) parts.push('runAt');
-  if (on.afterWorkflow) parts.push(`after(${[on.afterWorkflow].flat().join(',')})`);
-  if (on.fileChanged) parts.push('fileChanged');
-  if (on.webhook) parts.push(`webhook(${on.webhook})`);
-  return parts.length > 0 ? parts.join(' + ') : 'on-demand';
-}

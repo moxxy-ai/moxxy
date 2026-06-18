@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineTool } from '@moxxy/sdk';
+import { defineTool, type ProviderEvent } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
 import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
 
@@ -179,5 +179,86 @@ describe('goalMode end-to-end', () => {
     );
     const orphans = [...requestedIds].filter((id) => !resolvedIds.has(id));
     expect(orphans).toEqual([]);
+  });
+
+  // u67-2: the cumulative token-budget backstop must stop the run (the exact
+  // unbounded-run failure the guard exists to prevent).
+  it('stops with goal_budget_exhausted when cumulative usage exceeds the budget', () => {
+    // A single reply whose usage blows past GOAL_TOKEN_BUDGET (4M). The budget
+    // check runs right after the provider call, before any tool work, so this
+    // trips on iteration 1.
+    const hugeUsage: ProviderEvent[] = [
+      { type: 'message_start', model: 'fake' },
+      { type: 'text_delta', delta: 'working...' },
+      {
+        type: 'message_end',
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5_000_000, outputTokens: 0 },
+      },
+    ];
+    const provider = new FakeProvider({ script: [hugeUsage] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+
+    return collectTurn(session, 'do an expensive thing').then((events) => {
+      const exhausted = events.find(
+        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
+      );
+      expect(exhausted).toBeDefined();
+      if (exhausted?.type !== 'plugin_event') throw new Error('expected goal_budget_exhausted');
+      expect((exhausted.payload as { budget: number }).budget).toBe(4_000_000);
+      // It did NOT falsely report completion, and a final system message tells
+      // the user how to continue.
+      expect(
+        events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed'),
+      ).toBe(false);
+      const finalMsg = events
+        .filter((e) => e.type === 'assistant_message' && e.source === 'system')
+        .pop();
+      if (finalMsg?.type !== 'assistant_message') throw new Error('expected final system message');
+      expect(finalMsg.content).toContain('token budget exhausted');
+    });
+  });
+
+  // u67-2: the hard iteration cap must end the run with goal_max_iterations + a
+  // fatal error when the model never calls goal_complete.
+  it('stops with goal_max_iterations when the cap is reached without completing', async () => {
+    // The model keeps doing distinct work (varied inputs dodge the stuck-loop
+    // detector) and never declares done. ctx.maxIterations=2 bounds the run.
+    const provider = new FakeProvider({
+      script: [
+        toolUseReply('work', { step: 1 }, 'w1'),
+        toolUseReply('work', { step: 2 }, 'w2'),
+        toolUseReply('work', { step: 3 }, 'w3'),
+      ],
+    });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+    session.tools.register(
+      defineTool({
+        name: 'work',
+        description: '',
+        inputSchema: z.object({ step: z.number() }),
+        handler: () => 'ok',
+      }),
+    );
+
+    const events = await collectTurn(session, 'keep working forever', { maxIterations: 2 });
+
+    const cap = events.find(
+      (e) => e.type === 'plugin_event' && e.subtype === 'goal_max_iterations',
+    );
+    expect(cap).toBeDefined();
+    if (cap?.type !== 'plugin_event') throw new Error('expected goal_max_iterations');
+    expect((cap.payload as { maxIterations: number }).maxIterations).toBe(2);
+    // A fatal error closes the run; it did not falsely complete.
+    expect(
+      events.some((e) => e.type === 'error' && e.kind === 'fatal' && e.message.includes('iteration cap')),
+    ).toBe(true);
+    expect(
+      events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed'),
+    ).toBe(false);
   });
 });

@@ -17,6 +17,8 @@ import {
 import { detectGoalTerminal } from './completion.js';
 import {
   CONTINUE_NUDGE,
+  GOAL_ABANDON_TOOL,
+  GOAL_COMPLETE_TOOL,
   GOAL_MAX_ITERATIONS,
   GOAL_MAX_NOOP_ITERATIONS,
   GOAL_MODE_NAME,
@@ -308,8 +310,15 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     if (exited) return;
 
     // Did this batch end the run? (goal_complete / goal_abandon, confirmed via
-    // a successful tool_result in the log.)
-    const terminal = detectGoalTerminal(ctx.log.slice(), toolUses);
+    // a successful tool_result in the log.) Only materialise the log (an O(n)
+    // copy of the ever-growing append-only log) when the batch actually used a
+    // goal tool — otherwise this ran on every productive iteration, O(n²) per
+    // run. detectGoalTerminal itself early-returns null on an empty batch, so a
+    // batch with no goal tools needs no log at all.
+    const hasGoalTool = toolUses.some(
+      (t) => t.name === GOAL_COMPLETE_TOOL || t.name === GOAL_ABANDON_TOOL,
+    );
+    const terminal = hasGoalTool ? detectGoalTerminal(ctx.log.slice(), toolUses) : null;
     if (terminal?.kind === 'complete') {
       yield await ctx.emit({
         type: 'plugin_event',

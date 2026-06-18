@@ -95,4 +95,20 @@ describe('usage-stats plugin', () => {
     // No new events past the cursor → file never created.
     expect((await loadUsageStats(statsPath)).models).toEqual({});
   });
+
+  it('folds the whole log when onShutdown fires without a preceding onInit (cursor defaults to 0)', async () => {
+    // Documents the deliberate default-0 cursor: the "counted exactly once on
+    // resume" guarantee hinges on onInit running first to capture the restored
+    // prefix length. On an abnormal lifecycle (onShutdown with no onInit) the
+    // cursor stays 0 and the entire log is folded — accepted behavior, asserted
+    // here so a future guard change is a conscious one.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const events = [resp(0, 'opus', 100), resp(1, 'opus', 50)];
+
+    await plugin.hooks!.onShutdown!(ctxFor(events)); // no onInit called
+
+    const file = await loadUsageStats(statsPath);
+    expect(file.models['anthropic/opus']!.calls).toBe(2);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(150);
+  });
 });

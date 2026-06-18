@@ -10,7 +10,7 @@
  */
 
 import { type RunnerPool } from '../runner-pool';
-import { handle } from './shared';
+import { handle, resolveSupervisor } from './shared';
 
 export function registerConnectionHandlers(pool: RunnerPool): void {
   // ---- Connection ----------------------------------------------------------
@@ -20,8 +20,8 @@ export function registerConnectionHandlers(pool: RunnerPool): void {
   );
   handle('connection.activeWorkspace', async () => pool.activeWorkspaceId());
   handle('connection.retry', async (args) => {
-    const id = args?.workspaceId ?? pool.activeWorkspaceId();
-    if (!id) return;
-    pool.get(id)?.forceRetry();
+    // Route the active-workspace fallback through the shared resolver rather
+    // than re-implementing `?? activeWorkspaceId()` inline.
+    resolveSupervisor(pool, args?.workspaceId)?.forceRetry();
   });
 }

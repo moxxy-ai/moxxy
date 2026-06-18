@@ -180,20 +180,6 @@ export class EventLog implements EventLogReader {
   }
 
   /**
-   * Drop every event from the log. Used by `/new` to start a fresh
-   * session without rebuilding the entire Session object — the
-   * registries, resolvers, and active provider stay; only the
-   * conversation context vanishes. Per-event listeners are NOT
-   * notified (there's no "event removed" event in the schema), but
-   * {@link onClear} subscribers fire — that's how the persistence
-   * sidecar truncates its JSONL (so `--resume` can't resurrect wiped
-   * history) and how the runner broadcasts a reset to attached
-   * mirrors, in lockstep with the wipe.
-   *
-   * Safe to call only when no turn is in flight — callers should abort
-   * their AbortController and await any pending runTurn() first.
-   */
-  /**
    * Start this (empty) log at `seq` instead of 0. A mirror primed by a
    * PARTIAL attach replay (`replay: 'none'` / `{ tail }`) calls this with the
    * runner's announced first seq so {@link ingest}'s contiguity gate accepts
@@ -214,6 +200,20 @@ export class EventLog implements EventLogReader {
     this.byTurnId = null;
   }
 
+  /**
+   * Drop every event from the log. Used by `/new` to start a fresh
+   * session without rebuilding the entire Session object — the
+   * registries, resolvers, and active provider stay; only the
+   * conversation context vanishes. Per-event listeners are NOT
+   * notified (there's no "event removed" event in the schema), but
+   * {@link onClear} subscribers fire — that's how the persistence
+   * sidecar truncates its JSONL (so `--resume` can't resurrect wiped
+   * history) and how the runner broadcasts a reset to attached
+   * mirrors, in lockstep with the wipe.
+   *
+   * Safe to call only when no turn is in flight — callers should abort
+   * their AbortController and await any pending runTurn() first.
+   */
   clear(): void {
     this.events.length = 0;
     // The secondary indexes mirror `events`; drop them so the next query

@@ -55,7 +55,7 @@ const agentSpecSchema = z.object({
 // the AgentDef (per-kind, set by the plugin author) or the spawner
 // default (50), not on the per-call payload.
 
-type AgentSpecInput = z.infer<typeof agentSpecSchema>;
+export type AgentSpecInput = z.infer<typeof agentSpecSchema>;
 
 export interface DispatchAgentDeps {
   /** Live lookup against the session's agent registry. Closure-bound at
@@ -66,7 +66,7 @@ export interface DispatchAgentDeps {
 /** Built-in "default" kind — surfaced when the model omits agentType or
  *  passes an unknown one. Never registered in the AgentRegistry so
  *  plugins can override it cleanly via `replace()` if they want. */
-const DEFAULT_AGENT: AgentDef = {
+export const DEFAULT_AGENT: AgentDef = {
   name: 'default',
   description:
     'Generic tool-use loop. Inherits the parent\'s full tool registry; no system prompt override.',
@@ -121,7 +121,7 @@ export function buildDispatchAgentTool(deps: DispatchAgentDeps) {
  * fields win over kind defaults; omitted caller fields fall back to
  * the kind, which falls back to the built-in DEFAULT.
  */
-function resolveSpec(input: AgentSpecInput, deps: DispatchAgentDeps): SubagentSpec {
+export function resolveSpec(input: AgentSpecInput, deps: DispatchAgentDeps): SubagentSpec {
   const requested = input.agentType ?? 'default';
   const def = deps.getAgent(requested) ?? DEFAULT_AGENT;
   const systemPrompt = input.systemPrompt ?? def.systemPrompt;

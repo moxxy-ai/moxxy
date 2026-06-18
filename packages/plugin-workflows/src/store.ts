@@ -9,6 +9,7 @@ import {
   type WorkflowLogger,
 } from './loader.js';
 import { serializeWorkflow, validateWorkflow } from './schema.js';
+import { slugify } from './format.js';
 
 /**
  * Owns the set of workflow artifacts: discovers them from disk on `load()`,
@@ -169,14 +170,6 @@ async function uniqueFilename(dir: string, base: string): Promise<string> {
     n += 1;
   }
   return candidate;
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
 }
 
 async function exists(p: string): Promise<boolean> {

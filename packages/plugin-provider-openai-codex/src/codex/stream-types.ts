@@ -42,3 +42,20 @@ export interface SseStepResult {
   usage?: { input?: number; output?: number; cacheRead?: number };
   terminal?: boolean;
 }
+
+/**
+ * Parse accumulated function-call argument text into the tool input. The
+ * server normally sends well-formed JSON, but a truncated stream can leave
+ * partial JSON; rather than drop the call we surface the raw text under
+ * `_rawPartial` so the upstream loop still sees the tool request. Shared by
+ * the per-event handler (`function_call_arguments.done`) and the consumer's
+ * truncated-stream flush so the two stay in lockstep.
+ */
+export function parseToolArgs(args: string): unknown {
+  if (!args) return {};
+  try {
+    return JSON.parse(args);
+  } catch {
+    return { _rawPartial: args };
+  }
+}

@@ -45,7 +45,7 @@ export const typeTool = defineTool({
  * literal. AppleScript string syntax: `"..."` with `\"` and `\\` as
  * the only escapes; newlines are written as `" & return & "`.
  */
-function toAppleScriptString(s: string): string {
+export function toAppleScriptString(s: string): string {
   // Split on newlines to use `return` (AppleScript's CR constant) so
   // a multi-line type call sends actual Enter keystrokes rather than a
   // literal `\n` in one keystroke (which keystroke would refuse).

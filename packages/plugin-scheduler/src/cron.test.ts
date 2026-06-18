@@ -98,6 +98,50 @@ describe('nextFireTime', () => {
     expect(next!.getDate()).toBe(17);
   });
 
+  // u103-4: jumpToNextMonth must walk across a year boundary. From mid-year,
+  // "midnight on Jan 1" lands on the following Jan 1.
+  it('walks across a year boundary for an annual expression', () => {
+    const after = new Date(2026, 5, 15, 12, 0, 0); // mid-June 2026
+    const next = nextFireTime('0 0 1 1 *', after);
+    expect(next).not.toBeNull();
+    expect(next!.getFullYear()).toBe(2027);
+    expect(next!.getMonth()).toBe(0); // January
+    expect(next!.getDate()).toBe(1);
+    expect(next!.getHours()).toBe(0);
+    expect(next!.getMinutes()).toBe(0);
+  });
+
+  it('jumps to the next valid month within the same year', () => {
+    // From January, "midnight on the 1st of March" -> 2026-03-01.
+    const after = new Date(2026, 0, 10, 0, 0, 0); // 2026-01-10
+    const next = nextFireTime('0 0 1 3 *', after);
+    expect(next!.getFullYear()).toBe(2026);
+    expect(next!.getMonth()).toBe(2); // March
+    expect(next!.getDate()).toBe(1);
+  });
+
+  // u103-4: vixie-cron OR semantics — when BOTH DOM and DOW are restricted,
+  // a fire matches on EITHER. `0 0 13 * 5` fires on the 13th OR any Friday.
+  it('matches the soonest of DOM-13 OR Friday (DOW arm first)', () => {
+    // After Sat 2026-06-06, the next Friday is 2026-06-12 (DOW arm), which
+    // comes before the 13th (the DOM arm). So the Friday wins.
+    const after = new Date(2026, 5, 6, 0, 0, 0); // Sat 2026-06-06
+    const next = nextFireTime('0 0 13 * 5', after);
+    expect(next).not.toBeNull();
+    expect(next!.getDate()).toBe(12);
+    expect(next!.getDay()).toBe(5); // Friday
+  });
+
+  it('matches the 13th via the DOM arm even when it is not a Friday', () => {
+    // After Fri 2026-06-12 00:01, the next match is Sat 2026-06-13 — a 13th
+    // that is NOT a Friday. AND-semantics would skip it; OR-semantics fires.
+    const after = new Date(2026, 5, 12, 0, 1, 0); // just past midnight Fri 06-12
+    const next = nextFireTime('0 0 13 * 5', after);
+    expect(next).not.toBeNull();
+    expect(next!.getDate()).toBe(13);
+    expect(next!.getDay()).toBe(6); // Saturday — matched purely via DOM
+  });
+
   // Regression for u103-1: with an explicit IANA zone the cursor walk must
   // match AND advance in that zone, not jump in the host-local zone. These
   // assertions hold regardless of the host TZ because they check the
