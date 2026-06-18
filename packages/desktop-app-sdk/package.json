@@ -1,8 +1,22 @@
 {
   "name": "@moxxy/desktop-app-sdk",
-  "private": true,
   "version": "0.1.0",
   "description": "The contract for moxxy desktop mini-apps: the moxxy-app.json manifest schema + capability list, the host<->app bridge protocol, and the tiny browser client an app imports to call host services over postMessage. Lets anyone (or an agent) build a sandboxed web app that installs into the desktop Apps gallery.",
+  "keywords": ["moxxy", "desktop", "electron", "mini-apps", "app-sdk", "sandbox"],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/desktop-app-sdk"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
