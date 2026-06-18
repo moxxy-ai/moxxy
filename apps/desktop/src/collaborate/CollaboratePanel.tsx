@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, useChat } from '@moxxy/client-core';
 import type { CollabRunSummary } from '@moxxy/desktop-ipc-contract';
 import { pairToolEvents } from '@moxxy/chat-model';
+import type { CollabMsgView, CollabTaskView } from '@moxxy/chat-model';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
@@ -43,6 +44,7 @@ export function CollaboratePanel({
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<CollabRunSummary[] | null>(null);
   const [globalActive, setGlobalActive] = useState<{ active: boolean; task?: string } | null>(null);
+  const [selectedTask, setSelectedTask] = useState<string | null>(null);
 
   // Poll the global single-flight lock so Start reflects a collaboration running
   // in ANY workspace (only one runs at a time).
@@ -293,7 +295,7 @@ export function CollaboratePanel({
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {header}
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         {/* LEFT RAIL — agents · tasks · contracts */}
@@ -322,13 +324,32 @@ export function CollaboratePanel({
           <Section title={`Tasks · ${collab.tasks.filter((t) => t.status === 'done').length}/${collab.tasks.length}`}>
             {collab.tasks.length === 0 && <Empty>No board items yet.</Empty>}
             {collab.tasks.map((t) => (
-              <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '5px 12px' }}>
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setSelectedTask(t.id)}
+                title="Show details"
+                style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, padding: '5px 12px' }}
+              >
                 <span style={taskChip(t.status)}>{t.status}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--color-text)' }}>{t.title}</span>
+                {t.paths && t.paths.length > 0 && (
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--color-text-dim)' }}>{t.paths.length}📄</span>
+                )}
                 {t.owner && <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>@{t.owner}</span>}
-              </div>
+              </button>
             ))}
           </Section>
+          {(() => {
+            const files = [...new Set(collab.tasks.flatMap((t) => t.paths ?? []))];
+            return files.length > 0 ? (
+              <Section title={`Deliverables · ${files.length}`}>
+                {files.map((f) => (
+                  <div key={f} className="mono" style={{ padding: '3px 12px', fontSize: 11.5, color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f}</div>
+                ))}
+              </Section>
+            ) : null;
+          })()}
           {collab.contracts.length > 0 && (
             <Section title="Contracts">
               {collab.contracts.map((c) => (
@@ -375,16 +396,7 @@ export function CollaboratePanel({
                 {channel === 'all' ? 'No team messages yet.' : 'No messages to or from this agent yet.'}
               </div>
             ) : (
-              visibleMessages.map((m) => (
-                <div key={m.id} style={{ fontSize: 13, lineHeight: 1.5 }}>
-                  <span className="mono" style={{ fontWeight: 600, color: m.from === 'human' ? 'var(--color-accent-strong)' : 'var(--color-primary-strong)' }}>
-                    {m.from}
-                  </span>
-                  <span className="mono" style={{ color: 'var(--color-text-dim)' }}> → {m.to}</span>
-                  {m.subject ? <span className="mono" style={{ color: 'var(--color-text-dim)' }}> · {m.subject}</span> : null}
-                  <span style={{ color: 'var(--color-text)' }}>: {m.body}</span>
-                </div>
-              ))
+              visibleMessages.map((m) => <MessageCard key={m.id} m={m} />)
             )}
           </div>
 
@@ -422,6 +434,12 @@ export function CollaboratePanel({
           </div>
         </div>
       </div>
+      {selectedTask && (
+        <TaskModal
+          task={collab.tasks.find((t) => t.id === selectedTask)}
+          onClose={() => setSelectedTask(null)}
+        />
+      )}
     </div>
   );
 }
@@ -720,6 +738,103 @@ function CollabHistory({ runs, onClose }: { readonly runs: CollabRunSummary[] | 
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** A short colour + label for a message's "kind", derived from its subject. */
+function msgKind(subject?: string): { label: string; color: string } | null {
+  if (!subject) return null;
+  const s = subject.toLowerCase();
+  if (s === 'directive') return { label: 'directive', color: 'var(--color-accent-strong)' };
+  if (s.startsWith('done') || s.includes('complete')) return { label: 'done', color: 'var(--color-green)' };
+  if (s.includes('block')) return { label: 'blocked', color: 'var(--color-amber-text)' };
+  if (s.includes('progress') || s.includes('claim') || s.includes('start')) return { label: 'progress', color: 'var(--color-primary)' };
+  if (s.includes('kickoff') || s.includes('ready')) return { label: 'kickoff', color: 'var(--color-primary-strong)' };
+  return { label: subject.slice(0, 24), color: 'var(--color-text-dim)' };
+}
+
+function whenShort(ms: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.round(m / 60)}h`;
+}
+
+/** One message rendered as a chat card: author chip (human vs agent), a kind
+ *  chip from the subject, a broadcast/DM tag, a timestamp, and the body. */
+function MessageCard({ m }: { readonly m: CollabMsgView }): JSX.Element {
+  const isHuman = m.from === 'human';
+  const kind = msgKind(m.subject);
+  return (
+    <div
+      style={{
+        border: '1px solid var(--color-card-border)',
+        borderRadius: 10,
+        padding: '8px 11px',
+        background: isHuman ? 'color-mix(in srgb, var(--color-accent) 8%, transparent)' : 'var(--color-card-bg)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 4,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+        <span className="mono" style={{ fontWeight: 700, fontSize: 12, color: isHuman ? 'var(--color-accent-strong)' : 'var(--color-primary-strong)' }}>
+          {m.from}
+        </span>
+        <span
+          className="mono"
+          style={{ fontSize: 10, color: 'var(--color-text-dim)', border: '1px solid var(--color-card-border)', borderRadius: 'var(--radius-pill)', padding: '0 6px' }}
+          title={m.to === 'all' ? 'broadcast to the whole team' : `direct message to ${m.to}`}
+        >
+          {m.to === 'all' ? '📣 all' : `→ ${m.to}`}
+        </span>
+        {kind && (
+          <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: '#fff', background: kind.color, borderRadius: 'var(--radius-pill)', padding: '1px 6px' }}>
+            {kind.label}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span className="mono" style={{ fontSize: 10, color: 'var(--color-text-dim)' }}>{whenShort(m.atMs)}</span>
+      </div>
+      <div style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-text)', whiteSpace: 'pre-wrap' }}>{m.body}</div>
+    </div>
+  );
+}
+
+/** Modal with a task-board item's full detail: status, owner, deliverable files. */
+function TaskModal({ task, onClose }: { readonly task?: CollabTaskView; readonly onClose: () => void }): JSX.Element | null {
+  if (!task) return null;
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 50 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(520px, 90%)', maxHeight: '80%', overflowY: 'auto', background: 'var(--color-app-bg)', border: '1px solid var(--color-card-border)', borderRadius: 14, padding: 18, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <span style={taskChip(task.status)}>{task.status}</span>
+          <span style={{ flex: 1, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>{task.title}</span>
+          <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 16, lineHeight: 1, padding: '0 6px' }} aria-label="Close">×</button>
+        </div>
+        {task.owner && (
+          <div className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>owner · @{task.owner}</div>
+        )}
+        {task.detail && (
+          <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--color-text)' }}>{task.detail}</div>
+        )}
+        {task.paths && task.paths.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--color-text-dim)' }}>Deliverables</div>
+            {task.paths.map((p) => (
+              <div key={p} className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)', wordBreak: 'break-all' }}>{p}</div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

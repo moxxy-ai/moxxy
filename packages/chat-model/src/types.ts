@@ -42,6 +42,9 @@ export interface CollabTaskView {
   title: string;
   status: string;
   owner: string | null;
+  /** Files/areas this item covers (claimed paths) — the run's deliverables. */
+  paths?: ReadonlyArray<string>;
+  detail?: string;
 }
 
 /** One shared contract (agreed interface/boundary). */
