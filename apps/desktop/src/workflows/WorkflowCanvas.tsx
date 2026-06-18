@@ -162,8 +162,23 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
 
   const byId = useMemo(() => new Map(state.nodes.map((n) => [n.id, n])), [state.nodes]);
 
-  /** Topological order index per node (1-based) so the canvas reads as a flow. */
-  const order = useMemo(() => topoOrder(state.nodes), [state.nodes]);
+  /**
+   * Topological order index per node (1-based) so the canvas reads as a flow.
+   *
+   * `moveNode` returns a fresh `state.nodes` array on EVERY pointer-move while
+   * dragging a card, but a position-only move can never change the `needs`
+   * topological order. So memoize on a geometry-FREE signature of the topology
+   * (each node's id + needs in array order) — it stays referentially stable
+   * across a drag, and the O(V+E) longest-path fold only recomputes when the
+   * graph's wiring (or node set / order) actually changes, not per mousemove.
+   */
+  // topoSig is the intended geometry-free dependency; state.nodes (its source)
+  // changes on every drag tick and would defeat the memo, so key on the
+  // signature instead. The disable directive must sit DIRECTLY above the
+  // useMemo to apply.
+  const topoSig = topologySignature(state.nodes);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const order = useMemo(() => topoOrder(state.nodes), [topoSig]);
 
   /** Pointer position in WORLD coords (node space, pre-transform). */
   const surfacePoint = useCallback(
@@ -1297,12 +1312,27 @@ function nodeAt(
 }
 
 /**
+ * A geometry-FREE signature of the inputs {@link topoOrder} actually reads —
+ * each node's id and its `needs` list, in array order. Two `state.nodes`
+ * arrays that differ only in node positions (a drag) produce the SAME string,
+ * so the `order` memo keyed on this skips the O(V+E) recompute during a drag
+ * (when `moveNode` allocates a fresh array every pointer-move). Changes only
+ * when a node is added/removed/reordered or a `needs` edge is wired/unwired —
+ * exactly when the topological order can change.
+ */
+export function topologySignature(nodes: ReadonlyArray<BuilderNode>): string {
+  let sig = '';
+  for (const n of nodes) sig += `${n.id}:${(n.needs ?? []).join(',')};`;
+  return sig;
+}
+
+/**
  * A 1-based topological index per node over the `needs` DAG (longest-path
  * layering, ties broken by array order). Makes the execution order legible on
  * the cards. Cyclic graphs (which the connect guard prevents, but a loaded YAML
  * could still contain) just fall back to insertion order for the affected nodes.
  */
-function topoOrder(nodes: ReadonlyArray<BuilderNode>): Map<string, number> {
+export function topoOrder(nodes: ReadonlyArray<BuilderNode>): Map<string, number> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const depth = new Map<string, number>();
   const resolve = (id: string, seen: Set<string>): number => {

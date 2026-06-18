@@ -588,12 +588,67 @@ export const workflowResumeParamsSchema = z.object({
 export const surfaceOpenParamsSchema = z.object({
   kind: z.string().min(1).max(64),
 });
+/**
+ * Bound a surface input message to ≤ 1 MB serialized WITHOUT paying a full
+ * `JSON.stringify(m)` on the hot path. Surface input frames are tiny shallow
+ * objects (a `type` discriminator plus a few primitive fields — terminal
+ * `{type:'data', data}`, browser `{type:'click', fx, fy}`, etc.) sent at
+ * keystroke/paste rate, so re-serializing the whole already-parsed object per
+ * frame is wasted work + a throwaway string allocation.
+ *
+ * Fast path: walk the top-level entries once and accumulate a SAFE UPPER BOUND
+ * on `JSON.stringify(m).length` (worst-case escaping for keys + string values,
+ * fixed maxima for number/boolean/null). If that upper bound is ≤ 1 MB the
+ * message provably fits, so we accept after an O(keys) scan with no stringify.
+ * Because it only ever OVER-estimates, the fast path can never accept a message
+ * the real serializer would reject.
+ *
+ * Slow path: a non-primitive value (nested object/array — not a shape any real
+ * surface emits) or an upper bound over 1 MB falls back to the EXACT
+ * `JSON.stringify(m).length <= 1_000_000` check. So the accepted/rejected set is
+ * IDENTICAL to the prior unconditional stringify guard — the 1 MB cap holds for
+ * every input; no wire-contract change.
+ */
+const MAX_SURFACE_INPUT_BYTES = 1_000_000;
+
+function surfaceInputWithinCap(m: Record<string, unknown>): boolean {
+  // `{` + `}` framing.
+  let upper = 2;
+  let primitiveOnly = true;
+  for (const key in m) {
+    if (!Object.prototype.hasOwnProperty.call(m, key)) continue;
+    const v = m[key];
+    const t = typeof v;
+    // JSON omits undefined/function-valued keys entirely — don't count them.
+    if (v === undefined || t === 'function') continue;
+    // Per entry: `"key":value,` — quoted key (worst-case \uXXXX escaping is 6×
+    // per char, + 2 quotes), a colon, the value, and a trailing comma.
+    upper += key.length * 6 + 2 + 1 + 1;
+    if (t === 'string') {
+      // Worst-case every char escapes to \uXXXX (6×), plus the 2 quotes.
+      upper += (v as string).length * 6 + 2;
+    } else if (t === 'number') {
+      upper += 25; // longest JSON number form
+    } else if (t === 'boolean' || v === null) {
+      upper += 5; // "false" / "null"
+    } else {
+      // Nested object/array — cannot bound cheaply.
+      primitiveOnly = false;
+      break;
+    }
+    if (upper > MAX_SURFACE_INPUT_BYTES) break; // can't conclude "fits" cheaply
+  }
+  if (primitiveOnly && upper <= MAX_SURFACE_INPUT_BYTES) return true;
+  // Exact boundary, identical to the original guard.
+  return JSON.stringify(m).length <= MAX_SURFACE_INPUT_BYTES;
+}
+
 export const surfaceInputParamsSchema = z.object({
   surfaceId: z.string().min(1).max(120),
   message: z
     .object({ type: z.string().min(1).max(64) })
     .passthrough()
-    .refine((m) => JSON.stringify(m).length <= 1_000_000, {
+    .refine((m) => surfaceInputWithinCap(m as Record<string, unknown>), {
       message: 'surface input message too large',
     }),
 });

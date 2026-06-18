@@ -100,8 +100,15 @@ export function applyLazyTools(
   log: EventLogReader,
 ): GatedTools {
   const loaded = loadedToolNames(log);
-  const hidden = tools.filter((t) => !ALWAYS_ON_TOOLS.has(t.name) && !loaded.has(t.name));
+  // Single partition pass: each tool is either visible (always-on or loaded) or
+  // hidden, never both — so one loop yields the exact same two arrays (same
+  // elements, same input order) the prior pair of complementary `filter`s did,
+  // at O(n) instead of O(2n) with two membership checks per tool.
+  const visible: ToolDef[] = [];
+  const hidden: ToolDef[] = [];
+  for (const t of tools) {
+    (ALWAYS_ON_TOOLS.has(t.name) || loaded.has(t.name) ? visible : hidden).push(t);
+  }
   if (hidden.length === 0) return { messages, tools };
-  const visible = tools.filter((t) => ALWAYS_ON_TOOLS.has(t.name) || loaded.has(t.name));
   return { messages: injectIntoSystem(messages, buildToolIndex(hidden)), tools: visible };
 }

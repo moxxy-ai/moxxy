@@ -456,6 +456,220 @@ describe('applyLazyTools', () => {
     expect(sent).toHaveLength(2);
     expect(messages).toBe(baseMsgs); // same reference → byte-stable
   });
+
+  // GOLDEN: the single-partition refactor (u125-2) must be byte-identical to the
+  // prior two complementary `filter` passes for every input. Re-implement the
+  // OLD logic inline and assert deep-equal output across many random tool sets.
+  it('single-partition output is byte-identical to the old double-filter (golden)', () => {
+    const ALWAYS = new Set([
+      'Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob',
+      'recall', 'load_skill', 'load_tool', 'dispatch_agent',
+    ]);
+    const pool = [
+      'Read', 'Write', 'Bash', 'Grep', 'browser_open', 'memory_save',
+      'recall', 'load_tool', 'web_search', 'shell', 'foo', 'bar', 'baz', 'qux',
+    ];
+    // Old reference implementation of applyLazyTools' partition + injection.
+    const oldApply = (
+      msgs: ProviderMessage[],
+      tools: ReturnType<typeof mk>[],
+      loadedNames: Set<string>,
+    ): { tools: string[]; injected: boolean } => {
+      const hidden = tools.filter((t) => !ALWAYS.has(t.name) && !loadedNames.has(t.name));
+      if (hidden.length === 0) return { tools: tools.map((t) => t.name), injected: false };
+      const visible = tools.filter((t) => ALWAYS.has(t.name) || loadedNames.has(t.name));
+      return { tools: visible.map((t) => t.name), injected: true };
+    };
+
+    let s = 12345;
+    const rand = () => ((s = (s * 1664525 + 1013904329) >>> 0) / 0x100000000);
+    for (let trial = 0; trial < 200; trial++) {
+      // Random subset (with duplicates allowed) and a random loaded set.
+      const names: string[] = [];
+      const count = Math.floor(rand() * pool.length);
+      for (let i = 0; i < count; i++) names.push(pool[Math.floor(rand() * pool.length)]!);
+      const tools = names.map(mk);
+      const loadedNames = new Set(
+        pool.filter(() => rand() < 0.3),
+      );
+      const log = reader(
+        [...loadedNames].map((name, i) =>
+          event(i, {
+            type: 'tool_call_requested',
+            turnId: t1,
+            source: 'model',
+            callId: asToolCallId(`l${i}`),
+            name: 'load_tool',
+            input: { name },
+          }),
+        ),
+      );
+      const expected = oldApply(baseMsgs, tools, loadedNames);
+      const actual = applyLazyTools(baseMsgs, tools, log);
+      expect(actual.tools.map((t) => t.name)).toEqual(expected.tools);
+      // Whether the system index was injected (messages !== baseMsgs) must match
+      // the old `injected` flag exactly.
+      expect(actual.messages !== baseMsgs).toBe(expected.injected);
+    }
+  });
+});
+
+describe('projectMessages compaction-range lookup (golden: binary cursor == linear scan)', () => {
+  // GOLDEN for complexity-hotspots-5: the binary/merge compaction lookup that
+  // replaced the per-event linear `eventInCompactionRange` must produce a
+  // BYTE-IDENTICAL projection on logs with MANY non-overlapping compaction
+  // ranges. We compare the real projection to an independent OLD-style
+  // reference projector that uses the linear first-match lookup.
+
+  type Ev = MoxxyEvent;
+  interface Range { from: number; to: number; summary: string }
+
+  // The exact pre-change lookup semantics (linear first-match in array order).
+  const linearLookup = (seq: number, ranges: ReadonlyArray<Range>): Range | null => {
+    for (const r of ranges) if (seq >= r.from && seq <= r.to) return r;
+    return null;
+  };
+
+  // A minimal reference projector covering the event kinds we generate. It is a
+  // faithful transcription of projectMessages' compaction/elision-free path:
+  // every generated log here has NO elision event, so stubbing never fires and
+  // the projection is a straight fold (which isolates the lookup change).
+  const refProject = (events: ReadonlyArray<Ev>): ProviderMessage[] => {
+    const ranges: Range[] = events
+      .filter(
+        (e): e is Extract<Ev, { type: 'compaction' }> =>
+          e.type === 'compaction' &&
+          e.tokensSaved > 0 &&
+          e.summary.trim().length > 0 &&
+          e.replacedRange[0] <= e.replacedRange[1],
+      )
+      .map((e) => ({ from: e.replacedRange[0], to: e.replacedRange[1], summary: e.summary }));
+    const emitted = new Set<Range>();
+    const msgs: ProviderMessage[] = [];
+    const resolved = new Set<string>();
+    for (const e of events) if (e.type === 'tool_result' || e.type === 'tool_call_denied') resolved.add(e.callId);
+    let pending: ProviderMessage | null = null;
+    const flush = () => {
+      if (!pending) return;
+      const f = pending;
+      pending = null;
+      msgs.push(f);
+      for (const b of f.content) {
+        if (b.type === 'tool_use' && !resolved.has(b.id)) {
+          msgs.push({
+            role: 'tool_result',
+            content: [{ type: 'tool_result', toolUseId: b.id, content: '[tool call did not return a result — possibly interrupted or cancelled]', isError: true }],
+          });
+          resolved.add(b.id);
+        }
+      }
+    };
+    for (const e of events) {
+      const r = linearLookup(e.seq, ranges);
+      if (r) {
+        if (!emitted.has(r)) {
+          emitted.add(r);
+          flush();
+          msgs.push({ role: 'user', content: [{ type: 'text', text: `[summary of earlier turns]\n${r.summary}` }] });
+        }
+        continue;
+      }
+      switch (e.type) {
+        case 'user_prompt':
+          flush();
+          msgs.push({ role: 'user', content: [{ type: 'text', text: e.text }] });
+          break;
+        case 'assistant_message':
+          flush();
+          if (e.content.trim().length === 0) break;
+          msgs.push({ role: 'assistant', content: [{ type: 'text', text: e.content }] });
+          break;
+        case 'tool_call_requested':
+          if (!pending) pending = { role: 'assistant', content: [] };
+          (pending.content as Array<ProviderMessage['content'][number]>).push({ type: 'tool_use', id: e.callId, name: e.name, input: e.input });
+          break;
+        case 'tool_result': {
+          flush();
+          const text = e.error ? `[error:${e.error.kind}] ${e.error.message}` : typeof e.output === 'string' ? e.output : JSON.stringify(e.output ?? '');
+          msgs.push({ role: 'tool_result', content: [{ type: 'tool_result', toolUseId: e.callId, content: text, isError: !e.ok }] });
+          break;
+        }
+        default:
+          break;
+      }
+    }
+    flush();
+    return msgs;
+  };
+
+  // Build a random log: alternating turns, with K non-overlapping compaction
+  // ranges carved over a prefix of the seqs.
+  const buildLog = (rand: () => number) => {
+    const events: Ev[] = [];
+    let seq = 0;
+    const turnCount = 6 + Math.floor(rand() * 14);
+    for (let i = 0; i < turnCount; i++) {
+      events.push(event(seq++, { type: 'user_prompt', turnId: t1, source: 'user', text: `u${i}` }));
+      if (rand() < 0.6) {
+        const cid = asToolCallId(`c${i}`);
+        events.push(event(seq++, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: cid, name: 'Read', input: { i } }));
+        // Most tool calls resolve; occasionally leave an orphan (no result).
+        if (rand() < 0.85) events.push(event(seq++, { type: 'tool_result', turnId: t1, source: 'tool', callId: cid, ok: true, output: `r${i}` }));
+      }
+      events.push(event(seq++, { type: 'assistant_message', turnId: t1, source: 'model', content: rand() < 0.15 ? '' : `a${i}`, stopReason: 'end_turn' }));
+    }
+    const lastSeq = seq - 1;
+    // Carve K non-overlapping ascending ranges over the first ~70% of seqs.
+    const limit = Math.floor(lastSeq * 0.7);
+    const ranges: Array<[number, number]> = [];
+    let cursor = 0;
+    const k = 1 + Math.floor(rand() * 4);
+    for (let i = 0; i < k && cursor < limit; i++) {
+      const width = 1 + Math.floor(rand() * 4);
+      const from = cursor;
+      const to = Math.min(from + width, limit);
+      ranges.push([from, to]);
+      cursor = to + 1 + Math.floor(rand() * 2); // leave a gap between ranges
+    }
+    // Append compaction events (seq after everything; they don't fall in a range).
+    for (const [from, to] of ranges) {
+      events.push(event(seq++, { type: 'compaction', turnId: t2, source: 'compactor', compactor: 'summarize', replacedRange: [from, to], summary: `S(${from}-${to})`, tokensSaved: 10 }));
+    }
+    return events;
+  };
+
+  it('is byte-identical to the linear-scan reference across many random multi-range logs', () => {
+    let s = 999;
+    const rand = () => ((s = (s * 1664525 + 1013904329) >>> 0) / 0x100000000);
+    for (let trial = 0; trial < 250; trial++) {
+      const events = buildLog(rand);
+      const actual = projectMessagesFromLog({ log: reader(events) });
+      const expected = refProject(events);
+      expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+    }
+  });
+
+  it('locks a fixed many-range fixture (regression)', () => {
+    const events: MoxxyEvent[] = [
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'one' }),
+      event(1, { type: 'assistant_message', turnId: t1, source: 'model', content: 'a1', stopReason: 'end_turn' }),
+      event(2, { type: 'user_prompt', turnId: t1, source: 'user', text: 'two' }),
+      event(3, { type: 'assistant_message', turnId: t1, source: 'model', content: 'a2', stopReason: 'end_turn' }),
+      event(4, { type: 'user_prompt', turnId: t1, source: 'user', text: 'three' }),
+      event(5, { type: 'assistant_message', turnId: t1, source: 'model', content: 'a3', stopReason: 'end_turn' }),
+      event(6, { type: 'user_prompt', turnId: t2, source: 'user', text: 'recent' }),
+      event(7, { type: 'compaction', turnId: t2, source: 'compactor', compactor: 'summarize', replacedRange: [0, 1], summary: 'sum-A', tokensSaved: 10 }),
+      event(8, { type: 'compaction', turnId: t2, source: 'compactor', compactor: 'summarize', replacedRange: [2, 3], summary: 'sum-B', tokensSaved: 10 }),
+      event(9, { type: 'compaction', turnId: t2, source: 'compactor', compactor: 'summarize', replacedRange: [4, 5], summary: 'sum-C', tokensSaved: 10 }),
+    ];
+    const msgs = projectMessagesFromLog({ log: reader(events) });
+    expect(msgs).toEqual([
+      { role: 'user', content: [{ type: 'text', text: '[summary of earlier turns]\nsum-A' }] },
+      { role: 'user', content: [{ type: 'text', text: '[summary of earlier turns]\nsum-B' }] },
+      { role: 'user', content: [{ type: 'text', text: '[summary of earlier turns]\nsum-C' }] },
+      { role: 'user', content: [{ type: 'text', text: 'recent' }] },
+    ]);
+  });
 });
 
 describe('attachment projection in projectMessagesFromLog', () => {

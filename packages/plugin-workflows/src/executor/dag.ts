@@ -287,10 +287,17 @@ async function runExecutorLoop(ctx: ExecutorContext, resumed = false): Promise<W
       break;
     }
 
-    // 3. Run a wave (cap at concurrency). Logic/branch/pause steps mutate
-    //    shared state (vars, branch skips, checkpoints), so the wave runs
-    //    sequentially within itself; independent steps still settle together
-    //    across iterations.
+    // 3. Run a wave. `concurrency` caps the BATCH SIZE per scheduler pass; the
+    //    steps in a wave are then executed STRICTLY SEQUENTIALLY (one awaited
+    //    `runStep` at a time below) — there is no actual parallelism today.
+    //    This is deliberate and load-bearing: logic/branch/pause steps mutate
+    //    shared state (vars, branch skips, checkpoints) and emit ordered
+    //    `workflow_step_*` events, and a hard failure must abort the rest of the
+    //    wave deterministically. Independent (pure tool/prompt/skill) steps
+    //    COULD overlap, but proving identical event ordering / vars-merge order
+    //    / error semantics is a behavior change deferred to a future pass — see
+    //    the executor description. `concurrency` therefore only bounds how many
+    //    ready steps are drained per pass, not wall-clock latency.
     const wave = ready.slice(0, Math.max(1, workflow.concurrency));
     const scope = buildScope(ctx, new Date(ctx.now()).toISOString());
 
@@ -899,6 +906,7 @@ function buildSubagentSpecWithDeps(
 
 export const dagExecutor: WorkflowExecutorDef = defineWorkflowExecutor({
   name: DAG_EXECUTOR_NAME,
-  description: 'Parallel DAG runner: steps with settled dependencies run in waves up to `concurrency`.',
+  description:
+    'DAG runner: steps with settled dependencies are scheduled in waves of up to `concurrency` ready steps, then executed sequentially within each wave (no overlap yet — `concurrency` caps the batch size, not wall-clock latency).',
   run: runExecutor,
 });

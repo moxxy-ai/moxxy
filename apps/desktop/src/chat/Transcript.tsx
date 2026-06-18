@@ -1,7 +1,7 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { blocksEquivalent, type Block as FoldedBlock } from '@moxxy/chat-model';
+import { blocksEquivalent, IncrementalFold, type Block as FoldedBlock } from '@moxxy/chat-model';
 import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
 import { ToolGroupView } from './ToolGroupView';
@@ -85,9 +85,19 @@ export function Transcript({
   onReachedTop,
 }: TranscriptProps): JSX.Element {
   // Fold only when committed events / extensions change — never on a
-  // streaming tick (the events array reference is stable across chunks).
+  // streaming tick (the events array reference is stable across chunks). The
+  // IncrementalFold re-folds only the unsettled tail past its high-water mark
+  // instead of re-walking the whole event log on every committed event (the
+  // old O(n²)/turn behaviour); buildRenderNodes only consults it on the common
+  // no-extension fast path, and the result stays byte-identical. The optional
+  // chaining degrades gracefully to the (identical) un-cached slow path when
+  // IncrementalFold is unavailable.
+  const foldRef = useRef<IncrementalFold | null>(null);
+  if (foldRef.current === null && typeof IncrementalFold === 'function') {
+    foldRef.current = new IncrementalFold();
+  }
   const nodes = useMemo(
-    () => groupToolNodes(buildRenderNodes(events, extensions)),
+    () => groupToolNodes(buildRenderNodes(events, extensions, foldRef.current ?? undefined)),
     [events, extensions],
   );
 

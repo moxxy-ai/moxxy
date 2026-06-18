@@ -137,18 +137,28 @@ interface CallTarget {
   outcome: ToolCallBlockData['outcome'];
 }
 
-export function pairToolEvents(
-  events: ReadonlyArray<MoxxyEvent>,
-  compactByName: CompactToolMap = EMPTY_COMPACT_MAP,
-): Block[] {
-  const root: Block[] = [];
+/**
+ * The full loop-carried state of {@link pairToolEvents}, lifted into a
+ * struct so the per-event body ({@link stepFold}) can be applied either in
+ * a batch ({@link pairToolEvents}) or one event at a time
+ * ({@link IncrementalFold}).
+ *
+ * Both paths run the SAME {@link stepFold} over the SAME events in the SAME
+ * order, so they produce byte-identical block trees — the incremental path
+ * is just the batch path with its loop unrolled across calls. `root` is the
+ * folded tree (mutated in place as outcomes/scopes settle); the rest is the
+ * carry the algorithm threads from one event to the next.
+ */
+export interface FoldState {
+  readonly root: Block[];
+  readonly compactByName: CompactToolMap;
   // Reverse lookup: callId → the outcome-holder for that call (either a
   // ToolCallBlockData or a LiveToolCall — both have a mutable `outcome`
   // field). One map handles both kinds via structural typing.
-  const callTargets = new Map<string, CallTarget>();
-  const suppressedCallIds = new Set<string>();
-  let pendingLoadSkillCallId: string | null = null;
-  let openScope: SkillScopeBlock | null = null;
+  readonly callTargets: Map<string, CallTarget>;
+  readonly suppressedCallIds: Set<string>;
+  pendingLoadSkillCallId: string | null;
+  openScope: SkillScopeBlock | null;
   // When an assistant_message lands mid-skill we close the current
   // scope so the message renders below the tools that preceded it
   // (preserving chronological order). If more skill tool calls come
@@ -156,38 +166,62 @@ export function pairToolEvents(
   // skillEvent so the grouping carries through both visually and via
   // `countToolCalls`. Cleared at turn boundaries and on a new
   // skill_invoked.
-  let continuationSkillEvent: import('@moxxy/sdk').SkillInvokedEvent | null = null;
+  continuationSkillEvent: import('@moxxy/sdk').SkillInvokedEvent | null;
   // Open live-tools aggregate, if any. Lives at the current push level
   // (root or openScope.children); subsequent compact tool calls append
   // into it until something non-compact closes it.
-  let openLive: LiveToolBlockData | null = null;
-  const subagents = new Map<string, SubagentBlock>();
+  openLive: LiveToolBlockData | null;
+  readonly subagents: Map<string, SubagentBlock>;
   // Open subagent group, if any. Consecutive `subagent_started` events accrete
   // into it; any non-subagent block (or a turn/scope boundary) closes the run.
-  const subagentGroup: { current: SubagentGroupBlock | null } = { current: null };
+  readonly subagentGroup: { current: SubagentGroupBlock | null };
+}
 
+/** A fresh, empty fold state for the given compact-tool map. */
+export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MAP): FoldState {
+  return {
+    root: [],
+    compactByName,
+    callTargets: new Map<string, CallTarget>(),
+    suppressedCallIds: new Set<string>(),
+    pendingLoadSkillCallId: null,
+    openScope: null,
+    continuationSkillEvent: null,
+    openLive: null,
+    subagents: new Map<string, SubagentBlock>(),
+    subagentGroup: { current: null },
+  };
+}
+
+/**
+ * Apply ONE event to a {@link FoldState}, mutating `root` and the carry in
+ * place. This is the exact body of the old `pairToolEvents` loop, extracted
+ * verbatim so the batch and incremental folds share one code path (and thus
+ * stay byte-identical). `continue` became `return`.
+ */
+export function stepFold(s: FoldState, e: MoxxyEvent): void {
   const pushBlock = (block: Block): void => {
     // Any non-subagent block breaks a run of sibling subagents.
-    subagentGroup.current = null;
-    if (openScope) {
-      openScope.children.push(block);
+    s.subagentGroup.current = null;
+    if (s.openScope) {
+      s.openScope.children.push(block);
     } else {
-      root.push(block);
+      s.root.push(block);
     }
   };
 
   const closeOpenLive = (): void => {
-    if (openLive) {
-      openLive.closed = true;
-      openLive = null;
+    if (s.openLive) {
+      s.openLive.closed = true;
+      s.openLive = null;
     }
   };
 
   const closeOpenScope = (): void => {
     closeOpenLive();
-    if (openScope) {
-      openScope.closed = true;
-      openScope = null;
+    if (s.openScope) {
+      s.openScope.closed = true;
+      s.openScope = null;
     }
   };
 
@@ -203,8 +237,8 @@ export function pairToolEvents(
       }
       return false;
     };
-    if (openScope && removeFrom(openScope.children)) return;
-    removeFrom(root);
+    if (s.openScope && removeFrom(s.openScope.children)) return;
+    removeFrom(s.root);
   };
 
   // UI safety net: when a new user_prompt arrives, any tool-call block
@@ -214,7 +248,7 @@ export function pairToolEvents(
   // synthesize tool_result events for these cases (and now do), but this
   // guard means a future regression can't leave a permanent stuck dot.
   const markOrphansAtTurnBoundary = (): void => {
-    for (const target of callTargets.values()) {
+    for (const target of s.callTargets.values()) {
       if (target.outcome === null) {
         target.outcome = {
           type: 'denied',
@@ -222,147 +256,259 @@ export function pairToolEvents(
         };
       }
     }
-    callTargets.clear();
+    s.callTargets.clear();
   };
 
-  for (const e of events) {
-    if (e.type === 'user_prompt') {
-      closeOpenScope();
-      markOrphansAtTurnBoundary();
-      pendingLoadSkillCallId = null;
-      continuationSkillEvent = null;
-      // Suppression is a within-turn concern (a load_skill call folded into a
-      // skill scope). Clearing it at the turn boundary stops a later turn that
-      // happens to reuse a callId from having its tool_result silently dropped.
-      suppressedCallIds.clear();
-      subagentGroup.current = null;
-      root.push({ kind: 'event', id: e.id, event: e });
-      continue;
+  if (e.type === 'user_prompt') {
+    closeOpenScope();
+    markOrphansAtTurnBoundary();
+    s.pendingLoadSkillCallId = null;
+    s.continuationSkillEvent = null;
+    // Suppression is a within-turn concern (a load_skill call folded into a
+    // skill scope). Clearing it at the turn boundary stops a later turn that
+    // happens to reuse a callId from having its tool_result silently dropped.
+    s.suppressedCallIds.clear();
+    s.subagentGroup.current = null;
+    s.root.push({ kind: 'event', id: e.id, event: e });
+    return;
+  }
+  if (e.type === 'skill_invoked') {
+    // Close any previous scope, then open a new one. Also collapse
+    // the load_skill tool-call into the new scope so we don't show
+    // both "load_skill(name=foo)" AND "◆ skill: foo".
+    closeOpenScope();
+    s.continuationSkillEvent = null;
+    if (s.pendingLoadSkillCallId) {
+      s.suppressedCallIds.add(s.pendingLoadSkillCallId);
+      removeBlockByCallId(s.pendingLoadSkillCallId);
+      s.pendingLoadSkillCallId = null;
     }
-    if (e.type === 'skill_invoked') {
-      // Close any previous scope, then open a new one. Also collapse
-      // the load_skill tool-call into the new scope so we don't show
-      // both "load_skill(name=foo)" AND "◆ skill: foo".
-      closeOpenScope();
-      continuationSkillEvent = null;
-      if (pendingLoadSkillCallId) {
-        suppressedCallIds.add(pendingLoadSkillCallId);
-        removeBlockByCallId(pendingLoadSkillCallId);
-        pendingLoadSkillCallId = null;
-      }
-      subagentGroup.current = null;
-      openScope = {
+    s.subagentGroup.current = null;
+    s.openScope = {
+      kind: 'skill-scope',
+      id: e.id,
+      skillEvent: e,
+      children: [],
+      closed: false,
+    };
+    s.root.push(s.openScope);
+    return;
+  }
+  if (e.type === 'tool_call_requested') {
+    if (e.name === 'load_skill') {
+      s.pendingLoadSkillCallId = e.callId;
+    }
+    // A skill scope was closed by an interleaved assistant_message
+    // and a fresh tool call has now arrived. Reopen the scope so the
+    // continuation tools stay visually grouped under the same skill
+    // banner, just below the assistant text in chronological order.
+    if (!s.openScope && s.continuationSkillEvent) {
+      s.openScope = {
         kind: 'skill-scope',
-        id: e.id,
-        skillEvent: e,
+        id: `${s.continuationSkillEvent.id}:cont:${e.id}`,
+        skillEvent: s.continuationSkillEvent,
         children: [],
         closed: false,
       };
-      root.push(openScope);
-      continue;
+      s.root.push(s.openScope);
+      s.continuationSkillEvent = null;
     }
-    if (e.type === 'tool_call_requested') {
-      if (e.name === 'load_skill') {
-        pendingLoadSkillCallId = e.callId;
+    // File-edit tools never aggregate — each renders its own diff inline.
+    const compact = FILE_DIFF_TOOL_NAMES.has(e.name) ? undefined : s.compactByName.get(e.name);
+    if (compact) {
+      // Compact tool — aggregate into an open live block, or start one.
+      if (!s.openLive) {
+        s.openLive = { kind: 'live-tools', id: e.id, calls: [], closed: false };
+        pushBlock(s.openLive);
       }
-      // A skill scope was closed by an interleaved assistant_message
-      // and a fresh tool call has now arrived. Reopen the scope so the
-      // continuation tools stay visually grouped under the same skill
-      // banner, just below the assistant text in chronological order.
-      if (!openScope && continuationSkillEvent) {
-        openScope = {
-          kind: 'skill-scope',
-          id: `${continuationSkillEvent.id}:cont:${e.id}`,
-          skillEvent: continuationSkillEvent,
-          children: [],
-          closed: false,
-        };
-        root.push(openScope);
-        continuationSkillEvent = null;
-      }
-      // File-edit tools never aggregate — each renders its own diff inline.
-      const compact = FILE_DIFF_TOOL_NAMES.has(e.name) ? undefined : compactByName.get(e.name);
-      if (compact) {
-        // Compact tool — aggregate into an open live block, or start one.
-        if (!openLive) {
-          openLive = { kind: 'live-tools', id: e.id, calls: [], closed: false };
-          pushBlock(openLive);
-        }
-        const call: LiveToolCall = { id: e.id, request: e, compact, outcome: null };
-        openLive.calls.push(call);
-        callTargets.set(e.callId, call);
-        continue;
-      }
-      // Verbose tool — seal any open live block first so it stops accreting.
-      closeOpenLive();
-      const block: ToolCallBlockData = {
-        kind: 'tool-call',
-        id: e.id,
-        request: e,
-        outcome: null,
-      };
-      callTargets.set(e.callId, block);
-      pushBlock(block);
-      continue;
+      const call: LiveToolCall = { id: e.id, request: e, compact, outcome: null };
+      s.openLive.calls.push(call);
+      s.callTargets.set(e.callId, call);
+      return;
     }
-    if (e.type === 'tool_result') {
-      if (suppressedCallIds.has(e.callId)) continue;
-      const target = callTargets.get(e.callId);
-      if (target) {
-        target.outcome = e;
-        continue;
-      }
-    }
-    if (e.type === 'tool_call_denied') {
-      if (suppressedCallIds.has(e.callId)) continue;
-      const target = callTargets.get(e.callId);
-      if (target) {
-        target.outcome = { type: 'denied', reason: e.reason };
-        continue;
-      }
-    }
-    if (e.type === 'tool_call_approved') {
-      continue; // outcome already conveys this
-    }
-    if (e.type === 'assistant_message') {
-      closeOpenLive();
-      // Assistant messages always render at the chat's left margin,
-      // even when a skill scope is open above them. The scope groups
-      // skill tool work; the assistant's commentary surrounding that
-      // work belongs at root so its bullet aligns with the rest of the
-      // conversation — and so post-stream rendering matches the
-      // streaming preview, which already lives at root.
-      //
-      // If a skill scope is currently open, close it so subsequent
-      // tool calls form a continuation block BELOW this message. Without
-      // this split, late tool calls fold back into the original scope
-      // (a child push above) and the message visually drops below the
-      // entire skill block instead of slotting in chronologically.
-      if (openScope) {
-        continuationSkillEvent = openScope.skillEvent;
-        openScope.closed = true;
-        openScope = null;
-      } else {
-        // A second consecutive assistant_message (no skill scope open and no
-        // intervening tool call) means the one-message continuation window has
-        // passed. Clear it so later tool calls don't get pulled back under a
-        // stale skill banner two messages later.
-        continuationSkillEvent = null;
-      }
-      subagentGroup.current = null;
-      root.push({ kind: 'event', id: e.id, event: e });
-      continue;
-    }
-    // Subagent events fold into a collapsible group so a fleet of children
-    // doesn't drown the main chat. The SubagentSpawner emits them as
-    // plugin_event with pluginId='@moxxy/subagents'.
-    if (e.type === 'plugin_event' && e.pluginId === SUBAGENT_PLUGIN_ID) {
-      handleSubagentEvent(e, subagents, root, subagentGroup);
-      continue;
-    }
-    pushBlock({ kind: 'event', id: e.id, event: e });
+    // Verbose tool — seal any open live block first so it stops accreting.
+    closeOpenLive();
+    const block: ToolCallBlockData = {
+      kind: 'tool-call',
+      id: e.id,
+      request: e,
+      outcome: null,
+    };
+    s.callTargets.set(e.callId, block);
+    pushBlock(block);
+    return;
   }
-  return root;
+  if (e.type === 'tool_result') {
+    if (s.suppressedCallIds.has(e.callId)) return;
+    const target = s.callTargets.get(e.callId);
+    if (target) {
+      target.outcome = e;
+      return;
+    }
+  }
+  if (e.type === 'tool_call_denied') {
+    if (s.suppressedCallIds.has(e.callId)) return;
+    const target = s.callTargets.get(e.callId);
+    if (target) {
+      target.outcome = { type: 'denied', reason: e.reason };
+      return;
+    }
+  }
+  if (e.type === 'tool_call_approved') {
+    return; // outcome already conveys this
+  }
+  if (e.type === 'assistant_message') {
+    closeOpenLive();
+    // Assistant messages always render at the chat's left margin,
+    // even when a skill scope is open above them. The scope groups
+    // skill tool work; the assistant's commentary surrounding that
+    // work belongs at root so its bullet aligns with the rest of the
+    // conversation — and so post-stream rendering matches the
+    // streaming preview, which already lives at root.
+    //
+    // If a skill scope is currently open, close it so subsequent
+    // tool calls form a continuation block BELOW this message. Without
+    // this split, late tool calls fold back into the original scope
+    // (a child push above) and the message visually drops below the
+    // entire skill block instead of slotting in chronologically.
+    if (s.openScope) {
+      s.continuationSkillEvent = s.openScope.skillEvent;
+      s.openScope.closed = true;
+      s.openScope = null;
+    } else {
+      // A second consecutive assistant_message (no skill scope open and no
+      // intervening tool call) means the one-message continuation window has
+      // passed. Clear it so later tool calls don't get pulled back under a
+      // stale skill banner two messages later.
+      s.continuationSkillEvent = null;
+    }
+    s.subagentGroup.current = null;
+    s.root.push({ kind: 'event', id: e.id, event: e });
+    return;
+  }
+  // Subagent events fold into a collapsible group so a fleet of children
+  // doesn't drown the main chat. The SubagentSpawner emits them as
+  // plugin_event with pluginId='@moxxy/subagents'.
+  if (e.type === 'plugin_event' && e.pluginId === SUBAGENT_PLUGIN_ID) {
+    handleSubagentEvent(e, s.subagents, s.root, s.subagentGroup);
+    return;
+  }
+  pushBlock({ kind: 'event', id: e.id, event: e });
+}
+
+export function pairToolEvents(
+  events: ReadonlyArray<MoxxyEvent>,
+  compactByName: CompactToolMap = EMPTY_COMPACT_MAP,
+): Block[] {
+  const state = createFoldState(compactByName);
+  for (const e of events) stepFold(state, e);
+  return state.root;
+}
+
+/**
+ * Incremental block fold: keep the {@link FoldState} alive across calls and
+ * apply each newly-committed event with {@link stepFold}, so the growing
+ * settled prefix of the tree is folded exactly ONCE instead of being
+ * re-walked from index 0 on every event (the old O(n²)/turn behaviour).
+ *
+ * `tree()` returns the SAME `root` reference each call (it mutates in place
+ * as outcomes settle and scopes close), so callers MUST treat it as
+ * read-only and re-derive their own snapshot identity from `version`.
+ *
+ * Correctness contract: for any event prefix, `push`-ing those events one at
+ * a time and reading `tree()` yields a block tree byte-identical to
+ * `pairToolEvents(prefix, compactByName)` — both drive the same `stepFold`
+ * over the same events in the same order. A golden test asserts this
+ * deep-equality after every event across many recorded sequences.
+ */
+export class IncrementalFold {
+  private state: FoldState;
+  private prefixLength = 0;
+  private rev = 0;
+  /** `id` of the first / last event folded so far — used to detect when the
+   *  source array's prefix has shifted (a scroll-up prepend) or been replaced
+   *  (/clear, a fresh session), in which case the carried fold state is no
+   *  longer valid and we must rebuild from scratch. */
+  private headId: string | null = null;
+  private tailId: string | null = null;
+
+  constructor(compactByName: CompactToolMap = EMPTY_COMPACT_MAP) {
+    this.state = createFoldState(compactByName);
+  }
+
+  /** Number of events folded so far (the high-water mark). */
+  get length(): number {
+    return this.prefixLength;
+  }
+
+  /** Bumps whenever the folded tree may have changed (every `push`). Use as
+   *  a memo key instead of the (stable) `tree()` reference. */
+  get version(): number {
+    return this.rev;
+  }
+
+  /** Fold one freshly-committed event onto the existing tree. */
+  push(event: MoxxyEvent): void {
+    stepFold(this.state, event);
+    if (this.prefixLength === 0) this.headId = event.id;
+    this.tailId = event.id;
+    this.prefixLength += 1;
+    this.rev += 1;
+  }
+
+  /** Fold a batch of newly-committed events (e.g. a replayed page). */
+  pushMany(events: ReadonlyArray<MoxxyEvent>): void {
+    for (const e of events) this.push(e);
+  }
+
+  /**
+   * Re-sync to `events` when the source array is the authoritative log. Folds
+   * only the tail past the current high-water mark when `events` extends the
+   * already-folded prefix unchanged (the common live-append case), and
+   * rebuilds from scratch only when that prefix shifted or was replaced (a
+   * scroll-up prepend, /clear, a fresh session). Returns the (stable) root.
+   *
+   * Prefix-unchanged is detected by event `id`: the log never rewrites a
+   * settled event in place (only its tool outcome, which the fold owns), so
+   * matching head+tail ids over an unshrunk length proves the leading
+   * `prefixLength` events are exactly the ones already folded.
+   */
+  syncTo(events: ReadonlyArray<MoxxyEvent>): Block[] {
+    if (this.canExtend(events)) {
+      for (let i = this.prefixLength; i < events.length; i += 1) this.push(events[i]!);
+      return this.state.root;
+    }
+    // The known prefix changed (or shrank): the carry is no longer valid, so
+    // re-fold from scratch. Rare relative to live appends.
+    this.reset();
+    this.pushMany(events);
+    return this.state.root;
+  }
+
+  /** Discard all state — folds again from empty. */
+  reset(): void {
+    this.state = createFoldState(this.state.compactByName);
+    this.prefixLength = 0;
+    this.headId = null;
+    this.tailId = null;
+    this.rev += 1;
+  }
+
+  /** The folded block tree (stable reference, mutated in place). */
+  tree(): Block[] {
+    return this.state.root;
+  }
+
+  /** True when `events` is the already-folded prefix plus zero or more new
+   *  tail events — i.e. a pure append. Requires the head id to still match
+   *  (no prepend) and the event at `prefixLength-1` to be the last one we
+   *  folded (no in-place rewrite or replacement of the prefix). */
+  private canExtend(events: ReadonlyArray<MoxxyEvent>): boolean {
+    if (this.prefixLength === 0) return true; // empty fold extends to anything
+    if (events.length < this.prefixLength) return false; // shrank → rebuild
+    if (events[0]!.id !== this.headId) return false; // head shifted (prepend)
+    return events[this.prefixLength - 1]!.id === this.tailId;
+  }
 }
 
 /**

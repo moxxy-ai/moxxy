@@ -2,7 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import { Box, Static } from 'ink';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { BlockLine } from './chat/BlockLine.js';
-import { isSettled, pairToolEvents, type Block, type CompactToolMap } from '@moxxy/chat-model';
+import { IncrementalFold, isSettled, pairToolEvents, type Block, type CompactToolMap } from '@moxxy/chat-model';
 import { StreamingPreview, tailForViewport } from './chat/StreamingPreview.js';
 
 export interface ChatViewProps {
@@ -43,15 +43,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
   compactTools,
   hideLive,
 }) => {
-  // pairToolEvents walks the whole events array. Parent re-renders
-  // happen for unrelated state too (mcp-status poll, every streaming
-  // delta tick, etc.), so memoize on the events reference — when a
-  // chunk arrives setEvents creates a new array; everything else
-  // keeps the old reference and we skip the walk entirely.
-  const blocks = useMemo(
-    () => pairToolEvents(events, compactTools),
-    [events, compactTools],
-  );
+  // The fold is INCREMENTAL: an IncrementalFold keeps the folded block tree
+  // alive across renders and re-folds only the tail past its high-water mark
+  // (the old pairToolEvents walked the whole array from index 0 on every
+  // committed event — O(n²) over a turn). `syncTo` extends the prefix when
+  // `events` is a pure append (the live case) and rebuilds from scratch only
+  // when the prefix shifts (/clear, /new) or `compactTools` changes (a new
+  // tool registry → a different fold). Memoized on the events reference so an
+  // unrelated re-render (mcp poll, streaming tick) re-runs nothing: setEvents
+  // makes a new array only when a non-chunk event lands.
+  const foldRef = useRef<IncrementalFold | null>(null);
+  const compactRef = useRef<CompactToolMap | undefined>(undefined);
+  const blocks = useMemo(() => {
+    // Degrade to the (byte-identical) full fold if IncrementalFold is somehow
+    // unavailable — the optimization is a pure perf seam, never a behaviour change.
+    if (typeof IncrementalFold !== 'function') return pairToolEvents(events, compactTools);
+    if (!foldRef.current || compactRef.current !== compactTools) {
+      foldRef.current = new IncrementalFold(compactTools);
+      compactRef.current = compactTools;
+    }
+    // syncTo returns the (stable) root, re-folding only the unsettled tail.
+    // Slice once so React/Static see a fresh array per committed change while
+    // the fold itself keeps mutating its own in-place tree across ticks.
+    return foldRef.current.syncTo(events).slice();
+  }, [events, compactTools]);
   // The longest leading prefix of blocks whose contents will never
   // change again gets handed to <Static>. Ink renders each Static item
   // ONCE, appends it to the terminal scrollback, then skips it on every
@@ -74,9 +89,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
     settledRef.current = [];
     clearGenerationRef.current += 1;
   }
-  let settledCount = 0;
-  for (const b of blocks) {
-    if (isSettled(b)) settledCount += 1;
+  // The settled prefix only ever GROWS (settledRef is append-only; a settled
+  // block never un-settles), so resume the scan at the known high-water mark
+  // instead of re-walking the whole list from index 0 each render. The shrink
+  // case above resets the mark to 0, so this is always safe.
+  let settledCount = settledRef.current.length;
+  for (let i = settledRef.current.length; i < blocks.length; i += 1) {
+    if (isSettled(blocks[i]!)) settledCount += 1;
     else break;
   }
   if (settledCount > settledRef.current.length) {

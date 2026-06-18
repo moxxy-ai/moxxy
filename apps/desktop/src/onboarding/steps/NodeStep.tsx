@@ -7,7 +7,7 @@
  * box and advances once Node is present.
  */
 
-import { useOnboarding } from '@moxxy/client-core';
+import type { UseOnboarding } from '@moxxy/client-core';
 import {
   StepCard,
   Nav,
@@ -20,11 +20,14 @@ import {
 export function NodeStep({
   onNext,
   onBack,
+  ob,
 }: {
   readonly onNext: () => void;
   readonly onBack: () => void;
+  /** The SHARED onboarding instance, lifted in {@link Onboarding} — NodeStep
+   *  must not call `useOnboarding()` itself (doubled probes + subscription). */
+  readonly ob: UseOnboarding;
 }): JSX.Element {
-  const ob = useOnboarding();
   const installed = ob.node?.installed ?? false;
   const installing = ob.installNode.running;
   const log = ob.installNode.progress;

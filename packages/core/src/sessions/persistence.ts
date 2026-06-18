@@ -75,6 +75,14 @@ export class SessionPersistence {
    * can flush.
    */
   private writeQueue: Mutex = createMutex();
+  /**
+   * Memoized one-time setup: `mkdir -p` the sessions dir and create the empty
+   * `.jsonl` (so resume lists the session before any event). Awaited by both
+   * `attach` and `writeIndex` so an early debounced index flush can't race the
+   * initial creation — but it runs the open+close syscalls ONCE, not on every
+   * 250ms flush as before.
+   */
+  private ready: Promise<void> | null = null;
   private closed = false;
   private readonly logger: Logger;
   /**
@@ -114,8 +122,7 @@ export class SessionPersistence {
    * reuses the same Session object.
    */
   attach(log: EventLog): () => void {
-    void this.ensureDir()
-      .then(() => this.ensureLogFile())
+    void this.ensureReady()
       .then(() => this.scheduleIndexWrite())
       .catch(() => undefined);
     const unsub = log.subscribe((event) => {
@@ -261,18 +268,20 @@ export class SessionPersistence {
   private async writeIndex(): Promise<void> {
     try {
       // Once closed (the final detach/flush write), don't re-create the dir or
-      // log file: `attach` already made them, and resurrecting a directory a
+      // log file: setup already made them, and resurrecting a directory a
       // concurrent `deleteSession`/teardown is removing would leave a stray
-      // sidecar behind. A live session still ensures both so an early write
-      // can't race the initial `ensureDir`.
+      // sidecar behind. A live session awaits the (memoized) one-time setup so
+      // an early write can't race the initial creation — but this no longer
+      // re-runs the mkdir/open+close syscalls on every 250ms flush.
       if (!this.closed) {
-        await this.ensureDir();
-        await this.ensureLogFile();
+        await this.ensureReady();
       }
       // Write ONLY this session's sidecar (`<id>.meta.json`), never a
       // read-modify-write of a shared index.json — that loses rows when two
       // moxxy processes update "their" row concurrently (each reads the index,
       // re-adds only itself, and the last writer drops the other's row).
+      // `writeJsonAtomic` already `mkdir -p`s the sidecar's dir, so this owns no
+      // ensureLogFile — the `.jsonl` is the append path's responsibility.
       await writeJsonAtomic(metaPath(this.dir, this.meta.id), this.meta);
     } catch {
       // Index write failures shouldn't bring down a session; the
@@ -280,13 +289,21 @@ export class SessionPersistence {
     }
   }
 
-  private async ensureDir(): Promise<void> {
-    await fs.mkdir(this.dir, { recursive: true });
-  }
-
-  private async ensureLogFile(): Promise<void> {
-    const handle = await fs.open(this.logPath, 'a');
-    await handle.close();
+  /** One-time, memoized: `mkdir -p` the dir + create the empty `.jsonl`. On
+   *  failure the latch is cleared so a later flush retries (matching the old
+   *  per-write ensureDir/ensureLogFile recoverability). */
+  private ensureReady(): Promise<void> {
+    if (!this.ready) {
+      this.ready = (async () => {
+        await fs.mkdir(this.dir, { recursive: true });
+        const handle = await fs.open(this.logPath, 'a');
+        await handle.close();
+      })().catch((err) => {
+        this.ready = null;
+        throw err;
+      });
+    }
+    return this.ready;
   }
 }
 

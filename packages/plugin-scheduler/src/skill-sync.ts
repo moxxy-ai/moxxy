@@ -56,51 +56,9 @@ export async function syncSkillSchedules(
     if (draft) wanted.set(skill.frontmatter.name, draft);
   }
 
-  const existing = await store.list();
-  const existingSkill = new Map<string, ScheduleEntry>();
-  for (const e of existing) {
-    if (e.source === 'skill' && e.skillName) existingSkill.set(e.skillName, e);
-  }
-
-  let added = 0;
-  let removed = 0;
-  let updated = 0;
-
-  // Remove rows whose skill is gone or no longer carries schedule.
-  for (const [skillName, entry] of existingSkill) {
-    if (!wanted.has(skillName)) {
-      const ok = await store.delete(entry.id);
-      if (ok) removed += 1;
-    }
-  }
-
-  // Upsert wanted rows.
-  for (const [skillName, draft] of wanted) {
-    const current = existingSkill.get(skillName);
-    if (!current) {
-      await store.create(draft);
-      added += 1;
-      continue;
-    }
-    const changed =
-      current.prompt !== draft.prompt ||
-      current.cron !== draft.cron ||
-      current.runAt !== draft.runAt ||
-      current.timeZone !== draft.timeZone ||
-      current.channel !== draft.channel ||
-      current.enabled !== draft.enabled;
-    if (changed) {
-      await store.update(current.id, {
-        prompt: draft.prompt,
-        ...(draft.cron ? { cron: draft.cron } : { cron: undefined }),
-        ...(draft.runAt !== undefined ? { runAt: draft.runAt } : { runAt: undefined }),
-        ...(draft.timeZone ? { timeZone: draft.timeZone } : { timeZone: undefined }),
-        ...(draft.channel ? { channel: draft.channel } : { channel: undefined }),
-        enabled: draft.enabled,
-      });
-      updated += 1;
-    }
-  }
-
-  return { added, removed, updated };
+  // Hand the whole desired set to the store, which diffs add/remove/update and
+  // commits them in ONE atomic write + fsync — previously this loop did one
+  // whole-file serialization + fsync per changed row (write amplification on the
+  // hot onInit / skill_created path).
+  return store.reconcileSkillSchedules(wanted);
 }

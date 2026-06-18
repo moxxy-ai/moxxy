@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { shouldFire } from './filter.js';
 import type { WebhookFilter } from './store.js';
 
@@ -74,5 +74,41 @@ describe('shouldFire', () => {
       exclude: [],
     };
     expect(shouldFire(f, { headers: {}, body: Buffer.from('not json') })).toBe(false);
+  });
+
+  describe('parses the body once regardless of jsonPath rule count', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('JSON.parse called exactly once across many include+exclude jsonPath rules', () => {
+      const spy = vi.spyOn(JSON, 'parse');
+      const f: WebhookFilter = {
+        include: [
+          { source: 'jsonPath', path: 'a', equals: ['x'] },
+          { source: 'jsonPath', path: 'b', equals: ['y'] },
+          { source: 'jsonPath', path: 'c', equals: ['z'] },
+        ],
+        exclude: [
+          { source: 'jsonPath', path: 'd', equals: ['no'] },
+          { source: 'jsonPath', path: 'e', equals: ['no'] },
+        ],
+      };
+      const body = Buffer.from('{"a":"1","b":"2","c":"z","d":"d","e":"e"}');
+      // c === 'z' matches the include; result is unchanged by the single-parse.
+      expect(shouldFire(f, { headers: {}, body })).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('still parses once (and returns false) when the body is malformed', () => {
+      const spy = vi.spyOn(JSON, 'parse');
+      const f: WebhookFilter = {
+        include: [
+          { source: 'jsonPath', path: 'a', equals: ['x'] },
+          { source: 'jsonPath', path: 'b', equals: ['y'] },
+        ],
+        exclude: [],
+      };
+      expect(shouldFire(f, { headers: {}, body: Buffer.from('nope') })).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
   });
 });

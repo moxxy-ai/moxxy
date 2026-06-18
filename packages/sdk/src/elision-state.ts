@@ -98,6 +98,13 @@ export function computeElisionState(events: ReadonlyArray<MoxxyEvent>): ElisionS
   const recallResultCallIds = new Set<string>();
   let seqRecalls = 0;
   let firstUserPromptSeq = -1;
+  // Aged recall tool_results collected DURING the fused pass (events arrive in
+  // strictly ascending seq, so this is seq-ascending = oldest-first). A recall's
+  // tool_call_requested always precedes its tool_result in the log, so by the
+  // time we hit that result `recallResultCallIds` already contains its callId —
+  // making this single forward pass equivalent to the old "build the set fully,
+  // THEN filter" two-pass shape.
+  const agedRecallsAsc: Array<Extract<MoxxyEvent, { type: 'tool_result' }>> = [];
 
   for (const e of events) {
     if (e.type === 'tool_call_requested') {
@@ -113,24 +120,27 @@ export function computeElisionState(events: ReadonlyArray<MoxxyEvent>): ElisionS
           }
         }
       }
-    } else if (e.type === 'user_prompt' && firstUserPromptSeq < 0) {
-      firstUserPromptSeq = e.seq;
+    } else if (e.type === 'user_prompt') {
+      if (firstUserPromptSeq < 0) firstUserPromptSeq = e.seq;
+    } else if (e.type === 'tool_result' && e.seq <= hwm && recallResultCallIds.has(e.callId)) {
+      agedRecallsAsc.push(e);
     }
   }
 
   // Cap pinned recalls: keep the newest recall outputs within maxRecallBytes
   // verbatim, stub the rest. Only matters once a recall result ages below HWM.
+  // Common case (no recalls) skips the loop entirely. `agedRecallsAsc` is
+  // strictly seq-ascending, so iterating it in REVERSE visits newest-first —
+  // byte-identical to the old `.sort((a, b) => b.seq - a.seq)` over unique seqs,
+  // with no allocation/sort.
   const unpinnedRecallCallIds = new Set<string>();
-  const agedRecalls = events
-    .filter(
-      (e): e is Extract<MoxxyEvent, { type: 'tool_result' }> =>
-        e.type === 'tool_result' && recallResultCallIds.has(e.callId) && e.seq <= hwm,
-    )
-    .sort((a, b) => b.seq - a.seq); // newest first
-  let pinned = 0;
-  for (const e of agedRecalls) {
-    pinned += toolResultBytes(e.output, e.error?.message);
-    if (pinned > maxRecallBytes) unpinnedRecallCallIds.add(e.callId);
+  if (recallResultCallIds.size > 0) {
+    let pinned = 0;
+    for (let i = agedRecallsAsc.length - 1; i >= 0; i--) {
+      const e = agedRecallsAsc[i]!;
+      pinned += toolResultBytes(e.output, e.error?.message);
+      if (pinned > maxRecallBytes) unpinnedRecallCallIds.add(e.callId);
+    }
   }
 
   return {
