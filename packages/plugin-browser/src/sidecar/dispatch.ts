@@ -215,6 +215,35 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       await h.page.mouse.wheel(0, dy ?? 0);
       return { id: req.id, ok: true };
     }
+    case 'zoom': {
+      // Page zoom for the surface (⌘+/⌘−). CSS `zoom` is the cheapest faithful
+      // way to scale a screenshot-streamed page; clamped to a sane range.
+      const { factor } = (req.params ?? {}) as { factor: number };
+      const f = Number.isFinite(factor) ? Math.min(5, Math.max(0.25, factor)) : 1;
+      const h = await ensurePlaywright(state, {});
+      await h.page.evaluate(`document.documentElement.style.zoom=String(${f})`);
+      return { id: req.id, ok: true };
+    }
+    case 'pick': {
+      // Identify the element at (x,y) so the user can hand it to the agent
+      // ("change this XXX to YYY"). Returns a best-effort CSS selector + a short
+      // text snippet; the agent's browser_session tool can act on the selector.
+      const { x, y } = (req.params ?? {}) as { x: number; y: number };
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw badParams('x and y must be finite numbers');
+      const h = await ensurePlaywright(state, {});
+      const expr =
+        `(() => { const x=${x}, y=${y}; const el=document.elementFromPoint(x,y);` +
+        ` if(!el) return null;` +
+        ` const sel=(e)=>{ if(e.id) return '#'+CSS.escape(e.id); const p=[]; let n=e;` +
+        ` while(n && n.nodeType===1 && n!==document.body){ let s=n.tagName.toLowerCase();` +
+        ` if(n.classList && n.classList.length) s+='.'+Array.from(n.classList).slice(0,2).map(c=>CSS.escape(c)).join('.');` +
+        ` const par=n.parentElement; if(par){ const same=Array.from(par.children).filter(c=>c.tagName===n.tagName);` +
+        ` if(same.length>1) s+=':nth-of-type('+(same.indexOf(n)+1)+')'; } p.unshift(s); n=n.parentElement; }` +
+        ` return p.join(' > '); };` +
+        ` return { selector: sel(el), tag: el.tagName.toLowerCase(), text: (el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,140) }; })()`;
+      const info = await h.page.evaluate(expr);
+      return { id: req.id, ok: true, result: info };
+    }
     case 'eval': {
       const h = await ensurePlaywright(state, {});
       const { expression } = (req.params ?? {}) as { expression: string };

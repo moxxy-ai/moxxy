@@ -291,6 +291,33 @@ describe('browser surface input mapping', () => {
     surface.close();
   });
 
+  it('zoom forwards the factor; pick maps coords and emits the element', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    sidecar.setHandler((method) => {
+      if (method === 'frame') return { ok: true, result: frame({ width: 1000, height: 500 }) };
+      if (method === 'pick') return { ok: true, result: { selector: 'button#go', tag: 'button', text: 'Go' } };
+      return { ok: true, result: {} };
+    });
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    const events: Array<{ type: string; element?: unknown }> = [];
+    surface.onData((p) => events.push(p as { type: string }));
+    await flush();
+
+    await surface.input({ type: 'zoom', factor: 1.5 });
+    await surface.input({ type: 'pick', fx: 0.5, fy: 0.2 });
+    await flush();
+
+    expect(sidecar.received.find((r) => r.method === 'zoom')?.params).toEqual({ factor: 1.5 });
+    expect(sidecar.received.find((r) => r.method === 'pick')?.params).toEqual({ x: 500, y: 100 });
+    expect(events.find((e) => e.type === 'picked')?.element).toEqual({
+      selector: 'button#go',
+      tag: 'button',
+      text: 'Go',
+    });
+    surface.close();
+  });
+
   it('navigate proxies goto and surfaces a goto rejection as a status line', async () => {
     vi.useFakeTimers();
     const sidecar = makeControllableSpawn();

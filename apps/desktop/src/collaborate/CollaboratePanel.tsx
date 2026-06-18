@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, useChat } from '@moxxy/client-core';
 import { pairToolEvents } from '@moxxy/chat-model';
-import { Icon } from '@moxxy/desktop-ui';
+import { Button, Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
 
@@ -148,20 +148,48 @@ export function CollaboratePanel({
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 14,
+            gap: 18,
             padding: 24,
             textAlign: 'center',
           }}
         >
-          <Icon name="agent" size={28} />
-          <div style={{ fontWeight: 600, color: 'var(--color-text-muted)' }}>Start a collaboration</div>
-          <div style={{ fontSize: 13, maxWidth: 460, color: 'var(--color-text-dim)' }}>
-            Describe a goal and a team of agents — an architect plus implementers — will plan it,
-            propose a roster for you to approve, then build it in parallel. Only one collaboration
-            runs at a time.
+          <div
+            aria-hidden
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: 16,
+              display: 'grid',
+              placeItems: 'center',
+              color: 'var(--color-primary)',
+              background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
+            }}
+          >
+            <Icon name="agent" size={26} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'center' }}>
+            <div style={{ fontWeight: 700, fontSize: 19, color: 'var(--color-text)' }}>
+              Start a collaboration
+            </div>
+            <div style={{ fontSize: 13, maxWidth: 460, color: 'var(--color-text-dim)', lineHeight: 1.55 }}>
+              Describe a goal and a team of agents — an architect plus implementers — will plan it,
+              propose a roster for you to approve, then build it in parallel. Only one collaboration
+              runs at a time.
+            </div>
           </div>
           {globalActive?.active && (
-            <div style={{ fontSize: 12.5, color: 'var(--color-amber-text)', maxWidth: 460 }}>
+            <div
+              style={{
+                fontSize: 12.5,
+                color: 'var(--color-amber-text)',
+                maxWidth: 520,
+                background: 'color-mix(in srgb, var(--color-amber) 12%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--color-amber) 35%, transparent)',
+                borderRadius: 10,
+                padding: '8px 12px',
+                lineHeight: 1.5,
+              }}
+            >
               A collaboration is already running{globalActive.task ? ` ("${globalActive.task}")` : ''}. Only one
               runs at a time to save resources — wait for it to finish, then start another.
             </div>
@@ -177,8 +205,8 @@ export function CollaboratePanel({
             <button
               type="button"
               onClick={() => setForceStart(false)}
-              className="btn-chip"
-              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8 }}
+              className="btn-ghost"
+              style={{ fontSize: 12.5, padding: '4px 10px', borderRadius: 8, color: 'var(--color-text-muted)' }}
             >
               ← Back to the current team
             </button>
@@ -421,6 +449,12 @@ function Empty({ children }: { readonly children: React.ReactNode }): JSX.Elemen
   return <div style={{ padding: '4px 12px', fontSize: 12, color: 'var(--color-text-dim)', fontStyle: 'italic' }}>{children}</div>;
 }
 
+const COLLAB_EXAMPLES = [
+  'Add a CSV export feature with tests and docs',
+  'Refactor the auth module into smaller files',
+  'Add dark-mode support across the settings screens',
+];
+
 function StartComposer({
   goal,
   setGoal,
@@ -434,41 +468,113 @@ function StartComposer({
   readonly blocked: boolean;
   readonly onStart: () => void;
 }): JSX.Element {
+  const [focused, setFocused] = useState(false);
   const disabled = starting || blocked || goal.trim().length === 0;
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%', maxWidth: 560 }}>
-      <textarea
-        value={goal}
-        onChange={(e) => setGoal(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            if (!disabled) onStart();
-          }
-        }}
-        placeholder="e.g. Add a CSV export feature with tests and docs"
-        rows={2}
+    <div style={{ width: '100%', maxWidth: 580, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Composer card — the textarea + actions read as one surface (focus ring
+       *  on the whole card), matching the chat composer rather than a bare box. */}
+      <div
         style={{
-          flex: 1,
-          resize: 'none',
-          padding: '10px 12px',
-          borderRadius: 12,
-          border: '1px solid var(--color-card-border)',
-          background: 'var(--color-input-soft)',
-          fontSize: 13,
-          color: 'var(--color-text)',
-          fontFamily: 'inherit',
+          border: `1px solid ${focused ? 'var(--color-primary)' : 'var(--color-card-border)'}`,
+          borderRadius: 16,
+          background: 'var(--color-surface)',
+          padding: 14,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          textAlign: 'left',
+          boxShadow: focused
+            ? '0 0 0 3px color-mix(in srgb, var(--color-primary) 22%, transparent)'
+            : '0 1px 3px rgba(0, 0, 0, 0.18)',
+          transition: 'border-color 120ms, box-shadow 120ms',
         }}
-      />
-      <button
-        type="button"
-        onClick={onStart}
-        disabled={disabled}
-        className="btn-cta"
-        style={{ padding: '10px 16px', borderRadius: 12, fontWeight: 600, opacity: disabled ? 0.6 : 1 }}
       >
-        {starting ? 'Starting…' : 'Start'}
-      </button>
+        <textarea
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              if (!disabled) onStart();
+            }
+          }}
+          autoFocus
+          placeholder="Describe what the team should build…"
+          rows={3}
+          style={{
+            resize: 'none',
+            border: 'none',
+            outline: 'none',
+            background: 'transparent',
+            fontSize: 14,
+            lineHeight: 1.55,
+            color: 'var(--color-text)',
+            fontFamily: 'inherit',
+            minHeight: 68,
+          }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ fontSize: 11.5, color: 'var(--color-text-dim)' }}>
+            <Kbd>⌘</Kbd>
+            <Kbd>↵</Kbd> to start
+          </span>
+          <Button
+            variant="cta"
+            onClick={onStart}
+            disabled={disabled}
+            style={{ padding: '8px 18px', borderRadius: 10, opacity: disabled ? 0.55 : 1 }}
+          >
+            {starting ? 'Starting…' : 'Start collaboration'}
+          </Button>
+        </div>
+      </div>
+      {/* Quick-start examples — click to fill the goal. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+        {COLLAB_EXAMPLES.map((ex) => (
+          <button
+            key={ex}
+            type="button"
+            className="btn-chip"
+            onClick={() => setGoal(ex)}
+            style={{
+              fontSize: 12,
+              padding: '5px 11px',
+              borderRadius: 999,
+              maxWidth: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {ex}
+          </button>
+        ))}
+      </div>
     </div>
+  );
+}
+
+function Kbd({ children }: { readonly children: React.ReactNode }): JSX.Element {
+  return (
+    <kbd
+      style={{
+        display: 'inline-block',
+        minWidth: 16,
+        textAlign: 'center',
+        padding: '1px 4px',
+        margin: '0 2px',
+        fontSize: 10.5,
+        fontFamily: 'inherit',
+        color: 'var(--color-text-muted)',
+        background: 'var(--color-app-bg)',
+        border: '1px solid var(--color-card-border)',
+        borderRadius: 5,
+      }}
+    >
+      {children}
+    </kbd>
   );
 }

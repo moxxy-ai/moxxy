@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import { api } from '@moxxy/client-core';
 import { Button, Icon, IconButton } from '@moxxy/desktop-ui';
 import { useSurface } from './useSurface';
+
+/** An element the user pointed at in "select element" mode (from the `pick`
+ *  sidecar method) — handed to the agent to act on. */
+interface PickedElement {
+  readonly selector: string;
+  readonly tag: string;
+  readonly text: string;
+}
 
 interface BrowserFrame {
   readonly type?: string;
@@ -12,7 +21,13 @@ interface BrowserFrame {
   /** Set on a status when the Playwright engine isn't installed — the pane shows
    *  an "Install" button (the download is ~200MB, so we ask first). */
   readonly needsInstall?: boolean;
+  /** Carried by `{ type: 'picked' }` — the element under the user's click. */
+  readonly element?: PickedElement | null;
 }
+
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 5;
+const clampZoom = (z: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
 
 /** Keys (beyond single printable chars) we forward to the page; everything else
  *  — lone modifiers, F-keys, etc. — is ignored so it can't drive the host UI. */
@@ -53,9 +68,16 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
   const [installing, setInstalling] = useState(false);
   const [url, setUrl] = useState('');
   const [editingUrl, setEditingUrl] = useState('');
+  const [zoom, setZoom] = useState(1);
+  // "Select element" mode: the next click picks an element instead of clicking.
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<PickedElement | null>(null);
+  const [change, setChange] = useState('');
+  const [sent, setSent] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const lastMoveRef = useRef(0);
+  const zoomRef = useRef(1); // latest zoom, read by keyboard handlers (no stale closure)
 
   const apply = (payload: unknown): void => {
     const p = payload as BrowserFrame;
@@ -71,6 +93,12 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
       if (p.needsInstall) {
         setNeedsInstall(true);
         setInstalling(false);
+      }
+    } else if (p?.type === 'picked') {
+      if (p.element) {
+        setPicked(p.element);
+        setChange('');
+        setSent(false);
       }
     }
     if (typeof p?.url === 'string') {
@@ -135,6 +163,28 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
     surface.input({ type: 'install' });
   };
 
+  const setZoomTo = (next: number): void => {
+    const z = clampZoom(next);
+    zoomRef.current = z;
+    setZoom(z);
+    surface.input({ type: 'zoom', factor: z });
+  };
+
+  // Task the agent to change the picked element (localhost dev loop). The agent's
+  // browser_session tool can act on the selector we captured.
+  const askAgent = (): void => {
+    if (!picked || !workspaceId) return;
+    const what = change.trim();
+    if (!what) return;
+    const where = url ? ` on ${url}` : '';
+    const ctx = picked.text ? ` (currently "${picked.text}")` : '';
+    const prompt = `Using the browser, change the element \`${picked.selector}\`${ctx}${where} to: ${what}`;
+    void api().invoke('session.runTurn', { workspaceId, prompt }).catch(() => undefined);
+    setSent(true);
+    setPicked(null);
+    setChange('');
+  };
+
   // Pointer event → normalized page coords (0..1 of the frame box).
   const norm = (e: React.MouseEvent): { fx: number; fy: number } | null => {
     const rect = hostRef.current?.getBoundingClientRect();
@@ -151,6 +201,30 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
   };
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
+    // Browser zoom (⌘/Ctrl +/−/0) — intercept before key-forwarding so it zooms
+    // the PAGE, not the whole desktop app (Electron's default for these chords).
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        setZoomTo(zoomRef.current + 0.1);
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        setZoomTo(zoomRef.current - 0.1);
+        return;
+      }
+      if (e.key === '0') {
+        e.preventDefault();
+        setZoomTo(1);
+        return;
+      }
+    }
+    if (e.key === 'Escape' && picking) {
+      e.preventDefault();
+      setPicking(false);
+      return;
+    }
     const printable = e.key.length === 1;
     if (!printable && !NAMED_KEYS.has(e.key)) return; // ignore lone modifiers, F-keys, …
     const hasMod = e.ctrlKey || e.metaKey || e.altKey;
@@ -222,7 +296,115 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
             }}
           />
         </form>
+        {/* Zoom controls (⌘+/⌘−/⌘0 also work when the view is focused). */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            border: '1px solid var(--color-card-border)',
+            borderRadius: 999,
+            padding: '0 2px',
+          }}
+        >
+          <IconButton size={22} onClick={() => setZoomTo(zoom - 0.1)} title="Zoom out (⌘−)" aria-label="Zoom out">
+            <span style={{ fontSize: 14, lineHeight: 1 }}>−</span>
+          </IconButton>
+          <button
+            type="button"
+            onClick={() => setZoomTo(1)}
+            title="Reset zoom (⌘0)"
+            className="btn-ghost"
+            style={{ fontSize: 11, minWidth: 38, padding: '2px 2px', color: 'var(--color-text-dim)' }}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <IconButton size={22} onClick={() => setZoomTo(zoom + 0.1)} title="Zoom in (⌘+)" aria-label="Zoom in">
+            <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
+          </IconButton>
+        </div>
+        {/* "Select element" — pick an element on the page to hand to the agent. */}
+        <IconButton
+          size={26}
+          bordered={picking}
+          onClick={() => setPicking((v) => !v)}
+          title={picking ? 'Click an element to select it (Esc to cancel)' : 'Select an element for the agent'}
+          aria-label="Select element"
+          style={picking ? { color: 'var(--color-primary)' } : undefined}
+        >
+          <Icon name="context" size={14} />
+        </IconButton>
       </div>
+
+      {/* Picked element → task the agent to change it (localhost dev loop). */}
+      {(picked || sent) && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 10px',
+            borderBottom: '1px solid var(--color-card-border)',
+            background: 'var(--color-input-soft)',
+            flexShrink: 0,
+          }}
+        >
+          {sent && !picked ? (
+            <span style={{ fontSize: 12, color: 'var(--color-green)' }}>
+              ✓ Asked the agent — see the Chat tab for the response.
+            </span>
+          ) : (
+            <>
+              <Icon name="context" size={13} />
+              <code
+                title={picked?.selector}
+                style={{
+                  fontSize: 11,
+                  color: 'var(--color-text-muted)',
+                  maxWidth: 200,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                {picked?.selector}
+              </code>
+              <input
+                value={change}
+                onChange={(e) => setChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    askAgent();
+                  } else if (e.key === 'Escape') {
+                    setPicked(null);
+                  }
+                }}
+                autoFocus
+                placeholder="Describe the change for the agent… (e.g. make it blue)"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: '5px 10px',
+                  fontSize: 12,
+                  color: 'var(--color-text)',
+                  border: '1px solid var(--color-card-border)',
+                  borderRadius: 8,
+                  background: 'var(--color-surface)',
+                  outline: 'none',
+                }}
+              />
+              <Button variant="primary" size="sm" onClick={askAgent} disabled={change.trim().length === 0}>
+                Ask agent
+              </Button>
+              <IconButton size={22} onClick={() => setPicked(null)} title="Dismiss" aria-label="Dismiss">
+                <Icon name="x" size={13} />
+              </IconButton>
+            </>
+          )}
+        </div>
+      )}
 
       {surface.error && (
         <div style={{ padding: '8px 12px', fontSize: 11.5, color: 'var(--color-danger, #f87171)' }}>
@@ -237,7 +419,14 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         onMouseDown={() => hostRef.current?.focus()}
         onClick={(e) => {
           const n = norm(e);
-          if (n) surface.input({ type: 'click', ...n });
+          if (!n) return;
+          if (picking) {
+            // Capture the element instead of clicking it through to the page.
+            surface.input({ type: 'pick', ...n });
+            setPicking(false);
+          } else {
+            surface.input({ type: 'click', ...n });
+          }
         }}
         onDoubleClick={(e) => {
           const n = norm(e);
@@ -253,6 +442,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
           overflow: 'hidden',
           background: '#0b0f17',
           outline: 'none',
+          cursor: picking ? 'crosshair' : 'default',
         }}
       >
         {hasView ? (

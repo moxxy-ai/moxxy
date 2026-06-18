@@ -213,6 +213,16 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
               () => undefined,
             );
             void tick();
+          } else if (msg.type === 'pick' && typeof msg.fx === 'number' && typeof msg.fy === 'number') {
+            // Identify the element the user pointed at and hand it back to the
+            // pane (which lets the user task the agent to change it).
+            const element = await browserSidecarCall('pick', { x: msg.fx * vw, y: msg.fy * vh }, deps).catch(
+              () => null,
+            );
+            emit({ type: 'picked', element });
+          } else if (msg.type === 'zoom' && typeof msg.factor === 'number') {
+            await browserSidecarCall('zoom', { factor: msg.factor }, deps).catch(() => undefined);
+            bump();
           } else if (msg.type === 'key' && typeof msg.key === 'string') {
             await browserSidecarCall('key', { key: msg.key }, deps).catch(() => undefined);
             bump();
