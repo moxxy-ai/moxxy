@@ -39,6 +39,10 @@ export interface Supervisor {
   stop(agentId: string): Promise<void>;
   shutdownAll(reason?: string): Promise<void>;
   stderrOf(agentId: string): ReadonlyArray<string>;
+  /** True once the child process has exited (cleanly, by signal, or because the
+   *  spawn itself failed). Lets the coordinator fail fast instead of polling the
+   *  wall-clock for an agent whose process is already gone. */
+  hasExited(agentId: string): boolean;
 }
 
 interface PeerProc {
@@ -95,7 +99,24 @@ export class PeerSupervisor implements Supervisor {
     child.on('exit', () => {
       proc.exited = true;
     });
+    // A failed spawn (bad path, ENOENT — plausible when re-invoking the CLI
+    // under a packaged/Electron host) emits 'error'; with NO listener Node
+    // re-throws it as an uncaught exception that takes down the whole
+    // coordinator/runner. Capture it as a normal exit + stderr line so the
+    // coordinator surfaces it and fails fast instead of crashing.
+    child.on('error', (err: Error) => {
+      proc.exited = true;
+      proc.stderr.push(`spawn error: ${err.message}`);
+    });
     return { socket };
+  }
+
+  /** True once the child has exited or its spawn failed. */
+  hasExited(agentId: string): boolean {
+    const proc = this.peers.get(agentId);
+    // No entry → never spawned (treat as not-exited); a tracked proc reports
+    // its real exit/spawn-failure state.
+    return proc ? proc.exited : false;
   }
 
   /** Last stderr lines from a peer — used to diagnose a crash. */
@@ -103,7 +124,9 @@ export class PeerSupervisor implements Supervisor {
     return this.peers.get(agentId)?.stderr ?? [];
   }
 
-  /** Best-effort: abort a single peer's in-flight turn via its runner, then kill. */
+  /** Stop a single peer and AWAIT its real exit (with a force-kill fallback), so
+   *  callers — e.g. the sequential fallback — can rely on the workspace being
+   *  free before the next agent starts. */
   async stop(agentId: string): Promise<void> {
     const proc = this.peers.get(agentId);
     if (!proc || proc.exited) return;
@@ -112,6 +135,26 @@ export class PeerSupervisor implements Supervisor {
     } catch {
       // already gone
     }
+    await new Promise<void>((resolve) => {
+      if (proc.exited) return resolve();
+      let settled = false;
+      const done = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      proc.child.once('exit', done);
+      const timer = setTimeout(() => {
+        try {
+          proc.child.kill('SIGKILL');
+        } catch {
+          // already gone
+        }
+        done();
+      }, FORCE_KILL_GRACE_MS);
+      timer.unref?.();
+    });
   }
 
   async shutdownAll(_reason?: string): Promise<void> {

@@ -1,5 +1,6 @@
 import { startRunnerServer, type RunnerServer } from '@moxxy/runner';
 import type { Session } from '@moxxy/core';
+import { getProcessHubClient } from '@moxxy/plugin-collab';
 import type { ParsedArgv } from '../argv.js';
 import { bootSessionWithConfig, helpRequested } from '../argv-helpers.js';
 
@@ -61,6 +62,24 @@ export async function runAgentCommand(argv: ParsedArgv): Promise<number> {
       for await (const _ of session.runTurn(subtask)) void _;
     } catch {
       // the loop already emitted an error event
+    }
+    // Liveness: the autonomous loop ends by calling collab_done (→ hub status
+    // 'done') OR by giving up (fatal error / iteration-cap / idle / stuck) — and
+    // those paths leave NO hub status while this process keeps idling below so
+    // the desktop can attach. Without a signal the coordinator would poll the
+    // full wall-clock (30 min) before timing the agent out. Report a terminal
+    // 'failed' status when the turn ended without self-completing so the
+    // coordinator stops waiting immediately.
+    try {
+      const hub = await getProcessHubClient();
+      if (hub) {
+        const mine = (await hub.roster()).agents.find((a) => a.id === hub.agentId);
+        if (mine && mine.status !== 'done') {
+          await hub.setStatus('failed', 'turn ended without calling collab_done');
+        }
+      }
+    } catch {
+      // best-effort — never let liveness reporting crash the peer
     }
   })();
 

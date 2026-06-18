@@ -223,10 +223,17 @@ export async function createCollaborationHub(opts: CreateHubOptions): Promise<Co
 
     peer.onClose(() => {
       connections.delete(peer);
-      // A registered agent whose link dropped before finishing crashed.
+      // A registered agent whose link dropped before reaching a terminal status
+      // crashed. Don't clobber a status the agent already reported for itself
+      // ('done' / 'failed') or one the coordinator set ('killed').
       if (agentId) {
         const agent = state.rosterView().agents.find((a) => a.id === agentId);
-        if (agent && agent.status !== 'done' && agent.status !== 'killed') {
+        if (
+          agent &&
+          agent.status !== 'done' &&
+          agent.status !== 'failed' &&
+          agent.status !== 'killed'
+        ) {
           state.setStatus(agentId, 'crashed');
         }
       }

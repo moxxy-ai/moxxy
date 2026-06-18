@@ -87,6 +87,43 @@ function fakeSupervisor(hub: CollaborationHub): Supervisor {
     stop: async () => undefined,
     shutdownAll: async () => undefined,
     stderrOf: () => [],
+    hasExited: () => false,
+  };
+}
+
+/** Like {@link fakeSupervisor}, but `failingId` is spawned and then reports its
+ *  process exited WITHOUT ever marking done — simulating a crash / a turn that
+ *  ended without collab_done. Exercises the coordinator's fail-fast path. */
+function partiallyFailingSupervisor(hub: CollaborationHub, failingId: string): Supervisor {
+  const exited = new Set<string>();
+  return {
+    spawn({ entry, cwd }) {
+      if (entry.role === 'architect') {
+        mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+        writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# Contracts\n');
+        writeFileSync(
+          join(cwd, '.moxxy-collab', 'roster.json'),
+          JSON.stringify([
+            { id: 'backend', name: 'Backend', role: 'implementer', subtask: 'build the API', ownedPaths: ['api.ts'] },
+            { id: 'flaky', name: 'Flaky', role: 'implementer', subtask: 'a doomed task', ownedPaths: ['flaky.ts'] },
+          ]),
+        );
+        hub.state.markDone('architect', 'design done');
+      } else if (entry.id === failingId) {
+        // No file, no done — the process simply dies.
+        exited.add(entry.id);
+      } else {
+        const file = `${entry.id}.ts`;
+        writeFileSync(join(cwd, file), `export const ${entry.id} = true;\n`);
+        hub.state.boardClaim(entry.id, [file]);
+        hub.state.markDone(entry.id, `${entry.id} done`);
+      }
+      return { socket: 'fake.sock' };
+    },
+    stop: async () => undefined,
+    shutdownAll: async () => undefined,
+    stderrOf: () => ['boom: simulated crash'],
+    hasExited: (id) => exited.has(id),
   };
 }
 
@@ -126,6 +163,43 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     const finalMsg = events.filter((e) => e.type === 'assistant_message').pop() as { content: string } | undefined;
     expect(finalMsg?.content).toContain('backend');
     expect(finalMsg?.content).toContain('tests');
+  });
+
+  it('does NOT hang on a failed agent: surfaces it and completes with the others', async () => {
+    const repo = await initRepo();
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false, wallClockMs: 60_000 }),
+      createSupervisor: (_opts, hub) => partiallyFailingSupervisor(hub, 'flaky'),
+    };
+
+    // The whole run must finish well under the wall-clock (the old code would
+    // have polled the full 60s for the never-done 'flaky' agent).
+    const started = Date.now();
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+    expect(Date.now() - started).toBeLessThan(20_000);
+
+    const subtypes = events
+      .filter((e) => e.type === 'plugin_event')
+      .map((e) => (e as { subtype: string }).subtype);
+    // The failed agent was surfaced, not silently swallowed.
+    expect(subtypes).toContain('collab_agent_failed');
+    expect(subtypes).toContain('collab_completed');
+
+    const failed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_agent_failed',
+    ) as { payload: { id: string; stderr: ReadonlyArray<string> } };
+    expect(failed.payload.id).toBe('flaky');
+    expect(failed.payload.stderr.join('\n')).toContain('simulated crash');
+
+    // The healthy agent's work still integrated; the completion counts 1/2 done.
+    expect(existsSync(join(repo, 'backend.ts'))).toBe(true);
+    const completed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_completed',
+    ) as { payload: { done: string[]; total: number } };
+    expect(completed.payload.done).toEqual(['backend']);
+    expect(completed.payload.total).toBe(2);
   });
 
   it('falls back to sequential when the workspace is not a git repo', async () => {

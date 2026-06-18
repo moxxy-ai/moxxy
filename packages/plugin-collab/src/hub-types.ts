@@ -12,6 +12,7 @@ export type AgentStatus =
   | 'working' // actively running a turn
   | 'blocked' // waiting on a peer / contract decision
   | 'done' // called collab_done
+  | 'failed' // its turn ended (error / iteration-cap / idle) without calling collab_done
   | 'crashed' // process died unexpectedly
   | 'killed'; // shut down by the coordinator
 

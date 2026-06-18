@@ -7,7 +7,7 @@
  * the UI, integrates the work, and synthesizes the result.
  */
 
-import { mkdirSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
 import {
@@ -36,8 +36,10 @@ import {
   addWorktree,
   commitAll,
   detectGit,
+  git,
   headSha,
   peerReaderFor,
+  removeWorktree,
   resolveBase,
 } from './worktrees.js';
 import { PeerSupervisor, type PeerSupervisorOptions, type Supervisor } from './peer-supervisor.js';
@@ -46,6 +48,10 @@ import { releaseCollabLock, tryAcquireCollabLock } from './collab-lock.js';
 import type { CollaborationHub } from '@moxxy/plugin-collab';
 
 const POLL_MS = 500;
+/** Grace for a spawned agent to boot + register with the hub. Separate from the
+ *  overall wall-clock so a peer that never comes up (bad spawn, crash on boot)
+ *  fails in ~a minute instead of hanging the whole run for the wall-clock. */
+const BOOT_DEADLINE_MS = 90_000;
 
 /** Injection seam — defaults to the real process supervisor + the live cwd/config.
  *  Lets tests (and future remote executors) drive the coordinator deterministically. */
@@ -151,14 +157,19 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     supervisor.spawn({ entry: architectEntry, cwd, mode: COLLAB_ARCHITECT_MODE_NAME });
     yield await ctx.emit(plugin(ctx, 'collab_agent_spawned', { id: ARCHITECT_AGENT_ID, role: 'architect' }));
 
-    const architectOk = await waitForAgent(hub, ARCHITECT_AGENT_ID, ctx.signal, cfg.wallClockMs);
+    const architectOk = await waitForAgent(hub, supervisor, ARCHITECT_AGENT_ID, ctx.signal, cfg.wallClockMs);
     if (ctx.signal.aborted) {
       yield await ctx.emit(emitAbort(ctx, 'aborted during design'));
       return;
     }
     if (!architectOk) {
+      const why = supervisor.stderrOf(ARCHITECT_AGENT_ID).slice(-4).join('\n');
+      yield await ctx.emit(plugin(ctx, 'collab_agent_failed', { id: ARCHITECT_AGENT_ID, status: statusOf(hub, ARCHITECT_AGENT_ID), stderr: supervisor.stderrOf(ARCHITECT_AGENT_ID).slice(-6) }));
       yield await ctx.emit(
-        assistant(ctx, 'The architect did not finish the design. Stopping the collaboration.'),
+        assistant(
+          ctx,
+          `The architect did not finish the design — stopping the collaboration.${why ? `\n\nLast diagnostics:\n${why}` : ''}`,
+        ),
       );
       return;
     }
@@ -206,7 +217,8 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
         supervisor.spawn({ entry, cwd: wt, mode: COLLAB_PEER_MODE_NAME });
         yield await ctx.emit(plugin(ctx, 'collab_agent_spawned', { id: entry.id, role: entry.role }));
       }
-      await waitForAgents(hub, roster.map((r) => r.id), ctx.signal, cfg.wallClockMs);
+      await waitForAgents(hub, supervisor, roster.map((r) => r.id), ctx.signal, cfg.wallClockMs);
+      yield* surfaceFailures(ctx, hub, supervisor, roster.map((r) => r.id));
       for (const r of roster) if (statusOf(hub, r.id) === 'done') doneIds.push(r.id);
     } else {
       // Sequential fallback (no git): one agent at a time, in the shared workspace.
@@ -215,7 +227,10 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
         hub.state.addAgent(entry);
         supervisor.spawn({ entry, cwd, mode: COLLAB_PEER_MODE_NAME });
         yield await ctx.emit(plugin(ctx, 'collab_agent_spawned', { id: entry.id, role: entry.role }));
-        const ok = await waitForAgent(hub, entry.id, ctx.signal, cfg.wallClockMs);
+        const ok = await waitForAgent(hub, supervisor, entry.id, ctx.signal, cfg.wallClockMs);
+        if (!ok) yield* surfaceFailures(ctx, hub, supervisor, [entry.id]);
+        // Await the child's real exit before starting the next agent — otherwise
+        // two peers briefly edit the shared workspace at once.
         await supervisor.stop(entry.id);
         if (ok && statusOf(hub, entry.id) === 'done') doneIds.push(entry.id);
       }
@@ -267,6 +282,25 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     unregisterActiveHub(String(ctx.sessionId));
     if (hub) await hub.close();
     releaseCollabLock(String(ctx.sessionId));
+    // Cleanup leaked transient state. integrate() removes the done agents'
+    // worktrees on its happy path, but worktrees/sockets are orphaned on abort,
+    // 0-done, conflict, or any early return. Worktrees are throwaway working
+    // dirs (the branch keeps the commits), so removing them is always safe;
+    // git branches are intentionally left to integrate()'s conflict-aware logic.
+    for (const wt of worktrees.values()) {
+      await removeWorktree(cwd, wt).catch(() => undefined);
+    }
+    // Drop the transient socket dir; the durable run record is archived
+    // elsewhere (see the archive step), not here.
+    try {
+      rmSync(collabRunDir(runId), { recursive: true, force: true });
+      rmSync(worktreeRoot(runId), { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+    // Prune any worktree metadata left dangling by a hard-deleted dir (e.g. an
+    // integrate staging worktree that never reached its own removeWorktree).
+    if (worktrees.size > 0) await git(cwd, ['worktree', 'prune']).catch(() => undefined);
   }
 }
 
@@ -314,39 +348,101 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
 }
 
-function statusOf(hub: { state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } } }, id: string): string | undefined {
+type HubLike = { state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } } };
+type ExitProbe = Pick<Supervisor, 'hasExited'> | null;
+
+function statusOf(hub: HubLike, id: string): string | undefined {
   return hub.state.rosterView().agents.find((a) => a.id === id)?.status;
 }
 
-/** Poll until an agent is terminal (done/crashed/killed) or abort/timeout. Returns true iff done. */
+/**
+ * Has an agent reached a state we should stop waiting on? Returns 'done' (it
+ * finished cleanly), 'failed' (terminal but not done — crashed/killed/failed, OR
+ * its process exited with no terminal status, OR it never registered within the
+ * boot window), or undefined (still in flight). `connected` records which ids
+ * have registered so the boot deadline only applies before registration.
+ */
+function agentSettled(
+  hub: HubLike,
+  supervisor: ExitProbe,
+  id: string,
+  connected: Set<string>,
+  bootDeadlineAt: number,
+): 'done' | 'failed' | undefined {
+  const status = statusOf(hub, id);
+  if (status && status !== 'pending') connected.add(id); // any reported status ⇒ registered
+  if (status === 'done') return 'done';
+  if (status === 'failed' || status === 'crashed' || status === 'killed') return 'failed';
+  // Process gone but no terminal status: died before reporting, or the spawn
+  // itself failed (the supervisor's 'error'/'exit' handlers set hasExited).
+  if (supervisor?.hasExited(id)) return 'failed';
+  // Never registered within the boot window ⇒ it failed to come up.
+  if (!connected.has(id) && Date.now() > bootDeadlineAt) return 'failed';
+  return undefined;
+}
+
+/** Poll until an agent settles (done/failed) or abort/wall-clock. Returns true iff done. */
 async function waitForAgent(
-  hub: { state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } } },
+  hub: HubLike,
+  supervisor: ExitProbe,
   id: string,
   signal: AbortSignal,
-  timeoutMs: number,
+  wallClockMs: number,
 ): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
+  const wallDeadline = Date.now() + wallClockMs;
+  const bootDeadlineAt = Date.now() + BOOT_DEADLINE_MS;
+  const connected = new Set<string>();
   for (;;) {
-    const status = statusOf(hub, id);
-    if (status === 'done') return true;
-    if (status === 'crashed' || status === 'killed') return false;
-    if (signal.aborted || Date.now() > deadline) return false;
+    const settled = agentSettled(hub, supervisor, id, connected, bootDeadlineAt);
+    if (settled === 'done') return true;
+    if (settled === 'failed') return false;
+    if (signal.aborted || Date.now() > wallDeadline) return false;
     await sleep(POLL_MS, signal);
   }
 }
 
 async function waitForAgents(
-  hub: { state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } } },
+  hub: HubLike,
+  supervisor: ExitProbe,
   ids: ReadonlyArray<string>,
   signal: AbortSignal,
-  timeoutMs: number,
+  wallClockMs: number,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  const terminal = (s: string | undefined): boolean => s === 'done' || s === 'crashed' || s === 'killed';
+  const wallDeadline = Date.now() + wallClockMs;
+  const bootDeadlineAt = Date.now() + BOOT_DEADLINE_MS;
+  const connected = new Set<string>();
   for (;;) {
-    if (ids.every((id) => terminal(statusOf(hub, id)))) return;
-    if (signal.aborted || Date.now() > deadline) return;
+    if (ids.every((id) => agentSettled(hub, supervisor, id, connected, bootDeadlineAt) !== undefined)) return;
+    if (signal.aborted || Date.now() > wallDeadline) return;
     await sleep(POLL_MS, signal);
+  }
+}
+
+/**
+ * After a wait, any agent that isn't 'done' didn't succeed. Make its hub status
+ * terminal (so it frees its file locks + the UI updates) and surface the tail of
+ * its stderr as a `collab_agent_failed` event, so a boot/connect/run failure is
+ * a visible diagnostic instead of a silent gap.
+ */
+async function* surfaceFailures(
+  ctx: ModeContext,
+  hub: CollaborationHub,
+  supervisor: Supervisor,
+  ids: ReadonlyArray<string>,
+): AsyncGenerator<MoxxyEvent, void, unknown> {
+  for (const id of ids) {
+    const status = statusOf(hub, id);
+    if (status === 'done') continue;
+    if (status !== 'failed' && status !== 'crashed' && status !== 'killed') {
+      hub.state.setStatus(id, 'crashed', 'did not reach a terminal status');
+    }
+    yield await ctx.emit(
+      plugin(ctx, 'collab_agent_failed', {
+        id,
+        status: statusOf(hub, id),
+        stderr: supervisor.stderrOf(id).slice(-6),
+      }),
+    );
   }
 }
 

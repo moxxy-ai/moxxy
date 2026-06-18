@@ -76,6 +76,16 @@ describe('board file locks', () => {
     expect(events.some((e) => e.kind === 'board' && e.action === 'claim')).toBe(true);
   });
 
+  it('frees a failed agent\'s locks so survivors can claim its paths', () => {
+    const { state, events } = mkState();
+    expect(state.boardClaim('backend', ['src/api']).ok).toBe(true);
+    // backend's turn ended without collab_done → reported 'failed'.
+    state.setStatus('backend', 'failed', 'turn ended without calling collab_done');
+    // its exclusive lease is released (like a crash), so a survivor can take over.
+    expect(state.boardClaim('tests', ['src/api/routes.ts']).ok).toBe(true);
+    expect(events.some((e) => e.kind === 'board' && e.action === 'release')).toBe(true);
+  });
+
   it('does not let a non-owner release another agent\'s claim by id', () => {
     const { state } = mkState();
     const claim = state.boardClaim('backend', ['src/api']);

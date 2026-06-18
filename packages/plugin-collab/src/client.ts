@@ -71,7 +71,10 @@ export class CollabHubClient {
   roster(): Promise<RosterView> {
     return this.peer.request(CollabHubMethod.Roster);
   }
-  setStatus(status: 'working' | 'blocked' | 'connected', detail?: string): Promise<{ ok: boolean }> {
+  setStatus(
+    status: 'working' | 'blocked' | 'connected' | 'failed',
+    detail?: string,
+  ): Promise<{ ok: boolean }> {
     return this.peer.request(CollabHubMethod.StatusSet, { status, detail });
   }
   done(summary: string, artifacts?: ReadonlyArray<string>): Promise<{ ok: boolean }> {

@@ -108,10 +108,10 @@ export class CollaborationState {
     if (agent.status === status) return;
     agent.status = status;
     this.emitFn({ kind: 'agent_status', agentId, status, ...(detail ? { detail } : {}) });
-    // A dead agent can never release its own locks, so do it for it — otherwise
-    // its leases block every survivor forever (conflictingOwner only frees
-    // 'done' items, not abandoned ones).
-    if (status === 'crashed' || status === 'killed') this.releaseAllFor(agentId);
+    // A dead/failed agent can never release its own locks, so do it for it —
+    // otherwise its leases block every survivor forever (conflictingOwner only
+    // frees 'done' items, not abandoned ones).
+    if (status === 'crashed' || status === 'killed' || status === 'failed') this.releaseAllFor(agentId);
   }
 
   markDone(agentId: string, summary: string, artifacts?: ReadonlyArray<string>): void {
@@ -126,7 +126,7 @@ export class CollaborationState {
   allDone(): boolean {
     const live = this.agentOrder
       .map((id) => this.agents.get(id)!)
-      .filter((a) => a.status !== 'crashed' && a.status !== 'killed');
+      .filter((a) => a.status !== 'crashed' && a.status !== 'killed' && a.status !== 'failed');
     return live.length > 0 && live.every((a) => a.status === 'done');
   }
 
