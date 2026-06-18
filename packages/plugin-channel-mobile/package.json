@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-channel-mobile",
   "private": true,
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "Mobile channel: serves the moxxy IPC contract over an authenticated WebSocket (via @moxxy/ipc-server-ws), backed by the runner's single Session, so the Expo app reuses @moxxy/client-core. Runs standalone (`moxxy mobile`) or alongside other channels (`moxxy serve --all`).",
   "type": "module",
   "main": "./dist/index.js",

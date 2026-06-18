@@ -1,5 +1,99 @@
 # @moxxy/cli
 
+## 0.13.2
+
+### Patch Changes
+
+- 50a5b38: Quality sweep — single-source the `MOXXY_PCM16_24KHZ_MIME` wire constant (`u35-2`)
+
+  Behavior-preserving (same string `audio/x-moxxy-pcm16-24khz`). The cross-package
+  PCM16 MIME protocol tag was independently redeclared as a literal in three
+  consumers; they now import the SDK's hoisted source of truth instead:
+
+  - New dependency-free `@moxxy/sdk/transcriber` subpath export (mirrors
+    `./tool-display`) so the browser/RN `@moxxy/client-platform-web` package can
+    value-import the constant without dragging `node:*` builtins from the main
+    barrel. `transcriber.ts` is pure (consts + interfaces, zero imports), so the
+    subpath stays browser-safe.
+  - `@moxxy/client-platform-web` (`src/pcm16.ts`) re-exports the constant from
+    `@moxxy/sdk/transcriber`; gains `@moxxy/sdk` as a dependency.
+  - `@moxxy/plugin-stt-whisper` (`src/audio.ts`) imports + re-exports from
+    `@moxxy/sdk`, keeping its existing public surface stable.
+  - `@moxxy/plugin-cli` (`src/session/use-voice-input.ts`) imports from
+    `@moxxy/sdk`, dropping the inline literal.
+
+  No protocol bump; no cycles (`check:deps` clean); SDK keeps zero internal deps.
+
+- 50a5b38: Quality sweep — additive `@moxxy/sdk` surface + context-fold dedup
+
+  Three purely-additive SDK changes (no removals, zero new internal deps):
+
+  - `MOXXY_PCM16_24KHZ_MIME` (u35-2): hoisted the cross-package PCM16/24 kHz wire
+    MIME tag — previously redeclared as a bare literal in client-platform-web,
+    plugin-stt-whisper, and plugin-cli — onto the SDK's typed transcriber surface
+    as the single source of truth, with a lock test pinning the exact bytes.
+
+  - `runManualCompaction` (u80-2): a thin, log-first manual-compaction helper
+    (compactor + log + provider/model + window → `{ compacted, tokensSaved,
+eventsCompacted }`) so `/compact` can share the SDK's compaction flow instead
+    of hand-rolling it. `runCompactionIfNeeded`'s signature/behavior is unchanged.
+
+  - `computeElisionState` memo + threaded elision state (complexity-hotspots-7 /
+    u122-2): the pure fold is now memoized on the input snapshot's identity, and
+    `runElisionIfNeeded`/`runCompactionIfNeeded` derive one `ElisionState` per
+    iteration and thread it into `estimateContextTokens` (and, opt-in, into
+    `projectMessages`) — collapsing the ~3x-per-iteration re-fold to one.
+    Byte-identical: the golden elision/projection tests still pass, plus a new
+    memo-correctness test (same snapshot → cached state; any new array →
+    recompute, never stale).
+
+- 50a5b38: Quality sweep — split Node-only `@moxxy/sdk` helpers behind a `./server` subpath (browser/RN boundary)
+
+  Purely structural, behavior-preserving (`t2-sdk-server-subpath`, retires TECH_DEBT #13):
+
+  - New `@moxxy/sdk/server` subpath export. The Node-runtime VALUE helpers that
+    statically reach `node:*` builtins — `spawnCliTunnel`/`isCliTunnelAvailable`
+    (`node:child_process`), `writeFileAtomic`/`writeFileAtomicSync`/`moxxyHome`/
+    `moxxyPath` (`node:fs`/`os`), `readRequestBody`/`bearerTokenMatches`
+    (`node:http`/`crypto`), and the channel-auth helpers (`resolveChannelToken`/
+    `rotateChannelToken`/`bearerGuard`/`encodeWsBearerProtocol`/
+    `tokenFromWsProtocolHeader`/`MOXXY_WS_SUBPROTOCOL`/
+    `MOXXY_WS_BEARER_PROTOCOL_PREFIX`) — now live on `@moxxy/sdk/server` and are
+    dropped from the main barrel. The corresponding pure TYPE exports
+    (`TunnelHandle`, `WriteFileAtomicOptions`, `ChannelTokenOptions`, …) stay on
+    the main barrel (erased at build time). The main barrel + `./tool-display`
+    subpath are now provably free of Node builtins, so a browser/React-Native
+    bundle can value-import from them safely.
+
+  - Every Node-side consumer re-pointed from `@moxxy/sdk` to `@moxxy/sdk/server`
+    for those symbols (cli, core, desktop-host, channel/oauth/webhooks/mcp/
+    workflows/scheduler/vault/memory plugins, ipc-server-ws, config, testing,
+    apps/desktop/electron).
+
+- 50a5b38: Quality sweep — workflow retry contract + DAG concurrency claim (plugin-workflows)
+
+  - **`onError: 'retry'` is now behaviorally distinct (u117-3):** the DAG executor
+    gates retries on the three-valued `onError` contract — `'retry'` runs
+    `1 + retries` attempts, while `'fail'` and `'continue'` run **exactly one**
+    attempt regardless of `retries`. Previously retries fired whenever
+    `retries > 0` independent of `onError`, so `onError: 'fail' + retries: 3`
+    silently retried (a latent trap). Schema/draft docs note the gate; new
+    regression tests pin the attempt count for each mode.
+
+  - **DAG wave-concurrency claim corrected (u117-1):** the executor description and
+    scheduler comment now plainly describe the strictly-sequential within-wave
+    execution (`concurrency` caps the batch drained per pass, not wall-clock
+    latency) instead of implying parallelism is merely "deferred". Concurrent
+    execution of even the pure steps cannot preserve the observable contract
+    (atomic per-step event pairs in wave order, hard-failure-stops-the-rest-of-the-
+    wave error semantics, wave-ordered `vars` merges), so the behavior is left
+    sequential by design. No runtime behavior change for this item.
+
+- Updated dependencies [50a5b38]
+- Updated dependencies [50a5b38]
+- Updated dependencies [50a5b38]
+  - @moxxy/sdk@0.14.5
+
 ## 0.13.1
 
 ### Patch Changes
