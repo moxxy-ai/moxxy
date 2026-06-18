@@ -20,12 +20,12 @@ import { readFile } from 'node:fs/promises';
 import { restoreSessionEvents } from '@moxxy/core';
 import {
   denyByDefaultResolver,
-  moxxyPath,
   type ClientSession,
   type PermissionResolver,
   type ApprovalResolver,
   type MoxxyEvent,
 } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import type {
   AskRequest,
   AskResponse,

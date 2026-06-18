@@ -298,7 +298,9 @@ class ChatStore {
       // runner, or a legacy-only chat whose runner session resumed EMPTY — falls
       // through to the NDJSON mirror so its history is never hidden behind an
       // empty runner session.
-      const runner = await this.collectRunnerInitial(workspaceId);
+      const runner = this.persistence.loadHistory
+        ? await this.collectRunnerInitial(workspaceId)
+        : null;
       if (slot.resetEpoch !== epoch) return;
       if (runner && runner.events.length > 0) {
         slot.historySource = 'runner';

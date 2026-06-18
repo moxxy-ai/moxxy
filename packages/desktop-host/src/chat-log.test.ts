@@ -490,8 +490,8 @@ describe('seedChatIntoSession (NDJSON → runner session migration)', () => {
 
   it('eagerly migrates every NDJSON-only chat, skipping ones the runner already owns', async () => {
     await appendEvents('w1', [ev(0), ev(1)]);
-    await appendEvents('w2', [ev(0)]);
-    await appendEvents('w3', [ev(0)]);
+    await appendEvents('w2', [ev(0, 'w2')]);
+    await appendEvents('w3', [ev(0, 'w3')]);
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(path.join(sessionsDir, 'w3.jsonl'), '{"owned":true}\n', 'utf8'); // runner owns w3
     expect(await migrateAllChatsToSessions(sessionsDir)).toBe(2); // w1 + w2, not w3

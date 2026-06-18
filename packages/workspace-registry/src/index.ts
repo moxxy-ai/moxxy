@@ -13,7 +13,8 @@ import path from 'node:path';
 
 import { readSessionIndex, type SessionMeta } from '@moxxy/core';
 import type { Desk, DeskSession, SessionsOverview } from '@moxxy/desktop-ipc-contract';
-import { createMutex, moxxyPath, writeFileAtomic, type Mutex } from '@moxxy/sdk';
+import { createMutex, type Mutex } from '@moxxy/sdk';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 
 export const MOXXY_WORKSPACE_ID = 'moxxy';
 export const MOXXY_WORKSPACE_NAME = 'Moxxy';
