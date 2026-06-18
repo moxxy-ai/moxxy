@@ -4,6 +4,7 @@ import { EventBlockView } from './EventBlockView';
 import { ToolBlock } from './ToolBlock';
 import { SubagentView } from './SubagentView';
 import { SubagentGroupView } from './SubagentGroupView';
+import { CollaborationCard } from './CollaborationCard';
 
 /**
  * One transcript block, rendered from the shared @moxxy/chat-model fold.
@@ -40,6 +41,8 @@ export function BlockView({ block }: { readonly block: FoldedBlock }): JSX.Eleme
       return <SubagentGroupView block={block} />;
     case 'live-tools':
       return <LiveToolsBlock block={block} />;
+    case 'collab':
+      return <CollaborationCard block={block} />;
     default: {
       // Exhaustiveness guard: a new Block kind in @moxxy/chat-model must be
       // handled here or this becomes a compile error rather than rendering blank.

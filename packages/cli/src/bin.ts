@@ -18,6 +18,7 @@ import { runLoginCommand } from './commands/login.js';
 import { runResumeCommand } from './commands/resume.js';
 import { runServiceCommand } from './commands/service.js';
 import { runServeCommand } from './commands/serve.js';
+import { runAgentCommand } from './commands/agent.js';
 import { runSessionsCommand } from './commands/sessions.js';
 import { runSecurityCommand } from './commands/security.js';
 import { runSelfUpdateCommand } from './commands/self-update.js';
@@ -210,6 +211,8 @@ const COMMANDS: Record<string, CommandHandler> = {
   resume: runResumeCommand,
   service: runServiceCommand,
   serve: runServeCommand,
+  // Internal: a collaboration peer runner spawned by `collaborative` mode.
+  agent: runAgentCommand,
   sessions: runSessionsCommand,
   security: runSecurityCommand,
   skills: runSkillsCommand,

@@ -17,6 +17,8 @@ import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { goalModePlugin } from '@moxxy/mode-goal';
 import { deepResearchModePlugin } from '@moxxy/mode-deep-research';
+import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
+import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
 import {
@@ -98,6 +100,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/mode-default', plugin: defaultModePlugin },
     { name: '@moxxy/mode-goal', plugin: goalModePlugin },
     { name: '@moxxy/mode-deep-research', plugin: deepResearchModePlugin },
+    // Agentic collaborative: a team of separate agent processes (architect +
+    // implementers) work in parallel git worktrees (or sequentially without
+    // git), coordinated via the @moxxy/plugin-collab hub.
+    { name: '@moxxy/mode-collaborative', plugin: collaborativeModePlugin },
+    { name: '@moxxy/plugin-collab', plugin: collabPlugin },
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
     { name: '@moxxy/cache-strategy-stable-prefix', plugin: stablePrefixCacheStrategyPlugin },
     { name: '@moxxy/plugin-vault', plugin: vaultPlugin },

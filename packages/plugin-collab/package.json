@@ -1,0 +1,45 @@
+{
+  "name": "@moxxy/plugin-collab",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Cross-process collaboration hub for agentic-collaborative mode: a unix-socket message bus + task board (file-lock arbiter) + contract registry + peer-read, plus the peer-side collab_* tools and the collab_say command.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "tool"
+    }
+  },
+  "dependencies": {
+    "@moxxy/runner": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
