@@ -133,6 +133,59 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       return { active: false };
     }
   });
+  handle('collab.end', async ({ workspaceId }) => {
+    // Abort the coordinator turn (its finally tears the team down + archives),
+    // then force-release the global lock so a new collaboration can start —
+    // covering a stale lock from a crashed run whose coordinator is unreachable.
+    const abortedTurns = resolveDriver(pool, workspaceId)?.abortActiveTurns() ?? 0;
+    let clearedTask: string | undefined;
+    try {
+      const { readFileSync, unlinkSync } = await import('node:fs');
+      const { homedir } = await import('node:os');
+      const { join } = await import('node:path');
+      const lockPath = process.env.MOXXY_COLLAB_LOCK || join(homedir(), '.moxxy', 'collab', 'active.lock');
+      try {
+        clearedTask = (JSON.parse(readFileSync(lockPath, 'utf8')) as { task?: string }).task;
+      } catch {
+        // no lock to read
+      }
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        // already gone
+      }
+    } catch {
+      // best-effort
+    }
+    return { ended: true, abortedTurns, ...(clearedTask ? { clearedTask } : {}) };
+  });
+  handle('collab.history', async (args) => {
+    // Read archived run records straight from ~/.moxxy/collab/runs (self-
+    // describing JSON), newest first — no runner round-trip, spans all workspaces.
+    try {
+      const { readFileSync, readdirSync } = await import('node:fs');
+      const { homedir } = await import('node:os');
+      const { join } = await import('node:path');
+      const home = process.env.MOXXY_HOME || join(homedir(), '.moxxy');
+      const dir = join(home, 'collab', 'runs');
+      const limit = args?.limit ?? 50;
+      const records = readdirSync(dir)
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => {
+          try {
+            return JSON.parse(readFileSync(join(dir, f), 'utf8')) as { startedAtMs?: number };
+          } catch {
+            return null;
+          }
+        })
+        .filter((r): r is { startedAtMs?: number } => r !== null)
+        .sort((a, b) => (b.startedAtMs ?? 0) - (a.startedAtMs ?? 0))
+        .slice(0, limit);
+      return records as never;
+    } catch {
+      return [];
+    }
+  });
   handle('session.hasTranscriber', async () => {
     // Voice is wired through the desktop's *in-process* Codex
     // transcriber (mirrors the TUI's self-host setup: same vault,

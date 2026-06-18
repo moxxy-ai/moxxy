@@ -34,6 +34,7 @@ import {
 } from './constants.js';
 import { resolveCollabConfig, type CollabConfig } from './config.js';
 import { buildBrief } from './brief.js';
+import { writeRunRecord, type CollabRunRecord } from './archive.js';
 import {
   addWorktree,
   commitAll,
@@ -97,15 +98,25 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
   }
 
   const runId = collabRunId(String(ctx.sessionId), String(ctx.turnId));
+  const startedAtMs = Date.now();
   const worktrees = new Map<string, string>();
   let hub: CollaborationHub | null = null;
   let supervisor: Supervisor | null = null;
   let unsubscribe: (() => void) | null = null;
+  // Captured through the run so the finally can archive it on EVERY exit path
+  // (completed, aborted, or failed), not just the happy one.
+  let archiveParallel = false;
+  let archiveGitRepo = false;
+  let briefText = '';
+  let mergeForArchive: CollabRunRecord['merge'];
+  let completed = false;
   try {
     mkdirSync(collabRunDir(runId), { recursive: true });
 
   const { installed: gitInstalled, repo: gitRepo } = await detectGit(cwd);
   const parallel = cfg.concurrency === 'parallel' && gitRepo;
+  archiveParallel = parallel;
+  archiveGitRepo = gitRepo;
   if (!parallel) {
     yield await ctx.emit(
       plugin(ctx, 'collab_fallback_sequential', {
@@ -161,8 +172,9 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     // scaffold (parallel) so every worktree gets it. Best-effort: a brief-write
     // failure must never sink the run.
     try {
+      briefText = buildBrief(task, ctx.log.slice());
       mkdirSync(join(cwd, COLLAB_SCAFFOLD_DIR), { recursive: true });
-      writeFileSync(join(cwd, COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME), buildBrief(task, ctx.log.slice()));
+      writeFileSync(join(cwd, COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME), briefText);
       yield await ctx.emit(plugin(ctx, 'collab_brief_written', { path: join(COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME) }));
     } catch {
       // brief is an enhancement, not a prerequisite
@@ -268,6 +280,12 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
         board: hub.state.boardItems(),
         mergePolicy: cfg.mergePolicy,
       });
+      mergeForArchive = {
+        merged: result.merged,
+        promoted: result.promoted,
+        conflicts: result.conflicts.length,
+        ...(result.stagingBranch ? { stagingBranch: result.stagingBranch } : {}),
+      };
       yield await ctx.emit(plugin(ctx, 'collab_merge', result));
       for (const c of result.conflicts) {
         yield await ctx.emit(plugin(ctx, 'collab_conflict', c));
@@ -290,9 +308,59 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
         `Collaboration complete — ${doneIds.length}/${roster.length} agents finished.\n\n${summaryBlock}${mergeNote ? `\n\n${mergeNote}` : ''}`,
       ),
     );
+    completed = true;
     yield await ctx.emit(plugin(ctx, 'collab_completed', { done: doneIds, total: roster.length }));
   } finally {
     if (supervisor) await supervisor.shutdownAll('collaboration complete');
+    // Archive the run (durable history) BEFORE tearing the hub down — the record
+    // is read from hub.state. Covers every outcome: completed, user-aborted, or
+    // failed. Best-effort; archiving must never throw out of the finally.
+    if (hub) {
+      try {
+        const agents = hub.state.rosterView().agents;
+        // Counts mirror collab_completed: implementers only (the architect is
+        // crew, not a deliverable owner).
+        const implementers = agents.filter((a) => a.role !== 'architect');
+        writeRunRecord({
+          runId,
+          task,
+          startedAtMs,
+          finishedAtMs: Date.now(),
+          outcome: completed ? 'completed' : ctx.signal.aborted ? 'aborted' : 'failed',
+          parallel: archiveParallel,
+          gitRepo: archiveGitRepo,
+          agents: agents.map((a) => ({
+            id: a.id,
+            name: a.name,
+            role: a.role,
+            status: a.status,
+            subtask: a.subtask,
+            ...(a.doneSummary ? { doneSummary: a.doneSummary } : {}),
+          })),
+          doneCount: implementers.filter((a) => a.status === 'done').length,
+          totalCount: implementers.length,
+          board: hub.state.boardItems().map((b) => ({
+            id: b.id,
+            title: b.title,
+            status: b.status,
+            ...(b.owner ? { owner: b.owner } : {}),
+            ...(b.paths ? { paths: b.paths } : {}),
+          })),
+          contracts: hub.state.contractList().map((c) => ({
+            id: c.id,
+            title: c.title,
+            owner: c.owner,
+            status: c.status,
+            version: c.version,
+          })),
+          messageCount: hub.state.allMessages().length,
+          ...(mergeForArchive ? { merge: mergeForArchive } : {}),
+          ...(briefText ? { brief: briefText } : {}),
+        });
+      } catch {
+        // archiving is an enhancement, not a prerequisite
+      }
+    }
     if (unsubscribe) unsubscribe();
     unregisterActiveHub(String(ctx.sessionId));
     if (hub) await hub.close();

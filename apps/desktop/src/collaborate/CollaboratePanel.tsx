@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, useChat } from '@moxxy/client-core';
+import type { CollabRunSummary } from '@moxxy/desktop-ipc-contract';
 import { pairToolEvents } from '@moxxy/chat-model';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
@@ -38,6 +39,9 @@ export function CollaboratePanel({
   const [goal, setGoal] = useState('');
   const [starting, setStarting] = useState(false);
   const [forceStart, setForceStart] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<CollabRunSummary[] | null>(null);
   const [globalActive, setGlobalActive] = useState<{ active: boolean; task?: string } | null>(null);
 
   // Poll the global single-flight lock so Start reflects a collaboration running
@@ -85,6 +89,29 @@ export function CollaboratePanel({
     }
   };
 
+  // End the current collaboration for good: aborts the coordinator (its finally
+  // archives the run + cleans up) and force-releases the global lock, so a new
+  // one can start — even if the current run is wedged or the lock is stale.
+  const endCollaboration = async (): Promise<void> => {
+    if (ending) return;
+    setEnding(true);
+    try {
+      await api().invoke('collab.end', { workspaceId });
+      const r = await api().invoke('collab.active').catch(() => null);
+      setGlobalActive(r);
+      setForceStart(true); // drop to the start composer for a fresh run
+    } catch {
+      // best-effort
+    } finally {
+      setEnding(false);
+    }
+  };
+
+  const loadHistory = async (): Promise<void> => {
+    const runs = await api().invoke('collab.history', { limit: 50 }).catch(() => []);
+    setHistory(runs as CollabRunSummary[]);
+  };
+
   const send = async (): Promise<void> => {
     const body = text.trim();
     if (!body) return;
@@ -124,7 +151,32 @@ export function CollaboratePanel({
             : `done · ${collab.agents.filter((a) => a.status === 'done').length}/${collab.agents.length}`}
         </span>
       )}
-      {collab && !running && !forceStart && (
+      <button
+        type="button"
+        onClick={() => {
+          const next = !showHistory;
+          setShowHistory(next);
+          if (next) void loadHistory();
+        }}
+        className="btn-chip"
+        style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, fontWeight: 600, ...(showHistory ? { color: 'var(--color-primary)' } : {}) }}
+        title="Past collaborations"
+      >
+        History
+      </button>
+      {(running || globalActive?.active) && (
+        <button
+          type="button"
+          onClick={() => void endCollaboration()}
+          disabled={ending}
+          className="btn-chip"
+          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, fontWeight: 600, color: 'var(--color-red)' }}
+          title="Stop the team for good and archive this run"
+        >
+          {ending ? 'Ending…' : '■ End & archive'}
+        </button>
+      )}
+      {collab && !running && !forceStart && !globalActive?.active && (
         <button
           type="button"
           onClick={() => setForceStart(true)}
@@ -136,6 +188,15 @@ export function CollaboratePanel({
       )}
     </ViewHeader>
   );
+
+  if (showHistory) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        {header}
+        <CollabHistory runs={history} onClose={() => setShowHistory(false)} />
+      </div>
+    );
+  }
 
   if (!collab || forceStart) {
     return (
@@ -191,7 +252,17 @@ export function CollaboratePanel({
               }}
             >
               A collaboration is already running{globalActive.task ? ` ("${globalActive.task}")` : ''}. Only one
-              runs at a time to save resources — wait for it to finish, then start another.
+              runs at a time to save resources — wait for it to finish, or
+              {' '}
+              <button
+                type="button"
+                onClick={() => void endCollaboration()}
+                disabled={ending}
+                style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--color-red)', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                {ending ? 'ending…' : 'end & archive it now'}
+              </button>
+              .
             </div>
           )}
           <StartComposer
@@ -576,5 +647,79 @@ function Kbd({ children }: { readonly children: React.ReactNode }): JSX.Element 
     >
       {children}
     </kbd>
+  );
+}
+
+function outcomeChip(outcome: string): React.CSSProperties {
+  const bg =
+    outcome === 'completed'
+      ? 'var(--color-green)'
+      : outcome === 'aborted'
+        ? 'var(--color-amber)'
+        : 'var(--color-red)';
+  return { fontSize: 10, fontWeight: 700, padding: '1px 7px', borderRadius: 'var(--radius-pill)', color: '#fff', background: bg, flexShrink: 0 };
+}
+
+function whenAgo(ms: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+/** Past-collaborations list, read from the run archive (~/.moxxy/collab/runs). */
+function CollabHistory({ runs, onClose }: { readonly runs: CollabRunSummary[] | null; readonly onClose: () => void }): JSX.Element {
+  const [open, setOpen] = useState<string | null>(null);
+  if (runs === null) {
+    return <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--color-text-dim)' }}>Loading history…</div>;
+  }
+  if (runs.length === 0) {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--color-text-dim)' }}>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>No past collaborations yet</div>
+        <button type="button" className="btn-ghost" onClick={onClose} style={{ fontSize: 12.5 }}>← Back</button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {runs.map((r) => {
+        const isOpen = open === r.runId;
+        return (
+          <div key={r.runId} style={{ border: '1px solid var(--color-card-border)', borderRadius: 10, background: 'var(--color-card-bg)' }}>
+            <button
+              type="button"
+              onClick={() => setOpen(isOpen ? null : r.runId)}
+              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}
+            >
+              <span style={outcomeChip(r.outcome)}>{r.outcome}</span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.task}</span>
+              <span className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)', flexShrink: 0 }}>
+                {r.doneCount}/{r.totalCount} · {whenAgo(r.startedAtMs)}
+              </span>
+            </button>
+            {isOpen && (
+              <div style={{ borderTop: '1px solid var(--color-card-border)', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
+                  {r.parallel ? 'parallel' : 'sequential'}
+                  {r.merge ? ` · merged ${r.merge.merged.length}${r.merge.promoted ? ' (promoted)' : ''}${r.merge.conflicts ? ` · ${r.merge.conflicts} conflicts` : ''}` : ''}
+                  {typeof r.messageCount === 'number' ? ` · ${r.messageCount} messages` : ''}
+                </div>
+                {r.agents.map((a) => (
+                  <div key={a.id} style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+                    <span style={{ fontWeight: 600 }}>{a.name}</span>
+                    <span className="mono" style={{ color: 'var(--color-text-dim)' }}> · {a.role} · {a.status}</span>
+                    {a.doneSummary ? <div style={{ color: 'var(--color-text-muted)' }}>{a.doneSummary}</div> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

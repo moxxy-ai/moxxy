@@ -38,6 +38,38 @@ import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
+/** One archived collaboration run (mirrors `@moxxy/mode-collaborative`'s
+ *  CollabRunRecord; the main process reads `~/.moxxy/collab/runs/*.json`). */
+export interface CollabRunSummary {
+  readonly runId: string;
+  readonly task: string;
+  readonly startedAtMs: number;
+  readonly finishedAtMs: number;
+  readonly outcome: 'completed' | 'aborted' | 'failed';
+  readonly parallel: boolean;
+  readonly gitRepo: boolean;
+  readonly agents: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly role: string;
+    readonly status: string;
+    readonly subtask: string;
+    readonly doneSummary?: string;
+  }>;
+  readonly doneCount: number;
+  readonly totalCount: number;
+  readonly board?: ReadonlyArray<{ readonly id: string; readonly title: string; readonly status: string; readonly owner?: string }>;
+  readonly contracts?: ReadonlyArray<{ readonly id: string; readonly title: string; readonly owner: string; readonly status: string; readonly version: number }>;
+  readonly messageCount?: number;
+  readonly merge?: {
+    readonly merged: ReadonlyArray<string>;
+    readonly promoted: boolean;
+    readonly conflicts: number;
+    readonly stagingBranch?: string;
+  };
+  readonly brief?: string;
+}
+
 /**
  * Every invokable IPC command the renderer can call. The preload
  * surface is built mechanically from this; misnaming a command in the
@@ -247,6 +279,19 @@ export interface IpcCommands {
     readonly task?: string;
     readonly startedAtMs?: number;
   }>;
+  /** End the active collaboration: abort its coordinator turn (whose finally
+   *  tears the team down + archives) and force-release the global single-flight
+   *  lock so a new one can start — even if the holder is a stale/crashed run. */
+  'collab.end': (args: { workspaceId?: string }) => Promise<{
+    readonly ended: boolean;
+    readonly abortedTurns: number;
+    readonly clearedTask?: string;
+  }>;
+  /** Archived past collaborations (newest first), read from
+   *  `~/.moxxy/collab/runs`. Powers the Collaborate tab's run history. */
+  'collab.history': (args?: { limit?: number }) => Promise<
+    ReadonlyArray<CollabRunSummary>
+  >;
   /** Forward an audio blob to the runner's active transcriber.
    *  Audio must be base64-encoded; returns the recognised text. */
   'session.transcribe': (args: {

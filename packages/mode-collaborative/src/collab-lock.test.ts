@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readActiveCollab, releaseCollabLock, tryAcquireCollabLock } from './collab-lock.js';
+import { forceReleaseCollabLock, readActiveCollab, releaseCollabLock, tryAcquireCollabLock } from './collab-lock.js';
 
 let dir: string;
 beforeEach(() => {
@@ -35,6 +35,18 @@ describe('collab single-flight lock', () => {
     expect(readActiveCollab()).toBeNull();
     // now free for another session
     expect(tryAcquireCollabLock({ sessionId: 'B', task: 't2', startedAtMs: 2 }).ok).toBe(true);
+  });
+
+  it('force-releases regardless of holder (the user "End" action)', () => {
+    tryAcquireCollabLock({ sessionId: 'A', task: 'wedged run', startedAtMs: 1 });
+    // a different session can't release it...
+    releaseCollabLock('B');
+    expect(readActiveCollab()?.sessionId).toBe('A');
+    // ...but the explicit force-release clears it and returns the cleared holder
+    const cleared = forceReleaseCollabLock();
+    expect(cleared?.task).toBe('wedged run');
+    expect(readActiveCollab()).toBeNull();
+    expect(tryAcquireCollabLock({ sessionId: 'B', task: 'fresh', startedAtMs: 2 }).ok).toBe(true);
   });
 
   it('reclaims a stale lock whose process is dead', () => {

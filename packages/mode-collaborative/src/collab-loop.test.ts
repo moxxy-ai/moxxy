@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
 import type { CollaborationHub } from '@moxxy/plugin-collab';
 import { runCollaborative, sleep, type CollabDeps } from './collab-loop.js';
+import { listRunRecords } from './archive.js';
 import { resolveCollabConfig } from './config.js';
 import type { Supervisor } from './peer-supervisor.js';
 import { git } from './worktrees.js';
@@ -14,13 +15,20 @@ const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
 
 beforeEach(() => {
-  // Isolate the global single-flight lock to a temp file so the e2e runs never
-  // touch (or get blocked by) a real ~/.moxxy collaboration lock.
+  // Isolate the global single-flight lock AND the moxxy home (the run archive
+  // writes under ~/.moxxy/collab/runs) to temp dirs so the e2e runs never touch
+  // — or get blocked by — the developer's real ~/.moxxy.
   const lockDir = mkdtempSync(join(tmpdir(), 'mc-loop-lock-'));
+  const homeDir = mkdtempSync(join(tmpdir(), 'mc-loop-home-'));
   process.env.MOXXY_COLLAB_LOCK = join(lockDir, 'active.lock');
+  const prevHome = process.env.MOXXY_HOME;
+  process.env.MOXXY_HOME = homeDir;
   cleanups.push(() => {
     delete process.env.MOXXY_COLLAB_LOCK;
+    if (prevHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = prevHome;
     rmSync(lockDir, { recursive: true, force: true });
+    rmSync(homeDir, { recursive: true, force: true });
   });
 });
 
@@ -168,6 +176,15 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     const finalMsg = events.filter((e) => e.type === 'assistant_message').pop() as { content: string } | undefined;
     expect(finalMsg?.content).toContain('backend');
     expect(finalMsg?.content).toContain('tests');
+
+    // the run was archived (durable history) with the right outcome + brief
+    const runs = listRunRecords();
+    expect(runs.length).toBe(1);
+    expect(runs[0]!.outcome).toBe('completed');
+    expect(runs[0]!.doneCount).toBe(2);
+    expect(runs[0]!.totalCount).toBe(2);
+    expect(runs[0]!.brief).toContain('build the thing');
+    expect(runs[0]!.agents.map((a) => a.id)).toContain('backend');
   });
 
   it('does NOT hang on a failed agent: surfaces it and completes with the others', async () => {

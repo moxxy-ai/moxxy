@@ -30,3 +30,12 @@ export {
   COLLAB_PEER_MODE_NAME,
 } from './constants.js';
 export { resolveCollabConfig, DEFAULT_COLLAB_CONFIG, type CollabConfig } from './config.js';
+export {
+  collabRunsDir,
+  listRunRecords,
+  readRunRecord,
+  writeRunRecord,
+  type CollabRunRecord,
+  type CollabRunAgent,
+} from './archive.js';
+export { forceReleaseCollabLock, readActiveCollab, type CollabLockInfo } from './collab-lock.js';

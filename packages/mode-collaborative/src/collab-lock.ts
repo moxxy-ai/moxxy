@@ -88,3 +88,20 @@ export function releaseCollabLock(sessionId: string): void {
     }
   }
 }
+
+/**
+ * Force-release the lock regardless of holder. For the user's explicit "End the
+ * collaboration" action: if the coordinator turn is also aborted, its own finally
+ * releases the lock, but a stale lock from a crashed prior run (or one whose
+ * coordinator can't be reached) would otherwise block every new start forever.
+ * Returns the holder it cleared (if any) so the caller can report it.
+ */
+export function forceReleaseCollabLock(): CollabLockInfo | null {
+  const info = readRaw();
+  try {
+    unlinkSync(collabLockPath());
+  } catch {
+    // already gone
+  }
+  return info;
+}
