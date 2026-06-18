@@ -100,7 +100,14 @@ function Button({
   const bg = primary ? 'bg-primary border-primary' : 'bg-cardBg border-cardBorder';
   const color = primary ? 'text-white' : danger ? 'text-red' : 'text-muted';
   return (
-    <Pressable className={`min-h-9 justify-center rounded-block border px-3 ${bg} ${disabled ? 'opacity-50' : ''}`} disabled={disabled} onPress={onPress}>
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: disabled === true }}
+      className={`min-h-9 justify-center rounded-block border px-3 ${bg} ${disabled ? 'opacity-50' : ''}`}
+      disabled={disabled}
+      onPress={onPress}
+    >
       <Text className={`text-[13px] font-bold ${color}`}>{label}</Text>
     </Pressable>
   );

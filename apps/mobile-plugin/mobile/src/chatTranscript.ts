@@ -6,6 +6,7 @@ export type TranscriptItem =
   | AssistantTranscriptItem
   | ToolGroupTranscriptItem
   | ErrorTranscriptItem
+  | SubagentGroupTranscriptItem
   | SystemGroupTranscriptItem;
 
 export interface UserTranscriptItem {
@@ -38,6 +39,27 @@ export interface ToolTranscriptItem {
   readonly name: string;
   readonly status: 'running' | 'ok' | 'error';
   readonly summary: string;
+}
+
+export interface SubagentGroupTranscriptItem {
+  readonly id: string;
+  readonly kind: 'subagent-group';
+  readonly title: 'Subagents';
+  readonly collapsed: true;
+  status: 'running' | 'done' | 'failed';
+  summary: string;
+  readonly agents: SubagentTranscriptItem[];
+}
+
+export interface SubagentTranscriptItem {
+  readonly id: string;
+  readonly label: string;
+  readonly agentType: string;
+  status: 'running' | 'done' | 'failed';
+  toolCallCount: number;
+  tokensUsed: number | null;
+  finalPreview: string | null;
+  error: string | null;
 }
 
 export interface ErrorTranscriptItem {
@@ -80,6 +102,8 @@ const TOOL_EVENT_TYPES = new Set([
   'command',
 ]);
 
+const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
+
 export function buildChatTranscript(
   events: ReadonlyArray<Record<string, unknown>>,
   streamingText = '',
@@ -90,6 +114,9 @@ export function buildChatTranscript(
   let assistantStreamText = '';
   let tools: ToolTranscriptItem[] = [];
   let systemEvents: SystemEventSummary[] = [];
+  const subagents = new Map<string, SubagentTranscriptItem>();
+  const subagentGroupsByChildId = new Map<string, SubagentGroupTranscriptItem>();
+  let currentSubagentGroup: SubagentGroupTranscriptItem | null = null;
 
   const pushItem = (item: TranscriptItem): void => {
     const count = itemIdCounts.get(item.id) ?? 0;
@@ -136,6 +163,77 @@ export function buildChatTranscript(
     systemEvents = [];
   };
 
+  const closeSubagentRun = (): void => {
+    currentSubagentGroup = null;
+  };
+
+  const handleSubagentEvent = (event: Record<string, unknown>): void => {
+    const payload = isRecord(event.payload) ? event.payload : event;
+    const subtype = firstText(event.subtype, payload.type, payload.eventType);
+    const childSessionId = firstText(payload.childSessionId, payload.sessionId, payload.id);
+    if (childSessionId.length === 0) return;
+
+    if (subtype === 'subagent_started') {
+      const agentType = firstText(payload.agentType, payload.type) || 'default';
+      const label = firstText(payload.label, payload.name) || childSessionId;
+      const agent: SubagentTranscriptItem = {
+        id: childSessionId,
+        label,
+        agentType,
+        status: 'running',
+        toolCallCount: 0,
+        tokensUsed: null,
+        finalPreview: null,
+        error: null,
+      };
+      subagents.set(childSessionId, agent);
+      if (!currentSubagentGroup) {
+        currentSubagentGroup = {
+          id: `subagents:${firstText(event.groupId, payload.groupId, eventId(event, `subagents-${items.length}`))}`,
+          kind: 'subagent-group',
+          title: 'Subagents',
+          collapsed: true,
+          status: 'running',
+          summary: '',
+          agents: [],
+        };
+        pushItem(currentSubagentGroup);
+      }
+      currentSubagentGroup.agents.push(agent);
+      subagentGroupsByChildId.set(childSessionId, currentSubagentGroup);
+      refreshSubagentGroup(currentSubagentGroup);
+      return;
+    }
+
+    const agent = subagents.get(childSessionId);
+    const group = subagentGroupsByChildId.get(childSessionId);
+    if (!agent || !group) return;
+
+    if (subtype === 'subagent_tool_call') {
+      agent.toolCallCount += 1;
+      refreshSubagentGroup(group);
+      return;
+    }
+
+    if (subtype === 'subagent_completed') {
+      const error = firstText(payload.error, payload.message, payload.reason);
+      agent.status = error ? 'failed' : 'done';
+      agent.tokensUsed = numberOrNull(payload.tokensUsed);
+      agent.finalPreview = oneLine(firstText(payload.finalPreview, payload.output, payload.text)) || null;
+      agent.error = error || null;
+      refreshSubagentGroup(group);
+      if (group.status !== 'running') closeSubagentRun();
+      return;
+    }
+
+    if (subtype === 'subagent_error' || subtype === 'subagent_abort' || subtype === 'subagent_aborted') {
+      agent.status = 'failed';
+      agent.error = firstText(payload.error, payload.message, payload.reason) || 'Subagent failed';
+      refreshSubagentGroup(group);
+      if (group.status !== 'running') closeSubagentRun();
+    }
+  };
+
   const uniqueEvents = dedupeEventsById(events);
   for (let index = 0; index < uniqueEvents.length; index += 1) {
     const event = uniqueEvents[index]!;
@@ -149,11 +247,20 @@ export function buildChatTranscript(
       continue;
     }
 
+    if (isSubagentPluginEvent(event)) {
+      flushAssistant();
+      flushTools();
+      flushSystem();
+      handleSubagentEvent(event);
+      continue;
+    }
+
     if (HIDDEN_EVENT_TYPES.has(type)) continue;
 
     if (type === 'assistant' || type === 'assistant_message') {
       flushTools();
       flushSystem();
+      closeSubagentRun();
       assistantStreamId = null;
       assistantStreamText = '';
       pushItem({
@@ -171,6 +278,7 @@ export function buildChatTranscript(
       flushAssistant();
       flushTools();
       flushSystem();
+      closeSubagentRun();
       pushItem({
         id: eventId(event, `user-${index}`),
         kind: 'user',
@@ -183,6 +291,7 @@ export function buildChatTranscript(
     if (TOOL_EVENT_TYPES.has(type)) {
       flushAssistant();
       flushSystem();
+      closeSubagentRun();
       tools = upsertTool(tools, event, type, index);
       continue;
     }
@@ -191,6 +300,7 @@ export function buildChatTranscript(
       flushAssistant();
       flushTools();
       flushSystem();
+      closeSubagentRun();
       pushItem({
         id: eventId(event, `error-${index}`),
         kind: 'error',
@@ -203,6 +313,7 @@ export function buildChatTranscript(
     const text = firstText(event.message, event.text, event.content, event.summary, event.title);
     if (text.length > 0) {
       flushAssistant();
+      closeSubagentRun();
       systemEvents.push({
         id: eventId(event, `system-${index}`),
         type,
@@ -226,6 +337,34 @@ export function buildChatTranscript(
   }
 
   return items;
+}
+
+function isSubagentPluginEvent(event: Record<string, unknown>): boolean {
+  return eventType(event) === 'plugin_event' && firstText(event.pluginId, event.plugin, event.name) === SUBAGENT_PLUGIN_ID;
+}
+
+function refreshSubagentGroup(group: SubagentGroupTranscriptItem): void {
+  const running = group.agents.filter((agent) => agent.status === 'running').length;
+  const failed = group.agents.filter((agent) => agent.status === 'failed').length;
+  group.status = running > 0 ? 'running' : failed > 0 ? 'failed' : 'done';
+  group.summary = summarizeSubagentGroup(group, running, failed);
+}
+
+function summarizeSubagentGroup(group: SubagentGroupTranscriptItem, running: number, failed: number): string {
+  const count = group.agents.length;
+  const agentType = sharedAgentType(group.agents);
+  if (running > 0) {
+    return `${count} ${agentType} ${count === 1 ? 'agent' : 'agents'} running`;
+  }
+  if (failed > 0) {
+    return `${failed} of ${count} ${count === 1 ? 'agent' : 'agents'} failed`;
+  }
+  return `${count} ${agentType} ${count === 1 ? 'agent' : 'agents'} finished`;
+}
+
+function sharedAgentType(agents: ReadonlyArray<SubagentTranscriptItem>): string {
+  const first = agents[0]?.agentType || 'default';
+  return agents.every((agent) => agent.agentType === first) ? first : 'mixed';
 }
 
 function dedupeEventsById(
@@ -349,6 +488,14 @@ function hasErrorPayload(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const error = value as Record<string, unknown>;
   return textOf(error.message, textOf(error.reason, textOf(error.kind))).length > 0;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function firstText(...values: unknown[]): string {

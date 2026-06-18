@@ -1,5 +1,10 @@
 import { textOf } from './utils/record';
 
+export interface MobileModeBadgeSnapshot {
+  readonly label: string;
+  readonly tone?: 'attention' | 'info';
+}
+
 export interface MobileState {
   readonly connected: boolean;
   readonly activeWorkspaceId: string | null;
@@ -21,7 +26,7 @@ export interface MobileState {
   readonly autoApprove: boolean;
   readonly activeMode: string | null;
   readonly activeProvider: string | null;
-  readonly modeBadge: Record<string, unknown> | null;
+  readonly modeBadge: MobileModeBadgeSnapshot | null;
   readonly transcriptionId: string | null;
   readonly transcriptionText: string | null;
   readonly transcribing: boolean;

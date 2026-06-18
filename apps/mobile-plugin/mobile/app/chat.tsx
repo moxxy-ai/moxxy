@@ -8,18 +8,24 @@ import { FloatingChatHeader } from '@/components/FloatingChatHeader';
 import { GoalSheet } from '@/components/GoalSheet';
 import { MobileMenuSheet } from '@/components/MobileMenuSheet';
 import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
+import { ModeSelectorSheet } from '@/components/ModeSelectorSheet';
+import { buildFloatingSheetPlacement } from '@/floatingSheetLayout';
+import { buildGoalSheetPlacement } from '@/goalSheetLayout';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
+import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useMessageCopy } from '@/hooks/useMessageCopy';
 import { useMobileChrome } from '@/hooks/useMobileChrome';
 import { useWorkspaceCollapse } from '@/hooks/useWorkspaceCollapse';
 import { buildMobileMenuItems, buildWorkspaceMenuSections } from '@/navigation';
 import { buildChatConnectionUi } from '@/chatConnectionUi';
 import { textOf } from '@/utils/record';
-import { KeyboardAvoidingView, Platform, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useState } from 'react';
+import { KeyboardAvoidingView, Platform, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ChatScreen() {
   const { autoApprove, chat, compact, composer, gatewayConnected, goals, modelSelector, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
+  const [composerHeight, setComposerHeight] = useState(0);
   const chrome = useMobileChrome();
   const messageCopy = useMessageCopy();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
@@ -33,6 +39,30 @@ export default function ChatScreen() {
   const menuItems = buildMobileMenuItems(pendingActions);
   const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
   const workspaceCollapse = useWorkspaceCollapse(workspaceSections);
+  const { height: screenHeight } = useWindowDimensions();
+  const safeArea = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
+  const goalPlacement = buildGoalSheetPlacement({
+    screenHeight,
+    topSafeArea: safeArea.top,
+    keyboardHeight,
+  });
+  const floatingSheet = buildFloatingSheetPlacement({
+    composerHeight,
+    screenHeight,
+    topSafeArea: safeArea.top,
+  });
+  const floatingSheetStyle = {
+    bottom: floatingSheet.bottom,
+    left: 16,
+    maxHeight: floatingSheet.maxHeight,
+    position: 'absolute' as const,
+    right: 16,
+    zIndex: 40,
+  };
+  const handleComposerHeightChange = useCallback((height: number) => {
+    setComposerHeight((current) => (Math.abs(current - height) > 1 ? height : current));
+  }, []);
 
   return (
     <AppShell>
@@ -58,10 +88,11 @@ export default function ChatScreen() {
           ) : null}
 
           {pendingActions > 0 && !composer.actionsOpen && !goals.open ? (
-            <View className="absolute z-20" style={{ bottom: 126, left: 16, position: 'absolute', right: 16, zIndex: 20 }}>
+            <View className="absolute z-40" style={floatingSheetStyle}>
               <AskSheet
                 asks={permissions.pendingAsks}
                 permissions={permissions.pendingPermissions}
+                maxHeight={floatingSheet.maxHeight}
                 onAskResponse={permissions.respondAsk}
                 onPermissionDecision={permissions.decidePermission}
               />
@@ -69,10 +100,22 @@ export default function ChatScreen() {
           ) : null}
 
           {goals.open ? (
-            <View className="absolute z-40" style={{ bottom: 126, left: 16, position: 'absolute', right: 16, zIndex: 40 }}>
+            <View
+              className="absolute z-40"
+              style={{
+                left: 16,
+                maxHeight: goalPlacement.maxHeight,
+                position: 'absolute',
+                right: 16,
+                top: goalPlacement.top,
+                zIndex: 40,
+              }}
+            >
               <GoalSheet
                 objective={goals.objective}
                 canStart={goals.canStart}
+                maxHeight={goalPlacement.maxHeight}
+                inputMaxHeight={goalPlacement.inputMaxHeight}
                 onObjectiveChange={goals.setObjective}
                 onStart={goals.startGoal}
                 onClose={() => goals.setOpen(false)}
@@ -81,7 +124,7 @@ export default function ChatScreen() {
           ) : null}
 
           {compact.confirmOpen ? (
-            <View className="absolute z-40" style={{ bottom: 126, left: 16, position: 'absolute', right: 16, zIndex: 40 }}>
+            <View className="absolute z-40" style={floatingSheetStyle}>
               <CompactContextSheet
                 open={compact.confirmOpen}
                 compacting={chat.compacting}
@@ -91,8 +134,19 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
+          {modelSelector.modeOpen ? (
+            <View className="absolute z-40" style={floatingSheetStyle}>
+              <ModeSelectorSheet
+                ui={modelSelector.modeUi}
+                error={modelSelector.error}
+                onClose={modelSelector.closeModePicker}
+                onPickMode={modelSelector.pickMode}
+              />
+            </View>
+          ) : null}
+
           {modelSelector.open ? (
-            <View className="absolute z-40" style={{ bottom: 126, left: 16, position: 'absolute', right: 16, zIndex: 40 }}>
+            <View className="absolute z-40" style={floatingSheetStyle}>
               <ModelSelectorSheet
                 ui={modelSelector.ui}
                 error={modelSelector.error}
@@ -144,6 +198,9 @@ export default function ChatScreen() {
             usage={chat.usage}
             modelLabel={modelSelector.ui.chipLabel}
             modelDisabled={modelSelector.disabled}
+            modeLabel={modelSelector.modeUi.chipLabel}
+            modeDisabled={modelSelector.modeUi.disabled || !session.connected || session.readOnly}
+            modeBanner={modelSelector.modeUi.banner}
             onTextChange={composer.setText}
             onSubmit={composer.submit}
             onAbort={composer.abort}
@@ -151,6 +208,10 @@ export default function ChatScreen() {
             onOpenModelSelector={() => {
               composer.setActionsOpen(false);
               modelSelector.openPicker();
+            }}
+            onOpenModeSelector={() => {
+              composer.setActionsOpen(false);
+              modelSelector.openModePicker();
             }}
             onGoal={() => goals.setOpen(true)}
             onVoice={composer.transcribe}
@@ -161,6 +222,7 @@ export default function ChatScreen() {
             onNewSession={sessions.newSession}
             onCompact={compact.requestCompact}
             onCommand={composer.runCommand}
+            onHeightChange={handleComposerHeightChange}
           />
         </KeyboardAvoidingView>
       </SafeAreaView>

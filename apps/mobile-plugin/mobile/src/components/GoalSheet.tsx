@@ -4,6 +4,8 @@ import { MobileIcon } from './MobileIcon';
 interface GoalSheetProps {
   readonly objective: string;
   readonly canStart: boolean;
+  readonly maxHeight?: number;
+  readonly inputMaxHeight?: number;
   readonly onObjectiveChange: (value: string) => void;
   readonly onStart: () => void;
   readonly onClose?: () => void;
@@ -11,7 +13,7 @@ interface GoalSheetProps {
 
 export function GoalSheet(props: GoalSheetProps) {
   return (
-    <View className="gap-4 rounded-card border border-cardBorder bg-cardBg p-4 shadow-card">
+    <View className="gap-4 rounded-card border border-cardBorder bg-cardBg p-4 shadow-card" style={{ maxHeight: props.maxHeight }}>
       <View className="flex-row items-center justify-between gap-3">
         <Text className="text-[18px] font-black text-text">Start a goal</Text>
         {props.onClose ? (
@@ -26,7 +28,9 @@ export function GoalSheet(props: GoalSheetProps) {
         multiline
         placeholder="Describe the objective to accomplish..."
         placeholderTextColor="#94a3b8"
+        scrollEnabled
         className="min-h-32 rounded-block border border-cardBorder bg-cardBg px-3 py-3 text-[14px] leading-5 text-text"
+        style={{ maxHeight: props.inputMaxHeight }}
       />
       <Pressable
         className={`min-h-11 items-center justify-center rounded-block ${

@@ -1,11 +1,14 @@
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import { summarizeAttachment } from '@/attachments';
 import { buildComposerUiState } from '@/composerUi';
 import type { PromptAttachment } from '@/clientFrames';
 import { useComposerToolbarLayout } from '@/hooks/useComposerToolbarLayout';
+import type { ModeSelectorUiState } from '../modeSelector';
 import { ComposerActionMenu } from './ComposerActionMenu';
 import { ContextMeter } from './ContextMeter';
 import { MobileIcon } from './MobileIcon';
+
+type ModeBannerState = NonNullable<ModeSelectorUiState['banner']>;
 
 interface ComposerCardProps {
   readonly text: string;
@@ -22,11 +25,15 @@ interface ComposerCardProps {
   readonly usage: Record<string, unknown> | null;
   readonly modelLabel: string;
   readonly modelDisabled: boolean;
+  readonly modeLabel: string;
+  readonly modeDisabled: boolean;
+  readonly modeBanner: ModeBannerState | null;
   readonly onTextChange: (value: string) => void;
   readonly onSubmit: () => void;
   readonly onAbort: () => void;
   readonly onToggleActions: () => void;
   readonly onOpenModelSelector: () => void;
+  readonly onOpenModeSelector: () => void;
   readonly onGoal: () => void;
   readonly onVoice: () => void;
   readonly onPickImage: () => void;
@@ -36,6 +43,7 @@ interface ComposerCardProps {
   readonly onNewSession: () => void;
   readonly onCompact: () => void;
   readonly onCommand: (name: string, args?: string) => void;
+  readonly onHeightChange?: (height: number) => void;
 }
 
 export function ComposerCard(props: ComposerCardProps) {
@@ -56,9 +64,16 @@ export function ComposerCard(props: ComposerCardProps) {
       ? '#e3e5f0'
       : '#ec4899';
   const sendIconColor = ui.sendTone === 'disabled' ? '#94a3b8' : '#ffffff';
+  const handleLayout = (event: LayoutChangeEvent): void => {
+    props.onHeightChange?.(event.nativeEvent.layout.height);
+  };
 
   return (
-    <View className="relative z-30 px-4 pb-3 pt-2" style={{ paddingBottom: 12, paddingHorizontal: 16, paddingTop: 8 }}>
+    <View
+      className="relative z-30 px-4 pb-3 pt-2"
+      style={{ paddingBottom: 12, paddingHorizontal: 16, paddingTop: 8 }}
+      onLayout={handleLayout}
+    >
       <ComposerActionMenu
         open={props.actionsOpen}
         autoApprove={props.autoApprove}
@@ -117,6 +132,7 @@ export function ComposerCard(props: ComposerCardProps) {
             <MobileIcon name="bolt" size={14} strokeWidth={2.6} color="#db2777" />
           </View>
         ) : null}
+        {props.modeBanner ? <ModeStatusBanner banner={props.modeBanner} /> : null}
         <TextInput
           key={`composer-input-${props.inputResetKey}`}
           value={props.text}
@@ -150,6 +166,24 @@ export function ComposerCard(props: ComposerCardProps) {
             {props.attachmentError}
           </Text>
         ) : null}
+
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+          <PickerChip
+            label="Model"
+            value={props.modelLabel}
+            disabled={props.modelDisabled}
+            accessibilityLabel="Pick provider and model"
+            onPress={props.onOpenModelSelector}
+          />
+          <PickerChip
+            label="Mode"
+            value={props.modeLabel}
+            disabled={props.modeDisabled}
+            accent={props.modeBanner ? 'attention' : 'neutral'}
+            accessibilityLabel="Pick mode"
+            onPress={props.onOpenModeSelector}
+          />
+        </View>
 
         <View style={{ alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 8 }}>
           <Pressable
@@ -205,34 +239,7 @@ export function ComposerCard(props: ComposerCardProps) {
             </Text>
           </Pressable>
 
-          <Pressable
-            accessibilityLabel="Pick provider and model"
-            accessibilityRole="button"
-            disabled={props.modelDisabled}
-            style={{
-              alignItems: 'center',
-              backgroundColor: props.modelDisabled ? '#f1f2f9' : '#ffffff',
-              borderColor: '#e3e5f0',
-              borderRadius: 10,
-              borderWidth: 1,
-              flex: 1,
-              flexDirection: 'row',
-              gap: 6,
-              height: 44,
-              justifyContent: 'center',
-              maxWidth: toolbar.modelMaxWidth,
-              minWidth: toolbar.modelMinWidth,
-              opacity: props.modelDisabled ? 0.58 : 1,
-              paddingHorizontal: 10,
-            }}
-            onPress={props.onOpenModelSelector}
-          >
-            <Text className="text-[12px] font-bold text-dim">Model:</Text>
-            <Text className="min-w-0 flex-1 text-[12px] font-bold text-text" numberOfLines={1}>
-              {props.modelLabel}
-            </Text>
-            <MobileIcon name="chevronDown" size={13} strokeWidth={2.5} color="#64748b" />
-          </Pressable>
+          <View style={{ flex: 1, minWidth: 8 }} />
 
           <Pressable
             accessibilityLabel={props.sending ? 'Stop response' : 'Send message'}
@@ -272,6 +279,90 @@ export function ComposerCard(props: ComposerCardProps) {
         ) : null}
       </View>
     </View>
+  );
+}
+
+function ModeStatusBanner({ banner }: { readonly banner: ModeBannerState }) {
+  const accent = banner.tone === 'attention' ? '#f59e0b' : '#06b6d4';
+  const soft = banner.tone === 'attention' ? '#fffbeb' : '#ecfeff';
+  return (
+    <View
+      style={{
+        alignItems: 'center',
+        backgroundColor: soft,
+        borderColor: accent,
+        borderRadius: 10,
+        borderWidth: 1,
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+      }}
+    >
+      <View
+        style={{
+          alignItems: 'center',
+          backgroundColor: accent,
+          borderRadius: 999,
+          minWidth: 44,
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+        }}
+      >
+        <Text className="text-[11px] font-black text-white">{banner.label}</Text>
+      </View>
+      <Text className="min-w-0 flex-1 text-[12px] font-bold leading-4 text-text">
+        {banner.description}
+      </Text>
+    </View>
+  );
+}
+
+function PickerChip({
+  label,
+  value,
+  disabled,
+  accent = 'neutral',
+  accessibilityLabel,
+  onPress,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly disabled: boolean;
+  readonly accent?: 'neutral' | 'attention';
+  readonly accessibilityLabel: string;
+  readonly onPress: () => void;
+}) {
+  const active = accent === 'attention';
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      disabled={disabled}
+      style={{
+        alignItems: 'center',
+        backgroundColor: disabled ? '#f1f2f9' : active ? '#fffbeb' : '#ffffff',
+        borderColor: active ? '#f59e0b' : '#e3e5f0',
+        borderRadius: 10,
+        borderWidth: 1,
+        flex: 1,
+        flexDirection: 'row',
+        gap: 6,
+        height: 44,
+        justifyContent: 'center',
+        minWidth: 0,
+        opacity: disabled ? 0.58 : 1,
+        paddingHorizontal: 10,
+      }}
+      onPress={onPress}
+    >
+      <Text className="text-[12px] font-bold text-dim">{label}:</Text>
+      <Text className="min-w-0 flex-1 text-[12px] font-bold text-text" numberOfLines={1}>
+        {value}
+      </Text>
+      <MobileIcon name="chevronDown" size={13} strokeWidth={2.5} color={active ? '#f59e0b' : '#64748b'} />
+    </Pressable>
   );
 }
 

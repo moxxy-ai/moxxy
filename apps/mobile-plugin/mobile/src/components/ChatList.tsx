@@ -8,7 +8,13 @@ import {
 } from 'react-native';
 import { useCallback, useState } from 'react';
 import { summarizeAttachment } from '@/attachments';
-import type { AssistantTranscriptItem, SystemGroupTranscriptItem, ToolGroupTranscriptItem, TranscriptItem } from '@/chatTranscript';
+import type {
+  AssistantTranscriptItem,
+  SubagentGroupTranscriptItem,
+  SystemGroupTranscriptItem,
+  ToolGroupTranscriptItem,
+  TranscriptItem,
+} from '@/chatTranscript';
 import type { PromptAttachment } from '@/clientFrames';
 import { shouldLoadOlderFromScroll, shouldShowThinkingIndicator } from '@/chatListState';
 import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
@@ -135,6 +141,10 @@ function MessageBlock({
 
   if (item.kind === 'tool-group') {
     return <ToolGroupMessage group={item} />;
+  }
+
+  if (item.kind === 'subagent-group') {
+    return <SubagentGroupMessage group={item} />;
   }
 
   if (item.kind === 'system-group') {
@@ -363,6 +373,76 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
   );
 }
 
+function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscriptItem }) {
+  const [open, setOpen] = useState(group.status === 'running');
+  const accent = group.status === 'failed' ? '#ef4444' : group.status === 'running' ? '#8b5cf6' : '#16a34a';
+  const tint = group.status === 'failed' ? '#fee2e2' : group.status === 'running' ? '#f5f3ff' : '#ecfdf5';
+
+  return (
+    <View
+      style={{
+        alignSelf: 'stretch',
+        flexDirection: 'row',
+        gap: 12,
+        maxWidth: '96%',
+      }}
+    >
+      <View
+        style={{ alignItems: 'center', backgroundColor: tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}
+      >
+        <MobileIcon name="agent" size={17} strokeWidth={2.35} color={accent} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          onPress={() => setOpen((value) => !value)}
+          style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 34 }}
+        >
+          <View
+            style={{
+              backgroundColor: accent,
+              borderRadius: 999,
+              height: 6,
+              opacity: group.status === 'running' ? 1 : 0.7,
+              width: 6,
+            }}
+          />
+          <Text className="flex-1 text-[13px] font-bold text-text" numberOfLines={1}>
+            {group.summary}
+          </Text>
+          <Text className="text-[16px] font-bold text-dim">{open ? '-' : '+'}</Text>
+        </Pressable>
+        {open ? (
+          <View style={{ borderLeftColor: '#c7d2fe', borderLeftWidth: 1, gap: 6, marginTop: 6, paddingLeft: 10 }}>
+            {group.agents.map((agent) => (
+              <View key={agent.id} style={{ minWidth: 0 }}>
+                <Text className="text-[12px] font-semibold text-muted" numberOfLines={1}>
+                  {agent.label} · {agent.toolCallCount} {agent.toolCallCount === 1 ? 'tool' : 'tools'}
+                  {formatAgentTokens(agent.tokensUsed)}
+                </Text>
+                <Text style={{ color: agent.status === 'failed' ? '#ef4444' : accent, fontSize: 11, fontWeight: '800' }}>
+                  {agent.status === 'done' ? 'Done' : agent.status === 'failed' ? 'Failed' : 'running'}
+                </Text>
+                {agent.error ? (
+                  <Text className="mt-1 text-[11px] leading-4 text-red" numberOfLines={2}>
+                    {agent.error}
+                  </Text>
+                ) : null}
+                {agent.finalPreview ? (
+                  <Text className="mt-1 text-[11px] leading-4 text-dim" numberOfLines={2}>
+                    {agent.finalPreview}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptItem }) {
   const [open, setOpen] = useState(false);
   return (
@@ -409,4 +489,10 @@ function statusLabel(status: 'running' | 'ok' | 'error'): string {
   if (status === 'ok') return 'ok';
   if (status === 'error') return 'failed';
   return 'running';
+}
+
+function formatAgentTokens(tokens: number | null): string {
+  if (!tokens || tokens <= 0) return '';
+  if (tokens >= 1000) return ` · ${(tokens / 1000).toFixed(1)}k tokens`;
+  return ` · ${tokens} tokens`;
 }

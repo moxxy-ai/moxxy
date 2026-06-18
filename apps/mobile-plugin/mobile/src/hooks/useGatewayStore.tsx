@@ -166,7 +166,10 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       if (type === 'setMode') {
         const mode = textOf(frame.mode);
         if (mode) {
-          void api().invoke('session.setMode', { ...workspaceParam(workspaceId), mode }).catch(() => undefined);
+          void api()
+            .invoke('session.setMode', { ...workspaceParam(workspaceId), mode })
+            .then(() => modelSelector.refresh())
+            .catch(() => undefined);
         }
         return;
       }
@@ -203,11 +206,12 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
           .catch(() => undefined);
       }
     },
-    [activeDesk?.id, coreChat, coreDeskSessions, coreDesks, workspaceId],
+    [activeDesk?.id, coreChat, coreDeskSessions, coreDesks, modelSelector, workspaceId],
   );
 
   const activeMode = phaseInfo.activeMode ?? modelSelector.activeMode ?? null;
   const activeProvider = phaseInfo.activeProvider ?? modelSelector.activeProvider ?? null;
+  const modeBadge = modelSelector.activeModeBadge;
 
   const state = useMemo<MobileState>(() => {
     const desks = coreDesks.desks;
@@ -253,12 +257,14 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       autoApprove: autoApproveEnabled,
       activeMode,
       activeProvider,
+      modeBadge,
       transcriptionId: transcription?.id ?? null,
       transcriptionText: transcription?.text ?? null,
     };
   }, [
     activeMode,
     activeProvider,
+    modeBadge,
     autoApproveEnabled,
     connected,
     contextUsage.contextTokens,

@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { recordId, textOf } from '@/utils/record';
 import type { PermissionResponseMode } from '../permissionResponse';
 import { ApprovalCard } from './ApprovalCard';
@@ -7,6 +7,7 @@ import { PermissionCard } from './PermissionCard';
 interface AskSheetProps {
   readonly asks: ReadonlyArray<Record<string, unknown>>;
   readonly permissions: ReadonlyArray<Record<string, unknown>>;
+  readonly maxHeight?: number;
   readonly onAskResponse: (requestId: string, response: Record<string, unknown>) => void;
   readonly onPermissionDecision: (permissionId: string, mode: PermissionResponseMode) => void;
 }
@@ -27,7 +28,12 @@ export function AskSheet(props: AskSheetProps) {
   const extraCount = total - 1;
 
   return (
-    <View className="gap-2">
+    <ScrollView
+      className="gap-2"
+      keyboardShouldPersistTaps="handled"
+      style={{ maxHeight: props.maxHeight }}
+      contentContainerStyle={{ gap: 8 }}
+    >
       {extraCount > 0 ? (
         <View className="self-start rounded-pill bg-cardBg px-3 py-1.5">
           <Text className="text-[11px] font-bold text-muted">+{extraCount} more pending</Text>
@@ -66,6 +72,6 @@ export function AskSheet(props: AskSheetProps) {
           );
         })()
       ) : null}
-    </View>
+    </ScrollView>
   );
 }
