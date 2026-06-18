@@ -134,9 +134,32 @@ function renderResult(content: ReadonlyArray<McpContentBlock> | undefined, isErr
   const parts: string[] = [];
   for (const block of content ?? []) {
     if (block.type === 'text') parts.push(block.text);
+    // Images still can't be surfaced through this string-returning handler
+    // (rich image passthrough would need the document/image ContentBlock
+    // path); keep the placeholder so the model at least knows one exists.
     else if (block.type === 'image') parts.push(`[image:${block.mimeType}]`);
-    else if (block.type === 'resource') parts.push(`[resource]`);
+    else if (block.type === 'resource') parts.push(renderResource(block.resource));
   }
   const text = parts.join('\n');
   return isError ? `[error] ${text}` : text;
+}
+
+/**
+ * Surface an MCP resource block. A text resource (`resource.text`) is the
+ * whole point — passing it through stops the model getting a bare
+ * `[resource]` for content it could actually read. A binary/blob resource
+ * has no text representation here, so we annotate the placeholder with its
+ * uri/mimeType rather than swallow it silently.
+ */
+function renderResource(resource: unknown): string {
+  if (resource && typeof resource === 'object') {
+    const r = resource as { uri?: unknown; mimeType?: unknown; text?: unknown };
+    if (typeof r.text === 'string') return r.text;
+    const meta = [
+      typeof r.uri === 'string' ? r.uri : null,
+      typeof r.mimeType === 'string' ? r.mimeType : null,
+    ].filter((v): v is string => v !== null);
+    if (meta.length > 0) return `[resource:${meta.join(' ')}]`;
+  }
+  return `[resource]`;
 }

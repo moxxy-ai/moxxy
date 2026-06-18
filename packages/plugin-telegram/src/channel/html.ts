@@ -27,14 +27,32 @@ export function composeFrame(snap: RenderedFrame): string {
 
 /** Strip every HTML tag for plain-text fallback when Telegram rejects
  *  our parse_mode=HTML payload (rare — usually a malformed entity in
- *  user-supplied content). Keeps text content intact. */
+ *  user-supplied content). Keeps text content intact.
+ *
+ *  Entities are decoded in a single pass with `&amp;` LAST: decoding it first
+ *  would double-decode (`&amp;lt;` → `&lt;` → `<`). Numeric entities
+ *  (`&#39;`, `&#x27;`) are handled too, since escaped user/code content can
+ *  carry them and they'd otherwise leak literally into the fallback message. */
 export function stripHtml(html: string): string {
   return html
     .replace(/<\/?[a-z][^>]*>/gi, '')
-    .replace(/&amp;/g, '&')
+    .replace(/&#(\d+);/g, (_, dec: string) => safeFromCodePoint(parseInt(dec, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => safeFromCodePoint(parseInt(hex, 16)))
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"');
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&');
+}
+
+/** Decode a numeric entity's code point, leaving an out-of-range/invalid value
+ *  untouched (return empty) rather than throwing. */
+function safeFromCodePoint(cp: number): string {
+  if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) return '';
+  try {
+    return String.fromCodePoint(cp);
+  } catch {
+    return '';
+  }
 }
 
 export function truncate(s: string, n: number): string {

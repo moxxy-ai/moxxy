@@ -48,6 +48,38 @@ describe('checkFsCap', () => {
     expect(r.ok).toBe(true);
   });
 
+  // u105-9: a host-qualified file URL is not a local path — old code sliced
+  // the prefix to `evil/secret` and resolved it under cwd (a false ALLOW for
+  // an in-cwd lookalike). It must be denied.
+  it('denies a host-qualified file:// URL (not a local path)', () => {
+    const r = checkFsCap(
+      { src: 'file://evil/work/secret' },
+      { read: ['$cwd/**'] },
+      '/work',
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  // u105-9: percent-encoded escapes must be decoded before the in-scope check.
+  it('decodes percent-encoded file:// paths so traversal is caught', () => {
+    // `%2e%2e` is `..`; decoded the path escapes cwd and must be denied.
+    const r = checkFsCap(
+      { src: 'file:///work/%2e%2e/etc/passwd' },
+      { read: ['$cwd/**'] },
+      '/work',
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('decodes a percent-encoded in-scope file:// path (spaces)', () => {
+    const r = checkFsCap(
+      { src: 'file:///work/a%20b.ts' },
+      { read: ['$cwd/**'] },
+      '/work',
+    );
+    expect(r.ok).toBe(true);
+  });
+
   it('detects file_path (snake_case) as a path field', () => {
     const r = checkFsCap(
       { file_path: '/etc/passwd' },

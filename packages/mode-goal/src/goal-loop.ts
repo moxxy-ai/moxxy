@@ -204,6 +204,25 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     }
     reactiveCompactions = 0;
 
+    // Finalize the reasoning summary for THIS call before any exit decision or
+    // tool/assistant emit, so the log order is reasoning → tool_use → text
+    // (projection attaches the signed thinking block as content[0] of the same
+    // turn). Emitting it ahead of the budget backstop keeps every exit path
+    // consistent — the budget-exhausting call's reasoning is logged just like
+    // any other call's, rather than being silently dropped at this exit.
+    if (reasoning) {
+      yield await ctx.emit({
+        type: 'reasoning_message',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'model',
+        content: reasoning.text,
+        ...(reasoning.signature ? { signature: reasoning.signature } : {}),
+        ...(reasoning.redacted ? { redacted: true } : {}),
+        ...(reasoning.encrypted ? { encrypted: reasoning.encrypted } : {}),
+      });
+    }
+
     // Token budget backstop (alongside the iteration cap).
     if (totalTokens > GOAL_TOKEN_BUDGET) {
       yield await ctx.emit({
@@ -227,22 +246,6 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
         stopReason: 'end_turn',
       });
       return;
-    }
-
-    // Finalize the reasoning summary for THIS call before the tool/assistant
-    // emits so the log order is reasoning → tool_use → text (projection
-    // attaches the signed thinking block as content[0] of the same turn).
-    if (reasoning) {
-      yield await ctx.emit({
-        type: 'reasoning_message',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'model',
-        content: reasoning.text,
-        ...(reasoning.signature ? { signature: reasoning.signature } : {}),
-        ...(reasoning.redacted ? { redacted: true } : {}),
-        ...(reasoning.encrypted ? { encrypted: reasoning.encrypted } : {}),
-      });
     }
 
     const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, {

@@ -1,4 +1,4 @@
-import { pollUntil, type PollOutcome } from './poll-until.js';
+import { pollUntil, type PollOutcome, type PollState } from './poll-until.js';
 import { classifyDeviceTokenResponse, requestDeviceAuthorization } from './device-flow-shared.js';
 import type { DeviceFlowOptions, TokenSet } from './types.js';
 
@@ -56,7 +56,7 @@ export async function runDeviceCodeFlow(opts: DeviceFlowOptions): Promise<TokenS
 async function pollOnce(
   opts: DeviceFlowOptions,
   deviceCode: string,
-  state: { intervalMs: number },
+  state: PollState,
 ): Promise<PollOutcome<TokenSet>> {
   const body = new URLSearchParams();
   body.set('grant_type', 'urn:ietf:params:oauth:grant-type:device_code');
@@ -67,6 +67,7 @@ async function pollOnce(
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: body.toString(),
+    ...(state.signal ? { signal: state.signal } : {}),
   });
   const pollJson = (await pollRes.json().catch(() => ({}))) as Record<string, unknown>;
   return classifyDeviceTokenResponse(pollRes, pollJson, state);

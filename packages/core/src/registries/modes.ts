@@ -28,7 +28,17 @@ export class ModeRegistry {
 
   replace(mode: ModeDef): void {
     this.modes.set(mode.name, mode);
-    if (!this.active) this.activate(mode);
+    if (!this.active) {
+      this.activate(mode);
+    } else if (this.active === mode.name) {
+      // The active mode's def was swapped in place (e.g. a hot-reloaded mode
+      // plugin). `getActive()` already returns the new def, but observers of
+      // `onActiveChange` (the runner broadcasting InfoChanged) must be told the
+      // active behaviour changed under them, or remote clients keep driving the
+      // stale def. `activate()` would early-return on the name match, so notify
+      // directly.
+      for (const fn of this.changeListeners) fn();
+    }
   }
 
   /**

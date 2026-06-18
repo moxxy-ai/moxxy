@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -97,5 +97,30 @@ describe('readClipboardImageSync (Linux path)', () => {
     const { readClipboardImageSync } = await loadModule();
     expect(readClipboardImageSync()).toBeNull();
     expect(spawnSyncMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('reapStale (u77-2: cache no longer grows unbounded)', () => {
+  it('removes stale clip-*.png and keeps recent ones (by embedded timestamp)', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'moxxy-clip-reap-'));
+    tempDirs.push(dir);
+    const now = 1_000_000_000_000;
+    const old = now - 48 * 60 * 60 * 1000; // 48h ago
+    const recent = now - 60 * 1000; // 1m ago
+    writeFileSync(path.join(dir, `clip-${old}-aaaaaa.png`), 'x');
+    writeFileSync(path.join(dir, `clip-${recent}-bbbbbb.png`), 'x');
+    // Non-clip files (and unrelated names) are never touched.
+    writeFileSync(path.join(dir, 'keep-me.txt'), 'x');
+
+    const { reapStale } = await loadModule();
+    reapStale(dir, now);
+
+    const left = readdirSync(dir).sort();
+    expect(left).toEqual([`clip-${recent}-bbbbbb.png`, 'keep-me.txt'].sort());
+  });
+
+  it('is a no-op on a missing directory (never throws during a paste)', async () => {
+    const { reapStale } = await loadModule();
+    expect(() => reapStale(path.join(tmpdir(), 'moxxy-clip-does-not-exist-xyz'))).not.toThrow();
   });
 });

@@ -121,10 +121,15 @@ export async function createUnixSocketServer(
     warnWindowsPipeAclOnce(logger, socketPath);
   }
 
-  const connectionHandlers: Array<(t: Transport) => void> = [];
+  // Single connection handler, last-write-wins — consistent with this file's
+  // Transport.onFrame/onClose (also single-handler) and the TransportServer
+  // contract (RunnerServer registers exactly one). An array would imply a
+  // fan-out semantic nothing supports: two consumers would each wrap every
+  // accepted socket in its own JsonRpcPeer.
+  let connectionHandler: ((t: Transport) => void) | undefined;
   const server = net.createServer((socket) => {
     const transport = new NdjsonTransport(socket);
-    for (const handler of connectionHandlers) handler(transport);
+    connectionHandler?.(transport);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -154,7 +159,7 @@ export async function createUnixSocketServer(
   return {
     address: socketPath,
     onConnection(handler) {
-      connectionHandlers.push(handler);
+      connectionHandler = handler;
     },
     close() {
       return new Promise<void>((resolve) => {

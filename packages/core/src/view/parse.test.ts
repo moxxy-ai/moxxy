@@ -85,6 +85,25 @@ describe('parseView — valid', () => {
     expect(input.props.required).toBe(true);
   });
 
+  it('u50-2: decodes HTML entities in attribute string values (consistent with text)', () => {
+    const res = parse(`<view><image src="/logo.png" alt="Tom &amp; Jerry &lt;3" /></view>`);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const img = find(res.doc.root, 'image')!;
+    expect(img.props.alt).toBe('Tom & Jerry <3');
+  });
+
+  it('u50-2: entity-decoded href is still scheme-checked on the decoded value', () => {
+    // A plain disallowed scheme stays rejected (unchanged).
+    expect(parse(`<view><link href="javascript:alert(1)">x</link></view>`).ok).toBe(false);
+    // An href whose entities decode to a still-safe value is accepted, with
+    // the decoded form on props.
+    const res = parse(`<view><link href="https://x.test/?a=1&amp;b=2">x</link></view>`);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(find(res.doc.root, 'link')!.props.href).toBe('https://x.test/?a=1&b=2');
+  });
+
   it('carries explicit button fields from a csv', () => {
     const res = parse(`<view><button action="go" label="Go" fields="a, b ,c" /></view>`);
     expect(res.ok).toBe(true);
@@ -108,6 +127,24 @@ describe('parseView — rejected (security + allow-list)', () => {
 
   it('rejects unknown attributes', () => {
     expectError(`<view><text style="color:red">x</text></view>`, /unknown attribute "style"/);
+  });
+
+  it('u50-3: an unknown tag yields exactly one error, not one-per-attribute', () => {
+    const res = parse(`<view><evil a="1" b="2" /></view>`);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    // Exactly the tag error — no `unknown attribute` spam for a/b on top of it.
+    expect(res.errors.some((e) => /unknown tag <evil>/.test(e.message))).toBe(true);
+    expect(res.errors.some((e) => /unknown attribute/.test(e.message))).toBe(false);
+    expect(res.errors).toHaveLength(1);
+  });
+
+  it('u50-3: on* handlers on an unknown tag are still rejected (no attr-suppression bypass)', () => {
+    const res = parse(`<view><evil onclick="boom()" /></view>`);
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.errors.some((e) => /unknown tag <evil>/.test(e.message))).toBe(true);
+    expect(res.errors.some((e) => /forbidden attribute "onclick"/.test(e.message))).toBe(true);
   });
 
   it('rejects on* handler attributes', () => {

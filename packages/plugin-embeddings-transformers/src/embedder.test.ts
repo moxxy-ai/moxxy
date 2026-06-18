@@ -135,6 +135,38 @@ describe('TransformersEmbedder', () => {
     await expect(e.embed(['a', 'b'])).rejects.toThrow(/2 inputs/);
   });
 
+  it('does NOT mutate process.env.HF_HOME at construction (cheap, side-effect-free createClient)', () => {
+    // u84-3: the ctor used to write process.env.HF_HOME = cacheDir, so the
+    // last-constructed embedder silently rebound the cache dir for everyone.
+    const before = process.env.HF_HOME;
+    try {
+      new TransformersEmbedder({ cacheDir: '/tmp/cacheA', pipelineFactory: stubFactory([]) });
+      new TransformersEmbedder({ cacheDir: '/tmp/cacheB', pipelineFactory: stubFactory([]) });
+      // No global clobber: HF_HOME is untouched by construction.
+      expect(process.env.HF_HOME).toBe(before);
+    } finally {
+      if (before === undefined) delete process.env.HF_HOME;
+      else process.env.HF_HOME = before;
+    }
+  });
+
+  it('does not touch HF_HOME when an injected pipelineFactory is used (no real load)', async () => {
+    // The injected-factory path (tests/embedded use) must never set the global,
+    // since it isn't loading the HF module at all.
+    const before = process.env.HF_HOME;
+    try {
+      const e = new TransformersEmbedder({
+        cacheDir: '/tmp/cacheC',
+        pipelineFactory: stubFactory([[1, 2, 3]]),
+      });
+      await e.embed(['x']);
+      expect(process.env.HF_HOME).toBe(before);
+    } finally {
+      if (before === undefined) delete process.env.HF_HOME;
+      else process.env.HF_HOME = before;
+    }
+  });
+
   it('chunks embed() by batchSize, calling the extractor ceil(n/batch) times in order', async () => {
     // The extractor echoes each input's numeric value as a one-element vector,
     // so we can assert both call count and output order across chunks.

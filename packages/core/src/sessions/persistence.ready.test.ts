@@ -10,7 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventLog } from '../events/log.js';
-import { SessionPersistence } from './persistence.js';
+import { SessionPersistence, restoreEvents } from './persistence.js';
 
 const tempDirs: string[] = [];
 
@@ -57,5 +57,35 @@ describe('SessionPersistence one-time setup (no per-flush open/close)', () => {
     const meta = JSON.parse(raw) as { eventCount: number; firstPrompt: string | null };
     expect(meta.eventCount).toBe(5);
     expect(meta.firstPrompt).toBe('msg 0');
+  });
+
+  it('first append into a not-yet-created nested dir does not race ensureDir (u45-1)', async () => {
+    // The first event arrives synchronously after attach, before the detached
+    // ensureReady() resolves, into a sessions dir that does not exist yet.
+    // appendFile(flag 'a') creates the file but NOT its parent dir, so without
+    // serializing the append behind ensureReady() this ENOENT'd, latched the
+    // "persistence degraded" warning, and lost the event.
+    const base = await makeTempDir();
+    const dir = path.join(base, 'deeply', 'nested', 'sessions'); // does not exist
+    const id = '01READYRACE00000000000000B';
+    const log = new EventLog();
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+
+    persistence.attach(log);
+    // Append in the SAME tick as attach — before ensureReady() can resolve.
+    await log.append({
+      type: 'user_prompt',
+      sessionId: id as never,
+      turnId: 't0' as never,
+      source: 'user',
+      text: 'first ever event',
+    });
+    await persistence.flush();
+
+    // Never went degraded, and the first event survived.
+    expect(persistence.degraded).toBe(false);
+    const restored = await restoreEvents(id, dir);
+    expect(restored).toHaveLength(1);
+    expect(restored[0]!.type).toBe('user_prompt');
   });
 });

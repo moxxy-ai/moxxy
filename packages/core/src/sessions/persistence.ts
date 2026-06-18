@@ -166,6 +166,18 @@ export class SessionPersistence {
   }
 
   /**
+   * Resolve once every event-log write queued so far has settled. Appends are
+   * enqueued fire-and-forget (`enqueueAppend`), so callers that need to observe
+   * the on-disk result of prior appends — graceful shutdown, or a test that
+   * mutates the filesystem between writes — await this to drain the queue
+   * rather than guessing at timing. Enqueues a no-op at the tail of the same
+   * mutex, so it can only resolve after all earlier appends/truncates have run.
+   */
+  async settleWrites(): Promise<void> {
+    await this.writeQueue.run(() => undefined);
+  }
+
+  /**
    * Manually update header fields (provider/model) when the user
    * switches mid-session. The /model picker calls this so the index
    * reflects the active model when the session is resumed.
@@ -195,8 +207,15 @@ export class SessionPersistence {
     // Never propagate a write error into the listener chain — but never
     // swallow it silently either: the JSONL is the session's source of
     // truth, so a failing disk must at least be loud.
+    //
+    // Serialize the append behind `ensureReady()` (memoized mkdir -p + open):
+    // `fs.appendFile` with flag 'a' creates the FILE but not its parent dir, so
+    // a first event that arrives before `attach()`'s detached `ensureReady()`
+    // resolves on a machine without `~/.moxxy/sessions` would ENOENT, latch the
+    // misleading "persistence degraded" warning, and lose that event. Because
+    // `ready` is memoized, every later append pays nothing.
     void this.writeQueue
-      .run(() => fs.appendFile(this.logPath, line, 'utf8'))
+      .run(() => this.ensureReady().then(() => fs.appendFile(this.logPath, line, 'utf8')))
       .then(() => this.noteWriteOk())
       .catch((err: unknown) => this.noteWriteFailure('append', err));
   }
@@ -245,7 +264,7 @@ export class SessionPersistence {
     };
     this.scheduleIndexWrite();
     void this.writeQueue
-      .run(() => fs.writeFile(this.logPath, '', 'utf8'))
+      .run(() => this.ensureReady().then(() => fs.writeFile(this.logPath, '', 'utf8')))
       .then(() => this.noteWriteOk())
       .catch((err: unknown) => this.noteWriteFailure('truncate', err));
   }

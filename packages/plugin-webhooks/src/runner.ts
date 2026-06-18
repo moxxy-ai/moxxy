@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk';
 import type { WebhookStore, WebhookTrigger } from './store.js';
@@ -49,7 +50,12 @@ async function writeInbox(
 ): Promise<string> {
   const dir = opts.dir ?? defaultWebhookInboxDir();
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const file = path.join(dir, `${stamp}-${trigger.name}.md`);
+  // The timestamp is only ms-resolution: two deliveries of the same trigger in
+  // the same millisecond (a retry/batch burst) would collide and the atomic
+  // tmp+rename would silently overwrite one fire's output. Suffix with the
+  // deliveryId (naturally unique per delivery) or a random fallback.
+  const suffix = deliveryId ? deliveryId.replace(/[^A-Za-z0-9._-]/g, '_') : randomUUID().slice(0, 8);
+  const file = path.join(dir, `${stamp}-${trigger.name}-${suffix}.md`);
   const header = [
     '---',
     `webhook: ${trigger.name}`,

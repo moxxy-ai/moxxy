@@ -43,6 +43,12 @@ export class EventLog implements EventLogReader {
   constructor(seed: ReadonlyArray<MoxxyEvent> = [], opts: { now?: () => number } = {}) {
     this.now = opts.now ?? Date.now;
     for (const e of seed) this.events.push(e);
+    // Align `base` to the first seeded event so `seq === base + index` holds
+    // regardless of where the seed starts. Today every caller seeds a log
+    // re-sequenced to 0..n-1 (so this is a no-op), but a caller seeding a tail
+    // slice (e.g. seq 50..) would otherwise get silently wrong at()/slice()
+    // seq-addressing and an off-by-`base` ingest() contiguity gate.
+    if (seed.length > 0) this.base = seed[0]!.seq;
   }
 
   get length(): number {

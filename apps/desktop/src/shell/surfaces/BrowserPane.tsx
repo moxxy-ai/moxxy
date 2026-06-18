@@ -132,8 +132,11 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         }}
         onWheel={(e) => surface.input({ type: 'scroll', dy: e.deltaY })}
         onKeyDown={(e) => {
-          // Forward typing + common control keys to the page.
+          // Forward typing + common control keys to the page. preventDefault so
+          // the key drives the remote page only — otherwise Tab moves focus out
+          // of the surface and arrows/Backspace scroll or navigate the host UI.
           if (e.key.length === 1 || ['Enter', 'Backspace', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+            e.preventDefault();
             surface.input({ type: 'key', key: e.key });
           }
         }}

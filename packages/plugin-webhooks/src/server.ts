@@ -159,15 +159,10 @@ export class WebhookServer {
       return;
     }
 
-    if (!shouldFire(trigger.filters, { headers: req.headers, body })) {
-      this.opts.logger?.info?.('webhooks: filtered out, not firing', {
-        trigger: trigger.name,
-      });
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ status: 'filtered' }));
-      return;
-    }
-
+    // Dedupe BEFORE the filter (and before the filter's body JSON-parse): a
+    // delivery we've already seen is a duplicate regardless of the filter, and
+    // dropping it here skips the parse work on aggressive retry storms. Verify
+    // stays first so we never dedupe-record an unverified request.
     const idempKey = idempotencyKey(trigger, req.headers);
     if (idempKey && !this.dedupe.check(trigger.id, idempKey)) {
       this.opts.logger?.info?.('webhooks: duplicate delivery, dropped', {
@@ -176,6 +171,15 @@ export class WebhookServer {
       });
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ status: 'duplicate' }));
+      return;
+    }
+
+    if (!shouldFire(trigger.filters, { headers: req.headers, body })) {
+      this.opts.logger?.info?.('webhooks: filtered out, not firing', {
+        trigger: trigger.name,
+      });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'filtered' }));
       return;
     }
 

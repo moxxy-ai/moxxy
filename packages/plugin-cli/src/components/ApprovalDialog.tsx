@@ -12,6 +12,21 @@ export interface ApprovalDialogProps {
 /** Maximum body lines rendered in one frame. Larger bodies become scrollable. */
 const MAX_BODY_LINES = 20;
 
+/**
+ * Whether a `j`/`k` keypress should scroll the body rather than fall through to
+ * an option hotkey. Scroll only wins when the body actually overflows AND no
+ * option claims that letter — otherwise a generic strategy that binds
+ * hotkey:'j'/'k' would be permanently unreachable. Exported for unit tests.
+ */
+export function jkScrolls(
+  letter: 'j' | 'k',
+  renderedLineCount: number,
+  options: ReadonlyArray<{ readonly hotkey?: string }>,
+): boolean {
+  if (renderedLineCount <= MAX_BODY_LINES) return false;
+  return !options.some((o) => o.hotkey === letter);
+}
+
 type LineRender = { readonly text: string; readonly color?: string; readonly dim?: boolean };
 
 /**
@@ -91,6 +106,18 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
   // collide.
   const [scrollOffset, setScrollOffset] = useState(0);
 
+  const rawLines = request.body.split('\n');
+  const diffMode = isDiffBody(request.body);
+  const rendered: LineRender[] = diffMode
+    ? renderDiffLines(rawLines)
+    : rawLines.map((text) => ({ text }));
+  // j/k double as body-scroll, but ONLY when the body actually overflows AND
+  // no option claims that letter as its hotkey — otherwise a generic strategy
+  // whose option binds hotkey:'j'/'k' would be permanently unreachable (scroll
+  // would swallow it). Falls through to the hotkey match in that case.
+  const scrollClaims = (letter: 'j' | 'k'): boolean =>
+    jkScrolls(letter, rendered.length, request.options);
+
   useInput((input, key) => {
     if (textEntry) {
       if (key.return) {
@@ -130,14 +157,15 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
       return;
     }
 
-    // Body scroll: j/k or PgDn/PgUp move through long bodies (e.g. diffs).
-    // Handled BEFORE hotkey/digit matching so a binding like hotkey='j'
-    // doesn't accidentally shadow scroll. No-op when the body fits.
-    if (input === 'j' || key.pageDown) {
-      setScrollOffset((o) => o + Math.max(1, Math.floor(MAX_BODY_LINES / 2)));
+    // Body scroll: j/k (only when the body overflows and no option claims the
+    // letter — see scrollClaims) or PgDn/PgUp move through long bodies (e.g.
+    // diffs). PgUp/PgDn always scroll; the j/k overlap yields to a hotkey.
+    const maxScroll = Math.max(0, rendered.length - MAX_BODY_LINES);
+    if ((input === 'j' && scrollClaims('j')) || key.pageDown) {
+      setScrollOffset((o) => Math.min(maxScroll, o + Math.max(1, Math.floor(MAX_BODY_LINES / 2))));
       return;
     }
-    if (input === 'k' || key.pageUp) {
+    if ((input === 'k' && scrollClaims('k')) || key.pageUp) {
       setScrollOffset((o) => Math.max(0, o - Math.max(1, Math.floor(MAX_BODY_LINES / 2))));
       return;
     }
@@ -191,14 +219,9 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
     onDecide({ optionId: id });
   };
 
-  const rawLines = request.body.split('\n');
-  const diffMode = isDiffBody(request.body);
-  const rendered: LineRender[] = diffMode
-    ? renderDiffLines(rawLines)
-    : rawLines.map((text) => ({ text }));
-
   // Clamp scrollOffset so we don't end up looking past the bottom when
-  // the body is short or the user paged down past the end.
+  // the body is short or the user paged down past the end. (`rendered` is
+  // computed above so the input handler can size scroll/overflow.)
   const maxOffset = Math.max(0, rendered.length - MAX_BODY_LINES);
   const offset = Math.min(scrollOffset, maxOffset);
   const visible = rendered.slice(offset, offset + MAX_BODY_LINES);

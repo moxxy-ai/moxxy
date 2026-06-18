@@ -131,6 +131,19 @@ export class CodexProvider implements LLMProvider {
         yield toErrorEvent(err);
         return;
       }
+      // A 401 that survives a forced refresh means the OAuth grant itself was
+      // rejected (expired/revoked), not a transient skew. Surface the same
+      // actionable re-auth guidance as ensureFresh rather than the generic
+      // "returned 401" HTTP message below.
+      if (response.status === 401) {
+        yield {
+          type: 'error',
+          message:
+            'ChatGPT OAuth credentials were rejected after a token refresh. Run `moxxy login openai-codex` to re-authenticate.',
+          retryable: false,
+        };
+        return;
+      }
     }
 
     if (!response.ok || !response.body) {

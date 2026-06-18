@@ -7,6 +7,28 @@ export interface ProcResult {
   readonly exitCode: number;
   readonly stdout: string;
   readonly stderr: string;
+  /**
+   * True when the child was force-killed because it exceeded `timeoutMs`.
+   * A timed-out child still resolves (via 'close') with `exitCode: -1`, so
+   * this flag is the only reliable way for callers to distinguish a timeout
+   * from a genuine non-zero exit and surface an actionable message.
+   */
+  readonly timedOut: boolean;
+  /** True when the child was force-killed because `opts.signal` aborted. */
+  readonly aborted: boolean;
+}
+
+/**
+ * Build a uniform failure suffix that names a timeout/abort when the process
+ * was force-killed, so a stuck `osascript` (etc.) is reported as a clear
+ * cause rather than a bare `exit -1`. Returns '' for a normal exit.
+ */
+export function procFailureCause(proc: ProcResult, timeoutMs?: number): string {
+  if (proc.timedOut) {
+    return timeoutMs ? `timed out after ${timeoutMs}ms` : 'timed out';
+  }
+  if (proc.aborted) return 'aborted (turn cancelled)';
+  return '';
 }
 
 /**
@@ -37,9 +59,12 @@ export function runProcess(
     const stdoutChunks: Buffer[] = [];
     let stderr = '';
     let settled = false;
+    let timedOut = false;
+    let aborted = false;
 
     const onAbort = (): void => {
       if (settled) return;
+      aborted = true;
       try {
         child.kill('SIGTERM');
       } catch {
@@ -51,6 +76,7 @@ export function runProcess(
     const timer = opts.timeoutMs
       ? setTimeout(() => {
           if (settled) return;
+          timedOut = true;
           try {
             child.kill('SIGTERM');
           } catch {
@@ -81,6 +107,8 @@ export function runProcess(
         exitCode: code ?? -1,
         stdout: Buffer.concat(stdoutChunks).toString('utf8'),
         stderr,
+        timedOut,
+        aborted,
       });
     });
 

@@ -52,7 +52,19 @@ async function loadDir(
     }
     if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
     const full = path.join(dir, entry.name);
-    const raw = await fs.readFile(full, 'utf8');
+    let raw: string;
+    try {
+      raw = await fs.readFile(full, 'utf8');
+    } catch (err) {
+      // One unreadable .md (permission, race-deleted, symlink loop) must not
+      // abort discovery of every remaining skill across every source — degrade
+      // to skipping just this file, like the invalid-frontmatter case below.
+      logger?.warn('skill: unreadable file, skipping', {
+        path: full,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
     const { frontmatter, body } = parseSkillFile(raw);
     const parsed = skillFrontmatterSchema.safeParse(frontmatter);
     if (!parsed.success) {

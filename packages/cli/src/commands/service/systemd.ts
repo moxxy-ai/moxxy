@@ -24,7 +24,7 @@ function unitPath(spec: Pick<ServiceSpec, 'id'>): string {
 export function renderUnit(spec: ServiceSpec, ctx: InstallContext): string {
   const execStart = [ctx.node, ctx.cli, ...spec.execArgs].map(quote).join(' ');
   const envLines = Object.entries(spec.env ?? {})
-    .map(([k, v]) => `Environment=${k}=${v}`)
+    .map(([k, v]) => `Environment=${k}=${envValue(v)}`)
     .join('\n');
   return `[Unit]
 Description=${spec.description}
@@ -50,6 +50,20 @@ function quote(s: string): string {
   // systemd ExecStart tokenizes unquoted args; quote only when needed.
   if (!/[\s"]/.test(s)) return s;
   return '"' + s.replace(/"/g, '\\"') + '"';
+}
+
+/**
+ * Quote an `Environment=` value. systemd splits the directive on whitespace and
+ * treats `"`/`\` specially, so a value with a space or quote would otherwise
+ * split into multiple (wrong) vars. Mirror the ExecStart `quote()` symmetry:
+ * double-quote and escape embedded backslashes/quotes only when needed. A
+ * newline can't live on a single unit line at all, so strip CR/LF rather than
+ * emit a broken directive.
+ */
+function envValue(v: string): string {
+  const s = v.replace(/[\r\n]+/g, ' ');
+  if (!/[\s"\\]/.test(s)) return s;
+  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
 }
 
 export const systemdService: ServiceProvider = {

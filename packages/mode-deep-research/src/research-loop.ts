@@ -128,6 +128,20 @@ export async function* runDeepResearchMode(ctx: ModeContext): AsyncIterable<Moxx
   const synthesisText = await collectSynthesis(ctx, synthesisInput);
   if (synthesisText === null) return;
 
+  // Synthesis is a multi-second provider call; if the user aborted while it ran,
+  // emit an abort rather than the finished report — matching the abort discipline
+  // every other phase in this loop follows (see the ctx.signal.aborted guards above).
+  if (ctx.signal.aborted) {
+    yield await ctx.emit({
+      type: 'abort',
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      source: 'system',
+      reason: 'aborted during synthesis',
+    });
+    return;
+  }
+
   yield await ctx.emit({
     type: 'assistant_message',
     sessionId: ctx.sessionId,

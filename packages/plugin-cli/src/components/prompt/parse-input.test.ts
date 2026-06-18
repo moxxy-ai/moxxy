@@ -60,3 +60,36 @@ describe('parseInputChunk command hotkeys', () => {
     expect(actions).toEqual([]);
   });
 });
+
+describe('parseInputChunk Ctrl+C', () => {
+  it('routes 0x03 to onInterrupt (graceful) instead of a hard exit when wired', () => {
+    let interrupts = 0;
+    const { ctx, actions } = makeCtx({
+      onInterrupt: () => {
+        interrupts += 1;
+      },
+    });
+
+    const remainder = parseInputChunk('\x03', ctx);
+
+    expect(interrupts).toBe(1);
+    expect(remainder).toBe('');
+    // No editor action is dispatched for Ctrl+C.
+    expect(actions).toEqual([]);
+  });
+
+  it('stops parsing the chunk at Ctrl+C (does not dispatch trailing bytes)', () => {
+    let interrupts = 0;
+    const { ctx, actions } = makeCtx({
+      onInterrupt: () => {
+        interrupts += 1;
+      },
+    });
+
+    // A byte after 0x03 must not be inserted — the interrupt short-circuits.
+    parseInputChunk('\x03x', ctx);
+
+    expect(interrupts).toBe(1);
+    expect(actions).toEqual([]);
+  });
+});

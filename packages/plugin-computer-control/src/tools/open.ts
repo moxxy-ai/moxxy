@@ -1,5 +1,5 @@
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
-import { ensureDarwin, runProcess } from '../shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 export const openTool = defineTool({
   name: 'computer_open',
@@ -48,10 +48,13 @@ export const openTool = defineTool({
       timeoutMs: 10_000,
     });
     if (proc.exitCode !== 0) {
+      const cause = procFailureCause(proc, 10_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `open failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
-        context: { tool: 'computer_open', exitCode: proc.exitCode },
+        message: cause
+          ? `open ${cause}`
+          : `open failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(no error message)'}`,
+        context: { tool: 'computer_open', exitCode: proc.exitCode, timedOut: proc.timedOut ? 1 : 0 },
       });
     }
     return { ok: true, app, target };

@@ -35,4 +35,32 @@ describe('ModeRegistry legacy-name migration', () => {
     reg.setActive('goal');
     expect(reg.getActive().name).toBe('goal');
   });
+
+  it('notifies onActiveChange when the ACTIVE mode def is replaced in place', () => {
+    // u42-3: a hot-reloaded active mode must tell observers its behaviour
+    // swapped, even though the active name is unchanged.
+    const reg = new ModeRegistry();
+    reg.register(mode('default')); // auto-active
+    let fired = 0;
+    reg.onActiveChange(() => {
+      fired += 1;
+    });
+    const replacement = mode('default');
+    reg.replace(replacement);
+    expect(fired).toBe(1);
+    // getActive() returns the new def reference.
+    expect(reg.getActive()).toBe(replacement);
+  });
+
+  it('does NOT notify onActiveChange when replacing a NON-active mode', () => {
+    const reg = new ModeRegistry();
+    reg.register(mode('default')); // auto-active
+    reg.register(mode('goal'));
+    let fired = 0;
+    reg.onActiveChange(() => {
+      fired += 1;
+    });
+    reg.replace(mode('goal')); // not the active mode
+    expect(fired).toBe(0);
+  });
 });

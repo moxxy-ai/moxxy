@@ -289,6 +289,30 @@ describe('broker: exec', () => {
       expect(v.stdout).toContain('small-output');
     }
   });
+
+  // u105-9 regression: aborting must settle the broker request PROMPTLY even
+  // for a child that traps SIGTERM — the old code only killed and then waited
+  // for 'close', which a trapped child never emits, wedging the request forever.
+  it('rejects promptly on abort even when the child ignores SIGTERM', async () => {
+    const ac = new AbortController();
+    // `trap '' TERM` makes the child ignore SIGTERM; a naive kill+wait-for-close
+    // would hang on the `sleep 30`.
+    const promise = handleBrokerRequest(
+      req('exec', ['/bin/sh', ['-c', "trap '' TERM; sleep 30"]]),
+      { caps: { subprocess: true }, cwd: '/tmp', signal: ac.signal },
+    );
+    // Give the shell a moment to install the trap, then abort.
+    await new Promise((r) => setTimeout(r, 200));
+    const started = Date.now();
+    ac.abort();
+    const res = await promise;
+    const elapsed = Date.now() - started;
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errorMessage).toMatch(/aborted/);
+    // Settled well before the SIGKILL grace + the child's own 30s sleep — the
+    // promise resolved off the abort, not off a (never-arriving) clean close.
+    expect(elapsed).toBeLessThan(1500);
+  }, 10000);
 });
 
 // ---------- u105-1: redirect SSRF ----------

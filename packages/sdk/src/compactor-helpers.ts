@@ -41,17 +41,22 @@ export function estimateContextTokens(
   // not undercounted (which would let the context overflow before compaction).
   const el = precomputedElisionState ?? computeElisionState(events);
   let chars = 0;
-  const compactedSeqs = new Set<number>();
+  // Collect each compaction's covered range as a [from, to] interval rather
+  // than materializing every covered seq into a Set — replacedRange can span
+  // thousands of seqs after several compactions, and this runs every iteration.
+  // The ranges are disjoint, so a small per-event interval check is equivalent
+  // to the old Set membership test but allocates O(#compactions), not O(#seqs).
+  const compactedRanges: Array<readonly [number, number]> = [];
   for (const e of events) {
     if (e.type === 'compaction') {
-      for (let seq = e.replacedRange[0]; seq <= e.replacedRange[1]; seq++) {
-        compactedSeqs.add(seq);
-      }
+      compactedRanges.push([e.replacedRange[0], e.replacedRange[1]]);
       chars += e.summary.length;
     }
   }
+  const isCompacted = (seq: number): boolean =>
+    compactedRanges.some(([from, to]) => seq >= from && seq <= to);
   for (const e of events) {
-    if (compactedSeqs.has(e.seq)) continue;
+    if (isCompacted(e.seq)) continue;
     if (e.type === 'tool_result' && toolResultStubbed(e, el)) {
       const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
       chars += toolResultStub(e.callId, toolResultBytes(e.output), recalled).length;

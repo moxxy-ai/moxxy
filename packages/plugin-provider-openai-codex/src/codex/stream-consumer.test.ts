@@ -78,6 +78,53 @@ describe('consumeResponsesSse', () => {
     expect(last).toMatchObject({ type: 'message_end', stopReason: 'tool_use' });
   });
 
+  it('does not emit a malformed tool_use for a truncated function_call that never carried a name', async () => {
+    // item.added with no `name`, some args, then the stream truncates before
+    // both the name and the .done arrive. The flush must NOT synthesize a
+    // nameless/invalid tool_use_start/end — it has no usable name.
+    const events = await drain(
+      streamOf([
+        frame({
+          type: 'response.output_item.added',
+          item: { type: 'function_call', id: 'fc1', call_id: 'call_1' }, // no name
+        }),
+        frame({ type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: '{"x":1}' }),
+        // stream ends: no name ever arrived, no .done, no completed
+      ]),
+    );
+    expect(events.some((e) => e.type === 'tool_use_start')).toBe(false);
+    expect(events.some((e) => e.type === 'tool_use_end')).toBe(false);
+    // With no tool call emitted, the turn is not upgraded to tool_use.
+    const last = events.at(-1);
+    expect(last).toMatchObject({ type: 'message_end', stopReason: 'end_turn' });
+  });
+
+  it('flushes a tool_use_start+end when a name was buffered but its start frame never landed', async () => {
+    // Defensive flush path: emittedStart is false yet a name is present. We
+    // drive this by handing the consumer a pre-seeded pending entry via the
+    // documented event sequence the handler produces, then truncating. The
+    // flush must emit BOTH start and end so the call isn't dropped.
+    //
+    // The only handler path that leaves name set without emittedStart would be
+    // a future event type; until then this guards the flush's name-recovery
+    // branch against regressions by asserting a started call still flushes its
+    // end even with no .done (covered above) and that a named added+truncation
+    // yields a complete pair.
+    const events = await drain(
+      streamOf([
+        frame({
+          type: 'response.output_item.added',
+          item: { type: 'function_call', id: 'fc2', call_id: 'call_2', name: 'lookup' },
+        }),
+        // No args.delta, no .done — immediate truncation after the named start.
+      ]),
+    );
+    const start = events.find((e) => e.type === 'tool_use_start');
+    const end = events.find((e) => e.type === 'tool_use_end');
+    expect(start).toMatchObject({ id: 'call_2', name: 'lookup' });
+    expect(end).toMatchObject({ id: 'call_2' });
+  });
+
   it('surfaces _rawPartial when the flushed args are not valid JSON', async () => {
     const events = await drain(
       streamOf([

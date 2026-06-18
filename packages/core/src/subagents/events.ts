@@ -110,15 +110,27 @@ export async function streamChildEventToParent(
 ): Promise<void> {
   const mapped = mapChildEvent(label, childSessionId, childEvt);
   if (!mapped) return;
-  await parentSession.log.append({
-    type: 'plugin_event',
-    sessionId: parentSession.id,
-    turnId: parentTurnId,
-    source: 'plugin',
-    pluginId: SUBAGENT_PLUGIN_ID,
-    subtype: mapped.subtype,
-    payload: mapped.payload,
-  });
+  try {
+    await parentSession.log.append({
+      type: 'plugin_event',
+      sessionId: parentSession.id,
+      turnId: parentTurnId,
+      source: 'plugin',
+      pluginId: SUBAGENT_PLUGIN_ID,
+      subtype: mapped.subtype,
+      payload: mapped.payload,
+    });
+  } catch (err) {
+    // Forwarding a child progress event is best-effort: a parent-log append
+    // failure must not abort the subagent run. EventLog.append already swallows
+    // listener errors, so this rejection would otherwise vanish with zero
+    // trace (the surface just stops updating); surface it so a chronic
+    // forwarding failure during a long subagent run is at least diagnosable.
+    process.stderr.write(
+      `moxxy: dropped subagent progress event (${mapped.subtype}) — parent log append failed: ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
 }
 
 function mapChildEvent(

@@ -275,17 +275,24 @@ function coerceValue(
     }
     return num;
   }
+  // Decode HTML entities in attribute string values so they match the
+  // contract of text nodes (which build() decodes), e.g. a label of
+  // `a &amp; b` renders `a & b` instead of the literal `a &amp; b`. Decoding
+  // happens BEFORE the URL-safety check below, so an entity-encoded scheme
+  // (e.g. `href="javascript&#58;…"`) is normalized to `javascript:` and still
+  // rejected — decoding can never smuggle a disallowed scheme past the check.
+  const decoded = decodeEntities(value);
   if (spec.type === 'enum') {
-    if (!spec.values?.includes(value)) {
+    if (!spec.values?.includes(decoded)) {
       errors.push({ message: `<${tag}> attribute "${name}" must be one of: ${spec.values?.join(', ')}` });
     }
-    return value;
+    return decoded;
   }
   // string
-  if ((name === 'href' || name === 'src') && !isSafeViewUrl(value, name)) {
+  if ((name === 'href' || name === 'src') && !isSafeViewUrl(decoded, name)) {
     errors.push({ message: `<${tag}> attribute "${name}" has a disallowed URL scheme` });
   }
-  return value;
+  return decoded;
 }
 
 function coerceAttrs(b: BNode, spec: ViewTagSpec | undefined, errors: ViewParseError[]): Record<string, string | number | boolean> {
@@ -298,7 +305,12 @@ function coerceAttrs(b: BNode, spec: ViewTagSpec | undefined, errors: ViewParseE
     }
     const aspec = spec?.attrs[a.name];
     if (!aspec) {
-      errors.push({ message: `<${b.tag}> unknown attribute "${a.name}"` });
+      // When the TAG itself is unknown (spec === undefined) convert() already
+      // pushed one `unknown tag` error — flagging every attribute as `unknown
+      // attribute` on top of it is redundant noise the agent reads back. The
+      // on* security check above still fires either way. Only emit the
+      // per-attribute error when the tag is known and the attribute isn't.
+      if (spec) errors.push({ message: `<${b.tag}> unknown attribute "${a.name}"` });
       continue;
     }
     seen.add(a.name);

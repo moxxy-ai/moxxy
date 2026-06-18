@@ -100,9 +100,25 @@ export async function* consumeResponsesSse(
     // (defensive — the server normally sends function_call.done, but a
     // truncated stream shouldn't drop the entire tool-use sequence).
     for (const entry of pending.values()) {
+      const outId = entry.callId || entry.id;
+      // If we have a name but never emitted the start (server sent args.delta
+      // for an item whose .added carried no name, then truncated before .done),
+      // emit the start first — mirrors the .done branch — so the call isn't
+      // dropped just because its start frame never landed.
+      if (!entry.emittedStart && entry.name) {
+        entry.emittedStart = true;
+        yield { type: 'tool_use_start', id: outId, name: entry.name };
+      }
       if (entry.emittedStart) {
         sawToolCall = true;
-        yield { type: 'tool_use_end', id: entry.callId || entry.id, input: parseToolArgs(entry.args) };
+        yield { type: 'tool_use_end', id: outId, input: parseToolArgs(entry.args) };
+      } else if (process.env.MOXXY_DEBUG) {
+        // A pending function call that never carried a name and never started:
+        // we cannot synthesize a valid tool_use, so it is dropped — but make
+        // it observable rather than silently swallowed.
+        console.error(
+          `[openai-codex] dropping a truncated function_call with no name (id=${outId}, args=${entry.args.length}B)`,
+        );
       }
     }
 

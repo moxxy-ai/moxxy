@@ -73,6 +73,22 @@ function looksLikeMoxxy(command: string): boolean {
   return command.length > 0 && /moxxy/i.test(command);
 }
 
+/** Injectable seams so the kill path can be unit-tested without real processes. */
+export interface FreePortDeps {
+  pidsListeningOn(port: number): Promise<ReadonlyArray<number>>;
+  pidCommand(pid: number): Promise<string>;
+  kill(pid: number, signal: number | NodeJS.Signals): void;
+  /** Grace delay between SIGTERM and the SIGKILL sweep. */
+  graceMs?: number;
+}
+
+const realFreePortDeps: FreePortDeps = {
+  pidsListeningOn,
+  pidCommand,
+  kill: (pid, signal) => process.kill(pid, signal),
+  graceMs: 400,
+};
+
 /**
  * Free a TCP port ONLY if every process holding it is a moxxy process
  * (stale `moxxy serve` leftovers — legitimate self-healing). Returns true
@@ -80,15 +96,16 @@ function looksLikeMoxxy(command: string): boolean {
  * 4040, is also ngrok's local-UI port!) is left alone — the caller falls
  * back to an ephemeral port instead. SIGTERM → grace → SIGKILL.
  */
-async function freeTcpPortIfMoxxy(
+export async function freeTcpPortIfMoxxy(
   port: number,
   logger: WebChannelOptions['logger'],
+  deps: FreePortDeps = realFreePortDeps,
 ): Promise<boolean> {
   if (process.platform === 'win32') return false;
-  const pids = (await pidsListeningOn(port)).filter((pid) => pid !== process.pid);
+  const pids = (await deps.pidsListeningOn(port)).filter((pid) => pid !== process.pid);
   if (pids.length === 0) return false;
   const holders = await Promise.all(
-    pids.map(async (pid) => ({ pid, command: await pidCommand(pid) })),
+    pids.map(async (pid) => ({ pid, command: await deps.pidCommand(pid) })),
   );
   const foreign = holders.filter((h) => !looksLikeMoxxy(h.command));
   if (foreign.length > 0) {
@@ -97,18 +114,33 @@ async function freeTcpPortIfMoxxy(
     });
     return false;
   }
+  // Re-verify identity immediately before each signal. Between the `ps`
+  // snapshot above and the kill, a holder PID can exit and be reused by an
+  // unrelated process — so re-read its command and skip any whose name no
+  // longer looks like moxxy. Narrows (can't fully close — POSIX signalling
+  // is inherently racy) the TOCTOU on the identity gate.
+  let attempted = false;
   for (const { pid } of holders) {
+    if (!looksLikeMoxxy(await deps.pidCommand(pid))) continue;
     try {
-      process.kill(pid, 'SIGTERM');
+      deps.kill(pid, 'SIGTERM');
+      attempted = true;
     } catch {
       /* may already be gone */
     }
   }
-  await new Promise((r) => setTimeout(r, 400));
+  if (!attempted) return false;
+  await new Promise((r) => setTimeout(r, deps.graceMs ?? 400));
   for (const { pid } of holders) {
+    // Re-check identity again before escalating to SIGKILL.
     try {
-      process.kill(pid, 0);
-      process.kill(pid, 'SIGKILL');
+      deps.kill(pid, 0);
+    } catch {
+      continue; /* dead — nothing to escalate */
+    }
+    if (!looksLikeMoxxy(await deps.pidCommand(pid))) continue;
+    try {
+      deps.kill(pid, 'SIGKILL');
     } catch {
       /* dead */
     }

@@ -9,20 +9,25 @@ const MAX_SCROLLBACK = 200_000;
 
 /** A minimal stand-in for the piped child the impl wires its stdout listeners
  *  onto, so we can feed `emitData` without spawning a real shell. */
-function fakeChild(): {
+type FakeStdin = EventEmitter & { write(d?: string): void; end(): void };
+function fakeChild(stdinWrite?: (d?: string) => void): {
   stdout: EventEmitter;
   stderr: EventEmitter;
-  proc: EventEmitter & { stdin: { write(): void; end(): void } };
+  stdin: FakeStdin;
+  proc: EventEmitter & { stdin: FakeStdin };
 } {
   const proc = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter;
     stderr: EventEmitter;
-    stdin: { write(): void; end(): void };
+    stdin: FakeStdin;
   };
   proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
-  proc.stdin = { write: () => {}, end: () => {} };
-  return { stdout: proc.stdout, stderr: proc.stderr, proc };
+  const stdin = new EventEmitter() as FakeStdin;
+  stdin.write = stdinWrite ?? (() => {});
+  stdin.end = () => {};
+  proc.stdin = stdin;
+  return { stdout: proc.stdout, stderr: proc.stderr, stdin, proc };
 }
 
 describe('makeExecutable (node-pty spawn-helper repair)', () => {
@@ -146,6 +151,26 @@ describe('TerminalProcessImpl exit lifecycle', () => {
     const term = new TerminalProcessImpl('pipe', null, proc as any);
     proc.emit('exit', 0);
     expect(() => term.write('ignored')).not.toThrow();
+  });
+
+  it('write() swallows a synchronous EPIPE from a stdin pipe that closed before exit fired', () => {
+    // The child has exited (stdin closed) but the async 'exit' event has not yet
+    // flipped `alive` — write() must not let the broken-pipe throw escape.
+    const { proc } = fakeChild(() => {
+      throw Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    expect(term.alive).toBe(true); // exit hasn't fired yet
+    expect(() => term.write('still typing')).not.toThrow();
+  });
+
+  it('an async error on stdin never goes unhandled (a no-op handler is attached)', () => {
+    const { stdin, proc } = fakeChild();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    new TerminalProcessImpl('pipe', null, proc as any);
+    // Without a registered 'error' listener, EventEmitter would re-throw here.
+    expect(() => stdin.emit('error', new Error('broken pipe'))).not.toThrow();
   });
 
   it('unsubscribe stops further data delivery', () => {

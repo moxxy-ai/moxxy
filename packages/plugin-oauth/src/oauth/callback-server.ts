@@ -69,7 +69,6 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
       if (err) {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(htmlPage('OAuth error', `${err}${errDesc ? `: ${errDesc}` : ''}`));
-        clearTimeout(timer);
         const denied = err === 'access_denied';
         settle(() =>
           reject(
@@ -92,7 +91,6 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
       if (!code || !returnedState) {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(htmlPage('OAuth error', 'callback was missing code or state'));
-        clearTimeout(timer);
         settle(() =>
           reject(
             new MoxxyError({
@@ -107,7 +105,6 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
       if (returnedState !== opts.expectedState) {
         res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(htmlPage('OAuth error', 'state mismatch — possible CSRF, refusing'));
-        clearTimeout(timer);
         settle(() =>
           reject(
             new MoxxyError({

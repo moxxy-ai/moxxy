@@ -66,6 +66,7 @@ export function rfc8628DeviceFlow(opts: Rfc8628AdapterOpts): DeviceFlowAdapter {
           Accept: 'application/json',
         },
         body: body.toString(),
+        ...(state.signal ? { signal: state.signal } : {}),
       });
       const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       return classifyDeviceTokenResponse(res, json, state);

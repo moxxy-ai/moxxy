@@ -15,6 +15,12 @@ import { MoxxyError } from '@moxxy/sdk';
 export interface PollState {
   /** Mutable so the polling fn can bump on `slow_down`. */
   intervalMs: number;
+  /**
+   * The flow's abort signal, threaded through so a polling fn can pass it
+   * into its in-flight fetch and cancel a hung request — not just the
+   * inter-poll sleep. Undefined when the caller supplied no signal.
+   */
+  readonly signal?: AbortSignal;
 }
 
 export type PollOutcome<T> = { done: T } | { pending: true };
@@ -37,7 +43,10 @@ export async function pollUntil<T>(
   fn: (state: PollState) => Promise<PollOutcome<T>>,
   opts: PollUntilOpts,
 ): Promise<T> {
-  const state: PollState = { intervalMs: opts.intervalMs };
+  const state: PollState = {
+    intervalMs: opts.intervalMs,
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  };
   const leadingWait = opts.leadingWait ?? true;
   const deadline = Date.now() + opts.timeoutMs;
   const label = opts.label ?? 'poll';

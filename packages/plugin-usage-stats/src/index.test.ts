@@ -33,10 +33,15 @@ function resp(seq: number, model: string, inputTokens: number): MoxxyEvent {
 }
 
 function reader(events: ReadonlyArray<MoxxyEvent>): EventLogReader {
+  // Faithfully model the real EventLog: `length` is a COUNT of held events,
+  // while `slice(from)`/`at(seq)` are SEQ-addressed (translated through the
+  // log's base). On a rebased mirror the held events' seqs start above 0.
+  const base = events.length > 0 ? events[0]!.seq : 0;
   return {
     length: events.length,
-    at: (seq: number) => events[seq],
-    slice: (from = 0, to = events.length) => events.slice(from, to),
+    at: (seq: number) => events[seq - base],
+    slice: (from = base, to = base + events.length) =>
+      events.slice(Math.max(0, from - base), Math.max(0, to - base)),
     ofType: ((type: string) => events.filter((e) => e.type === type)) as EventLogReader['ofType'],
     byTurn: (turnId) => events.filter((e) => e.turnId === turnId),
     toJSON: () => events,
@@ -94,6 +99,24 @@ describe('usage-stats plugin', () => {
     await plugin.hooks!.onShutdown!(ctxFor([resp(0, 'opus', 100)]));
     // No new events past the cursor → file never created.
     expect((await loadUsageStats(statsPath)).models).toEqual({});
+  });
+
+  it('counts only live events on a rebased mirror (baseSeq > 0), not the restored prefix', async () => {
+    // A partial-replay mirror primes the log with restored events at seqs that
+    // start above 0. A length-as-seq cursor would clamp to the base and re-fold
+    // the entire restored prefix, double-counting. Tracking the boundary by seq
+    // is base-independent.
+    const restored = [resp(100, 'opus', 1000), resp(101, 'opus', 2000), resp(102, 'opus', 4000)];
+    const liveSuffix = [resp(103, 'opus', 30)];
+    const plugin = buildUsageStatsPlugin({ statsPath });
+
+    await plugin.hooks!.onInit!(ctxFor(restored));
+    await plugin.hooks!.onShutdown!(ctxFor([...restored, ...liveSuffix]));
+
+    const file = await loadUsageStats(statsPath);
+    // Only the single live call (30 tokens) — never the 7000 restored tokens.
+    expect(file.models['anthropic/opus']!.calls).toBe(1);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(30);
   });
 
   it('folds the whole log when onShutdown fires without a preceding onInit (cursor defaults to 0)', async () => {

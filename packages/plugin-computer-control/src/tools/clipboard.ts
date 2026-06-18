@@ -1,5 +1,5 @@
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
-import { ensureDarwin, runProcess } from '../shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 export const clipboardTool = defineTool({
   name: 'computer_clipboard',
@@ -25,10 +25,13 @@ export const clipboardTool = defineTool({
         timeoutMs: 5_000,
       });
       if (proc.exitCode !== 0) {
+        const cause = procFailureCause(proc, 5_000);
         throw new MoxxyError({
           code: 'TOOL_ERROR',
-          message: `pbpaste failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`,
-          context: { tool: 'computer_clipboard', exitCode: proc.exitCode },
+          message: cause
+            ? `pbpaste ${cause}`
+            : `pbpaste failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`,
+          context: { tool: 'computer_clipboard', exitCode: proc.exitCode, timedOut: proc.timedOut ? 1 : 0 },
         });
       }
       return { ok: true, text: proc.stdout };
@@ -46,10 +49,13 @@ export const clipboardTool = defineTool({
       timeoutMs: 5_000,
     });
     if (proc.exitCode !== 0) {
+      const cause = procFailureCause(proc, 5_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `pbcopy failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`,
-        context: { tool: 'computer_clipboard', exitCode: proc.exitCode },
+        message: cause
+          ? `pbcopy ${cause}`
+          : `pbcopy failed (exit ${proc.exitCode}): ${proc.stderr.trim()}`,
+        context: { tool: 'computer_clipboard', exitCode: proc.exitCode, timedOut: proc.timedOut ? 1 : 0 },
       });
     }
     return { ok: true, length: text.length };

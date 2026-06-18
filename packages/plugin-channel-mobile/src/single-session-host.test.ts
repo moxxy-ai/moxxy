@@ -240,4 +240,38 @@ describe('MobileSessionHost', () => {
     await bus.invoke('ask.respond', { requestId: ask!.payload.requestId, response: { mode: 'allow' } });
     await expect(verdict).resolves.toEqual({ mode: 'allow' });
   });
+
+  it('fails closed: a permission check after dispose() resolves to deny instead of hanging', async () => {
+    const bus = new FakeBus();
+    const { session, getPermissionResolver } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    host.wire();
+    const resolver = getPermissionResolver();
+    host.dispose();
+    const before = bus.event('ask.request').length;
+    await expect(resolver.check({ name: 'web_fetch', input: {} }, {})).resolves.toEqual({ mode: 'deny' });
+    // No new ask was broadcast to the (now closed) bus.
+    expect(bus.event('ask.request').length).toBe(before);
+  });
+
+  it('newSession resets auto-approve to the safe default', async () => {
+    const bus = new FakeBus();
+    const { session, getPermissionResolver } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    host.wire();
+    await bus.invoke('session.setAutoApprove', { enabled: true });
+    // While auto-approve is on, checks short-circuit to allow (no ask).
+    await expect(getPermissionResolver().check({ name: 'web_fetch', input: {} }, {})).resolves.toEqual({
+      mode: 'allow',
+    });
+    await bus.invoke('session.newSession', {});
+    // After /new, a check opens an ask again rather than auto-allowing.
+    const verdict = getPermissionResolver().check({ name: 'web_fetch', input: {} }, {});
+    const ask = bus.event('ask.request').at(-1);
+    expect(ask?.payload.kind).toBe('permission');
+    await bus.invoke('ask.respond', { requestId: ask!.payload.requestId, response: { mode: 'deny' } });
+    await expect(verdict).resolves.toEqual({ mode: 'deny' });
+  });
 });

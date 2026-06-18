@@ -1,5 +1,5 @@
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
-import { ensureDarwin, runProcess } from '../shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 export const typeTool = defineTool({
   name: 'computer_type',
@@ -30,10 +30,13 @@ export const typeTool = defineTool({
       timeoutMs: 30_000,
     });
     if (proc.exitCode !== 0) {
+      const cause = procFailureCause(proc, 30_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `type failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
-        context: { tool: 'computer_type', exitCode: proc.exitCode },
+        message: cause
+          ? `type ${cause}`
+          : `type failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
+        context: { tool: 'computer_type', exitCode: proc.exitCode, timedOut: proc.timedOut ? 1 : 0 },
       });
     }
     return { ok: true, length: text.length };

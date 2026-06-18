@@ -118,9 +118,20 @@ export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number
     await session.close('SIGINT').catch(() => undefined);
     process.exit(0);
   };
-  process.on('SIGINT', () => void shutdown());
-  process.on('SIGTERM', () => void shutdown());
+  const onSignal = (): void => void shutdown();
+  // `once`, not `on`: a second signal during shutdown is moot (we exit), and
+  // `once` + explicit removal below means a wizard that loops back into this
+  // flow doesn't accumulate handlers (MaxListeners warning / double-shutdown).
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
 
-  await handle.running;
-  return 0;
+  try {
+    // Only reached if the bot stops on its own (a signal path exits via
+    // shutdown()); remove our handlers so they don't outlive this flow.
+    await handle.running;
+    return 0;
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+  }
 }

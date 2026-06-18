@@ -259,7 +259,12 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         let terminated = false;
         const hardTerminate = (): void => {
           terminated = true;
-          void worker.terminate();
+          // Swallow a terminate() rejection: a faulted terminate must not
+          // surface as an unhandled rejection (which Node's default policy can
+          // turn into a process kill). The settled/terminated guards already
+          // neutralize the worker's listeners, so a lingering worker here is at
+          // worst a resource leak, never a correctness bug.
+          worker.terminate().catch(() => {});
         };
         /**
          * Settle the parent promise and tear the worker down. When

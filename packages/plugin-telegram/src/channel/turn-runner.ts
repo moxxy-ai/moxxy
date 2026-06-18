@@ -1,5 +1,5 @@
 import type { Bot, Context } from 'grammy';
-import { newTurnId } from '@moxxy/core';
+import type { newTurnId } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { FramePump } from './frame-pump.js';
 import type { TypingIndicator } from './typing-indicator.js';
@@ -21,6 +21,9 @@ export interface TurnRunnerOptions {
   readonly text: string;
   readonly model: string | undefined;
   readonly controller: AbortController;
+  /** turnId for this turn. The channel mints it so it can also record it as an
+   *  own-turn id (mirrorForeignTurn filters on those). */
+  readonly turnId: ReturnType<typeof newTurnId>;
 }
 
 /**
@@ -37,7 +40,7 @@ export async function runUserTurn(
   opts: TurnRunnerOptions,
 ): Promise<void> {
   const { session, bot, framePump, typing, logger } = deps;
-  const { chatId, text, model, controller } = opts;
+  const { chatId, text, model, controller, turnId } = opts;
 
   framePump.beginTurn(chatId);
   // Kick off "typing…" right away so the user gets immediate feedback.
@@ -47,11 +50,11 @@ export async function runUserTurn(
   // every subsequent frame.
   typing.start(bot, chatId);
 
-  // Mint the turnId up front so the frame-pump subscriber can filter by it.
-  // `session.log` fans out to every listener; without this filter a concurrent
-  // turn driven by another channel (HTTP/runner) on the same Session would
-  // render into THIS chat. (AGENTS.md: filter event-log subscribers by turnId.)
-  const turnId = newTurnId();
+  // turnId is minted by the caller (the channel records it as an own-turn id).
+  // The frame-pump subscriber filters by it: `session.log` fans out to every
+  // listener; without this a concurrent turn driven by another channel
+  // (HTTP/runner) on the same Session would render into THIS chat. (AGENTS.md:
+  // filter event-log subscribers by turnId.)
   const unsubscribe = session.log.subscribe((event) => {
     if (event.turnId !== turnId) return;
     const frame = framePump.renderState.accept(event);

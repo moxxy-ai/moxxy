@@ -8,6 +8,8 @@ interface ExchangeCodeInput {
   readonly clientId: string;
   readonly clientSecret?: string;
   readonly codeVerifier: string;
+  /** Abort the exchange fetch when the caller's flow is cancelled. */
+  readonly signal?: AbortSignal;
 }
 
 export async function exchangeCodeForToken(
@@ -25,6 +27,7 @@ export async function exchangeCodeForToken(
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: body.toString(),
+    ...(input.signal ? { signal: input.signal } : {}),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');

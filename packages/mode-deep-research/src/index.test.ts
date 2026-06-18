@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { collectTurn } from '@moxxy/core';
 import { FakeProvider, createFakeSession, textReply } from '@moxxy/testing';
-import type { SubagentResult, SubagentSpawner } from '@moxxy/sdk';
+import type {
+  LLMProvider,
+  ProviderEvent,
+  ProviderRequest,
+  SubagentResult,
+  SubagentSpawner,
+} from '@moxxy/sdk';
 import { asSessionId } from '@moxxy/sdk';
 
 import {
@@ -169,6 +175,62 @@ describe('deepResearchMode end-to-end (headless)', () => {
     expect(synthDone).toBeDefined();
   });
 
+  it('emits an abort (not the report) when the signal fires during synthesis', async () => {
+    // u65-4: every other phase guards ctx.signal.aborted; synthesis must too —
+    // a cancel during the multi-second synthesis call should yield an abort, not
+    // a finished assistant_message.
+    const fake = new FakeProvider({
+      script: [
+        textReply('QUERIES:\n1. First angle?\n2. Second angle?'),
+        textReply('FOLLOWUPS: (none)'),
+        textReply(
+          '## Executive summary\n- bullet\n\n## Key findings\nfinding [1]\n\n## Sources\n[1] x — http://x\n\n## Open questions\n- none',
+        ),
+      ],
+    });
+    const controller = new AbortController();
+    const provider = abortOnSynthesisProvider(fake, controller);
+
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(deepResearchModePlugin);
+    session.modes.setActive(RESEARCH_MODE_NAME);
+
+    const fakeSpawner: SubagentSpawner = {
+      async spawn() {
+        return fakeResult('unused');
+      },
+      async spawnAll(specs) {
+        return specs.map((_, i) =>
+          fakeResult(`FINDINGS: angle ${i + 1} answered.\n\nSOURCES:\n[1] X — http://x`),
+        );
+      },
+    };
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME)!;
+    session.modes.replace({
+      name: realMode.name,
+      run: (ctx) =>
+        realMode.run({ ...ctx, subagents: fakeSpawner, signal: controller.signal }),
+    });
+    session.modes.setActive(realMode.name);
+
+    const events = await collectTurn(session, 'investigate then cancel');
+
+    const abort = events.find((e) => e.type === 'abort');
+    expect(abort).toBeDefined();
+    if (abort?.type === 'abort') expect(abort.reason).toMatch(/synthesis/);
+
+    // The finished report must NOT have been emitted as an assistant_message,
+    // nor the synthesis-completed plugin event.
+    const reportEmitted = events.some(
+      (e) => e.type === 'assistant_message' && e.content.includes('Executive summary'),
+    );
+    expect(reportEmitted).toBe(false);
+    const synthDone = events.find(
+      (e) => e.type === 'plugin_event' && e.subtype === 'deep_research_synthesis_completed',
+    );
+    expect(synthDone).toBeUndefined();
+  });
+
   it('runs gather → followup-plan(2 queries) → round-2 fanout → synthesis', async () => {
     const provider = new FakeProvider({
       script: [
@@ -239,6 +301,32 @@ describe('deepResearchMode end-to-end (headless)', () => {
     expect((synthDone.payload as { totalFindings: number; rounds: number }).rounds).toBe(2);
   });
 });
+
+/**
+ * Wraps a FakeProvider and aborts `controller` the instant the SYNTHESIS stream
+ * finishes — simulating the user cancelling DURING the synthesis provider call.
+ * Aborting after the stream completes (not before) lets `collectSynthesis`
+ * return its text normally, so the loop reaches the post-synthesis abort guard.
+ */
+function abortOnSynthesisProvider(
+  inner: FakeProvider,
+  controller: AbortController,
+): LLMProvider {
+  return {
+    name: inner.name,
+    models: inner.models,
+    countTokens: (req) => inner.countTokens(req),
+    async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
+      const isSynthesis = req.messages.some((m) =>
+        m.content.some(
+          (c) => 'text' in c && c.text.includes('synthesizing a deep-research report'),
+        ),
+      );
+      for await (const ev of inner.stream(req)) yield ev;
+      if (isSynthesis) controller.abort();
+    },
+  };
+}
 
 function fakeResult(text: string, opts: { error?: string } = {}): SubagentResult {
   return {

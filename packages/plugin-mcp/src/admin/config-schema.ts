@@ -7,13 +7,24 @@ import type { McpStoredConfig } from './types.js';
  * tools care about (`name`, transport config) plus opaque extras
  * (`cachedTools`, future flags) that must survive a read/write round-trip
  * untouched — hence `.passthrough()` on each entry and on the root. We
- * validate the structural invariants the loader relies on (a `servers`
- * array whose entries each have a non-empty `name`) and let `readMcpConfig`
- * discard the whole file on failure rather than crash at boot.
+ * validate the structural invariant the loader relies on (a non-empty
+ * `name`) per entry.
  */
-const mcpStoredServerSchema = z
+export const mcpStoredServerSchema = z
   .object({
     name: z.string().min(1),
+  })
+  .passthrough();
+
+/**
+ * Top-level guard only: `servers` must be an array. Each element is parsed
+ * INDIVIDUALLY by `readMcpConfig` against `mcpStoredServerSchema` so one bad
+ * row drops alone instead of stranding the whole catalog. Element type is
+ * `unknown` here on purpose — per-entry validation happens at read time.
+ */
+export const mcpStoredConfigRootSchema = z
+  .object({
+    servers: z.array(z.unknown()),
   })
   .passthrough();
 

@@ -42,8 +42,35 @@ export function decrypt(blob: EncryptedBlob, key: Buffer): string {
   return plaintext.toString('utf8');
 }
 
+/**
+ * A uniformly-random decimal string of exactly `digits` digits (zero-padded).
+ *
+ * Draws enough entropy for the requested width (not a fixed 4 bytes, which
+ * capped any code wider than ~9 digits — 10**digits overflowed a uint32, so
+ * the leading digits were always 0) and rejection-samples to strip the
+ * modulo bias that `% 10**digits` introduces when the byte range isn't an
+ * exact multiple of the modulus. Used for short pairing codes today; correct
+ * for any width.
+ */
 export function randomCode(digits = 6): string {
-  const max = 10 ** digits;
-  const value = randomBytes(4).readUInt32BE(0) % max;
-  return value.toString().padStart(digits, '0');
+  if (!Number.isInteger(digits) || digits < 1) {
+    throw new Error(`randomCode: digits must be a positive integer, got ${digits}`);
+  }
+  const modulus = 10n ** BigInt(digits);
+  // Enough whole bytes to cover the modulus, with one spare byte so the
+  // accepted region is a large fraction of the draw space (few rejections).
+  const byteLen = Math.ceil((digits * Math.log2(10)) / 8) + 1;
+  const space = 1n << BigInt(byteLen * 8);
+  // Largest multiple of `modulus` that fits in `space`; draws at or above it
+  // would bias the low digits, so reject and redraw.
+  const limit = space - (space % modulus);
+  for (;;) {
+    let value = 0n;
+    for (const byte of randomBytes(byteLen)) {
+      value = (value << 8n) | BigInt(byte);
+    }
+    if (value < limit) {
+      return (value % modulus).toString().padStart(digits, '0');
+    }
+  }
 }

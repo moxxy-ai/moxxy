@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
 import { asSkillId } from '@moxxy/sdk';
-import { isDue, SchedulerPoller } from './poller.js';
+import { isDue, nextCronFire, SchedulerPoller } from './poller.js';
 import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
 
@@ -98,6 +98,26 @@ describe('isDue', () => {
       ),
     ).toBe(false);
   });
+
+  it('nextCronFire agrees with isDue for a never-run cron created during downtime (u103-7)', () => {
+    // Created 2h ago, hourly cron — the fire that fell ~1h ago was missed
+    // while moxxy was off. The displayed next-fire must be the SAME instant
+    // the poller fires (in the past, <= now), not anchored at `now`.
+    const entry = {
+      id: 'x',
+      name: 'hourly',
+      prompt: 'p',
+      cron: '0 * * * *', // top of every hour
+      enabled: true,
+      source: 'manual' as const,
+      createdAt: now - 2 * 60 * 60_000,
+    };
+    expect(isDue(entry, now)).toBe(true);
+    const next = nextCronFire(entry);
+    expect(next).not.toBeNull();
+    // Agreement: the shown next-fire is <= now exactly because isDue is true.
+    expect(next!.getTime()).toBeLessThanOrEqual(now);
+  });
 });
 
 describe('SchedulerPoller integration', () => {
@@ -146,6 +166,30 @@ describe('SchedulerPoller integration', () => {
     const { readdir } = await import('node:fs/promises');
     const files = await readdir(inboxDir);
     expect(files.some((f) => f.includes('minute'))).toBe(true);
+  });
+
+  it('tickOnce counts a due schedule even when its store.update throws mid-run (u103-8)', async () => {
+    await store.create({ name: 'minute', prompt: 'wake up', cron: '* * * * *' });
+    const entries = await store.list();
+    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+
+    // Wrap the real store so list() still returns the due row but update()
+    // throws — simulating a store-level failure during the run. The attempt
+    // must still be counted (it fired-and-failed), not silently dropped.
+    const throwingStore = Object.assign(Object.create(Object.getPrototypeOf(store) as object), store, {
+      list: () => store.list(),
+      update: async () => {
+        throw new Error('store update failed');
+      },
+    }) as ScheduleStore;
+
+    const poller = new SchedulerPoller({
+      store: throwingStore,
+      runner: { runPrompt: async ({ prompt }) => ({ text: `did: ${prompt}` }) },
+      inbox: { dir: inboxDir },
+    });
+    const fired = await poller.tickOnce();
+    expect(fired).toBe(1);
   });
 
   it('one-shot fires once then disables itself', async () => {

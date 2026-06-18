@@ -76,6 +76,32 @@ describe('managedNodeBinDir / activateManagedNode', () => {
     expect(managedNodeBinDir(win.userData, 'win32')).toBe(win.binDir);
   });
 
+  it('prefers the pinned version folder over an older node-v* folder', () => {
+    const userData = mkdtempSync(path.join(tmpdir(), 'moxxy-node-'));
+    dirs.push(userData);
+    const root = path.join(userData, 'node');
+    // An OLDER managed node (different version) alongside the pinned one. Both
+    // contain a valid node binary, so selection must be by pin, not iteration
+    // order / unstable sort.
+    const olderBin = path.join(root, 'node-v20.0.0-darwin-arm64', 'bin');
+    const pinnedBin = path.join(root, `node-${MANAGED_NODE_VERSION}-darwin-arm64`, 'bin');
+    mkdirSync(olderBin, { recursive: true });
+    writeFileSync(path.join(olderBin, 'node'), '#!/bin/sh\n');
+    mkdirSync(pinnedBin, { recursive: true });
+    writeFileSync(path.join(pinnedBin, 'node'), '#!/bin/sh\n');
+
+    expect(managedNodeBinDir(userData, 'darwin')).toBe(pinnedBin);
+  });
+
+  it('falls back to a non-pinned node-v* folder when the pinned one is absent', () => {
+    const userData = mkdtempSync(path.join(tmpdir(), 'moxxy-node-'));
+    dirs.push(userData);
+    const olderBin = path.join(userData, 'node', 'node-v20.0.0-darwin-arm64', 'bin');
+    mkdirSync(olderBin, { recursive: true });
+    writeFileSync(path.join(olderBin, 'node'), '#!/bin/sh\n');
+    expect(managedNodeBinDir(userData, 'darwin')).toBe(olderBin);
+  });
+
   it('prepends the bin dir to PATH idempotently', () => {
     const { userData, binDir } = makeManagedNode(process.platform === 'win32' ? 'win32' : 'darwin');
     const activated = activateManagedNode(userData);

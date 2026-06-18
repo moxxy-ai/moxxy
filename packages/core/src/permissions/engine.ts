@@ -154,7 +154,7 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
     const input = call.input as Record<string, unknown> | null;
     if (!input || typeof input !== 'object') return false;
     for (const [k, v] of Object.entries(rule.inputMatches)) {
-      const candidate = String(input[k] ?? '');
+      const candidate = stringifyCandidate(input[k]);
       let re: RegExp;
       try {
         re = new RegExp(v);
@@ -169,6 +169,25 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
     }
   }
   return true;
+}
+
+/**
+ * Coerce a tool-input field to the string an `inputMatches` regex tests against.
+ * Primitives use their natural string form (unchanged behaviour); a
+ * structured field (object/array) is JSON-serialized so a rule can match its
+ * shape (e.g. `inputMatches: { args: '"--force"' }`) instead of silently
+ * seeing `[object Object]` and never matching. `null`/`undefined` → `''`.
+ */
+function stringifyCandidate(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value) ?? '';
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
 }
 
 function warnBadPattern(

@@ -1,5 +1,5 @@
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
-import { ensureDarwin, runProcess } from '../shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 const MODIFIER_NAMES = ['cmd', 'shift', 'option', 'control'] as const;
 type Modifier = (typeof MODIFIER_NAMES)[number];
@@ -42,6 +42,18 @@ const KEY_CODES: Record<string, number> = {
   f12: 111,
 };
 
+/**
+ * Single literal whitespace chars → their key codes. A bare ' '/'\t'/'\r'/'\n'
+ * would otherwise be sent via `keystroke`, which types the character (wrong for
+ * modifier chords like ctrl+space). Mirrors the matching KEY_CODES entries.
+ */
+const WHITESPACE_KEY_CODES: Record<string, number> = {
+  ' ': 49, // space
+  '\t': 48, // tab
+  '\r': 36, // return
+  '\n': 36, // return
+};
+
 export const keyTool = defineTool({
   name: 'computer_key',
   description:
@@ -74,10 +86,13 @@ export const keyTool = defineTool({
       timeoutMs: 10_000,
     });
     if (proc.exitCode !== 0) {
+      const cause = procFailureCause(proc, 10_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `key failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
-        context: { tool: 'computer_key', exitCode: proc.exitCode },
+        message: cause
+          ? `key ${cause}`
+          : `key failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission)'}`,
+        context: { tool: 'computer_key', exitCode: proc.exitCode, timedOut: proc.timedOut ? 1 : 0 },
       });
     }
     return { ok: true, key, modifiers: mods };
@@ -95,6 +110,15 @@ export function buildKeyScript(key: string, modifiers: ReadonlyArray<Modifier>):
   const lower = key.toLowerCase();
   if (lower in KEY_CODES) {
     return `tell application "System Events" to key code ${KEY_CODES[lower]}${usingClause}`;
+  }
+  // A single literal whitespace char (' ', '\t', '\r', '\n') keystroked with a
+  // held modifier types the character rather than pressing the key, breaking
+  // chords like ctrl+space. Route it to the corresponding key code instead.
+  if (key.length === 1) {
+    const wsCode = WHITESPACE_KEY_CODES[key];
+    if (wsCode !== undefined) {
+      return `tell application "System Events" to key code ${wsCode}${usingClause}`;
+    }
   }
   if (key.length === 1) {
     const literal = `"${key.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;

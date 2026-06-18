@@ -1,5 +1,5 @@
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
-import { ensureDarwin, runProcess } from '../shell.js';
+import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 export const clickTool = defineTool({
   name: 'computer_click',
@@ -38,10 +38,13 @@ export const clickTool = defineTool({
       timeoutMs: 10_000,
     });
     if (proc.exitCode !== 0) {
+      const cause = procFailureCause(proc, 10_000);
       throw new MoxxyError({
         code: 'TOOL_ERROR',
-        message: `click failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission in System Settings → Privacy & Security → Accessibility)'}`,
-        context: { tool: 'computer_click', exitCode: proc.exitCode },
+        message: cause
+          ? `click ${cause}`
+          : `click failed (exit ${proc.exitCode}): ${proc.stderr.trim() || '(check Accessibility permission in System Settings → Privacy & Security → Accessibility)'}`,
+        context: { tool: 'computer_click', exitCode: proc.exitCode, timedOut: proc.timedOut ? 1 : 0 },
       });
     }
     return { ok: true, x, y, count: n };

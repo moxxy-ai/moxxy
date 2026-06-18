@@ -4,6 +4,32 @@ export interface ParsedArgv {
   positional: string[];
 }
 
+/**
+ * Flags that are value-less (boolean) everywhere in the CLI. Because the parser
+ * is schema-less it would otherwise greedily bind the following positional as a
+ * "value" (e.g. `moxxy --allow-all bash` → flags['allow-all']='bash', and `bash`
+ * lost from positionals). Listing the well-known booleans keeps a trailing
+ * command/positional intact. Value flags (`--model`, `--config`, `--allow-tools`,
+ * `-p`, …) are deliberately absent so they still consume their argument.
+ */
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
+  'help',
+  'h',
+  'version',
+  'v',
+  'yes',
+  'y',
+  'verbose',
+  'allow-all',
+  'standalone',
+  'attach',
+  'reload',
+  'all',
+  'stop',
+  'status',
+  'background',
+]);
+
 export function parseArgv(argv: ReadonlyArray<string>): ParsedArgv {
   const result: ParsedArgv = { command: '', flags: {}, positional: [] };
   if (argv.length === 0) {
@@ -27,7 +53,7 @@ export function parseArgv(argv: ReadonlyArray<string>): ParsedArgv {
       } else {
         const key = a.slice(2);
         const next = argv[i + 1];
-        if (next && !next.startsWith('-')) {
+        if (next && !next.startsWith('-') && !BOOLEAN_FLAGS.has(key)) {
           result.flags[key] = next;
           i++;
         } else {
@@ -37,7 +63,7 @@ export function parseArgv(argv: ReadonlyArray<string>): ParsedArgv {
     } else if (a.startsWith('-')) {
       const key = a.slice(1);
       const next = argv[i + 1];
-      if (next && !next.startsWith('-')) {
+      if (next && !next.startsWith('-') && !BOOLEAN_FLAGS.has(key)) {
         result.flags[key] = next;
         i++;
       } else {

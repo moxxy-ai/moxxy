@@ -221,6 +221,42 @@ describe('goalMode end-to-end', () => {
     });
   });
 
+  // u67-3: the budget-exhausting call's reasoning must still be persisted to the
+  // log before the budget exit, matching every other exit path (otherwise the
+  // final call's reasoning is silently dropped).
+  it('persists the budget-exhausting call reasoning before goal_budget_exhausted', () => {
+    const hugeUsageWithReasoning: ProviderEvent[] = [
+      { type: 'message_start', model: 'fake' },
+      { type: 'reasoning_delta', delta: 'I should think hard about this expensive task.' },
+      { type: 'reasoning_signature', signature: 'sig-1' },
+      { type: 'text_delta', delta: 'working...' },
+      {
+        type: 'message_end',
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5_000_000, outputTokens: 0 },
+      },
+    ];
+    const provider = new FakeProvider({ script: [hugeUsageWithReasoning] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+
+    return collectTurn(session, 'do an expensive thing').then((events) => {
+      const reasoningIdx = events.findIndex((e) => e.type === 'reasoning_message');
+      const exhaustedIdx = events.findIndex(
+        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
+      );
+      expect(reasoningIdx).toBeGreaterThanOrEqual(0);
+      expect(exhaustedIdx).toBeGreaterThanOrEqual(0);
+      // The reasoning_message lands BEFORE the budget exit (the bug dropped it).
+      expect(reasoningIdx).toBeLessThan(exhaustedIdx);
+      const reasoning = events[reasoningIdx];
+      if (reasoning?.type !== 'reasoning_message') throw new Error('expected reasoning_message');
+      expect(reasoning.content).toContain('think hard');
+      expect(reasoning.signature).toBe('sig-1');
+    });
+  });
+
   // u67-2: the hard iteration cap must end the run with goal_max_iterations + a
   // fatal error when the model never calls goal_complete.
   it('stops with goal_max_iterations when the cap is reached without completing', async () => {

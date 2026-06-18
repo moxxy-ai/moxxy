@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { createMutex, moxxyPath, writeFileAtomic } from '@moxxy/sdk';
-import { mcpStoredConfigSchema } from './config-schema.js';
+import { mcpStoredConfigRootSchema, mcpStoredServerSchema } from './config-schema.js';
 import type { McpStoredConfig, McpStoredServer } from './types.js';
 
 /**
@@ -24,12 +24,23 @@ const configMutex = createMutex();
 export async function readMcpConfig(): Promise<McpStoredConfig> {
   try {
     const raw = await fs.readFile(mcpConfigPath(), 'utf8');
-    const parsed = mcpStoredConfigSchema.safeParse(JSON.parse(raw));
-    if (parsed.success) {
-      return parsed.data;
+    const root = mcpStoredConfigRootSchema.safeParse(JSON.parse(raw));
+    if (!root.success) {
+      // The top-level shape is unusable (e.g. `servers` isn't an array) —
+      // treat as empty rather than crashing. The bad file is left in place
+      // so the user can inspect it.
+      return { servers: [] };
     }
-    // Malformed shape — treat as empty rather than crashing. The bad file
-    // is left in place so the user can inspect it.
+    // Parse each entry independently and KEEP the valid ones. A single
+    // hand-edited bad row (e.g. a missing/empty `name`) must not strand every
+    // other configured server from boot/list/enable/remove — drop only the
+    // offending row. `.passthrough()` keeps each entry's opaque extras intact.
+    const servers: unknown[] = [];
+    for (const entry of root.data.servers) {
+      const parsed = mcpStoredServerSchema.safeParse(entry);
+      if (parsed.success) servers.push(parsed.data);
+    }
+    return { servers } as unknown as McpStoredConfig;
   } catch {
     // missing or malformed JSON — treat as empty
   }

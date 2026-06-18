@@ -99,6 +99,43 @@ describe('EventLog', () => {
     expect(next.seq).toBe(1);
   });
 
+  it('seeding a tail slice aligns base to seed[0].seq (seq-addressing stays correct)', async () => {
+    // u39-2: a log seeded with events that start above seq 0 must align its
+    // base so at()/slice()/ingest() address by seq, not by raw array index.
+    const seedLog = new EventLog();
+    // Build three events at seq 0..2, then seed a new log with the tail (5,6,7).
+    const tail: Array<Awaited<ReturnType<EventLog['append']>>> = [];
+    for (let i = 0; i < 8; i += 1) {
+      const e = await seedLog.append({
+        type: 'user_prompt',
+        sessionId: sid,
+        turnId: tid,
+        source: 'user',
+        text: `e${i}`,
+      });
+      if (i >= 5) tail.push(e);
+    }
+    const log = new EventLog(tail);
+    expect(log.baseSeq).toBe(5);
+    expect(log.length).toBe(3);
+    // seq-addressed lookups line up with the original seqs.
+    expect(log.at(5)).toBe(tail[0]);
+    expect(log.at(7)).toBe(tail[2]);
+    expect(log.at(4)).toBeUndefined();
+    expect(log.slice(6).map((e) => e.seq)).toEqual([6, 7]);
+    // ingest() of the next contiguous seq (8) is accepted.
+    const next = await seedLog.append({
+      type: 'user_prompt',
+      sessionId: sid,
+      turnId: tid,
+      source: 'user',
+      text: 'e8',
+    });
+    expect(next.seq).toBe(8);
+    log.ingest(next);
+    expect(log.at(8)).toBe(next);
+  });
+
   it('toJSON exposes a copy', async () => {
     const log = new EventLog();
     await log.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'a' });

@@ -251,6 +251,39 @@ describe('AnthropicProvider OAuth token refresh', () => {
     expect(errors[0]!.message).toContain('proactive refresh failed');
   });
 
+  it('countTokens proactively refreshes a near-expiry token before counting', async () => {
+    let countCalls = 0;
+    const client = {
+      messages: {
+        countTokens: async () => {
+          countCalls += 1;
+          return { input_tokens: 42 };
+        },
+      },
+    } as unknown as Anthropic;
+    let refreshCalls = 0;
+    const refreshedAt = Date.now() + 3_600_000;
+    const p = new AnthropicProvider({
+      oauthToken: 'tok-old',
+      oauthExpiresAt: Date.now() + 10_000, // inside the 60s skew window -> refresh
+      oauthRefresh: async () => {
+        refreshCalls += 1;
+        return { token: 'tok-new', expiresAt: refreshedAt };
+      },
+      client,
+    });
+    pinClient(p, client);
+
+    const n = await p.countTokens(baseReq);
+
+    expect(n).toBe(42);
+    expect(refreshCalls).toBe(1);
+    expect(countCalls).toBe(1);
+    const internals = p as unknown as { oauthToken?: string; oauthExpiresAt?: number };
+    expect(internals.oauthToken).toBe('tok-new');
+    expect(internals.oauthExpiresAt).toBe(refreshedAt);
+  });
+
   it('does not refresh on a non-401 error (surfaces it directly, single attempt)', async () => {
     const serverError = Object.assign(new Error('boom'), { status: 500 });
     const fake = fakeClient(() => {

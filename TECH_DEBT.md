@@ -37,6 +37,27 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-18 — Quality sweep COMPLETE: all audit clusters processed
+
+The repo-wide audit below (41 clusters / 636 findings) has now been fully worked
+through across **7 PRs** (#212/#214/#217/#219/#221/#224 + the review-triage PR)
+and their releases. Every cluster — Tier-1, Tier-2, and Tier-3 (test-harness,
+god-file decomposition, and the entire low-severity long-tail incl. review) — is
+either **fixed** (behavior-preserving, test-backed, gates green) or **consciously
+resolved with a rationale** (stale/subjective/out-of-scope/net-negative — see the
+`resolved` notes in the wave transcripts and `quality-sweep-findings.json`). A
+small number of items were deliberately deferred as needing a product decision or
+a cross-package boundary change (e.g. `u117-3` retry semantics, `u40-2` permission
+anchoring, relocating voice tools to a new package) and are called out at their
+original entries — those are scoped follow-ups, not open quality debt.
+
+**No open findings remain from this audit.** Going forward this file resumes its
+normal role: the standing ledger where each future change retires ≥1 item and new
+debt is logged on sight (AGENTS.md → "Tech debt is a standing job"). A living
+codebase keeps accruing debt; the audit backlog itself is cleared.
+
+---
+
 ## 2026-06-18 — Repo-wide quality + performance sweep (audit-driven)
 
 A 240-agent, adversarially-verified audit of the whole monorepo produced

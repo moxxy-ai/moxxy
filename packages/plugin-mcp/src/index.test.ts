@@ -39,6 +39,30 @@ describe('createMcpPlugin', () => {
     expect(plugin.tools!.map((t) => t.name)).toEqual(['mcp__a__ping', 'mcp__b__ping']);
   });
 
+  it('connects servers in parallel and bounds boot at the slowest, not the sum (u86-5)', async () => {
+    // Two servers whose listTools each take ~50ms. Serial boot would take
+    // ~100ms; parallel ~50ms. Assert well under the serial sum and that both
+    // tool sets land in server order.
+    const slowClient = (name: string): McpClientLike => ({
+      async listTools() {
+        await new Promise((r) => setTimeout(r, 50));
+        return { tools: [{ name: 'ping', description: 'p', inputSchema: { type: 'object' } }] };
+      },
+      async callTool() {
+        return { content: [{ type: 'text', text: `pong ${name}` }] };
+      },
+      async close() {},
+    });
+    const start = Date.now();
+    const plugin = await createMcpPlugin({
+      servers: [{ name: 'a', command: 'noop' }, { name: 'b', command: 'noop' }],
+      clientFactory: async (s) => slowClient(s.name),
+    });
+    const elapsed = Date.now() - start;
+    expect(plugin.tools!.map((t) => t.name)).toEqual(['mcp__a__ping', 'mcp__b__ping']);
+    expect(elapsed).toBeLessThan(90); // < the ~100ms serial sum
+  });
+
   it('closes already-connected clients when a later server fails to connect', async () => {
     const closed: string[] = [];
     let n = 0;

@@ -59,6 +59,13 @@ export class HttpChannel implements Channel<HttpStartOpts> {
   }
 
   async start(startOpts: HttpStartOpts): Promise<ChannelHandle> {
+    // Guard against a double-start: unconditionally reassigning `this.server`
+    // would orphan the first server (its port stays bound, sockets stay open)
+    // since `stop()` only ever closes the most-recently-assigned one.
+    if (this.server) {
+      throw new Error('HttpChannel is already started — call stop() before starting again.');
+    }
+
     const ctx: RouterContext = {
       session: startOpts.session,
       authToken: this.authToken,
@@ -131,10 +138,17 @@ export class HttpChannel implements Channel<HttpStartOpts> {
     return {
       running,
       stop: async () => {
+        const srv = this.server;
         await new Promise<void>((resolve) => {
-          if (!this.server) return resolve();
-          this.server.close(() => resolve());
+          if (!srv) return resolve();
+          srv.close(() => resolve());
         });
+        // Clear the handle so a subsequent start() is allowed (and the port is
+        // no longer considered held).
+        if (this.server === srv) {
+          this.server = null;
+          this.boundPortValue = 0;
+        }
       },
     };
   }

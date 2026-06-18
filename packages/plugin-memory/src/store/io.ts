@@ -17,7 +17,12 @@ export async function safeRead(
     const parsed = parseMdFile(raw);
     const result = memoryFrontmatterSchema.safeParse(parsed.frontmatter);
     if (!result.success) return null;
-    return { frontmatter: result.data, body: parsed.body };
+    // Trim the body so safeRead agrees with readEntry/listEntries on the same
+    // file — they both `.trim()`. safeRead's only caller (writeEntry) reads just
+    // createdAt and discards the body, so this is behavior-preserving today; it
+    // removes the latent trap where a future body consumer would see different
+    // whitespace depending on which read path it used.
+    return { frontmatter: result.data, body: parsed.body.trim() };
   } catch {
     return null;
   }

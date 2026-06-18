@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { listEntries } from './io.js';
+import { listEntries, readEntry, safeRead } from './io.js';
 
 let tmp: string;
 beforeEach(async () => {
@@ -82,5 +82,19 @@ describe('listEntries', () => {
     ]);
     // If reads were serialized (await-in-loop) maxInFlight would be 1.
     expect(maxInFlight).toBeGreaterThan(1);
+  });
+});
+
+describe('safeRead', () => {
+  it('agrees with readEntry on the body (both trim surrounding whitespace)', async () => {
+    const md =
+      `---\nname: x\ntype: fact\ndescription: x desc\n` +
+      `createdAt: 2026-01-01T00:00:00Z\nupdatedAt: 2026-01-01T00:00:00Z\n---\n\n\n  padded body  \n\n`;
+    const file = path.join(tmp, 'x.md');
+    await fs.writeFile(file, md);
+    const viaSafe = await safeRead(file);
+    const viaEntry = await readEntry(file);
+    expect(viaSafe?.body).toBe('padded body');
+    expect(viaSafe?.body).toBe(viaEntry?.body);
   });
 });

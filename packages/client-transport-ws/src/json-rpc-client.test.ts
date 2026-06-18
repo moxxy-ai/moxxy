@@ -123,6 +123,18 @@ describe('WsRpcClient', () => {
     client.close();
   });
 
+  it('transitions to reconnecting immediately on a drop, before the backoff timer fires', () => {
+    vi.useFakeTimers();
+    const statuses: WsClientStatus[] = [];
+    const { instances } = makeClient({ onStatus: (s) => statuses.push(s) });
+    instances[0]!.open();
+    statuses.length = 0; // discard 'connecting'/'open' from setup
+    instances[0]!.close();
+    // The socket is dead and the reconnect timer has NOT fired yet — status must
+    // already reflect the degraded state rather than lingering on 'open'.
+    expect(statuses).toContain('reconnecting');
+  });
+
   it('passes the requested subprotocols to the WebSocket constructor', () => {
     const { socket, client } = makeClient({ protocols: ['moxxy.v1', 'moxxy.bearer.abc'] });
     expect(socket.protocols).toEqual(['moxxy.v1', 'moxxy.bearer.abc']);

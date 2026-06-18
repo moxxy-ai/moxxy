@@ -252,6 +252,50 @@ describe('buildWebhookRunner allowedTools enforcement', () => {
     expect(session.lastResolvedModel).toBe('noop-1');
   });
 
+  it('does not report error when a later assistant_message recovers from an earlier error stop', async () => {
+    // Multi-round turn: an early assistant_message ends with stopReason 'error'
+    // then a later one succeeds. The latest message is authoritative — a sticky
+    // lastError would mis-report the recovered run as failed.
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'webhook-runner-recovery-probe',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [
+          defineMode({
+            name: 'recovery-probe',
+            run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+              yield await ctx.emit({
+                type: 'assistant_message',
+                sessionId: ctx.sessionId,
+                turnId: ctx.turnId,
+                source: 'assistant',
+                content: 'partial',
+                stopReason: 'error',
+              });
+              yield await ctx.emit({
+                type: 'assistant_message',
+                sessionId: ctx.sessionId,
+                turnId: ctx.turnId,
+                source: 'assistant',
+                content: 'final',
+                stopReason: 'end_turn',
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('recovery-probe');
+
+    const runner = buildWebhookRunner(session);
+    const result = await runner.runPrompt({ prompt: 'fire', allowedTools: [], triggerName: 'rec' });
+    expect(result.error).toBeUndefined();
+    expect(result.text).toBe('final');
+  });
+
   it('surfaces the allow-list through policyCheck (the goal-mode auto-approve path)', async () => {
     // Goal mode replaces ctx.permissions with an auto-approver that consults
     // ONLY the prompt-free `policyCheck` probe before allowing. The webhook

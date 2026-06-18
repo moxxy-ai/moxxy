@@ -44,10 +44,13 @@ export function htmlToMarkdown(html: string, opts: ExtractOptions = {}): string 
     `\n\n${'#'.repeat(Number(lvl))} ${stripTags(inner).trim()}\n\n`,
   );
 
-  // links: keep text + url
+  // links: keep text + url. Accept double-quoted, single-quoted, and unquoted
+  // hrefs — real-world HTML uses all three, and matching only "double" silently
+  // dropped the URL (the link text survived via the later tag-strip).
   body = body.replace(
-    /<a\b[^>]*\bhref="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,
-    (_, href: string, inner: string) => `[${stripTags(inner).trim()}](${href})`,
+    /<a\b[^>]*\bhref=(?:"([^"]+)"|'([^']+)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi,
+    (_, dq: string | undefined, sq: string | undefined, uq: string | undefined, inner: string) =>
+      `[${stripTags(inner).trim()}](${dq ?? sq ?? uq})`,
   );
 
   // code

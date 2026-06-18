@@ -158,11 +158,20 @@ export function spawnCliTunnel(opts: SpawnCliTunnelOptions): Promise<CliTunnelHa
     }, timeoutMs);
     timer.unref?.();
 
+    // 'data' events are not line-buffered: the assigned URL can straddle two
+    // chunk boundaries (large URL, fragmented flush). Match against a rolling
+    // accumulation rather than each lone chunk, capped so a chatty tunnel that
+    // never prints a URL can't grow this unboundedly while we wait.
+    const MAX_BUF = 8192;
+    let acc = '';
     const onData = (buf: Buffer): void => {
       if (settled) return; // drain quietly once resolved so the pipe never fills
-      const url = urlRegex.exec(buf.toString('utf8'))?.[0] ?? null;
+      acc += buf.toString('utf8');
+      if (acc.length > MAX_BUF) acc = acc.slice(acc.length - MAX_BUF);
+      const url = urlRegex.exec(acc)?.[0] ?? null;
       if (!url) return;
       settled = true;
+      acc = '';
       clearTimeout(timer);
       resolve({ url, pid: child.pid ?? -1, close: untrack });
     };

@@ -1,5 +1,6 @@
 import { Bot, GrammyError, HttpError } from 'grammy';
 import type { Context } from 'grammy';
+import { newTurnId } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   ApprovalRequest,
@@ -77,6 +78,12 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   // without poisoning the session-level signal (which other channels
   // sharing the same Session would also observe).
   private turnController: AbortController | null = null;
+  // turnIds of turns THIS channel initiated. mirrorForeignTurn filters on these
+  // (invariant #8: filter event-log subscribers by turnId when multiplexing
+  // turns on one Session) rather than the coarse `busy` flag alone — so an
+  // assistant_message dispatched for our own turn AFTER `busy` flips false
+  // (async event ordering / RemoteSession replay) isn't re-mirrored as foreign.
+  private readonly ownTurnIds = new Set<string>();
   // When a user clicks an approval option that needs text follow-up
   // (e.g. plan-execute "Redraft with feedback"), we stash the
   // approval+option pair and capture the user's NEXT message as the
@@ -261,6 +268,15 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     const controller = new AbortController();
     this.turnController = controller;
     const effectiveModel = this.activeModelOverride ?? this.model;
+    // Mint the turnId here so we can record it as an own-turn id — that's what
+    // mirrorForeignTurn filters on. Bound the set so a long-lived channel can't
+    // leak ids; a handful of recent ids is enough to dedup late/replayed events.
+    const turnId = newTurnId();
+    this.ownTurnIds.add(turnId);
+    if (this.ownTurnIds.size > 64) {
+      const oldest = this.ownTurnIds.values().next().value;
+      if (oldest !== undefined) this.ownTurnIds.delete(oldest);
+    }
 
     try {
       await runUserTurn(
@@ -272,7 +288,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
           typing: this.typing,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
         },
-        { chatId, text, model: effectiveModel, controller },
+        { chatId, text, model: effectiveModel, controller, turnId },
       );
     } finally {
       this.busy = false;
@@ -288,7 +304,12 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
    * avoid parse-mode pitfalls; the view itself lives on the web surface.
    */
   private mirrorForeignTurn(event: MoxxyEvent): void {
-    if (event.type !== 'assistant_message' || this.busy) return;
+    if (event.type !== 'assistant_message') return;
+    // Skip turns THIS channel initiated, by turnId — robust to events that
+    // arrive after `busy` flips false (async ordering / RemoteSession replay),
+    // which the `busy` flag alone could mis-mirror as foreign (invariant #8).
+    if (this.ownTurnIds.has(event.turnId)) return;
+    if (this.busy) return;
     if (!this.bot || this.lastChatId == null) return;
     const text = event.content.trim();
     if (!text) return;

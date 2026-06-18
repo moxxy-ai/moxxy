@@ -77,7 +77,19 @@ async function loadDir(
     }
     if (!entry.isFile() || !/\.ya?ml$/i.test(entry.name)) continue;
     const full = path.join(dir, entry.name);
-    const raw = await fs.readFile(full, 'utf8');
+    let raw: string;
+    try {
+      raw = await fs.readFile(full, 'utf8');
+    } catch (err) {
+      // A file unlinked between readdir and readFile (concurrent `/workflows
+      // rm`, or an atomic write's .tmp window) must not abort discovery of
+      // every other workflow — skip it like an unparseable file.
+      logger?.warn?.('workflow: unreadable file, skipping', {
+        path: full,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      continue;
+    }
     const result = parseWorkflowYaml(raw);
     if (!result.ok || !result.workflow) {
       logger?.warn?.('workflow: invalid file, skipping', { path: full, errors: result.errors });

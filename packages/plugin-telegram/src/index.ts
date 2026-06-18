@@ -1,6 +1,6 @@
 import { defineChannel, defineTool, definePlugin, z, type Plugin } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { Bot } from 'grammy';
+import { Api } from 'grammy';
 import { TelegramChannel } from './channel.js';
 import { TELEGRAM_AUTHORIZED_CHAT_KEY, TELEGRAM_TOKEN_KEY } from './keys.js';
 import { runTelegramWizard } from './setup-wizard.js';
@@ -201,8 +201,12 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
               'no authorized chat — run `moxxy channels telegram pair` first or pass `chatId` explicitly',
             );
           }
-          const bot = new Bot(token);
-          await bot.api.sendMessage(targetChat, text, parseMode ? { parse_mode: parseMode } : {});
+          // Use grammy's lightweight `Api` client directly rather than a full
+          // `Bot` (which builds a polling-capable instance + lazily resolves
+          // bot info). This is a one-off send — no long-polling — so the Bot
+          // wrapper was pure overhead per invocation.
+          const api = new Api(token);
+          await api.sendMessage(targetChat, text, parseMode ? { parse_mode: parseMode } : {});
           return { delivered: true, chatId: targetChat, length: text.length };
         },
       }),

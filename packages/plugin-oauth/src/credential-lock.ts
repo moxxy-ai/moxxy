@@ -146,6 +146,14 @@ async function acquireFileLock(
       }
     }
     // Lock held — take over if the holder looks dead, else wait and re-try.
+    // There is a tolerated TOCTOU window here: two processes can both see the
+    // same lock as stale and rm() it, and one could unlink a holder's
+    // freshly-recreated lock. This widens (does not close) the race the
+    // lockfile narrows — acceptable because the file lock is explicitly
+    // best-effort (see the module header): the in-process mutex, the vault's
+    // read-merge-write persistence, and the invalid_grant re-read retry are
+    // the real correctness guards, and a double-takeover degrades to the same
+    // unlocked-but-recoverable path as a wedged lock.
     try {
       const st = await stat(lockPath);
       if (Date.now() - st.mtimeMs > staleMs) {

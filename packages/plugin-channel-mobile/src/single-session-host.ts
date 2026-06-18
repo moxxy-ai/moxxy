@@ -119,6 +119,11 @@ export class MobileSessionHost {
       // the authoritative seam (clears persistence too); a session without it
       // degrades to clearing the live log — never silently no-op.
       for (const controller of this.turns.values()) controller.abort();
+      // Reset auto-approve to the safe default so a fresh session never
+      // silently inherits the previous one's auto-allow (desktop SessionDriver
+      // parity). Manual `allow_always` persists via permissions; auto-approve
+      // is host-level and ephemeral.
+      this.autoApprove = false;
       if (this.session.reset) await this.session.reset();
       else this.session.log.clear();
     });
@@ -290,6 +295,11 @@ export class MobileSessionHost {
   }
 
   private openAsk(req: Omit<AskRequest, 'requestId'>): Promise<AskResponse> {
+    // Fail closed after teardown: a permission/approval check that arrives
+    // post-dispose (a turn not aborted in time, a re-used session) would
+    // otherwise broadcast to a closed bus and park a resolver that nothing
+    // ever drains — hanging the awaiting check forever. Deny immediately.
+    if (this.disposed) return Promise.resolve({ mode: 'deny' });
     const requestId = `ask-${++this.askCounter}`;
     return new Promise<AskResponse>((resolve) => {
       this.pendingAsks.set(requestId, resolve);

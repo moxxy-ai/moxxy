@@ -141,6 +141,11 @@ describe('SessionPersistence', () => {
     await prompt('first failing write');
     await prompt('second failing write');
     await waitForCondition(() => Promise.resolve(persistence.degraded));
+    // Drain the queue so BOTH failing appends have actually been attempted (and
+    // failed) before we remove the obstruction below — otherwise a still-queued
+    // append could run after the rmdir and succeed, persisting an event the test
+    // expects to have been lost (a scheduler-timing-dependent flake).
+    await persistence.settleWrites();
     // Both appends failed, but the structured warning fired exactly once.
     await waitForCondition(() =>
       Promise.resolve(lines.some((l) => l.level === 'warn' && l.msg.includes('write failed'))),

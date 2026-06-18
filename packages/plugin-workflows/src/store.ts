@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { writeFileAtomic, type Workflow } from '@moxxy/sdk';
+import { createMutex, writeFileAtomic, type Mutex, type Workflow } from '@moxxy/sdk';
 import {
   defaultProjectWorkflowsDir,
   defaultUserWorkflowsDir,
@@ -36,6 +36,12 @@ export class WorkflowStore {
   private readonly byName = new Map<string, DiscoveredWorkflow>();
   private readonly opts: WorkflowStoreOptions;
   private loaded = false;
+  // Per-instance lock (invariant: serialize whole-map RMW). A reload
+  // (`load()` clears then refills byName) must never interleave with a save
+  // (read byName → write file → set byName) — e.g. an autonomous onChanged
+  // re-sync racing a user `/workflows enable`, or two concurrent toggles —
+  // or the in-memory registry briefly desyncs from disk.
+  private readonly mutex: Mutex = createMutex();
 
   constructor(opts: WorkflowStoreOptions) {
     this.opts = opts;
@@ -51,6 +57,15 @@ export class WorkflowStore {
 
   /** (Re)scan all sources and rebuild the in-memory map. */
   async load(): Promise<void> {
+    await this.mutex.run(() => this.loadUnlocked());
+  }
+
+  /**
+   * Rebuild the map without acquiring the mutex — only call from a context
+   * that already holds it (mutators below), so the clear+refill is atomic
+   * with respect to other mutators.
+   */
+  private async loadUnlocked(): Promise<void> {
     const discovered = await discoverWorkflows({
       userDir: this.userDir(),
       projectDir: this.projectDir(),
@@ -61,6 +76,10 @@ export class WorkflowStore {
     this.byName.clear();
     for (const wf of discovered) this.byName.set(wf.workflow.name, wf);
     this.loaded = true;
+  }
+
+  private async ensureLoadedUnlocked(): Promise<void> {
+    if (!this.loaded) await this.loadUnlocked();
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -84,17 +103,19 @@ export class WorkflowStore {
 
   /** Write a new workflow file and register it. Rejects duplicate names. */
   async create(workflow: Workflow, scope: EditableScope): Promise<DiscoveredWorkflow> {
-    await this.ensureLoaded();
-    if (this.byName.has(workflow.name)) {
-      throw new Error(`workflow "${workflow.name}" already exists — use update instead`);
-    }
-    const dir = scope === 'project' ? this.projectDir() : this.userDir();
-    await fs.mkdir(dir, { recursive: true });
-    const file = await uniqueFilename(dir, workflow.name);
-    await writeFileAtomic(file, serializeWorkflow(workflow));
-    const entry: DiscoveredWorkflow = { workflow, path: file, scope };
-    this.byName.set(workflow.name, entry);
-    return entry;
+    return this.mutex.run(async () => {
+      await this.ensureLoadedUnlocked();
+      if (this.byName.has(workflow.name)) {
+        throw new Error(`workflow "${workflow.name}" already exists — use update instead`);
+      }
+      const dir = scope === 'project' ? this.projectDir() : this.userDir();
+      await fs.mkdir(dir, { recursive: true });
+      const file = await uniqueFilename(dir, workflow.name);
+      await writeFileAtomic(file, serializeWorkflow(workflow));
+      const entry: DiscoveredWorkflow = { workflow, path: file, scope };
+      this.byName.set(workflow.name, entry);
+      return entry;
+    });
   }
 
   /**
@@ -106,7 +127,14 @@ export class WorkflowStore {
    * rename doesn't leave an orphaned duplicate file + stale entry behind.
    */
   async save(workflow: Workflow, previousName?: string): Promise<DiscoveredWorkflow> {
-    await this.ensureLoaded();
+    return this.mutex.run(() => this.saveUnlocked(workflow, previousName));
+  }
+
+  private async saveUnlocked(
+    workflow: Workflow,
+    previousName?: string,
+  ): Promise<DiscoveredWorkflow> {
+    await this.ensureLoadedUnlocked();
 
     // Rename: the editor loaded `previousName`, the author changed the name,
     // and we're saving under the new one. Drop the old editable file + entry
@@ -141,23 +169,29 @@ export class WorkflowStore {
 
   /** Toggle a workflow's `enabled` flag, persisting the change. */
   async setEnabled(name: string, enabled: boolean): Promise<DiscoveredWorkflow | null> {
-    await this.ensureLoaded();
-    const existing = this.byName.get(name);
-    if (!existing) return null;
-    return this.save({ ...existing.workflow, enabled });
+    return this.mutex.run(async () => {
+      await this.ensureLoadedUnlocked();
+      const existing = this.byName.get(name);
+      if (!existing) return null;
+      // saveUnlocked runs inside the held lock — calling the public save()
+      // here would re-enter the mutex and deadlock.
+      return this.saveUnlocked({ ...existing.workflow, enabled });
+    });
   }
 
   /** Delete a user/project workflow file. Read-only scopes cannot be deleted. */
   async delete(name: string): Promise<{ ok: boolean; reason?: string }> {
-    await this.ensureLoaded();
-    const existing = this.byName.get(name);
-    if (!existing) return { ok: false, reason: 'not found' };
-    if (existing.scope !== 'user' && existing.scope !== 'project') {
-      return { ok: false, reason: `cannot delete a ${existing.scope} workflow` };
-    }
-    await fs.rm(existing.path, { force: true });
-    this.byName.delete(name);
-    return { ok: true };
+    return this.mutex.run(async () => {
+      await this.ensureLoadedUnlocked();
+      const existing = this.byName.get(name);
+      if (!existing) return { ok: false, reason: 'not found' };
+      if (existing.scope !== 'user' && existing.scope !== 'project') {
+        return { ok: false, reason: `cannot delete a ${existing.scope} workflow` };
+      }
+      await fs.rm(existing.path, { force: true });
+      this.byName.delete(name);
+      return { ok: true };
+    });
   }
 }
 

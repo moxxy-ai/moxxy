@@ -24,7 +24,16 @@ export class ProviderRegistry {
     if (instance) this.instances.set(def.name, instance);
   }
 
-  /** Overwrite an existing def (also drops the cached instance so the new createClient gets called). */
+  /**
+   * Overwrite an existing def (also drops the cached instance so the new
+   * createClient gets called).
+   *
+   * Invariant: replacing the ACTIVE provider's def leaves `active` pointing at
+   * it but with no cached instance, so `getActive()` throws until the caller
+   * rebuilds the instance. Callers replacing the active provider MUST follow
+   * with `setActive(name, config)` (replace can't rebuild itself — it has no
+   * config). The sole production caller does exactly that.
+   */
   replace(def: ProviderDef, instance?: LLMProvider): void {
     this.defs.set(def.name, def);
     this.instances.delete(def.name);

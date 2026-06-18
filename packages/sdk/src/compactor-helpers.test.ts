@@ -42,6 +42,27 @@ describe('estimateContextTokens', () => {
     expect(estimateContextTokens(log)).toBe(10);
   });
 
+  it('u122-6: a wide compaction range counts as the summary, with later events full', () => {
+    // The covered range spans many seqs but only one event actually exists at
+    // seq 0; an event at seq 1000 (outside the range) must still count full.
+    // This locks the interval-check rewrite against the old per-seq Set.
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: tid, source: 'user', text: 'x'.repeat(400) }),
+      event(1, {
+        type: 'compaction',
+        turnId: tid,
+        source: 'compactor',
+        compactor: 'summarize',
+        replacedRange: [0, 999],
+        summary: 'y'.repeat(40),
+        tokensSaved: 90,
+      }),
+      event(1000, { type: 'assistant_message', turnId: tid, source: 'model', content: 'z'.repeat(80), stopReason: 'end_turn' }),
+    ]);
+    // 40-char summary + 80-char message = 120 chars → ceil(120/4) = 30.
+    expect(estimateContextTokens(log)).toBe(30);
+  });
+
   it('measures a ToolDisplayResult by its short forModel, not the bulky display', () => {
     // A recent (not-yet-elided) file-diff tool_result: the model only ever
     // sees the short `forModel` string, but a previous version of eventChars

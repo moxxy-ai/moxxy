@@ -22,7 +22,7 @@ export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
   const [name, sub, ...rest] = argv.positional;
 
   if (!name || name === 'list') {
-    return runList();
+    return runList(argv);
   }
 
   // Channel-introspection paths (read def, list subcommands) only need
@@ -94,16 +94,19 @@ export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
   return runChannelByName(name, argv);
 }
 
-async function runList(): Promise<number> {
+async function runList(argv: ParsedArgv): Promise<number> {
   // Same as above: the list command doesn't need a provider; force
   // skipProviderActivation so `moxxy channels` is instant even when
   // no API key is configured. Probe semantics: no init-hook daemons,
-  // session closed before we print.
+  // session closed before we print. Thread the real argv so
+  // `--config`/`--verbose`/`--model` are honored when listing
+  // availability (otherwise a custom config is silently ignored).
   const { entries, config } = await probeSession(
-    argvToSetupOptions(
-      { flags: {} },
-      { skipKeyPrompt: true, tolerateNoProvider: true, skipProviderActivation: true },
-    ),
+    argvToSetupOptions(argv, {
+      skipKeyPrompt: true,
+      tolerateNoProvider: true,
+      skipProviderActivation: true,
+    }),
     async ({ session, vault, config }) => ({
       config,
       entries: await session.channels.listWithAvailability({

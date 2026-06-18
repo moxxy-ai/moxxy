@@ -12,7 +12,18 @@ import type { FileDiffDisplay, ViewDoc } from '@moxxy/sdk';
 /** Server → browser. */
 export type ServerFrame =
   | { readonly kind: 'hello'; readonly sessionId?: string }
-  /** A new view to render; `replaces` swaps the prior view in place. */
+  /**
+   * A new view to render.
+   *
+   * INVARIANT: the in-place-vs-push decision is driven SOLELY by the logical
+   * `name` (a re-render of the screen already on top updates in place; a
+   * different name pushes a history entry — see `applyView`). `replaces`
+   * carries the prior `viewId` purely as provenance/diagnostic context (the
+   * single-user projector emits the id of the view this one supersedes); it
+   * is NOT a navigation directive and the frontend reducer does not branch on
+   * it. Do not reintroduce `replaces`-based in-place logic without reconciling
+   * it with the name-keyed history/back model in view-store.ts.
+   */
   | {
       readonly kind: 'view';
       readonly viewId: string;

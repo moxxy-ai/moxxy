@@ -51,6 +51,17 @@ describe('buildKeyScript', () => {
     expect(buildKeyScript('"', [])).toBe('tell application "System Events" to keystroke "\\""');
   });
 
+  it('routes a single literal whitespace char to its key code (chord-safe)', () => {
+    // ctrl+space must press the Space key, not type a space char with control
+    // held — so it goes through `key code 49`, not `keystroke " "`.
+    expect(buildKeyScript(' ', ['control'])).toBe(
+      'tell application "System Events" to key code 49 using {control down}',
+    );
+    expect(buildKeyScript('\t', [])).toBe('tell application "System Events" to key code 48');
+    expect(buildKeyScript('\r', [])).toBe('tell application "System Events" to key code 36');
+    expect(buildKeyScript('\n', [])).toBe('tell application "System Events" to key code 36');
+  });
+
   it('throws a TOOL_ERROR for an unknown multi-char key', () => {
     expect(() => buildKeyScript('notakey', [])).toThrow(MoxxyError);
     try {
