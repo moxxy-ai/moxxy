@@ -359,9 +359,9 @@ export class RunnerSupervisor extends EventEmitter {
       session = await connectRemoteSession({
         role: 'desktop',
         socketPath: this.socketPath,
-        // Skip the full-history replay (protocol v6): the renderer's
-        // transcript comes from the NDJSON chat log (chat.loadSegment), never
-        // from this mirror, so replaying thousands of events (mostly
+        // Skip the full-history replay (protocol v6): the renderer pages its
+        // transcript from the runner's authoritative log (chat.loadHistory),
+        // never from this mirror, so replaying thousands of events (mostly
         // assistant_chunk) on every app start / desk switch / reconnect only
         // delayed the composer-ready gate. Live events still stream in. An
         // older bundled CLI ignores the option and replays in full — correct,

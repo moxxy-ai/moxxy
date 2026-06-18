@@ -61,13 +61,9 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // Voice input (capability-probed; transcribe fails coded without a transcriber).
   'session.hasTranscriber',
   'session.transcribe',
-  // Per-workspace transcript log (the mobile ChatStoreBridge persists through
-  // these; they're scoped to a workspace's NDJSON log, not host config).
-  'chat.append',
-  'chat.loadSegment',
+  // Read a workspace's transcript history from the runner's authoritative log
+  // (a paired phone may read history, scoped to a workspace, not host config).
   'chat.loadHistory',
-  'chat.clearLog',
-  'chat.migrate',
   // Workflows: READ + run an existing one only. Authoring (`workflows.save`,
   // `workflows.validateDraft`, `workflows.setEnabled`) is host-only — a paired
   // phone must not rewrite or re-enable the host's workflows.

@@ -97,43 +97,18 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
 2. **`ClientSession` → minimal `SessionLike` retyping** — a deliberate architectural
    item that belongs to the runner/thin-client split (see [[runner-thin-client]]);
    net-new refactor work for a focused PR, not a tail-end edit.
-3. **Dual on-disk history consolidation** — likewise a designed, deferred decision
-   (the NDJSON store is the renderer's only history source under `replay:'none'`;
-   consolidating means migrating to paged runner-log reads, with real counter-risks).
-   **Runner-side foundation landed (2026-06-18):** runner protocol v10 adds the
-   paged `session.loadHistory` ({ before, limit } → { events, prevCursor }) backed
-   by a core paged-JSONL reader (`readSessionEventPage`/`pageEvents`), and the
-   runner now seals stream-without-seal turns into a REAL `assistant_message` so
-   its log is the complete authoritative history (no more renderer-only synth).
-   The client method is version-gated (`requireServerProtocol(10)`); against an
-   older runner it throws an actionable error the renderer can catch to fall back
-   to NDJSON, and the desktop FLOOR was deliberately NOT raised.
-   **Renderer migration landed (2026-06-18):** the desktop now READS history from
-   the runner — IPC `chat.loadHistory` proxies to the workspace's `RemoteSession`
-   and returns `null` (→ NDJSON fallback) for a `<v10`/disconnected runner or a
-   legacy-only chat; `ChatPersistence.loadHistory` + a chat-store "page-until-K-
-   rendered" cursor walk the runner's RAW pages and filter with `isRenderedEvent`,
-   with the source pinned per slot so the runner `seq` and NDJSON line cursors
-   never mix. A GOLDEN render-equivalence test pins runner-stream+filter ==
-   NDJSON across stream-without-seal / reasoning / tool / compaction / multi-page
-   fixtures. **Legacy migration landed (2026-06-18, the keystone):** core
-   `seedSessionLog` + the runner pool's `seedChatIntoSession` migrate a chat whose
-   history lived ONLY in the NDJSON mirror into the runner's authoritative log,
-   BEFORE that workspace's runner resumes its session id — so the runner owns
-   every chat (a legacy chat is no longer stranded when continued). Idempotent +
-   non-destructive (skips a session the runner already owns; NDJSON left intact).
-   **Single-source landed (2026-06-18):** (a) `chat.append` is runtime-gated on
-   the attached runner version — a v10+ runner owns the log so the NDJSON
-   double-WRITE is skipped (a `<v10` runner still mirrors); (b) desktop
-   `FLOOR_RUNNER_PROTOCOL` raised 9 → 10; (c) `migrateAllChatsToSessions` eagerly
-   migrates EVERY remaining NDJSON-only chat into the runner at startup, so the
-   runner is the single source of truth for ALL chats (not just opened ones).
-   **The dual-history consolidation is functionally COMPLETE** — the runner is
-   authoritative, the NDJSON store is frozen (not written, not the source of
-   truth). Its files + read-fallback code remain only as a safety net.
-   **Only cleanup left (deliberately deferred, gated on packaged-desktop
-   live-verify — destructive + self-update-sensitive):** physically delete the
-   NDJSON files + remove the read-fallback / chat-log / chat.* IPC.
+3. **Dual on-disk history consolidation — RESOLVED 2026-06-18.** The runner's
+   authoritative log is now the SOLE chat-history store; the desktop's NDJSON
+   mirror is fully retired. Shipped across PRs #251 (runner v10
+   `session.loadHistory` + paged reader + log-completeness seal), #261 (renderer
+   reads from the runner + `projectRunnerWindow` reconstruction), #266 (seed
+   legacy chats into the runner before resume), #270 (stop the double-write,
+   FLOOR 9→10), #271 (eager migrate-all), and the final retirement (remove the
+   NDJSON read-fallback / double-write / `chat.append`·`loadSegment`·`clearLog`·
+   `migrate` IPC / `chat-log` / `seedSessionLog` / the legacy localStorage
+   migration; only `chat.loadHistory` remains). "Clear"/delete reset only the
+   runner log. Legacy NDJSON-only chats not previously migrated are intentionally
+   dropped (owner decision: "jump from legacy").
 4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
    `init` boot a full session and never `close()`) — minor; a correct fix must drain
    persistence before exit (premature exit would drop the last event).

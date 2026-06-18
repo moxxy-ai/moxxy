@@ -10,8 +10,8 @@
  * `ask.request` / `ask.respond`. The SAME `@moxxy/client-core` hooks work against
  * either backend.
  *
- * Chat history isn't persisted server-side here (no desk NDJSON log) — the live
- * event stream rebuilds the transcript and `chat.loadSegment` returns empty.
+ * Chat history isn't paged server-side here — the live event stream rebuilds the
+ * transcript and `chat.loadHistory` returns an empty page.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -197,12 +197,9 @@ export class MobileSessionHost {
     this.bus.handle('ask.respond', async ({ requestId, response }) => {
       this.answerAsk(requestId, response);
     });
-    // No server-side transcript persistence for the channel — the live stream
-    // rebuilds it; paging returns empty and writes are no-ops.
-    this.bus.handle('chat.loadSegment', async () => ({ events: [], prevCursor: null }));
-    this.bus.handle('chat.append', async () => {});
-    this.bus.handle('chat.clearLog', async () => {});
-    this.bus.handle('chat.migrate', async () => {});
+    // No paged history for the mobile channel — the live event stream rebuilds
+    // the transcript as it arrives, so history paging returns an empty page.
+    this.bus.handle('chat.loadHistory', async () => ({ events: [], prevCursor: null }));
   }
 
   /** Stream session events to clients + install the ask resolvers. */
