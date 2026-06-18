@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, useChat } from '@moxxy/client-core';
 import { pairToolEvents, type Block, type CollaborationBlock } from '@moxxy/chat-model';
 import { Icon } from '@moxxy/desktop-ui';
@@ -57,9 +57,54 @@ export function CollaboratePanel({
   const [channel, setChannel] = useState<string>('all');
   const [text, setText] = useState('');
   const [directive, setDirective] = useState(false);
+  const [goal, setGoal] = useState('');
+  const [starting, setStarting] = useState(false);
+  const [forceStart, setForceStart] = useState(false);
+  const [globalActive, setGlobalActive] = useState<{ active: boolean; task?: string } | null>(null);
+
+  // Poll the global single-flight lock so Start reflects a collaboration running
+  // in ANY workspace (only one runs at a time).
+  useEffect(() => {
+    let alive = true;
+    const poll = (): void => {
+      void api()
+        .invoke('collab.active')
+        .then((r) => {
+          if (alive) setGlobalActive(r);
+        })
+        .catch(() => undefined);
+    };
+    poll();
+    const t = setInterval(poll, 2500);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [workspaceId]);
 
   const runCmd = async (name: string, args: string): Promise<void> => {
     await api().invoke('session.runCommand', { workspaceId, name, args }).catch(() => undefined);
+  };
+
+  const running = collab != null && collab.completedAtMs === null;
+
+  // Start a collaboration FROM THE TAB (not chat): switch this workspace's
+  // session to collaborative mode and submit the goal as its turn. The global
+  // single-flight lock (runner side) still guarantees only one runs at a time.
+  const startCollaboration = async (): Promise<void> => {
+    const g = goal.trim();
+    if (!g || starting) return;
+    setStarting(true);
+    setGoal('');
+    try {
+      await api().invoke('session.setMode', { workspaceId, mode: 'collaborative' });
+      await api().invoke('session.runTurn', { workspaceId, prompt: g });
+      setForceStart(false);
+    } catch {
+      // surfaced as an error/assistant message in the session log
+    } finally {
+      setStarting(false);
+    }
   };
 
   const send = async (): Promise<void> => {
@@ -102,10 +147,20 @@ export function CollaboratePanel({
             : `done · ${collab.agents.filter((a) => a.status === 'done').length}/${collab.agents.length}`}
         </span>
       )}
+      {collab && !running && !forceStart && (
+        <button
+          type="button"
+          onClick={() => setForceStart(true)}
+          className="btn-chip"
+          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, fontWeight: 600 }}
+        >
+          ＋ New
+        </button>
+      )}
     </ViewHeader>
   );
 
-  if (!collab) {
+  if (!collab || forceStart) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         {header}
@@ -116,18 +171,41 @@ export function CollaboratePanel({
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 8,
-            color: 'var(--color-text-dim)',
+            gap: 14,
             padding: 24,
             textAlign: 'center',
           }}
         >
           <Icon name="agent" size={28} />
-          <div style={{ fontWeight: 600, color: 'var(--color-text-muted)' }}>No collaboration running</div>
-          <div style={{ fontSize: 13, maxWidth: 420 }}>
-            Go to <strong>Chat</strong>, switch the mode to <strong>collaborative</strong>, and send a task.
-            A team of agents will appear here as they work.
+          <div style={{ fontWeight: 600, color: 'var(--color-text-muted)' }}>Start a collaboration</div>
+          <div style={{ fontSize: 13, maxWidth: 460, color: 'var(--color-text-dim)' }}>
+            Describe a goal and a team of agents — an architect plus implementers — will plan it,
+            propose a roster for you to approve, then build it in parallel. Only one collaboration
+            runs at a time.
           </div>
+          {globalActive?.active && (
+            <div style={{ fontSize: 12.5, color: 'var(--color-amber-text)', maxWidth: 460 }}>
+              A collaboration is already running{globalActive.task ? ` ("${globalActive.task}")` : ''}. Only one
+              runs at a time to save resources — wait for it to finish, then start another.
+            </div>
+          )}
+          <StartComposer
+            goal={goal}
+            setGoal={setGoal}
+            starting={starting}
+            blocked={globalActive?.active ?? false}
+            onStart={() => void startCollaboration()}
+          />
+          {collab && (
+            <button
+              type="button"
+              onClick={() => setForceStart(false)}
+              className="btn-chip"
+              style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8 }}
+            >
+              ← Back to the current team
+            </button>
+          )}
         </div>
       </div>
     );
@@ -364,4 +442,56 @@ function RailRow({ active, onClick, children }: { readonly active: boolean; read
 
 function Empty({ children }: { readonly children: React.ReactNode }): JSX.Element {
   return <div style={{ padding: '4px 12px', fontSize: 12, color: 'var(--color-text-dim)', fontStyle: 'italic' }}>{children}</div>;
+}
+
+function StartComposer({
+  goal,
+  setGoal,
+  starting,
+  blocked,
+  onStart,
+}: {
+  readonly goal: string;
+  readonly setGoal: (v: string) => void;
+  readonly starting: boolean;
+  readonly blocked: boolean;
+  readonly onStart: () => void;
+}): JSX.Element {
+  const disabled = starting || blocked || goal.trim().length === 0;
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%', maxWidth: 560 }}>
+      <textarea
+        value={goal}
+        onChange={(e) => setGoal(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            if (!disabled) onStart();
+          }
+        }}
+        placeholder="e.g. Add a CSV export feature with tests and docs"
+        rows={2}
+        style={{
+          flex: 1,
+          resize: 'none',
+          padding: '10px 12px',
+          borderRadius: 12,
+          border: '1px solid var(--color-card-border)',
+          background: 'var(--color-input-soft)',
+          fontSize: 13,
+          color: 'var(--color-text)',
+          fontFamily: 'inherit',
+        }}
+      />
+      <button
+        type="button"
+        onClick={onStart}
+        disabled={disabled}
+        className="btn-cta"
+        style={{ padding: '10px 16px', borderRadius: 12, fontWeight: 600, opacity: disabled ? 0.6 : 1 }}
+      >
+        {starting ? 'Starting…' : 'Start'}
+      </button>
+    </div>
+  );
 }

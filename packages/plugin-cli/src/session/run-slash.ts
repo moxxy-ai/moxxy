@@ -449,8 +449,16 @@ function startCollab(deps: SlashDeps, arg: string): void {
   if (objective) deps.submitPrompt(objective);
 }
 
+// Collaboration is launched via `/collab <goal>` (single-flight), not the mode
+// picker; its peer modes are internal. Hidden from `/mode`.
+const COLLAB_HIDDEN_MODES: ReadonlySet<string> = new Set([
+  'collaborative',
+  'collab-architect',
+  'collab-peer',
+]);
+
 function openModePicker(deps: SlashDeps, arg = ''): void {
-  const modes = deps.session.modes.list();
+  const modes = deps.session.modes.list().filter((m) => !COLLAB_HIDDEN_MODES.has(m.name));
   if (modes.length === 0) {
     deps.setSystemNotice('no modes registered');
     return;
@@ -459,6 +467,10 @@ function openModePicker(deps: SlashDeps, arg = ''): void {
   // otherwise (no arg, or no match) fall back to the interactive picker.
   const target = arg.trim().toLowerCase();
   if (target) {
+    if (COLLAB_HIDDEN_MODES.has(target)) {
+      deps.setSystemNotice('Use /collab <goal> to run a collaborative team (only one runs at a time).');
+      return;
+    }
     const match = modes.find((m) => m.name.toLowerCase() === target);
     if (match) {
       try {

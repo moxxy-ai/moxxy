@@ -237,6 +237,15 @@ export interface IpcCommands {
   /** True when the runner has an active transcriber plugin. UI uses
    *  this to enable/disable the mic button. */
   'session.hasTranscriber': () => Promise<boolean>;
+  /** The globally-active collaboration (only one runs at a time), or inactive.
+   *  Read from the single-flight lock file so it spans all workspaces' runners;
+   *  the Collaborate tab uses it to disable Start while one is running. */
+  'collab.active': () => Promise<{
+    readonly active: boolean;
+    readonly sessionId?: string;
+    readonly task?: string;
+    readonly startedAtMs?: number;
+  }>;
   /** Forward an audio blob to the runner's active transcriber.
    *  Audio must be base64-encoded; returns the recognised text. */
   'session.transcribe': (args: {

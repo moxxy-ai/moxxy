@@ -42,6 +42,7 @@ import {
 } from './worktrees.js';
 import { PeerSupervisor, type PeerSupervisorOptions, type Supervisor } from './peer-supervisor.js';
 import { integrate } from './integrate.js';
+import { releaseCollabLock, tryAcquireCollabLock } from './collab-lock.js';
 import type { CollaborationHub } from '@moxxy/plugin-collab';
 
 const POLL_MS = 500;
@@ -73,8 +74,27 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     return;
   }
 
+  // Global single-flight: only one collaboration runs at a time (each spawns a
+  // fleet of agent processes). Refuse rather than thrash resources.
+  const lock = tryAcquireCollabLock({ sessionId: String(ctx.sessionId), task, startedAtMs: Date.now() });
+  if (!lock.ok) {
+    yield await ctx.emit(plugin(ctx, 'collab_blocked', { reason: 'already-running', holderTask: lock.holder.task }));
+    yield await ctx.emit(
+      assistant(
+        ctx,
+        `A collaboration is already running ("${lock.holder.task}"). Only one runs at a time to save resources — stop it first, then start again.`,
+      ),
+    );
+    return;
+  }
+
   const runId = collabRunId(String(ctx.sessionId), String(ctx.turnId));
-  mkdirSync(collabRunDir(runId), { recursive: true });
+  const worktrees = new Map<string, string>();
+  let hub: CollaborationHub | null = null;
+  let supervisor: Supervisor | null = null;
+  let unsubscribe: (() => void) | null = null;
+  try {
+    mkdirSync(collabRunDir(runId), { recursive: true });
 
   const { installed: gitInstalled, repo: gitRepo } = await detectGit(cwd);
   const parallel = cfg.concurrency === 'parallel' && gitRepo;
@@ -97,7 +117,6 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     baseSha = base.baseSha;
   }
 
-  const worktrees = new Map<string, string>();
   const architectEntry: RosterEntry = {
     id: ARCHITECT_AGENT_ID,
     name: 'Architect',
@@ -105,14 +124,14 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     subtask: task,
   };
 
-  const hub = await createCollaborationHub({
+  hub = await createCollaborationHub({
     socketPath: hubSocketPath(runId),
     task,
     roster: [architectEntry],
     peerReader: peerReaderFor(worktrees, baseSha),
   });
   registerActiveHub(String(ctx.sessionId), hub);
-  const unsubscribe = hub.subscribe((e) => {
+  unsubscribe = hub.subscribe((e) => {
     void ctx.emit(toCollabEvent(ctx, e));
   });
 
@@ -124,9 +143,8 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     ...(cfg.defaultModel ? { defaultModel: cfg.defaultModel } : {}),
     signal: ctx.signal,
   };
-  const supervisor = (deps.createSupervisor ?? ((o) => new PeerSupervisor(o)))(supervisorOpts, hub);
+  supervisor = (deps.createSupervisor ?? ((o) => new PeerSupervisor(o)))(supervisorOpts, hub);
 
-  try {
     yield await ctx.emit(plugin(ctx, 'collab_started', { task, parallel, gitInstalled, gitRepo }));
 
     // --- Phase 0: architect designs the plan + contracts (runs in cwd) ---
@@ -244,10 +262,11 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     );
     yield await ctx.emit(plugin(ctx, 'collab_completed', { done: doneIds, total: roster.length }));
   } finally {
-    await supervisor.shutdownAll('collaboration complete');
-    unsubscribe();
+    if (supervisor) await supervisor.shutdownAll('collaboration complete');
+    if (unsubscribe) unsubscribe();
     unregisterActiveHub(String(ctx.sessionId));
-    await hub.close();
+    if (hub) await hub.close();
+    releaseCollabLock(String(ctx.sessionId));
   }
 }
 
