@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   DESKTOP_APP_HOST,
+  derInteger,
   generateSelfSignedCert,
   loadOrCreateSelfSignedCert,
   isTrustedLoopbackCert,
@@ -29,11 +30,49 @@ describe('generateSelfSignedCert', () => {
     );
   });
 
+  it('mints parseable certs for any random serial (no non-minimal-INTEGER flake)', () => {
+    // The serial is 8 random bytes; a serial starting with 0x00 used to encode
+    // as a non-minimal DER INTEGER that Node 20's OpenSSL rejects as illegal
+    // padding (~1/512 of calls). Generate many to exercise the encoder.
+    for (let i = 0; i < 24; i += 1) {
+      const c = generateSelfSignedCert();
+      const x = new crypto.X509Certificate(c.cert);
+      expect(x.serialNumber).toMatch(/^[0-9A-Fa-f]+$/);
+      expect(c.fingerprint256).toBe(x.fingerprint256);
+    }
+  }, 20_000);
+
   it('mints a cert whose validity is current (not yet expired, already valid)', () => {
     const x = new crypto.X509Certificate(generateSelfSignedCert().cert);
     const now = Date.now();
     expect(new Date(x.validFrom).getTime()).toBeLessThanOrEqual(now);
     expect(new Date(x.validTo).getTime()).toBeGreaterThan(now);
+  });
+});
+
+describe('derInteger (canonical minimal DER INTEGER)', () => {
+  const enc = (bytes: number[]): number[] => [...derInteger(Buffer.from(bytes))];
+
+  it('strips a redundant leading zero (MSB of next byte clear)', () => {
+    // 0x00 0x01 -> minimal 0x01 ; tag 0x02, len 0x01, value 0x01
+    expect(enc([0x00, 0x01])).toEqual([0x02, 0x01, 0x01]);
+  });
+
+  it('keeps a required leading zero (MSB of next byte set)', () => {
+    // 0x00 0x80 must stay 0x00 0x80 to remain positive
+    expect(enc([0x00, 0x80])).toEqual([0x02, 0x02, 0x00, 0x80]);
+  });
+
+  it('prepends a zero when the high bit is set', () => {
+    expect(enc([0x80])).toEqual([0x02, 0x02, 0x00, 0x80]);
+  });
+
+  it('leaves a minimal small value unchanged', () => {
+    expect(enc([0x02])).toEqual([0x02, 0x01, 0x02]);
+  });
+
+  it('collapses all-zero magnitude to a single zero byte', () => {
+    expect(enc([0x00, 0x00, 0x00])).toEqual([0x02, 0x01, 0x00]);
   });
 });
 

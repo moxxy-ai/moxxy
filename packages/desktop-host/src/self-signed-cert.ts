@@ -97,11 +97,22 @@ function utf8(s: string): Buffer {
   return tlv(0x0c, Buffer.from(s, 'utf8'));
 }
 
-/** DER INTEGER from a big-endian magnitude; prepends 0x00 if the high bit is
- *  set so the value stays positive. */
-function integer(magnitude: Buffer): Buffer {
-  const buf = magnitude[0]! & 0x80 ? Buffer.concat([Buffer.from([0]), magnitude]) : magnitude;
-  return tlv(0x02, buf);
+/**
+ * DER INTEGER from a non-negative big-endian magnitude, in CANONICAL minimal
+ * form: strip redundant leading `0x00` bytes, then prepend a single `0x00` iff
+ * the high bit is set (to keep the value positive). Both halves matter — a
+ * random serial that happens to start with `0x00` followed by an MSB-clear byte
+ * would otherwise be a non-minimal encoding that strict ASN.1 parsers (Node 20's
+ * OpenSSL) reject as `ERR_OSSL_ASN1_ILLEGAL_PADDING`. Exported for unit testing.
+ */
+export function derInteger(magnitude: Buffer): Buffer {
+  let m: Buffer = magnitude.length ? magnitude : Buffer.from([0]);
+  // Drop leading zero bytes (keep at least one), then re-add for sign below.
+  let i = 0;
+  while (i < m.length - 1 && m[i] === 0x00) i += 1;
+  m = m.subarray(i);
+  if (m[0]! & 0x80) m = Buffer.concat([Buffer.from([0x00]), m]);
+  return tlv(0x02, m);
 }
 
 function bitString(buf: Buffer): Buffer {
@@ -144,8 +155,8 @@ export function generateSelfSignedCert(host: string = DESKTOP_APP_HOST): SelfSig
   const notAfter = new Date(Date.now() + 10 * 365 * 24 * 3600_000);
 
   const tbs = seq(
-    context(0, integer(Buffer.from([2]))), // version v3 (encoded as 2)
-    integer(crypto.randomBytes(8)), // serial number
+    context(0, derInteger(Buffer.from([2]))), // version v3 (encoded as 2)
+    derInteger(crypto.randomBytes(8)), // serial number
     sigAlg,
     name, // issuer
     seq(utcTime(notBefore), utcTime(notAfter)),
