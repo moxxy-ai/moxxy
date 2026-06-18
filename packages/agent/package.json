@@ -1,8 +1,8 @@
 {
-  "name": "@moxxy/plugin-provider-openai",
-  "version": "0.0.23",
-  "description": "OpenAI (and OpenAI-compatible: z.ai, xAI, Google, Ollama/local) LLMProvider plugin for moxxy. Streams Chat Completions with tool_calls; translates moxxy ProviderRequest/Event ↔ the OpenAI wire shape. Register it into an @moxxy/core Session to route turns to OpenAI-compatible models.",
-  "keywords": ["moxxy", "agent", "provider", "openai", "llm", "tool-calls"],
+  "name": "@moxxy/agent",
+  "version": "0.1.0",
+  "description": "Batteries-included entry to moxxy: one install + one call to run an agent. Bundles @moxxy/core, the default loop, and the OpenAI + Anthropic providers behind drop-in presets — `setupAgent(openaiPreset({ apiKey }))`.",
+  "keywords": ["moxxy", "agent", "agentic", "llm", "openai", "anthropic", "sdk"],
   "homepage": "https://moxxy.ai",
   "bugs": {
     "url": "https://github.com/moxxy-ai/moxxy/issues"
@@ -10,7 +10,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/moxxy-ai/moxxy.git",
-    "directory": "packages/plugin-provider-openai"
+    "directory": "packages/agent"
   },
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
   "license": "MIT",
@@ -36,22 +36,18 @@
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": {
-    "plugin": {
-      "entry": "./dist/index.js",
-      "kind": "provider"
-    }
-  },
   "dependencies": {
+    "@moxxy/core": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "openai": "^4.80.0"
+    "@moxxy/mode-default": "workspace:*",
+    "@moxxy/plugin-provider-openai": "workspace:*",
+    "@moxxy/plugin-provider-anthropic": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "zod": "catalog:"
+    "vitest": "catalog:"
   }
 }

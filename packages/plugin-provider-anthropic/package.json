@@ -1,8 +1,22 @@
 {
   "name": "@moxxy/plugin-provider-anthropic",
-  "private": true,
   "version": "0.1.17",
-  "description": "Anthropic LLMProvider plugin for moxxy.",
+  "description": "Anthropic (Claude) LLMProvider plugin for moxxy. Streams the Messages API with tool use + adaptive thinking; translates moxxy ProviderRequest/Event ↔ the Anthropic wire shape. Register it into an @moxxy/core Session to route turns to Claude models.",
+  "keywords": ["moxxy", "agent", "provider", "anthropic", "claude", "llm"],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-anthropic"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

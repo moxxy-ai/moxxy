@@ -1,5 +1,14 @@
 export { Session, type SessionOptions } from './session.js';
 export { runTurn, collectTurn, type RunTurnOptions } from './run-turn.js';
+export {
+  setupAgent,
+  type Agent,
+  type SetupAgentOptions,
+  type AgentPreset,
+} from './setup-agent.js';
+// Re-export the @moxxy/sdk types that appear in the setupAgent / Agent surface,
+// so the programmatic API is fully typed from a single `@moxxy/core` import.
+export type { MoxxyEvent, Plugin, ToolDef, PermissionResolver } from '@moxxy/sdk';
 export { createSubagentSpawner, clearRetainedChildren, type SubagentRuntime } from './subagents.js';
 export {
   loadPreferences,

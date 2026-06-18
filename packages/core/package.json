@@ -1,8 +1,22 @@
 {
   "name": "@moxxy/core",
-  "private": true,
   "version": "0.2.9",
-  "description": "Moxxy runtime: event log, plugin host, registries, permission engine.",
+  "description": "The moxxy runtime as a programmatic library: the agentic Session + runTurn loop, the event log, the plugin host, every block registry (providers, tools, modes, compactors, cache strategies, channels, …), session persistence, and the permission engine. Pair with @moxxy/sdk to build and embed moxxy agents in your own code.",
+  "keywords": ["moxxy", "agent", "agentic", "llm", "runtime", "framework", "plugins"],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/core"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

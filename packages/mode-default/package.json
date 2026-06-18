@@ -1,8 +1,22 @@
 {
   "name": "@moxxy/mode-default",
-  "private": true,
   "version": "0.0.23",
-  "description": "Default loop strategy for moxxy — Claude Code-style ReAct loop.",
+  "description": "Default loop strategy (mode) for moxxy — a Claude Code-style ReAct tool-use loop. Register it into an @moxxy/core Session to give your agent its turn-by-turn reasoning + tool-calling behaviour.",
+  "keywords": ["moxxy", "agent", "mode", "loop", "react", "tool-use"],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/mode-default"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
