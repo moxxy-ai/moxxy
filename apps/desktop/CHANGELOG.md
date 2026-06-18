@@ -1,5 +1,70 @@
 # @moxxy/desktop
 
+## 0.8.6
+
+### Patch Changes
+
+- 640d036: perf(chat-model): incrementalize the per-turn block fold (kill the O(n²)/turn re-fold)
+
+  Both the desktop Transcript and the TUI ChatView re-folded the ENTIRE growing
+  event array via `pairToolEvents` on every committed event — k full O(n) walks
+  per turn, degrading to O(n²) over a session. The fold body is now lifted into a
+  reusable `stepFold(state, event)` (the verbatim old loop body) shared by the
+  batch `pairToolEvents` and a new `IncrementalFold` that keeps the folded block
+  tree alive across renders and re-folds only the unsettled tail past a
+  `(version, prefixLength)` high-water mark. `syncTo` extends the prefix on a pure
+  append and rebuilds only when it shifts (scroll-up prepend, /clear). A golden
+  test feeds many recorded sequences (skill scopes, live tools, subagents, orphan
+  results, reasoning, file diffs) one event at a time and asserts the incremental
+  tree is byte-identical to `pairToolEvents(fullPrefix)` after EVERY event, plus a
+  counter assertion that a k-event turn does O(k) — not O(k²) — step work.
+
+  Also: the TUI settled-prefix scan resumes from its high-water mark instead of
+  re-walking from index 0; `WorkflowCanvas` memoizes `topoOrder` on a geometry-free
+  topology signature so a node drag no longer recomputes the O(V+E) fold per
+  mousemove; and `usage.perCall` is head-capped at 200 entries (lossless for the
+  meter — totals still fold every call).
+
+- 640d036: Performance pass (audit-driven, golden-tested for byte-identity)
+
+  Algorithmic-complexity fixes; every algorithm-shape change is guarded by a test
+  asserting the new path is byte-identical to the old, so behaviour is unchanged.
+
+  - **Event log / projection (`@moxxy/sdk`, `@moxxy/core`, `@moxxy/runner`):**
+    index `EventLog.ofType`/`byTurn` (O(n) filter → O(matches), property-tested
+    equal to the old filter); `applyLazyTools` single-partition + index-backed
+    loaded-tool scan; `projectMessages` binary-cursor compaction-range lookup;
+    `computeElisionState` fused passes + no redundant sort; `surfaceInputParamsSchema`
+    O(keys) size guard instead of `JSON.stringify` per frame.
+  - **Chat-model block fold (`@moxxy/chat-model`, `@moxxy/client-core`, TUI,
+    desktop):** the O(n²)/turn re-fold is now incremental — only the unsettled tail
+    re-folds, keyed on a high-water mark — with a golden test feeding events one at
+    a time and asserting deep-equality with a full re-fold after every event. Bounds
+    the live in-memory log / `seenIds` / `usage.perCall`; memoizes the workflow
+    canvas topology so a node drag no longer recomputes it per pointer-move.
+  - **Quadratic / unbounded hotspots:** `UsagePanel` peak via reduce (was a
+    `Math.max(...series)` spread that RangeError'd on long sessions), `grep` file
+    size cap + binary skip, `StreamingPreview` incremental last-line (fixed an
+    infinite loop on leading-newline content), terminal sentinel-regex compiled
+    once + tail scan, webhooks parse-body-once, scheduler batched schedule
+    reconcile, `runProcess` concat-once, and a one-time session-log `ensureReady`.
+
+- Updated dependencies [640d036]
+- Updated dependencies [640d036]
+  - @moxxy/chat-model@0.1.3
+  - @moxxy/client-core@0.6.3
+  - @moxxy/sdk@0.14.1
+  - @moxxy/cli@0.12.5
+  - @moxxy/client-platform-web@0.1.12
+  - @moxxy/desktop-host@0.5.3
+  - @moxxy/desktop-ipc-contract@0.7.3
+  - @moxxy/ipc-server-ws@0.1.12
+  - @moxxy/plugin-channel-mobile@0.1.13
+  - @moxxy/plugin-stt-whisper-codex@0.0.18
+  - @moxxy/plugin-vault@0.0.18
+  - @moxxy/runner@0.2.5
+  - @moxxy/workflows-builder@0.1.6
+
 ## 0.8.5
 
 ### Patch Changes
