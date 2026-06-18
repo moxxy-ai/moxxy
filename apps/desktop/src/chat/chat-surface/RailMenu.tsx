@@ -6,7 +6,8 @@ import type { RailPane } from '../../shell/ContextRail';
 /**
  * The repurposed context button: instead of toggling the rail, it opens a
  * dropdown to pick what the rail shows — Open a terminal, Files changed (only
- * in a git repo), or Browser. Picking a pane opens the rail to it.
+ * in a git repo), Files (browse + preview the whole workspace), or Browser.
+ * Picking a pane opens the rail to it.
  */
 export function RailMenu({
   workspaceId,
@@ -56,6 +57,7 @@ export function RailMenu({
   const items: ReadonlyArray<{ pane: RailPane; icon: IconName; label: string; show: boolean }> = [
     { pane: 'terminal', icon: 'terminal', label: 'Open a terminal', show: true },
     { pane: 'files', icon: 'diff', label: 'Files changed', show: isRepo },
+    { pane: 'explorer', icon: 'folder', label: 'Files', show: true },
     { pane: 'browser', icon: 'globe', label: 'Browser', show: true },
   ];
 

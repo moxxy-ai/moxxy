@@ -265,7 +265,16 @@ item — the debt it *creates* is logged here on sight:
 - **"Add to agent" on a git-changed file assumes cwd === repo root.** `git status`
   paths are repo-root-relative; the absolute path is built from the workspace cwd.
   Correct for the common case; wrong when the workspace cwd is a repo subdir.
-  File: `apps/desktop/src/shell/surfaces/FilesPane.tsx`.
+  File: `apps/desktop/src/shell/surfaces/FilesPane.tsx`. (The newer **Files**
+  explorer pane is unaffected — it builds paths from the cwd `workspace.listDir`
+  reports, which is the workspace root.)
+- **A second file pane now exists: `FilesExplorerPane.tsx`** ("Files" dropdown
+  option) — browse + preview the whole workspace tree, always available (no git
+  repo). The click menu + list chrome shared with `FilesPane` were factored into
+  `FilePaneShared.tsx` so the two can't drift; the git "Changed" group stays
+  `FilesPane`-only. Both panes still poll IPC (`git.*` / `workspace.listDir` +
+  `readFile`) rather than streaming via the Surface protocol — fine for files,
+  but if a third pane wants live updates, promote them to a real `Surface`.
 - **The `terminal` tool's sentinel-based completion is best-effort** in a shared,
   input-echoing shell (it strips the echoed command + sentinel lines heuristically).
   Good enough for run-and-read; a structured exec channel would be cleaner.

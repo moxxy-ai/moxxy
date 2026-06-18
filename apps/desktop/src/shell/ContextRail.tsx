@@ -5,6 +5,7 @@
  * dropdown (see {@link RailMenu}) to pick what the rail shows:
  *   - Terminal — a shared shell the user and the agent drive together.
  *   - Files changed — git-changed files with a diff (only in a git repo).
+ *   - Files — browse + preview every file in the workspace (any folder).
  *   - Browser — a live, in-window view of the agent's browser.
  *
  * The rail is drag-resizable (left edge) and its width persists across
@@ -17,13 +18,15 @@ import { Icon } from '@moxxy/desktop-ui';
 import { RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, setRailWidth, useRailWidth } from '../lib/useRailWidth';
 import { TerminalPane } from './surfaces/TerminalPane';
 import { FilesPane } from './surfaces/FilesPane';
+import { FilesExplorerPane } from './surfaces/FilesExplorerPane';
 import { BrowserPane } from './surfaces/BrowserPane';
 
-export type RailPane = 'terminal' | 'files' | 'browser';
+export type RailPane = 'terminal' | 'files' | 'explorer' | 'browser';
 
 const PANE_TITLE: Record<RailPane, string> = {
   terminal: 'Terminal',
   files: 'Files changed',
+  explorer: 'Files',
   browser: 'Browser',
 };
 
@@ -98,6 +101,7 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {pane === 'terminal' && <TerminalPane workspaceId={workspaceId} />}
         {pane === 'files' && <FilesPane workspaceId={workspaceId} cwd={active?.cwd ?? null} />}
+        {pane === 'explorer' && <FilesExplorerPane workspaceId={workspaceId} />}
         {pane === 'browser' && <BrowserPane workspaceId={workspaceId} />}
       </div>
     </section>
