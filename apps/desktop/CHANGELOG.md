@@ -1,5 +1,42 @@
 # @moxxy/desktop
 
+## 0.8.4
+
+### Patch Changes
+
+- e1fb6a6: Quality sweep, wave 2 (audit-driven, all gates green)
+
+  Continues the 2026-06-18 monorepo sweep (`.claude/audits/`). Behavior is
+  unchanged except for the documented bug fixes; every fix ships with a test.
+
+  - **Dedup/generics onto shared homes:** route home-path derivations through the
+    SDK `moxxyHome`/`moxxyPath` (fixes a latent `MOXXY_HOME` mismatch), one shared
+    `refreshAndStore` for OAuth, a shared external-store helper in client-core, and
+    one-shot provider calls routed through the shared SDK collector.
+  - **Confirmed logic/correctness fixes (~50):** workflows (yaml block-scalar
+    comment corruption, loop-exit determinism, hard-failure wave break, nested
+    awaitInput, resume re-emit, sibling-name run resolution, paused-run reporting),
+    desktop/client (SkillsView edit-clobber, command-palette dispatch, StrictMode
+    double-IPC, ask-respond failure recovery, onboarding unhandled rejection, mic
+    stream leak), and assorted fixes across core/cli/channels/providers/isolators.
+
+- Updated dependencies [e1fb6a6]
+- Updated dependencies [e1fb6a6]
+- Updated dependencies [e1fb6a6]
+  - @moxxy/sdk@0.14.0
+  - @moxxy/cli@0.12.3
+  - @moxxy/chat-model@0.1.2
+  - @moxxy/client-core@0.6.2
+  - @moxxy/desktop-host@0.5.2
+  - @moxxy/desktop-ipc-contract@0.7.2
+  - @moxxy/ipc-server-ws@0.1.11
+  - @moxxy/plugin-channel-mobile@0.1.12
+  - @moxxy/plugin-stt-whisper-codex@0.0.17
+  - @moxxy/plugin-vault@0.0.17
+  - @moxxy/runner@0.2.4
+  - @moxxy/workflows-builder@0.1.5
+  - @moxxy/client-platform-web@0.1.11
+
 ## 0.8.3
 
 ### Patch Changes

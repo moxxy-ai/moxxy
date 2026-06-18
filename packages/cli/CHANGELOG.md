@@ -1,5 +1,63 @@
 # @moxxy/cli
 
+## 0.12.3
+
+### Patch Changes
+
+- e1fb6a6: Move the copy-pasted Markdown + YAML-subset frontmatter mini-parser into
+  `@moxxy/sdk` as a single canonical, zero-dependency module
+  (`parseFrontmatterFile` / `parseFrontmatter` / `renderFrontmatter`). It was
+  duplicated almost line-for-line between `packages/core/src/skills/parse.ts` and
+  `packages/plugin-memory/src/parse.ts`, and the two copies had diverged: the
+  plugin-memory copy split inline arrays on bare commas and dropped null/float
+  typing.
+
+  The shared module keeps the more-correct `core` behavior — depth- and
+  quote-aware inline arrays, `null`/`~`, and float parsing — so both packages now
+  share one source of truth with identical parse output (same fields, same
+  missing/blank-frontmatter handling, same body offset). `core` and
+  `plugin-memory` re-export from the SDK under their existing public names
+  (`parseSkillFile`/`ParsedSkillFile`, `parseMdFile`/`ParsedFile`); call sites and
+  on-disk formats are unchanged. Adds golden tests pinning the prior behavior.
+
+- e1fb6a6: Add a generic `createJsonFileStore` block to `@moxxy/sdk` capturing the repeated
+  whole-file JSON id-collection skeleton (in-memory cache + per-instance write
+  mutex + read-modify-write `.slice()` copy + crash-atomic `writeFileAtomic`),
+  with parsing/validation and corruption policy supplied by the caller's `load`
+  hook so each store keeps its exact on-disk format and error handling.
+
+  Migrate the scheduler and webhooks stores onto it (behavior unchanged: same
+  `{ version: 1, … }` pretty-printed format, same silent-reset vs.
+  preserve-aside/quarantine corruption policy, same 0600 quarantine sidecar). Fix
+  the workflows run-store's non-unique `${file}.tmp` write by routing it through
+  the shared `writeFileAtomic` (pid+uuid temp → no concurrent-writer collision,
+  no orphan temp on failure).
+
+  The vault store (encrypted, passphrase-keyed, 0600) and the provider-admin
+  store (name-keyed, versionless, trailing-newline format) are intentionally left
+  on their existing — already invariant-compliant — `createMutex` +
+  `writeFileAtomic` since they are not id-collections.
+
+- e1fb6a6: Quality sweep, wave 2 (audit-driven, all gates green)
+
+  Continues the 2026-06-18 monorepo sweep (`.claude/audits/`). Behavior is
+  unchanged except for the documented bug fixes; every fix ships with a test.
+
+  - **Dedup/generics onto shared homes:** route home-path derivations through the
+    SDK `moxxyHome`/`moxxyPath` (fixes a latent `MOXXY_HOME` mismatch), one shared
+    `refreshAndStore` for OAuth, a shared external-store helper in client-core, and
+    one-shot provider calls routed through the shared SDK collector.
+  - **Confirmed logic/correctness fixes (~50):** workflows (yaml block-scalar
+    comment corruption, loop-exit determinism, hard-failure wave break, nested
+    awaitInput, resume re-emit, sibling-name run resolution, paused-run reporting),
+    desktop/client (SkillsView edit-clobber, command-palette dispatch, StrictMode
+    double-IPC, ask-respond failure recovery, onboarding unhandled rejection, mic
+    stream leak), and assorted fixes across core/cli/channels/providers/isolators.
+
+- Updated dependencies [e1fb6a6]
+- Updated dependencies [e1fb6a6]
+  - @moxxy/sdk@0.14.0
+
 ## 0.12.2
 
 ### Patch Changes

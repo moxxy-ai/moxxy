@@ -1,6 +1,6 @@
 {
   "name": "fixture-recorder",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "private": true,
   "description": "Record real Anthropic interactions into JSONL fixtures for the moxxy test harness.",
   "type": "module",
