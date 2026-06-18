@@ -323,6 +323,9 @@ importers:
       '@expo/metro-runtime':
         specifier: ~6.1.2
         version: 6.1.2(expo@54.0.35)(react-dom@19.1.0(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.7)(@react-native-community/cli@13.6.9(encoding@0.1.13))(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      '@moxxy/chat-model':
+        specifier: workspace:*
+        version: link:../../../packages/chat-model
       '@moxxy/client-core':
         specifier: workspace:*
         version: link:../../../packages/client-core
@@ -14706,6 +14709,14 @@ snapshots:
     optionalDependencies:
       vite: 5.4.21(@types/node@22.19.18)(lightningcss@1.32.0)(terser@5.48.0)
 
+  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@24.12.3)(lightningcss@1.32.0)(terser@5.48.0))':
+    dependencies:
+      '@vitest/spy': 2.1.9
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 5.4.21(@types/node@24.12.3)(lightningcss@1.32.0)(terser@5.48.0)
+
   '@vitest/pretty-format@2.1.9':
     dependencies:
       tinyrainbow: 1.2.0
@@ -21621,7 +21632,7 @@ snapshots:
   vitest@2.1.9(@types/node@24.12.3)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.48.0):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.19.18)(lightningcss@1.32.0)(terser@5.48.0))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@24.12.3)(lightningcss@1.32.0)(terser@5.48.0))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9

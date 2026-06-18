@@ -1,5 +1,7 @@
 import {
   FlatList,
+  Image,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -8,9 +10,12 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type ListRenderItem,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
 } from 'react-native';
 import { memo, useCallback, useState } from 'react';
-import { summarizeAttachment } from '@/attachments';
+import { buildChatAttachmentPreview, summarizeAttachment } from '@/attachments';
 import type {
   AssistantTranscriptItem,
   SubagentGroupTranscriptItem,
@@ -23,8 +28,10 @@ import type { PromptAttachment } from '@/clientFrames';
 import { shouldLoadOlderFromScroll, shouldShowThinkingIndicator } from '@/chatListState';
 import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
 import { buildMessageActions } from '@/messageActions';
+import { buildMobileMarkdownBlocks, type MobileMarkdownBlock } from '@/mobileMarkdown';
 import { buildSubagentDetailUi, selectSubagentDetailAgent } from '@/subagentDetailUi';
 import { buildToolDetailUi, buildToolGroupUi, type ToolDetailUi } from '@/toolGroupUi';
+import type { InlineTok } from '@moxxy/chat-model/markdown';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
@@ -110,6 +117,8 @@ function MessageBlock({
 }) {
   if (item.kind === 'user') {
     const actions = buildMessageActions(item);
+    const hasText = item.text.trim().length > 0;
+    const hasAttachments = Boolean(item.attachments?.length);
     return (
       <View
         style={{ alignItems: 'flex-end', alignSelf: 'flex-end', flexDirection: 'row', gap: 8, maxWidth: '88%' }}
@@ -122,29 +131,28 @@ function MessageBlock({
           onPress={() => actions.copyText ? onCopyMessage?.(item.id, actions.copyText) : undefined}
         />
         <View
-          testID="mobile-user-block"
-          style={{
-            backgroundColor: '#ec4899',
-            borderBottomLeftRadius: 16,
-            borderBottomRightRadius: 4,
-            borderTopLeftRadius: 16,
-            borderTopRightRadius: 16,
-            flexShrink: 1,
-            maxWidth: '100%',
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            shadowColor: '#ec4899',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.2,
-            shadowRadius: 14,
-          }}
+          style={{ alignItems: 'flex-end', flexShrink: 1, gap: 8, maxWidth: '100%' }}
         >
-          <Text className="text-[15px] leading-6 text-white">{item.text}</Text>
-          {item.attachments && item.attachments.length > 0 ? (
-            <View style={{ gap: 5, marginTop: item.text.trim().length > 0 ? 10 : 0 }}>
-              {item.attachments.map((attachment, index) => (
-                <MessageAttachmentChip key={`${attachment.kind}:${attachment.name ?? index}:${index}`} attachment={attachment} />
-              ))}
+          {hasAttachments ? <MessageAttachments attachments={item.attachments ?? []} /> : null}
+          {hasText || !hasAttachments ? (
+            <View
+              testID="mobile-user-block"
+              style={{
+                backgroundColor: '#ec4899',
+                borderBottomLeftRadius: 16,
+                borderBottomRightRadius: 4,
+                borderTopLeftRadius: 16,
+                borderTopRightRadius: 16,
+                maxWidth: '100%',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                shadowColor: '#ec4899',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.2,
+                shadowRadius: 14,
+              }}
+            >
+              <Text className="text-[15px] leading-6 text-white">{item.text}</Text>
             </View>
           ) : null}
         </View>
@@ -189,15 +197,57 @@ function MessageBlock({
 
 const MemoMessageBlock = memo(MessageBlock);
 
+function MessageAttachments({ attachments }: { readonly attachments: ReadonlyArray<PromptAttachment> }) {
+  return (
+    <View style={{ alignItems: 'flex-end', gap: 7, maxWidth: '100%' }}>
+      {attachments.map((attachment, index) => {
+        const preview = buildChatAttachmentPreview(attachment);
+        const key = `${attachment.kind}:${attachment.name ?? index}:${index}`;
+        if (preview) {
+          return <ImageAttachmentPreview key={key} alt={preview.alt} uri={preview.uri} />;
+        }
+        return <MessageAttachmentChip key={key} attachment={attachment} />;
+      })}
+    </View>
+  );
+}
+
+function ImageAttachmentPreview({ alt, uri }: { readonly alt: string; readonly uri: string }) {
+  return (
+    <View
+      accessibilityLabel={`Image attachment ${alt}`}
+      testID="mobile-image-attachment-preview"
+      style={{
+        backgroundColor: '#ffffff',
+        borderColor: '#e3e5f0',
+        borderRadius: 14,
+        borderWidth: 1,
+        overflow: 'hidden',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 18,
+      }}
+    >
+      <Image
+        accessibilityIgnoresInvertColors
+        resizeMode="cover"
+        source={{ uri }}
+        style={{ height: 176, width: 176 }}
+      />
+    </View>
+  );
+}
+
 function MessageAttachmentChip({ attachment }: { readonly attachment: PromptAttachment }) {
   const summary = summarizeAttachment(attachment);
   return (
     <View
       style={{
         alignItems: 'center',
-        alignSelf: 'flex-start',
-        backgroundColor: 'rgba(255,255,255,0.18)',
-        borderColor: 'rgba(255,255,255,0.28)',
+        alignSelf: 'flex-end',
+        backgroundColor: '#ffffff',
+        borderColor: '#f9a8d4',
         borderRadius: 999,
         borderWidth: 1,
         flexDirection: 'row',
@@ -207,8 +257,8 @@ function MessageAttachmentChip({ attachment }: { readonly attachment: PromptAtta
         paddingVertical: 5,
       }}
     >
-      <Text style={{ color: '#ffffff', fontSize: 10, fontWeight: '800', opacity: 0.78 }}>{summary.detail}</Text>
-      <Text style={{ color: '#ffffff', fontSize: 11, fontWeight: '800', maxWidth: 150 }} numberOfLines={1}>
+      <Text style={{ color: '#be185d', fontSize: 10, fontWeight: '800', opacity: 0.78 }}>{summary.detail}</Text>
+      <Text style={{ color: '#be185d', fontSize: 11, fontWeight: '800', maxWidth: 150 }} numberOfLines={1}>
         {summary.label}
       </Text>
     </View>
@@ -290,7 +340,7 @@ function AssistantMessage({
             onPress={() => actions.copyText ? onCopyMessage?.(message.id, actions.copyText) : undefined}
           />
         </View>
-        <Text className="mt-1 text-[15px] leading-6 text-text">{message.text}</Text>
+        <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
         {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
           <Text className="mt-1 text-[10px] font-bold uppercase text-dim">stop: {message.stopReason.replace(/_/g, ' ')}</Text>
         ) : null}
@@ -621,7 +671,7 @@ function SubagentDetailModalContent({
                   paddingVertical: 10,
                 }}
               >
-                <Text className="text-[13px] leading-5 text-text">{ui.responseText}</Text>
+                <MobileMarkdownText compact text={ui.responseText} />
               </View>
             </View>
             <View>
@@ -758,4 +808,231 @@ function formatAgentTokens(tokens: number | null): string {
   if (!tokens || tokens <= 0) return '';
   if (tokens >= 1000) return ` · ${(tokens / 1000).toFixed(1)}k tokens`;
   return ` · ${tokens} tokens`;
+}
+
+function MobileMarkdownText({
+  compact = false,
+  style,
+  text,
+}: {
+  readonly compact?: boolean;
+  readonly style?: StyleProp<ViewStyle>;
+  readonly text: string;
+}) {
+  const blocks = buildMobileMarkdownBlocks(text);
+  if (blocks.length === 0) return null;
+  return (
+    <View style={[{ gap: compact ? 6 : 10 }, style]}>
+      {blocks.map((block, index) => (
+        <MobileMarkdownBlockView block={block} compact={compact} index={index} key={`${block.kind}:${index}`} />
+      ))}
+    </View>
+  );
+}
+
+function MobileMarkdownBlockView({
+  block,
+  compact,
+  index,
+}: {
+  readonly block: MobileMarkdownBlock;
+  readonly compact: boolean;
+  readonly index: number;
+}) {
+  if (block.kind === 'heading') {
+    const size = block.level <= 2 ? (compact ? 14 : 17) : compact ? 13 : 15;
+    return (
+      <Text
+        style={{
+          color: '#111827',
+          fontSize: size,
+          fontWeight: '900',
+          lineHeight: compact ? 20 : 25,
+          marginTop: index === 0 ? 0 : 2,
+        }}
+      >
+        {block.text}
+      </Text>
+    );
+  }
+
+  if (block.kind === 'paragraph') {
+    return (
+      <MobileInlineText
+        style={{
+          color: '#111827',
+          fontSize: compact ? 13 : 15,
+          lineHeight: compact ? 20 : 24,
+        }}
+        tokens={block.inline}
+      />
+    );
+  }
+
+  if (block.kind === 'list') {
+    return (
+      <View style={{ gap: compact ? 4 : 6 }}>
+        {block.items.map((item, itemIndex) => (
+          <View key={`item:${itemIndex}`} style={{ flexDirection: 'row', gap: 7 }}>
+            <Text
+              style={{
+                color: '#64748b',
+                fontSize: compact ? 13 : 15,
+                fontWeight: '800',
+                lineHeight: compact ? 20 : 24,
+                minWidth: block.ordered ? 22 : 12,
+              }}
+            >
+              {block.ordered ? `${itemIndex + 1}.` : '•'}
+            </Text>
+            <MobileInlineText
+              style={{
+                color: '#111827',
+                flex: 1,
+                fontSize: compact ? 13 : 15,
+                lineHeight: compact ? 20 : 24,
+              }}
+              tokens={item}
+            />
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  if (block.kind === 'code') {
+    return (
+      <View
+        style={{
+          backgroundColor: '#f8fafc',
+          borderColor: '#e3e5f0',
+          borderRadius: 12,
+          borderWidth: 1,
+          paddingHorizontal: 10,
+          paddingVertical: 8,
+        }}
+      >
+        <Text
+          selectable
+          style={{
+            color: '#334155',
+            fontFamily: 'Menlo',
+            fontSize: compact ? 11 : 12,
+            lineHeight: compact ? 16 : 18,
+          }}
+        >
+          {block.body}
+        </Text>
+      </View>
+    );
+  }
+
+  return <MobileMarkdownTable block={block} compact={compact} />;
+}
+
+function MobileMarkdownTable({
+  block,
+  compact,
+}: {
+  readonly block: Extract<MobileMarkdownBlock, { kind: 'table' }>;
+  readonly compact: boolean;
+}) {
+  const rows = [block.header, ...block.rows];
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <View
+        style={{
+          borderColor: '#e3e5f0',
+          borderRadius: 10,
+          borderWidth: 1,
+          minWidth: 260,
+          overflow: 'hidden',
+        }}
+      >
+        {rows.map((row, rowIndex) => (
+          <View
+            key={`row:${rowIndex}`}
+            style={{
+              backgroundColor: rowIndex === 0 ? '#f8fafc' : '#ffffff',
+              borderTopColor: '#e3e5f0',
+              borderTopWidth: rowIndex === 0 ? 0 : 1,
+              flexDirection: 'row',
+            }}
+          >
+            {row.map((cell, cellIndex) => (
+              <View
+                key={`cell:${rowIndex}:${cellIndex}`}
+                style={{
+                  borderLeftColor: '#e3e5f0',
+                  borderLeftWidth: cellIndex === 0 ? 0 : 1,
+                  paddingHorizontal: 8,
+                  paddingVertical: 7,
+                  width: 132,
+                }}
+              >
+                <MobileInlineText
+                  style={{
+                    color: '#111827',
+                    fontSize: compact ? 11 : 12,
+                    fontWeight: rowIndex === 0 ? '800' : '500',
+                    lineHeight: compact ? 16 : 18,
+                  }}
+                  tokens={cell}
+                />
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </ScrollView>
+  );
+}
+
+function MobileInlineText({
+  style,
+  tokens,
+}: {
+  readonly style?: StyleProp<TextStyle>;
+  readonly tokens: ReadonlyArray<InlineTok>;
+}) {
+  return (
+    <Text style={style}>
+      {tokens.map((token, index) => (
+        <MobileInlineToken key={`${token.kind}:${index}`} token={token} />
+      ))}
+    </Text>
+  );
+}
+
+function MobileInlineToken({ token }: { readonly token: InlineTok }) {
+  if (token.kind === 'text') return <Text>{token.value}</Text>;
+  if (token.kind === 'bold') return <Text style={{ fontWeight: '900' }}>{token.value}</Text>;
+  if (token.kind === 'italic') return <Text style={{ fontStyle: 'italic' }}>{token.value}</Text>;
+  if (token.kind === 'code') {
+    return (
+      <Text
+        style={{
+          backgroundColor: '#eef2ff',
+          borderRadius: 5,
+          color: '#334155',
+          fontFamily: 'Menlo',
+          fontSize: 13,
+          paddingHorizontal: 3,
+        }}
+      >
+        {token.value}
+      </Text>
+    );
+  }
+  return (
+    <Text
+      accessibilityRole="link"
+      onPress={() => {
+        void Linking.openURL(token.url);
+      }}
+      style={{ color: '#db2777', fontWeight: '800', textDecorationLine: 'underline' }}
+    >
+      {token.label}
+    </Text>
+  );
 }

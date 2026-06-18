@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildChatAttachmentPreview,
   buildPromptAttachment,
   estimateBase64Bytes,
   summarizeAttachment,
@@ -59,5 +60,24 @@ describe('mobile prompt attachments', () => {
       label: 'screen.png',
       detail: 'Image',
     });
+  });
+
+  it('builds safe inline preview URIs only for chat image attachments', () => {
+    expect(buildChatAttachmentPreview({
+      kind: 'image',
+      content: 'AQID',
+      mediaType: 'image/jpeg',
+      name: 'car.jpg',
+    })).toEqual({
+      alt: 'car.jpg',
+      uri: 'data:image/jpeg;base64,AQID',
+    });
+
+    expect(buildChatAttachmentPreview({
+      kind: 'document',
+      content: 'JVBERi0=',
+      mediaType: 'application/pdf',
+      name: 'report.pdf',
+    })).toBeNull();
   });
 });

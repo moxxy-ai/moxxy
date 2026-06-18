@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
+    "@moxxy/chat-model": "workspace:*",
     "@moxxy/client-core": "workspace:*",
     "@moxxy/client-transport-ws": "workspace:*",
     "@moxxy/sdk": "workspace:*",

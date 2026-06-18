@@ -12,6 +12,11 @@ export interface AttachmentSummary {
   readonly detail: string;
 }
 
+export interface ChatAttachmentPreview {
+  readonly alt: string;
+  readonly uri: string;
+}
+
 export const MAX_MOBILE_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
 export function buildPromptAttachment(input: BuildPromptAttachmentInput): PromptAttachment {
@@ -62,6 +67,18 @@ export function summarizeAttachment(attachment: PromptAttachment): AttachmentSum
         : attachment.mediaType?.startsWith('text/')
           ? 'Text'
           : 'File',
+  };
+}
+
+export function buildChatAttachmentPreview(attachment: PromptAttachment): ChatAttachmentPreview | null {
+  if (attachment.kind !== 'image' || attachment.content.trim().length === 0) return null;
+  const content = attachment.content.trim();
+  const uri = content.startsWith('data:')
+    ? content
+    : `data:${attachment.mediaType ?? 'image/png'};base64,${content}`;
+  return {
+    alt: attachment.name ?? fallbackName(attachment),
+    uri,
   };
 }
 
