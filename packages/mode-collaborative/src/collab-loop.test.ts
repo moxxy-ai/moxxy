@@ -187,6 +187,54 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(runs[0]!.agents.map((a) => a.id)).toContain('backend');
   });
 
+  it('carries the architect-proposed roles (a cross-functional team, not all implementers)', async () => {
+    const repo = await initRepo();
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# C\n');
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                { id: 'writer', name: 'Writer', role: 'writer', subtask: 'docs', ownedPaths: ['intro.md'] },
+                { id: 'dev', name: 'Dev', role: 'developer', subtask: 'code', ownedPaths: ['app.ts'] },
+                // an agent that tries to claim the reserved architect role → coerced to implementer
+                { id: 'sneaky', name: 'Sneaky', role: 'architect', subtask: 'x', ownedPaths: ['x.ts'] },
+              ]),
+            );
+            hub.state.markDone('architect', 'done');
+          } else {
+            const f = `${entry.id}.ts`;
+            writeFileSync(join(cwd, f), `export const ${entry.id}=1;\n`);
+            hub.state.boardClaim(entry.id, [f]);
+            hub.state.markDone(entry.id, `${entry.id} done`);
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const proposed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_roster_proposed',
+    ) as { payload: { roster: Array<{ id: string; role: string }> } };
+    const byId = Object.fromEntries(proposed.payload.roster.map((r) => [r.id, r.role]));
+    expect(byId.writer).toBe('writer');
+    expect(byId.dev).toBe('developer');
+    // the reserved 'architect' role is coerced to 'implementer'
+    expect(byId.sneaky).toBe('implementer');
+  });
+
   it('does NOT hang on a failed agent: surfaces it and completes with the others', async () => {
     const repo = await initRepo();
     const { ctx, events } = fakeCtx();
