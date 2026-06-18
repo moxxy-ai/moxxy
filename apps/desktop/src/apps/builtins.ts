@@ -16,5 +16,6 @@ registerDesktopApp({
   requiresInstall: true,
   installSummary:
     'Downloads a ~110 MB on-device model for detecting names. After install it runs fully offline.',
+  canSendToSession: true,
   Component: AnonymizerApp,
 });

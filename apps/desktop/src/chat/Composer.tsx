@@ -13,6 +13,7 @@ import { useQueuedTurns } from '@moxxy/client-core';
 import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
+import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
 import { AgentPicker } from './AgentPicker';
 import { ModeBanner } from './composer/ModeBanner';
 import { ContextMeter } from './ContextMeter';
@@ -165,6 +166,24 @@ export function Composer({
         .catch(() => {});
     }
   }, [ready, workspaceId]);
+
+  // "Send to chat" from an app (or other off-chat surface) stages a draft for
+  // this workspace via composerDraftStore; drain it into the composer for the
+  // user to review and send. APPEND to an in-progress draft rather than clobber
+  // it (the user may have started typing), then focus + put the caret at the end
+  // so Enter sends immediately. The auto-grow effect below resizes for free.
+  const pendingDraft = usePendingComposerDraft(workspaceId);
+  useEffect(() => {
+    if (pendingDraft == null) return;
+    composerDraftStore.takeDraft(workspaceId);
+    setDraft((cur) => (cur.trim() ? `${cur.trimEnd()}\n\n${pendingDraft}` : pendingDraft));
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+    });
+  }, [pendingDraft, workspaceId]);
 
   // Auto-grow: size the textarea to its content so the composer
   // expands as the draft gains lines — whether from a Shift+Enter

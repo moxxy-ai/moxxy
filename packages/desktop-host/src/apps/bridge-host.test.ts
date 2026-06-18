@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AppManifest } from '@moxxy/desktop-app-sdk';
+import {
+  METHOD_PERMISSION,
+  RENDERER_DISPATCHED_METHODS,
+  type AppManifest,
+} from '@moxxy/desktop-app-sdk';
 
 import { dispatchBridge, type BridgeServices } from './bridge-host';
 
@@ -66,6 +70,21 @@ describe('dispatchBridge (capability gate)', () => {
     expect(r).toEqual({ ok: false, error: 'engine boom' });
   });
 
+  it('refuses a renderer-dispatched method even when granted', async () => {
+    // session.send is resolved in the renderer (review-in-composer); the main
+    // gate must refuse it rather than execute a service that doesn't exist —
+    // even for an app that declared the permission.
+    const r = await dispatchBridge(
+      manifest(['session.send']),
+      'session.send',
+      { text: 'hi' },
+      services(),
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toContain('renderer');
+  });
+
   it('grant of one capability does not imply another', async () => {
     // App declared documents.open but tries documents.save → refused.
     const svc = services();
@@ -77,5 +96,20 @@ describe('dispatchBridge (capability gate)', () => {
     );
     expect(r.ok).toBe(false);
     expect(svc['documents.save']).not.toHaveBeenCalled();
+  });
+
+  it('main services and renderer-dispatched methods partition every bridge method', () => {
+    // Disjoint + jointly exhaustive: each BridgeMethod is EITHER a main service
+    // (a key of `services()`) OR renderer-dispatched, never both/neither. Guards
+    // the SDK↔host invariant from drift when a new method is added.
+    const mainServices = new Set(Object.keys(services()));
+    const rendererDispatched = new Set<string>(RENDERER_DISPATCHED_METHODS);
+    const allMethods = Object.keys(METHOD_PERMISSION);
+
+    for (const m of mainServices) expect(rendererDispatched.has(m)).toBe(false); // disjoint
+    for (const m of allMethods) {
+      expect(mainServices.has(m) !== rendererDispatched.has(m)).toBe(true); // exactly one
+    }
+    expect(mainServices.size + rendererDispatched.size).toBe(allMethods.length);
   });
 });

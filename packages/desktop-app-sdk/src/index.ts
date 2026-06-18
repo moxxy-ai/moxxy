@@ -28,7 +28,9 @@ export {
 export {
   BRIDGE_TAG,
   METHOD_PERMISSION,
+  RENDERER_DISPATCHED_METHODS,
   isBridgeRequest,
+  isRendererDispatched,
   type BridgeMethod,
   type BridgeMethods,
   type BridgeSpan,

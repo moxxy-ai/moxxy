@@ -10,6 +10,7 @@ import {
   chatStore,
   usePrefs,
   useSessionInfoBridge,
+  useComposerChatViewRequest,
 } from '@moxxy/client-core';
 import { AskSheet } from './chat/AskSheet';
 import { useAskSurfaceClaimed } from '@/lib/askSurface';
@@ -72,6 +73,11 @@ export function App(): JSX.Element {
   useEffect(() => {
     chatStore.setActive(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  // When an app (or other off-chat surface) does "Send to chat", it stages a
+  // composer draft and pulses a request to show the chat view — switch to it so
+  // the user lands on the prefilled composer.
+  useComposerChatViewRequest(() => setView('chat'));
 
   // When the agent drives the browser / terminal, open the matching rail
   // pane so its work is shown to the user (once per session per pane).

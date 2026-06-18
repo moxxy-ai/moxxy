@@ -37,6 +37,12 @@ export interface MoxxyApp {
     suggestedName: string,
     content: string,
   ): Promise<BridgeMethods['documents.save']['result']>;
+  /** Hand a payload to the user's active chat (review-in-composer): it prefills
+   *  the composer and shows the chat view for the user to review + send. Needs
+   *  the `session.send` permission. */
+  sendToSession(
+    payload: BridgeMethods['session.send']['params'],
+  ): Promise<BridgeMethods['session.send']['result']>;
 }
 
 /**
@@ -112,6 +118,7 @@ export function connectMoxxyApp(timeoutMs = 8000): Promise<MoxxyApp> {
         openDocument: () => call('documents.open', undefined),
         saveDocument: (suggestedName, content) =>
           call('documents.save', { suggestedName, content }),
+        sendToSession: (payload) => call('session.send', payload),
       };
     }
   });

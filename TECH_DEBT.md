@@ -119,6 +119,42 @@ blind-merged. This is the standing-job baseline, not a claim of a frozen zero.
 
 ---
 
+## 2026-06-19 — Desktop apps: "Send to chat" (send output back to the session)
+
+Desktop apps can now hand a payload to the user's active session instead of
+copy+paste. Shared core `composerDraftStore` + `sendToSession()` in
+`@moxxy/client-core` (review-in-composer: prefill the composer + switch to chat,
+the user reviews and sends); the built-in anonymizer gained a **Send to chat**
+button (opt-in via `DesktopAppDef.canSendToSession`); and a forward-looking
+`session.send` capability (permission + bridge method + client sugar) was added to
+`@moxxy/desktop-app-sdk` for sandboxed apps.
+
+**Retired:** the SDK's `BridgeMethods`/`BridgeServices` exhaustiveness was only
+half-enforced — the host gate's `_never` switch guaranteed every method had a
+*case*, but nothing guaranteed every method had a *home* (a main service OR a
+documented renderer-dispatch). `session.send` is the first renderer-dispatched
+method; it's now modelled explicitly (`RENDERER_DISPATCHED_METHODS` +
+`isRendererDispatched`), the gate refuses it defensively, and a runtime partition
+test (`bridge-host.test.ts`) asserts main-services and renderer-dispatched methods
+are disjoint and jointly cover every `BridgeMethod`. Closes the latent "a method
+with no service silently falls through" gap.
+
+**New debt logged on sight:**
+- **`RENDERER_DISPATCHED_METHODS` is a manually-maintained disjointness contract.**
+  The set in `bridge.ts` and the `BridgeServices` keys in `bridge-host.ts` must stay
+  disjoint + jointly exhaustive; today that's enforced by a runtime test, not the
+  type system. A type-level partition (or generating the services-key list from the
+  method map) would make a drifting addition a compile error. Low priority while the
+  method set is tiny.
+- **`session.send` is defined but not yet reachable by sandboxed apps.** The SDK
+  capability + host gate are in place, but the renderer iframe runtime / postMessage↔
+  IPC relay that would dispatch `session.send` for a third-party app does not exist
+  yet (the sandboxed-app platform is still foundation-only — `dispatchBridge`/
+  `discoverApps` are unwired). Only the built-in anonymizer path ships working
+  end-to-end. Wiring the relay is a separate, larger piece of work.
+
+---
+
 ## 2026-06-18 — Desktop Apps gallery + offline document anonymizer
 
 Added a registry-backed **Apps** section (new top-level header tab) with a

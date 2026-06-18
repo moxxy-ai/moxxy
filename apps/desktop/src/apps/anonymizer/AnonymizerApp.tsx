@@ -63,7 +63,7 @@ function bytesToBase64(bytes: Uint8Array): string {
  * is uploaded; opening a file only reads it locally (in main) and returns the
  * text here.
  */
-export function AnonymizerApp({ onExit }: DesktopAppProps): JSX.Element {
+export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.Element {
   const anon = useAnonymizer();
   const { status: nerStatus, error: nerError, detectNames } = useNer();
 
@@ -209,6 +209,18 @@ export function AnonymizerApp({ onExit }: DesktopAppProps): JSX.Element {
     }
   };
 
+  // Hand the redacted text straight to the agent — no copy+paste. Enriched with
+  // a short context line (so the agent knows it's redacted, and from which file)
+  // and a count for downstream use. Review-in-composer: it lands in the chat
+  // composer for the user to review and send.
+  const sendToChat = (): void => {
+    sendToSession?.({
+      title: `Redacted document${fileName && fileName !== 'Document' ? ` (${fileName})` : ''}`,
+      text: result.text,
+      meta: { source: 'anonymizer', redactions: result.report.total },
+    });
+  };
+
   return (
     <>
       <ViewHeader>
@@ -310,6 +322,12 @@ export function AnonymizerApp({ onExit }: DesktopAppProps): JSX.Element {
                     <Icon name={copied ? 'check' : 'copy'} size={14} />
                     {copied ? 'Copied' : 'Copy redacted'}
                   </Button>
+                  {sendToSession && (
+                    <Button variant="secondary" data-testid="anon-send-chat" onClick={sendToChat}>
+                      <Icon name="send" size={14} />
+                      Send to chat
+                    </Button>
+                  )}
                   <Button variant="secondary" data-testid="anon-save" onClick={() => void saveOut()}>
                     Save as…
                   </Button>

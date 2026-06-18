@@ -127,4 +127,24 @@ describe('AnonymizerApp redesigned flow', () => {
     fireEvent.click(screen.getByRole('button', { name: /Apps/i }));
     expect(onExit).toHaveBeenCalledTimes(1);
   });
+
+  it('"Send to chat" hands the redacted text + a title to sendToSession', () => {
+    const sendToSession = vi.fn();
+    render(<AnonymizerApp onExit={vi.fn()} sendToSession={sendToSession} />);
+    paste(SAMPLE);
+    fireEvent.click(screen.getByTestId('anon-send-chat'));
+
+    expect(sendToSession).toHaveBeenCalledTimes(1);
+    const payload = sendToSession.mock.calls[0]?.[0];
+    expect(payload.text).toContain('[EMAIL]');
+    expect(payload.text).not.toContain('a@b.com');
+    expect(payload.title).toMatch(/Redacted document/);
+    expect(payload.meta).toMatchObject({ source: 'anonymizer' });
+  });
+
+  it('"Send to chat" is hidden when the capability was not granted', () => {
+    render(<AnonymizerApp onExit={vi.fn()} />);
+    paste(SAMPLE);
+    expect(screen.queryByTestId('anon-send-chat')).not.toBeInTheDocument();
+  });
 });

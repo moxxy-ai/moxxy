@@ -12,6 +12,12 @@
  * complete, enforced grant list; a compromised app's UI can't reach a capability
  * it wasn't granted by forging a different method name.
  *
+ * Some bridge methods are RENDERER-DISPATCHED (see `RENDERER_DISPATCHED_METHODS`
+ * in the SDK) — they're resolved in the host renderer (e.g. `session.send`
+ * prefills the active chat composer) and should never reach this main-process
+ * gate. This gate refuses them by design, so a forged direct-to-main dispatch
+ * can't reach a service that doesn't exist here.
+ *
  * Electron-free + service-injected so it unit-tests in plain Node (the IPC layer
  * supplies the real dialog/parse/engine services); the gate logic is the part
  * worth testing in isolation.
@@ -19,6 +25,7 @@
 
 import {
   METHOD_PERMISSION,
+  isRendererDispatched,
   type AppManifest,
   type AppPermission,
   type BridgeMethod,
@@ -27,7 +34,11 @@ import {
 
 /** The host implementations behind each bridge method. The IPC layer provides
  *  these (native dialogs + main-process parsing + the anonymizer engine); the
- *  gate only calls one after the permission check passes. */
+ *  gate only calls one after the permission check passes.
+ *
+ *  INVARIANT: the keys here and `RENDERER_DISPATCHED_METHODS` (SDK) are DISJOINT
+ *  and jointly cover every {@link BridgeMethod} — a method is EITHER a main
+ *  service listed below OR renderer-dispatched, never both. */
 export interface BridgeServices {
   'documents.open': () => Promise<BridgeMethods['documents.open']['result']>;
   'documents.save': (
@@ -72,6 +83,15 @@ export async function dispatchBridge(
       error: `app "${manifest.id}" is not permitted to call ${method} (needs "${need}")`,
     };
   }
+  // Renderer-dispatched methods (e.g. session.send) have no main-process
+  // service; the renderer relay resolves them locally and never forwards them
+  // here. If one reaches main anyway, refuse it rather than fall through.
+  if (isRendererDispatched(method)) {
+    return {
+      ok: false,
+      error: `bridge method ${method} is handled in the renderer, not the main process`,
+    };
+  }
   try {
     switch (method) {
       case 'documents.open':
@@ -89,6 +109,14 @@ export async function dispatchBridge(
           result: await services['anonymizer.detect'](
             params as BridgeMethods['anonymizer.detect']['params'],
           ),
+        };
+      case 'session.send':
+        // Renderer-dispatched: no main service exists. Already refused above by
+        // the isRendererDispatched guard; this case keeps the exhaustive switch
+        // honest (and refuses defensively even if that guard were removed).
+        return {
+          ok: false,
+          error: 'session.send is renderer-dispatched and has no main service',
         };
       default: {
         // Exhaustiveness guard: a new BridgeMethod added to the SDK without a

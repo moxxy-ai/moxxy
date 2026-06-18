@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { sendToSession } from '@moxxy/client-core';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 import { getDesktopApp, listDesktopApps } from './registry';
 import { AppCard } from './AppCard';
@@ -23,7 +24,14 @@ export function AppsPanel({
   const open = openId ? getDesktopApp(openId) : undefined;
   if (open) {
     const App = open.Component;
-    return <App onExit={() => setOpenId(null)} />;
+    // Only apps that opted in (`canSendToSession`) get the capability — the
+    // module-level `sendToSession` resolves the active workspace itself.
+    return (
+      <App
+        onExit={() => setOpenId(null)}
+        {...(open.canSendToSession ? { sendToSession } : {})}
+      />
+    );
   }
 
   const apps = listDesktopApps();
