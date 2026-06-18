@@ -1,5 +1,17 @@
 # fixture-recorder
 
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies [091ef41]
+  - @moxxy/sdk@0.14.2
+  - @moxxy/core@0.2.5
+  - @moxxy/mode-default@0.0.19
+  - @moxxy/plugin-provider-anthropic@0.1.13
+  - @moxxy/testing@0.0.20
+  - @moxxy/tools-builtin@0.0.19
+
 ## 0.0.19
 
 ### Patch Changes

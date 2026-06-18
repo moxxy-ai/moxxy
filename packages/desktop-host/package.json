@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/desktop-host",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "The moxxy desktop main-process host: runner supervision + pool, the per-workspace session driver, IPC handlers, desk/prefs/skills/onboarding stores, the focus-window manager, the append-only chat log, and the security gates. Bundled into the Electron main bundle by the @moxxy/desktop app.",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,5 +1,12 @@
 # @moxxy/plugin-subagents
 
+## 0.0.20
+
+### Patch Changes
+
+- Updated dependencies [091ef41]
+  - @moxxy/sdk@0.14.2
+
 ## 0.0.19
 
 ### Patch Changes

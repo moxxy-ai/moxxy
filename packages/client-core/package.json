@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/client-core",
   "private": true,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Transport-agnostic headless client layer for moxxy: the chat + connection + ask stores, the use* React hooks, the chat-model re-exports, the IPC transport singleton, and the platform-capability registry. DOM-free — shared by the Electron desktop renderer and the Expo mobile app, each of which injects its own transport + platform capabilities.",
   "type": "module",
   "main": "./dist/index.js",
