@@ -1,5 +1,41 @@
 # @moxxy/cli
 
+## 0.14.2
+
+### Patch Changes
+
+- cbf115b: refactor(channel): close the runner/thin-client dispatch typing seam
+
+  Add a single, audited `startChannelWith(channel, { session, ...overrides })`
+  helper to `@moxxy/sdk` that owns the one structural erasure at the
+  channel-dispatch boundary (`ChannelDef`/`Channel` are intentionally non-generic
+  over their start-options type, so `start` takes `unknown`). The helper's
+  signature now type-checks that every caller passes a real `ClientSession`, so a
+  bare `RemoteSession` (the thin-client proxy) is proven assignable end-to-end
+  even though the final hand-off to `start()` stays erased.
+
+  Retarget the four CLI dispatch sites (`serve`, `web-surface`, and both the
+  RemoteSession and in-process-Session paths in `start-registered-channel`) to
+  call it, removing their inline `as never` casts, and add a compile-time
+  conformance lock so a future regression that narrows `RemoteSession` or the
+  concrete `Session` below `ClientSession`/`SessionLike` becomes a type error.
+  No wire-shape or runner-protocol change.
+
+- cbf115b: fix(cli): drain persistence + close the session on one-shot command exit
+
+  One-shot commands (`moxxy -p`, `moxxy schedule run`, `doctor`, `login`, `init`)
+  booted a full session and returned without closing it, so the process relied on
+  the event loop draining — open webhook/scheduler/timer handles delayed (or hung)
+  exit, and the last appended event could still be in flight when the process
+  ended. Add a shared `closeSession(session, persistence?)` helper that drains the
+  index write (`flush`) + the append queue (`settleWrites`) so the LAST event is
+  durably on disk, then fires `onShutdown` hooks / stops the boot daemons via
+  `Session.close()`. Each command now calls it in a `finally` (preserving its exit
+  code), so the process exits promptly without dropping the final event.
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+
 ## 0.14.1
 
 ### Patch Changes

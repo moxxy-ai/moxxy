@@ -1,5 +1,14 @@
 # @moxxy/mode-collaborative
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+  - @moxxy/plugin-collab@0.1.3
+  - @moxxy/runner@0.2.10
+
 ## 0.2.1
 
 ### Patch Changes

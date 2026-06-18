@@ -1,5 +1,13 @@
 # @moxxy/isolator-wasm
 
+## 0.0.22
+
+### Patch Changes
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+  - @moxxy/plugin-security@0.0.23
+
 ## 0.0.21
 
 ### Patch Changes

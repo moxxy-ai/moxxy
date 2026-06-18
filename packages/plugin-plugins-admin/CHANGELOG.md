@@ -1,5 +1,13 @@
 # @moxxy/plugin-plugins-admin
 
+## 0.0.23
+
+### Patch Changes
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+  - @moxxy/config@0.1.8
+
 ## 0.0.22
 
 ### Patch Changes

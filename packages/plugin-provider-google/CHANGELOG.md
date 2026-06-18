@@ -1,5 +1,13 @@
 # @moxxy/plugin-provider-google
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+  - @moxxy/plugin-provider-openai@0.0.23
+
 ## 0.0.8
 
 ### Patch Changes

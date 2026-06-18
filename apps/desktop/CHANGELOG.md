@@ -1,5 +1,61 @@
 # @moxxy/desktop
 
+## 0.12.3
+
+### Patch Changes
+
+- 7a43879: fix(desktop): header nav collapsed even on wide windows; remove white-background brand GIF
+
+  - **Header nav stuck collapsed.** The responsive `Segmented` collapse (shipped in
+    0.12.0) folded the nav groups into dropdowns even on wide screens. Once
+    collapsed, the live pill row unmounted, so the fit-measurer lost the natural
+    width and the container shrink-wrapped the small collapsed button — `available`
+    looked tiny and it could never tell it would fit again, so any transient narrow
+    moment (window opening, a resize) wedged it collapsed forever. Fixed by keeping
+    the inline row ALWAYS mounted as a hidden measuring layer at its natural width
+    inside a shrinkable, clipping box: the fit check now reads the true natural vs.
+    available width whether or not it's collapsed, so it collapses only when the row
+    genuinely doesn't fit and re-expands the instant room returns.
+  - **Removed the white-background brand GIF** (`new-animation.gif`) — its white
+    matte can't be keyed out on the dark theme. Every use now points at the existing
+    transparent static `logo.png`; the CSS bob animation is preserved.
+
+- 7a43879: fix(desktop): robust PDF text extraction for the anonymizer + Office-doc previews in the Files pane
+
+  - **Anonymizer "Could not extract text from this document" on real PDFs.**
+    officeparser's stale bundled pdf.js silently returns an EMPTY string for many
+    ordinary text-layer PDFs, surfacing as a generic extraction failure. PDF
+    extraction now runs through `pdfjs-dist` (pure-JS, offline, in the main
+    process — no native deps, no network): it concatenates every page's text
+    layer AND pulls AcroForm field values (fillable personal-details forms keep
+    their data in form fields, not the content stream). officeparser remains a
+    fallback only when pdfjs cannot open the file. A genuinely image-only /
+    scanned PDF (no text layer, no form fields) now gets a clear "looks like a
+    scanned image — needs OCR" message instead of a blank failure.
+  - **Files explorer preview for Office/ODF docs.** `.docx`/`.xlsx`/`.pptx`/
+    `.odt`/`.ods`/`.odp`/`.rtf`/`.doc` opened in the Files pane now preview as
+    their EXTRACTED text rather than the confirm-gated "binary file" prompt that
+    would only ever show garbled zip bytes. (Images and PDFs already preview
+    natively — `<img>` and Chromium's PDF viewer — via the existing image/pdf
+    `workspace.readFile` branches.)
+
+- Updated dependencies [cbf115b]
+- Updated dependencies [cbf115b]
+- Updated dependencies [7a43879]
+  - @moxxy/sdk@0.15.0
+  - @moxxy/cli@0.14.2
+  - @moxxy/desktop-host@0.7.4
+  - @moxxy/chat-model@0.2.4
+  - @moxxy/client-core@0.8.5
+  - @moxxy/client-platform-web@0.1.22
+  - @moxxy/desktop-ipc-contract@0.9.4
+  - @moxxy/ipc-server-ws@0.1.21
+  - @moxxy/plugin-channel-mobile@0.1.22
+  - @moxxy/plugin-stt-whisper-codex@0.0.23
+  - @moxxy/plugin-vault@0.0.23
+  - @moxxy/runner@0.2.10
+  - @moxxy/workflows-builder@0.1.11
+
 ## 0.12.2
 
 ### Patch Changes

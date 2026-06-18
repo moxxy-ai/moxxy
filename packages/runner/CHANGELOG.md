@@ -1,5 +1,13 @@
 # @moxxy/runner
 
+## 0.2.10
+
+### Patch Changes
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+  - @moxxy/core@0.2.9
+
 ## 0.2.9
 
 ### Patch Changes

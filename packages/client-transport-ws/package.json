@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/client-transport-ws",
   "private": true,
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "A MoxxyApi (invoke/subscribe) backed by a WebSocket + minimal JSON-RPC client, for remote clients (the Expo mobile app) talking to the desktop host's WebSocket bridge. Uses the global WebSocket (no Node 'ws', no @moxxy/runner) so it bundles cleanly under Metro/React Native.",
   "type": "module",
   "main": "./dist/index.js",

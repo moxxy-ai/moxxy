@@ -1,5 +1,12 @@
 # @moxxy/plugin-terminal
 
+## 0.0.10
+
+### Patch Changes
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+
 ## 0.0.9
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @moxxy/testing
 
+## 0.0.24
+
+### Patch Changes
+
+- Updated dependencies [cbf115b]
+  - @moxxy/sdk@0.15.0
+  - @moxxy/core@0.2.9
+
 ## 0.0.23
 
 ### Patch Changes
