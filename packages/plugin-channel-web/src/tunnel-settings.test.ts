@@ -39,4 +39,27 @@ describe('tunnel-settings', () => {
     rmSync(file);
     expect(readTunnelSetting(file)).toBeUndefined();
   });
+
+  // invariant 5: concurrent read-merge-write of web.json must not lose an
+  // update. Without the mutex the two writes both read the same snapshot and
+  // the second clobbers the first; with it the file ends last-writer-wins and
+  // stays well-formed.
+  it('serializes concurrent writeTunnelSetting (well-formed, one wins)', async () => {
+    await Promise.all([
+      writeTunnelSetting('cloudflared', file),
+      writeTunnelSetting('ngrok', file),
+    ]);
+    const survivor = readTunnelSetting(file);
+    expect(['cloudflared', 'ngrok']).toContain(survivor);
+    // The file must be valid JSON of the expected shape (no torn/partial write).
+    expect(readWebSettings(file)).toEqual({ tunnel: survivor });
+  });
+
+  it('survives many overlapping writers with a well-formed result', async () => {
+    const names = ['cloudflared', 'ngrok', 'localhost', 'cloudflared', 'ngrok'];
+    await Promise.all(names.map((n) => writeTunnelSetting(n, file)));
+    const survivor = readTunnelSetting(file);
+    expect(names).toContain(survivor);
+    expect(readWebSettings(file)).toEqual({ tunnel: survivor });
+  });
 });

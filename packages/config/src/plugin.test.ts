@@ -115,4 +115,26 @@ describe('buildConfigPlugin tools', () => {
     };
     expect(out.created).toBe(false);
   });
+
+  // invariant 5: two concurrent config_set calls on the same plugin instance
+  // each apply only their own edit on top of the same stale doc; without the
+  // per-instance mutex the last atomic rename clobbers the other edit.
+  it('serializes concurrent config_set on one instance (no lost update)', async () => {
+    await fs.writeFile(
+      path.join(tmp, 'moxxy.config.yaml'),
+      'mode: default\nprovider:\n  name: anthropic\n  model: haiku\n',
+    );
+    const plugin = buildConfigPlugin({ cwd: tmp });
+    const setTool = plugin.tools?.find((x) => x.name === 'config_set');
+    if (!setTool) throw new Error('config_set not found');
+    await Promise.all([
+      setTool.handler({ scope: 'project', path: 'provider.model', value: '"sonnet"' }, ctx),
+      setTool.handler({ scope: 'project', path: 'mode', value: '"goal"' }, ctx),
+    ]);
+    const text = await fs.readFile(path.join(tmp, 'moxxy.config.yaml'), 'utf8');
+    const yamlMod = await import('yaml');
+    const parsed = yamlMod.parse(text) as { mode?: string; provider?: { model?: string } };
+    expect(parsed.mode).toBe('goal');
+    expect(parsed.provider?.model).toBe('sonnet');
+  });
 });

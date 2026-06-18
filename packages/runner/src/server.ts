@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Session } from '@moxxy/core';
 import { loadPreferences, newTurnId, savePreferences } from '@moxxy/core';
-import { asTurnId } from '@moxxy/sdk';
+import { asTurnId, createMutex } from '@moxxy/sdk';
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -106,6 +106,23 @@ export class RunnerServer {
   private fallbackPermission: PermissionResolver;
   private fallbackApproval: ApprovalResolver | null;
   private closed = false;
+  /**
+   * Serializes this runner's preferences read-modify-write handlers
+   * ({@link handleProviderSetActive} / {@link handleProviderSetEnabled}).
+   *
+   * Invariant #5: a whole-file RMW store needs an atomic write PLUS a
+   * per-instance promise-mutex. The atomic-write half lives in core's
+   * `savePreferences`; the serialization half lives here because the
+   * `disabledProviders` toggle reads the current set via `loadPreferences`
+   * BEFORE handing the merged patch to `savePreferences` — that load→compute
+   * step spans core's own critical section, so two overlapping toggles could
+   * otherwise both read the same set and the second clobber the first. Running
+   * the whole load→compute→save body under one mutex makes every prefs write
+   * issued by this runner serialize. (Core would ideally expose a single
+   * mutexed updater covering all callers; until it does, cross-process /
+   * cross-runner prefs writes remain best-effort behind the atomic rename.)
+   */
+  private readonly prefsMutex = createMutex();
 
   constructor(
     private readonly session: Session,
@@ -392,8 +409,11 @@ export class RunnerServer {
     // `connected` but provider-less, and bounces the user to "Connect a
     // provider". Mirrors the TUI / Telegram pickers, which already persist.
     // Best-effort: savePreferences swallows its own write errors and never
-    // throws, so a read-only home can't fail the setActive RPC.
-    void savePreferences({ providerName: name });
+    // throws, so a read-only home can't fail the setActive RPC. Run under the
+    // shared `prefsMutex` so this write serializes against the disabledProviders
+    // RMW in handleProviderSetEnabled (invariant #5): a setActive racing a
+    // toggle must not interleave with that handler's load→compute→save.
+    void this.prefsMutex.run(() => savePreferences({ providerName: name }));
     this.broadcastInfo();
     return {};
   }
@@ -408,13 +428,17 @@ export class RunnerServer {
     // Persist so the next boot's activation walk skips it (setup.ts seeds the
     // registry from this list). Read-merge so concurrent writers of other
     // preference fields aren't clobbered; best-effort like every prefs write.
-    void (async () => {
+    // The load→compute→save is run under `prefsMutex` so it serializes against
+    // the other prefs-writing handler — without it, two overlapping toggles (or
+    // a setActive racing a toggle) could both read the same `disabledProviders`
+    // set and the second clobber the first (invariant #5).
+    void this.prefsMutex.run(async () => {
       const prefs = await loadPreferences();
       const current = new Set(prefs.disabledProviders ?? []);
       if (enabled) current.delete(name);
       else current.add(name);
       await savePreferences({ disabledProviders: [...current] });
-    })();
+    });
     this.broadcastInfo();
     return {};
   }

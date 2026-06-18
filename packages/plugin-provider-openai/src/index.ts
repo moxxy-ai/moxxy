@@ -9,6 +9,15 @@ export { validateKey, type ValidateKeyDeps, type ValidationResult } from './vali
 // can reuse this validator. Re-exported under a vendor-neutral name so other
 // packages don't couple to the OpenAI-specific `validateKey` symbol.
 export { validateKey as validateOpenAICompatKey } from './validate.js';
+// Shared factory for OpenAI-Chat-Completions-compatible vendors (xai/zai/google/
+// local + runtime provider-admin entries). Captures the slug-forcing client
+// construction + config narrowing + validateKey wiring in one place.
+export {
+  defineOpenAICompatProvider,
+  pickOpenAICompatConfig,
+  type DefineOpenAICompatProviderSpec,
+  type OpenAICompatConfig,
+} from './compat.js';
 
 import { validateKey as validateOpenAIKey } from './validate.js';
 

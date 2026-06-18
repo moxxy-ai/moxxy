@@ -1,7 +1,17 @@
 import { promises as fs } from 'node:fs';
 import { type MoxxyConfig, moxxyConfigSchema } from '@moxxy/config';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk';
+import { createMutex, moxxyPath, writeFileAtomic } from '@moxxy/sdk';
 import { parse, stringify } from 'yaml';
+
+/**
+ * Per-instance mutex serializing the read-modify-write of `config.yaml`. The
+ * atomic write prevents torn files, but two concurrent enable/disable calls
+ * would otherwise read the same baseline and the second would clobber the
+ * first's flag. Mirrors plugin-mcp/config-io.ts and provider-admin/store.ts.
+ * Cross-process races (CLI vs running session) remain best-effort behind the
+ * atomic rename.
+ */
+const configMutex = createMutex();
 
 /**
  * Enable/disable persistence for plugins. A disabled plugin is recorded as
@@ -42,10 +52,12 @@ export async function setPluginEnabled(
   opts: PluginConfigOptions = {},
 ): Promise<void> {
   const configPath = opts.configPath ?? defaultUserConfigPath();
-  const config = await readUserConfig(configPath);
-  const plugins = { ...(config.plugins ?? {}) };
-  plugins[packageName] = { ...(plugins[packageName] ?? {}), enabled };
-  await writeUserConfig(configPath, { ...config, plugins });
+  await configMutex.run(async () => {
+    const config = await readUserConfig(configPath);
+    const plugins = { ...(config.plugins ?? {}) };
+    plugins[packageName] = { ...(plugins[packageName] ?? {}), enabled };
+    await writeUserConfig(configPath, { ...config, plugins });
+  });
 }
 
 export async function clearPluginState(
@@ -53,13 +65,18 @@ export async function clearPluginState(
   opts: PluginConfigOptions = {},
 ): Promise<void> {
   const configPath = opts.configPath ?? defaultUserConfigPath();
-  const config = await readUserConfig(configPath);
-  if (!config.plugins || !(packageName in config.plugins)) return;
-  const plugins = { ...config.plugins };
-  delete plugins[packageName];
-  await writeUserConfig(configPath, {
-    ...config,
-    ...(Object.keys(plugins).length > 0 ? { plugins } : { plugins: undefined }),
+  await configMutex.run(async () => {
+    const config = await readUserConfig(configPath);
+    if (!config.plugins || !(packageName in config.plugins)) return;
+    const plugins = { ...config.plugins };
+    delete plugins[packageName];
+    const next: MoxxyConfig = { ...config };
+    // Express deletion explicitly: omit the `plugins` key entirely when no
+    // entries remain, rather than assigning `undefined` and relying on
+    // yaml.stringify to drop it.
+    if (Object.keys(plugins).length > 0) next.plugins = plugins;
+    else delete next.plugins;
+    await writeUserConfig(configPath, next);
   });
 }
 

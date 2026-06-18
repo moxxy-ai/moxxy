@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { z, defineTool, definePlugin, moxxyPath, writeFileAtomic, type Plugin } from '@moxxy/sdk';
+import { z, createMutex, defineTool, definePlugin, moxxyPath, writeFileAtomic, type Plugin } from '@moxxy/sdk';
 import { loadConfig } from './loader.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
 
@@ -91,6 +91,13 @@ export function buildConfigPlugin(
   const cwd = opts.cwd;
   const applier = opts.applier;
 
+  // Per-instance mutex serializing the read-modify-write of the config file.
+  // writeFileAtomic prevents torn writes but not lost updates: two concurrent
+  // config_set calls (the model can fire tools in parallel) would each apply
+  // their edit on top of the same stale doc, and the last atomic rename would
+  // clobber the other. Mirrors provider-admin/store.ts.
+  const writeMutex = createMutex();
+
   return definePlugin({
     name: '@moxxy/plugin-config',
     version: '0.0.0',
@@ -150,48 +157,49 @@ export function buildConfigPlugin(
           value: z.string(),
         }),
         permission: { action: 'prompt' },
-        handler: async ({ scope, path: dotPath, value }) => {
-          const target = (await findScopePath(scope, cwd)) ?? scopeDefaultPath(scope, cwd);
-          await fs.mkdir(path.dirname(target), { recursive: true });
-          const { doc, text } = await readDoc(target);
-          const segs = parseDotPath(dotPath);
-          const parsedValue = parseValue(value);
-          doc.setIn(segs, parsedValue);
-          const yamlMod = (await import('yaml')) as typeof import('yaml');
+        handler: async ({ scope, path: dotPath, value }) =>
+          writeMutex.run(async () => {
+            const target = (await findScopePath(scope, cwd)) ?? scopeDefaultPath(scope, cwd);
+            await fs.mkdir(path.dirname(target), { recursive: true });
+            const { doc, text } = await readDoc(target);
+            const segs = parseDotPath(dotPath);
+            const parsedValue = parseValue(value);
+            doc.setIn(segs, parsedValue);
+            const yamlMod = (await import('yaml')) as typeof import('yaml');
 
-          const candidate = String(doc);
-          const candidateParsed = yamlMod.parse(candidate);
-          // Validate post-write through the schema so we never persist a
-          // structurally-invalid config.
-          const validated = moxxyConfigSchema.safeParse(candidateParsed ?? {});
-          if (!validated.success) {
-            throw new Error(
-              `config_set would produce an invalid config:\n` +
-                JSON.stringify(validated.error.issues, null, 2),
-            );
-          }
-          await writeFileAtomic(target, candidate);
-
-          // If a runtime applier is wired, try to reflect the change live.
-          let runtime: ConfigApplyResult = { applied: [], pending: [] };
-          if (applier) {
-            try {
-              runtime = await applier(validated.data);
-            } catch (err) {
-              runtime = {
-                applied: [],
-                pending: [`reload-failed: ${err instanceof Error ? err.message : String(err)}`],
-              };
+            const candidate = String(doc);
+            const candidateParsed = yamlMod.parse(candidate);
+            // Validate post-write through the schema so we never persist a
+            // structurally-invalid config.
+            const validated = moxxyConfigSchema.safeParse(candidateParsed ?? {});
+            if (!validated.success) {
+              throw new Error(
+                `config_set would produce an invalid config:\n` +
+                  JSON.stringify(validated.error.issues, null, 2),
+              );
             }
-          }
+            await writeFileAtomic(target, candidate);
 
-          return {
-            path: target,
-            previousSize: text.length,
-            newSize: candidate.length,
-            runtime,
-          };
-        },
+            // If a runtime applier is wired, try to reflect the change live.
+            let runtime: ConfigApplyResult = { applied: [], pending: [] };
+            if (applier) {
+              try {
+                runtime = await applier(validated.data);
+              } catch (err) {
+                runtime = {
+                  applied: [],
+                  pending: [`reload-failed: ${err instanceof Error ? err.message : String(err)}`],
+                };
+              }
+            }
+
+            return {
+              path: target,
+              previousSize: text.length,
+              newSize: candidate.length,
+              runtime,
+            };
+          }),
       }),
       defineTool({
         name: 'config_reload',
@@ -212,21 +220,22 @@ export function buildConfigPlugin(
           'Create a starter moxxy config file at the given scope (yaml format), if one does not already exist.',
         inputSchema: z.object({ scope: scopeSchema }),
         permission: { action: 'prompt' },
-        handler: async ({ scope }) => {
-          const existing = await findScopePath(scope, cwd);
-          if (existing) return { path: existing, created: false };
-          const target = scopeDefaultPath(scope, cwd);
-          await fs.mkdir(path.dirname(target), { recursive: true });
-          const template = `# moxxy config (${scope} scope)
+        handler: async ({ scope }) =>
+          writeMutex.run(async () => {
+            const existing = await findScopePath(scope, cwd);
+            if (existing) return { path: existing, created: false };
+            const target = scopeDefaultPath(scope, cwd);
+            await fs.mkdir(path.dirname(target), { recursive: true });
+            const template = `# moxxy config (${scope} scope)
 # Documentation: https://docs.moxxy.ai
 provider:
   name: anthropic
   model: claude-sonnet-4-6
 mode: default
 `;
-          await writeFileAtomic(target, template);
-          return { path: target, created: true };
-        },
+            await writeFileAtomic(target, template);
+            return { path: target, created: true };
+          }),
       }),
       defineTool({
         name: 'config_validate',

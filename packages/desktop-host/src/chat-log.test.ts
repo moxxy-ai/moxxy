@@ -197,3 +197,83 @@ describe('chat-log NDJSON backend', () => {
     expect(seg.events.map((e) => (e as { text: string }).text)).toEqual(['m7']);
   });
 });
+
+describe('chat-log concurrency (per-file write mutex)', () => {
+  /** Every byte offset loadSegment derives must land on a parseable line. */
+  const assertCursorsConsistent = async (workspaceId: string, expectedCount: number): Promise<void> => {
+    // Walk the whole cursor space one event at a time — each single-event page
+    // must parse cleanly, proving no offset points mid-line (a corrupted cursor
+    // would either throw or skip/duplicate a line).
+    const seen: string[] = [];
+    let cursor: number | null = null;
+    for (let guard = 0; guard <= expectedCount + 1; guard += 1) {
+      const page: { events: MoxxyEvent[]; prevCursor: number | null } = await loadSegment(workspaceId, cursor, 1);
+      if (page.events.length === 0) break;
+      seen.unshift((page.events[0] as { id: string }).id);
+      if (page.prevCursor === null) break;
+      cursor = page.prevCursor;
+    }
+    expect(seen).toHaveLength(expectedCount);
+    // No duplicate ids and every line decoded.
+    expect(new Set(seen).size).toBe(expectedCount);
+  };
+
+  it('concurrent appends of disjoint batches lose no lines and keep cursors consistent', async () => {
+    // Fire many overlapping appends for the SAME workspace in one tick. Without
+    // the mutex they would read the same pre-append size and clobber each
+    // other's line-index offsets / dedup set.
+    const batches = Array.from({ length: 8 }, (_, b) =>
+      appendEvents('w1', [ev(b * 2), ev(b * 2 + 1)]),
+    );
+    await Promise.all(batches);
+
+    const seg = await loadSegment('w1', null, 100);
+    expect(seg.events).toHaveLength(16);
+    // Same total via a fresh process-view: the raw file has exactly 16 lines.
+    const raw = await readFile(path.join(dir, 'w1.jsonl'), 'utf8');
+    expect(raw.split('\n').filter((l) => l.length > 0)).toHaveLength(16);
+    await assertCursorsConsistent('w1', 16);
+  });
+
+  it('concurrent appends sharing an id write exactly one copy of it', async () => {
+    // Two overlapping batches both carry the shared id e0 plus disjoint fresh
+    // ids. Serialised dedup → e0 appears once, both fresh ids land.
+    await Promise.all([
+      appendEvents('w1', [ev(0), ev(1)]),
+      appendEvents('w1', [ev(0), ev(2)]),
+    ]);
+    const seg = await loadSegment('w1', null, 100);
+    const ids = seg.events.map((e) => (e as { id: string }).id).sort();
+    expect(ids).toEqual(['e0', 'e1', 'e2']);
+    await assertCursorsConsistent('w1', 3);
+  });
+
+  it('overlapping appends extend the warmed line index without desync', async () => {
+    // Warm the index first so concurrent appends exercise the extend-in-place
+    // path (the one that reads idx.size before the write).
+    await appendEvents('w1', [ev(0), ev(1)]);
+    await loadSegment('w1', null, 10);
+    await Promise.all([
+      appendEvents('w1', [ev(2), ev(3)]),
+      appendEvents('w1', [ev(4), ev(5)]),
+      appendEvents('w1', [ev(6), ev(7)]),
+    ]);
+    const seg = await loadSegment('w1', null, 100);
+    expect(seg.events).toHaveLength(8);
+    await assertCursorsConsistent('w1', 8);
+  });
+
+  it('an append racing clearLog resolves cleanly (no half-cleared state)', async () => {
+    await appendEvents('w1', [ev(0), ev(1)]);
+    // Fire a clear and an append in the same tick. The mutex serialises them, so
+    // whichever runs second sees a consistent file — the result is either the
+    // appended events on top of a fresh log, or an empty log, never a corrupt
+    // cursor space.
+    await Promise.all([clearLog('w1'), appendEvents('w1', [ev(2), ev(3)])]);
+    const seg = await loadSegment('w1', null, 100);
+    // No corrupt/duplicated lines whatever the interleave landed on.
+    const ids = seg.events.map((e) => (e as { id: string }).id);
+    expect(new Set(ids).size).toBe(ids.length);
+    await assertCursorsConsistent('w1', ids.length);
+  });
+});

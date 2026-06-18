@@ -22,7 +22,7 @@
  *   <version>/         the extracted bundle (dist/ + dist-electron/ + manifest.json)
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -125,10 +125,18 @@ function tryRead(p: string): string | null {
   }
 }
 
-/** tmp-write + rename so a crash can't leave a half-written pointer. */
+/**
+ * tmp-write + rename so a crash can't leave a half-written pointer. A deliberate
+ * dependency-free duplicate of @moxxy/sdk's `writeFileAtomicSync` — like the
+ * hand-rolled `compareSemver` below, this module is BAKED into the immutable
+ * bootstrap (node built-ins only, see the file header), so importing the SDK
+ * barrel (which has no lightweight sync-fs subpath) would inline the whole SDK
+ * into the bootstrap. The temp name carries pid + a random UUID, matching the
+ * SDK helper's collision-safety, so concurrent writers never clash.
+ */
 function writeJsonAtomic(p: string, value: unknown): void {
   mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.tmp-${process.pid}-${Date.now()}`;
+  const tmp = `${p}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(tmp, JSON.stringify(value, null, 2));
   renameSync(tmp, p);
 }

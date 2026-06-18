@@ -109,4 +109,19 @@ describe('readCachedCheck / refreshCheck', () => {
     const cached = readCachedCheck('0.5.3', { cacheFile });
     expect(cached).toEqual({ current: '0.5.3', latest: '0.5.5', updateAvailable: true });
   });
+
+  it('two concurrent refreshChecks leave a parseable cache file (atomic tmp+rename)', async () => {
+    // The TUI fires refreshCheck fire-and-forget while a concurrent `moxxy update`
+    // can refreshCheck the same file in the same process. The shared atomic writer
+    // (pid+uuid tmp) must keep them from clobbering each other's temp path.
+    const cacheFile = tmpCacheFile();
+    await Promise.all([
+      refreshCheck('0.5.3', { cacheFile, fetchImpl: stubFetch('0.5.5'), now: 1 }),
+      refreshCheck('0.5.3', { cacheFile, fetchImpl: stubFetch('0.5.6'), now: 2 }),
+    ]);
+    // The file must be a single valid JSON object written by one of the writers —
+    // never a half-written or interleaved blob.
+    const parsed = JSON.parse(readFileSync(cacheFile, 'utf8')) as { latest: string };
+    expect(['0.5.5', '0.5.6']).toContain(parsed.latest);
+  });
 });

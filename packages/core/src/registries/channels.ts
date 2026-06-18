@@ -4,31 +4,17 @@ import type {
   ChannelFactoryDeps,
   ChannelRegistry,
 } from '@moxxy/sdk';
+import { DefMapRegistry } from './def-map-registry.js';
 
-export class ChannelRegistryImpl implements ChannelRegistry {
-  private readonly defs = new Map<string, ChannelDef>();
-
-  register(def: ChannelDef): void {
-    if (this.defs.has(def.name)) {
-      throw new Error(`Channel already registered: ${def.name}`);
-    }
-    this.defs.set(def.name, def);
-  }
-
-  unregister(name: string): void {
-    this.defs.delete(name);
-  }
-
-  list(): ReadonlyArray<ChannelDef> {
-    return [...this.defs.values()];
-  }
-
-  get(name: string): ChannelDef | undefined {
-    return this.defs.get(name);
-  }
-
-  has(name: string): boolean {
-    return this.defs.has(name);
+/**
+ * Flat name→def registry of channels ({@link DefMapRegistry}) plus
+ * `listWithAvailability`, which pairs each channel with its current
+ * availability (treating channels without an `isAvailable` hook as
+ * `{ ok: true }` and mapping a thrown probe to `{ ok: false }`).
+ */
+export class ChannelRegistryImpl extends DefMapRegistry<ChannelDef> implements ChannelRegistry {
+  constructor() {
+    super({ noun: 'Channel', keyOf: (def) => def.name });
   }
 
   async listWithAvailability(

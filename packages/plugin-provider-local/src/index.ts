@@ -1,5 +1,5 @@
-import { defineProvider, definePlugin, type ModelDescriptor } from '@moxxy/sdk';
-import { OpenAIProvider, type OpenAIProviderConfig } from '@moxxy/plugin-provider-openai';
+import { definePlugin, type ModelDescriptor } from '@moxxy/sdk';
+import { defineOpenAICompatProvider } from '@moxxy/plugin-provider-openai';
 
 /**
  * Default endpoint: Ollama's OpenAI-compatible server. Override with the
@@ -33,27 +33,24 @@ export const localModels: ReadonlyArray<ModelDescriptor> = [
 
 /**
  * Local models via any OpenAI-compatible server (Ollama, LM Studio, llama.cpp,
- * vLLM). Reuses the shared {@link OpenAIProvider} pointed at a localhost base
- * URL, with the `local` slug forced on. No `validateKey` and no API key: local
- * servers don't authenticate, so the credential path supplies a placeholder
- * (see `resolveProviderCredentials` in the CLI) and activation never prompts.
+ * vLLM). Reuses the shared {@link defineOpenAICompatProvider} pointed at a
+ * localhost base URL, with the `local` slug forced on. `validate: false` and a
+ * placeholder API key: local servers don't authenticate, so the credential path
+ * supplies a placeholder (see `resolveProviderCredentials` in the CLI),
+ * activation never prompts, and we never probe a possibly-offline box.
+ *
+ * The `LOCAL_API_KEY` / `LOCAL_MODEL_BASE_URL` env fallbacks are resolved
+ * per-call (between the config and the static defaults) to match the prior
+ * behaviour exactly.
  */
-export const localProviderDef = defineProvider({
+export const localProviderDef = defineOpenAICompatProvider({
   name: 'local',
-  models: [...localModels],
-  createClient: (config) => {
-    const cfg = config as OpenAIProviderConfig;
-    return new OpenAIProvider({
-      ...cfg,
-      name: 'local',
-      apiKey: cfg.apiKey ?? process.env.LOCAL_API_KEY ?? LOCAL_PLACEHOLDER_KEY,
-      baseURL: cfg.baseURL ?? process.env.LOCAL_MODEL_BASE_URL ?? DEFAULT_LOCAL_BASE_URL,
-      defaultModel: cfg.defaultModel ?? LOCAL_DEFAULT_MODEL,
-      models: localModels,
-    });
-  },
-  // No validateKey: there is no key to validate, and probing a local server
-  // that may be offline would surface confusing errors during setup.
+  baseURL: DEFAULT_LOCAL_BASE_URL,
+  defaultModel: LOCAL_DEFAULT_MODEL,
+  models: localModels,
+  validate: false,
+  resolveApiKey: (cfg) => cfg.apiKey ?? process.env.LOCAL_API_KEY ?? LOCAL_PLACEHOLDER_KEY,
+  resolveBaseURL: (cfg) => cfg.baseURL ?? process.env.LOCAL_MODEL_BASE_URL ?? DEFAULT_LOCAL_BASE_URL,
   auth: {
     kind: 'apiKey',
     envVar: 'LOCAL_API_KEY',

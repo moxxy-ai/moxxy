@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { listSkills, readSkill, writeSkill } from './skills';
+import { deleteSkill, listSkills, readSkill, writeSkill } from './skills';
 
 let tmpHome: string;
 let savedHome: string | undefined;
@@ -62,5 +62,22 @@ describe('skills', () => {
     await writeSkill('apple.md', 'a');
     const list = await listSkills();
     expect(list.map((s) => s.name)).toEqual(['apple.md', 'zebra.md']);
+  });
+
+  it('deletes a skill, and deleting a missing one is a no-op', async () => {
+    await writeSkill('gone.md', 'bye');
+    await deleteSkill('gone.md');
+    expect((await listSkills()).map((s) => s.name)).toEqual([]);
+    // ENOENT on a second delete is swallowed (idempotent).
+    await expect(deleteSkill('gone.md')).resolves.toBeUndefined();
+  });
+
+  it('writeSkill overwrites atomically without truncating on overwrite', async () => {
+    await writeSkill('note.md', 'first version');
+    await writeSkill('note.md', 'second version');
+    expect(await readSkill('note.md')).toBe('second version');
+    // The atomic rename never leaves a stray *.tmp sibling behind.
+    const list = await listSkills();
+    expect(list.map((s) => s.name)).toEqual(['note.md']);
   });
 });

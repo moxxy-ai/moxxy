@@ -12,6 +12,7 @@
  * a missing/corrupt/unwritable log never throws into the boot path.
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -45,10 +46,17 @@ function logPath(userDataDir: string): string {
   return path.join(appUpdateDir(userDataDir), 'boot-log.json');
 }
 
-/** tmp-write + rename so a crash mid-write can't corrupt the log. */
+/**
+ * tmp-write + rename so a crash mid-write can't corrupt the log. A deliberate
+ * dependency-free duplicate of @moxxy/sdk's `writeFileAtomicSync`: this module
+ * is BAKED into the immutable bootstrap (see the file header), so importing the
+ * SDK barrel — which has no lightweight sync-fs subpath — would inline the whole
+ * SDK into the bootstrap. The temp name carries pid + a random UUID, matching
+ * the SDK helper's collision-safety, so concurrent writers never clash.
+ */
 function writeAtomic(p: string, value: unknown): void {
   mkdirSync(path.dirname(p), { recursive: true });
-  const tmp = `${p}.tmp-${process.pid}-${Date.now()}`;
+  const tmp = `${p}.${process.pid}.${randomUUID()}.tmp`;
   writeFileSync(tmp, JSON.stringify(value, null, 2));
   renameSync(tmp, p);
 }

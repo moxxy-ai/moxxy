@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { migrateModeName, writeFileAtomic } from '@moxxy/sdk';
+import { createMutex, migrateModeName, writeFileAtomic } from '@moxxy/sdk';
 
 /**
  * User-level runtime preferences persisted at ~/.moxxy/preferences.json.
@@ -49,23 +49,35 @@ export async function loadPreferences(): Promise<MoxxyPreferences> {
   }
 }
 
+// Serializes the read-modify-write in `savePreferences` so two concurrent
+// saves (e.g. a /model pick and a provider-disable toggle firing close
+// together) can't both read the same snapshot and have the second write
+// clobber the first's field. This is the single write path for the file —
+// other packages (CLI, runner, channels) route their fire-and-forget saves
+// through it, and any load-modify-save must go through it too.
+const writeMutex = createMutex();
+
 /**
  * Merge-and-write preferences. Reads the current file (if any), merges
  * the patch on top so we don't blow away unrelated fields, and writes
- * the result back atomically. Best-effort: a write failure logs to
- * stderr but does not throw — the user's pick still takes effect in
- * this session, just won't persist across invocations.
+ * the result back atomically. The whole read-merge-write runs inside a
+ * module-level mutex so overlapping saves serialize (invariant #5) and
+ * never lose an update. Best-effort: a write failure logs to stderr but
+ * does not throw — the user's pick still takes effect in this session,
+ * just won't persist across invocations.
  */
 export async function savePreferences(patch: Partial<MoxxyPreferences>): Promise<void> {
-  const current = await loadPreferences();
-  const next: MoxxyPreferences = { ...current, ...patch };
-  const target = preferencesPath();
-  try {
-    await writeFileAtomic(target, JSON.stringify(next, null, 2) + '\n');
-  } catch (err) {
-    process.stderr.write(
-      `moxxy: failed to persist preferences to ${target}: ` +
-        `${err instanceof Error ? err.message : String(err)}\n`,
-    );
-  }
+  return writeMutex.run(async () => {
+    const current = await loadPreferences();
+    const next: MoxxyPreferences = { ...current, ...patch };
+    const target = preferencesPath();
+    try {
+      await writeFileAtomic(target, JSON.stringify(next, null, 2) + '\n');
+    } catch (err) {
+      process.stderr.write(
+        `moxxy: failed to persist preferences to ${target}: ` +
+          `${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  });
 }

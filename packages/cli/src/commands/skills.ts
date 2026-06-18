@@ -1,4 +1,5 @@
 import { defaultProjectSkillsDir, defaultUserSkillsDir, discoverSkills, silentLogger } from '@moxxy/core';
+import { createMutex, writeFileAtomic } from '@moxxy/sdk';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from '../setup/builtin-skills-dir.js';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
@@ -33,6 +34,15 @@ interface AuditEntry {
 }
 
 const AUDIT_PATH = (): string => path.join(os.homedir(), '.moxxy', 'skills', '.meta', 'created.jsonl');
+
+/**
+ * Serializes whole-file read-modify-write rewrites of the audit log so two
+ * overlapping `removeAuditEntry` cycles can't read the same snapshot and clobber
+ * each other (invariant #5). The companion writer (`appendAudit` in
+ * core skills/synthesize.ts) appends to the same file, so the rewrite must be
+ * atomic too — see {@link removeAuditEntry}.
+ */
+const auditMutex = createMutex();
 
 export async function runSkillsCommand(argv: ParsedArgv): Promise<number> {
   const sub = argv.positional[0] ?? 'list';
@@ -177,24 +187,29 @@ async function readAuditLog(): Promise<AuditEntry[]> {
 }
 
 async function removeAuditEntry(slug: string): Promise<void> {
-  try {
-    const text = await fs.readFile(AUDIT_PATH(), 'utf8');
-    const kept = text
-      .split('\n')
-      .filter((line) => {
-        if (!line.trim()) return false;
-        try {
-          const e = JSON.parse(line) as { slug?: string };
-          return e.slug !== slug;
-        } catch {
-          return true;
-        }
-      })
-      .join('\n');
-    await fs.writeFile(AUDIT_PATH(), kept + (kept ? '\n' : ''));
-  } catch {
-    // nothing to write back
-  }
+  // Whole-file read-modify-write: serialize against concurrent removals (per-file
+  // mutex) and rewrite atomically (writeFileAtomic) so a crash/kill mid-write can
+  // never truncate the audit log to a partial JSONL line.
+  await auditMutex.run(async () => {
+    try {
+      const text = await fs.readFile(AUDIT_PATH(), 'utf8');
+      const kept = text
+        .split('\n')
+        .filter((line) => {
+          if (!line.trim()) return false;
+          try {
+            const e = JSON.parse(line) as { slug?: string };
+            return e.slug !== slug;
+          } catch {
+            return true;
+          }
+        })
+        .join('\n');
+      await writeFileAtomic(AUDIT_PATH(), kept + (kept ? '\n' : ''));
+    } catch {
+      // nothing to write back
+    }
+  });
 }
 
 function groupSimilarPrompts(entries: ReadonlyArray<AuditEntry>): AuditEntry[][] {

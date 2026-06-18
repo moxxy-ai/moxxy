@@ -18,7 +18,7 @@
 import { appendFile, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { createMutex, type Mutex, type MoxxyEvent } from '@moxxy/sdk';
 
 /** Chats directory — env-overridable so tests can point at a tmp dir. */
 function chatsDir(): string {
@@ -75,6 +75,30 @@ interface LineIndex {
 }
 
 const lineIndexes = new Map<string, LineIndex>();
+
+/**
+ * Per-file write mutex (invariant #5). {@link appendEvents}, {@link clearLog}
+ * and {@link migrate} are read-modify-writes over the shared {@link writtenIds}
+ * dedup set and {@link lineIndexes} cursor index around an `await`, and the
+ * `chat.append` / `chat.clearLog` IPC handlers are independently dispatchable —
+ * two overlapping appends for one workspace would both read the same pre-append
+ * `idx.size`, both `appendFile`, and the second would extend the line offsets
+ * against a stale base, corrupting the cursors {@link loadSegment} relies on
+ * (and an append racing a clear could re-append past the truncate). Serialising
+ * per FILE PATH (matching the cache keys) makes each whole-file RMW atomic while
+ * keeping disjoint workspaces fully concurrent. Keyed by file path so tests
+ * pointing `MOXXY_CHATS_DIR` at different tmp dirs never share a lock.
+ */
+const fileMutexes = new Map<string, Mutex>();
+
+function mutexFor(file: string): Mutex {
+  let m = fileMutexes.get(file);
+  if (!m) {
+    m = createMutex();
+    fileMutexes.set(file, m);
+  }
+  return m;
+}
 
 /** Get the (validated) line index for a file, rebuilding it if the file is
  *  unknown or changed out-of-band. Returns null when the file doesn't exist. */
@@ -153,6 +177,15 @@ export async function appendEvents(
   events: ReadonlyArray<MoxxyEvent>,
 ): Promise<void> {
   if (events.length === 0) return;
+  // Serialise the whole knownIds→filter→append→index-extend RMW per file so
+  // concurrent appends can't desync the dedup set or the line-index cursors.
+  return mutexFor(fileFor(workspaceId)).run(() => appendEventsLocked(workspaceId, events));
+}
+
+async function appendEventsLocked(
+  workspaceId: string,
+  events: ReadonlyArray<MoxxyEvent>,
+): Promise<void> {
   const seen = await knownIds(workspaceId);
   const fresh = events.filter((e) => !seen.has(e.id));
   if (fresh.length === 0) return;
@@ -246,13 +279,18 @@ export async function loadSegment(
 /** Truncate a workspace's log (Clear conversation). Also drops the
  *  idempotency cache so re-adding the same ids writes them again. */
 export async function clearLog(workspaceId: string): Promise<void> {
-  writtenIds.delete(fileFor(workspaceId));
-  lineIndexes.delete(fileFor(workspaceId));
-  try {
-    await rm(fileFor(workspaceId));
-  } catch {
-    /* already gone */
-  }
+  // Same per-file lock as appendEvents so a clear can't interleave with an
+  // in-flight append (re-appending past the truncate or stranding stale dedup
+  // entries that point at a now-deleted file).
+  return mutexFor(fileFor(workspaceId)).run(async () => {
+    writtenIds.delete(fileFor(workspaceId));
+    lineIndexes.delete(fileFor(workspaceId));
+    try {
+      await rm(fileFor(workspaceId));
+    } catch {
+      /* already gone */
+    }
+  });
 }
 
 /**
@@ -273,24 +311,28 @@ export async function migrate(
   await mkdir(chatsDir(), { recursive: true });
   for (const { workspaceId, events } of workspaces) {
     if (events.length === 0) continue;
-    const lines = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
-    let handle;
-    try {
-      handle = await open(fileFor(workspaceId), 'wx');
-    } catch (err) {
-      // Log already exists (migrated before, or a live append beat us) → skip.
-      if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
-      throw err;
-    }
-    try {
-      await handle.writeFile(lines, 'utf8');
-      // Force a re-hydrate of the idempotency + line-index caches from the
-      // freshly-seeded file, in case a live append/load had already cached
-      // this log as empty.
-      writtenIds.delete(fileFor(workspaceId));
-      lineIndexes.delete(fileFor(workspaceId));
-    } finally {
-      await handle.close();
-    }
+    // Per-file lock so the exclusive-create seed + cache invalidation can't
+    // interleave with a live appendEvents/clearLog for the same workspace.
+    await mutexFor(fileFor(workspaceId)).run(async () => {
+      const lines = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+      let handle;
+      try {
+        handle = await open(fileFor(workspaceId), 'wx');
+      } catch (err) {
+        // Log already exists (migrated before, or a live append beat us) → skip.
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') return;
+        throw err;
+      }
+      try {
+        await handle.writeFile(lines, 'utf8');
+        // Force a re-hydrate of the idempotency + line-index caches from the
+        // freshly-seeded file, in case a live append/load had already cached
+        // this log as empty.
+        writtenIds.delete(fileFor(workspaceId));
+        lineIndexes.delete(fileFor(workspaceId));
+      } finally {
+        await handle.close();
+      }
+    });
   }
 }

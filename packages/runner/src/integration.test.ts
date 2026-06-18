@@ -936,6 +936,109 @@ describe('provider management (protocol v7)', () => {
     });
   });
 
+  it('serializes concurrent provider.setEnabled toggles so neither drops the other (invariant #5)', async () => {
+    // Regression (u120-2): handleProviderSetEnabled does a read-modify-write of
+    // preferences.json — load disabledProviders, add/remove one name, save. Two
+    // overlapping toggles (the model can fire tools in parallel; the desktop can
+    // toggle two providers in quick succession) each read the SAME stale set,
+    // and without serialization the second writer clobbers the first — one
+    // disable silently vanishes. The runner's `prefsMutex` must serialize the
+    // whole load→compute→save body so BOTH names land in the persisted list.
+    await withTempHome(async (home) => {
+      const socketPath = tmpSocket();
+      const provider = new FakeProvider({ script: [textReply('hi')] });
+      const session = buildSession(provider);
+      // Two extra non-active providers to disable concurrently — `fake` stays
+      // active (disabling the active one throws).
+      session.pluginHost.registerStatic(
+        definePlugin({
+          name: 'runner-test-extra-providers',
+          providers: [
+            defineProvider({ name: 'fake2', models: [...provider.models], createClient: () => provider }),
+            defineProvider({ name: 'fake3', models: [...provider.models], createClient: () => provider }),
+          ],
+        }),
+      );
+      const server = await startRunnerServer(session, { socketPath });
+      servers.push(server);
+      const remote = await attach(socketPath);
+
+      // Fire both toggles concurrently. The RPCs resolve before the
+      // fire-and-forget prefs write lands, so we poll the file afterwards.
+      await Promise.all([
+        remote.providerAdmin.setEnabled('fake2', false),
+        remote.providerAdmin.setEnabled('fake3', false),
+      ]);
+
+      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
+      // The mutex guarantees BOTH names survive the read-modify-write race.
+      await waitForAsync(async () => {
+        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
+          disabledProviders?: string[];
+        };
+        const set = new Set(prefs.disabledProviders ?? []);
+        return set.has('fake2') && set.has('fake3');
+      });
+      const finalPrefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
+        disabledProviders?: string[];
+      };
+      expect([...(finalPrefs.disabledProviders ?? [])].sort()).toEqual(['fake2', 'fake3']);
+
+      // And the live registry reflects both — behaviour of each toggle is
+      // unchanged, the mutex only serialized the persistence.
+      expect(session.providers.isEnabled('fake2')).toBe(false);
+      expect(session.providers.isEnabled('fake3')).toBe(false);
+    });
+  });
+
+  it('does not lose a disabledProviders update when setActive races a setEnabled toggle', async () => {
+    // The other prefs writer (handleProviderSetActive, which persists
+    // providerName) shares the same `prefsMutex`. A setActive firing between a
+    // toggle's load and its save must not clobber disabledProviders, and the
+    // toggle must not clobber providerName. Both effects persist.
+    await withTempHome(async (home) => {
+      const socketPath = tmpSocket();
+      const provider = new FakeProvider({ script: [textReply('hi')] });
+      const session = buildSession(provider);
+      session.pluginHost.registerStatic(
+        definePlugin({
+          name: 'runner-test-active-race',
+          providers: [
+            defineProvider({ name: 'fake2', models: [...provider.models], createClient: () => provider }),
+            defineProvider({ name: 'fake3', models: [...provider.models], createClient: () => provider }),
+          ],
+        }),
+      );
+      const server = await startRunnerServer(session, { socketPath });
+      servers.push(server);
+      const remote = await attach(socketPath);
+
+      // Disable fake3 while switching the active provider to fake2.
+      await Promise.all([
+        remote.providerAdmin.setEnabled('fake3', false),
+        remote.providers.setActive('fake2'),
+      ]);
+
+      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
+      await waitForAsync(async () => {
+        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
+          providerName?: string;
+          disabledProviders?: string[];
+        };
+        return (
+          prefs.providerName === 'fake2' &&
+          (prefs.disabledProviders ?? []).includes('fake3')
+        );
+      });
+      const finalPrefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
+        providerName?: string;
+        disabledProviders?: string[];
+      };
+      expect(finalPrefs.providerName).toBe('fake2');
+      expect(finalPrefs.disabledProviders).toContain('fake3');
+    });
+  });
+
   it('provider.setEnabled refuses to disable the ACTIVE provider', async () => {
     await withTempHome(async () => {
       const provider = new FakeProvider({ script: [textReply('hi')] });

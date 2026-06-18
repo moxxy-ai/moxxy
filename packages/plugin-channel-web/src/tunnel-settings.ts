@@ -1,8 +1,16 @@
 import { readFileSync } from 'node:fs';
-import { moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
+import { createMutex, moxxyPath, writeFileAtomic, z } from '@moxxy/sdk';
 
 /** Validates the on-disk web.json shape; a corrupt/foreign file is discarded. */
 const webSettingsSchema = z.object({ tunnel: z.string().optional() });
+
+/**
+ * Per-instance mutex serializing the read-merge-write of `web.json`. The atomic
+ * write prevents torn files, but two concurrent writes would otherwise both
+ * read the same snapshot and the second would clobber the first's merge.
+ * Mirrors provider-admin/store.ts.
+ */
+const writeMutex = createMutex();
 
 /**
  * Persisted, user/agent-changeable choice of tunnel provider for the web
@@ -41,6 +49,8 @@ export function readTunnelSetting(file = webSettingsPath()): string | undefined 
 }
 
 export async function writeTunnelSetting(name: string, file = webSettingsPath()): Promise<void> {
-  const next: WebSettings = { ...readWebSettings(file), tunnel: normalizeTunnelName(name) };
-  await writeFileAtomic(file, JSON.stringify(next, null, 2));
+  await writeMutex.run(async () => {
+    const next: WebSettings = { ...readWebSettings(file), tunnel: normalizeTunnelName(name) };
+    await writeFileAtomic(file, JSON.stringify(next, null, 2));
+  });
 }

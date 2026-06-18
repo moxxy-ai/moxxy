@@ -11,7 +11,9 @@
 
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+
+import { writeFileAtomicSync } from '@moxxy/sdk';
 
 import { fetchLatest, type FetchLatestOpts } from './registry.js';
 
@@ -66,10 +68,9 @@ function readCache(file: string): CacheShape | null {
 
 function writeCache(file: string, value: CacheShape): void {
   try {
-    mkdirSync(path.dirname(file), { recursive: true });
-    const tmp = `${file}.tmp-${process.pid}`;
-    writeFileSync(tmp, JSON.stringify(value, null, 2));
-    renameSync(tmp, file);
+    // Shared crash-atomic helper (pid+uuid tmp → renameSync): two in-process
+    // writers to the same cache file never collide on the temp path.
+    writeFileAtomicSync(file, JSON.stringify(value, null, 2));
   } catch {
     /* best effort — caching is an optimization, never a hard requirement */
   }
