@@ -1,42 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, useChat } from '@moxxy/client-core';
-import { pairToolEvents, type Block, type CollaborationBlock } from '@moxxy/chat-model';
+import { pairToolEvents } from '@moxxy/chat-model';
 import { Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
-
-function dotColor(status: string): string {
-  if (status === 'done') return 'var(--color-green)';
-  if (status === 'crashed' || status === 'killed') return 'var(--color-red)';
-  if (status === 'working') return 'var(--color-primary)';
-  return 'var(--color-text-dim)';
-}
+import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
 
 function taskChip(status: string): React.CSSProperties {
-  const bg =
-    status === 'done'
-      ? 'var(--color-green)'
-      : status === 'blocked'
-        ? 'var(--color-amber)'
-        : status === 'in_progress' || status === 'claimed'
-          ? 'var(--color-primary)'
-          : 'var(--color-text-dim)';
   return {
     fontSize: 10,
     fontWeight: 700,
     padding: '1px 6px',
     borderRadius: 'var(--radius-pill)',
     color: '#fff',
-    background: bg,
+    background: taskChipBg(status),
     flexShrink: 0,
   };
-}
-
-function latestCollab(blocks: ReadonlyArray<Block>): CollaborationBlock | undefined {
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i]!;
-    if (b.kind === 'collab') return b;
-  }
-  return undefined;
 }
 
 /** The dedicated Collaborate workspace: left rail (agents · tasks · contracts),
@@ -117,11 +95,10 @@ export function CollaboratePanel({
 
   const paused = collab?.control?.paused ?? false;
 
-  const visibleMessages = useMemo(() => {
-    if (!collab) return [];
-    if (channel === 'all') return collab.messages;
-    return collab.messages.filter((m) => m.from === channel || m.to === channel || m.to === 'all');
-  }, [collab, channel]);
+  const visibleMessages = useMemo(
+    () => (collab ? filterCollabMessages(collab.messages, channel) : []),
+    [collab, channel],
+  );
 
   const header = (
     <ViewHeader>

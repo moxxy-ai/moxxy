@@ -51,8 +51,28 @@ export function detect(text: string, opts: DetectOptions = {}): PiiSpan[] {
   return resolveOverlaps(raw);
 }
 
+/** First index `i` in the start-sorted `kept` array with `kept[i].start >= start`. */
+function lowerBoundByStart(kept: readonly PiiSpan[], start: number): number {
+  let lo = 0;
+  let hi = kept.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (kept[mid]!.start < start) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 /** Greedy interval selection by priority: keep the strongest span, drop anything
- *  overlapping it. Exact-duplicate spans collapse to one. */
+ *  overlapping it. Exact-duplicate spans collapse to one.
+ *
+ *  `kept` is maintained sorted by `start` (insertion via binary search). Because
+ *  kept spans are mutually non-overlapping, a candidate overlaps some kept span
+ *  iff the single kept span with the greatest `start < candidate.end` also has
+ *  `end > candidate.start` — so the overlap test is O(log n), not a linear scan
+ *  over every kept span. This keeps the whole pass O(n log n) instead of O(n²),
+ *  which matters on large documents (tens of thousands of detections, e.g. a log
+ *  file full of IPs/emails) that would otherwise freeze the renderer. */
 function resolveOverlaps(spans: readonly PiiSpan[]): PiiSpan[] {
   const valid = spans.filter((s) => s.end > s.start);
   const ordered = [...valid].sort(
@@ -61,10 +81,15 @@ function resolveOverlaps(spans: readonly PiiSpan[]): PiiSpan[] {
       b.end - b.start - (a.end - a.start) ||
       a.start - b.start,
   );
-  const kept: PiiSpan[] = [];
+  const kept: PiiSpan[] = []; // invariant: sorted by start, mutually non-overlapping
   for (const span of ordered) {
-    const overlaps = kept.some((k) => span.start < k.end && k.start < span.end);
-    if (!overlaps) kept.push(span);
+    const i = lowerBoundByStart(kept, span.end);
+    // The only kept span that can overlap `span` is its left neighbour (the one
+    // with the largest start below `span.end`); every earlier kept span ends at
+    // or before that neighbour's start, so it cannot reach `span.start`.
+    const left = i > 0 ? kept[i - 1]! : null;
+    const overlaps = left ? span.start < left.end && left.start < span.end : false;
+    if (!overlaps) kept.splice(i, 0, span);
   }
-  return kept.sort((a, b) => a.start - b.start);
+  return kept;
 }

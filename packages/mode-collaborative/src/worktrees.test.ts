@@ -73,7 +73,6 @@ describe('worktree git engine', () => {
 
   it('reports conflicts without leaving markers, then resolves by ownership', async () => {
     const repo = await initRepo();
-    const base = await headSha(repo);
     writeFileSync(join(repo, 'shared.ts'), 'export const v = 0;\n');
     await git(repo, ['add', '-A']);
     await git(repo, [...IDENT, 'commit', '-m', 'add shared']);
@@ -115,8 +114,37 @@ describe('worktree git engine', () => {
     const files = await reader.files('backend');
     expect(files.some((f) => f.path === 'feature.ts')).toBe(true);
     expect(await reader.read('backend', 'feature.ts')).toContain('feature = true');
+    // a nested path inside the worktree is still allowed
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(join(wt, 'sub'), { recursive: true });
+    writeFileSync(join(wt, 'sub', 'deep.ts'), 'export const deep = 1;\n');
+    expect(await reader.read('backend', 'sub/deep.ts')).toContain('deep = 1');
     expect(await reader.diff('backend')).toContain('feature.ts');
     await expect(reader.read('backend', '../escape')).rejects.toThrow();
+  });
+
+  it('peer-read confines untrusted paths to the worktree', async () => {
+    const repo = await initRepo();
+    const base = await headSha(repo);
+    // The worktree dir whose NAME a sibling can string-prefix: ".../a".
+    const wt = join(repo, '.wt', 'a');
+    await addWorktree({ repoCwd: repo, path: wt, branch: 'b/confine', baseSha: base });
+    writeFileSync(join(wt, 'inside.ts'), 'export const inside = true;\n');
+    // A would-be sibling that shares the worktree path as a plain string prefix.
+    const sibling = join(repo, '.wt', 'a-evil');
+    const { mkdirSync } = await import('node:fs');
+    mkdirSync(sibling, { recursive: true });
+    writeFileSync(join(sibling, 'secret.ts'), 'export const secret = "leak";\n');
+
+    const reader = peerReaderFor(new Map([['victim', wt]]), base);
+    // Parent-relative escape.
+    await expect(reader.read('victim', '../../escape')).rejects.toThrow(/escapes/);
+    // Sibling-prefix escape (the bug a naive startsWith() check let through).
+    await expect(reader.read('victim', '../a-evil/secret.ts')).rejects.toThrow(/escapes/);
+    // Absolute path spliced on (must not read /etc/passwd etc.).
+    await expect(reader.read('victim', '/etc/hostname')).rejects.toThrow(/escapes/);
+    // The legitimate in-worktree read still works.
+    expect(await reader.read('victim', 'inside.ts')).toContain('inside = true');
   });
 
   it('changedFiles lists work-in-progress edits', async () => {

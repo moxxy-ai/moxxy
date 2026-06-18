@@ -75,6 +75,53 @@ describe('board file locks', () => {
 
     expect(events.some((e) => e.kind === 'board' && e.action === 'claim')).toBe(true);
   });
+
+  it('does not let a non-owner release another agent\'s claim by id', () => {
+    const { state } = mkState();
+    const claim = state.boardClaim('backend', ['src/api']);
+    expect(claim.ok).toBe(true);
+    const id = claim.ok ? claim.item.id : '';
+
+    // tests tries to release backend's lock by its (publicly visible) id
+    state.boardRelease('tests', { id });
+    // the lock must still be held by backend
+    const clash = state.boardClaim('tests', ['src/api/routes.ts']);
+    expect(clash).toEqual({ ok: false, ownedBy: 'backend', paths: ['src/api/routes.ts'] });
+
+    // the rightful owner can still release it
+    state.boardRelease('backend', { id });
+    expect(state.boardClaim('tests', ['src/api/routes.ts']).ok).toBe(true);
+  });
+
+  it('does not let a non-owner hijack another agent\'s board item by id', () => {
+    const { state } = mkState();
+    const claim = state.boardClaim('backend', ['src/api']);
+    expect(claim.ok).toBe(true);
+    const id = claim.ok ? claim.item.id : '';
+
+    // tests tries to reassign backend's item to itself with non-overlapping paths
+    const hijack = state.boardClaim('tests', ['src/other'], id);
+    expect(hijack.ok).toBe(false);
+
+    // backend must still own both the item and src/api
+    const item = state.boardItems().find((it) => it.id === id);
+    expect(item?.owner).toBe('backend');
+    expect(item?.paths).toEqual(['src/api']);
+    expect(state.boardClaim('tests', ['src/api']).ok).toBe(false);
+  });
+
+  it('releases a crashed agent\'s claims so survivors can proceed', () => {
+    const { state, events } = mkState();
+    expect(state.boardClaim('backend', ['src/api']).ok).toBe(true);
+
+    // backend's process dies → coordinator marks it crashed
+    state.setStatus('backend', 'crashed');
+
+    // a crashed owner must not hold the lock forever
+    expect(state.boardClaim('tests', ['src/api/routes.ts']).ok).toBe(true);
+    // and a release event was emitted for observers
+    expect(events.some((e) => e.kind === 'board' && e.action === 'release')).toBe(true);
+  });
 });
 
 describe('contracts', () => {

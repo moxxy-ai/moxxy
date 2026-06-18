@@ -35,25 +35,91 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** True when `text[i]` (or a position past either end) is NOT a word char, i.e.
+ *  a word boundary sits at offset `i`. Treats out-of-range as a boundary. Uses a
+ *  Unicode-aware "letter or number" notion so accented names count as word
+ *  chars. */
+function isBoundaryAt(text: string, i: number): boolean {
+  if (i < 0 || i >= text.length) return true;
+  return !/[\p{L}\p{N}]/u.test(text[i]!);
+}
+
+/** True when the half-open range `[start, end)` is bounded by non-word chars (or
+ *  the string edges) on both sides — i.e. it isn't a substring buried inside a
+ *  larger word like `Al` inside `Alabama`. */
+function isWordAligned(text: string, start: number, end: number): boolean {
+  return isBoundaryAt(text, start - 1) && isBoundaryAt(text, end);
+}
+
+/** Try to find `surface` (or a whitespace/punctuation-tolerant variant of it) at
+ *  a WORD-ALIGNED position at or after `from`. Returns the first such match, or
+ *  null. */
+function findAligned(text: string, surface: string, from: number): { start: number; end: number } | null {
+  // 1) Exact, then case-insensitive, scanning successive occurrences until one
+  //    is word-aligned (so `Al` is not matched inside `Alabama`).
+  for (const hay of [text, text.toLowerCase()]) {
+    const needle = hay === text ? surface : surface.toLowerCase();
+    let idx = hay.indexOf(needle, from);
+    while (idx >= 0) {
+      if (isWordAligned(text, idx, idx + needle.length)) {
+        return { start: idx, end: idx + needle.length };
+      }
+      idx = hay.indexOf(needle, idx + 1);
+    }
+  }
+  // 2) The tokenizer normalizes the surface (diacritic stripping, hyphen/
+  //    apostrophe → space, WordPiece spacing), so the literal needle can be
+  //    absent even though the entity is present. Match the surface's word PARTS
+  //    separated by any run of non-word chars, anchored on word boundaries, so a
+  //    span is recovered (and redacted) instead of silently dropped.
+  const parts = surface.split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(escapeRegExp);
+  if (parts.length > 0) {
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${parts.join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'iu');
+    const m = re.exec(text.slice(from));
+    if (m && m.index != null) {
+      return { start: from + m.index, end: from + m.index + m[0].length };
+    }
+  }
+  // 3) Diacritic mismatch: BERT tokenizers strip accents, so the surface `Zoe`
+  //    can't be found in the original `Zoë`. Fold accents off BOTH sides and
+  //    retry the part match against the folded text, then map the (length-
+  //    preserving) folded offset straight back to the original. NFD + combining-
+  //    mark removal preserves code-unit count for the Latin accents NER emits, so
+  //    offsets line up.
+  const foldedText = stripDiacritics(text);
+  if (foldedText !== text && foldedText.length === text.length) {
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${parts.join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'iu');
+    const m = re.exec(foldedText.slice(from));
+    if (m && m.index != null) {
+      return { start: from + m.index, end: from + m.index + m[0].length };
+    }
+  }
+  return null;
+}
+
+/** Remove combining diacritical marks (NFD then drop the combining range). Used
+ *  only for length-preserving accent-insensitive matching — the original text's
+ *  offsets are what we return. */
+function stripDiacritics(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
 /** Find an entity's char range in the original text, advancing a cursor so
- *  repeated surfaces map to successive occurrences. Tolerant of case and
- *  whitespace differences the tokenizer introduces. */
+ *  repeated surfaces map to successive occurrences. Tolerant of case, whitespace,
+ *  punctuation and diacritic differences the tokenizer introduces.
+ *
+ *  CORRECTNESS/SAFETY: a raw `indexOf` can land the surface INSIDE a larger word
+ *  (e.g. NER tags the person `Al`, but `indexOf('Al')` hits `Alabama`), which
+ *  would redact the wrong text and leave the real PII exposed. So we only accept
+ *  a WORD-ALIGNED match (from `from` onward); if none exists from the cursor we
+ *  retry from 0 (the cursor is a best-effort de-dup hint, not a hard floor — a
+ *  missed alignment must never cause an entity to be dropped and leak). */
 function locate(
   text: string,
   surface: string,
   from: number,
 ): { start: number; end: number } | null {
-  let idx = text.indexOf(surface, from);
-  if (idx >= 0) return { start: idx, end: idx + surface.length };
-  idx = text.toLowerCase().indexOf(surface.toLowerCase(), from);
-  if (idx >= 0) return { start: idx, end: idx + surface.length };
-  const parts = surface.split(/\s+/).filter(Boolean).map(escapeRegExp);
-  if (parts.length > 1) {
-    const re = new RegExp(parts.join('\\s+'), 'i');
-    const m = re.exec(text.slice(from));
-    if (m && m.index != null) return { start: from + m.index, end: from + m.index + m[0].length };
-  }
-  return null;
+  return findAligned(text, surface, from) ?? (from > 0 ? findAligned(text, surface, 0) : null);
 }
 
 /**

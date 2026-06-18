@@ -13,7 +13,23 @@ export interface UseNer {
   readonly detectNames: (text: string) => Promise<readonly PiiSpan[]>;
 }
 
+export type PendingEntry = { resolve: (t: NerToken[]) => void; reject: (e: Error) => void };
 type WorkerReply = { type: string; id?: number; tokens?: NerToken[]; error?: string };
+
+/**
+ * Reject every still-pending request, then clear the map. Used on worker
+ * teardown (unmount) and on a worker `onerror`. WITHOUT this, clearing the map
+ * silently orphaned the in-flight promises, so any awaiting `detectNames` call
+ * hung forever (a leak pinning its closure + the input text). Snapshot the
+ * entries and clear the map BEFORE rejecting, so a synchronous re-entrant
+ * teardown triggered by a reject handler finds nothing left to double-settle.
+ * Exported for unit testing; safe on an empty map.
+ */
+export function rejectAllPending(pending: Map<number, PendingEntry>, reason: string): void {
+  const entries = [...pending.values()];
+  pending.clear();
+  for (const entry of entries) entry.reject(new Error(reason));
+}
 
 /**
  * Lazily spins up the NER worker (which loads the installed on-device model on
@@ -22,9 +38,7 @@ type WorkerReply = { type: string; id?: number; tokens?: NerToken[]; error?: str
  */
 export function useNer(): UseNer {
   const workerRef = useRef<Worker | null>(null);
-  const pending = useRef(
-    new Map<number, { resolve: (t: NerToken[]) => void; reject: (e: Error) => void }>(),
-  );
+  const pending = useRef(new Map<number, PendingEntry>());
   const reqId = useRef(0);
   const [status, setStatus] = useState<NerStatus>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +60,23 @@ export function useNer(): UseNer {
     };
     worker.onerror = (e: ErrorEvent): void => {
       setStatus('error');
-      setError(e.message || 'The name-detection model failed to load.');
+      const message = e.message || 'The name-detection model failed to load.';
+      setError(message);
+      // The worker died (e.g. the model failed to load) and will never reply.
+      // Drop it so `detectNames`'s `if (!worker …)` guard short-circuits to `[]`
+      // instead of posting to a dead worker. Reject the in-flight requests too —
+      // a worker-level error delivers no per-request reply, so without this every
+      // awaiting `detectNames` promise would hang forever (leaking its closure).
+      workerRef.current = null;
+      rejectAllPending(pending.current, message);
     };
     workerRef.current = worker;
     return () => {
       worker.terminate();
       workerRef.current = null;
-      pending.current.clear();
+      // Settle in-flight requests so their awaiting promises don't dangle past
+      // teardown (terminate() never delivers their replies).
+      rejectAllPending(pending.current, 'NER worker stopped');
     };
   }, []);
 

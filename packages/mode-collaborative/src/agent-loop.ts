@@ -278,15 +278,19 @@ function formatInboxNudge(messages: ReadonlyArray<CollabMessage>): string {
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(t);
-        resolve();
-      },
-      { once: true },
-    );
+    const onAbort = (): void => {
+      clearTimeout(t);
+      resolve();
+    };
+    const t = setTimeout(() => {
+      // Remove the abort listener on the normal-timeout path too; the pause
+      // poll loop runs this repeatedly and the listeners would otherwise pile
+      // up on the agent's long-lived signal.
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    t.unref?.();
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 

@@ -108,6 +108,10 @@ export class CollaborationState {
     if (agent.status === status) return;
     agent.status = status;
     this.emitFn({ kind: 'agent_status', agentId, status, ...(detail ? { detail } : {}) });
+    // A dead agent can never release its own locks, so do it for it — otherwise
+    // its leases block every survivor forever (conflictingOwner only frees
+    // 'done' items, not abandoned ones).
+    if (status === 'crashed' || status === 'killed') this.releaseAllFor(agentId);
   }
 
   markDone(agentId: string, summary: string, artifacts?: ReadonlyArray<string>): void {
@@ -248,6 +252,13 @@ export class CollaborationState {
     const owner = this.conflictingOwner(by, paths);
     if (owner) return { ok: false, ownedBy: owner, paths };
     let item = id ? this.board.get(id) : undefined;
+    // (Re)assigning an existing item must not hijack one another agent already
+    // owns: an item's current owner still holds whatever paths it leased even if
+    // those paths don't overlap the freshly requested ones (which is why
+    // conflictingOwner can pass). Reject so a peer can't steal ownership by id.
+    if (item && item.owner && item.owner !== by) {
+      return { ok: false, ownedBy: item.owner, paths };
+    }
     if (!item) {
       item = {
         id: id ?? `t${++this.boardSeq}`,
@@ -272,14 +283,35 @@ export class CollaborationState {
   }
 
   boardRelease(by: string, opts: { id?: string; paths?: ReadonlyArray<string> }): void {
+    // Only the owner may release a lock — both the id path and the paths path.
+    // Releasing by id used to skip this check, letting any peer drop another
+    // agent's exclusive lease (the publicly-readable board ids are guessable),
+    // which silently defeated the cross-process file lock.
     const targets = opts.id
-      ? [this.board.get(opts.id)].filter(Boolean as unknown as (x: BoardItem | undefined) => x is BoardItem)
+      ? [this.board.get(opts.id)].filter(
+          (it): it is BoardItem => it !== undefined && it.owner === by,
+        )
       : this.boardOrder
           .map((id) => this.board.get(id)!)
           .filter((it) => it.owner === by && it.paths && opts.paths?.some((p) => it.paths!.some((q) => pathsConflict(p, q))));
     for (const item of targets) {
       delete item.owner;
       item.updatedBy = by;
+      item.updatedAt = this.now();
+      this.emitFn({ kind: 'board', action: 'release', item: { ...item } });
+    }
+  }
+
+  /** Drop every exclusive lease an agent holds (e.g. when it crashed/was
+   *  killed), emitting a release event per item so peers + the UI stay in sync.
+   *  Without this a dead owner would hold its file locks forever, deadlocking
+   *  any survivor that needs those paths. */
+  private releaseAllFor(agentId: string): void {
+    for (const id of this.boardOrder) {
+      const item = this.board.get(id)!;
+      if (item.owner !== agentId) continue;
+      delete item.owner;
+      item.updatedBy = agentId;
       item.updatedAt = this.now();
       this.emitFn({ kind: 'board', action: 'release', item: { ...item } });
     }
