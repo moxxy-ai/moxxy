@@ -39,9 +39,9 @@ export function registerWorkspaceFsHandlers(desks: DeskStore): void {
     return listDir(cwd, relPath);
   });
 
-  handle('workspace.readFile', async ({ workspaceId, path: relPath }) => {
+  handle('workspace.readFile', async ({ workspaceId, path: relPath, force }) => {
     const { readFile } = await import('../workspace-fs');
     const cwd = await cwdForWorkspace(desks, workspaceId);
-    return readFile(cwd, relPath);
+    return readFile(cwd, relPath, { force });
   });
 }

@@ -157,13 +157,47 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       };
     }
     case 'mouse': {
-      const { x, y } = (req.params ?? {}) as { x: number; y: number };
+      const { x, y, count } = (req.params ?? {}) as { x: number; y: number; count?: number };
       // Parity with `key`/`eval`: validate before launching/driving the page so
       // a malformed surface message (missing/NaN coords) surfaces a clean
       // `badParams` instead of an opaque Playwright throw from click(undefined).
       if (!Number.isFinite(x) || !Number.isFinite(y)) throw badParams('x and y must be finite numbers');
       const h = await ensurePlaywright(state, {});
-      await h.page.mouse.click(x, y);
+      await h.page.mouse.click(x, y, { clickCount: Math.min(3, Math.max(1, count ?? 1)) });
+      return { id: req.id, ok: true, result: { url: h.page.url() } };
+    }
+    case 'mousemove': {
+      // Hover: drives the page's pointer so :hover styles / tooltips render in
+      // the polled frame. Cheap; the surface throttles how often it sends these.
+      const { x, y } = (req.params ?? {}) as { x: number; y: number };
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw badParams('x and y must be finite numbers');
+      const h = await ensurePlaywright(state, {});
+      await h.page.mouse.move(x, y);
+      return { id: req.id, ok: true };
+    }
+    case 'setviewport': {
+      // Resize the page to the pane so the live view fills the container instead
+      // of being letterboxed at the default 1280×720.
+      const { width, height } = (req.params ?? {}) as { width: number; height: number };
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+        throw badParams('width and height must be positive finite numbers');
+      }
+      const h = await ensurePlaywright(state, {});
+      await h.page.setViewportSize({ width: Math.round(width), height: Math.round(height) });
+      return { id: req.id, ok: true };
+    }
+    case 'back':
+    case 'forward':
+    case 'reload': {
+      const h = await ensurePlaywright(state, {});
+      try {
+        if (req.method === 'back') await h.page.goBack();
+        else if (req.method === 'forward') await h.page.goForward();
+        else await h.page.reload();
+      } catch (err) {
+        // No history to go to is not an error worth failing the surface over.
+        return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
+      }
       return { id: req.id, ok: true, result: { url: h.page.url() } };
     }
     case 'key': {

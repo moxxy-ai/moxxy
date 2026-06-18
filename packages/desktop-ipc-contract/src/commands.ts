@@ -292,19 +292,30 @@ export interface IpcCommands {
       readonly kind: 'file' | 'dir';
     }>;
   }>;
-  /** Read a workspace file's full UTF-8 contents for the "Open" file viewer.
-   *  Same cwd-scoping + symlink guard as `workspace.listDir`. Returns
-   *  `{ truncated: true }` + a head excerpt for very large / binary files
-   *  rather than streaming megabytes into the renderer. */
+  /** Read a workspace file for the "Open" file viewer. Same cwd-scoping +
+   *  symlink guard as `workspace.listDir`. Images come back inline
+   *  (`kind:'image'`); text/code as UTF-8 (`kind:'text'`, head-excerpt +
+   *  `truncated` past the cap). Binary-looking or very large files return
+   *  `kind:'confirm'` (with `reason`) so the UI can ask before opening — pass
+   *  `force: true` to then read it as text anyway. */
   'workspace.readFile': (args: {
     workspaceId: string;
     path: string;
+    /** Bypass the binary/large `confirm` gate and decode as text. */
+    force?: boolean;
   }) => Promise<{
     readonly path: string;
+    readonly kind: 'text' | 'image' | 'pdf' | 'confirm';
     readonly content: string;
     readonly truncated: boolean;
-    /** False when the file is detected as binary (content is a placeholder). */
+    /** Back-compat: true exactly when `kind === 'text'`. */
     readonly text: boolean;
+    readonly byteLength: number;
+    /** Set when `kind:'image'` — `data:<mediaType>;base64,<base64>`. */
+    readonly mediaType?: string;
+    readonly base64?: string;
+    /** Set when `kind:'confirm'` — why the gate fired. */
+    readonly reason?: 'binary' | 'large';
   }>;
 
   // ---- Git (Files-changed pane + diff viewer) ---------------------------

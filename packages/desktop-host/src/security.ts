@@ -373,7 +373,9 @@ function buildCspDirectives(extraClerkHosts: readonly string[]): string {
     // moxxy-app:: the anonymizer worker's local-only model fetches (above).
     `connect-src 'self' moxxy-app: https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "worker-src 'self' blob:",
-    `frame-src https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
+    // `blob:` lets the Files viewer render a PDF in an <iframe> via Chromium's
+    // built-in PDF viewer (the bytes are an app-created same-origin Blob URL).
+    `frame-src 'self' blob: https://*.clerk.accounts.dev https://*.clerk.com https://challenges.cloudflare.com${extra}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
