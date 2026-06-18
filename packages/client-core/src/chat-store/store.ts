@@ -281,23 +281,17 @@ class ChatStore {
     slot.snap = null;
     this.emit();
     try {
-      const runner = await this.loadRunnerWindow(workspaceId, null, INITIAL_WINDOW);
-      if (runner) {
+      // Prefer the runner, but only adopt it as the source if it actually
+      // yields RENDERED rows. An empty result — no runner backend, a `<v10`
+      // runner, or a legacy-only chat whose runner session resumed EMPTY — falls
+      // through to the NDJSON mirror so its history is never hidden behind an
+      // empty runner session.
+      const runner = await this.collectRunnerInitial(workspaceId);
+      if (runner && runner.events.length > 0) {
         slot.historySource = 'runner';
         this.prependFresh(slot, runner.events);
         slot.oldestCursor = runner.prevCursor;
         slot.hasOlder = runner.prevCursor !== null;
-        // Defend the extreme case where the newest window was ALL non-rendered
-        // raw events (e.g. the tail of one very long streamed reply): never leave
-        // the transcript blank-but-has-more — pull older windows (bounded) until
-        // something renders or we reach the start of history.
-        for (let pump = 0; pump < 10 && slot.rt.log.length === 0 && slot.hasOlder; pump += 1) {
-          const more = await this.loadRunnerWindow(workspaceId, slot.oldestCursor, INITIAL_WINDOW);
-          if (!more) break;
-          this.prependFresh(slot, more.events);
-          slot.oldestCursor = more.prevCursor;
-          slot.hasOlder = more.prevCursor !== null;
-        }
       } else {
         slot.historySource = 'ndjson';
         const { events, prevCursor } = await this.persistence.loadSegment(
@@ -316,6 +310,30 @@ class ChatStore {
       slot.snap = null;
       this.emit();
     }
+  }
+
+  /**
+   * Pull the newest runner window for {@link loadInitial}, walking past
+   * all-non-rendered windows (bounded) so a window that holds no rendered rows
+   * YET doesn't read as "no history". Returns `null` when there is no runner
+   * backend / the runner can't serve the first page; otherwise the accumulated
+   * rendered events (possibly EMPTY — an empty runner log, e.g. a legacy-only
+   * chat) and the cursor for the next older page.
+   */
+  private async collectRunnerInitial(
+    workspaceId: string,
+  ): Promise<{ events: MoxxyEvent[]; prevCursor: number | null } | null> {
+    const first = await this.loadRunnerWindow(workspaceId, null, INITIAL_WINDOW);
+    if (!first) return null;
+    const events = [...first.events];
+    let cursor = first.prevCursor;
+    for (let pump = 0; pump < 10 && events.length === 0 && cursor !== null; pump += 1) {
+      const more = await this.loadRunnerWindow(workspaceId, cursor, INITIAL_WINDOW);
+      if (!more) break;
+      events.unshift(...more.events);
+      cursor = more.prevCursor;
+    }
+    return { events, prevCursor: cursor };
   }
 
   /** Fetch the page preceding the in-memory window (scroll-up), from whichever

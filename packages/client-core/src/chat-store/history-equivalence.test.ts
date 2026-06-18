@@ -201,6 +201,20 @@ const ndjsonBackend: ChatPersistence = {
   async clear() {},
 };
 
+/** A foregrounded LEGACY-ONLY chat: its runner session resumed EMPTY (no
+ *  `~/.moxxy/sessions/<id>.jsonl`), so loadHistory returns an empty-but-non-null
+ *  page, while the NDJSON mirror still holds the chat's history. */
+const emptyRunnerWithNdjsonBackend: ChatPersistence = {
+  async loadHistory() {
+    return { events: [], prevCursor: null };
+  },
+  async loadSegment(_ws, before, limit) {
+    return pageNdjsonByIndex(before, limit);
+  },
+  async append() {},
+  async clear() {},
+};
+
 async function loadWholeTranscript(persistence: ChatPersistence, workspaceId: string): Promise<MoxxyEvent[]> {
   chatStore.setPersistence(persistence);
   await chatStore.loadInitial(workspaceId);
@@ -245,6 +259,13 @@ describe('history render-equivalence: runner stream vs NDJSON', () => {
     const viaRunner = await loadWholeTranscript(runnerBackend, 'equiv-runner-2');
     const viaNdjson = await loadWholeTranscript(ndjsonBackend, 'equiv-ndjson-2');
     expect(visible(viaRunner)).toEqual(visible(viaNdjson));
+  });
+
+  it('falls back to NDJSON when the runner session resumed EMPTY (legacy-only chat is not blanked)', async () => {
+    const events = await loadWholeTranscript(emptyRunnerWithNdjsonBackend, 'equiv-legacy-empty');
+    // The chat's history is shown from NDJSON, not hidden behind the empty runner.
+    expect(events.length).toBeGreaterThan(0);
+    expect(visible(events)).toEqual(EXPECTED_VISIBLE);
   });
 
   it('a runner that drops mid-scroll keeps hasOlder so a later scroll resumes (no NDJSON cursor-mixing)', async () => {
