@@ -24,6 +24,7 @@ import { ContextRail, type RailPane } from './shell/ContextRail';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
+import { AppsPanel } from './apps/AppsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
@@ -249,6 +250,11 @@ export function App(): JSX.Element {
       {view === 'settings' && (
         <main className="col-main col-main--flat">
           <SettingsPanel onView={setView} />
+        </main>
+      )}
+      {view === 'apps' && (
+        <main className="col-main col-main--flat">
+          <AppsPanel onView={setView} />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}

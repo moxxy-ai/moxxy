@@ -5,6 +5,7 @@ import type { ConnectionPhase } from './connection.js';
 import type { AppUpdateProgress } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
 import type { MobileGatewayStatus } from './mobile.js';
+import type { AppInstallProgress } from './apps.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -66,4 +67,7 @@ export interface IpcEvents {
    *  matching pane by `data.surfaceId` and ignores frames for panes it isn't
    *  showing. Forwarded verbatim from the runner's `surface.data`. */
   'surface.data': { workspaceId: string; data: SurfaceDataMessage };
+  /** Streamed during `apps.install` — one event per download/verify step so the
+   *  Apps gallery can show a progress bar while an app's assets download. */
+  'apps.install.progress': AppInstallProgress;
 }

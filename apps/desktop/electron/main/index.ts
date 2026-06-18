@@ -41,6 +41,7 @@ import {
   ensureDesktopVaultKey,
   activateManagedNode,
   startLoopbackServer,
+  installAppAssetProtocol,
   loadOrCreateSelfSignedCert,
   sendEvent,
   readPrefs,
@@ -79,9 +80,30 @@ if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
   const entry = preferredCliEntry(app.getPath('userData'), process.resourcesPath);
   if (entry) process.env.MOXXY_CLI_ENTRY = entry;
 }
-import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, session, shell, systemPreferences } from 'electron';
+import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, protocol, session, shell, systemPreferences } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Register the local-only `moxxy-app://` asset scheme as privileged BEFORE
+// app-ready (Electron only honors registerSchemesAsPrivileged pre-ready). It
+// serves an installed app's downloaded assets (the anonymizer's NER model) from
+// `userData/moxxy-apps` over a confined GET/HEAD handler (no network egress);
+// the renderer + its worker fetch the model with it (CSP allows `moxxy-app:` in
+// connect-src). `standard + secure` so it's a trusted, fetch/stream-capable
+// origin; `supportFetchAPI`/`stream`/`bytes` so transformers.js can fetch + range
+// the ~109 MB model; `corsEnabled` so a worker request isn't CORS-blocked.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'moxxy-app',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL'];
 
@@ -578,6 +600,13 @@ app.whenReady().then(async () => {
     clerkPublishableKey: CLERK_PUBLISHABLE_KEY,
     loopbackOrigin: loopback?.origin ?? null,
   });
+
+  // Serve installed app assets (the anonymizer's NER model) over the confined,
+  // local-only `moxxy-app://` scheme registered privileged above. Rooted at
+  // `userData/moxxy-apps`; the installer creates that dir lazily on first
+  // install, and the handler 404s harmlessly until then. No network egress —
+  // it only reads files under that root (realpath-contained, GET/HEAD only).
+  installAppAssetProtocol(path.join(app.getPath('userData'), 'moxxy-apps'));
 
   // Allow the renderer's voice recorder to reach the microphone. Without this,
   // macOS hands getUserMedia a SILENT stream (no rejection), so voice
