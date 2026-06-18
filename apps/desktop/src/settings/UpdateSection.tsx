@@ -1,41 +1,20 @@
 /**
- * About → "Dashboard" section: shows the app bundle (renderer + main + IPC) the
- * desktop is currently running and lets the user pull a newer one WITHOUT
- * reinstalling. A hot-update — the bundled binary is never exchanged; only the
- * JS bundle under userData is swapped, taking effect on the next launch.
+ * Settings → "Update" section: the ONE place to bring moxxy up to date.
  *
- * The download/verify/install runs main-side (signature-checked); this is the
- * front end of {@link useAppUpdate}.
+ * A single "Update" button updates BOTH halves of the desktop at once:
+ *   - the RUNNER (the bundled `@moxxy/cli`), which restarts live, and
+ *   - the DESKTOP app itself (the renderer + main + IPC JS bundle), which
+ *     hot-updates and applies on the next launch — or, when a hot-update can't
+ *     deliver, downloads the full installer and restarts into it.
+ *
+ * Both versions are shown for transparency. The download/verify/install all run
+ * main-side (signature-checked); this is the front end of {@link useAppUpdate}
+ * and only orchestrates + reflects status via `runUpdateAll`.
  */
 
 import { api } from '@moxxy/client-core';
-import { useAppUpdate, type UpdateState } from '@moxxy/client-core';
+import { useAppUpdate } from '@moxxy/client-core';
 import { Section } from './settings-primitives';
-
-function statusLine(state: UpdateState, latest: string | null): string | null {
-  switch (state) {
-    case 'checking':
-      return 'Checking for updates…';
-    case 'uptodate':
-      return 'You’re on the latest dashboard.';
-    case 'available':
-      return `Version ${latest} is available.`;
-    case 'incompatible':
-      return 'A newer version needs a full app update.';
-    case 'requires-full-update':
-      return `Version ${latest ?? '?'} updates the bundled runner — it can’t apply as a hot-update, but the app can install the full update itself.`;
-    case 'unavailable':
-      return null; // shown via the check.error / muted note instead
-    case 'updating':
-      return 'Installing…';
-    case 'staged':
-      return 'Installed. Relaunch to apply.';
-    case 'error':
-      return null;
-    default:
-      return null;
-  }
-}
 
 /** Human-readable explanations for the boot-log's structured reject reasons, so
  *  a refused override is legible right in the Diagnostics panel instead of
@@ -55,7 +34,7 @@ function describeReason(reason: string | undefined): string {
   return `  reason=${reason}${hint ? ` (${hint})` : ''}`;
 }
 
-export function DashboardUpdateSection(): JSX.Element {
+export function UpdateSection(): JSX.Element {
   const {
     info,
     check,
@@ -64,9 +43,9 @@ export function DashboardUpdateSection(): JSX.Element {
     error,
     stagedVersion,
     diagnostics,
-    runCheck,
-    runUpdate,
-    runShellUpdate,
+    cliInfo,
+    cliError,
+    runUpdateAll,
     loadDiagnostics,
     relaunch,
   } = useAppUpdate();
@@ -76,20 +55,32 @@ export function DashboardUpdateSection(): JSX.Element {
     progress?.total && progress.received != null
       ? Math.min(100, Math.round((progress.received / progress.total) * 100))
       : null;
-  const status = statusLine(state, check?.latestVersion ?? null);
-  // Surface a failed check (404 / offline / bad signature) — previously these
-  // were swallowed and shown as "up to date".
+  // Surface a failed check (404 / offline / bad signature) — failures used to be
+  // swallowed and shown as "up to date".
   const shownError = error ?? check?.error ?? null;
+
+  // Primary button label: the requires-full-update / shell path is handled
+  // INSIDE runUpdateAll, so there's never a separate button for it.
+  const updating = state === 'updating';
+  const ranOnce = state === 'uptodate' || state === 'error' || state === 'requires-full-update';
+  const updateLabel = updating
+    ? 'Updating…'
+    : state === 'uptodate'
+      ? 'Up to date — Update again'
+      : ranOnce
+        ? 'Update again'
+        : 'Update';
 
   return (
     <Section
-      title="Dashboard"
-      description="The desktop UI + app code update on their own — no reinstall. A new version downloads in the background and applies on the next launch."
+      title="Update"
+      description="One update for everything — the desktop app and its bundled runner come to the latest version together, no reinstall. A new app version applies on the next launch; the runner restarts live."
     >
       <div style={card}>
+        {/* App / dashboard version */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
-            Version
+            App version
           </span>
           <span
             className="mono"
@@ -104,27 +95,59 @@ export function DashboardUpdateSection(): JSX.Element {
           )}
         </div>
 
+        {/* Runner (CLI) version */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            Runner version
+          </span>
+          <span
+            className="mono"
+            style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--color-text)' }}
+          >
+            {cliInfo ? (cliInfo.version ?? 'unknown') : '…'}
+          </span>
+        </div>
+        {cliInfo?.path && (
+          <div
+            className="mono"
+            title={cliInfo.path}
+            style={{
+              fontSize: 11.5,
+              marginTop: -6,
+              color: 'var(--color-text-dim)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {cliInfo.path}
+          </div>
+        )}
+
         {!configured && info && (
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-dim)', lineHeight: 1.5 }}>
-            Automatic updates aren’t configured for this build. New versions are installed by
+            Automatic app updates aren’t configured for this build. New versions are installed by
             downloading the app.
           </p>
         )}
 
-        {status && (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12.5,
-              fontWeight: 600,
-              color: state === 'staged' || state === 'available' ? 'var(--color-green)' : 'var(--color-text-muted)',
-            }}
-          >
-            {status}
+        {state === 'staged' && (
+          <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--color-green)' }}>
+            Installed. Relaunch to apply.
+          </p>
+        )}
+        {state === 'uptodate' && (
+          <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            You’re on the latest version.
+          </p>
+        )}
+        {updating && progress?.message && (
+          <p style={{ margin: 0, fontSize: 12.5, fontWeight: 600, color: 'var(--color-text-muted)' }}>
+            {progress.message}
           </p>
         )}
 
-        {state === 'updating' && (
+        {updating && (
           <div style={{ height: 6, borderRadius: 999, background: 'var(--color-card-border)', overflow: 'hidden' }}>
             <div
               style={{
@@ -143,51 +166,43 @@ export function DashboardUpdateSection(): JSX.Element {
           </p>
         )}
 
+        {/* The runner update is non-fatal: if it was skipped, the bundled CLI
+            keeps working. Surface it as a secondary note. */}
+        {cliError && (
+          <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)', lineHeight: 1.5 }}>
+            {cliError} The bundled runner keeps working.
+            {/npm not found/i.test(cliError) && (
+              <> Install Node.js to update the runner from within the app.</>
+            )}
+          </p>
+        )}
+
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           {state === 'staged' ? (
             <button type="button" data-testid="relaunch-app" style={primaryBtn(false)} onClick={relaunch}>
               Relaunch now
             </button>
-          ) : state === 'available' ? (
-            <button
-              type="button"
-              data-testid="update-dashboard"
-              style={primaryBtn(false)}
-              onClick={() => void runUpdate()}
-            >
-              Update dashboard
-            </button>
-          ) : state === 'incompatible' || state === 'requires-full-update' ? (
-            <>
-              <button
-                type="button"
-                data-testid="update-shell"
-                style={primaryBtn(false)}
-                onClick={() => void runShellUpdate()}
-              >
-                Update app
-              </button>
-              {error && check?.releaseUrl && (
-                <button
-                  type="button"
-                  style={primaryBtn(false)}
-                  onClick={() =>
-                    void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })
-                  }
-                >
-                  Get it manually
-                </button>
-              )}
-            </>
           ) : (
             <button
               type="button"
-              data-testid="check-update"
-              style={primaryBtn(state === 'checking' || state === 'updating' || !configured)}
-              disabled={state === 'checking' || state === 'updating' || !configured}
-              onClick={() => void runCheck()}
+              data-testid="update-all"
+              style={primaryBtn(updating)}
+              disabled={updating}
+              onClick={() => void runUpdateAll()}
             >
-              {state === 'checking' ? 'Checking…' : 'Check for updates'}
+              {updateLabel}
+            </button>
+          )}
+          {/* The full-installer path is handled inside runUpdateAll. Only when
+              that automatic attempt failed (e.g. unsigned build) do we offer the
+              release page as a manual fallback. */}
+          {state === 'requires-full-update' && error && check?.releaseUrl && (
+            <button
+              type="button"
+              style={primaryBtn(false)}
+              onClick={() => void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })}
+            >
+              Get it manually
             </button>
           )}
         </div>
