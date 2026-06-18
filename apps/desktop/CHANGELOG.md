@@ -1,5 +1,43 @@
 # @moxxy/desktop
 
+## 0.9.1
+
+### Patch Changes
+
+- 897a1fc: Quality sweep, wave 7 (review long-tail triage — final cluster)
+
+  Triaged the audit's low-severity review long-tail: fixed the genuine
+  correctness/robustness items (each behavior-preserving + a regression test) and
+  consciously declined the subjective/stale nitpicks with a recorded rationale.
+
+  Representative fixes: OAuth `countTokens` now refreshes a near-expiry token
+  (was silently degrading to the estimate); desktop `ConnectionScreen` handles a
+  rejected (not just `{ok:false}`) update promise and names the real cause;
+  `BrowserPane` `preventDefault`s the keys it forwards; `useStepFlow` pins the
+  cursor to the shown step id so a late-applying step can't bounce the user; plus
+  assorted small robustness fixes across core/cli/plugins. Also replaced bare
+  `Function`-typed test casts with proper signatures (net lint improvement).
+
+  This is the last audit cluster — every finding in
+  `.claude/audits/quality-sweep-findings.json` is now either fixed or consciously
+  resolved with a rationale.
+
+- Updated dependencies [897a1fc]
+- Updated dependencies [897a1fc]
+  - @moxxy/workflows-builder@0.1.9
+  - @moxxy/runner@0.2.8
+  - @moxxy/plugin-vault@0.0.21
+  - @moxxy/sdk@0.14.4
+  - @moxxy/cli@0.13.1
+  - @moxxy/client-core@0.7.1
+  - @moxxy/desktop-host@0.5.7
+  - @moxxy/ipc-server-ws@0.1.15
+  - @moxxy/plugin-stt-whisper-codex@0.0.21
+  - @moxxy/chat-model@0.2.1
+  - @moxxy/desktop-ipc-contract@0.7.6
+  - @moxxy/plugin-channel-mobile@0.1.16
+  - @moxxy/client-platform-web@0.1.16
+
 ## 0.9.0
 
 ### Minor Changes

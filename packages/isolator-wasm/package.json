@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/isolator-wasm",
   "private": true,
-  "version": "0.0.19",
+  "version": "0.0.20",
   "description": "WebAssembly-based Isolator for @moxxy/plugin-security (EXPERIMENTAL). Strongest pure-JS sandbox: wasm modules can only touch what's explicitly imported. Calling convention is still TBD; this ships the runtime + skeleton.",
   "type": "module",
   "main": "./dist/index.js",
