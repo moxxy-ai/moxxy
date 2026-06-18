@@ -113,7 +113,8 @@ export function buildSeedTurn(args: { role: string; parentTask: string; subtask:
   if (role === 'architect' || !parentTask || parentTask === subtask) {
     return subtask ? `${subtask}\n\n${pointer}` : pointer;
   }
-  return `Overall team goal: ${parentTask}\n\nYour sub-task: ${subtask}\n\n${pointer}`;
+  const roleLine = role && role !== 'implementer' ? `Your role on the team: ${role}.\n` : '';
+  return `${roleLine}Overall team goal: ${parentTask}\n\nYour sub-task: ${subtask}\n\n${pointer}`;
 }
 
 async function runUntilSignal(

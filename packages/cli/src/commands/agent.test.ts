@@ -25,6 +25,13 @@ describe('buildSeedTurn', () => {
     expect(turn).toContain('.moxxy-collab/BRIEF.md');
   });
 
+  it('leads with the agent\'s role when it is a named function (not generic implementer)', () => {
+    const writer = buildSeedTurn({ role: 'writer', parentTask: 'Write the launch blog', subtask: 'Draft the intro section' });
+    expect(writer).toContain('Your role on the team: writer.');
+    const impl = buildSeedTurn({ role: 'implementer', parentTask: 'Build X', subtask: 'the API' });
+    expect(impl).not.toContain('Your role on the team:');
+  });
+
   it('falls back to just the pointer when there is no sub-task text', () => {
     const turn = buildSeedTurn({ role: 'implementer', parentTask: '', subtask: '' });
     expect(turn).toContain('.moxxy-collab/BRIEF.md');

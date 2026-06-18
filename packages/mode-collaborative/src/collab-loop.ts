@@ -414,7 +414,9 @@ function readRoster(path: string, maxAgents: number): RosterEntry[] {
       out.push({
         id,
         name: typeof r.name === 'string' ? r.name : id,
-        role: 'implementer',
+        // Carry the architect's proposed role (pm/designer/developer/qa/writer/…)
+        // so the team is cross-functional, not a pool of identical implementers.
+        role: cleanRole(r.role),
         subtask: r.subtask,
         ...(Array.isArray(r.ownedPaths) ? { ownedPaths: r.ownedPaths.filter((p) => typeof p === 'string') } : {}),
         ...(typeof r.model === 'string' ? { model: r.model } : {}),
@@ -429,6 +431,16 @@ function readRoster(path: string, maxAgents: number): RosterEntry[] {
 
 function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+}
+
+/** Normalize an architect-proposed role to a short, safe label. `'architect'` is
+ *  reserved for the coordinator's planner, so a proposed 'architect' falls back to
+ *  'implementer'. Anything unparseable also falls back to 'implementer'. */
+function cleanRole(raw: unknown): string {
+  if (typeof raw !== 'string') return 'implementer';
+  const r = raw.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
+  if (!r || r === ARCHITECT_AGENT_ID) return 'implementer';
+  return r;
 }
 
 type HubLike = { state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } } };
