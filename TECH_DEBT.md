@@ -83,13 +83,30 @@ calls, implementing them rather than deferring:
 
 Going forward this file resumes its normal role per AGENTS.md → "Tech debt is a
 standing job": every future change retires ≥1 item and logs new debt on sight.
-The audit backlog is cleared. The only items remaining in this ledger are
-infrastructure constraints that cannot be resolved from the normal CI gate and
-must NOT be blind-merged — chiefly the **node-gyp / @electron/rebuild bump**,
-which is a coupled `electron-builder` + `node-gyp 12` + `engines.node` floor
-change that only an actual `electron-builder` *packaging* run can verify (a blind
-bump has bricked the desktop native build before — see the 2026-06-17 entry).
-Those are scoped, owner-gated follow-ups, documented at their entries.
+
+**Honest residual-debt status (2026-06-18).** The audit backlog (636 findings) is
+cleared and the contributor features that merged mid-sweep are audited + hardened
+(PR #243). What remains is NOT careless debt — it is a short, fully-catalogued set
+that must not be rushed, because rushing it would *lower* quality, not raise it:
+
+1. **node-gyp / `@electron/rebuild` modernization** — a coupled `electron-builder`
+   25→26 + `node-gyp 12` + `engines.node` floor bump that ONLY a packaged
+   `electron-builder` run can verify (a blind bump has bricked the native build —
+   see 2026-06-17). **Owner-ratified to keep the working pinned config** (user
+   decision, 2026-06-18); upgrade is gated on a `verify-desktop-packaged` run.
+2. **`ClientSession` → minimal `SessionLike` retyping** — a deliberate architectural
+   item that belongs to the runner/thin-client split (see [[runner-thin-client]]);
+   net-new refactor work for a focused PR, not a tail-end edit.
+3. **Dual on-disk history consolidation** — likewise a designed, deferred decision
+   (the NDJSON store is the renderer's only history source under `replay:'none'`;
+   consolidating means migrating to paged runner-log reads, with real counter-risks).
+4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
+   `init` boot a full session and never `close()`) — minor; a correct fix must drain
+   persistence before exit (premature exit would drop the last event).
+
+Items 2–4 are genuine, tracked debt deferred *by engineering judgment* (they need a
+planned PR each); item 1 is an owner decision. None is hidden, and none should be
+blind-merged. This is the standing-job baseline, not a claim of a frozen zero.
 
 ---
 
@@ -203,12 +220,13 @@ frontmatter parser (core + plugin-memory), `moxxy-home-paths`, `shared-oauth-
 helpers`, `external-store-dup`, `oneshot-stream-helper`, and ~50 of the confirmed
 logic/correctness bugs (`t2-confirmed-logic-bugs`, `t2-more-logic-bugs`,
 `t2-embedding-correctness`, `t2-lifecycle-shutdown`), each with a regression
-test. **Still open:** the perf rewrites (chat-model O(n²) fold, EventLog
-indexing, `t2-perf-quadratic-misc`, bounded live window), the SDK `./server`
-subpath split, and Tier-3 (god-file splits, the test-harness gap, and the
-long-tail clusters). Ambiguous logic findings (e.g. `u117-3` retry semantics,
-`u129-3` cycle-guard breadth) were left unchanged on purpose — they need product
-intent, not a guess.
+test. **Remaining-at-that-point (ALL since shipped — see the wave updates below):**
+the perf rewrites (chat-model O(n²) fold, EventLog indexing, `t2-perf-quadratic-misc`,
+bounded live window → wave 3 / PR #217), the SDK `./server` subpath split (wave 12
+/ PR #235), and Tier-3 (god-file splits → PR #224, the test-harness gap → PR #219,
+the long-tail clusters → PR #221/#226). The once-"ambiguous" `u117-3` retry
+semantics were resolved in wave 13 (PR #238); `u129-3` cycle-guard breadth was the
+deliberate conservative choice.
 
 **Update — 2026-06-18 (sweep waves 3–4):** wave 3 (PR #217) landed the
 performance pass — EventLog `ofType`/`byTurn` index, the incremental chat-model
