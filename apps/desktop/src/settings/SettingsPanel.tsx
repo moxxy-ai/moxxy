@@ -68,6 +68,7 @@ export function SettingsPanel({
             setQuery('');
           }}
           testIdPrefix="settings-tab-"
+          collapsible
         />
       </ViewHeader>
       <div

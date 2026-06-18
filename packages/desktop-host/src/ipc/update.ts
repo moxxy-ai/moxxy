@@ -169,8 +169,19 @@ export function registerUpdateHandlers(config: UpdateConfig): void {
           wsEventBus.broadcast('app.update.progress', p);
         },
       });
-      // Keep {active, previous} so a failed boot can roll back to the last-good.
-      pruneBundles(app.getPath('userData'), [version, currentVersion]);
+      // Keep the freshly-staged version, the currently-running one, AND the
+      // last confirmed-good — the exact bundle `recoverFromFailedBoot` rolls
+      // back to if the new version fails its boot health-check. Pruning to just
+      // {staged, running} drops the rollback target whenever they differ from
+      // `confirmed` (e.g. staging while running the FLOOR, where running ==
+      // floor but confirmed == an older override), so a failed boot falls all
+      // the way to the floor instead of the last-good override — part of the
+      // 0.10 → 0.8 downgrade.
+      const confirmed = readConfirmed(app.getPath('userData'));
+      pruneBundles(
+        app.getPath('userData'),
+        confirmed ? [version, currentVersion, confirmed] : [version, currentVersion],
+      );
       return { ok: true, version };
     } catch (e) {
       return { ok: false, version: null, error: messageOf(e) };

@@ -4,9 +4,11 @@
  * Only apps that need a one-time local asset fetch appear here. Today that is
  * the document anonymizer, which downloads an on-device NER model (a quantised
  * `Xenova/bert-base-NER` ONNX bundle, ~109 MB) so it can detect names entirely
- * offline at use time. The onnxruntime-web wasm RUNTIME (~21 MB) is NOT here —
- * Vite bundles it into the app from `@huggingface/transformers` (served from
- * `'self'`); only the large model is fetched on demand.
+ * offline at use time. The onnxruntime-web wasm RUNTIME (~21 MB) is NOT fetched
+ * on demand — it ships as part of the app shell: Vite copies it from
+ * `@huggingface/transformers` into the renderer build (`dist/ort/`, served from
+ * `'self'`; see `apps/desktop/electron.vite.config.ts`), so only the large model
+ * is downloaded at install time.
  *
  * IMPORTANT — dest mirrors the URL the renderer will request EXACTLY. The
  * renderer's NER worker rewrites transformers.js model fetches to

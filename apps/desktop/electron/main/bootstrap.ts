@@ -36,6 +36,7 @@ import {
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
+import { registerAppAssetSchemePrivileged } from './app-scheme.js';
 
 // MUST run before any `app.getPath('userData')` below. `userData` resolves to
 // `…/Application Support/<app.getName()>`, and in a packaged build Electron
@@ -48,6 +49,17 @@ import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 // loader, so the app silently kept booting the floor. Keep this string in sync
 // with `index.ts`.
 app.setName('MoxxyAI Workspaces');
+
+// Register the `moxxy-app://` privileged scheme HERE, in the bootstrap's
+// synchronous prologue — the one piece of the app guaranteed to run BEFORE
+// `app` is ready. Electron only honors `registerSchemesAsPrivileged` pre-ready,
+// and the real main (`index.js`, floor OR a hot-updated override) is loaded
+// LATER via `import()` from `boot()`, after `whenReady` has fired. Doing it
+// there throws ("should be called before app is ready"), which crashed the
+// 0.10.0 override on load, poisoned it, and reverted to the floor (a 0.10 → 0.8
+// downgrade). The privileges live in `./app-scheme` so this and `index.ts`
+// can't disagree.
+registerAppAssetSchemePrivileged();
 
 /** Dir holding this bootstrap + the baked floor `index.js` (…/dist-electron/main). */
 const floorMainDir = import.meta.dirname;

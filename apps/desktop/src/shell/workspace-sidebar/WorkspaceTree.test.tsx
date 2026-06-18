@@ -195,4 +195,24 @@ describe('WorkspaceTree', () => {
     );
     expect(h.onToggleCollapse).not.toHaveBeenCalled();
   });
+
+  // Regression: the ⋯ menu is anchored inside the row's subtree, and the
+  // ActionsOverlay's `transform` traps the menu's z-index in a local
+  // stacking context. Without lifting the owning row while its menu is
+  // open, a LATER sibling row paints over the menu (it looked see-through
+  // and overlapped the next folder). The row must carry a z-index only
+  // while its menu is open, and drop it again on close.
+  it('lifts the row that owns an open ⋯ menu above the rows below it', () => {
+    renderTree();
+    const row = screen.getByTestId('session-row-a2');
+    expect(row.style.zIndex).toBe(''); // idle: no stacking lift
+
+    fireEvent.click(screen.getByLabelText('session actions Fix the login bug'));
+    expect(row.style.zIndex).not.toBe(''); // open: lifted above following rows
+
+    // Closing the menu (Escape) drops the lift again so it never stacks
+    // permanently over its neighbours.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(row.style.zIndex).toBe('');
+  });
 });
