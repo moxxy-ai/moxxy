@@ -308,6 +308,12 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   realtime. Mobile now memoizes the committed transcript in `useChatTranscript`, appends
   the live assistant preview as a cheap tail item, and renders chat with `FlatList`
   virtualization.
+- **Update — long-list dev warning closed:** the mobile chat list now keeps settled rows
+  memoized with a semantic comparator, caches parsed markdown for stable messages, and
+  uses long-session FlatList batching/scroll settings. The remaining React Native
+  `VirtualizedList` "large list" message was verified as an idle-scroll heuristic
+  (`dt` between scroll events, not render duration) and is filtered through the existing
+  mobile console-noise gate only for that exact info log.
 
 ## 2026-06-18 — cross-surface action clear sync
 

@@ -27,13 +27,21 @@ import type {
 import type { PromptAttachment } from '@/clientFrames';
 import { shouldLoadOlderFromScroll, shouldShowThinkingIndicator } from '@/chatListState';
 import { useChatListAutoScroll } from '@/hooks/useChatListAutoScroll';
+import {
+  buildMobileChatListPerformanceProps,
+  getCachedMobileMarkdownBlocks,
+  shouldUpdateMobileMessageBlock,
+  type MobileMessageBlockRenderProps,
+} from '@/chatListPerformance';
 import { buildMessageActions } from '@/messageActions';
-import { buildMobileMarkdownBlocks, type MobileMarkdownBlock } from '@/mobileMarkdown';
+import type { MobileMarkdownBlock } from '@/mobileMarkdown';
 import { buildSubagentDetailUi, selectSubagentDetailAgent } from '@/subagentDetailUi';
 import { buildToolDetailUi, buildToolGroupUi, type ToolDetailUi } from '@/toolGroupUi';
 import type { InlineTok } from '@moxxy/chat-model/markdown';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
+
+const CHAT_LIST_PERFORMANCE_PROPS = buildMobileChatListPerformanceProps();
 
 interface ChatListProps {
   readonly items: ReadonlyArray<TranscriptItem>;
@@ -94,14 +102,9 @@ export function ChatList({
       ListFooterComponent={footer}
       className="flex-1"
       contentContainerStyle={{ gap: 16, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 82 }}
-      initialNumToRender={14}
-      maxToRenderPerBatch={10}
       onContentSizeChange={autoScroll.handleContentSizeChange}
       onScroll={handleScroll}
-      removeClippedSubviews
-      scrollEventThrottle={80}
-      updateCellsBatchingPeriod={32}
-      windowSize={9}
+      {...CHAT_LIST_PERFORMANCE_PROPS}
     />
   );
 }
@@ -110,11 +113,7 @@ function MessageBlock({
   item,
   copied,
   onCopyMessage,
-}: {
-  readonly item: TranscriptItem;
-  readonly copied: boolean;
-  readonly onCopyMessage?: (messageId: string, text: string) => void;
-}) {
+}: MobileMessageBlockRenderProps) {
   if (item.kind === 'user') {
     const actions = buildMessageActions(item);
     const hasText = item.text.trim().length > 0;
@@ -195,7 +194,10 @@ function MessageBlock({
   );
 }
 
-const MemoMessageBlock = memo(MessageBlock);
+const MemoMessageBlock = memo(
+  MessageBlock,
+  (previous, next) => !shouldUpdateMobileMessageBlock(previous, next),
+);
 
 function MessageAttachments({ attachments }: { readonly attachments: ReadonlyArray<PromptAttachment> }) {
   return (
@@ -819,7 +821,7 @@ function MobileMarkdownText({
   readonly style?: StyleProp<ViewStyle>;
   readonly text: string;
 }) {
-  const blocks = buildMobileMarkdownBlocks(text);
+  const blocks = getCachedMobileMarkdownBlocks(text);
   if (blocks.length === 0) return null;
   return (
     <View style={[{ gap: compact ? 6 : 10 }, style]}>
