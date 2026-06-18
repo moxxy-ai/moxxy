@@ -24,7 +24,7 @@ import { api } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { Modal } from '@moxxy/desktop-ui';
 import { ArgsForm } from './ArgsForm';
-import { humanize, quote, stepsForCommand } from './steppers';
+import { humanize, quote, stepsForCommand, subcommandForCommand } from './steppers';
 import type { ArgStep, CommandInfo, SessionInfoSlice } from './types';
 
 interface Props {
@@ -70,7 +70,12 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
 
   const run = async (command: CommandInfo, values: ReadonlyArray<string>): Promise<void> => {
     setRunning(true);
-    const argString = values.map(quote).join(' ');
+    // Some commands dispatch a fixed subcommand parsed from their arg string
+    // (e.g. `vault set <key> <value>`); prepend it so the runner's handler
+    // routes to the right branch instead of treating the first value as the
+    // subcommand ("unknown subcommand").
+    const sub = subcommandForCommand(command.name);
+    const argString = [...(sub ? [sub] : []), ...values.map(quote)].join(' ');
     try {
       const result = await api().invoke('session.runCommand', {
         workspaceId,

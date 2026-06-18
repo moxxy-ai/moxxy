@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { ModeContext, ModeDef, MoxxyEvent, ProviderDef } from '@moxxy/sdk';
-import { defineMode, defineProvider, definePlugin } from '@moxxy/sdk';
+import type { ModeContext, ModeDef, MoxxyEvent, ProviderDef, ToolCallContext } from '@moxxy/sdk';
+import { defineMode, defineProvider, definePlugin, defineTool, executeToolUses, z } from '@moxxy/sdk';
 import { Session } from './session.js';
 import { runTurn, collectTurn } from './run-turn.js';
 
@@ -124,5 +124,55 @@ describe('runTurn turnId filtering', () => {
     // have grown; we can't observe that directly, but we can verify the next
     // turn still receives a clean event stream (no spurious replays).
     expect(listenerCountAfter).toBe(listenerCountBefore);
+  });
+});
+
+describe('runTurn threads real cwd/env into onToolCall hooks', () => {
+  it('the dispatchToolCall hook ctx carries the session cwd/env, not empty placeholders', async () => {
+    const captured: { cwd?: string; envFoo?: string } = {};
+    const SESSION_CWD = '/tmp/policy-cwd';
+
+    // A mode that dispatches a single tool use through the shared dispatcher
+    // (the same path default/goal use), so the onToolCall hook fires with the
+    // ModeContext-derived cwd/env.
+    const dispatchMode = defineMode({
+      name: 'dispatch-one',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        yield* executeToolUses(ctx, [{ id: 'c1', name: 'noop', input: {} }], 1);
+      },
+    });
+
+    const session = new Session({ cwd: SESSION_CWD, silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'cwd-env-probe',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [dispatchMode],
+        tools: [
+          defineTool({
+            name: 'noop',
+            description: '',
+            inputSchema: z.object({}),
+            handler: () => 'ok',
+          }),
+        ],
+        hooks: {
+          onToolCall: (ctx: ToolCallContext) => {
+            captured.cwd = ctx.cwd;
+            captured.envFoo = ctx.env.PATH; // a real env var that always exists
+          },
+        },
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('dispatch-one');
+
+    await collectTurn(session, 'go');
+
+    // Previously hardcoded '' / {}, which silently defeated path-based policy
+    // hooks. Must now be the real session cwd + a populated env.
+    expect(captured.cwd).toBe(SESSION_CWD);
+    expect(captured.envFoo).toBe(process.env.PATH);
   });
 });

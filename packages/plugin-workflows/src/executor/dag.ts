@@ -206,10 +206,16 @@ function buildRunResult(
   };
 }
 
-async function runExecutorLoop(ctx: ExecutorContext): Promise<WorkflowRunResult> {
+async function runExecutorLoop(ctx: ExecutorContext, resumed = false): Promise<WorkflowRunResult> {
   const { workflow, deps } = ctx;
 
-  await deps.emit?.('workflow_started', { name: workflow.name, steps: workflow.steps.length });
+  // Only a fresh run emits `workflow_started`. A resume already emitted
+  // `workflow_resumed`; re-emitting `workflow_started` here (with the full step
+  // count) would make a progress consumer that resets on `workflow_started`
+  // wipe its already-settled steps mid-run.
+  if (!resumed) {
+    await deps.emit?.('workflow_started', { name: workflow.name, steps: workflow.steps.length });
+  }
 
   const settled = (id: string): boolean => {
     const s = ctx.states.get(id)?.status;
@@ -289,6 +295,11 @@ async function runExecutorLoop(ctx: ExecutorContext): Promise<WorkflowRunResult>
     const scope = buildScope(ctx, new Date(ctx.now()).toISOString());
 
     for (const step of wave) {
+      // A hard failure (onError≠'continue') earlier in THIS wave aborts the
+      // run: stop scheduling the rest of the wave rather than burning
+      // subagent/tool calls and emitting completed events for steps that ran
+      // after the run had logically failed.
+      if (aborted) break;
       const st = ctx.states.get(step.id)!;
       st.startedAt = ctx.now();
       await deps.emit?.('workflow_step_started', {
@@ -481,7 +492,7 @@ export async function resumeWorkflowRun(
   }
 
   await store.remove(runId);
-  return runExecutorLoop(ctx);
+  return runExecutorLoop(ctx, true);
 }
 
 /** Concatenate the outputs of completed terminal (sink) steps. */
@@ -599,12 +610,22 @@ async function runNestedWorkflow(
     trigger: `workflow:${step.workflow}`,
   });
   if (result.status === 'paused') {
-    return {
-      ok: false,
-      output: result.output,
-      paused: true,
-      ...(result.interactionAgentId ? { interactionAgentId: result.interactionAgentId } : {}),
-    };
+    // A nested workflow that pauses on `awaitInput` cannot be resumed through
+    // the parent: the inner run already wrote its OWN checkpoint, but the parent
+    // only checkpoints the `workflow`-typed step. On resume the parent would
+    // `spawner.continue` the inner child once and mark the whole nested step
+    // done WITHOUT re-entering the nested DAG — stranding the inner checkpoint
+    // and skipping the nested workflow's remaining steps. Reject it loudly here
+    // (mirrors the loop-body awaitInput guard) rather than half-resume. Drop the
+    // inner checkpoint we'd otherwise orphan first.
+    if (result.runId) {
+      const store = deps.runStore ?? defaultWorkflowRunStore;
+      await store.remove(result.runId).catch(() => {});
+    }
+    throw new Error(
+      `nested workflow "${step.workflow}" paused for input (awaitInput); ` +
+        'awaitInput is not supported inside a nested workflow — run it as a top-level workflow instead',
+    );
   }
   if (!result.ok) throw new Error(result.error ?? `nested workflow "${step.workflow}" failed`);
   return { ok: true, output: result.output };

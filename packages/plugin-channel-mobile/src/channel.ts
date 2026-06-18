@@ -111,6 +111,12 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     host.register(); // populate the method map BEFORE accepting connections
     host.wire(); // stream events + install the ask resolvers
 
+    // Everything after wire() can throw (port in use, tunnel open, QR print),
+    // and wire() has already subscribed to session.log + installed the ask
+    // resolvers on a session this channel may never own. On ANY failure here,
+    // tear the host (and any opened tunnel/server) back down so we don't leak a
+    // dead subscriber/resolver onto a live session.
+    try {
     // iOS React Native sends an `Origin` header derived from the WS URL it
     // dials (Android/Node send none), so every URL this channel advertises
     // must have its origin allow-listed or real iPhones are rejected at the
@@ -169,6 +175,20 @@ export class MobileChannel implements Channel<MobileStartOpts> {
           "  (channels.mobile.tunnel: 'cloudflared' | 'ngrok', or MOXXY_MOBILE_TUNNEL)."
         : undefined,
     );
+    } catch (err) {
+      // Roll back the partial wiring: unsubscribe from session.log + clear the
+      // ask resolvers (host.dispose), close anything we managed to open, and
+      // null the fields back out so this channel owns nothing.
+      host.dispose();
+      if (this.tunnel) {
+        await this.tunnel.close().catch(() => undefined);
+        this.tunnel = null;
+      }
+      await this.server?.close().catch(() => undefined);
+      this.server = null;
+      this.host = null;
+      throw err;
+    }
 
     let resolveRunning!: () => void;
     const running = new Promise<void>((resolve) => {

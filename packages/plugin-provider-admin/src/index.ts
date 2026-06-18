@@ -255,15 +255,20 @@ export function buildProviderAdminPlugin(opts: BuildProviderAdminPluginOptions):
             });
           }
           const def = buildProviderDef(entry);
-          const wasRegistered = providerRegistry.list().some((p) => p.name === entry.name);
+          // Capture the prior def BEFORE mutating so a failed write restores it
+          // instead of deleting the provider outright (mirrors configure()).
+          const prevDef = providerRegistry.list().find((p) => p.name === entry.name);
+          const wasRegistered = prevDef !== undefined;
           if (wasRegistered) providerRegistry.replace(def);
           else providerRegistry.register(def);
           try {
             await upsertStoredProvider(entry, configPath);
           } catch (err) {
-            // Roll back the runtime registration so the next boot
-            // doesn't see a phantom that isn't on disk.
-            providerRegistry.unregister(entry.name);
+            // Roll back the runtime registration. If a def existed before this
+            // call, restore it; otherwise drop the phantom so the next boot
+            // doesn't see something that isn't on disk.
+            if (wasRegistered && prevDef) providerRegistry.replace(prevDef);
+            else providerRegistry.unregister(entry.name);
             throw err;
           }
           const vaultKeyName = providerApiKeyName(entry);

@@ -166,16 +166,44 @@ export async function createUnixSocketServer(
   };
 }
 
+/**
+ * Default bound for a single connect attempt. A half-open named pipe, or a
+ * unix socket whose server is bound but not accepting, can leave `net.connect`
+ * emitting neither `'connect'` nor `'error'` — without this the returned
+ * Promise would hang forever and strand `connectWithRetry`'s whole loop (no
+ * backoff fires because the prior attempt never settled).
+ */
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+
 /** Connect to a runner's socket, returning a {@link Transport} once open. */
-export function connectUnixSocket(socketPath: string): Promise<Transport> {
+export function connectUnixSocket(
+  socketPath: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<Transport> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
   return new Promise<Transport>((resolve, reject) => {
     const socket = net.connect(socketPath);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      // Destroying with an error also fires 'error' on some platforms; the
+      // `settled` guard makes the reject idempotent either way.
+      socket.destroy(new Error(`connect timeout after ${timeoutMs}ms: ${socketPath}`));
+      reject(new Error(`connect timeout after ${timeoutMs}ms: ${socketPath}`));
+    }, timeoutMs);
     const onError = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       socket.destroy();
       reject(err);
     };
     socket.once('error', onError);
     socket.once('connect', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       socket.removeListener('error', onError);
       resolve(new NdjsonTransport(socket));
     });

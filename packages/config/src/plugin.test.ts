@@ -66,6 +66,21 @@ describe('buildConfigPlugin tools', () => {
     expect(await tool('config_get').handler({ scope: 'project', path: 'provider.config.apiKey' }, ctx)).toBe('k');
   });
 
+  it('config_get preserves legitimate falsy values (false / 0 / "") and only nulls a missing key', async () => {
+    await fs.writeFile(
+      path.join(tmp, 'moxxy.config.yaml'),
+      `context:\n  caching: false\nmaxIterations: 0\nlabel: ""\n`,
+    );
+    // false / 0 / "" must round-trip as themselves; `cursor ?? null` used to
+    // collapse all three to null so the model couldn't tell "set to false"
+    // from "absent" when inspecting config.
+    expect(await tool('config_get').handler({ scope: 'project', path: 'context.caching' }, ctx)).toBe(false);
+    expect(await tool('config_get').handler({ scope: 'project', path: 'maxIterations' }, ctx)).toBe(0);
+    expect(await tool('config_get').handler({ scope: 'project', path: 'label' }, ctx)).toBe('');
+    // A genuinely absent key still returns null.
+    expect(await tool('config_get').handler({ scope: 'project', path: 'context.missing' }, ctx)).toBeNull();
+  });
+
   it('config_set writes a value, preserving the rest of the file', async () => {
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.yaml'),

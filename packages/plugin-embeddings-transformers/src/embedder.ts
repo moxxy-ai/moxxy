@@ -67,12 +67,19 @@ export class TransformersEmbedder implements EmbeddingProvider {
   private async ensureExtractor(): Promise<Awaited<ReturnType<PipelineFactory>>> {
     if (this.extractor) return this.extractor;
     if (this.extractorPromise) return await this.extractorPromise;
+    // Clear the latch on rejection so a transient load failure (ONNX/download/
+    // OOM/missing native binary) doesn't brick the embedder for the whole
+    // process lifetime — the next embed() retries instead of re-throwing the
+    // cached rejection.
     this.extractorPromise = (async () => {
       const factory = this.pipelineFactory ?? (await loadDefaultFactory());
       const extractor = await factory('feature-extraction', this.model);
       this.extractor = extractor;
       return extractor;
-    })();
+    })().catch((err) => {
+      this.extractorPromise = null;
+      throw err;
+    });
     return await this.extractorPromise;
   }
 
@@ -118,7 +125,17 @@ function normalizeShape(
     return [data as number[]];
   }
   if (Array.isArray(first) && (first.length === 0 || typeof first[0] === 'number')) {
-    return data as number[][];
+    const batch = data as number[][];
+    // Contract: one vector per input, in input order. A mismatched batch count
+    // means the model misbehaved; passing it through would let the memory
+    // EmbeddingIndex zip vectors to the wrong record ids (silent corruption).
+    // Fail loudly instead, matching the 3D branch's invariant.
+    if (batch.length !== expected) {
+      throw new Error(
+        `transformers embedder: model returned ${batch.length} vectors for ${expected} inputs`,
+      );
+    }
+    return batch;
   }
   // Unexpected 3D shape: take the first vector per sequence (fallback).
   const nested = data as number[][][];

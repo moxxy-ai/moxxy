@@ -13,6 +13,9 @@ export interface AddServerToolDeps {
     toolNames: ReadonlyArray<string>;
     descriptors: ReadonlyArray<McpToolDescriptor>;
   }>;
+  /** Roll back a hot-attach (unregister its tools + close the client) when
+   *  persisting the new entry fails after `attachServer` already succeeded. */
+  detachServer(name: string): Promise<boolean>;
   writeMcpUsageSkill(
     server: McpServerConfig,
     descriptors: ReadonlyArray<McpToolDescriptor>,
@@ -20,7 +23,7 @@ export interface AddServerToolDeps {
 }
 
 export function buildAddServerTool(deps: AddServerToolDeps): ToolDef {
-  const { registry, attachServer, writeMcpUsageSkill } = deps;
+  const { registry, attachServer, detachServer, writeMcpUsageSkill } = deps;
   return defineTool({
     name: 'mcp_add_server',
     description:
@@ -55,17 +58,26 @@ export function buildAddServerTool(deps: AddServerToolDeps): ToolDef {
       // catalog so a concurrent add/remove can't clobber the file. The
       // duplicate check is repeated against the fresh read to catch a race
       // where two adds for the same name both passed the initial check.
-      await mutateMcpConfig((current) => {
-        if (current.servers.some((s) => s.name === server.name)) {
-          throw new MoxxyError({
-            code: 'CONFIG_INVALID',
-            message:
-              `mcp_add_server: an MCP server named "${server.name}" already exists. ` +
-              `Use mcp_remove_server first, or pick a different name.`,
-          });
-        }
-        return { next: { servers: [...current.servers, stored] }, result: undefined };
-      });
+      try {
+        await mutateMcpConfig((current) => {
+          if (current.servers.some((s) => s.name === server.name)) {
+            throw new MoxxyError({
+              code: 'CONFIG_INVALID',
+              message:
+                `mcp_add_server: an MCP server named "${server.name}" already exists. ` +
+                `Use mcp_remove_server first, or pick a different name.`,
+            });
+          }
+          return { next: { servers: [...current.servers, stored] }, result: undefined };
+        });
+      } catch (err) {
+        // attachServer already registered the live tools + opened a client, but
+        // persistence failed (e.g. a concurrent add for the same name won the
+        // race, or the file write threw). Roll the live registry back so we
+        // don't strand callable tools with no config entry + a leaked client.
+        await detachServer(server.name).catch(() => undefined);
+        throw err;
+      }
       // Auto-create the usage skill so /skills surfaces the new
       // server alongside hand-authored skills. Best-effort — if
       // skill writing fails, the MCP attach still succeeded.

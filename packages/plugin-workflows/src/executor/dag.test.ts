@@ -7,7 +7,7 @@ import {
   type Workflow,
   type WorkflowRunDeps,
 } from '@moxxy/sdk';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -311,6 +311,70 @@ describe('dag executor', () => {
     expect(result.steps[0]!.output).toBe('OUT_i');
   });
 
+  it('a hard failure breaks the rest of the wave (no later step runs or completes)', async () => {
+    const events: Array<{ subtype: string; id?: string }> = [];
+    const h = makeHarness({
+      emit: (subtype, payload) =>
+        void events.push({ subtype, id: (payload as { id?: string })?.id }),
+      tools: {
+        get: () => ({}),
+        execute: async () => {
+          throw new Error('boom');
+        },
+      },
+    });
+    // `a` (tool, fails onError=fail) and `b` (prompt) are INDEPENDENT, so both
+    // land in the same wave. `a` failing must stop `b` from running.
+    const result = await dagExecutor.run(
+      wf({
+        name: 'wave-abort',
+        description: 'x',
+        steps: [
+          { id: 'a', tool: 'x', onError: 'fail' },
+          { id: 'b', prompt: 'b' },
+        ],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(false);
+    const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
+    expect(byId.a).toBe('failed');
+    expect(byId.b).toBe('skipped'); // never ran
+    // `b` produced neither a started nor a completed event and never spawned.
+    expect(events.some((e) => e.subtype === 'workflow_step_started' && e.id === 'b')).toBe(false);
+    expect(events.some((e) => e.subtype === 'workflow_step_completed' && e.id === 'b')).toBe(false);
+    expect(h.order).not.toContain('b');
+  });
+
+  it('rejects awaitInput inside a nested workflow and leaves no orphaned checkpoint', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wf-nested-pause-'));
+    const store = new WorkflowRunStore(dir);
+    // Inner workflow pauses on an awaitInput prompt step.
+    const inner = wf({
+      name: 'inner',
+      description: 'x',
+      steps: [{ id: 'ask', prompt: 'Ask the operator', awaitInput: true }],
+    });
+    const h = makeHarness({ runStore: store } as Partial<WorkflowRunDeps>);
+    const deps: WorkflowRunDeps = {
+      ...h.deps,
+      lookup: { skill: () => undefined, workflow: (n) => (n === 'inner' ? inner : undefined) },
+    };
+    const result = await dagExecutor.run(
+      wf({ name: 'outer', description: 'x', steps: [{ id: 'o', workflow: 'inner' }] }),
+      deps,
+    );
+    // The run fails loudly (does NOT report paused/completed) and names awaitInput.
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('failed');
+    expect(result.steps[0]!.status).toBe('failed');
+    expect(result.steps[0]!.error).toMatch(/awaitInput/i);
+    // No orphaned inner checkpoint left behind in the store.
+    const leftover = (await readdir(dir)).filter((f) => f.endsWith('.json'));
+    expect(leftover).toEqual([]);
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it('emits lifecycle events', async () => {
     const events: string[] = [];
     const h = makeHarness({ emit: (subtype) => void events.push(subtype) });
@@ -350,6 +414,33 @@ describe('dag executor', () => {
     expect(resumed.ok).toBe(true);
     const go = h.specs.find((s) => s.label === 'go')!;
     expect(go.prompt).toContain('FINAL_ask');
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('resume does not re-emit workflow_started (single start across the lifecycle)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wf-resume-start-'));
+    const store = new WorkflowRunStore(dir);
+    const events: string[] = [];
+    const h = makeHarness({
+      emit: (subtype) => void events.push(subtype),
+      runStore: store,
+    } as Partial<WorkflowRunDeps>);
+    const paused = await dagExecutor.run(
+      rawWf([
+        { id: 'ask', prompt: 'Ask for brief', awaitInput: true },
+        { id: 'go', needs: ['ask'], prompt: 'Use {{ steps.ask.output }}' },
+      ]),
+      h.deps,
+    );
+    expect(paused.status).toBe('paused');
+    // Same emit spy drives the resume — assert ONE workflow_started total.
+    await resumeWorkflowRun(paused.runId!, 'reply', h.deps, store);
+    expect(events.filter((e) => e === 'workflow_started')).toHaveLength(1);
+    // workflow_resumed precedes any continued step-completed event.
+    const resumedAt = events.indexOf('workflow_resumed');
+    const goCompletedAt = events.lastIndexOf('workflow_step_completed');
+    expect(resumedAt).toBeGreaterThanOrEqual(0);
+    expect(resumedAt).toBeLessThan(goCompletedAt);
     await rm(dir, { recursive: true, force: true });
   });
 

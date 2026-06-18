@@ -157,6 +157,42 @@ describe('failed build / load auto-rollback + escalation', () => {
     await expect(fs.access(path.join(moxxy, 'plugins', 'oops'))).rejects.toBeTruthy();
   });
 
+  it('does not restore + reload twice on the capping MODIFY cycle', async () => {
+    // u106-5: when a MODIFY verify both fails AND hits the attempt cap, the
+    // snapshot restore + plugin reload must run ONCE, not be repeated by
+    // escalate().
+    const moxxy = await makeMoxxyDir();
+    const host = new FakeHost(moxxy);
+    const t = tools(host.deps());
+    const ctx = makeCtx();
+
+    await writePlugin(moxxy, 'mod', 'export default { name: "mod" };\n');
+    const begun = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'mod' }, ctx)) as {
+      txnId: string;
+      existedBefore: boolean;
+    };
+    expect(begun.existedBefore).toBe(true);
+
+    // Break it, then verify three times. Each failure restores the good entry,
+    // so subsequent verifies still re-break it first.
+    const breakAndVerify = async (): Promise<number> => {
+      await writePlugin(moxxy, 'mod', 'BROKEN now\n');
+      const before = host.reloads;
+      await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx);
+      return host.reloads - before;
+    };
+
+    // Cycle 1 (below the cap) reloads twice: once for the load-check inside
+    // verifyPlugin, once for the snapshot restore on failure.
+    expect(await breakAndVerify()).toBe(2);
+    // Cycle 2 records the 2nd failure → hits the cap → escalates. Pre-fix this
+    // ran THREE reloads (load-check + verify-restore + escalate-restore);
+    // post-fix escalate() skips its restore (journal marked rolled_back), so it
+    // reloads exactly twice.
+    expect(await breakAndVerify()).toBe(2);
+    expect((await readJournal(moxxy, begun.txnId)).state).toBe('escalated');
+  });
+
   it('restores the previous working version when a MODIFY fails to load', async () => {
     const moxxy = await makeMoxxyDir();
     const host = new FakeHost(moxxy);

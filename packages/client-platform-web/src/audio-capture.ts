@@ -30,10 +30,27 @@ export const webAudioCapture: AudioCapture = {
 
   async start(opts: AudioCaptureStartOptions): Promise<AudioRecordingHandle> {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mimeType = pickMimeType();
-    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    const chunks: Blob[] = [];
     let audioCtx: AudioContext | null = null;
+
+    // Stop the live mic tracks + tear down the audio context. Called from the
+    // 'stop' handler AND from the synchronous-failure path below — if the
+    // MediaRecorder ctor or analyser setup throws after getUserMedia resolved,
+    // the stream would otherwise stay held (OS mic indicator stuck on).
+    const teardown = (): void => {
+      stream.getTracks().forEach((t) => t.stop());
+      audioCtx?.close().catch(() => undefined);
+      audioCtx = null;
+    };
+
+    let rec: MediaRecorder;
+    try {
+      const mimeType = pickMimeType();
+      rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    } catch (e) {
+      teardown();
+      throw e;
+    }
+    const chunks: Blob[] = [];
 
     const finalize = async (): Promise<void> => {
       try {
@@ -58,29 +75,32 @@ export const webAudioCapture: AudioCapture = {
       if (ev.data.size > 0) chunks.push(ev.data);
     });
     rec.addEventListener('stop', () => {
-      stream.getTracks().forEach((t) => t.stop());
-      audioCtx?.close().catch(() => undefined);
-      audioCtx = null;
+      teardown();
       opts.onAnalyser?.(null);
       void finalize();
     });
 
-    rec.start();
+    try {
+      rec.start();
 
-    // Optional spectrum analyser for the focus widget.
-    if (opts.onAnalyser) {
-      const Ctor =
-        window.AudioContext ??
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (Ctor) {
-        const ctx = new Ctor();
-        audioCtx = ctx;
-        const an = ctx.createAnalyser();
-        an.fftSize = 256;
-        an.smoothingTimeConstant = 0.7;
-        ctx.createMediaStreamSource(stream).connect(an);
-        opts.onAnalyser(an);
+      // Optional spectrum analyser for the focus widget.
+      if (opts.onAnalyser) {
+        const Ctor =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (Ctor) {
+          const ctx = new Ctor();
+          audioCtx = ctx;
+          const an = ctx.createAnalyser();
+          an.fftSize = 256;
+          an.smoothingTimeConstant = 0.7;
+          ctx.createMediaStreamSource(stream).connect(an);
+          opts.onAnalyser(an);
+        }
       }
+    } catch (e) {
+      teardown();
+      throw e;
     }
 
     return {

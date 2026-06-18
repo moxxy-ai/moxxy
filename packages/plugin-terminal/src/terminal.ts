@@ -8,16 +8,38 @@ import { createTerminalProcess, type TerminalProcess } from './pty.js';
  * next request.
  */
 const shared = new Map<string, TerminalProcess>();
+/**
+ * In-flight creates, keyed by cwd. Memoizing the PROMISE (not the resolved
+ * process) closes a create race: `createTerminalProcess` awaits, so two
+ * concurrent callers for the same cwd would both miss `shared`, both spawn a
+ * shell, and the second `set` would orphan the first PTY. By recording the
+ * promise synchronously before awaiting, the second caller reuses the first's
+ * in-flight create instead of spawning a duplicate.
+ */
+const pending = new Map<string, Promise<TerminalProcess>>();
 
-async function getSharedTerminal(cwd: string): Promise<TerminalProcess> {
+export async function getSharedTerminal(
+  cwd: string,
+  create: (cwd: string) => Promise<TerminalProcess> = createTerminalProcess,
+): Promise<TerminalProcess> {
   const existing = shared.get(cwd);
   if (existing && existing.alive) return existing;
-  const proc = await createTerminalProcess(cwd);
-  shared.set(cwd, proc);
-  proc.onExit(() => {
-    if (shared.get(cwd) === proc) shared.delete(cwd);
+  const inFlight = pending.get(cwd);
+  if (inFlight) return inFlight;
+  const promise = (async () => {
+    const proc = await create(cwd);
+    shared.set(cwd, proc);
+    proc.onExit(() => {
+      if (shared.get(cwd) === proc) shared.delete(cwd);
+    });
+    return proc;
+  })().finally(() => {
+    // Clear the in-flight slot only once this create settles; a later caller
+    // then sees the resolved process in `shared` (or retries on failure).
+    pending.delete(cwd);
   });
-  return proc;
+  pending.set(cwd, promise);
+  return promise;
 }
 
 /** Dispose every shared terminal (plugin shutdown / session close). */

@@ -331,11 +331,13 @@ export class Session implements ClientSession, SessionRuntime {
       await this.surfaces.closeAll();
       await this.dispatcher.dispatchShutdown(this.appContext());
     } finally {
-      // Drop any retained child sessions (the workflow `awaitInput` flow keeps
-      // them in a process-local registry until a `continue()`/`release()`). A
-      // paused run that never resumes would otherwise pin them for the whole
-      // process lifetime — release them on shutdown so they don't leak.
-      clearRetainedChildren();
+      // Drop THIS session's retained child sessions (the workflow `awaitInput`
+      // flow keeps them in a process-local registry until a
+      // `continue()`/`release()`). A paused run that never resumes would
+      // otherwise pin them for the whole process lifetime — release them on
+      // shutdown so they don't leak. Scoped to this session's id so closing one
+      // session never wipes another live session's paused children.
+      clearRetainedChildren(this.id);
       this.abort(reason);
     }
   }

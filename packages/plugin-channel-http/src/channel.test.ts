@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { Server } from 'node:http';
 import { z } from 'zod';
 import {
   Session,
@@ -78,4 +79,31 @@ describe('HttpChannel', () => {
   // Note: full request/response is exercised through the router-level tests.
   // Verifying the server boots and binds is enough at this level.
   void buildSession;
+
+  it('rejects the running promise + logs when the server errors after listen (u70-2)', async () => {
+    const warn = vi.fn();
+    const channel = new HttpChannel({
+      port: 0,
+      authToken: 'test',
+      allowedTools: ['noop'],
+      logger: { info: () => {}, warn },
+    });
+    const session = new Session({
+      cwd: process.cwd(),
+      logger: silentLogger,
+      permissionResolver: autoAllowResolver,
+    });
+    const handle = await channel.start({ session } as never);
+    expect(channel.boundPort).toBeGreaterThan(0);
+
+    // Reach the bound server (private) to emit a synthetic runtime error — the
+    // same surface a real post-listen socket failure would hit.
+    const server = (channel as unknown as { server: Server }).server;
+    const boom = new Error('socket exploded');
+    queueMicrotask(() => server.emit('error', boom));
+
+    await expect(handle.running).rejects.toThrow('socket exploded');
+    expect(warn).toHaveBeenCalledWith('http server error', expect.objectContaining({}));
+    await handle.stop();
+  });
 });

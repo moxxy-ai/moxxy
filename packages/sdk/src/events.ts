@@ -135,7 +135,9 @@ export interface PluginRegisteredEvent extends EventBase {
   readonly name: string;
   readonly version: string;
   // Keep in sync with PluginKind (plugin.ts). Inlined rather than imported to
-  // avoid an events↔plugin type cycle (dep-cruiser flags circular deps).
+  // avoid an events↔plugin type cycle (dep-cruiser flags circular deps). The
+  // type-level test in events.test-d.ts asserts this union stays in lockstep
+  // with PluginKind so future additions fail the build instead of drifting.
   readonly kind: ReadonlyArray<
     | 'tools'
     | 'provider'
@@ -147,10 +149,15 @@ export interface PluginRegisteredEvent extends EventBase {
     | 'mcp'
     | 'cli'
     | 'channel'
+    | 'surface'
     | 'hooks'
     | 'agent'
     | 'command'
     | 'transcriber'
+    | 'synthesizer'
+    | 'embedder'
+    | 'isolator'
+    | 'workflow-executor'
   >;
 }
 

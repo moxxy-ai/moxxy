@@ -28,6 +28,7 @@ interface SessionShape {
 }
 
 interface CompactSessionShape {
+  readonly id?: string;
   readonly signal?: AbortSignal;
   readonly log: EventLogReader & {
     append(event: EmittedEvent): Promise<MoxxyEvent>;
@@ -158,6 +159,12 @@ async function compactSession(session: unknown) {
   // their summary against the real window couldn't. When no provider
   // is wired (rare; only in tests), fall back to MAX_SAFE_INTEGER.
   const providerCtxWindow = resolveActiveContextWindow(s);
+  // Resolve the active provider/model so the default summarize compactor
+  // writes a REAL model summary instead of degrading to a lossy digest
+  // truncation. `runCompactionIfNeeded` forwards these too; omitting them
+  // here made every manual `/compact` strictly worse than the auto path.
+  const provider = safe(() => s.providers?.getActive()) ?? undefined;
+  const model = provider?.models[0]?.id;
 
   try {
     const result = await compactor.compact(events, {
@@ -168,13 +175,27 @@ async function compactSession(session: unknown) {
         reserveForOutput: 0,
       },
       signal: s.signal ?? new AbortController().signal,
+      ...(provider ? { provider } : {}),
+      ...(model ? { model } : {}),
     });
 
     if (result.tokensSaved <= 0 || result.summary.trim().length === 0) {
       return { kind: 'text' as const, text: 'nothing to compact yet' };
     }
 
-    await s.log.append(result as EmittedEvent);
+    // `compactor.compact` declares `Omit<CompactionEvent, keyof EventBase>`,
+    // so a spec-compliant compactor need not provide sessionId/turnId/source.
+    // Defensive-fill them (mirrors runCompactionIfNeeded) so a type-compliant
+    // compactor still emits a valid event that replay/projection accepts. The
+    // compactor's own values win if it supplied them (result spreads last).
+    const lastEvent = events[events.length - 1];
+    const emittable: EmittedEvent = {
+      sessionId: s.id ?? lastEvent?.sessionId,
+      turnId: lastEvent?.turnId,
+      source: 'compactor',
+      ...result,
+    } as EmittedEvent;
+    await s.log.append(emittable);
     const compactedEvents = result.replacedRange[1] - result.replacedRange[0] + 1;
     return {
       kind: 'text' as const,

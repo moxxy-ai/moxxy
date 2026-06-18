@@ -134,6 +134,18 @@ describe('consolidateMemory', () => {
     expect(outcome.stable).toContain('lonely');
   });
 
+  it('reports a clear error when a stray } precedes the first { (inverted braces)', async () => {
+    const store = new MemoryStore({ dir: tmp, embedder: null });
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a', tags: ['t'] });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b', tags: ['t'] });
+
+    // '}' at index < the first '{' → no well-formed object span. Must yield the
+    // intended "no JSON object" message, not an opaque JSON.parse failure.
+    await expect(consolidateMemory(store, fakeProvider('done } then {'))).rejects.toThrow(
+      /no JSON object/,
+    );
+  });
+
   it('rejects model output that fails schema validation', async () => {
     const store = new MemoryStore({ dir: tmp, embedder: null });
     await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a', tags: ['t'] });
@@ -141,6 +153,36 @@ describe('consolidateMemory', () => {
 
     const invalid = JSON.stringify({ name: 'Bad Name', type: 'fact', description: 'd', body: 'b' });
     await expect(consolidateMemory(store, fakeProvider(invalid))).rejects.toThrow();
+  });
+
+  it('refuses to clobber an entry merged earlier in the SAME run with a colliding name', async () => {
+    // Two independent tag-clusters (api, db). The fake LLM names BOTH merges
+    // 'foo'. The first cluster legitimately produces 'foo'. The second cluster
+    // must NOT overwrite it — 'foo' is not in the second cluster's members, so
+    // writing it would destroy the first merge's body (within-run data loss).
+    const store = new MemoryStore({ dir: tmp, embedder: null });
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a', tags: ['api'] });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b', tags: ['api'] });
+    await store.save({ name: 'c', type: 'fact', description: 'C', body: 'c', tags: ['db'] });
+    await store.save({ name: 'd', type: 'fact', description: 'D', body: 'd', tags: ['db'] });
+
+    const fooReply = JSON.stringify({
+      name: 'foo',
+      type: 'fact',
+      description: 'first merge',
+      body: 'FIRST-MERGE-BODY',
+    });
+    const outcome = await consolidateMemory(store, fakeProvider(fooReply));
+
+    // Exactly one cluster merged into 'foo'; the other was refused.
+    const intos = outcome.clusters.map((c) => c.into);
+    expect(intos.filter((x) => x === 'foo')).toHaveLength(1);
+    expect(intos.filter((x) => x === null)).toHaveLength(1);
+
+    // The first merge's body survives — it was not clobbered by the second.
+    const remaining = await store.list();
+    const foo = remaining.find((e) => e.frontmatter.name === 'foo');
+    expect(foo?.body).toBe('FIRST-MERGE-BODY');
   });
 
   it('refuses to overwrite an unrelated memory when the LLM picks a colliding name', async () => {

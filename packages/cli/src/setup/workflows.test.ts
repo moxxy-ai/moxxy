@@ -398,6 +398,62 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     }
   });
 
+  it('registers fileChanged watchers for a workflow saved at RUNTIME (u28-1)', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-fc-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    // Boot with NO fileChanged workflow on disk — so onReady builds zero
+    // fs watchers. The fix must (re)build them when one is saved at runtime.
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+
+    const session = new Session({ cwd, logger: silentLogger });
+    const runs: string[] = [];
+    session.workflowExecutors.register({
+      name: 'stub',
+      run: async (workflow) => {
+        runs.push(workflow.name);
+        return { ok: true, steps: [], output: '' };
+      },
+    });
+    const integration = buildWorkflowsIntegration({
+      session,
+      scheduleStore: new ScheduleStore({ file: path.join(cwd, 'sched.json') }),
+    });
+    session.pluginHost.registerStatic(integration.plugin);
+    await session.dispatcher.dispatchInit(session.appContext());
+    try {
+      // A directory the workflow watches.
+      const watchedDir = path.join(cwd, 'watched');
+      await fs.mkdir(watchedDir, { recursive: true });
+
+      // Save a fileChanged workflow at runtime (the path onReady never saw).
+      await session.workflows!.save(
+        [
+          'name: on-touch',
+          'description: fires on file change',
+          'on:',
+          `  fileChanged: ${path.join(watchedDir, '**', '*.txt').replace(/\\/g, '/')}`,
+          'delivery:',
+          '  inbox: false',
+          'steps:',
+          '  - id: s1',
+          '    prompt: hi',
+          '',
+        ].join('\n'),
+      );
+
+      // Touch a matching file; the watcher (debounced 600ms) should fire runNow.
+      await fs.writeFile(path.join(watchedDir, 'note.txt'), 'hello');
+
+      await vi.waitFor(() => expect(runs).toContain('on-touch'), { timeout: 4000, interval: 50 });
+    } finally {
+      integration.stop();
+    }
+  });
+
   it('delivers a resumed run to the inbox once it completes (Finding 1, resume side)', async () => {
     // The resume side of the human-in-the-loop loop: a checkpoint that completes
     // on resume IS terminal, so it must land in the inbox (unlike the paused

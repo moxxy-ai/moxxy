@@ -89,6 +89,7 @@ function buildMcpAdminPluginInternal(
       buildAddServerTool({
         registry,
         attachServer: runtime.attachServer,
+        detachServer: runtime.detachServer,
         writeMcpUsageSkill,
       }),
       buildRemoveServerTool({ detachServer: runtime.detachServer }),

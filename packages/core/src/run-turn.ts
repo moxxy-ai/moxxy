@@ -62,9 +62,15 @@ export async function* runTurn(
     const effectiveSignal = opts.signal
       ? AbortSignal.any([session.signal, opts.signal])
       : session.signal;
+    // The session's working dir + environment, mirrored onto the ModeContext
+    // so the shared tool dispatcher can hand onToolCall hooks the real cwd/env
+    // (path-based policy hooks gate on these) instead of empty placeholders.
+    const appCtx = session.appContext();
     const ctx: ModeContext = {
       sessionId: session.id,
       turnId,
+      cwd: appCtx.cwd,
+      env: appCtx.env,
       model,
       systemPrompt: opts.systemPrompt,
       provider,
@@ -96,7 +102,7 @@ export async function* runTurn(
       emit: (event: EmittedEvent) => session.log.append(event),
     };
 
-    const turnStartCtx = { ...session.appContext(), turnId, iteration: 0 };
+    const turnStartCtx = { ...appCtx, turnId, iteration: 0 };
 
     strategyPromise = (async () => {
       try {

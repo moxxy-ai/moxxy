@@ -82,17 +82,27 @@ export async function handleTurn(
     return;
   }
 
+  // Abort the turn when the client hangs up — without this a buffered turn keeps
+  // the model generating (and billing) with nobody waiting for the reply, just
+  // like the stream handler guards against.
+  const controller = new AbortController();
+  const onClose = (): void => controller.abort();
+  res.on('close', onClose);
+
   const events: MoxxyEvent[] = [];
   try {
     for await (const event of ctx.session.runTurn(body.prompt, {
       ...(body.model ? { model: body.model } : {}),
       ...(body.systemPrompt ? { systemPrompt: body.systemPrompt } : {}),
+      signal: controller.signal,
     })) {
       events.push(event);
     }
   } catch (err) {
     reply(res, 500, { error: 'turn_failed', message: err instanceof Error ? err.message : String(err) });
     return;
+  } finally {
+    res.off('close', onClose);
   }
 
   const finalAssistant = events.findLast?.((e) => e.type === 'assistant_message');
@@ -177,17 +187,26 @@ export async function handleTurnAudio(
     return;
   }
 
+  // Abort the turn if the client disconnects mid-run (same wasted-spend guard
+  // as the stream handler) — the model keeps billing otherwise.
+  const controller = new AbortController();
+  const onClose = (): void => controller.abort();
+  res.on('close', onClose);
+
   const events: MoxxyEvent[] = [];
   try {
     for await (const event of ctx.session.runTurn(transcript, {
       ...(model ? { model } : {}),
       ...(systemPrompt ? { systemPrompt } : {}),
+      signal: controller.signal,
     })) {
       events.push(event);
     }
   } catch (err) {
     reply(res, 500, { error: 'turn_failed', message: err instanceof Error ? err.message : String(err) });
     return;
+  } finally {
+    res.off('close', onClose);
   }
 
   const finalAssistant = events.findLast?.((e) => e.type === 'assistant_message');

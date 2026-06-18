@@ -138,4 +138,98 @@ describe('@moxxy/plugin-commands', () => {
     const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'compact');
     expect(compact).toMatchObject({ pendingNotice: 'compacting context...' });
   });
+
+  // Regression for u80-1: /compact must forward the active provider+model so
+  // the default summarize compactor can write a real summary instead of
+  // falling back to a lossy truncation.
+  it('/compact forwards the active provider and model to compact()', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'old' },
+    ] as unknown as MoxxyEvent[];
+    const fakeProvider = { name: 'anthropic', models: [{ id: 'claude-x', contextWindow: 200_000 }] };
+    let seenCtx: { provider?: unknown; model?: unknown } | undefined;
+    const session = {
+      ...fakeSession,
+      signal: new AbortController().signal,
+      providers: { getActiveName: () => 'anthropic', getActive: () => fakeProvider },
+      log: {
+        length: existing.length,
+        slice: () => existing,
+        append: async (event: EmittedEvent) => event as unknown as MoxxyEvent,
+      },
+      compactors: {
+        getActive: () => ({
+          name: 'fake-compact',
+          shouldCompact: () => false,
+          compact: async (_events: ReadonlyArray<MoxxyEvent>, ctx: { provider?: unknown; model?: unknown }) => {
+            seenCtx = ctx;
+            return {
+              type: 'compaction',
+              compactor: 'fake-compact',
+              replacedRange: [0, 0],
+              summary: 'real summary',
+              tokensSaved: 100,
+            } as const;
+          },
+        }),
+      },
+    };
+
+    const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'compact');
+    if (!compact) throw new Error('missing command: compact');
+    await compact.handler({ channel: 'tui', sessionId: 'sess-1' as never, args: '', session });
+
+    expect(seenCtx?.provider).toBe(fakeProvider);
+    expect(seenCtx?.model).toBe('claude-x');
+  });
+
+  // Regression for u80-3: a spec-compliant compactor may return ONLY the
+  // Omit<CompactionEvent, keyof EventBase> fields. The appended event must
+  // still carry sessionId/turnId/source so replay/projection accepts it.
+  it('/compact defensively fills sessionId/turnId/source on the emitted event', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-7', source: 'user', text: 'old' },
+      { type: 'user_prompt', seq: 1, sessionId: 'sess-1', turnId: 'turn-7', source: 'user', text: 'now' },
+    ] as unknown as MoxxyEvent[];
+    const appended: EmittedEvent[] = [];
+    const session = {
+      ...fakeSession,
+      signal: new AbortController().signal,
+      log: {
+        length: existing.length,
+        slice: () => existing,
+        append: async (event: EmittedEvent) => {
+          appended.push(event);
+          return event as unknown as MoxxyEvent;
+        },
+      },
+      compactors: {
+        getActive: () => ({
+          name: 'spec-compact',
+          shouldCompact: () => false,
+          // Returns only the type-contract fields — no sessionId/turnId/source.
+          compact: async () =>
+            ({
+              type: 'compaction',
+              compactor: 'spec-compact',
+              replacedRange: [0, 1],
+              summary: 'summary',
+              tokensSaved: 50,
+            }) as never,
+        }),
+      },
+    };
+
+    const compact = (commandsPlugin.commands ?? []).find((c) => c.name === 'compact');
+    if (!compact) throw new Error('missing command: compact');
+    await compact.handler({ channel: 'tui', sessionId: 'sess-1' as never, args: '', session });
+
+    expect(appended).toHaveLength(1);
+    expect(appended[0]).toMatchObject({
+      type: 'compaction',
+      sessionId: 'sess-1',
+      turnId: 'turn-7',
+      source: 'compactor',
+    });
+  });
 });

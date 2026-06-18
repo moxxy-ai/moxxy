@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -164,6 +165,27 @@ describe('unix-socket transport (NDJSON framing)', () => {
       });
     },
   );
+
+  it('rejects on a hung connect (neither connect nor error fires) instead of hanging forever', async () => {
+    // A half-open pipe / a server bound-but-not-accepting can leave net.connect
+    // emitting neither 'connect' nor 'error'. Stub it with a socket that never
+    // does either; the bounded timeout must settle the Promise.
+    const fakeSocket = new EventEmitter() as unknown as net.Socket & { destroyed: boolean };
+    let destroyedWith: Error | undefined;
+    (fakeSocket as unknown as { destroy: (e?: Error) => void }).destroy = (e?: Error) => {
+      destroyedWith = e;
+    };
+    const spy = vi.spyOn(net, 'connect').mockReturnValue(fakeSocket);
+    try {
+      await expect(connectUnixSocket('/tmp/never.sock', { timeoutMs: 30 })).rejects.toThrow(
+        /connect timeout/i,
+      );
+      // The hung socket was torn down with the timeout error so it can't leak.
+      expect(destroyedWith?.message).toMatch(/connect timeout/i);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
   it('fires onClose when the peer disconnects', async () => {
     const socketPath = tmpSocket();

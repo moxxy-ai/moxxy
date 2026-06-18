@@ -77,14 +77,16 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
         interval?: string | number;
         expires_in?: string | number;
       };
-      const intervalSec = Math.max(
-        typeof data.interval === 'string' ? parseInt(data.interval, 10) : data.interval ?? 5,
-        1,
-      );
-      const expiresInSec =
-        typeof data.expires_in === 'string'
-          ? parseInt(data.expires_in, 10)
-          : data.expires_in ?? 600;
+      // Coerce-then-validate: a malformed server value (e.g. interval:"" or a
+      // non-numeric string) parses to NaN, which would poison the poll timing
+      // (`setTimeout(_, NaN)` busy-loops; a NaN deadline aborts the flow). Only
+      // accept a finite number; otherwise fall back to the RFC-style defaults.
+      const rawInterval =
+        typeof data.interval === 'string' ? parseInt(data.interval, 10) : data.interval;
+      const intervalSec = Math.max(Number.isFinite(rawInterval) ? (rawInterval as number) : 5, 1);
+      const rawExpiresIn =
+        typeof data.expires_in === 'string' ? parseInt(data.expires_in, 10) : data.expires_in;
+      const expiresInSec = Number.isFinite(rawExpiresIn) ? (rawExpiresIn as number) : 600;
       return {
         userCode: data.user_code,
         verificationUri: opts.verificationUri,

@@ -73,4 +73,23 @@ describe('OpenAIEmbedder', () => {
     const args = create.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(args.dimensions).toBeUndefined();
   });
+
+  it('throws on an unknown model with no dimensions override (no silent undefined dim)', () => {
+    expect(
+      () =>
+        new OpenAIEmbedder({
+          client: fakeClient([[]]) as unknown as OpenAI,
+          model: 'text-embedding-4' as never,
+        }),
+    ).toThrow(/unknown embedding model/);
+  });
+
+  it('accepts an unknown model when an explicit dimensions override is supplied', () => {
+    const e = new OpenAIEmbedder({
+      client: fakeClient([[]]) as unknown as OpenAI,
+      model: 'text-embedding-4' as never,
+      dimensions: 768,
+    });
+    expect(e.dim).toBe(768);
+  });
 });

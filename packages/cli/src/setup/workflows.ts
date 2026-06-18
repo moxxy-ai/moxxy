@@ -328,6 +328,13 @@ export function buildWorkflowsIntegration(args: {
         });
       }
     }
+    // Rebuild fs watchers too, so a workflow whose `on.fileChanged` trigger is
+    // added/enabled/edited at runtime (via view.save / view.setEnabled /
+    // onChanged) starts firing without a restart — previously only onReady
+    // built them, leaving schedule triggers live but fileChanged triggers
+    // stale. `startFileWatchers` closes existing watchers first, so this is an
+    // idempotent rebuild safe to call on every sync.
+    await startFileWatchers();
   }
 
   // afterWorkflow: when a workflow completes, fire any enabled workflow that
@@ -408,8 +415,8 @@ export function buildWorkflowsIntegration(args: {
     userDir: defaultUserWorkflowsDir(),
     onReady: async () => {
       session.workflows = view;
+      // syncSchedules also (re)builds the fileChanged fs watchers.
       await syncSchedules();
-      await startFileWatchers();
       // Sweep orphaned paused-run checkpoints on boot (a paused run whose
       // resume never arrived — e.g. before awaitInput was gated, or after a
       // crash — leaks a `<ulid>.json` under ~/.moxxy/workflow-runs/active/).

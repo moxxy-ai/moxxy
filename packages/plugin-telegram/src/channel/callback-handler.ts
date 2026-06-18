@@ -191,8 +191,11 @@ async function handleModel(
       session.providers.setActive(providerId, cfg);
     }
     cb.setActiveModelOverride(modelId);
-    // Persist for next CLI run — same preferences file the TUI writes.
-    void savePreferences({ providerName: providerId, model: modelId });
+    // Persist for next CLI run — same preferences file the TUI writes. Await it
+    // so a write failure (disk/permission/lock) is caught below and reported,
+    // instead of telling the user "✓ switched" while the preference silently
+    // never landed (and leaking an unhandled rejection).
+    await savePreferences({ providerName: providerId, model: modelId });
     await ctx.answerCallbackQuery({ text: `→ ${providerId}:${modelId}` });
     if (ctx.callbackQuery?.message) {
       try {
@@ -220,7 +223,9 @@ async function handleMode(
   }
   try {
     session.modes.setActive(modeName);
-    void savePreferences({ mode: modeName });
+    // Await so a persistence failure is caught below (and reported) rather than
+    // claiming success while the preference silently never landed.
+    await savePreferences({ mode: modeName });
     await ctx.answerCallbackQuery({ text: `mode → ${modeName}` });
     if (ctx.callbackQuery?.message) {
       try {

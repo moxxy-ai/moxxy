@@ -26,9 +26,12 @@ export async function* dispatchToolCall(
   try {
     const verdict = await ctx.hooks.dispatchToolCall({
       sessionId: ctx.sessionId,
-      cwd: '',
+      // Hand the hook the session's real cwd/env (mirrored onto ModeContext by
+      // run-turn / the subagent runtime). Previously hardcoded '' / {}, which
+      // silently defeated path-based onToolCall policy/security hooks.
+      cwd: ctx.cwd,
       log: ctx.log,
-      env: {},
+      env: ctx.env,
       turnId: ctx.turnId,
       iteration,
       call: { callId: asToolCallId(t.id), name: t.name, input: t.input },

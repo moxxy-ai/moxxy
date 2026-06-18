@@ -15,12 +15,15 @@ import type { ModelDescriptor } from '@moxxy/sdk';
  */
 export const glmModels: ReadonlyArray<ModelDescriptor> = [
   // GLM-5 family: coding-first frontier. 5.2 carries a usable 1M context.
-  { id: 'glm-5.2', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true },
-  { id: 'glm-5.1', contextWindow: 200_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true },
-  { id: 'glm-5', contextWindow: 200_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true },
+  // These are reasoning models; the shared OpenAIProvider already streams their
+  // `reasoning_content` deltas, so supportsReasoning gates reasoning_effort +
+  // reasoning-stream surfacing on (without it the capability is dead upstream).
+  { id: 'glm-5.2', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsReasoning: true },
+  { id: 'glm-5.1', contextWindow: 200_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsReasoning: true },
+  { id: 'glm-5', contextWindow: 200_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsReasoning: true },
 
   // GLM-4.6: prior flagship, 200k context, strong agentic-coding scores.
-  { id: 'glm-4.6', contextWindow: 200_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true },
+  { id: 'glm-4.6', contextWindow: 200_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsReasoning: true },
 
   // GLM-4.5 tier: general (4.5), lightweight (-air), free/fast (-flash).
   { id: 'glm-4.5', contextWindow: 131_072, maxOutputTokens: 98_304, supportsTools: true, supportsStreaming: true },

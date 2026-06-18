@@ -373,9 +373,15 @@ function buildChildContext(
   spawner: SubagentSpawner,
 ): ModeContext {
   const { parentSession, parentSignal } = rt;
+  // Children share the parent's working dir + environment — mirror them onto
+  // the child ModeContext so its tool dispatcher hands onToolCall hooks the
+  // real cwd/env (matching the parent turn) rather than empty placeholders.
+  const parentAppCtx = parentSession.appContext();
   return {
     sessionId: childSessionId,
     turnId: childTurnId,
+    cwd: parentAppCtx.cwd,
+    env: parentAppCtx.env,
     model,
     ...(spec.systemPrompt !== undefined ? { systemPrompt: spec.systemPrompt } : {}),
     provider: parentSession.providers.getActive(),

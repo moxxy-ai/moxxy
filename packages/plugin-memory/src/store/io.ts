@@ -31,7 +31,6 @@ export async function listEntries(
   dir: string,
   filterType?: MemoryType,
 ): Promise<ReadonlyArray<MemoryEntry>> {
-  const entries: MemoryEntry[] = [];
   let names: import('node:fs').Dirent[];
   try {
     names = await fs.readdir(dir, { withFileTypes: true });
@@ -39,23 +38,29 @@ export async function listEntries(
     if (isEnoent(err)) return [];
     throw err;
   }
-  for (const dirent of names) {
-    if (!dirent.isFile()) continue;
-    if (!dirent.name.endsWith('.md')) continue;
-    if (dirent.name === 'MEMORY.md') continue;
-    const filePath = path.join(dir, dirent.name);
-    const raw = await fs.readFile(filePath, 'utf8');
-    const parsed = parseMdFile(raw);
-    const result = memoryFrontmatterSchema.safeParse(parsed.frontmatter);
-    if (!result.success) continue;
-    if (filterType && result.data.type !== filterType) continue;
-    entries.push({
-      frontmatter: result.data,
-      body: parsed.body.trim(),
-      path: filePath,
-    });
-  }
-  return entries;
+  // recall() and rows() both call this on the hot path; with up to
+  // DEFAULT_MAX_MEMORIES (500) entries, reading+parsing each file serially is
+  // 500 strictly-ordered disk round-trips. The reads are independent, so fan
+  // them out concurrently and preserve dirent order in the result.
+  const candidates = names.filter(
+    (d) => d.isFile() && d.name.endsWith('.md') && d.name !== 'MEMORY.md',
+  );
+  const parsed = await Promise.all(
+    candidates.map(async (dirent) => {
+      const filePath = path.join(dir, dirent.name);
+      const raw = await fs.readFile(filePath, 'utf8');
+      const md = parseMdFile(raw);
+      const result = memoryFrontmatterSchema.safeParse(md.frontmatter);
+      if (!result.success) return null;
+      if (filterType && result.data.type !== filterType) return null;
+      return {
+        frontmatter: result.data,
+        body: md.body.trim(),
+        path: filePath,
+      } satisfies MemoryEntry;
+    }),
+  );
+  return parsed.filter((e): e is MemoryEntry => e !== null);
 }
 
 export async function readEntry(filePath: string): Promise<MemoryEntry | null> {

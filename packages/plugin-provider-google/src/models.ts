@@ -11,12 +11,15 @@ import type { ModelDescriptor } from '@moxxy/sdk';
  * budgets and capability gating.
  */
 export const geminiModels: ReadonlyArray<ModelDescriptor> = [
-  // Gemini 3 family: current frontier.
-  { id: 'gemini-3-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true },
-  { id: 'gemini-3-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true },
+  // Gemini 3 family: current frontier. Reasoning models that natively accept
+  // PDF document input (supportsDocuments) so the desktop ships raw bytes
+  // instead of degrading to extracted text.
+  { id: 'gemini-3-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gemini-3-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
 
-  // Gemini 2.5 family: widely available, strong price/performance.
-  { id: 'gemini-2.5-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
-  { id: 'gemini-2.5-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true },
-  { id: 'gemini-2.5-flash-lite', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true },
+  // Gemini 2.5 family: widely available, strong price/performance. pro/flash
+  // are reasoning models; all three take native PDFs.
+  { id: 'gemini-2.5-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gemini-2.5-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gemini-2.5-flash-lite', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
 ];

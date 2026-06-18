@@ -86,6 +86,31 @@ describe('EmbeddingIndex', () => {
     await idx.flush();
     await expect(fs.access(path.join(tmp, '.embeddings.json'))).rejects.toThrow();
   });
+
+  it('reads the cache file at most once across repeated load() calls', async () => {
+    const seed = new EmbeddingIndex(tmp, 'test');
+    seed.set('foo', 'body', [1, 2, 3]);
+    await seed.flush();
+
+    const idx = new EmbeddingIndex(tmp, 'test');
+    const readSpy = vi.spyOn(fs, 'readFile');
+    await idx.load();
+    await idx.load();
+    await idx.load();
+    expect(readSpy.mock.calls.length).toBe(1);
+    // The in-memory cache is still consulted after the single read.
+    expect(idx.lookup('foo', 'body')).toEqual([1, 2, 3]);
+    readSpy.mockRestore();
+  });
+
+  it('does not re-read after an initial miss (no file on disk)', async () => {
+    const idx = new EmbeddingIndex(tmp, 'test');
+    const readSpy = vi.spyOn(fs, 'readFile');
+    await idx.load(); // ENOENT
+    await idx.load();
+    expect(readSpy.mock.calls.length).toBe(1);
+    readSpy.mockRestore();
+  });
 });
 
 describe('MemoryStore vector recall with persistent index', () => {

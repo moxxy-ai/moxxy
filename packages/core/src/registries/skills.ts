@@ -39,6 +39,15 @@ export class SkillRegistryImpl implements SkillRegistry {
   }
 
   replace(skill: Skill): void {
+    // Drop the prior definition's name from the index when it changed —
+    // otherwise an edited skill re-registered under the same id but a new
+    // frontmatter.name leaves the OLD name pointing at the stale skill
+    // forever (two live names for one id). Mirrors CommandRegistry.replace's
+    // alias cleanup.
+    const prior = this.byId.get(skill.id);
+    if (prior && prior.frontmatter.name !== skill.frontmatter.name) {
+      this.byNameIdx.delete(prior.frontmatter.name);
+    }
     this.byId.set(skill.id, skill);
     this.byNameIdx.set(skill.frontmatter.name, skill);
   }

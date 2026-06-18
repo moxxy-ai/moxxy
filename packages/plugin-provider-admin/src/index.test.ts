@@ -138,6 +138,44 @@ describe('provider_add', () => {
     expect(withBuiltin.defs.get('openai')).toBe(builtinDef);
   });
 
+  it('restores the prior def (not deletes it) when the disk write fails on a replace', async () => {
+    // A registry already holding a custom 'zai' def at the moment the plugin's
+    // tool runs (registered AFTER plugin build, so it is NOT a reserved builtin).
+    const reg = new FakeRegistry();
+    // Build with a config path whose parent is a FILE → the atomic write's
+    // mkdir(dirname) rejects (ENOTDIR), driving the rollback branch.
+    const blocker = path.join(tmpDir, 'blocker');
+    await fs.writeFile(blocker, 'not a dir', 'utf8');
+    const badPath = path.join(blocker, 'providers.json');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: badPath });
+    const guardedTools = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
+    const priorDef = { name: 'zai', models: [{ id: 'old-model', contextWindow: 1 }] } as unknown as ProviderDef;
+    reg.register(priorDef);
+
+    const addTool = guardedTools.get('provider_add')!;
+    await expect(
+      Promise.resolve(addTool.handler(addTool.inputSchema.parse(zaiInput), {} as never)),
+    ).rejects.toBeTruthy();
+
+    // The original def must STILL be present and UNCHANGED — not deleted.
+    expect(reg.defs.get('zai')).toBe(priorDef);
+  });
+
+  it('unregisters a brand-new provider when the disk write fails (no phantom)', async () => {
+    const reg = new FakeRegistry();
+    const blocker = path.join(tmpDir, 'blocker');
+    await fs.writeFile(blocker, 'not a dir', 'utf8');
+    const badPath = path.join(blocker, 'providers.json');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: badPath });
+    const guardedTools = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
+    const addTool = guardedTools.get('provider_add')!;
+    await expect(
+      Promise.resolve(addTool.handler(addTool.inputSchema.parse(zaiInput), {} as never)),
+    ).rejects.toBeTruthy();
+    // Nothing left behind in the live registry.
+    expect(reg.defs.has('zai')).toBe(false);
+  });
+
   it('persists supportsDocuments through the schema → ModelDescriptor chain', async () => {
     // Previously the input schema had no supportsDocuments field, so zod
     // STRIPPED it — attachments degraded to extracted text for every

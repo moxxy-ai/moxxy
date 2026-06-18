@@ -60,12 +60,16 @@ export function useOnboarding(phase?: ConnectionPhase): UseOnboarding {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, n] = await Promise.all([
+      // Settle each probe independently so one failing IPC doesn't blank the
+      // other, and catch both so the auto-refresh path (mount / phase change,
+      // which calls `void refresh()` with no .catch) can't produce an
+      // unhandled promise rejection.
+      const [s, n] = await Promise.allSettled([
         api().invoke('onboarding.status'),
         api().invoke('onboarding.probeNode'),
       ]);
-      setStatus(s);
-      setNode(n);
+      if (s.status === 'fulfilled') setStatus(s.value);
+      if (n.status === 'fulfilled') setNode(n.value);
     } finally {
       setLoading(false);
     }

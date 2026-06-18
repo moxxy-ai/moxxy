@@ -102,4 +102,36 @@ describe('TransformersEmbedder', () => {
     const e = new TransformersEmbedder({ pipelineFactory: factory });
     expect(await e.embed(['x'])).toEqual([]);
   });
+
+  it('retries the factory after a transient load failure (latch is not bricked)', async () => {
+    let factoryCalls = 0;
+    const factory: PipelineFactory = async () => {
+      factoryCalls++;
+      if (factoryCalls === 1) throw new Error('transient ONNX init failure');
+      return async (input) => {
+        const inputs = Array.isArray(input) ? input : [input];
+        return { tolist: () => inputs.map(() => [1, 2, 3]) };
+      };
+    };
+    const e = new TransformersEmbedder({ pipelineFactory: factory });
+    await expect(e.embed(['a'])).rejects.toThrow('transient ONNX init failure');
+    // Second call must retry the load rather than re-throw the cached rejection.
+    expect(await e.embed(['b'])).toEqual([[1, 2, 3]]);
+    expect(factoryCalls).toBe(2);
+  });
+
+  it('throws when a 2D batch returns fewer vectors than inputs (no silent misalignment)', async () => {
+    // Model returns one vector for a two-text batch — passing it through would
+    // zip vectors to the wrong record ids in the memory index.
+    const factory: PipelineFactory = async () => async () => ({ tolist: () => [[0.1, 0.2]] });
+    const e = new TransformersEmbedder({ pipelineFactory: factory });
+    await expect(e.embed(['a', 'b'])).rejects.toThrow(/2 inputs/);
+  });
+
+  it('throws when a 2D batch returns more vectors than inputs', async () => {
+    const factory: PipelineFactory = async () => async () =>
+      ({ tolist: () => [[1], [2], [3]] });
+    const e = new TransformersEmbedder({ pipelineFactory: factory });
+    await expect(e.embed(['a', 'b'])).rejects.toThrow(/2 inputs/);
+  });
 });

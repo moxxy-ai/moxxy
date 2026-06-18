@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type OpenAI from 'openai';
 import { WhisperTranscriber } from './whisper.js';
 import { buildWhisperPlugin } from './index.js';
+import { MOXXY_PCM16_24KHZ_MIME } from './audio.js';
 
 const fakeOpenAI = (impl: (req: unknown) => unknown): OpenAI =>
   ({
@@ -68,6 +69,25 @@ describe('WhisperTranscriber', () => {
     expect(def.displayName).toBe('OpenAI whisper-1');
     const inst = def.createClient({ apiKey: 'sk-test' });
     expect(inst.name).toBe('openai-whisper-1');
+  });
+
+  it('WAV-wraps the project raw-PCM16 MIME before upload', async () => {
+    const create = vi.fn(async () => ({ text: '' }));
+    const client = { audio: { transcriptions: { create } } } as unknown as OpenAI;
+    const t = new WhisperTranscriber({ client });
+    // 4 raw s16le samples of silence.
+    const raw = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0]);
+    await t.transcribe(raw, { mimeType: MOXXY_PCM16_24KHZ_MIME });
+
+    const req = create.mock.calls[0]![0] as { file: File };
+    expect(req.file.type).toBe('audio/wav');
+    const header = new Uint8Array(await req.file.arrayBuffer());
+    const ascii = (s: number, e: number): string =>
+      String.fromCharCode(...header.slice(s, e));
+    expect(ascii(0, 4)).toBe('RIFF');
+    expect(ascii(8, 12)).toBe('WAVE');
+    // Header (44 bytes) + the 8 raw sample bytes.
+    expect(header.byteLength).toBe(44 + raw.byteLength);
   });
 
   it('plugin honors a non-default model name', () => {

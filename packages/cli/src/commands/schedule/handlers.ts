@@ -101,31 +101,41 @@ export async function runScheduleNow(argv: ParsedArgv): Promise<number> {
     process.stderr.write(colors.red('missing id') + '\n  usage: moxxy schedule run <id>\n');
     return 2;
   }
-  // `run` needs a real session to dispatch the prompt — reboot
-  // with provider activation.
-  const { session, scheduler: full } = await setupSessionWithConfig({ cwd: process.cwd() });
-  void session;
-  const entry = await full.store.get(id);
-  if (!entry) {
-    process.stderr.write(colors.dim(`no schedule with id ${id}`) + '\n');
-    return 1;
+  // `run` needs a real (provider-activated) session to dispatch the prompt,
+  // but it must NOT start the init-time daemons: the scheduler poller would
+  // independently fire a due schedule mid-`run` (double-dispatch), and the
+  // webhooks listener would bind its port for an abandoned session. So skip
+  // init hooks (provider activation runs before that gate) and close the
+  // session in a finally so onShutdown hooks (vault flush, etc.) fire.
+  const { session, scheduler: full } = await setupSessionWithConfig({
+    cwd: process.cwd(),
+    skipInitHooks: true,
+  });
+  try {
+    const entry = await full.store.get(id);
+    if (!entry) {
+      process.stderr.write(colors.dim(`no schedule with id ${id}`) + '\n');
+      return 1;
+    }
+    process.stdout.write(`${colors.bold('firing')}   ${entry.name}…\n`);
+    const outcome = await runSchedule(entry, {
+      runPrompt: async ({ prompt, model }) => {
+        const { runTurn } = await import('@moxxy/core');
+        let text = '';
+        for await (const event of runTurn(session, prompt, model ? { model } : {})) {
+          if (event.type === 'assistant_message') text = event.content;
+        }
+        return { text };
+      },
+    }, full.store);
+    const tag = outcome.ok ? colors.bold('done') : colors.red('fail');
+    process.stdout.write(
+      `${tag}     ${colors.dim('inbox: ' + (outcome.inboxPath ?? '(none)'))}\n` +
+        (outcome.error ? `         ${colors.red(outcome.error)}\n` : '') +
+        (outcome.text ? `         ${colors.dim(outcome.text.slice(0, 400))}\n` : ''),
+    );
+    return outcome.ok ? 0 : 1;
+  } finally {
+    await session.close('schedule-run').catch(() => undefined);
   }
-  process.stdout.write(`${colors.bold('firing')}   ${entry.name}…\n`);
-  const outcome = await runSchedule(entry, {
-    runPrompt: async ({ prompt, model }) => {
-      const { runTurn } = await import('@moxxy/core');
-      let text = '';
-      for await (const event of runTurn(session, prompt, model ? { model } : {})) {
-        if (event.type === 'assistant_message') text = event.content;
-      }
-      return { text };
-    },
-  }, full.store);
-  const tag = outcome.ok ? colors.bold('done') : colors.red('fail');
-  process.stdout.write(
-    `${tag}     ${colors.dim('inbox: ' + (outcome.inboxPath ?? '(none)'))}\n` +
-      (outcome.error ? `         ${colors.red(outcome.error)}\n` : '') +
-      (outcome.text ? `         ${colors.dim(outcome.text.slice(0, 400))}\n` : ''),
-  );
-  return outcome.ok ? 0 : 1;
 }

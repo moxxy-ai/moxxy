@@ -145,18 +145,37 @@ interface ParseCtx {
 }
 
 function stripComments(text: string): string {
-  // Strip full-line `#` comments and trailing ` # ...` on lines without quotes
-  // or `#` inside a value. Conservative — only removes when `#` is preceded by
-  // whitespace and the line isn't a block-scalar body (handled by indent later).
-  return text
-    .split('\n')
+  // Strip full-line `#` comments and trailing ` # ...` on structural lines, but
+  // NEVER inside a `|`/`>` block scalar body — prompt text is emitted as a block
+  // scalar and routinely contains `#` (markdown headings, inline `text # note`),
+  // which must survive the round-trip verbatim. We track block-scalar regions by
+  // indentation: a `key: |` (or `>`/`|-`/`>-`) line opens a block whose body is
+  // every following line indented deeper than the key (blank lines included);
+  // the block ends at the first non-blank line indented at/under the key.
+  const lines = text.split('\n');
+  let blockIndent = -1; // -1 = not in a block scalar; else the key's indent
+  return lines
     .map((line) => {
+      if (blockIndent >= 0) {
+        // Inside a block scalar: pass the line through untouched unless it has
+        // de-indented back to/under the opening key (which ends the block).
+        if (isBlank(line) || indentOf(line) > blockIndent) return line;
+        blockIndent = -1; // fell out of the block — fall through to strip below
+      }
       const trimmed = line.trimStart();
       if (trimmed.startsWith('#')) return '';
       const hash = findBareHash(line);
-      return hash >= 0 ? line.slice(0, hash).replace(/\s+$/, '') : line;
+      const stripped = hash >= 0 ? line.slice(0, hash).replace(/\s+$/, '') : line;
+      // Does this line OPEN a block scalar? `key: |`, `key: >`, with chomp/keep.
+      if (opensBlockScalar(stripped)) blockIndent = indentOf(stripped);
+      return stripped;
     })
     .join('\n');
+}
+
+/** True when a (comment-stripped) line is `…key…: |`/`>` with an optional chomp. */
+function opensBlockScalar(line: string): boolean {
+  return /:\s+[|>][+-]?\s*$/.test(line);
 }
 
 function findBareHash(line: string): number {

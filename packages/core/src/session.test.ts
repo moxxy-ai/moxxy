@@ -83,15 +83,24 @@ describe('Session', () => {
     expect(onShutdown).toHaveBeenCalledTimes(1);
   });
 
-  it('close() clears retained child sessions so they do not leak (Finding 1)', async () => {
-    const childId = asSessionId('retained-leak-test');
-    // A workflow awaitInput pause would register a retained child here; a run
-    // that never resumes would pin it for the process lifetime without cleanup.
-    registerRetainedChild({ childSessionId: childId } as unknown as RetainedChildSession);
+  it('close() clears only THIS session\'s retained children, not another live session\'s', async () => {
+    const a = new Session({ cwd: '/tmp', silent: true });
+    const b = new Session({ cwd: '/tmp', silent: true });
+    const childId = asSessionId('retained-scope-test');
+    // A workflow awaitInput pause on session A registers a retained child whose
+    // parentSession is A. Closing a DIFFERENT session (B) must NOT wipe it —
+    // otherwise B's close breaks A's pending continue().
+    registerRetainedChild({
+      childSessionId: childId,
+      parentSession: a,
+    } as unknown as RetainedChildSession);
     expect(getRetainedChild(childId)).toBeDefined();
     try {
-      const s = new Session({ cwd: '/tmp', silent: true });
-      await s.close();
+      await b.close();
+      // Survives B's close — it belongs to A.
+      expect(getRetainedChild(childId)).toBeDefined();
+      // A's own close reclaims it.
+      await a.close();
       expect(getRetainedChild(childId)).toBeUndefined();
     } finally {
       releaseRetainedChild(childId);

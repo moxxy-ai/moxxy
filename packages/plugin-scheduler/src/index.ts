@@ -81,6 +81,7 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
   const poller = new SchedulerPoller({
     store,
     runner: opts.runner,
+    ...(opts.skills ? { skills: opts.skills } : {}),
     ...(opts.intervalMs !== undefined ? { intervalMs: opts.intervalMs } : {}),
     ...(opts.inbox ? { inbox: opts.inbox } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),
@@ -115,8 +116,9 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
       },
       // Re-sync skill-driven schedules whenever a skill_created event
       // lands — covers the "the model just synthesized a new skill
-      // with a schedule" case. Skill replacements/deletes are handled
-      // by the same path because the poller's next tick rescans.
+      // with a schedule" case for an immediate response. Skill edits and
+      // deletes are reconciled by the poller's per-tick re-sync (it is
+      // primed with `opts.skills`).
       onEvent: async (event) => {
         if (event.type !== 'skill_created') return;
         if (!opts.skills) return;

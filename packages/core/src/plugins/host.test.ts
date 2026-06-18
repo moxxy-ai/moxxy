@@ -267,6 +267,45 @@ describe('PluginHost', () => {
     expect(tools.has('dt')).toBe(false);
   });
 
+  it('satisfies a kind:plugin requirement by PACKAGE name even when the dep\'s declared name differs', () => {
+    const { host, tools, requirements } = makeHost();
+    // The dependency: declared plugin.name intentionally differs from its
+    // package name. toposort resolves kind:'plugin' deps by packageName, so the
+    // readiness gate must register/match by packageName too — otherwise the
+    // dependent's requirement (keyed on the dep's packageName) silently fails.
+    host.registerDiscovered(definePlugin({ name: 'weird-internal-name' }), {
+      entry: './dist/index.js',
+      packageName: '@scope/base-pkg',
+      packageVersion: '1.0.0',
+      packagePath: '/tmp/base',
+    });
+    // The readiness gate is keyed by the PACKAGE name.
+    expect(requirements.isReady('plugin', '@scope/base-pkg').ready).toBe(true);
+
+    // A dependent that requires the base by its PACKAGE name must load cleanly.
+    const dependent = definePlugin({
+      name: 'dependent',
+      tools: [
+        defineTool({
+          name: 'dep-tool',
+          description: '',
+          inputSchema: z.any(),
+          handler: () => null,
+        }),
+      ],
+    });
+    expect(() =>
+      host.registerDiscovered(dependent, {
+        entry: './dist/index.js',
+        packageName: '@scope/dependent-pkg',
+        packageVersion: '1.0.0',
+        packagePath: '/tmp/dependent',
+        requirements: [{ kind: 'plugin', name: '@scope/base-pkg' }],
+      }),
+    ).not.toThrow();
+    expect(tools.has('dep-tool')).toBe(true);
+  });
+
   it('discoverAndLoad without loader warns and returns nothing', async () => {
     const { host } = makeHost();
     const warn = vi.spyOn(silentLogger, 'warn');

@@ -10,8 +10,13 @@
 
 const baseStyle: React.CSSProperties = {
   display: 'inline-block',
+  // Canonical @moxxy/design-tokens vars (NOT the desktop-only `--color-bg-card*`
+  // aliases) so this primitive renders correctly for any consumer that loads
+  // design-tokens without the desktop's styles.css alias layer. card-bg → the
+  // recessed input-soft tone → card-bg gives the shimmer its contrast in both
+  // light and dark themes.
   background:
-    'linear-gradient(90deg, var(--color-bg-card) 0%, var(--color-bg-card-hover) 50%, var(--color-bg-card) 100%)',
+    'linear-gradient(90deg, var(--color-card-bg) 0%, var(--color-input-soft) 50%, var(--color-card-bg) 100%)',
   backgroundSize: '200% 100%',
   animation: 'moxxy-shimmer 1.4s ease-in-out infinite',
   borderRadius: 4,
@@ -57,8 +62,8 @@ function Card({ lines = 2 }: { readonly lines?: number }): JSX.Element {
       aria-hidden
       style={{
         padding: '0.65rem 0.85rem',
-        background: 'var(--color-bg-card)',
-        border: '1px solid var(--color-border)',
+        background: 'var(--color-card-bg)',
+        border: '1px solid var(--color-card-border)',
         borderRadius: 'var(--radius-block)',
         display: 'flex',
         flexDirection: 'column',
