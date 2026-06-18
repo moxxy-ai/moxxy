@@ -26,6 +26,7 @@ import {
   BRIEF_FILENAME,
   CONVERSATION_FILENAME,
   ROSTER_FILENAME,
+  charterFilePath,
   collabBranch,
   collabRunDir,
   collabRunId,
@@ -232,7 +233,18 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     if (cfg.requireRosterApproval && ctx.approval) {
       const decision = await ctx.approval.confirm({
         title: `Team of ${roster.length} agent${roster.length === 1 ? '' : 's'} — review before launch`,
-        body: roster.map((r, i) => `${i + 1}. [${r.id}] ${r.name} — ${r.role}\n    ${r.subtask}`).join('\n\n'),
+        body: roster
+          .map((r, i) => {
+            // Surface a clipped charter preview — the architect-authored charter
+            // becomes the agent's system prompt, so the human roster review is the
+            // gate on that injected text. Strip newlines so one charter can't swamp
+            // the dialog.
+            const charterLine = r.charter
+              ? `\n    charter: ${r.charter.replace(/\s+/g, ' ').slice(0, 140)}${r.charter.length > 140 ? '…' : ''}`
+              : '';
+            return `${i + 1}. [${r.id}] ${r.name} — ${r.role}\n    ${r.subtask}${charterLine}`;
+          })
+          .join('\n\n'),
         kind: 'collab.roster',
         defaultOptionId: 'launch',
         options: [
@@ -262,7 +274,8 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
         const wt = worktreePath(runId, entry.id);
         await addWorktree({ repoCwd: cwd, path: wt, branch: collabBranch(runId, entry.id), baseSha });
         worktrees.set(entry.id, wt);
-        supervisor.spawn({ entry, cwd: wt, mode: COLLAB_PEER_MODE_NAME });
+        const charterFile = writeCharterFile(runId, entry);
+        supervisor.spawn({ entry, cwd: wt, mode: COLLAB_PEER_MODE_NAME, ...(charterFile ? { charterFile } : {}) });
         yield await ctx.emit(plugin(ctx, 'collab_agent_spawned', { id: entry.id, role: entry.role }));
       }
       await waitForAgents(hub, supervisor, roster.map((r) => r.id), ctx.signal, cfg.wallClockMs);
@@ -273,7 +286,8 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
       for (const entry of roster) {
         if (ctx.signal.aborted) break;
         hub.state.addAgent(entry);
-        supervisor.spawn({ entry, cwd, mode: COLLAB_PEER_MODE_NAME });
+        const charterFile = writeCharterFile(runId, entry);
+        supervisor.spawn({ entry, cwd, mode: COLLAB_PEER_MODE_NAME, ...(charterFile ? { charterFile } : {}) });
         yield await ctx.emit(plugin(ctx, 'collab_agent_spawned', { id: entry.id, role: entry.role }));
         const ok = await waitForAgent(hub, supervisor, entry.id, ctx.signal, cfg.wallClockMs);
         if (!ok) yield* surfaceFailures(ctx, hub, supervisor, [entry.id]);
@@ -441,6 +455,7 @@ function readRoster(path: string, maxAgents: number): RosterEntry[] {
         subtask: r.subtask,
         ...(Array.isArray(r.ownedPaths) ? { ownedPaths: r.ownedPaths.filter((p) => typeof p === 'string') } : {}),
         ...(typeof r.model === 'string' ? { model: r.model } : {}),
+        ...(typeof r.charter === 'string' && r.charter.trim() ? { charter: cleanCharter(r.charter) } : {}),
       });
       if (out.length >= maxAgents) break;
     }
@@ -462,6 +477,26 @@ function cleanRole(raw: unknown): string {
   const r = raw.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
   if (!r || r === ARCHITECT_AGENT_ID) return 'implementer';
   return r;
+}
+
+/** Sanitise an architect-authored charter: strip NULs and cap length (it's
+ *  LLM-authored free text that lands in the peer's system prompt, so bound it). */
+function cleanCharter(raw: string): string {
+  return raw.replace(/\u0000/g, '').trim().slice(0, 2000);
+}
+
+/** Write a peer's charter to the run dir (outside cwd/worktrees, so it's never
+ *  committed) and return the path, or undefined when there's no charter / write
+ *  fails. Best-effort — a missing charter just falls back to the generic prompt. */
+function writeCharterFile(runId: string, entry: RosterEntry): string | undefined {
+  if (!entry.charter) return undefined;
+  const p = charterFilePath(runId, entry.id);
+  try {
+    writeFileSync(p, `${entry.charter}\n`);
+    return p;
+  } catch {
+    return undefined;
+  }
 }
 
 type HubLike = { state: { rosterView(): { agents: ReadonlyArray<{ id: string; status: string }> } } };

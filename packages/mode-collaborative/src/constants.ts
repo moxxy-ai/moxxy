@@ -46,6 +46,13 @@ export function peerSocketPath(runId: string, agentId: string): string {
   return join(collabRunDir(runId), `p-${agentId}.sock`);
 }
 
+/** Per-agent charter file (architect-authored role brief). Lives in the run dir
+ *  (NOT the workspace/worktree) so it's never swept into the scaffold commit, yet
+ *  is reachable by an absolute path from every peer regardless of git mode. */
+export function charterFilePath(runId: string, agentId: string): string {
+  return join(collabRunDir(runId), `charter-${agentId}.md`);
+}
+
 /** Per-run worktree root (kept out of the repo, under the OS temp dir). */
 export function worktreeRoot(runId: string): string {
   return join(tmpdir(), 'moxxy-collab', runId);

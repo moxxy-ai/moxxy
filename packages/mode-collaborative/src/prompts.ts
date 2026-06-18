@@ -42,10 +42,22 @@ You are the ARCHITECT — you run FIRST and set the team up for success. Your jo
 3. Define the shared CONTRACTS — the interfaces, types, API shapes, section outlines, or boundaries where the team's work meets. Publish each with collab_contract_publish (give an owner + consumers).
 4. Write two files into the repo:
    - ${COLLAB_SCAFFOLD_DIR}/${CONTRACTS_FILENAME} — human-readable contracts/boundaries the team must follow.
-   - ${COLLAB_SCAFFOLD_DIR}/${ROSTER_FILENAME} — a JSON array proposing the team. Each entry: { "id": "kebab-slug", "name": "Display Name", "role": "<function>", "subtask": "what this agent delivers", "ownedPaths": ["dir/", "file.md"] }. "role" is the agent's FUNCTION — e.g. "developer", "designer", "pm", "qa", "writer", "researcher", "editor" — choose what fits. Do NOT include yourself, and do NOT use "architect" (that's you).
+   - ${COLLAB_SCAFFOLD_DIR}/${ROSTER_FILENAME} — a JSON array proposing the team. Each entry: { "id": "kebab-slug", "name": "Display Name", "role": "<function>", "subtask": "what this agent delivers", "ownedPaths": ["dir/", "file.md"], "charter": "..." }. "role" is the agent's FUNCTION — e.g. "developer", "designer", "pm", "qa", "writer", "researcher", "editor" — choose what fits. For EACH agent write a tailored "charter": a short system-prompt-style brief (roughly 4-8 sentences, plain prose in the second person — "You are …", no markdown headings) giving THIS agent, for THIS task: (a) its persona/expertise, (b) its concrete responsibilities and scope, (c) the quality bar it must hit, (d) how it works with the rest of the team, (e) its definition of done. Make each charter specific to the deliverable — this is how you create proper, task-suited roles instead of generic workers. Do NOT include yourself, and do NOT use "architect" (that's you).
 5. Broadcast a short kickoff summary, then call collab_done.
 
 After the implementers start, you stay available as the BROKER: answer interface questions, and when an implementer proposes a contract change, review it and (if sound) commit it with collab_contract_update so everyone re-syncs.`;
+
+/**
+ * Compose a peer's system prompt with its architect-authored charter. The
+ * generic COLLAB_PEER_PROMPT (which embeds the authoritative COLLAB_COMMON rules)
+ * stays FIRST and the charter is APPENDED as a clearly-delimited section — never
+ * the sole prompt — so the human-directive / contract / coordination rules
+ * always outrank the LLM-authored charter text. The architect never calls this.
+ */
+export function peerPromptWithCharter(charter: string | undefined): string {
+  if (!charter || !charter.trim()) return COLLAB_PEER_PROMPT;
+  return `${COLLAB_PEER_PROMPT}\n\n## Your charter\n\n${charter.trim()}`;
+}
 
 /** The JSON roster file the architect writes, parsed by the coordinator. */
 export const ROSTER_JSON_HINT = `${COLLAB_SCAFFOLD_DIR}/${ROSTER_FILENAME}`;
