@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { runSkillsCommand } from './skills.js';
+import { groupSimilarPrompts, runSkillsCommand, tokenize, type AuditEntry } from './skills.js';
 import type { ParsedArgv } from '../argv.js';
 
 // `removeAuditEntry` is module-private; we exercise it through the public
@@ -108,5 +108,53 @@ describe('removeAuditEntry (via skills audit revert)', () => {
     await runSkillsCommand(revertArgv('solo'));
     expect(existsSync(auditPath())).toBe(true);
     expect(readFileSync(auditPath(), 'utf8')).toBe('');
+  });
+});
+
+describe('tokenize', () => {
+  it('lowercases, splits on non-word chars, and drops tokens under 3 chars', () => {
+    expect(tokenize('Build a CLI for X')).toEqual(['build', 'cli', 'for']);
+    expect(tokenize('snake_case-and-dashes')).toEqual(['snake_case-and-dashes']);
+    expect(tokenize('go ok no a')).toEqual([]); // all under 3 chars
+  });
+});
+
+describe('groupSimilarPrompts', () => {
+  function entryOf(slug: string, prompt: string): AuditEntry {
+    return { slug, ts: '2026-01-01T00:00:00.000Z', sessionId: 's', originatingPrompt: prompt, scope: 'user' };
+  }
+
+  it('clusters prompts sharing >=2 tokens and isolates dissimilar ones', () => {
+    const entries = [
+      entryOf('a', 'generate a weekly sales report'),
+      entryOf('b', 'generate a weekly sales summary'), // shares generate/weekly/sales → group a
+      entryOf('c', 'convert images to webp format'), // shares nothing → own group
+    ];
+    const groups = groupSimilarPrompts(entries);
+    expect(groups.map((g) => g.map((e) => e.slug))).toEqual([['a', 'b'], ['c']]);
+  });
+
+  it('requires at least two overlapping tokens (a single shared token is not enough)', () => {
+    const entries = [
+      entryOf('a', 'deploy the backend service'),
+      entryOf('b', 'deploy nothing else matters here'), // shares only "deploy"
+    ];
+    const groups = groupSimilarPrompts(entries);
+    expect(groups.map((g) => g.map((e) => e.slug))).toEqual([['a'], ['b']]);
+  });
+
+  it('places an entry in the FIRST matching group and grows that group token union', () => {
+    const entries = [
+      entryOf('a', 'parse json config files'),
+      entryOf('b', 'render html report pages'),
+      entryOf('c', 'parse json schema definitions'), // matches a (parse/json)
+      entryOf('d', 'schema definitions for json parse'), // matches a's grown union too
+    ];
+    const groups = groupSimilarPrompts(entries);
+    expect(groups.map((g) => g.map((e) => e.slug))).toEqual([['a', 'c', 'd'], ['b']]);
+  });
+
+  it('returns an empty array for no entries', () => {
+    expect(groupSimilarPrompts([])).toEqual([]);
   });
 });

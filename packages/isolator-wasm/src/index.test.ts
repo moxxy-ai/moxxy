@@ -70,6 +70,36 @@ const ECHO_WASM = new Uint8Array([
 const ECHO_DATA_URL =
   'data:application/wasm;base64,' + Buffer.from(ECHO_WASM).toString('base64');
 
+// Hand-encoded module whose `bad` export VIOLATES the (i32,i32)->i64 calling
+// convention: it returns i32 instead of i64. The host expects a packed i64
+// `(ptr<<32)|len`; calling a non-bigint-returning handler must surface a clear
+// ABI error rather than a cryptic "Cannot mix BigInt" TypeError at `>> 32n`.
+//
+//   (module
+//     (memory (export "memory") 1)
+//     (func (export "alloc") (param i32) (result i32) i32.const 1024)
+//     (func (export "bad")   (param i32) (param i32) (result i32) i32.const 0))
+//
+// prettier-ignore
+const BAD_RETURN_WASM = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  0x01, 0x0c, 0x02,
+    0x60, 0x01, 0x7f, 0x01, 0x7f,                // 0: (i32) -> i32
+    0x60, 0x02, 0x7f, 0x7f, 0x01, 0x7f,          // 1: (i32, i32) -> i32  <- wrong
+  0x03, 0x03, 0x02, 0x00, 0x01,
+  0x05, 0x03, 0x01, 0x00, 0x01,
+  0x07, 0x18, 0x03,
+    0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+    0x05, 0x61, 0x6c, 0x6c, 0x6f, 0x63, 0x00, 0x00,
+    0x03, 0x62, 0x61, 0x64, 0x00, 0x01,
+  0x0a, 0x0c, 0x02,
+    0x05, 0x00, 0x41, 0x80, 0x08, 0x0b,          // alloc: i32.const 1024, end
+    0x04, 0x00, 0x41, 0x00, 0x0b,                // bad:   i32.const 0, end
+]);
+
+const BAD_RETURN_DATA_URL =
+  'data:application/wasm;base64,' + Buffer.from(BAD_RETURN_WASM).toString('base64');
+
 const baseCall = (
   exportName: string,
   input: unknown,
@@ -119,6 +149,18 @@ describe('wasmIsolator v1 calling convention', () => {
         new AbortController().signal,
       ),
     ).rejects.toThrow(/expected function/);
+  });
+
+  it('rejects with an actionable ABI error when the handler returns i32 not i64', async () => {
+    const iso = createWasmIsolator();
+    await expect(
+      iso.run(
+        baseCall('bad', {}, { moduleRef: { url: BAD_RETURN_DATA_URL, export: 'bad' } }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/must return i64.*\(i32,i32\)->i64 calling convention/s);
   });
 
   it('denies when moduleRef is missing', async () => {

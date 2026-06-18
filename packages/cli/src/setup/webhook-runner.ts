@@ -107,58 +107,26 @@ function scopedSessionView(
     },
   };
 
-  return {
-    get id() {
-      return session.id;
+  // Inherit every field from the real session via the prototype chain, then
+  // override only the two scoped surfaces. This keeps the view in lockstep
+  // with the Session automatically — any field `runTurn` reads that we don't
+  // explicitly override (e.g. `reasoning`) delegates through to the real
+  // session instead of being silently `undefined`.
+  const view = Object.create(session) as RunTurnSession;
+  Object.defineProperties(view, {
+    tools: { value: tools, enumerable: true },
+    resolver: { value: resolver, enumerable: true },
+    // Write-through: `runTurn` records the resolved model on the session it
+    // was handed; that must land on the real session, not this per-fire view.
+    // An own data property on the prototype-chained view would otherwise
+    // shadow the real one on write, so install an explicit accessor.
+    lastResolvedModel: {
+      get: () => session.lastResolvedModel,
+      set: (model: string | null) => {
+        session.lastResolvedModel = model;
+      },
+      enumerable: true,
     },
-    get log() {
-      return session.log;
-    },
-    get signal() {
-      return session.signal;
-    },
-    tools,
-    get skills() {
-      return session.skills;
-    },
-    get providers() {
-      return session.providers;
-    },
-    get modes() {
-      return session.modes;
-    },
-    get compactors() {
-      return session.compactors;
-    },
-    get cacheStrategies() {
-      return session.cacheStrategies;
-    },
-    resolver,
-    get approvalResolver() {
-      return session.approvalResolver;
-    },
-    get elisionSettings() {
-      return session.elisionSettings;
-    },
-    get lazyTools() {
-      return session.lazyTools;
-    },
-    get dispatcher() {
-      return session.dispatcher;
-    },
-    get pluginHost() {
-      return session.pluginHost;
-    },
-    // Read-through AND write-through: runTurn records the resolved model on
-    // the session it was handed, and that must land on the real session, not
-    // this per-fire view.
-    get lastResolvedModel() {
-      return session.lastResolvedModel;
-    },
-    set lastResolvedModel(model: string | null) {
-      session.lastResolvedModel = model;
-    },
-    startTurn: () => session.startTurn(),
-    appContext: () => session.appContext(),
-  };
+  });
+  return view;
 }

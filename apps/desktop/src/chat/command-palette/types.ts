@@ -12,10 +12,6 @@ export interface CommandInfo {
   readonly pendingNotice?: string;
 }
 
-export interface SessionInfoSlice {
-  readonly commands?: ReadonlyArray<CommandInfo>;
-}
-
 export interface ArgStep {
   readonly label: string;
   readonly placeholder?: string;

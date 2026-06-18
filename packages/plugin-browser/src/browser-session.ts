@@ -265,6 +265,17 @@ class Sidecar {
 /** Module-level singleton: one sidecar per process. */
 let SIDECAR_INSTANCE: Sidecar | null = null;
 
+/**
+ * Resolve the shared, process-wide sidecar, creating it on first use.
+ *
+ * IMPORTANT: `deps` (sidecarPath / spawnFn) are honored ONLY on the FIRST call
+ * that creates the singleton. The tool handler and the surface each call this
+ * with their own `deps`; whichever runs first wins, and any later caller's
+ * `deps` are silently ignored — both production builds pass the same opts so
+ * they agree. A test that wants a distinct spawn override must therefore call
+ * {@link closeBrowserSidecar} first to reset the singleton, otherwise it will
+ * bind against whatever spawn was installed by an earlier call.
+ */
 function getSidecar(deps?: BrowserSessionDeps): Sidecar {
   if (SIDECAR_INSTANCE) return SIDECAR_INSTANCE;
   const sidecarPath = deps?.sidecarPath ?? defaultSidecarPath();

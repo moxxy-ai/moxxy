@@ -60,9 +60,18 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
           // The first failures are usually the browser still launching (or a
           // one-time binary install). Only surface a hard error once it's
           // clearly not transient, so the user isn't left on a silent spinner.
-          if (++fails === FAIL_GRACE && !last) {
+          // Fire EXACTLY on the FAIL_GRACE-th consecutive failure (a successful
+          // frame resets `fails` to 0), so the status is emitted once per
+          // failure streak rather than every tick. We surface it whether or not
+          // a prior frame exists: with no frame yet the page never came up;
+          // with a prior frame the page later died and the pane would otherwise
+          // sit frozen on a stale screenshot with no hint the live view is dead.
+          if (++fails === FAIL_GRACE) {
             const message = err instanceof Error ? err.message : String(err);
-            emit({ type: 'status', text: `Browser unavailable: ${message}` });
+            emit({
+              type: 'status',
+              text: last ? `Browser disconnected: ${message}` : `Browser unavailable: ${message}`,
+            });
           }
         } finally {
           inFlight = false;

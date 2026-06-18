@@ -134,4 +134,22 @@ describe('TransformersEmbedder', () => {
     const e = new TransformersEmbedder({ pipelineFactory: factory });
     await expect(e.embed(['a', 'b'])).rejects.toThrow(/2 inputs/);
   });
+
+  it('chunks embed() by batchSize, calling the extractor ceil(n/batch) times in order', async () => {
+    // The extractor echoes each input's numeric value as a one-element vector,
+    // so we can assert both call count and output order across chunks.
+    const seen: string[][] = [];
+    const factory: PipelineFactory = async () => async (input) => {
+      const inputs = (Array.isArray(input) ? input : [input]) as string[];
+      seen.push([...inputs]);
+      return { tolist: () => inputs.map((t) => [Number(t)]) };
+    };
+    const e = new TransformersEmbedder({ pipelineFactory: factory, batchSize: 2 });
+
+    const out = await e.embed(['1', '2', '3', '4', '5']);
+    // 5 inputs / batch 2 -> ceil = 3 extractor calls.
+    expect(seen).toEqual([['1', '2'], ['3', '4'], ['5']]);
+    // Output order/length preserved across the chunk boundary.
+    expect(out).toEqual([[1], [2], [3], [4], [5]]);
+  });
 });

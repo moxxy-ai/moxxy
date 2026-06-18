@@ -110,6 +110,24 @@ long-tail clusters). Ambiguous logic findings (e.g. `u117-3` retry semantics,
 `u129-3` cycle-guard breadth) were left unchanged on purpose — they need product
 intent, not a guess.
 
+**Update — 2026-06-18 (sweep waves 3–4):** wave 3 (PR #217) landed the
+performance pass — EventLog `ofType`/`byTurn` index, the incremental chat-model
+block fold (kills the O(n²)/turn re-fold), fused elision/projection passes, and
+the quadratic/unbounded hotspots — every algorithm-shape change golden-tested
+byte-identical. Wave 4 cleared the **safe Tier-3 subset**: test coverage for the
+under-tested critical subsystems (surface host/RPC, git, prefs, provider
+discovery, config loader, …) plus mechanical dead-code/type/atomicity cleanup,
+and fixed real bugs surfaced while doing so (git `-z` rename phantom, hardcoded
+`/dev/null`, an unbounded model-fetch, plus a `StreamingPreview` infinite loop
+caught in CI). **All actionable Tier-1 + Tier-2 + the safe Tier-3 are now
+shipped.** What remains is the genuine standing journal: the **god-file
+decompositions** (`t3-god-files` — large structural refactors; do one file per
+focused PR with its tests) and the low-severity **long-tail** clusters
+(`t3-longtail-review`/`-test-gaps`/`-consistency`/`-perf`, ~280 findings) in
+`.claude/audits/quality-sweep-findings.json` — triage highest-severity first; a
+150k-LOC codebase always carries a longtail, so treat this as the ongoing
+chip-away, not a one-shot zero.
+
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 
 - **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with

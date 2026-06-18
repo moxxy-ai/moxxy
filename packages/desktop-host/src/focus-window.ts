@@ -171,10 +171,10 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   win.setAlwaysOnTop(true, 'floating', 1);
   // Visible across desktops + Spaces so the widget follows you when
   // you swipe to a different Space (macOS).
-  if (typeof (win as unknown as { setVisibleOnAllWorkspaces?: (v: boolean, opts?: object) => void })
-    .setVisibleOnAllWorkspaces === 'function') {
-    (win as unknown as { setVisibleOnAllWorkspaces: (v: boolean, opts?: object) => void })
-      .setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // `setVisibleOnAllWorkspaces` is a no-op on some platforms; keep the runtime
+  // existence guard but rely on Electron's own types (no casts needed).
+  if (typeof win.setVisibleOnAllWorkspaces === 'function') {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
 
   focusWindow = win;

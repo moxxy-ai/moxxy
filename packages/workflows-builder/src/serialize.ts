@@ -71,8 +71,13 @@ export function serialize(state: BuilderState): SerializeResult {
   return { workflow, yaml: toYaml(stripUndefined(workflow)) };
 }
 
+/** Mutable view of {@link WorkflowStep} so `nodeToStep` builds it incrementally. */
+type MutableWorkflowStep = {
+  -readonly [K in keyof WorkflowStep]: WorkflowStep[K];
+};
+
 function nodeToStep(node: BuilderNode): WorkflowStep {
-  const base: Record<string, unknown> = {
+  const base: MutableWorkflowStep = {
     id: node.id,
     needs: [...node.needs],
     onError: node.onError,
@@ -83,7 +88,6 @@ function nodeToStep(node: BuilderNode): WorkflowStep {
   if (node.format) base.format = node.format;
   if (node.awaitInput) base.awaitInput = node.awaitInput;
 
-  const field = ACTION_KIND_FIELD[node.kind];
   if (node.kind === 'loop') {
     base.loop = {
       body: [...(node.loop?.body ?? [])],
@@ -91,7 +95,8 @@ function nodeToStep(node: BuilderNode): WorkflowStep {
       maxIterations: node.loop?.maxIterations ?? 10,
     };
   } else {
-    base[field] = node.action;
+    // For every non-loop kind the action field holds the step's action string.
+    base[ACTION_KIND_FIELD[node.kind] as Exclude<ActionField, 'loop'>] = node.action;
   }
 
   if (node.kind === 'skill' && node.input) base.input = node.input;
@@ -104,7 +109,7 @@ function nodeToStep(node: BuilderNode): WorkflowStep {
     base.cases = mapValues(node.cases ?? {}, (v) => [...v]);
     if (node.default && node.default.length > 0) base.default = [...node.default];
   }
-  return base as unknown as WorkflowStep;
+  return base;
 }
 
 /** Hydrate the canvas from a saved workflow object. */

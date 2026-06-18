@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { WorkflowStep } from '@moxxy/sdk';
 import {
   addStep,
   emptyState,
@@ -12,6 +13,13 @@ import {
 } from './operations.js';
 import { autoLayout, hydrate, hydrateYaml, serialize } from './serialize.js';
 import { fromYaml, toYaml } from './yaml.js';
+
+/** A fully-typed minimal WorkflowStep for layout fixtures (autoLayout reads
+ *  only `id` + `needs`, but we supply the required fields so no `as never`
+ *  cast is needed and a future field rename surfaces here). */
+function step(id: string, needs: string[] = []): WorkflowStep {
+  return { id, needs, onError: 'fail', retries: 0, prompt: `do ${id}` };
+}
 
 function refineFixture() {
   let s = emptyState('refine-draft');
@@ -125,11 +133,7 @@ describe('auto-layout when ui.layout is absent', () => {
   });
 
   it('autoLayout assigns increasing columns by depth', () => {
-    const positions = autoLayout([
-      { id: 'a', needs: [] } as never,
-      { id: 'b', needs: ['a'] } as never,
-      { id: 'c', needs: ['a'] } as never,
-    ]);
+    const positions = autoLayout([step('a'), step('b', ['a']), step('c', ['a'])]);
     expect(positions[0]!.x).toBeLessThan(positions[1]!.x);
     // b and c are siblings at the same depth → same column, stacked rows
     expect(positions[1]!.x).toBe(positions[2]!.x);

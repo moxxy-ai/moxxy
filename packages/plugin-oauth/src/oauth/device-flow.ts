@@ -2,8 +2,6 @@ import { pollUntil, type PollOutcome } from './poll-until.js';
 import { classifyDeviceTokenResponse, requestDeviceAuthorization } from './device-flow-shared.js';
 import type { DeviceFlowOptions, TokenSet } from './types.js';
 
-const DEVICE_POLL_SAFETY_MARGIN_MS = 0;
-
 /**
  * Run the RFC 8628 device-authorization flow. Suitable for headless
  * environments (SSH session, CI, kiosk, no display): the user opens
@@ -47,7 +45,7 @@ export async function runDeviceCodeFlow(opts: DeviceFlowOptions): Promise<TokenS
   });
 
   return pollUntil((state) => pollOnce(opts, auth.deviceCode, state), {
-    intervalMs: auth.intervalSec * 1000 + DEVICE_POLL_SAFETY_MARGIN_MS,
+    intervalMs: auth.intervalSec * 1000,
     timeoutMs: Math.min(opts.timeoutMs ?? auth.expiresInSec * 1000, auth.expiresInSec * 1000),
     label: 'OAuth device flow',
     leadingWait: true,

@@ -32,8 +32,10 @@ const USER_CONFIG_NAMES = [
   'config.mjs',
   'config.cjs',
 ];
-// Cap upward filesystem traversal when searching for a project config.
-const MAX_CONFIG_SEARCH_DEPTH = 12;
+/** Cap upward filesystem traversal when searching for a project config.
+ *  Shared with the config plugin's scope-resolution walk so the bound can't
+ *  drift between load time (here) and edit time (plugin.ts). */
+export const MAX_CONFIG_SEARCH_DEPTH = 12;
 
 export async function loadConfig(opts: LoadConfigOptions): Promise<LoadedConfig> {
   const sources: Array<{ scope: 'project' | 'user' | 'explicit'; path: string }> = [];
@@ -125,7 +127,18 @@ function extractDefault(mod: unknown): unknown {
   return undefined;
 }
 
-async function findUpward(startDir: string, names: ReadonlyArray<string>): Promise<string | null> {
+/**
+ * Walk upward from `startDir` (bounded by {@link MAX_CONFIG_SEARCH_DEPTH})
+ * returning the first directory that holds one of `names`. The `names` list is
+ * a deliberate parameter: `loadConfig` searches every config extension while the
+ * config plugin's editor searches only the YAML names it can safely mutate — so
+ * the shared traversal invariant lives here, the divergent name set stays with
+ * the caller. Returns the full path, or null if none found within the bound.
+ */
+export async function findUpward(
+  startDir: string,
+  names: ReadonlyArray<string>,
+): Promise<string | null> {
   let cursor = path.resolve(startDir);
   for (let i = 0; i < MAX_CONFIG_SEARCH_DEPTH; i++) {
     const found = await findFile(cursor, names);

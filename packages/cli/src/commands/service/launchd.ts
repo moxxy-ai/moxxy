@@ -29,7 +29,7 @@ function escapeXml(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function renderPlist(spec: ServiceSpec, ctx: InstallContext): string {
+export function renderPlist(spec: ServiceSpec, ctx: InstallContext): string {
   // ProgramArguments must be a flat list of strings — the equivalent of
   // argv. RunAtLoad=true fires on every login; KeepAlive=true restarts
   // on crash. PATH is set explicitly because launchd's env is

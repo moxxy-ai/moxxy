@@ -63,6 +63,43 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/** Run options forwarded to `session.runTurn`, minus the abort `signal`
+ *  (which `driveTurn` owns). */
+export type TurnRunOptions = Omit<Parameters<Session['runTurn']>[1] & object, 'signal'>;
+
+/**
+ * Drive a single buffered (non-streaming) turn to completion: drain every
+ * event, abort the turn if the client hangs up (so the model stops billing
+ * with nobody listening), and pull out the final assistant message. Shared by
+ * `handleTurn` and `handleTurnAudio` so the abort wiring and event/assistant
+ * extraction live in exactly one place. Re-throws on turn failure so each
+ * caller can shape its own error reply.
+ */
+export async function driveTurn(
+  session: Session,
+  prompt: string,
+  runOptions: TurnRunOptions,
+  res: ServerResponse,
+): Promise<{ events: MoxxyEvent[]; assistant: string }> {
+  const controller = new AbortController();
+  const onClose = (): void => controller.abort();
+  res.on('close', onClose);
+
+  const events: MoxxyEvent[] = [];
+  try {
+    for await (const event of session.runTurn(prompt, { ...runOptions, signal: controller.signal })) {
+      events.push(event);
+    }
+  } finally {
+    res.off('close', onClose);
+  }
+
+  const finalAssistant = events.findLast?.((e) => e.type === 'assistant_message');
+  const assistant =
+    finalAssistant && finalAssistant.type === 'assistant_message' ? finalAssistant.content : '';
+  return { events, assistant };
+}
+
 export async function handleTurn(
   req: IncomingMessage,
   res: ServerResponse,
@@ -82,33 +119,23 @@ export async function handleTurn(
     return;
   }
 
-  // Abort the turn when the client hangs up — without this a buffered turn keeps
-  // the model generating (and billing) with nobody waiting for the reply, just
-  // like the stream handler guards against.
-  const controller = new AbortController();
-  const onClose = (): void => controller.abort();
-  res.on('close', onClose);
-
-  const events: MoxxyEvent[] = [];
+  let result: { events: MoxxyEvent[]; assistant: string };
   try {
-    for await (const event of ctx.session.runTurn(body.prompt, {
-      ...(body.model ? { model: body.model } : {}),
-      ...(body.systemPrompt ? { systemPrompt: body.systemPrompt } : {}),
-      signal: controller.signal,
-    })) {
-      events.push(event);
-    }
+    result = await driveTurn(
+      ctx.session,
+      body.prompt,
+      {
+        ...(body.model ? { model: body.model } : {}),
+        ...(body.systemPrompt ? { systemPrompt: body.systemPrompt } : {}),
+      },
+      res,
+    );
   } catch (err) {
     reply(res, 500, { error: 'turn_failed', message: err instanceof Error ? err.message : String(err) });
     return;
-  } finally {
-    res.off('close', onClose);
   }
 
-  const finalAssistant = events.findLast?.((e) => e.type === 'assistant_message');
-  const assistant =
-    finalAssistant && finalAssistant.type === 'assistant_message' ? finalAssistant.content : '';
-  reply(res, 200, { events, assistant });
+  reply(res, 200, { events: result.events, assistant: result.assistant });
 }
 
 /**
@@ -187,32 +214,23 @@ export async function handleTurnAudio(
     return;
   }
 
-  // Abort the turn if the client disconnects mid-run (same wasted-spend guard
-  // as the stream handler) — the model keeps billing otherwise.
-  const controller = new AbortController();
-  const onClose = (): void => controller.abort();
-  res.on('close', onClose);
-
-  const events: MoxxyEvent[] = [];
+  let result: { events: MoxxyEvent[]; assistant: string };
   try {
-    for await (const event of ctx.session.runTurn(transcript, {
-      ...(model ? { model } : {}),
-      ...(systemPrompt ? { systemPrompt } : {}),
-      signal: controller.signal,
-    })) {
-      events.push(event);
-    }
+    result = await driveTurn(
+      ctx.session,
+      transcript,
+      {
+        ...(model ? { model } : {}),
+        ...(systemPrompt ? { systemPrompt } : {}),
+      },
+      res,
+    );
   } catch (err) {
     reply(res, 500, { error: 'turn_failed', message: err instanceof Error ? err.message : String(err) });
     return;
-  } finally {
-    res.off('close', onClose);
   }
 
-  const finalAssistant = events.findLast?.((e) => e.type === 'assistant_message');
-  const assistant =
-    finalAssistant && finalAssistant.type === 'assistant_message' ? finalAssistant.content : '';
-  reply(res, 200, { transcript, events, assistant });
+  reply(res, 200, { transcript, events: result.events, assistant: result.assistant });
 }
 
 export async function handleTurnStream(

@@ -190,6 +190,52 @@ describe('computeElisionState (golden: fused == 4-pass reference)', () => {
     }
   });
 
+  it('auto-disables conversational elision once seq-recalls reach the threshold', () => {
+    // effectiveElideConversational = elideConversational && seqRecalls < threshold.
+    // Two seq-recalls (recall({ seq })) drive seqRecalls to 2; with a threshold of
+    // 2 the guard flips OFF (2 < 2 is false) — the adaptive signal that text
+    // elision is hurting, so we stop collapsing conversational turns.
+    const base: MoxxyEvent[] = [
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'the task' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: asToolCallId('s1'), name: 'recall', input: { seq: 0 } }),
+      event(2, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: asToolCallId('s2'), name: 'recall', input: { seq: 0 } }),
+    ];
+    const withElision = (threshold: number): MoxxyEvent[] => [
+      ...base,
+      event(3, {
+        type: 'elision', turnId: t2, source: 'system', elidedThrough: 2, stubbedRanges: [[0, 2]],
+        elideConversational: true, conversationalRecallThreshold: threshold, maxRecallBytes: 1000, neverElideTools: [], tokensSaved: 10,
+      }),
+      event(4, { type: 'user_prompt', turnId: t2, source: 'user', text: 'next' }),
+    ];
+
+    // threshold 3 > 2 seq-recalls → conversational elision stays ON.
+    const on = computeElisionState(withElision(3));
+    expect(on.effectiveElideConversational).toBe(true);
+    assertSameState(on, computeElisionStateOld(withElision(3)));
+
+    // threshold 2 == 2 seq-recalls → guard flips OFF.
+    const off = computeElisionState(withElision(2));
+    expect(off.effectiveElideConversational).toBe(false);
+    assertSameState(off, computeElisionStateOld(withElision(2)));
+
+    // callId-recalls (recall({ callId })) do NOT count toward seqRecalls, so the
+    // threshold is never reached and conversational elision stays ON.
+    const callIdRecalls: MoxxyEvent[] = [
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'the task' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: asToolCallId('c1'), name: 'recall', input: { callId: 'x' } }),
+      event(2, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: asToolCallId('c2'), name: 'recall', input: { callId: 'y' } }),
+      event(3, {
+        type: 'elision', turnId: t2, source: 'system', elidedThrough: 2, stubbedRanges: [[0, 2]],
+        elideConversational: true, conversationalRecallThreshold: 1, maxRecallBytes: 1000, neverElideTools: [], tokensSaved: 10,
+      }),
+      event(4, { type: 'user_prompt', turnId: t2, source: 'user', text: 'next' }),
+    ];
+    const callId = computeElisionState(callIdRecalls);
+    expect(callId.effectiveElideConversational).toBe(true);
+    assertSameState(callId, computeElisionStateOld(callIdRecalls));
+  });
+
   it('matches on the cap boundary fixture (oldest aged recall over the cap is stubbed)', () => {
     const events: MoxxyEvent[] = [
       event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'task' }),

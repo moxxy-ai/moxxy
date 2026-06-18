@@ -130,24 +130,33 @@ export class OpenAIProvider implements LLMProvider {
     const emitReasoning = req.reasoning != null && req.reasoning !== false;
     const reasoningEffort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
 
+    // Type the request body as the SDK's streaming-create params so field
+    // names/value types are checked. The local `OpenAIChatMessage` /
+    // `OpenAIToolDef` shapes genuinely diverge from the SDK's wide message/tool
+    // unions (we build a narrower, hand-rolled shape), so cast ONLY those two
+    // fields — not the whole body — keeping the rest type-checked.
+    const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
+      model,
+      messages: messages as unknown as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+      ...(tools
+        ? { tools: tools as unknown as OpenAI.Chat.Completions.ChatCompletionTool[] }
+        : {}),
+      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+      ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
+      ...(emitReasoning && usesCompletionTokens && reasoningEffort
+        ? { reasoning_effort: reasoningEffort }
+        : {}),
+      stream: true,
+      // OpenAI only emits the final `usage` chunk when this is set;
+      // without it `raw.usage` is null on every chunk and token usage
+      // (and cache-read counts) are silently lost for every streamed turn.
+      stream_options: { include_usage: true },
+    };
+
     let stream: AsyncIterable<unknown>;
     try {
       stream = (await this.client.chat.completions.create(
-        {
-          model,
-          messages: messages as never,
-          ...(tools ? { tools: tools as never } : {}),
-          ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-          ...(req.maxTokens ? { [tokenLimitKey]: req.maxTokens } : {}),
-          ...(emitReasoning && usesCompletionTokens && reasoningEffort
-            ? { reasoning_effort: reasoningEffort }
-            : {}),
-          stream: true,
-          // OpenAI only emits the final `usage` chunk when this is set;
-          // without it `raw.usage` is null on every chunk and token usage
-          // (and cache-read counts) are silently lost for every streamed turn.
-          stream_options: { include_usage: true },
-        } as never,
+        params,
         // Pass the AbortSignal into the SDK request options so cancelling
         // mid-stream tears down the underlying HTTP request instead of just
         // stopping our consumption loop. Without this, Esc / Ctrl+C felt

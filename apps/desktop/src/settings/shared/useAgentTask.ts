@@ -11,7 +11,6 @@
 
 import { useEffect, useState } from 'react';
 import { api, chatStore, toErrorMessage } from '@moxxy/client-core';
-import type { MoxxyEvent } from '@moxxy/sdk';
 
 export type AgentTaskPhase = 'idle' | 'streaming' | 'done' | 'error';
 
@@ -32,7 +31,7 @@ export function useAgentTask(workspaceId: string | null): AgentTask {
     if (!turnId) return;
     const offEvent = api().subscribe(
       'runner.event',
-      ({ event: ev }: { workspaceId: string; event: MoxxyEvent }) => {
+      ({ event: ev }) => {
         if (ev.turnId !== turnId) return;
         if (ev.type === 'assistant_chunk') {
           setOutput((cur) => cur + ev.delta);
@@ -43,7 +42,7 @@ export function useAgentTask(workspaceId: string | null): AgentTask {
     );
     const offDone = api().subscribe(
       'runner.turn.complete',
-      ({ turnId: id, error: err }: { workspaceId: string; turnId: string; error: string | null }) => {
+      ({ turnId: id, error: err }) => {
         if (id !== turnId) return;
         chatStore.unhideTurn(id);
         if (err) {

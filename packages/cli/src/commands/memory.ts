@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
 import { MemoryStore, defaultMemoryDir, type MemoryEntry, type MemoryType } from '@moxxy/plugin-memory';
 import type { ParsedArgv } from '../argv.js';
 import { confirmedYes, helpRequested } from '../argv-helpers.js';
@@ -190,5 +189,3 @@ function formatRelative(d: Date): string {
   if (months < 12) return `${months}mo ago`;
   return `${Math.floor(days / 365)}y ago`;
 }
-
-void path;

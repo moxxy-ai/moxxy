@@ -185,6 +185,73 @@ describe('buildWebhookRunner allowedTools enforcement', () => {
     expect(executed.map((c) => c.tool).sort()).toEqual(['bash', 'web_fetch']);
   });
 
+  it('forwards the session reasoning preference through the scoped view', async () => {
+    // The scoped view (non-empty allowedTools) must stay in lockstep with the
+    // real session for fields it does not override. `reasoning` is read by
+    // runTurn and forwarded to ModeContext; a hand-mirrored view that forgot
+    // it would silently drop the preference on every scoped fire.
+    let seenReasoning: ModeContext['reasoning'];
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.reasoning = { effort: 'high' };
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'webhook-runner-reasoning-probe',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [
+          defineMode({
+            name: 'reasoning-probe',
+            run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+              seenReasoning = ctx.reasoning;
+              yield await ctx.emit({
+                type: 'assistant_message',
+                sessionId: ctx.sessionId,
+                turnId: ctx.turnId,
+                source: 'assistant',
+                content: 'done',
+                stopReason: 'end_turn',
+              });
+            },
+          }),
+        ],
+        tools: [
+          defineTool({
+            name: 'web_fetch',
+            description: 'probe',
+            inputSchema: z.object({}),
+            handler: async () => 'ran',
+          }),
+        ],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('reasoning-probe');
+
+    const runner = buildWebhookRunner(session);
+    const result = await runner.runPrompt({
+      prompt: 'fire',
+      allowedTools: ['web_fetch'],
+      triggerName: 'reasoned',
+    });
+    expect(result.error).toBeUndefined();
+    expect(seenReasoning).toEqual({ effort: 'high' });
+  });
+
+  it('writes the resolved model through to the real session, not the view', async () => {
+    // runTurn assigns session.lastResolvedModel on the object it was handed;
+    // the scoped view must propagate that write to the shared session so
+    // out-of-band spawns see the current conversation model.
+    const { session } = buildFixture(['web_fetch']);
+    session.lastResolvedModel = null;
+    const runner = buildWebhookRunner(session);
+    await runner.runPrompt({
+      prompt: 'fire',
+      allowedTools: ['web_fetch'],
+      triggerName: 'model-write',
+    });
+    expect(session.lastResolvedModel).toBe('noop-1');
+  });
+
   it('surfaces the allow-list through policyCheck (the goal-mode auto-approve path)', async () => {
     // Goal mode replaces ctx.permissions with an auto-approver that consults
     // ONLY the prompt-free `policyCheck` probe before allowing. The webhook

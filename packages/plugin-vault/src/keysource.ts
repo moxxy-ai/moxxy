@@ -8,7 +8,15 @@ const KEYCHAIN_ACCOUNT = 'vault-master-key';
 export interface MasterKeySource {
   /** Returns the raw 32-byte AES key. May open a keychain or prompt the user. */
   obtain(salt: Buffer): Promise<Buffer>;
-  /** Persist the master key (or its derivation seed) for future sessions. */
+  /**
+   * Force-persist a master key obtained out-of-band for future sessions.
+   *
+   * NB: `VaultStore` does NOT call this — `obtain()` already persists the key
+   * as a side effect on the passphrase-prompt path, so the running system
+   * never needs it. It exists as a forced-rewrite hook for callers that hold a
+   * key themselves (e.g. a hypothetical `moxxy doctor --reseed`). Optional, so
+   * sources that can't persist (env/static) simply omit it.
+   */
   persist?(key: Buffer, salt: Buffer): Promise<void>;
   readonly name: string;
 }

@@ -4,10 +4,9 @@
  * row and the mini-text composer.
  */
 
-export function MicIcon({ big = false }: { readonly big?: boolean }): JSX.Element {
-  const size = big ? 28 : 16;
+export function MicIcon(): JSX.Element {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" aria-hidden>
       <rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.8" />
       <path
         d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"

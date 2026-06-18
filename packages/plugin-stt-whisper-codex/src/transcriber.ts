@@ -57,6 +57,12 @@ export class CodexOAuthTranscriber implements Transcriber {
   ): Promise<TranscriptionResult> {
     const tokens = await this.loadTokens();
     const sessionId = this.sessionIdProvider();
+    // NB: `opts.language` / `opts.prompt` are intentionally NOT forwarded.
+    // This hits the undocumented, reverse-engineered ChatGPT `backend-api/
+    // transcribe` endpoint (mimicking Codex Desktop), which only accepts the
+    // audio file part — sending extra multipart fields risks a rejection or
+    // silent behavior change. The OpenAI Whisper sibling (which does support
+    // language/prompt) is the path for callers that need those hints.
     const upload = normalizeWhisperUpload(audio, opts.mimeType, 'moxxy');
     const form = new FormData();
     form.append('file', new File([upload.bytes], upload.filename, { type: upload.mimeType }));
@@ -125,7 +131,39 @@ export class CodexOAuthTranscriber implements Transcriber {
       });
     }
 
-    return { text: (payload as { text: string }).text.trim() };
+    // Surface the richer fields when the backend reports them (it returns only
+    // `{ text }` today, so these are normally absent and the result is
+    // unchanged). Guarding each field keeps a schema drift from corrupting the
+    // result while letting diarization/segment-aware consumers benefit if the
+    // endpoint ever starts emitting them.
+    const obj = payload as {
+      text: string;
+      language?: unknown;
+      duration?: unknown;
+      segments?: unknown;
+    };
+    const result: {
+      text: string;
+      language?: string;
+      durationSec?: number;
+      segments?: ReadonlyArray<{ start: number; end: number; text: string }>;
+    } = { text: obj.text.trim() };
+    if (typeof obj.language === 'string') result.language = obj.language;
+    if (typeof obj.duration === 'number') result.durationSec = obj.duration;
+    if (Array.isArray(obj.segments)) {
+      const segments = obj.segments
+        .filter(
+          (s): s is { start: number; end: number; text: string } =>
+            !!s &&
+            typeof s === 'object' &&
+            typeof (s as { start?: unknown }).start === 'number' &&
+            typeof (s as { end?: unknown }).end === 'number' &&
+            typeof (s as { text?: unknown }).text === 'string',
+        )
+        .map((s) => ({ start: s.start, end: s.end, text: s.text }));
+      if (segments.length > 0) result.segments = segments;
+    }
+    return result;
   }
 
   private async loadTokens(): Promise<CodexTokens> {

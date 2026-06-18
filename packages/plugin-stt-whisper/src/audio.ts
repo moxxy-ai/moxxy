@@ -28,10 +28,6 @@ export const WHISPER_FILENAME_BY_MIME: Readonly<Record<string, string>> = {
   'audio/flac': 'audio.flac',
 };
 
-export function whisperFilenameFor(mimeType: string): string {
-  return WHISPER_FILENAME_BY_MIME[mimeType] ?? 'audio.bin';
-}
-
 export interface NormalizedAudioUpload {
   readonly bytes: Uint8Array;
   readonly mimeType: string;

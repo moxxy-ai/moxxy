@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { z, createMutex, defineTool, definePlugin, moxxyPath, writeFileAtomic, type Plugin } from '@moxxy/sdk';
-import { loadConfig } from './loader.js';
+import { findUpward, loadConfig } from './loader.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
 
 /**
@@ -28,8 +28,12 @@ const scopeSchemaOptional = scopeSchema.optional().default('project');
 
 const USER_YAML = (): string => moxxyPath('config.yaml');
 
-// Cap upward filesystem traversal when searching for a project config.
-const MAX_CONFIG_SEARCH_DEPTH = 12;
+// The editor tools only read/write YAML configs (`doc.setIn` then re-serialize),
+// so the project-scope walk deliberately matches ONLY the YAML names — never the
+// .ts/.js configs `loadConfig` also honors, which these tools can't safely edit.
+// The upward-walk traversal itself is shared with loader.ts (findUpward) so the
+// depth bound can't drift; only this name list differs, by design.
+const PROJECT_YAML_NAMES = ['moxxy.config.yaml', 'moxxy.config.yml'] as const;
 
 async function findScopePath(scope: Scope, cwd: string): Promise<string | null> {
   if (scope === 'user') {
@@ -42,22 +46,7 @@ async function findScopePath(scope: Scope, cwd: string): Promise<string | null> 
     }
   }
   // Project scope: walk upward looking for moxxy.config.yaml first, .yml second.
-  let cursor = path.resolve(cwd);
-  for (let i = 0; i < MAX_CONFIG_SEARCH_DEPTH; i++) {
-    for (const name of ['moxxy.config.yaml', 'moxxy.config.yml']) {
-      const candidate = path.join(cursor, name);
-      try {
-        await fs.access(candidate);
-        return candidate;
-      } catch {
-        // continue
-      }
-    }
-    const parent = path.dirname(cursor);
-    if (parent === cursor) break;
-    cursor = parent;
-  }
-  return null;
+  return findUpward(cwd, PROJECT_YAML_NAMES);
 }
 
 function scopeDefaultPath(scope: Scope, cwd: string): string {

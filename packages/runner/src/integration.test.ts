@@ -21,11 +21,17 @@ import {
   defineMode,
   definePlugin,
   defineProvider,
+  defineSurface,
   defineTool,
   defineTranscriber,
   z,
 } from '@moxxy/sdk';
-import type { AssistantMessageEvent, CommandOutput } from '@moxxy/sdk';
+import type {
+  AssistantMessageEvent,
+  CommandOutput,
+  SurfaceDataMessage,
+  SurfaceInstance,
+} from '@moxxy/sdk';
 import { FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { startRunnerServer, type RunnerServer } from './server.js';
@@ -68,6 +74,51 @@ function buildSession(provider: FakeProvider, logger: Logger = silentLogger): Se
 
 function tmpSocket(): string {
   return path.join(os.tmpdir(), `moxxy-runner-${Math.random().toString(36).slice(2, 10)}.sock`);
+}
+
+/**
+ * Register a controllable fake surface on a session and hand back a handle that
+ * can PUSH frames (`emit`) and inspect what the host routed to it (input/resize/
+ * close). The instance mirrors a real PTY surface: shared per kind, a snapshot
+ * for late joiners, and an onData emitter the host multiplexes.
+ */
+function registerFakeSurface(session: Session, kind = 'terminal') {
+  const subscribers = new Set<(payload: unknown) => void>();
+  const state = { opens: 0, inputs: [] as unknown[], resizes: [] as unknown[], closed: 0 };
+  session.pluginHost.registerStatic(
+    definePlugin({
+      name: `runner-test-surface-${kind}`,
+      surfaces: [
+        defineSurface({
+          kind,
+          description: 'fake test surface',
+          open: () => {
+            state.opens += 1;
+            const instance: SurfaceInstance = {
+              id: `${kind}-instance`,
+              kind,
+              onData: (cb) => {
+                subscribers.add(cb);
+                return () => subscribers.delete(cb);
+              },
+              snapshot: () => ({ scrollback: 'catch-up' }),
+              input: (msg) => {
+                state.inputs.push(msg);
+              },
+              resize: (size) => {
+                state.resizes.push(size);
+              },
+              close: () => {
+                state.closed += 1;
+              },
+            };
+            return instance;
+          },
+        }),
+      ],
+    }),
+  );
+  return { state, emit: (payload: unknown) => subscribers.forEach((cb) => cb(payload)) };
 }
 
 /** Poll until `predicate` holds. Broadcast frames reach observers a tick after
@@ -1108,5 +1159,113 @@ describe('provider management (protocol v7)', () => {
     for await (const event of remote.runTurn('hello')) void event;
     await waitFor(() => pushes >= 1);
     expect(pushes).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('surfaces (protocol v8)', () => {
+  /** Serve a session with a fake `terminal` surface registered before boot. */
+  async function serveWithSurface(): Promise<{
+    socketPath: string;
+    surface: ReturnType<typeof registerFakeSurface>;
+  }> {
+    const socketPath = tmpSocket();
+    const session = buildSession(new FakeProvider({ script: [textReply('hi')] }));
+    const surface = registerFakeSurface(session, 'terminal');
+    const server = await startRunnerServer(session, { socketPath });
+    servers.push(server);
+    return { socketPath, surface };
+  }
+
+  it('surface.list reports the registered kind + availability over the socket', async () => {
+    const { socketPath } = await serveWithSurface();
+    const remote = await attach(socketPath);
+    const list = await remote.listSurfaces();
+    expect(list.map((s) => s.kind)).toContain('terminal');
+    expect(list.find((s) => s.kind === 'terminal')?.available).toBe(true);
+  });
+
+  it('surface.open returns the surfaceId + catch-up snapshot and opens the instance once', async () => {
+    const { socketPath, surface } = await serveWithSurface();
+    const remote = await attach(socketPath);
+
+    const opened = await remote.openSurface('terminal');
+    expect(opened.kind).toBe('terminal');
+    expect(opened.surfaceId).toBe('terminal-instance');
+    expect(opened.snapshot).toEqual({ scrollback: 'catch-up' });
+    expect(surface.state.opens).toBe(1);
+  });
+
+  it('rebroadcasts an instance frame as a surface.data notification carrying surfaceId/kind/payload', async () => {
+    const { socketPath, surface } = await serveWithSurface();
+    const remote = await attach(socketPath);
+    const opened = await remote.openSurface('terminal');
+
+    const frames: SurfaceDataMessage[] = [];
+    remote.onSurfaceData((data) => frames.push(data));
+    surface.emit({ bytes: 'ls\r\n' });
+
+    await waitFor(() => frames.length > 0);
+    expect(frames[0]).toEqual({
+      surfaceId: opened.surfaceId,
+      kind: 'terminal',
+      payload: { bytes: 'ls\r\n' },
+    });
+  });
+
+  it('surface.input / surface.resize reach the instance by id', async () => {
+    const { socketPath, surface } = await serveWithSurface();
+    const remote = await attach(socketPath);
+    const opened = await remote.openSurface('terminal');
+
+    await remote.inputSurface(opened.surfaceId, { type: 'data', data: 'echo hi\n' });
+    await remote.resizeSurface(opened.surfaceId, { cols: 100, rows: 30 });
+
+    expect(surface.state.inputs).toEqual([{ type: 'data', data: 'echo hi\n' }]);
+    expect(surface.state.resizes).toEqual([{ cols: 100, rows: 30 }]);
+  });
+
+  it('surface.close tears the instance down and stops further surface.data frames', async () => {
+    const { socketPath, surface } = await serveWithSurface();
+    const remote = await attach(socketPath);
+    const opened = await remote.openSurface('terminal');
+
+    const frames: SurfaceDataMessage[] = [];
+    remote.onSurfaceData((data) => frames.push(data));
+    await remote.closeSurface(opened.surfaceId);
+    expect(surface.state.closed).toBe(1);
+
+    // A frame from the (test-controlled) emitter after close must not reach the
+    // client: the host dropped its subscription on teardown.
+    surface.emit({ bytes: 'post-close' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(frames).toHaveLength(0);
+  });
+
+  it('rejects surface.input with bad params (schema parse)', async () => {
+    const { socketPath } = await serveWithSurface();
+    const remote = await attach(socketPath);
+    await remote.openSurface('terminal');
+
+    // Drive the raw peer so we bypass RemoteSession's typed wrappers and hit the
+    // server's zod schema directly: an empty surfaceId must reject.
+    const peer = new JsonRpcPeer(await connectUnixSocket(socketPath));
+    try {
+      await peer.request(RunnerMethod.Attach, {
+        protocolVersion: RUNNER_PROTOCOL_VERSION,
+        role: 'raw',
+        sinceSeq: 0,
+      });
+      await expect(
+        peer.request(RunnerMethod.SurfaceInput, { surfaceId: '', message: { type: 'data' } }),
+      ).rejects.toThrow();
+    } finally {
+      peer.close();
+    }
+  });
+
+  it('surface.open throws a clear error when no surface plugin is registered', async () => {
+    const { socketPath } = await serve(new FakeProvider({ script: [textReply('hi')] }));
+    const remote = await attach(socketPath);
+    await expect(remote.openSurface('terminal')).rejects.toThrow(/No surface registered/);
   });
 });

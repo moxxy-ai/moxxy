@@ -172,7 +172,18 @@ async function invoke(
   const inputPtr = exports.alloc(inputBytes.length);
   new Uint8Array(exports.memory.buffer, inputPtr, inputBytes.length).set(inputBytes);
 
-  const packed = (handler as (a: number, b: number) => bigint)(inputPtr, inputBytes.length);
+  const packed = (handler as (a: number, b: number) => unknown)(inputPtr, inputBytes.length);
+  // The handler must follow the (i32,i32)->i64 calling convention so the
+  // (ptr<<32)|len result packs into one i64. A wasm export with the wrong
+  // signature (returns i32, takes different arity) would otherwise reach the
+  // `packed >> 32n` shift below and throw a cryptic "Cannot mix BigInt and
+  // other types" TypeError — surface the real ABI violation instead.
+  if (typeof packed !== 'bigint') {
+    throw new Error(
+      `[security:wasm] handler must return i64 (got ${typeof packed}); ` +
+        `check the (i32,i32)->i64 calling convention`,
+    );
+  }
   const outputPtr = Number((packed >> 32n) & 0xffff_ffffn);
   const outputLen = Number(packed & 0xffff_ffffn);
 
@@ -482,7 +493,7 @@ function writePtrPair(
  * Fetch wasm bytes from any URL the SDK's `handlerModule` shape might
  * carry: `file://`, `data:application/wasm;base64,…`, or http(s).
  */
-export async function fetchWasmBytes(url: string): Promise<Uint8Array> {
+async function fetchWasmBytes(url: string): Promise<Uint8Array> {
   if (url.startsWith('data:')) {
     const comma = url.indexOf(',');
     if (comma < 0) throw new Error(`[security:wasm] malformed data URL`);

@@ -10,7 +10,13 @@ import type {
   AudioCaptureStartOptions,
   AudioRecordingHandle,
 } from '@moxxy/client-core';
-import { audioToPcm16, pcm16Peak, uint8ArrayToBase64, MOXXY_PCM16_24KHZ_MIME } from './pcm16.js';
+import {
+  audioToPcm16,
+  pcm16Peak,
+  uint8ArrayToBase64,
+  MOXXY_PCM16_24KHZ_MIME,
+  getAudioContextCtor,
+} from './pcm16.js';
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
 
@@ -85,9 +91,7 @@ export const webAudioCapture: AudioCapture = {
 
       // Optional spectrum analyser for the focus widget.
       if (opts.onAnalyser) {
-        const Ctor =
-          window.AudioContext ??
-          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        const Ctor = getAudioContextCtor();
         if (Ctor) {
           const ctx = new Ctor();
           audioCtx = ctx;

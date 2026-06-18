@@ -21,7 +21,7 @@ function unitPath(spec: Pick<ServiceSpec, 'id'>): string {
   return path.join(homedir(), '.config', 'systemd', 'user', unitName(spec));
 }
 
-function renderUnit(spec: ServiceSpec, ctx: InstallContext): string {
+export function renderUnit(spec: ServiceSpec, ctx: InstallContext): string {
   const execStart = [ctx.node, ctx.cli, ...spec.execArgs].map(quote).join(' ');
   const envLines = Object.entries(spec.env ?? {})
     .map(([k, v]) => `Environment=${k}=${v}`)

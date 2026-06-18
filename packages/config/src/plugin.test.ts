@@ -49,6 +49,31 @@ describe('buildConfigPlugin tools', () => {
     expect(out.path).toContain('moxxy.config.yaml');
   });
 
+  it('config_path walks upward to a project config in an ancestor dir', async () => {
+    // Shared upward-walk (loader.findUpward): a config in `tmp` must be found
+    // from a nested subdir, and ONLY the YAML names are matched (the editor
+    // can't safely mutate a .ts config, so it must not resolve one).
+    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), 'mode: default\n');
+    const nested = path.join(tmp, 'a', 'b', 'c');
+    await fs.mkdir(nested, { recursive: true });
+    const plugin = buildConfigPlugin({ cwd: nested });
+    const t = plugin.tools?.find((x) => x.name === 'config_path');
+    if (!t) throw new Error('config_path not found');
+    const out = (await t.handler({ scope: 'project' }, ctx)) as { path: string | null };
+    expect(out.path).toBe(path.join(tmp, 'moxxy.config.yaml'));
+  });
+
+  it('config_path does NOT resolve a .ts project config (editor only handles YAML)', async () => {
+    // loadConfig honors moxxy.config.ts, but the editor walk deliberately omits
+    // it — config_set can only YAML-edit, so resolving a .ts here would let it
+    // create a competing .yaml. The divergent name list is by design.
+    await fs.writeFile(path.join(tmp, 'moxxy.config.ts'), 'export default {}\n');
+    const out = (await tool('config_path').handler({ scope: 'project' }, ctx)) as {
+      path: string | null;
+    };
+    expect(out.path).toBeNull();
+  });
+
   it('config_show returns the raw text', async () => {
     await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), 'mode: default\n');
     const out = (await tool('config_show').handler({ scope: 'project' }, ctx)) as {

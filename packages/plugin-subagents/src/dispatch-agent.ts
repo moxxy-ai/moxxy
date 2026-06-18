@@ -124,25 +124,22 @@ export function buildDispatchAgentTool(deps: DispatchAgentDeps) {
 function resolveSpec(input: AgentSpecInput, deps: DispatchAgentDeps): SubagentSpec {
   const requested = input.agentType ?? 'default';
   const def = deps.getAgent(requested) ?? DEFAULT_AGENT;
+  const systemPrompt = input.systemPrompt ?? def.systemPrompt;
+  const model = input.model ?? def.model;
+  const mode = input.mode ?? def.mode;
+  // maxIterations only comes from the AgentDef now (the input schema
+  // doesn't expose it — see comment in agentSpecSchema above).
+  const allowedTools = input.allowedTools ?? def.allowedTools;
   const merged: SubagentSpec = {
     prompt: input.prompt,
     label: input.label ?? def.name,
     // The requested kind, surfaced in subagent_* payloads for group rendering.
     agentType: requested,
+    ...(systemPrompt !== undefined && { systemPrompt }),
+    ...(model !== undefined && { model }),
+    ...(mode !== undefined && { mode }),
+    ...(def.maxIterations !== undefined && { maxIterations: def.maxIterations }),
+    ...(allowedTools !== undefined && { allowedTools }),
   };
-  const systemPrompt = input.systemPrompt ?? def.systemPrompt;
-  if (systemPrompt !== undefined) (merged as { systemPrompt?: string }).systemPrompt = systemPrompt;
-  const model = input.model ?? def.model;
-  if (model !== undefined) (merged as { model?: string }).model = model;
-  const mode = input.mode ?? def.mode;
-  if (mode !== undefined)
-    (merged as { mode?: string }).mode = mode;
-  // maxIterations only comes from the AgentDef now (the input schema
-  // doesn't expose it — see comment in agentSpecSchema above).
-  if (def.maxIterations !== undefined)
-    (merged as { maxIterations?: number }).maxIterations = def.maxIterations;
-  const allowedTools = input.allowedTools ?? def.allowedTools;
-  if (allowedTools !== undefined)
-    (merged as { allowedTools?: ReadonlyArray<string> }).allowedTools = allowedTools;
   return merged;
 }

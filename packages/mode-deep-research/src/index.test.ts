@@ -30,6 +30,14 @@ describe('parseQueries', () => {
   it('returns empty when nothing matches', () => {
     expect(parseQueries('No queries here.')).toEqual([]);
   });
+
+  it('drops wrapped continuation lines (queries are single-line by spec)', () => {
+    // A non-list line after an item is NOT joined onto the prior item — it is
+    // silently dropped. Pin this so the behavior is encoded, not just commented.
+    expect(
+      parseQueries('QUERIES:\n1. first part of a long query\nthat wrapped onto a new line\n2. second query'),
+    ).toEqual(['first part of a long query', 'second query']);
+  });
 });
 
 describe('parseFollowups', () => {

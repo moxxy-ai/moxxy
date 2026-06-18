@@ -5,6 +5,7 @@ import type {
   ProviderEvent,
   ProviderRequest,
   StopReason,
+  TokenUsage,
 } from '@moxxy/sdk';
 
 type MessageStreamParams = Anthropic.Messages.MessageStreamParams;
@@ -308,7 +309,12 @@ export class AnthropicProvider implements LLMProvider {
     const thinkingBlockIndices = new Set<number>();
     let pendingThinkingSig = '';
     let stopReason: StopReason = 'end_turn';
-    let usage: { inputTokens: number; outputTokens: number } | undefined;
+    // Type as the SDK's `TokenUsage` (which carries the optional cache fields)
+    // so cacheReadTokens/cacheCreationTokens are first-class on the accumulator
+    // and the message_delta merge below is type-checked to preserve them —
+    // rather than the cache fields sneaking in only via a spread (which bypasses
+    // the excess-property check) against a narrower declared type.
+    let usage: TokenUsage | undefined;
 
     try {
       for await (const event of stream as AsyncIterable<AnthropicStreamEvent>) {

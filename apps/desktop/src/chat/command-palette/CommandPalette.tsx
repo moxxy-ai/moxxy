@@ -25,7 +25,7 @@ import { chatStore } from '@moxxy/client-core';
 import { Modal } from '@moxxy/desktop-ui';
 import { ArgsForm } from './ArgsForm';
 import { humanize, quote, stepsForCommand, subcommandForCommand } from './steppers';
-import type { ArgStep, CommandInfo, SessionInfoSlice } from './types';
+import type { ArgStep, CommandInfo } from './types';
 
 interface Props {
   readonly workspaceId: string;
@@ -46,9 +46,8 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
     let cancelled = false;
     void api()
       .invoke('session.info', { workspaceId })
-      .then((raw) => {
+      .then((info) => {
         if (cancelled) return;
-        const info = raw as SessionInfoSlice | null;
         if (info?.commands) setCommands(info.commands);
       })
       .catch(() => {});

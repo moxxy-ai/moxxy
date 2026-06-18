@@ -25,7 +25,7 @@ const HELP = formatHelp({
   ],
 });
 
-interface AuditEntry {
+export interface AuditEntry {
   slug: string;
   ts: string;
   sessionId: string;
@@ -212,26 +212,36 @@ async function removeAuditEntry(slug: string): Promise<void> {
   });
 }
 
-function groupSimilarPrompts(entries: ReadonlyArray<AuditEntry>): AuditEntry[][] {
+export function groupSimilarPrompts(entries: ReadonlyArray<AuditEntry>): AuditEntry[][] {
   const groups: AuditEntry[][] = [];
+  // Maintain a running union of each group's tokens so we never re-tokenize the
+  // whole group on every entry (the previous `flatMap(tokenize)` rebuild was
+  // O(n^2 * tokens)). The union is identical to rebuilding, so grouping is
+  // unchanged.
+  const groupTokenSets: Set<string>[] = [];
   for (const entry of entries) {
     const tokens = tokenize(entry.originatingPrompt);
     let placed = false;
-    for (const group of groups) {
-      const groupTokens = new Set(group.flatMap((e) => tokenize(e.originatingPrompt)));
-      const overlap = tokens.filter((t) => groupTokens.has(t)).length;
+    for (let i = 0; i < groups.length; i += 1) {
+      const groupTokens = groupTokenSets[i]!;
+      let overlap = 0;
+      for (const t of tokens) if (groupTokens.has(t)) overlap += 1;
       if (overlap >= 2) {
-        group.push(entry);
+        groups[i]!.push(entry);
+        for (const t of tokens) groupTokens.add(t);
         placed = true;
         break;
       }
     }
-    if (!placed) groups.push([entry]);
+    if (!placed) {
+      groups.push([entry]);
+      groupTokenSets.push(new Set(tokens));
+    }
   }
   return groups;
 }
 
-function tokenize(s: string): string[] {
+export function tokenize(s: string): string[] {
   return s
     .toLowerCase()
     .split(/[^a-z0-9_-]+/)

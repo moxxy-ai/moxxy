@@ -157,8 +157,12 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       };
     }
     case 'mouse': {
-      const h = await ensurePlaywright(state, {});
       const { x, y } = (req.params ?? {}) as { x: number; y: number };
+      // Parity with `key`/`eval`: validate before launching/driving the page so
+      // a malformed surface message (missing/NaN coords) surfaces a clean
+      // `badParams` instead of an opaque Playwright throw from click(undefined).
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw badParams('x and y must be finite numbers');
+      const h = await ensurePlaywright(state, {});
       await h.page.mouse.click(x, y);
       return { id: req.id, ok: true, result: { url: h.page.url() } };
     }

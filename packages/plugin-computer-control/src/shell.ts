@@ -33,7 +33,7 @@ export function runProcess(
     const child = spawn(cmd, [...args], { stdio: ['pipe', 'pipe', 'pipe'] });
     // Collect stdout chunks and concat ONCE at close — re-concatenating the
     // whole accumulated buffer on every 'data' event is O(n^2) and churns the
-    // GC (the sibling runProcessBinary already does it this way).
+    // GC.
     const stdoutChunks: Buffer[] = [];
     let stderr = '';
     let settled = false;

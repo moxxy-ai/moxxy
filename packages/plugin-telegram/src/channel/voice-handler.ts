@@ -1,31 +1,19 @@
 import type { Context } from 'grammy';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import type { ChannelHandle } from '@moxxy/sdk';
-import type { TelegramApprovalResolver } from '../approval.js';
-import type { TelegramPermissionResolver } from '../permission.js';
-import type { FramePump } from './frame-pump.js';
 import type { PairingHandler } from './pairing-handler.js';
 
+// NB: the voice path reads only a narrow slice of the channel's state/deps.
+// Voice-as-approval-text is intentionally unsupported — a voice note never
+// satisfies an awaiting approval-text prompt (the text handler owns that
+// path) — so the wider model/turn/approval/frame fields the text handler
+// needs are deliberately absent here rather than carried dead.
 export interface VoiceHandlerState {
   readonly session: Session | null;
-  readonly model: string | undefined;
-  readonly activeModelOverride: string | null;
-  readonly yolo: boolean;
   readonly busy: boolean;
-  readonly turnController: AbortController | null;
-  // NB: voice-as-approval-text is intentionally unsupported — a voice note
-  // never satisfies an awaiting approval-text prompt (the text handler owns
-  // that path). The previously-declared `awaitingApprovalText` field here was
-  // dead (never read) and has been removed to avoid implying parity that the
-  // handler doesn't provide.
-  readonly handle: ChannelHandle | null;
 }
 
 export interface VoiceHandlerDeps {
   readonly pairing: PairingHandler;
-  readonly approvalResolver: TelegramApprovalResolver;
-  readonly permissionResolver: TelegramPermissionResolver;
-  readonly framePump: FramePump;
   /** Bot token, used to build the Telegram file-download URL. */
   readonly token: string;
   readonly logger?: { warn(msg: string, meta?: Record<string, unknown>): void };
