@@ -3,7 +3,14 @@ import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { appendEvents, loadSegment, clearLog, migrate, seedChatIntoSession } from './chat-log';
+import {
+  appendEvents,
+  loadSegment,
+  clearLog,
+  migrate,
+  seedChatIntoSession,
+  migrateAllChatsToSessions,
+} from './chat-log';
 
 let dir: string;
 
@@ -325,5 +332,21 @@ describe('seedChatIntoSession (NDJSON → runner session migration)', () => {
 
   it('is a no-op when the workspace has no NDJSON history', async () => {
     expect(await seedChatIntoSession('never-chatted', sessionsDir)).toBe(false);
+  });
+
+  it('eagerly migrates every NDJSON-only chat, skipping ones the runner already owns', async () => {
+    await appendEvents('w1', [ev(0), ev(1)]);
+    await appendEvents('w2', [ev(0)]);
+    await appendEvents('w3', [ev(0)]);
+    await mkdir(sessionsDir, { recursive: true });
+    await writeFile(path.join(sessionsDir, 'w3.jsonl'), '{"owned":true}\n', 'utf8'); // runner owns w3
+    expect(await migrateAllChatsToSessions(sessionsDir)).toBe(2); // w1 + w2, not w3
+    expect(await readFile(path.join(sessionsDir, 'w3.jsonl'), 'utf8')).toBe('{"owned":true}\n');
+    expect((await readFile(path.join(sessionsDir, 'w1.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(2);
+    expect((await readFile(path.join(sessionsDir, 'w2.jsonl'), 'utf8')).trim().split('\n')).toHaveLength(1);
+  });
+
+  it('returns 0 when there are no NDJSON chats to migrate', async () => {
+    expect(await migrateAllChatsToSessions(sessionsDir)).toBe(0);
   });
 });

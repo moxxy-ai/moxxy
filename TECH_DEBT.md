@@ -125,11 +125,15 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
    **Single-source landed (2026-06-18):** (a) `chat.append` is runtime-gated on
    the attached runner version — a v10+ runner owns the log so the NDJSON
    double-WRITE is skipped (a `<v10` runner still mirrors); (b) desktop
-   `FLOOR_RUNNER_PROTOCOL` raised 9 → 10. The runner is now the authoritative
-   single source; the NDJSON store is a frozen on-disk read fallback.
-   **Remaining:** (c) physically retire the NDJSON store (remove the read
-   fallback + chat-log/IPC after an eager migrate-all) — the last, destructive
-   cleanup.
+   `FLOOR_RUNNER_PROTOCOL` raised 9 → 10; (c) `migrateAllChatsToSessions` eagerly
+   migrates EVERY remaining NDJSON-only chat into the runner at startup, so the
+   runner is the single source of truth for ALL chats (not just opened ones).
+   **The dual-history consolidation is functionally COMPLETE** — the runner is
+   authoritative, the NDJSON store is frozen (not written, not the source of
+   truth). Its files + read-fallback code remain only as a safety net.
+   **Only cleanup left (deliberately deferred, gated on packaged-desktop
+   live-verify — destructive + self-update-sensitive):** physically delete the
+   NDJSON files + remove the read-fallback / chat-log / chat.* IPC.
 4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
    `init` boot a full session and never `close()`) — minor; a correct fix must drain
    persistence before exit (premature exit would drop the last event).

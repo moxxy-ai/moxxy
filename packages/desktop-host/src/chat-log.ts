@@ -15,7 +15,7 @@
  * search across thousands of messages later becomes a hard requirement.
  */
 
-import { appendFile, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
+import { appendFile, mkdir, open, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent } from '@moxxy/sdk';
@@ -368,4 +368,34 @@ export async function seedChatIntoSession(
   const events = await readLines(workspaceId);
   if (events.length === 0) return false;
   return seedSessionLog(workspaceId, events, sessionsDir);
+}
+
+/**
+ * Eagerly migrate EVERY workspace that still has an NDJSON-only history into the
+ * runner's authoritative log, completing the consolidation for chats the user
+ * hasn't opened yet (opened chats already migrate via the runner pool's
+ * {@link seedChatIntoSession}). After this the runner is the single source of
+ * truth for ALL chats, not just opened ones. Idempotent + best-effort +
+ * non-destructive: skips chats the runner already owns, leaves the NDJSON files
+ * intact, and one unreadable chat never aborts the rest. Returns the count
+ * migrated.
+ */
+export async function migrateAllChatsToSessions(sessionsDir?: string): Promise<number> {
+  let files: string[];
+  try {
+    files = await readdir(chatsDir());
+  } catch {
+    return 0; // no chats dir yet → nothing to migrate
+  }
+  let migrated = 0;
+  for (const file of files) {
+    if (!file.endsWith('.jsonl')) continue;
+    const workspaceId = file.slice(0, -'.jsonl'.length);
+    try {
+      if (await seedChatIntoSession(workspaceId, sessionsDir)) migrated += 1;
+    } catch {
+      /* skip this chat; migrate the rest */
+    }
+  }
+  return migrated;
 }
