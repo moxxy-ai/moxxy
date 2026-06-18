@@ -1,5 +1,48 @@
 # @moxxy/desktop
 
+## 0.16.0
+
+### Minor Changes
+
+- e8e227a: feat(desktop): eagerly migrate every NDJSON-only chat into the runner log (complete the consolidation)
+
+  Completes the dual-history consolidation: at startup the desktop now eagerly
+  migrates EVERY chat whose history still lives only in the NDJSON mirror into the
+  runner's authoritative log (`migrateAllChatsToSessions`), not just the ones the
+  user happens to open. After this the runner is the single source of truth for ALL
+  chats.
+
+  - Fire-and-forget at `registerIpcHandlers` startup; idempotent + best-effort +
+    non-destructive (skips chats the runner already owns, leaves the NDJSON files
+    intact, one unreadable chat never aborts the rest). The runner pool still seeds
+    on open as the per-chat guarantee.
+
+  The NDJSON store is now fully frozen — not written (for v10 runners) and no longer
+  the source of truth — but its files + read-fallback code are retained as a safety
+  net. Physically deleting them is deliberately left as a later cleanup gated on a
+  packaged-desktop live-verify (it is destructive and touches self-update-sensitive
+  paths).
+
+- ccf0a6b: feat(desktop): stop the NDJSON double-write for v10 runners; raise FLOOR to v10
+
+  With the runner now authoritative for every chat (it owns the log and legacy
+  chats are migrated into it on open), the desktop's NDJSON chat mirror is no
+  longer load-bearing — so we stop writing it where the runner is authoritative
+  and require a v10 runner.
+
+  - `chat.append` is runtime-gated on the ATTACHED runner's protocol version (not
+    the baked FLOOR, so it stays correct when a JS hot-update outruns the bundled
+    CLI): a v10+ runner owns the authoritative log, so the NDJSON mirror is
+    skipped; a `<v10` runner (or an unknown version) still writes it so the
+    renderer's NDJSON fallback never loses an event.
+  - `FLOOR_RUNNER_PROTOCOL` raised 9 → 10 (== `RUNNER_PROTOCOL_VERSION`): the
+    dual-history transition is complete, so the desktop drops `<v10` runner support
+    and v10 JS hot-updates can apply on fresh installs. The release/floor guard
+    (`FLOOR <= RUNNER`) is unchanged.
+
+  The NDJSON store is left on disk as a frozen read fallback; physically retiring
+  it is the final separate follow-up.
+
 ## 0.15.0
 
 ### Minor Changes
