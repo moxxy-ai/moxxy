@@ -7,7 +7,7 @@
  * the UI, integrates the work, and synthesizes the result.
  */
 
-import { mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
 import {
@@ -23,6 +23,7 @@ import {
   COLLAB_PEER_MODE_NAME,
   COLLAB_PLUGIN_ID,
   COLLAB_SCAFFOLD_DIR,
+  BRIEF_FILENAME,
   ROSTER_FILENAME,
   collabBranch,
   collabRunDir,
@@ -32,6 +33,7 @@ import {
   worktreeRoot,
 } from './constants.js';
 import { resolveCollabConfig, type CollabConfig } from './config.js';
+import { buildBrief } from './brief.js';
 import {
   addWorktree,
   commitAll,
@@ -152,6 +154,19 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
   supervisor = (deps.createSupervisor ?? ((o) => new PeerSupervisor(o)))(supervisorOpts, hub);
 
     yield await ctx.emit(plugin(ctx, 'collab_started', { task, parallel, gitInstalled, gitRepo }));
+
+    // Distil the user's conversation into a shared BRIEF the whole team inherits
+    // (the overall goal + intent — not just each agent's narrow subtask). Written
+    // into the scaffold up front so the architect reads it, and committed with the
+    // scaffold (parallel) so every worktree gets it. Best-effort: a brief-write
+    // failure must never sink the run.
+    try {
+      mkdirSync(join(cwd, COLLAB_SCAFFOLD_DIR), { recursive: true });
+      writeFileSync(join(cwd, COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME), buildBrief(task, ctx.log.slice()));
+      yield await ctx.emit(plugin(ctx, 'collab_brief_written', { path: join(COLLAB_SCAFFOLD_DIR, BRIEF_FILENAME) }));
+    } catch {
+      // brief is an enhancement, not a prerequisite
+    }
 
     // --- Phase 0: architect designs the plan + contracts (runs in cwd) ---
     supervisor.spawn({ entry: architectEntry, cwd, mode: COLLAB_ARCHITECT_MODE_NAME });
