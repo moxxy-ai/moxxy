@@ -33,6 +33,8 @@ export {
   type RunTurnResult,
   type AbortParams,
   type SetResolverParams,
+  type ReasoningEffortLevel,
+  type SessionSetReasoningParams,
   type PermissionCheckParams,
   type PermissionCheckResult,
   type ApprovalConfirmParams,

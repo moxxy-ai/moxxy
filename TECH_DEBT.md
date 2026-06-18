@@ -60,22 +60,26 @@ duplicated PCM16 MIME constant + the `/compact` flow now route through the SDK,
 `computeElisionState` is memoized + threaded once per iteration, and workflow
 `onError:'retry'` now honours `step.retries`.
 
-**Two items were closed as deliberate by-design decisions (not silent debt):**
-- `RequirementChecker.targetInfo` keeps its explicit per-kind `switch`. Each kind
-  reads a different registry with different active/version semantics; a clever
-  kind→table indirection in a correctness-critical requirement gate trades
-  clarity + safety for a DRY win that isn't worth it. The switch is the right
-  shape; kept intentionally (closes types-generics-5's table-drive half).
-- Voice-admin tools stay decomposed **in-place** within `cli/setup` (wave 10).
-  The atomicity goal (no god-function) is met; promoting them to a standalone
-  `@moxxy/plugin-voice-admin` package is a packaging-boundary preference, not a
-  quality fix, and is deliberately a non-goal for cli-bundled builtins.
+A final pass (wave 13) closed the last two items that had been left as judgement
+calls, implementing them rather than deferring:
+- **`RequirementChecker.targetInfo`** is now table-driven — a `TARGET_DESCRIPTORS`
+  `Record<RequirementKind, …>` (present/active/version per kind), byte-identical
+  to the old switch (every kind exercised by `requirements.targetinfo.test.ts`)
+  with stronger compile-time exhaustiveness than the old `assertNever` default.
+  Closes types-generics-5.
+- **Voice-admin** is now its own first-class plugin package
+  `@moxxy/plugin-voice-admin` (tools moved verbatim, registered via the cli
+  builtin entries exactly like the other plugins). Closes u28-3.
 
-Going forward this file resumes its normal role: the standing ledger where each
-future change retires ≥1 item and new debt is logged on sight (AGENTS.md → "Tech
-debt is a standing job"). A living codebase under active development keeps
-accruing debt (this very sweep integrated the concurrently-merged anonymizer +
-mode-collaborative features mid-flight); the audit backlog itself is cleared.
+Going forward this file resumes its normal role per AGENTS.md → "Tech debt is a
+standing job": every future change retires ≥1 item and logs new debt on sight.
+The audit backlog is cleared. The only items remaining in this ledger are
+infrastructure constraints that cannot be resolved from the normal CI gate and
+must NOT be blind-merged — chiefly the **node-gyp / @electron/rebuild bump**,
+which is a coupled `electron-builder` + `node-gyp 12` + `engines.node` floor
+change that only an actual `electron-builder` *packaging* run can verify (a blind
+bump has bricked the desktop native build before — see the 2026-06-17 entry).
+Those are scoped, owner-gated follow-ups, documented at their entries.
 
 ---
 
@@ -171,9 +175,11 @@ standing backlog — pick from it, newest-audit-first, on the next pass).
   `PolicyRule.inputMatches` + at the `matchRule` regex site and pinned by an
   explicit substring-vs-author-anchored test; unify `~/.moxxy` path derivation
   (`t2-moxxy-home-paths`).
-- **Completion:** wire or remove the desktop per-provider reasoning-effort
-  control (`t2-security`/`c15`/R1); the half-built encrypted-reasoning round-trip
-  (`u99-1`).
+- **Completion:** ✅ the desktop per-provider reasoning-effort control
+  (`t2-security`/`c15`/R1/`u11-2`/`u11-3`/`incomplete-1`) is now wired live to the
+  runner (`session.setReasoning` v9 + `settings.setReasoning` IPC →
+  `config.context.reasoning`); remaining: the half-built encrypted-reasoning
+  round-trip (`u99-1`).
 - **Long tail:** the remaining confirmed logic bugs (`t2-confirmed-logic-bugs`,
   `t2-more-logic-bugs`), embedding correctness + lifecycle/shutdown clusters,
   and all of Tier-3 (god-file splits `t3-god-files`, the test-harness gap
@@ -1395,12 +1401,15 @@ regressions. Restore the detail from git history (`TECH_DEBT.md` @ `b014c3a`) if
 Logged while shipping visible per-provider reasoning + the grouped sub-agents view. Reviewed the
 provider stream parsers, `chat-model` projection, and the subagent event bridge in passing.
 
-- **R1 — built-in reasoning config isn't wired live to the runner from the desktop.** The functional
-  path is `config.context.reasoning` (CLI + the desktop's runner read it). The desktop Settings →
-  Providers reasoning-effort control persists to local state only with a `TODO`; making it live needs
-  a typed `DesktopPrefs.reasoning` + `ProviderEntry.supportsReasoning` in `@moxxy/desktop-ipc-contract`
-  and a runner config-apply step. Until then the desktop control stays hidden (no row reports
-  `supportsReasoning`). `apps/desktop/src/settings/ProvidersTab.tsx`.
+- **R1 — built-in reasoning config isn't wired live to the runner from the desktop.** ✅ FIXED
+  (quality-sweep): the Providers reasoning-effort selector now maps onto the runner's
+  `config.context.reasoning` (the proven CLI path) over a new `session.setReasoning` runner protocol
+  method (v9, gated client-side) + a `settings.setReasoning` IPC command; `ProviderEntry.supportsReasoning`
+  is now typed and populated runner-side from the model catalog (any model advertising `supportsReasoning`),
+  so the selector renders only where it's honored and the `(p as { supportsReasoning? })` cast is gone.
+  Chose a session-scoped `session.setReasoning` rather than `DesktopPrefs.reasoning` because the runner
+  setting is session-scoped (see R2), not per-provider. Integration test in
+  `packages/runner/src/integration.test.ts` asserts the effort flows into the provider request.
 - **R2 — reasoning config is session-level, not per-provider-granular.** `session.reasoning` is one
   value applied to whichever provider is active (gated by `supportsReasoning`), not a per-provider
   map. Good enough for one PR ("only supporting providers honor it"); a true `{ [provider]: effort }`

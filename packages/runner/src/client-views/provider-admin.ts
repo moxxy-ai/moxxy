@@ -1,5 +1,5 @@
 import type { ProviderAdminView } from '@moxxy/sdk';
-import { RunnerMethod } from '../protocol.js';
+import { RunnerMethod, type ReasoningEffortLevel } from '../protocol.js';
 import type { ViewContext } from './context.js';
 
 export interface ProviderAdminClientView extends ProviderAdminView {
@@ -7,6 +7,9 @@ export interface ProviderAdminClientView extends ProviderAdminView {
   setEnabled(name: string, enabled: boolean): Promise<void>;
   /** Re-probe every provider's credentials → fresh readyProviders. */
   refreshReady(): Promise<void>;
+  /** Set the session's reasoning/thinking effort (`off` clears it). Honored
+   *  only by models that advertise `supportsReasoning` (gated server-side). */
+  setReasoning(effort: ReasoningEffortLevel): Promise<void>;
 }
 
 // Provider management (protocol v7): backs the desktop's interactive
@@ -28,6 +31,10 @@ export function makeProviderAdminView(ctx: ViewContext): ProviderAdminClientView
     configure: async (name, patch) => {
       requireServerProtocol(7, 'Configuring a provider');
       await peer.request(RunnerMethod.ProviderConfigure, { name, patch });
+    },
+    setReasoning: async (effort) => {
+      requireServerProtocol(9, 'Setting reasoning effort');
+      await peer.request(RunnerMethod.SessionSetReasoning, { effort });
     },
   };
 }

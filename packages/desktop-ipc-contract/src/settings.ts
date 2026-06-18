@@ -1,5 +1,11 @@
 // ---------- Settings -------------------------------------------------------
 
+/** Reasoning/thinking effort the desktop can request for the active session.
+ *  `off` clears the preference; the others map to `config.context.reasoning`
+ *  on the runner (`settings.setReasoning`). Mirrors the runner protocol's
+ *  `ReasoningEffortLevel`. */
+export type ReasoningEffort = 'off' | 'low' | 'medium' | 'high';
+
 export interface ProviderEntry {
   name: string;
   /** True when the runner has activated this provider (credentials
@@ -22,6 +28,11 @@ export interface ProviderEntry {
   baseURL?: string;
   defaultModel?: string;
   modelIds?: ReadonlyArray<string>;
+  /** True when at least one of this provider's models advertises
+   *  `supportsReasoning` — gates the Configure sheet's reasoning-effort
+   *  selector. Derived from the runner's model catalog (the desktop never sees
+   *  raw `ModelDescriptor`s). Absent ⇒ unknown/false. */
+  supportsReasoning?: boolean;
 }
 
 export interface McpServerEntry {

@@ -53,6 +53,7 @@ import {
   handleSurfaceResize,
   handleSurfaceClose,
   handleModeSetActive,
+  handleSessionSetReasoning,
   handlePermissionAddAllow,
   handleCommandRun,
   type HandlerContext,
@@ -210,6 +211,7 @@ export class RunnerServer {
     peer.handle(RunnerMethod.SessionReset, () => this.handleSessionReset());
     peer.handle(RunnerMethod.SetResolver, (raw) => this.handleSetResolver(client, raw));
     peer.handle(RunnerMethod.ModeSetActive, (raw) => handleModeSetActive(ctx, raw));
+    peer.handle(RunnerMethod.SessionSetReasoning, (raw) => handleSessionSetReasoning(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetActive, (raw) => handleProviderSetActive(ctx, raw));
     peer.handle(RunnerMethod.ProviderSetEnabled, (raw) => handleProviderSetEnabled(ctx, raw));
     peer.handle(RunnerMethod.ProviderRefreshReady, () => handleProviderRefreshReady(ctx));

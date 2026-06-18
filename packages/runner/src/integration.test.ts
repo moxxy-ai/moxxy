@@ -429,6 +429,45 @@ describe('runner end-to-end', () => {
     expect(result).toEqual({ kind: 'text', text: 'pong' });
   });
 
+  it('sets the session reasoning effort, which flows into the provider request (v9)', async () => {
+    // A reasoning-capable model — the effort is gated on the descriptor's
+    // `supportsReasoning` in collectProviderStream, so the catalog must opt in.
+    const provider = new FakeProvider({
+      models: [
+        {
+          id: 'reasoner',
+          contextWindow: 200_000,
+          maxOutputTokens: 8000,
+          supportsTools: true,
+          supportsStreaming: true,
+          supportsReasoning: true,
+        },
+      ],
+      script: [textReply('thought hard'), textReply('thought less')],
+    });
+    const { session, socketPath } = await serve(provider);
+    const remote = await attach(socketPath);
+
+    // Default: no reasoning preference, so the request carries none.
+    expect(session.reasoning).toBeUndefined();
+
+    // settings.setReasoning RPC maps the effort onto session.reasoning (the CLI's
+    // config.context.reasoning shape) and broadcasts info.changed.
+    await remote.providerAdmin.setReasoning('high');
+    await waitFor(() => session.reasoning !== undefined);
+    expect(session.reasoning).toEqual({ effort: 'high' });
+
+    // A turn now forwards it to the provider request (descriptor opts in).
+    for await (const _event of remote.runTurn('think')) void _event;
+    expect(provider.received.at(-1)?.reasoning).toEqual({ effort: 'high' });
+
+    // 'off' clears it — the next turn's request carries no reasoning param.
+    await remote.providerAdmin.setReasoning('off');
+    await waitFor(() => session.reasoning === undefined);
+    for await (const _event of remote.runTurn('think less')) void _event;
+    expect(provider.received.at(-1)?.reasoning).toBeUndefined();
+  });
+
   it('persists the picked provider to preferences so the next runner inherits it', async () => {
     // Regression: a remote `providers.setActive` only mutated THIS runner's
     // in-memory state. The desktop spawns one `moxxy serve` PER workspace, so

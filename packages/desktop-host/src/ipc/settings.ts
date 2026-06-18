@@ -58,6 +58,11 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
         authKind: p.authKind,
         kind: detail ? ('admin' as const) : ('builtin' as const),
         keyName: detail?.keyName ?? builtinProviderKeyName(p.name),
+        // Surface the reasoning capability so the Configure sheet can show the
+        // effort selector only where it's honored. The runner's model catalog
+        // is the source of truth (the desktop never sees raw ModelDescriptors);
+        // a provider supports it when ANY of its models advertises it.
+        supportsReasoning: p.models.some((m) => m.supportsReasoning === true),
         ...(detail
           ? {
               baseURL: detail.baseURL,
@@ -76,6 +81,12 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
   });
   handle('settings.providerRefreshReady', async (args) => {
     await mustRemote(pool, args?.workspaceId).providerAdmin.refreshReady();
+  });
+  handle('settings.setReasoning', async ({ workspaceId, effort }) => {
+    // Session-scoped: maps onto the runner's `config.context.reasoning` (the
+    // proven CLI path). Gated on runner protocol v9 client-side — a pre-v9
+    // runner throws a clear "update the CLI" error rather than method-not-found.
+    await mustRemote(pool, workspaceId).providerAdmin.setReasoning(effort);
   });
   handle('settings.mcpServers', async (args) => {
     const session = mustSession(pool, args?.workspaceId);

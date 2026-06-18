@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Session, silentLogger } from '@moxxy/core';
-import { buildVoiceAdminPlugin } from './voice-admin-plugin.js';
+import { buildVoiceAdminPlugin } from './index.js';
 
 /**
- * Focused unit test for the inline voice-admin tools — previously impossible to
- * exercise without booting the whole builtins assembly. Drives the tool
- * handlers directly against a bare Session's synthesizer registry.
+ * Focused unit test for the voice-admin tools. Drives the tool handlers
+ * directly against a bare Session's synthesizer registry.
  */
 function tools(session: Session) {
   const plugin = buildVoiceAdminPlugin(session);

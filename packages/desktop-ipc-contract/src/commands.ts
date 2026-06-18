@@ -24,6 +24,7 @@ import type {
   McpServerEntry,
   VaultEntryName,
   SkillFile,
+  ReasoningEffort,
 } from './settings.js';
 import type { Desk, DeskSession, DesksOverview, SessionsOverview } from './desks.js';
 import type { PromptAttachment, RunTurnArgs, RunTurnResult } from './chat.js';
@@ -460,6 +461,14 @@ export interface IpcCommands {
   /** Re-probe every provider's credentials on the runner so a key just saved
    *  via `settings.vaultSet` flips readiness without a restart. */
   'settings.providerRefreshReady': (args?: { workspaceId?: string }) => Promise<void>;
+  /** Set the session's reasoning/thinking effort live on the runner — maps onto
+   *  `config.context.reasoning` (the proven CLI path). `off` clears it.
+   *  Session-scoped (not per-provider); honored only by models that advertise
+   *  `supportsReasoning`. Throws a coded error against a pre-v9 runner. */
+  'settings.setReasoning': (args: {
+    workspaceId?: string;
+    effort: ReasoningEffort;
+  }) => Promise<void>;
   /** Hit the provider's /v1/models endpoint and return the model ids
    *  it advertises. Useful for admin-registered providers whose
    *  providers.json entry didn't enumerate models upfront. */

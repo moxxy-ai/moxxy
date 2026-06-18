@@ -48,6 +48,21 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { evil: 'x' })).toThrow();
   });
 
+  it('pins settings.setReasoning effort to the known enum', () => {
+    for (const effort of ['off', 'low', 'medium', 'high'] as const) {
+      expect(() => validateIpcInput('settings.setReasoning', { effort })).not.toThrow();
+    }
+    expect(() =>
+      validateIpcInput('settings.setReasoning', { workspaceId: 'ws', effort: 'high' }),
+    ).not.toThrow();
+    // Arbitrary strings can't reach the runner / provider request.
+    expect(() => validateIpcInput('settings.setReasoning', { effort: 'maximum' })).toThrow();
+    expect(() => validateIpcInput('settings.setReasoning', {})).toThrow();
+    expect(() =>
+      validateIpcInput('settings.setReasoning', { workspaceId: '', effort: 'low' }),
+    ).toThrow();
+  });
+
   it('bounds session.runTurn prompt + attachments', () => {
     expect(() => validateIpcInput('session.runTurn', { prompt: 'hi' })).not.toThrow();
     expect(() =>

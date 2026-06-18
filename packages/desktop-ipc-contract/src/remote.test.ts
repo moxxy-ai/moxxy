@@ -48,6 +48,10 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'desks.remove',
       'settings.vaultSet',
       'settings.vaultDelete',
+      // Session-config mutation (reasoning effort) — host-only, like the other
+      // settings writes; a paired phone holds a conversation, it doesn't retune
+      // the runner's generation config.
+      'settings.setReasoning',
       'app.updateCli',
       'prefs.update',
       'workflows.save',

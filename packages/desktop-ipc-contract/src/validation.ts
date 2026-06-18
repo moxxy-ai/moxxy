@@ -192,6 +192,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     path: z.string().max(4096).optional(),
   }),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
+  // Session config mutation — pin the effort to the known enum so a renderer
+  // can't push an arbitrary string through to the runner / provider request.
+  'settings.setReasoning': z.object({
+    workspaceId: optionalWorkspace,
+    effort: z.enum(['off', 'low', 'medium', 'high']),
+  }),
   'settings.writeSkill': z.object({ name: skillName, body: z.string().max(1_000_000) }),
   'settings.readSkill': z.object({ name: skillName }),
   'settings.deleteSkill': z.object({ name: skillName }),
