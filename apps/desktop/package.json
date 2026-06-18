@@ -110,10 +110,18 @@
     "mac": {
       "category": "public.app-category.productivity",
       "artifactName": "moxxy-desktop-${version}-${arch}.${ext}",
+      "minimumSystemVersion": "11.0.0",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        },
+        {
+          "target": "zip",
+          "arch": ["universal"]
+        }
       ],
+      "x64ArchFiles": "{*.node,*.dylib,spawn-helper,python3}",
       "icon": "public/logo.png",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,

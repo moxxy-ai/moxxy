@@ -35,7 +35,11 @@
       "electron",
       "electron-winstaller",
       "node-pty"
-    ]
+    ],
+    "supportedArchitectures": {
+      "os": ["current"],
+      "cpu": ["x64", "arm64"]
+    }
   },
   "license": "MIT"
 }
