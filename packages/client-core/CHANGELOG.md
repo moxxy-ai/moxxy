@@ -1,5 +1,13 @@
 # @moxxy/client-core
 
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [f8b0c63]
+  - @moxxy/chat-model@0.2.2
+  - @moxxy/desktop-ipc-contract@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes
