@@ -122,10 +122,14 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
    BEFORE that workspace's runner resumes its session id — so the runner owns
    every chat (a legacy chat is no longer stranded when continued). Idempotent +
    non-destructive (skips a session the runner already owns; NDJSON left intact).
-   **Remaining (separate PRs, each gated on packaged-desktop live-verify, IN
-   ORDER):** (a) stop the NDJSON double-WRITE; (b) raise desktop FLOOR to 10; (c)
-   physically retire the NDJSON store. The renderer still WRITES NDJSON today so
-   it stays the read fallback until (a)–(c) ship and verify.
+   **Single-source landed (2026-06-18):** (a) `chat.append` is runtime-gated on
+   the attached runner version — a v10+ runner owns the log so the NDJSON
+   double-WRITE is skipped (a `<v10` runner still mirrors); (b) desktop
+   `FLOOR_RUNNER_PROTOCOL` raised 9 → 10. The runner is now the authoritative
+   single source; the NDJSON store is a frozen on-disk read fallback.
+   **Remaining:** (c) physically retire the NDJSON store (remove the read
+   fallback + chat-log/IPC after an eager migrate-all) — the last, destructive
+   cleanup.
 4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
    `init` boot a full session and never `close()`) — minor; a correct fix must drain
    persistence before exit (premature exit would drop the last event).
