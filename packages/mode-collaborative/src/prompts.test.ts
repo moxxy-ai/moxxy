@@ -37,6 +37,14 @@ describe('collaboration prompts', () => {
     expect(COLLAB_ARCHITECT_PROMPT).toContain('"charter"');
     expect(COLLAB_ARCHITECT_PROMPT.toLowerCase()).toContain('definition of done');
   });
+
+  it('harden the shared-workspace (no-isolation) reality', () => {
+    // every agent must claim before editing + rename rule
+    expect(COLLAB_PEER_PROMPT).toContain('BEFORE every edit');
+    expect(COLLAB_PEER_PROMPT.toLowerCase()).toContain('rename or move');
+    // the architect must hand out DISJOINT ownership
+    expect(COLLAB_ARCHITECT_PROMPT).toContain('DISJOINT');
+  });
 });
 
 describe('peerPromptWithCharter', () => {

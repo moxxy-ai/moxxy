@@ -111,7 +111,9 @@ export function buildSeedTurn(args: { role: string; parentTask: string; subtask:
     "user's goal + key requirements) and `.moxxy-collab/CONTRACTS.md` (the agreed " +
     'interfaces). Read them before you start so your work fits the real goal. If you ' +
     'need a detail the brief omits, read or grep `.moxxy-collab/CONVERSATION.md` (the ' +
-    'full transcript) — do not load it wholesale.';
+    'full transcript) — do not load it wholesale. You may share ONE live workspace ' +
+    'with the other agents (no isolation) — collab_claim before every edit, edit only ' +
+    'what you own, and release when done.';
   if (role === 'architect' || !parentTask || parentTask === subtask) {
     return subtask ? `${subtask}\n\n${pointer}` : pointer;
   }
