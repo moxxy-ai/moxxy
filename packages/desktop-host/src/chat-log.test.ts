@@ -299,7 +299,7 @@ describe('seedChatIntoSession (NDJSON → runner session migration)', () => {
     expect(lines.map((e) => e.seq)).toEqual([0, 1, 2]);
   });
 
-  it('never overwrites a session the runner already owns; leaves the NDJSON intact', async () => {
+  it('never overwrites a NON-EMPTY session the runner already owns; leaves the NDJSON intact', async () => {
     await appendEvents('w1', [ev(0)]);
     await mkdir(sessionsDir, { recursive: true });
     await writeFile(path.join(sessionsDir, 'w1.jsonl'), '{"existing":true}\n', 'utf8');
@@ -307,6 +307,20 @@ describe('seedChatIntoSession (NDJSON → runner session migration)', () => {
     expect(await readFile(path.join(sessionsDir, 'w1.jsonl'), 'utf8')).toBe('{"existing":true}\n');
     // NDJSON untouched — still the read fallback.
     expect((await loadSegment('w1', null, 10)).events).toHaveLength(1);
+  });
+
+  it('seeds over a 0-byte session log left by a prior spawn (the key migration case)', async () => {
+    await appendEvents('w1', [ev(0), ev(1)]);
+    await mkdir(sessionsDir, { recursive: true });
+    // persistence.attach creates this empty file on every spawn — existence
+    // alone must NOT block the seed.
+    await writeFile(path.join(sessionsDir, 'w1.jsonl'), '', 'utf8');
+    expect(await seedChatIntoSession('w1', sessionsDir)).toBe(true);
+    const lines = (await readFile(path.join(sessionsDir, 'w1.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    expect(lines).toHaveLength(2);
   });
 
   it('is a no-op when the workspace has no NDJSON history', async () => {

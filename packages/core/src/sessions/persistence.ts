@@ -579,13 +579,16 @@ export function pageEvents(
  * own mirror (the desktop's NDJSON chat store) — after it runs, `loadHistory`
  * serves that chat from the runner like any other.
  *
- * Idempotent and NON-destructive: if `<sessionId>.jsonl` already exists — even
- * empty — this is a no-op returning `false`, so a session the runner already
- * owns is NEVER overwritten. Events are re-sequenced to contiguous `seq` 0..n-1
- * (order + ids preserved) so the seeded log satisfies {@link EventLog}'s seq
- * invariants when it is later restored. Written temp+rename so a crash mid-seed
- * can't leave a half-written log the existence check would treat as "owned".
- * Returns `true` iff it wrote a new log.
+ * Idempotent and NON-destructive: if `<sessionId>.jsonl` already exists AND is
+ * NON-EMPTY this is a no-op returning `false`, so a session the runner already
+ * owns is NEVER overwritten. A 0-byte log IS seeded: `persistence.attach`
+ * creates an empty `<id>.jsonl` on every spawn (even a session with zero
+ * events), so an existence-only guard would skip exactly the legacy chats this
+ * migration targets — and an empty file holds no history, so seeding over it
+ * loses nothing. Events are re-sequenced to contiguous `seq` 0..n-1 (order + ids
+ * preserved) so the seeded log satisfies {@link EventLog}'s seq invariants when
+ * it is later restored. Written temp+rename so a crash mid-seed can't leave a
+ * half-written log. Returns `true` iff it wrote the log.
  */
 export async function seedSessionLog(
   sessionId: string,
@@ -595,8 +598,9 @@ export async function seedSessionLog(
   if (events.length === 0) return false;
   const logPath = path.join(dir, `${sessionId}.jsonl`);
   try {
-    await fs.access(logPath);
-    return false; // already owned by the runner → never overwrite
+    // A non-empty log is a session the runner already owns → never overwrite.
+    // A 0-byte log is the empty file attach() left behind → seed over it.
+    if ((await fs.stat(logPath)).size > 0) return false;
   } catch {
     /* no log yet → seed below */
   }

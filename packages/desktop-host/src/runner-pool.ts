@@ -32,6 +32,10 @@ interface Entry {
 
 export class RunnerPool extends EventEmitter {
   private entries = new Map<string, Entry>();
+  /** In-flight creations, keyed by id, so two concurrent getOrCreate(id) calls
+   *  share ONE creation instead of both seeding + spawning (which would orphan
+   *  a supervisor and race two writes of the session log). */
+  private pending = new Map<string, Promise<RunnerSupervisor>>();
   private activeId: string | null = null;
 
   /**
@@ -46,6 +50,25 @@ export class RunnerPool extends EventEmitter {
       await existing.supervisor.setCwd(cwd);
       return existing.supervisor;
     }
+    // Serialize creation per id: Electron IPC dispatches concurrent invokes, and
+    // several handlers call getOrCreate for the same active session — without
+    // this, two calls both pass the `existing` check and both seed + spawn.
+    const inflight = this.pending.get(id);
+    if (inflight) {
+      const supervisor = await inflight;
+      await supervisor.setCwd(cwd);
+      return supervisor;
+    }
+    const created = this.createSupervisor(id, cwd);
+    this.pending.set(id, created);
+    try {
+      return await created;
+    } finally {
+      this.pending.delete(id);
+    }
+  }
+
+  private async createSupervisor(id: string, cwd: string | null): Promise<RunnerSupervisor> {
     const socketPath = socketFor(id);
     // Migrate a legacy / localStorage-only chat into the runner's authoritative
     // log BEFORE the runner resumes this session id, so the runner owns its full

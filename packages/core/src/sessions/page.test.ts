@@ -195,12 +195,19 @@ describe('seedSessionLog (NDJSON → runner-log migration)', () => {
     expect((restored[1] as { content?: string }).content).toBe('reply');
   });
 
-  it('never overwrites a session the runner already owns', async () => {
+  it('never overwrites a NON-EMPTY session the runner already owns', async () => {
     const dir = await makeTempDir();
     await writeLog(dir, 'sess', makeLog(2, 'sess')); // the runner already owns it
     expect(await seedSessionLog('sess', makeLog(5, 'sess'), dir)).toBe(false);
     const restored = await restoreEvents('sess', dir);
     expect(restored).toHaveLength(2); // untouched
+  });
+
+  it('seeds OVER a 0-byte session log (the empty file attach leaves on every spawn)', async () => {
+    const dir = await makeTempDir();
+    await writeLog(dir, 'sess', []); // 0-byte file, holds no history
+    expect(await seedSessionLog('sess', makeLog(3, 'sess'), dir)).toBe(true);
+    expect(await restoreEvents('sess', dir)).toHaveLength(3);
   });
 
   it('is a no-op for an empty event list', async () => {

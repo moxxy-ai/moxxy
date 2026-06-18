@@ -15,7 +15,7 @@
  * search across thousands of messages later becomes a hard requirement.
  */
 
-import { access, appendFile, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
+import { appendFile, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent } from '@moxxy/sdk';
@@ -357,10 +357,13 @@ export async function seedChatIntoSession(
   sessionsDir: string = defaultSessionsDir(),
 ): Promise<boolean> {
   try {
-    await access(path.join(sessionsDir, `${workspaceId}.jsonl`));
-    return false; // runner already owns this session → nothing to migrate
+    // Non-empty → the runner already owns it. A 0-byte file is the empty log a
+    // prior spawn left behind (`persistence.attach` creates it even for a
+    // zero-event session), so fall through and migrate the NDJSON into it —
+    // else a legacy chat that was ever foregrounded would never migrate.
+    if ((await stat(path.join(sessionsDir, `${workspaceId}.jsonl`))).size > 0) return false;
   } catch {
-    /* no runner session yet → seed it from the NDJSON mirror below */
+    /* no runner session yet → seed from the NDJSON mirror below */
   }
   const events = await readLines(workspaceId);
   if (events.length === 0) return false;
