@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import { Button, Icon, IconButton } from '@moxxy/desktop-ui';
+import { emitInsertPath } from '../WorkspaceFiles';
 import { useSurface } from './useSurface';
-
-/** An element the user pointed at in "select element" mode (from the `pick`
- *  sidecar method) — handed to the agent to act on. */
-interface PickedElement {
-  readonly selector: string;
-  readonly tag: string;
-  readonly text: string;
-}
 
 interface BrowserFrame {
   readonly type?: string;
@@ -21,8 +14,16 @@ interface BrowserFrame {
   /** Set on a status when the Playwright engine isn't installed — the pane shows
    *  an "Install" button (the download is ~200MB, so we ask first). */
   readonly needsInstall?: boolean;
-  /** Carried by `{ type: 'picked' }` — the element under the user's click. */
-  readonly element?: PickedElement | null;
+  /** Carried by `{ type: 'captured' }` — a PNG of the dragged region. */
+  readonly mediaType?: string;
+}
+
+/** A drag rectangle in pane-relative pixels (region-capture mode). */
+interface DragRect {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
 }
 
 const ZOOM_MIN = 0.25;
@@ -69,11 +70,10 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
   const [url, setUrl] = useState('');
   const [editingUrl, setEditingUrl] = useState('');
   const [zoom, setZoom] = useState(1);
-  // "Select element" mode: the next click picks an element instead of clicking.
-  const [picking, setPicking] = useState(false);
-  const [picked, setPicked] = useState<PickedElement | null>(null);
-  const [change, setChange] = useState('');
-  const [sent, setSent] = useState(false);
+  // Region-capture mode: drag a box, screenshot it, attach to the chat input.
+  const [capturing, setCapturing] = useState(false);
+  const [drag, setDrag] = useState<DragRect | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const lastMoveRef = useRef(0);
@@ -94,12 +94,8 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         setNeedsInstall(true);
         setInstalling(false);
       }
-    } else if (p?.type === 'picked') {
-      if (p.element) {
-        setPicked(p.element);
-        setChange('');
-        setSent(false);
-      }
+    } else if (p?.type === 'captured' && typeof p.base64 === 'string') {
+      void attachCapture(p.base64, p.mediaType);
     }
     if (typeof p?.url === 'string') {
       setUrl(p.url);
@@ -170,19 +166,27 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
     surface.input({ type: 'zoom', factor: z });
   };
 
-  // Task the agent to change the picked element (localhost dev loop). The agent's
-  // browser_session tool can act on the selector we captured.
-  const askAgent = (): void => {
-    if (!picked || !workspaceId) return;
-    const what = change.trim();
-    if (!what) return;
-    const where = url ? ` on ${url}` : '';
-    const ctx = picked.text ? ` (currently "${picked.text}")` : '';
-    const prompt = `Using the browser, change the element \`${picked.selector}\`${ctx}${where} to: ${what}`;
-    void api().invoke('session.runTurn', { workspaceId, prompt }).catch(() => undefined);
-    setSent(true);
-    setPicked(null);
-    setChange('');
+  const flashNotice = (text: string): void => {
+    setNotice(text);
+    window.setTimeout(() => setNotice((cur) => (cur === text ? null : cur)), 4000);
+  };
+
+  // The captured region (a sharp PNG) is saved to a temp file and dropped into
+  // the chat composer as an attachment — the user then describes the change and
+  // sends, and the agent SEES the area. Reuses the same insert event the file
+  // tree uses, so the chip appears in the (visible) composer.
+  const attachCapture = async (base64: string, mediaType?: string): Promise<void> => {
+    try {
+      const att = await api().invoke('session.saveImageAttachment', {
+        dataBase64: base64,
+        mediaType: mediaType ?? 'image/png',
+        name: 'browser-capture.png',
+      });
+      emitInsertPath({ relPath: att.name, absPath: att.path, name: att.name });
+      flashNotice('📎 Screenshot added to the chat input — describe the change and send.');
+    } catch {
+      flashNotice('Could not attach the screenshot.');
+    }
   };
 
   // Pointer event → normalized page coords (0..1 of the frame box).
@@ -190,6 +194,13 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
     const rect = hostRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return null;
     return { fx: (e.clientX - rect.left) / rect.width, fy: (e.clientY - rect.top) / rect.height };
+  };
+
+  // Pointer event → pane-relative px (for the drag-selection overlay).
+  const relPos = (e: React.MouseEvent): { x: number; y: number } | null => {
+    const rect = hostRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
 
   const onHover = (e: React.MouseEvent): void => {
@@ -220,9 +231,10 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         return;
       }
     }
-    if (e.key === 'Escape' && picking) {
+    if (e.key === 'Escape' && capturing) {
       e.preventDefault();
-      setPicking(false);
+      setCapturing(false);
+      setDrag(null);
       return;
     }
     const printable = e.key.length === 1;
@@ -323,86 +335,43 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
             <span style={{ fontSize: 14, lineHeight: 1 }}>+</span>
           </IconButton>
         </div>
-        {/* "Select element" — pick an element on the page to hand to the agent. */}
+        {/* "Capture region" — drag a box; the screenshot is attached to the chat
+         *  input so you can ask the agent to change exactly that area. */}
         <IconButton
           size={26}
-          bordered={picking}
-          onClick={() => setPicking((v) => !v)}
-          title={picking ? 'Click an element to select it (Esc to cancel)' : 'Select an element for the agent'}
-          aria-label="Select element"
-          style={picking ? { color: 'var(--color-primary)' } : undefined}
+          bordered={capturing}
+          onClick={() => {
+            setCapturing((v) => !v);
+            setDrag(null);
+          }}
+          title={
+            capturing
+              ? 'Drag a box to capture it for the agent (Esc to cancel)'
+              : 'Capture a region for the agent'
+          }
+          aria-label="Capture region"
+          style={capturing ? { color: 'var(--color-primary)' } : undefined}
         >
-          <Icon name="context" size={14} />
+          <Icon name="attach" size={14} />
         </IconButton>
       </div>
 
-      {/* Picked element → task the agent to change it (localhost dev loop). */}
-      {(picked || sent) && (
+      {/* Capture mode hint / "added to chat input" confirmation. */}
+      {(capturing || notice) && (
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
-            padding: '8px 10px',
+            gap: 6,
+            padding: '6px 12px',
+            fontSize: 12,
+            color: notice ? 'var(--color-green)' : 'var(--color-text-muted)',
             borderBottom: '1px solid var(--color-card-border)',
             background: 'var(--color-input-soft)',
             flexShrink: 0,
           }}
         >
-          {sent && !picked ? (
-            <span style={{ fontSize: 12, color: 'var(--color-green)' }}>
-              ✓ Asked the agent — see the Chat tab for the response.
-            </span>
-          ) : (
-            <>
-              <Icon name="context" size={13} />
-              <code
-                title={picked?.selector}
-                style={{
-                  fontSize: 11,
-                  color: 'var(--color-text-muted)',
-                  maxWidth: 200,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                }}
-              >
-                {picked?.selector}
-              </code>
-              <input
-                value={change}
-                onChange={(e) => setChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    askAgent();
-                  } else if (e.key === 'Escape') {
-                    setPicked(null);
-                  }
-                }}
-                autoFocus
-                placeholder="Describe the change for the agent… (e.g. make it blue)"
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  padding: '5px 10px',
-                  fontSize: 12,
-                  color: 'var(--color-text)',
-                  border: '1px solid var(--color-card-border)',
-                  borderRadius: 8,
-                  background: 'var(--color-surface)',
-                  outline: 'none',
-                }}
-              />
-              <Button variant="primary" size="sm" onClick={askAgent} disabled={change.trim().length === 0}>
-                Ask agent
-              </Button>
-              <IconButton size={22} onClick={() => setPicked(null)} title="Dismiss" aria-label="Dismiss">
-                <Icon name="x" size={13} />
-              </IconButton>
-            </>
-          )}
+          {notice ?? 'Drag a box over the area to capture for the agent — Esc to cancel.'}
         </div>
       )}
 
@@ -416,23 +385,56 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
       <div
         ref={hostRef}
         tabIndex={0}
-        onMouseDown={() => hostRef.current?.focus()}
-        onClick={(e) => {
-          const n = norm(e);
-          if (!n) return;
-          if (picking) {
-            // Capture the element instead of clicking it through to the page.
-            surface.input({ type: 'pick', ...n });
-            setPicking(false);
-          } else {
-            surface.input({ type: 'click', ...n });
+        onMouseDown={(e) => {
+          if (capturing) {
+            const p = relPos(e);
+            if (p) {
+              e.preventDefault();
+              setDrag({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+            }
+            return;
           }
+          hostRef.current?.focus();
+        }}
+        onMouseMove={(e) => {
+          if (capturing) {
+            if (drag) {
+              const p = relPos(e);
+              if (p) setDrag((d) => (d ? { ...d, x1: p.x, y1: p.y } : d));
+            }
+            return;
+          }
+          if (hasView) onHover(e);
+        }}
+        onMouseUp={() => {
+          if (!capturing || !drag) return;
+          const rect = hostRef.current?.getBoundingClientRect();
+          setDrag(null);
+          setCapturing(false);
+          if (!rect || rect.width === 0 || rect.height === 0) return;
+          const minX = Math.min(drag.x0, drag.x1);
+          const minY = Math.min(drag.y0, drag.y1);
+          const w = Math.abs(drag.x1 - drag.x0);
+          const h = Math.abs(drag.y1 - drag.y0);
+          if (w < 6 || h < 6) return; // too small — treat as a stray click
+          surface.input({
+            type: 'capture',
+            fx: minX / rect.width,
+            fy: minY / rect.height,
+            fw: w / rect.width,
+            fh: h / rect.height,
+          });
+        }}
+        onClick={(e) => {
+          if (capturing) return; // drag handles capture mode
+          const n = norm(e);
+          if (n) surface.input({ type: 'click', ...n });
         }}
         onDoubleClick={(e) => {
+          if (capturing) return;
           const n = norm(e);
           if (n) surface.input({ type: 'dblclick', ...n });
         }}
-        onMouseMove={hasView ? onHover : undefined}
         onWheel={(e) => surface.input({ type: 'scroll', dy: e.deltaY })}
         onKeyDown={onKeyDown}
         style={{
@@ -442,9 +444,25 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
           overflow: 'hidden',
           background: '#0b0f17',
           outline: 'none',
-          cursor: picking ? 'crosshair' : 'default',
+          cursor: capturing ? 'crosshair' : 'default',
         }}
       >
+        {/* Drag-selection overlay (region capture). */}
+        {drag && (
+          <div
+            style={{
+              position: 'absolute',
+              left: Math.min(drag.x0, drag.x1),
+              top: Math.min(drag.y0, drag.y1),
+              width: Math.abs(drag.x1 - drag.x0),
+              height: Math.abs(drag.y1 - drag.y0),
+              border: '2px solid var(--color-primary)',
+              background: 'color-mix(in srgb, var(--color-primary) 14%, transparent)',
+              pointerEvents: 'none',
+              zIndex: 2,
+            }}
+          />
+        )}
         {hasView ? (
           <img
             src={frame ?? undefined}

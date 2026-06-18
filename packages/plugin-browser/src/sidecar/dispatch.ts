@@ -142,7 +142,10 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // plus the current url + viewport size, so the renderer can map clicks
       // back onto the page. One round-trip per frame.
       const h = await ensurePlaywright(state, {});
-      const buf = await h.page.screenshot({ type: 'jpeg', quality: 55 });
+      // quality 70 (was 55) + the context's deviceScaleFactor:2 = legible text in
+      // the live view. Reports the CSS viewport size (the image is 2× that) so the
+      // renderer keeps mapping clicks in CSS coords.
+      const buf = await h.page.screenshot({ type: 'jpeg', quality: 70 });
       const vp = h.page.viewportSize() ?? { width: 1280, height: 720 };
       return {
         id: req.id,
@@ -223,6 +226,23 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       const h = await ensurePlaywright(state, {});
       await h.page.evaluate(`document.documentElement.style.zoom=String(${f})`);
       return { id: req.id, ok: true };
+    }
+    case 'capture': {
+      // Sharp PNG of a region the user dragged — attached to the chat composer so
+      // the agent SEES the area ("change this to …"). Coords are CSS px; the
+      // context's deviceScaleFactor:2 makes the PNG 2× → crisp.
+      const { x, y, width, height } = (req.params ?? {}) as {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      };
+      if (![x, y, width, height].every((n) => Number.isFinite(n)) || width < 1 || height < 1) {
+        throw badParams('x, y, width, height must be finite; width/height positive');
+      }
+      const h = await ensurePlaywright(state, {});
+      const buf = await h.page.screenshot({ type: 'png', clip: { x, y, width, height } });
+      return { id: req.id, ok: true, result: { mediaType: 'image/png', base64: buf.toString('base64') } };
     }
     case 'pick': {
       // Identify the element at (x,y) so the user can hand it to the agent

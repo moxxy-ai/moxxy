@@ -33,7 +33,7 @@ export type Reply = Ok | Err;
 export interface BrowserType {
   launch(opts: {
     headless: boolean;
-  }): Promise<{ close(): Promise<void>; newContext(): Promise<unknown> }>;
+  }): Promise<{ close(): Promise<void>; newContext(opts?: unknown): Promise<unknown> }>;
 }
 
 export interface PageHandle {

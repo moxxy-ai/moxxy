@@ -149,7 +149,10 @@ export async function launchWithAutoInstall(
 
 async function launchOnce(browserType: BrowserType, headless: boolean): Promise<PlaywrightHandle> {
   const browser = await browserType.launch({ headless });
-  const context = (await browser.newContext()) as PlaywrightHandle['context'];
+  // deviceScaleFactor: 2 so the live-view / region screenshots are captured at
+  // Retina density — a 1× capture upscaled into a HiDPI pane is what made the
+  // surface look blurry. Costs ~2× the screenshot bytes; worth it for crisp text.
+  const context = (await browser.newContext({ deviceScaleFactor: 2 })) as PlaywrightHandle['context'];
   await installNavigationSsrfGuard(context);
   const page = (await context.newPage()) as unknown as PageHandle;
   return { browser, context, page };

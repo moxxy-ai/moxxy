@@ -27,10 +27,10 @@ import { installPlaywrightPackage } from './sidecar/install.js';
  * Chromium.
  */
 
-const FRAME_INTERVAL_MS = 450;
+const FRAME_INTERVAL_MS = 300;
 /** Consecutive `frame` failures (with no frame ever seen) before we stop
- *  assuming "still launching" and show the error. ~4 × 450ms ≈ 1.8s grace. */
-const FAIL_GRACE = 4;
+ *  assuming "still launching" and show the error. ~6 × 300ms ≈ 1.8s grace. */
+const FAIL_GRACE = 6;
 
 interface Frame {
   mediaType: string;
@@ -213,13 +213,21 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
               () => undefined,
             );
             void tick();
-          } else if (msg.type === 'pick' && typeof msg.fx === 'number' && typeof msg.fy === 'number') {
-            // Identify the element the user pointed at and hand it back to the
-            // pane (which lets the user task the agent to change it).
-            const element = await browserSidecarCall('pick', { x: msg.fx * vw, y: msg.fy * vh }, deps).catch(
-              () => null,
-            );
-            emit({ type: 'picked', element });
+          } else if (
+            msg.type === 'capture' &&
+            typeof msg.fx === 'number' &&
+            typeof msg.fy === 'number' &&
+            typeof msg.fw === 'number' &&
+            typeof msg.fh === 'number'
+          ) {
+            // Sharp PNG of the dragged region → handed back to the pane, which
+            // attaches it to the chat composer (the user then describes the change).
+            const shot = (await browserSidecarCall(
+              'capture',
+              { x: msg.fx * vw, y: msg.fy * vh, width: msg.fw * vw, height: msg.fh * vh },
+              deps,
+            ).catch(() => null)) as { base64: string; mediaType: string } | null;
+            if (shot) emit({ type: 'captured', base64: shot.base64, mediaType: shot.mediaType });
           } else if (msg.type === 'zoom' && typeof msg.factor === 'number') {
             await browserSidecarCall('zoom', { factor: msg.factor }, deps).catch(() => undefined);
             bump();

@@ -12,8 +12,8 @@ import { closeBrowserSidecar, type SidecarStream } from './browser-session.js';
  * input coordinate de-normalization are exercised without Playwright.
  */
 
-const FRAME_INTERVAL_MS = 450;
-const FAIL_GRACE = 4;
+const FRAME_INTERVAL_MS = 300;
+const FAIL_GRACE = 6;
 
 type Reply = { ok: true; result: unknown } | { ok: false; message: string; kind?: string };
 
@@ -291,30 +291,32 @@ describe('browser surface input mapping', () => {
     surface.close();
   });
 
-  it('zoom forwards the factor; pick maps coords and emits the element', async () => {
+  it('zoom forwards the factor; capture maps the region and emits the PNG', async () => {
     vi.useFakeTimers();
     const sidecar = makeControllableSpawn();
     sidecar.setHandler((method) => {
       if (method === 'frame') return { ok: true, result: frame({ width: 1000, height: 500 }) };
-      if (method === 'pick') return { ok: true, result: { selector: 'button#go', tag: 'button', text: 'Go' } };
+      if (method === 'capture') return { ok: true, result: { mediaType: 'image/png', base64: 'PNGDATA' } };
       return { ok: true, result: {} };
     });
     const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
-    const events: Array<{ type: string; element?: unknown }> = [];
+    const events: Array<{ type: string; base64?: string }> = [];
     surface.onData((p) => events.push(p as { type: string }));
     await flush();
 
     await surface.input({ type: 'zoom', factor: 1.5 });
-    await surface.input({ type: 'pick', fx: 0.5, fy: 0.2 });
+    await surface.input({ type: 'capture', fx: 0.1, fy: 0.2, fw: 0.5, fh: 0.4 });
     await flush();
 
     expect(sidecar.received.find((r) => r.method === 'zoom')?.params).toEqual({ factor: 1.5 });
-    expect(sidecar.received.find((r) => r.method === 'pick')?.params).toEqual({ x: 500, y: 100 });
-    expect(events.find((e) => e.type === 'picked')?.element).toEqual({
-      selector: 'button#go',
-      tag: 'button',
-      text: 'Go',
+    // normalized region × viewport (1000×500) → CSS px clip.
+    expect(sidecar.received.find((r) => r.method === 'capture')?.params).toEqual({
+      x: 100,
+      y: 100,
+      width: 500,
+      height: 200,
     });
+    expect(events.find((e) => e.type === 'captured')?.base64).toBe('PNGDATA');
     surface.close();
   });
 
