@@ -199,6 +199,18 @@ rail + git "Files changed" diff pane. Reviewed this journal before/while doing
 the work; the change is purely additive infrastructure, so it retires no existing
 item — the debt it *creates* is logged here on sight:
 
+- **Surfaces are ref-counted; a single viewer's `close` must not destroy a
+  shared instance.** Root cause of "can't type into the terminal / browser won't
+  navigate": `SurfaceHost.close` tore the instance down on the first close, and
+  React StrictMode's mount→unmount→remount made the first mount's late `open`
+  fire a `close` that destroyed the instance the remount was using — output kept
+  flowing from the snapshot, but `input`/`resize` hit a missing instance and were
+  dropped silently. Fixed with per-kind viewer ref-counting (`open` retains,
+  `close` releases, teardown at zero; `closeAll` force-destroys). **Constraint:**
+  a surface is shared by the agent's tool + every viewer, so its lifecycle is the
+  session's, not any one viewer's — keep the refcount balanced if you add new
+  open/close call sites (e.g. mobile attaching to the same surface). Covered by
+  `packages/core/src/surfaces/host.test.ts`.
 - **Terminal sizing depends on the pane being full-width at mount (no width
   animation).** Root cause of the "prompt renders one char per line" bug: when
   the rail animated its width open, xterm's `fit()` measured a mid-slide sliver
