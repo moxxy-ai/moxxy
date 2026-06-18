@@ -113,6 +113,8 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return openPluginsPicker(deps);
     case '/goal':
       return startGoal(deps, args);
+    case '/collab':
+      return startCollab(deps, args);
     case '/yolo':
     case '/auto-approve':
       deps.setYolo((y) => {
@@ -406,6 +408,43 @@ function startGoal(deps: SlashDeps, arg: string): void {
     objective
       ? '🎯 goal mode — tools auto-approved; working until the objective is delivered. Press Esc to stop.'
       : '🎯 goal mode on — tools auto-approved. Send your objective as the next message (Esc stops).',
+  );
+  if (objective) deps.submitPrompt(objective);
+}
+
+/**
+ * `/collab <goal>` — the agentic-collaborative entry point. Switches to the
+ * `collaborative` mode and, when a goal is given, kicks it off immediately: an
+ * architect agent designs the plan + contracts and PROPOSES a roster, which
+ * surfaces as the usual approval prompt (review/launch/cancel) — then the team
+ * of agents runs in parallel and their live status renders inline as the
+ * `◆ collab` block. Step in anytime with /collab_say, /collab_direct,
+ * /collab_pause, /collab_resume. Bare `/collab` just arms the mode.
+ *
+ * Unlike /goal it does NOT force yolo: the roster-approval checkpoint (and any
+ * conflict escalation) is intentional human-in-the-loop. The spawned peer
+ * agents auto-approve inside their own processes.
+ */
+function startCollab(deps: SlashDeps, arg: string): void {
+  const objective = arg.trim();
+  const COLLAB_MODE = 'collaborative';
+  if (!deps.session.modes.list().some((m) => m.name === COLLAB_MODE)) {
+    deps.setSystemNotice('collaborative mode is not available (mode-collaborative plugin not loaded)');
+    return;
+  }
+  try {
+    deps.session.modes.setActive(COLLAB_MODE);
+    void savePreferences({ mode: COLLAB_MODE });
+  } catch (err) {
+    deps.setSystemNotice(
+      `failed to switch to collaborative mode: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
+  }
+  deps.setSystemNotice(
+    objective
+      ? '👥 collaborative mode — the architect is designing the plan; you’ll be asked to approve the team roster. Press Esc to stop.'
+      : '👥 collaborative mode on. Send the goal as the next message — an architect will propose a team for you to approve.',
   );
   if (objective) deps.submitPrompt(objective);
 }

@@ -48,6 +48,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
     argumentHint: '<objective>',
   },
   {
+    name: 'collab',
+    description: 'Run a team of agents on a goal — architect proposes a roster (you approve), then they build in parallel',
+    argumentHint: '<goal>',
+  },
+  {
     name: 'yolo',
     description: 'Toggle auto-approve mode — every tool call allowed without asking',
     aliases: ['auto-approve'],
