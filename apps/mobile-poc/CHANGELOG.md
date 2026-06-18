@@ -1,5 +1,12 @@
 # @moxxy/mobile-poc
 
+## 0.0.14
+
+### Patch Changes
+
+- @moxxy/client-core@0.8.1
+- @moxxy/client-transport-ws@0.1.17
+
 ## 0.0.13
 
 ### Patch Changes
