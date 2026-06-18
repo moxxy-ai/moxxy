@@ -1,5 +1,13 @@
 # @moxxy/plugin-provider-local
 
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [5f20dab]
+  - @moxxy/sdk@0.14.3
+  - @moxxy/plugin-provider-openai@0.0.20
+
 ## 0.0.5
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.1.15
+
+### Patch Changes
+
+- Updated dependencies [5f20dab]
+  - @moxxy/sdk@0.14.3
+  - @moxxy/desktop-ipc-contract@0.7.5
+  - @moxxy/ipc-server-ws@0.1.14
+  - @moxxy/plugin-channel-web@0.0.20
+
 ## 0.1.14
 
 ### Patch Changes

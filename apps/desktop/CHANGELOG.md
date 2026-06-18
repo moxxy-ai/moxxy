@@ -1,5 +1,48 @@
 # @moxxy/desktop
 
+## 0.8.9
+
+### Patch Changes
+
+- 5f20dab: Quality sweep, wave 6 (god-file decomposition — atomic modules)
+
+  Behavior-preserving structural refactor: the largest god-files are split into
+  focused, single-responsibility sibling modules and re-exported from their
+  original paths, so every existing import and the public API are byte-identical
+  (verified by typecheck + check:deps + the existing test suites).
+
+  - runner: `RemoteSession` (1145→789 LOC) → per-surface `client-views/*`;
+    `RunnerServer` (781→509 LOC) → per-domain `handlers/*`. Wire protocol unchanged.
+  - `@moxxy/sdk`: `mode-helpers.ts` (797 LOC) → `mode/{project-messages,collect-stream,single-shot,stuck-loop,stable-hash}.ts`, barrel exports byte-identical.
+  - plugin-workflows DAG executor, plugin-webhooks tools, plugin-self-update
+    core-tools split into per-concern/per-tool modules.
+  - desktop: electron `main/index.ts`, `WorkflowCanvas.tsx` (→ `canvas-graph` +
+    camera/drag hooks), `Composer.tsx` decomposed; pure helpers now unit-tested.
+  - `desktop-ipc-contract` barrel split into per-domain files (re-exported).
+  - cli `setup/builtins.ts` + `setup/workflows.ts` decomposed into composables.
+  - core `PluginHost` registration/unregistration is now driven by one
+    `REGISTRY_KINDS` table (was 2 parallel hardcoded 16-entry lists); shared
+    `PluginHostOptions` extracted to a leaf to keep the host/table dependency
+    one-directional (no import cycle).
+
+  Cross-package moves (e.g. relocating voice tools to a new package) were
+  deferred — they change package boundaries and belong in their own PRs.
+
+- Updated dependencies [5f20dab]
+  - @moxxy/sdk@0.14.3
+  - @moxxy/cli@0.12.8
+  - @moxxy/chat-model@0.1.5
+  - @moxxy/client-core@0.6.5
+  - @moxxy/desktop-host@0.5.5
+  - @moxxy/desktop-ipc-contract@0.7.5
+  - @moxxy/ipc-server-ws@0.1.14
+  - @moxxy/plugin-channel-mobile@0.1.15
+  - @moxxy/plugin-stt-whisper-codex@0.0.20
+  - @moxxy/plugin-vault@0.0.20
+  - @moxxy/runner@0.2.7
+  - @moxxy/workflows-builder@0.1.8
+  - @moxxy/client-platform-web@0.1.14
+
 ## 0.8.8
 
 ### Patch Changes
