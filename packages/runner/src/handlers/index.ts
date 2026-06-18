@@ -30,6 +30,7 @@ export {
 export {
   handleModeSetActive,
   handleSessionSetReasoning,
+  handleSessionLoadHistory,
   handlePermissionAddAllow,
   handleCommandRun,
 } from './session-handlers.js';

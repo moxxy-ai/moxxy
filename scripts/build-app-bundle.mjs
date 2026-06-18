@@ -105,20 +105,28 @@ function main() {
   }
 
   // Lockstep guard: the immutable bootstrap bakes FLOOR_RUNNER_PROTOCOL and uses
-  // it as the ceiling for any hot-update. If a runner-protocol bump forgot to
-  // update that floor constant, the gate would mis-judge skew — fail the build
-  // here rather than ship a wrong floor.
+  // it as the ceiling for any hot-update — a staged JS bundle whose signed
+  // `runnerProtocol` EXCEEDS the floor would strand the desktop with a client
+  // newer than any runner its bundled CLI can spawn. The floor is therefore a
+  // guaranteed-serveable MINIMUM, so it must never be HIGHER than
+  // RUNNER_PROTOCOL_VERSION (that would promise a protocol the CLI can't serve).
+  // It MAY legitimately LAG when the runner adds an OPTIONAL, version-gated
+  // method (e.g. v10's `session.loadHistory`, which the renderer feature-detects
+  // and falls back from): such skew is additive and the desktop keeps working
+  // against the floor runner. So assert `floor <= RUNNER_PROTOCOL_VERSION` rather
+  // than strict equality — a forgotten bump that pushes the floor ABOVE the
+  // runner still fails the build.
   const floorSrc = readFileSync(
     path.join(desktopDir, 'electron', 'main', 'floor-runner-protocol.ts'),
     'utf8',
   );
   const floorMatch = /FLOOR_RUNNER_PROTOCOL\s*=\s*(\d+)/.exec(floorSrc);
   const floorProtocol = floorMatch ? Number.parseInt(floorMatch[1], 10) : NaN;
-  if (floorProtocol !== RUNNER_PROTOCOL_VERSION) {
+  if (!Number.isFinite(floorProtocol) || floorProtocol > RUNNER_PROTOCOL_VERSION) {
     console.error(
-      `build-app-bundle: FLOOR_RUNNER_PROTOCOL (${floorProtocol}) != ` +
+      `build-app-bundle: FLOOR_RUNNER_PROTOCOL (${floorProtocol}) must be <= ` +
         `@moxxy/runner RUNNER_PROTOCOL_VERSION (${RUNNER_PROTOCOL_VERSION}) — ` +
-        'update apps/desktop/electron/main/floor-runner-protocol.ts to match.',
+        'update apps/desktop/electron/main/floor-runner-protocol.ts.',
     );
     process.exit(1);
   }

@@ -32,13 +32,18 @@ import type {
   SurfaceDataMessage,
   SurfaceInstance,
 } from '@moxxy/sdk';
-import { FakeProvider, textReply, toolUseReply } from '@moxxy/testing';
+import { FakeProvider, streamingTextReply, textReply, toolUseReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { startRunnerServer, type RunnerServer } from './server.js';
-import { connectRemoteSession, type RemoteSession } from './remote-session.js';
+import { connectRemoteSession, RemoteSession } from './remote-session.js';
 import { connectUnixSocket } from './unix-socket.js';
 import { JsonRpcPeer } from './jsonrpc.js';
-import { RUNNER_PROTOCOL_VERSION, RunnerMethod } from './protocol.js';
+import {
+  RUNNER_PROTOCOL_VERSION,
+  RunnerMethod,
+  type SessionLoadHistoryResult,
+} from './protocol.js';
+import type { ProviderEvent } from '@moxxy/sdk';
 
 function buildSession(provider: FakeProvider, logger: Logger = silentLogger): Session {
   const session = new Session({
@@ -1348,5 +1353,254 @@ describe('surfaces (protocol v8)', () => {
     const { socketPath } = await serve(new FakeProvider({ script: [textReply('hi')] }));
     const remote = await attach(socketPath);
     await expect(remote.openSurface('terminal')).rejects.toThrow(/No surface registered/);
+  });
+});
+
+/** A reply that STREAMS text deltas then fails mid-stream WITHOUT a clean
+ *  message_end — collectProviderStream returns `{ text, error }`, so the
+ *  default mode loop returns without sealing an assistant_message. */
+function streamThenError(chunks: ReadonlyArray<string>): ReadonlyArray<ProviderEvent> {
+  return [
+    { type: 'message_start', model: 'fake' },
+    ...chunks.map<ProviderEvent>((c) => ({ type: 'text_delta', delta: c })),
+    { type: 'error', message: 'provider blew up mid-stream', retryable: false },
+  ];
+}
+
+/** Like {@link streamThenError} but the mid-stream error is RETRYABLE, so the
+ *  default-mode loop backs off and RETRIES (consuming the NEXT scripted reply)
+ *  instead of ending the turn — leaving this iteration's streamed chunks in the
+ *  log with no sealing `assistant_message`. */
+function streamThenRetryable(chunks: ReadonlyArray<string>): ReadonlyArray<ProviderEvent> {
+  return [
+    { type: 'message_start', model: 'fake' },
+    ...chunks.map<ProviderEvent>((c) => ({ type: 'text_delta', delta: c })),
+    { type: 'error', message: 'transient blip — retry', retryable: true },
+  ];
+}
+
+describe('session.loadHistory paging (protocol v10)', () => {
+  it('returns the newest page and walks older pages via prevCursor to a null start', async () => {
+    // Build a multi-turn conversation so the log has many events to page.
+    const { socketPath } = await serve(
+      new FakeProvider({
+        script: [textReply('a1'), textReply('a2'), textReply('a3')],
+      }),
+    );
+    const remote = await attach(socketPath);
+    for await (const _e of remote.runTurn('q1')) void _e;
+    for await (const _e of remote.runTurn('q2')) void _e;
+    for await (const _e of remote.runTurn('q3')) void _e;
+    const total = remote.log.length;
+    expect(total).toBeGreaterThan(3);
+
+    // Newest page.
+    const newest = await remote.loadHistory(null, 4);
+    expect(newest.events.length).toBe(4);
+    // It is the tail of the log, in ascending seq order.
+    expect(newest.events.map((e) => e.seq)).toEqual([total - 4, total - 3, total - 2, total - 1]);
+    expect(newest.prevCursor).toBe(total - 4);
+
+    // Walk all the way back; the collected seqs reconstruct the whole log once.
+    const collected: number[] = [...newest.events.map((e) => e.seq)];
+    let before = newest.prevCursor;
+    for (let guard = 0; guard < 100 && before !== null; guard += 1) {
+      const page: SessionLoadHistoryResult = await remote.loadHistory(before, 4);
+      collected.unshift(...page.events.map((e) => e.seq));
+      before = page.prevCursor;
+    }
+    expect(collected).toEqual(Array.from({ length: total }, (_, i) => i));
+  });
+
+  it('returns an empty page with a null cursor for an empty log', async () => {
+    const { socketPath } = await serve(new FakeProvider({ script: [textReply('unused')] }));
+    const remote = await attach(socketPath);
+    const page = await remote.loadHistory(null, 10);
+    expect(page.events).toEqual([]);
+    expect(page.prevCursor).toBeNull();
+  });
+
+  it('returns the whole log and a null cursor when limit exceeds history', async () => {
+    const { socketPath } = await serve(new FakeProvider({ script: [textReply('only answer')] }));
+    const remote = await attach(socketPath);
+    for await (const _e of remote.runTurn('q')) void _e;
+    const total = remote.log.length;
+
+    const page = await remote.loadHistory(null, 1000);
+    expect(page.events.map((e) => e.seq)).toEqual(Array.from({ length: total }, (_, i) => i));
+    // The start of history is included → no older page.
+    expect(page.prevCursor).toBeNull();
+    // The page IS the authoritative log (same content the mirror holds).
+    expect(JSON.stringify(page.events)).toBe(JSON.stringify(remote.log.toJSON()));
+  });
+});
+
+describe('session.loadHistory version gate (protocol v10)', () => {
+  /** A pair of in-memory transports wired to each other (mirrors remote-session.test). */
+  function makePair(): [import('./transport.js').Transport, import('./transport.js').Transport] {
+    let aOnFrame: ((f: unknown) => void) | undefined;
+    let bOnFrame: ((f: unknown) => void) | undefined;
+    let aOnClose: ((e?: Error) => void) | undefined;
+    let bOnClose: ((e?: Error) => void) | undefined;
+    let closed = false;
+    const closeBoth = (): void => {
+      if (closed) return;
+      closed = true;
+      queueMicrotask(() => {
+        aOnClose?.();
+        bOnClose?.();
+      });
+    };
+    const a: import('./transport.js').Transport = {
+      send: (f) => {
+        if (!closed) queueMicrotask(() => bOnFrame?.(f));
+      },
+      onFrame: (h) => {
+        aOnFrame = h;
+      },
+      onClose: (h) => {
+        aOnClose = h;
+      },
+      close: closeBoth,
+    };
+    const b: import('./transport.js').Transport = {
+      send: (f) => {
+        if (!closed) queueMicrotask(() => aOnFrame?.(f));
+      },
+      onFrame: (h) => {
+        bOnFrame = h;
+      },
+      onClose: (h) => {
+        bOnClose = h;
+      },
+      close: closeBoth,
+    };
+    return [a, b];
+  }
+
+  const fakeInfo = {
+    sessionId: 'fake',
+    cwd: process.cwd(),
+    providers: [],
+    tools: [],
+    modes: [],
+    skills: [],
+    commands: [],
+    readyProviders: [],
+    activeProvider: null,
+    activeMode: null,
+  } as const;
+
+  it('throws an actionable error against a runner reporting protocol < 10', async () => {
+    const [clientT, serverT] = makePair();
+    const server = new JsonRpcPeer(serverT);
+    let loadHistoryCalled = false;
+    // An OLDER runner: reports v9 and has no session.loadHistory handler.
+    server.handle(RunnerMethod.Attach, () => ({
+      sessionId: 'fake',
+      protocolVersion: 9,
+      info: fakeInfo,
+    }));
+    server.handle(RunnerMethod.SessionLoadHistory, () => {
+      loadHistoryCalled = true;
+      return { events: [], prevCursor: null };
+    });
+    const client = new RemoteSession(clientT);
+    await client.attach('desktop', 0);
+    expect(client.runnerProtocolVersion).toBe(9);
+
+    // The client must NOT hit the wire — it gates and throws a clear, actionable
+    // "update the CLI" error so the desktop can catch it and fall back to NDJSON.
+    await expect(client.loadHistory(null, 50)).rejects.toThrow(/update the moxxy CLI/i);
+    await expect(client.loadHistory(null, 50)).rejects.toThrow(/v9, needs v10/);
+    expect(loadHistoryCalled).toBe(false);
+    clientT.close();
+  });
+
+  it('reaches the runner when it reports protocol >= 10', async () => {
+    const [clientT, serverT] = makePair();
+    const server = new JsonRpcPeer(serverT);
+    server.handle(RunnerMethod.Attach, () => ({
+      sessionId: 'fake',
+      protocolVersion: 10,
+      info: fakeInfo,
+    }));
+    server.handle(RunnerMethod.SessionLoadHistory, (raw) => {
+      const { before, limit } = raw as { before: number | null; limit: number };
+      return { events: [], prevCursor: before === null ? null : limit };
+    });
+    const client = new RemoteSession(clientT);
+    await client.attach('desktop', 0);
+    const page = await client.loadHistory(null, 50);
+    expect(page).toEqual({ events: [], prevCursor: null });
+    clientT.close();
+  });
+});
+
+describe('log completeness: stream-without-seal', () => {
+  it('persists a REAL assistant_message when streamed text was never sealed', async () => {
+    // The provider streams text deltas then errors before a clean message_end,
+    // so the default-mode loop returns without emitting an assistant_message.
+    // The runner must seal the streamed text into a real assistant_message so
+    // the runner log is the complete authoritative history (no renderer synth).
+    const { session, socketPath } = await serve(
+      new FakeProvider({ script: [streamThenError(['par', 'tial ', 'reply'])] }),
+    );
+    const remote = await attach(socketPath);
+
+    // Drive the turn to completion (it ends in a fatal error event).
+    const streamedTypes: string[] = [];
+    for await (const event of remote.runTurn('go')) streamedTypes.push(event.type);
+
+    // Chunks DID stream (so the renderer would otherwise have to synthesize)...
+    expect(streamedTypes).toContain('assistant_chunk');
+
+    // ...and the AUTHORITATIVE runner log now carries a REAL assistant_message
+    // reconstructed from those chunks — with a normal seq, not the renderer's -1.
+    const sealed = session.log.ofType('assistant_message');
+    expect(sealed.length).toBe(1);
+    expect((sealed[0] as AssistantMessageEvent).content).toBe('partial reply');
+    expect(sealed[0]!.seq).toBeGreaterThanOrEqual(0);
+
+    // The mirror received it as a normal streamed event too.
+    const mirrored = remote.log.ofType('assistant_message')[0] as AssistantMessageEvent | undefined;
+    expect(mirrored?.content).toBe('partial reply');
+  });
+
+  it('does NOT double-seal the normal (provider-sealed) path', async () => {
+    // A clean reply seals its own assistant_message; the runner must not append
+    // a second one. Behavior-preserving for the common case.
+    const { session, socketPath } = await serve(
+      new FakeProvider({ script: [streamingTextReply(['hel', 'lo'])] }),
+    );
+    const remote = await attach(socketPath);
+    for await (const _e of remote.runTurn('hi')) void _e;
+
+    const sealed = session.log.ofType('assistant_message');
+    expect(sealed.length).toBe(1);
+    expect((sealed[0] as AssistantMessageEvent).content).toBe('hello');
+  });
+
+  it('seals only the FINAL iteration text, not an abandoned retryable attempt', async () => {
+    // A turn can stream text, hit a RETRYABLE provider error (transient
+    // 429/outage), retry, stream MORE text, then end without a clean
+    // assistant_message. The seal must keep only the final attempt's text — the
+    // abandoned attempt's chunks must NOT bleed into the sealed reply, which
+    // would durably corrupt the authoritative log ("ABANDONED-final").
+    const { session, socketPath } = await serve(
+      new FakeProvider({
+        // iter 1: streams "ABANDONED-" then a RETRYABLE error → the loop retries.
+        // iter 2: streams "final" then a NON-retryable error → turn ends unsealed.
+        script: [streamThenRetryable(['ABAN', 'DONED-']), streamThenError(['fin', 'al'])],
+      }),
+    );
+    const remote = await attach(socketPath);
+    // One retryable retry incurs a single ~500ms back-off; the turn still ends
+    // in a fatal error event.
+    for await (const _e of remote.runTurn('go')) void _e;
+
+    const sealed = session.log.ofType('assistant_message');
+    expect(sealed.length).toBe(1);
+    expect((sealed[0] as AssistantMessageEvent).content).toBe('final');
   });
 });

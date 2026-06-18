@@ -463,6 +463,115 @@ export async function restoreEvents(
   return events;
 }
 
+/** One page of persisted events, newest-page-first paging (see
+ *  {@link readEventPage}). */
+export interface EventPage {
+  /** The events in this page, in ascending `seq` order. */
+  readonly events: MoxxyEvent[];
+  /**
+   * Cursor to pass as `before` for the NEXT (older) page — the `seq` of the
+   * OLDEST event in this page. `null` once the start of history (the first
+   * persisted event) is included, signalling there is no older page.
+   */
+  readonly prevCursor: number | null;
+}
+
+/**
+ * Read ONE page of a persisted session's events without re-materializing the
+ * whole conversation into a live {@link EventLog}. Backs the runner's
+ * `session.loadHistory` so a thin client (the desktop) can page history from
+ * the runner's authoritative JSONL instead of its own NDJSON mirror.
+ *
+ * Paging is newest-first, walking backwards:
+ *   - `before == null` — the NEWEST page: the last `limit` events on disk.
+ *   - `before == N` — the page of (up to) `limit` events strictly OLDER than
+ *     `seq === N` (the events immediately preceding the cursor). Pass the
+ *     previous page's `prevCursor` here to step one page further back.
+ *
+ * The returned `events` are always in ascending `seq` order (oldest-first
+ * WITHIN the page) so a caller can prepend a page to an in-order transcript.
+ * `prevCursor` is the `seq` of the page's oldest event, or `null` once the
+ * first persisted event is included (no older page remains).
+ *
+ * Corrupt lines are skipped (matching {@link restoreEvents}); unlike
+ * `restoreEvents` this is a READ-ONLY reader — it never rewrites the file, so
+ * it preserves the JSONL exactly (no atomic-write / mutex needed: there is no
+ * mutation). Paging keys on each event's on-disk `seq`. Determinism holds for a
+ * MONOTONICALLY-INCREASING seq sequence — including a gapped-but-increasing one
+ * (the append path guarantees this; the next resume re-sequences to contiguous
+ * 0..n-1 anyway). DUPLICATE / non-strictly-increasing seqs are only reachable
+ * via external file corruption, and a backward `prevCursor` walk over them can
+ * drop events page-size-dependently until that next resume repairs the log.
+ *
+ * A missing log file is treated as an EMPTY history (`{ events: [], prevCursor:
+ * null }`), not an error — a freshly-created session whose JSONL hasn't been
+ * written yet must page as empty rather than throw.
+ */
+export async function readEventPage(
+  sessionId: string,
+  opts: { before: number | null; limit: number },
+  dir = defaultSessionsDir(),
+): Promise<EventPage> {
+  const logPath = path.join(dir, `${sessionId}.jsonl`);
+  let raw: string;
+  try {
+    raw = await fs.readFile(logPath, 'utf8');
+  } catch {
+    // No log on disk yet → empty history, not an error.
+    return { events: [], prevCursor: null };
+  }
+
+  // Parse the JSONL, skipping corrupt lines (one bad append must not make the
+  // rest unreadable). Read-only: we never rewrite the file here.
+  const all: MoxxyEvent[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      all.push(JSON.parse(line) as MoxxyEvent);
+    } catch {
+      // skip a malformed/half-written line, same as restoreEvents
+    }
+  }
+  // Delegate ALL paging (including the limit/cursor clamping) to pageEvents so
+  // the disk and in-memory paths are identical by construction — no separate
+  // limit handling here that could diverge from the in-memory page.
+  return pageEvents(all, opts.before, opts.limit);
+}
+
+/**
+ * Slice one newest-first page out of an ascending-`seq` event array. Pure +
+ * exported so the runner can reuse the EXACT paging semantics when it serves a
+ * page out of its in-memory log instead of disk — the two paths must agree
+ * byte-for-byte or a client crossing between them (in-memory → disk fallback)
+ * would see a discontinuity. `events` MUST be ordered oldest-first (the on-disk
+ * / append order); `before`/`limit` follow {@link readEventPage}.
+ */
+export function pageEvents(
+  events: ReadonlyArray<MoxxyEvent>,
+  before: number | null,
+  limit: number,
+): EventPage {
+  const cap = Math.max(0, Math.floor(limit));
+  if (cap === 0 || events.length === 0) {
+    return { events: [], prevCursor: events.length === 0 ? null : before };
+  }
+  // Exclusive upper bound by `seq`: the first index whose event is NOT older
+  // than `before`. `before == null` (newest page) keeps the whole array.
+  let end = events.length;
+  if (before !== null) {
+    end = 0;
+    for (let i = 0; i < events.length; i += 1) {
+      if (events[i]!.seq < before) end = i + 1;
+      else break;
+    }
+  }
+  const start = Math.max(0, end - cap);
+  const page = events.slice(start, end);
+  // `null` once this page reaches the very first event on disk — no older page.
+  const prevCursor = start <= 0 ? null : page[0]!.seq;
+  return { events: page, prevCursor };
+}
+
 /**
  * Remove a session's log file and its sidecar. A leftover legacy `index.json`
  * row, if any, is harmless — `readIndex` filters out sessions whose `.jsonl` is

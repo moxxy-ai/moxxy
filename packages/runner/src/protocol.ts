@@ -127,11 +127,26 @@ import type {
  * reasoning-effort selector. A v9 client gates the method on the server's
  * reported version. (Additive — a v8 server simply lacks this one method.)
  *
- * Every change v1→v9 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v10: adds `session.loadHistory` — a paged reader over the runner's
+ * AUTHORITATIVE event history (params `{ before, limit }`, result
+ * `{ events, prevCursor }`). It backs the desktop's dual-history retirement:
+ * the renderer will read transcript history from the runner instead of its own
+ * NDJSON chat store. Paging is newest-first — `before: null` is the newest page;
+ * `prevCursor` is the cursor to pass for the next OLDER page (`null` once the
+ * start of history is reached). The handler serves a page out of the runner's
+ * in-memory log when it reaches seq 0, else falls through to a paged JSONL
+ * reader so it works even when the whole log isn't in memory. A v10 client gates
+ * the method on the server's reported version (see {@link AttachResult}) so a
+ * newer desktop attached to an OLDER runner gets a clear "update the CLI" error
+ * — which the renderer CATCHES to fall back to its existing NDJSON path, so no
+ * transcript ever goes blank. (Additive — a v9 server simply lacks this one
+ * method.)
+ *
+ * Every change v1→v10 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 9;
+export const RUNNER_PROTOCOL_VERSION = 10;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -160,6 +175,13 @@ export const RunnerMethod = {
    * attached clients so every mirror clears in lockstep.
    */
   SessionReset: 'session.reset',
+  /**
+   * client->server: page the runner's authoritative event history (v10).
+   * `{ before, limit }` → `{ events, prevCursor }`, newest-first. Backs the
+   * desktop dual-history retirement; a v10 client gates it on the server's
+   * reported version and falls back to its NDJSON store against an older runner.
+   */
+  SessionLoadHistory: 'session.loadHistory',
   /** client->server: declare which resolvers this client will answer. */
   SetResolver: 'setResolver',
   /** client->server: switch the active mode. */
@@ -325,6 +347,34 @@ export interface ModeSetActiveParams {
 export type ReasoningEffortLevel = 'off' | 'low' | 'medium' | 'high';
 export interface SessionSetReasoningParams {
   readonly effort: ReasoningEffortLevel;
+}
+
+/**
+ * Params for `session.loadHistory` (v10). `before` is a `seq` cursor: `null`
+ * requests the NEWEST page; a number requests the page of events strictly OLDER
+ * than that seq (pass a prior result's `prevCursor` to step back). `limit`
+ * bounds the page size in RAW events (see {@link SessionLoadHistoryResult}).
+ */
+export interface SessionLoadHistoryParams {
+  readonly before: number | null;
+  readonly limit: number;
+}
+/**
+ * Result of `session.loadHistory` (v10). `events` is one page in ascending
+ * `seq` order (oldest-first within the page). `prevCursor` is the cursor to
+ * pass as `before` for the NEXT older page — the seq of this page's oldest
+ * event — or `null` once the start of history is reached (no older page).
+ *
+ * `events` is the RAW authoritative log: it includes non-rendered events
+ * (e.g. `assistant_chunk` deltas, `provider_request`/`provider_response`
+ * bookends), and `limit` counts those too. So a page of `limit` raw events can
+ * project to far fewer rendered messages — the renderer filters with
+ * `isRenderedEvent` and keeps paging until it has enough RENDERED events
+ * ("page-until-K-rendered"), rather than assuming one page == K messages.
+ */
+export interface SessionLoadHistoryResult {
+  readonly events: ReadonlyArray<MoxxyEvent>;
+  readonly prevCursor: number | null;
 }
 
 export interface ProviderSetActiveParams {
@@ -513,6 +563,18 @@ export const modeSetActiveParamsSchema = z.object({ name: z.string() });
 
 export const sessionSetReasoningParamsSchema = z.object({
   effort: z.enum(['off', 'low', 'medium', 'high']),
+});
+
+/**
+ * Params for `session.loadHistory` (v10). `before` is a non-negative seq cursor
+ * (or null for the newest page); `limit` is bounded so a hostile client can't
+ * demand the entire conversation as one page (the renderer pages incrementally,
+ * well under this cap). `nullable()` keeps `before: null` explicit on the wire.
+ */
+export const MAX_HISTORY_PAGE_LIMIT = 2_000;
+export const sessionLoadHistoryParamsSchema = z.object({
+  before: z.number().int().nonnegative().nullable(),
+  limit: z.number().int().positive().max(MAX_HISTORY_PAGE_LIMIT),
 });
 
 export const providerSetActiveParamsSchema = z.object({
