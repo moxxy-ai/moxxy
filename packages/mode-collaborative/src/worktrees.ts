@@ -11,7 +11,7 @@
 
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { PeerReader } from '@moxxy/plugin-collab';
 
 export interface GitResult {
@@ -217,6 +217,27 @@ export async function deleteBranch(repoCwd: string, name: string): Promise<void>
 }
 
 /**
+ * Resolve `requested` strictly inside `baseDir`, rejecting anything that would
+ * escape it. The coordinator runs `peerReaderFor` and has fs access to the
+ * whole machine, while `requested` is an UNTRUSTED, peer-supplied string (it
+ * arrives over the hub socket from another agent's `collab_peer_read` tool
+ * call), so this is a real trust boundary. A naive `join(dir, p).startsWith(dir)`
+ * check is unsafe: it accepts absolute paths spliced onto `dir`, AND it accepts
+ * a sibling whose name merely shares `dir` as a string prefix (e.g. `dir` =
+ * `/wt/a`, `p` = `../a-evil/secret` → `/wt/a-evil/secret`, which startsWith
+ * `/wt/a`). Resolve and compare via `relative`, which is path-segment aware.
+ */
+function resolveWithin(baseDir: string, requested: string): string {
+  const base = resolve(baseDir);
+  const target = resolve(base, requested);
+  const rel = relative(base, target);
+  if (rel === '' || rel === '.' || (!rel.startsWith('..') && !isAbsolute(rel))) {
+    return target;
+  }
+  throw new Error('path escapes the worktree');
+}
+
+/**
  * A {@link PeerReader} backed by the agents' worktrees — lets one agent read
  * another's actual in-progress files (served by the coordinator, which has fs
  * access to every worktree). Path traversal is contained to the worktree.
@@ -233,9 +254,7 @@ export function peerReaderFor(worktrees: ReadonlyMap<string, string>, baseSha: s
     },
     async read(agentId, path) {
       const dir = dirFor(agentId);
-      const resolved = join(dir, path);
-      if (!resolved.startsWith(dir)) throw new Error('path escapes the worktree');
-      return readFile(resolved, 'utf8');
+      return readFile(resolveWithin(dir, path), 'utf8');
     },
     async diff(agentId) {
       return diffVsBase(dirFor(agentId), baseSha);

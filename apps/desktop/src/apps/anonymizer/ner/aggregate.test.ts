@@ -33,4 +33,39 @@ describe('aggregate', () => {
     const spans = aggregate(tokens, text);
     expect(spans.map((s) => s.start)).toEqual([0, 8]);
   });
+
+  it('locates a short entity at a WORD-ALIGNED offset, not inside a larger word', () => {
+    // Regression: a raw indexOf('Al') would land inside 'Alabama' (offset 0),
+    // redacting non-PII and leaving the real person 'Al' exposed. The span must
+    // land on the standalone 'Al'.
+    const text = 'Alabama is where Al lives';
+    const spans = aggregate([tok('B-PER', 'Al')], text);
+    expect(spans).toEqual([{ category: 'person', start: 17, end: 19, value: 'Al' }]);
+  });
+
+  it('recovers a hyphen-joined surface the tokenizer split into spaced parts', () => {
+    // 'Jean-Pierre' tokenizes to Jean / - / Pierre → surface 'Jean - Pierre',
+    // which indexOf can't find. The span must still be recovered (else the name
+    // leaks unredacted).
+    const text = 'Jean-Pierre called';
+    const spans = aggregate([tok('B-PER', 'Jean'), tok('I-PER', '-'), tok('I-PER', 'Pierre')], text);
+    expect(spans).toEqual([{ category: 'person', start: 0, end: 11, value: 'Jean-Pierre' }]);
+  });
+
+  it('recovers an accented name whose tokenized surface had diacritics stripped', () => {
+    // BERT tokenizers strip accents, so the surface is 'Zoe' but the source is
+    // 'Zoë'. The span (with the ORIGINAL accented value) must be recovered.
+    const text = 'hi Zoë there';
+    const spans = aggregate([tok('B-PER', 'Zoe')], text);
+    expect(spans).toEqual([{ category: 'person', start: 3, end: 6, value: 'Zoë' }]);
+  });
+
+  it('does not leak by dropping a found entity when the cursor overshot', () => {
+    // If an earlier group consumed text past a later entity's only occurrence,
+    // the cursor must not strand the later entity (which would leak). Here both
+    // 'Sam' occurrences are word-aligned; the second resolves correctly.
+    const text = 'Sam emailed Sam';
+    const spans = aggregate([tok('B-PER', 'Sam'), tok('B-PER', 'Sam')], text);
+    expect(spans.map((s) => s.start)).toEqual([0, 12]);
+  });
 });

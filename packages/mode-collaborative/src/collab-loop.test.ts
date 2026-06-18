@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
 import type { CollaborationHub } from '@moxxy/plugin-collab';
-import { runCollaborative, type CollabDeps } from './collab-loop.js';
+import { runCollaborative, sleep, type CollabDeps } from './collab-loop.js';
 import { resolveCollabConfig } from './config.js';
 import type { Supervisor } from './peer-supervisor.js';
 import { git } from './worktrees.js';
@@ -147,5 +148,24 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     // sequential edits land directly in the shared workspace
     expect(existsSync(join(dir, 'api.ts'))).toBe(true);
     expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
+  });
+});
+
+describe('sleep (poll helper)', () => {
+  it('does not leak abort listeners on the normal-timeout path', async () => {
+    // A collaboration polls every ~500ms for up to its wall-clock guard
+    // (30 min default) — thousands of sleeps on ONE long-lived signal. A leak
+    // here means a MaxListenersExceededWarning + unbounded listener growth.
+    const ac = new AbortController();
+    for (let i = 0; i < 20; i++) await sleep(0, ac.signal);
+    expect(getEventListeners(ac.signal, 'abort').length).toBe(0);
+  });
+
+  it('still resolves and cleans up when aborted mid-sleep', async () => {
+    const ac = new AbortController();
+    const p = sleep(10_000, ac.signal);
+    ac.abort();
+    await p; // resolves immediately on abort rather than waiting out the timer
+    expect(getEventListeners(ac.signal, 'abort').length).toBe(0);
   });
 });

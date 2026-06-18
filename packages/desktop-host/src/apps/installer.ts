@@ -16,6 +16,14 @@
  * a single byte is written — the same path-traversal containment discipline as
  * {@link ../loopback-server.ts}. An absolute dest, a `..` segment, a NUL byte,
  * or a symlink that escapes the app dir is refused.
+ *
+ * Network egress is also locked down (mirrors the Tier-2 stager's
+ * {@link ../app-update/stager.ts} `isAllowedUpdateHost` gate): every asset `url`
+ * MUST be `https:` on an allow-listed host before a single byte is fetched (so a
+ * future registry typo, a `file:`/`http:`/internal-host URL, or any other caller
+ * can't turn this into an SSRF or local-file read), and each download is capped
+ * at {@link MAX_ASSET_BYTES} so a hostile/buggy server can't fill the disk by
+ * streaming an unbounded body.
  */
 
 import { createHash } from 'node:crypto';
@@ -49,6 +57,37 @@ export interface AppInstallSpec {
 /** App ids index a filesystem dir + a custom-scheme host segment, so confine
  *  them to a strict slug (no `..`, no separators, no scheme tricks). */
 const APP_ID = /^[a-z][a-z0-9-]*$/;
+
+/** Hosts an asset may be fetched FROM. Mirrors the Tier-2 updater's
+ *  `ALLOWED_HOSTS` discipline: an exact-or-subdomain match so `huggingface.co`
+ *  and its LFS CDN are admitted but `…huggingface.co.evil` is not. The registry
+ *  only ships Hugging Face `resolve` URLs (which 30x-redirect to the HF CDN), so
+ *  this is the closed set of origins the installer is ever expected to reach.
+ *  Note: like the stager, the gate validates the INITIAL url only — a 30x to the
+ *  HF CDN is allowed to follow (the redirect target is HF-operated); a hostile
+ *  initial url can never reach the network at all. */
+const ALLOWED_ASSET_HOSTS = [/(^|\.)huggingface\.co$/, /(^|\.)hf\.co$/];
+
+/** Hard ceiling on any single downloaded asset. The largest real asset is the
+ *  ~109 MB quantised NER model; 512 MB leaves generous headroom while still
+ *  bounding a hostile/buggy server that streams an unbounded body (disk-fill
+ *  DoS). Tunable per call via {@link installApp}'s `maxAssetBytes`. */
+export const MAX_ASSET_BYTES = 512 * 1024 * 1024;
+
+/**
+ * Whether `url` is a fetch target the installer may reach: `https:` on an
+ * allow-listed host. Exported so the gate is unit-testable in isolation.
+ */
+export function isAllowedAssetUrl(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  return ALLOWED_ASSET_HOSTS.some((re) => re.test(u.hostname));
+}
 
 /** Marker file written into an app's dir once every asset is present. */
 const INSTALLED_MARKER = 'installed.json';
@@ -188,6 +227,7 @@ export async function installApp(
   appsRoot: string,
   onProgress: (p: AppInstallProgress) => void,
   fetchImpl: FetchLike = fetch,
+  maxAssetBytes: number = MAX_ASSET_BYTES,
 ): Promise<AppInstallStatus> {
   const dir = appDir(appsRoot, spec.id);
   // Sum of Content-Lengths discovered so far drives an honest total; seed it
@@ -220,6 +260,13 @@ export async function installApp(
         }
       }
 
+      // Egress allow-list: only https on an allow-listed host is ever fetched,
+      // so a registry typo / injected url can never reach an arbitrary origin
+      // (SSRF) or a local file. Checked BEFORE the network call.
+      if (!isAllowedAssetUrl(asset.url)) {
+        throw new Error(`asset url is not on an allowed host: ${JSON.stringify(asset.url)}`);
+      }
+
       await mkdir(path.dirname(abs), { recursive: true });
       await assertRealpathContained(dir, abs);
 
@@ -229,6 +276,13 @@ export async function installApp(
         throw new Error(`download failed for ${asset.dest}: HTTP ${res.status}`);
       }
       const len = Number(res.headers.get('content-length'));
+      // Reject an over-cap download up front when the server is honest about its
+      // size (the streaming guard below still catches a lying / chunked server).
+      if (Number.isFinite(len) && len > maxAssetBytes) {
+        throw new Error(
+          `asset ${asset.dest} exceeds the ${maxAssetBytes}-byte cap (content-length ${len})`,
+        );
+      }
       if (Number.isFinite(len) && len > 0) {
         // Replace this asset's advisory `bytes` contribution with the real one.
         totalBytes += len - (asset.bytes ?? 0);
@@ -238,11 +292,23 @@ export async function installApp(
       const out = createWriteStream(partial);
       // Tee the stream so progress ticks as bytes land, then close it.
       const reader = res.body.getReader();
+      let assetBytes = 0;
+      let overCap = false;
       try {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
           if (value) {
+            assetBytes += value.byteLength;
+            // Hard ceiling: a chunked / content-length-lying server can't stream
+            // an unbounded body and fill the disk. Cancel the body and fail; the
+            // (now bounded-at-cap) partial is removed below so the abort leaves
+            // nothing large behind.
+            if (assetBytes > maxAssetBytes) {
+              overCap = true;
+              await reader.cancel().catch(() => {});
+              break;
+            }
             receivedBytes += value.byteLength;
             // Backpressure: respect the write stream's drain signal.
             if (!out.write(Buffer.from(value.buffer, value.byteOffset, value.byteLength))) {
@@ -255,6 +321,10 @@ export async function installApp(
         await new Promise<void>((resolve, reject) => {
           out.end((err?: NodeJS.ErrnoException | null) => (err ? reject(err) : resolve()));
         });
+      }
+      if (overCap) {
+        await rm(partial, { force: true });
+        throw new Error(`asset ${asset.dest} exceeds the ${maxAssetBytes}-byte cap mid-stream`);
       }
 
       if (asset.sha256) {

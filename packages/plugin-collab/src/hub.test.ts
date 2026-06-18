@@ -101,6 +101,44 @@ describe('CollaborationHub over a real socket', () => {
     if (!clash.ok) expect(clash.ownedBy).toBe('backend');
   });
 
+  it('does not let one connection release or steal another\'s lock by id', async () => {
+    const { hub, socketPath } = await startHub();
+    void hub;
+    const backend = await CollabHubClient.connect(socketPath, 'backend');
+    const tests = await CollabHubClient.connect(socketPath, 'tests');
+    cleanups.push(() => backend.close(), () => tests.close());
+
+    const claim = await backend.boardClaim(['src/api']);
+    expect(claim.ok).toBe(true);
+    const id = claim.ok ? claim.item.id : '';
+
+    // tests cannot release backend's lock by id...
+    await tests.boardRelease({ id });
+    expect((await tests.boardClaim(['src/api/routes.ts'])).ok).toBe(false);
+
+    // ...nor hijack the board item by id with disjoint paths
+    const hijack = await tests.boardClaim(['src/other'], id);
+    expect(hijack.ok).toBe(false);
+    const { items } = await tests.boardRead();
+    expect(items.find((it) => it.id === id)?.owner).toBe('backend');
+  });
+
+  it('frees a crashed peer\'s locks for survivors', async () => {
+    const { socketPath } = await startHub();
+    const backend = await CollabHubClient.connect(socketPath, 'backend');
+    const tests = await CollabHubClient.connect(socketPath, 'tests');
+    cleanups.push(() => tests.close());
+
+    const events: CollabEvent[] = [];
+    tests.onEvent((e) => events.push(e));
+
+    expect((await backend.boardClaim(['src/api'])).ok).toBe(true);
+    // backend's link drops → hub marks it crashed → its lock is freed
+    backend.close();
+    await waitFor(events, (e) => e.kind === 'agent_status' && e.agentId === 'backend' && e.status === 'crashed');
+    expect((await tests.boardClaim(['src/api/routes.ts'])).ok).toBe(true);
+  });
+
   it('serves contracts and peer-read across connections', async () => {
     const { hub, socketPath } = await startHub();
     void hub;

@@ -41,4 +41,43 @@ describe('detect', () => {
     const spans = detect('secret-project launch', { categories: [], customTerms: ['secret-project'] });
     expect(spans.map((s) => s.value)).toEqual(['secret-project']);
   });
+
+  it('resolves a chain of overlapping extraSpans by priority, keeping survivors sorted', () => {
+    // person(0..11) overlaps email(5..16); email outranks person → email wins.
+    // A non-overlapping later org(20..23) survives independently. The result must
+    // stay sorted by start and be non-overlapping.
+    const text = 'John smith@x.com here Foo elsewhere';
+    const spans = detect(text, {
+      categories: ['email'],
+      extraSpans: [
+        { category: 'person', start: 0, end: 11, value: text.slice(0, 11) },
+        { category: 'org', start: 22, end: 25, value: text.slice(22, 25) },
+      ],
+    });
+    expect(spans.map((s) => [s.category, s.start, s.end])).toEqual([
+      ['email', 5, 16],
+      ['org', 22, 25],
+    ]);
+    for (let i = 1; i < spans.length; i++) {
+      expect(spans[i]!.start).toBeGreaterThanOrEqual(spans[i - 1]!.end);
+    }
+  });
+
+  it('resolves a large fully-disjoint span set without quadratic blowup', () => {
+    // 40k non-overlapping custom hits is the pathological case for overlap
+    // resolution: a linear-scan resolver is O(n²) (multiple seconds and rising
+    // steeply); the binary-search resolver is O(n log n) (tens of ms). The bound
+    // is generous (3s) so it never flakes on a slow CI box yet still trips if the
+    // quadratic scan is reintroduced (which blows past it well before this size).
+    const term = 'zz';
+    const text = Array.from({ length: 40_000 }, () => term).join(' ');
+    const t0 = Date.now();
+    const spans = detect(text, { categories: [], customTerms: [term] });
+    expect(spans).toHaveLength(40_000);
+    expect(Date.now() - t0).toBeLessThan(3_000);
+    // Sorted + non-overlapping.
+    for (let i = 1; i < spans.length; i++) {
+      expect(spans[i]!.start).toBeGreaterThanOrEqual(spans[i - 1]!.end);
+    }
+  });
 });

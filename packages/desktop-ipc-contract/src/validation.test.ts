@@ -231,6 +231,75 @@ describe('IPC payload validation', () => {
     }
   });
 
+  it('confines apps.* appId to a non-traversing slug', () => {
+    // appId keys a per-app install dir + a network download, so it must be a
+    // strict slug — no traversal, no separators, no uppercase, bounded length.
+    for (const cmd of ['apps.status', 'apps.install', 'apps.uninstall'] as const) {
+      expect(() => validateIpcInput(cmd, { appId: 'anonymizer' })).not.toThrow();
+      expect(() => validateIpcInput(cmd, { appId: '../evil' })).toThrow();
+      expect(() => validateIpcInput(cmd, { appId: 'a/b' })).toThrow();
+      expect(() => validateIpcInput(cmd, { appId: 'Anonymizer' })).toThrow();
+      expect(() => validateIpcInput(cmd, { appId: '' })).toThrow();
+      expect(() => validateIpcInput(cmd, { appId: 'a'.repeat(65) })).toThrow();
+      expect(() => validateIpcInput(cmd, {})).toThrow();
+    }
+  });
+
+  it('bounds anonymizer.parseDocument path + pins pickDocument to no payload', () => {
+    expect(() => validateIpcInput('anonymizer.parseDocument', { path: '/a/b.txt' })).not.toThrow();
+    expect(() => validateIpcInput('anonymizer.parseDocument', { path: '' })).toThrow();
+    expect(() =>
+      validateIpcInput('anonymizer.parseDocument', { path: 'x'.repeat(4097) }),
+    ).toThrow();
+    // pickDocument takes nothing — a payload can't be smuggled across.
+    expect(() => validateIpcInput('anonymizer.pickDocument', undefined)).not.toThrow();
+    expect(() => validateIpcInput('anonymizer.pickDocument', { sneaky: 1 })).toThrow();
+  });
+
+  it('caps anonymizer.parseDocumentBytes name + base64 size (OOM guard)', () => {
+    expect(() =>
+      validateIpcInput('anonymizer.parseDocumentBytes', { name: 'doc.pdf', dataBase64: 'AAAA' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('anonymizer.parseDocumentBytes', { name: '', dataBase64: 'AAAA' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('anonymizer.parseDocumentBytes', {
+        name: 'n'.repeat(256),
+        dataBase64: 'AAAA',
+      }),
+    ).toThrow();
+    // Empty body and an over-cap body both rejected at the boundary.
+    expect(() =>
+      validateIpcInput('anonymizer.parseDocumentBytes', { name: 'doc.pdf', dataBase64: '' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('anonymizer.parseDocumentBytes', {
+        name: 'doc.pdf',
+        dataBase64: 'A'.repeat(67_000_001),
+      }),
+    ).toThrow();
+  });
+
+  it('bounds anonymizer.saveRedacted name + content (OOM guard)', () => {
+    expect(() =>
+      validateIpcInput('anonymizer.saveRedacted', { suggestedName: 'out.txt', content: 'hi' }),
+    ).not.toThrow();
+    // Empty content is valid (a fully-redacted-to-nothing doc); name is required.
+    expect(() =>
+      validateIpcInput('anonymizer.saveRedacted', { suggestedName: 'out.txt', content: '' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('anonymizer.saveRedacted', { suggestedName: '', content: 'hi' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('anonymizer.saveRedacted', {
+        suggestedName: 'out.txt',
+        content: 'x'.repeat(20_000_001),
+      }),
+    ).toThrow();
+  });
+
   it('is a no-op for commands without a schema', () => {
     expect(() => validateIpcInput('desks.list', undefined)).not.toThrow();
     expect(() => validateIpcInput('connection.snapshotAll', undefined)).not.toThrow();

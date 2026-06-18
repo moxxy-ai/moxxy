@@ -350,12 +350,24 @@ async function waitForAgents(
   }
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
+/** Abortable delay. Exported for tests (it must not leak abort listeners over
+ *  the run's thousands of poll iterations). Internal otherwise. */
+export function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal.aborted) return resolve();
-    const t = setTimeout(resolve, ms);
+    const onAbort = (): void => {
+      clearTimeout(t);
+      resolve();
+    };
+    const t = setTimeout(() => {
+      // The poll loop calls this thousands of times over a run; remove the
+      // abort listener on the normal-timeout path too, or they accumulate on
+      // the long-lived coordinator signal (MaxListenersExceededWarning + leak).
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
     t.unref?.();
-    signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
