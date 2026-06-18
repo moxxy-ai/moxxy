@@ -1,5 +1,34 @@
 # @moxxy/desktop
 
+## 0.11.1
+
+### Patch Changes
+
+- 50a5b38: Quality sweep finalize: desktop side of the @moxxy/sdk ./server subpath split
+
+  The desktop main process (ws-bridge + host modules) now imports Node-only SDK
+  helpers from `@moxxy/sdk/server` rather than the main barrel, matching the
+  boundary the dep-cruiser `no-node-builtins-in-renderer` rule now enforces. No
+  behavior change.
+
+- Updated dependencies [50a5b38]
+- Updated dependencies [50a5b38]
+- Updated dependencies [50a5b38]
+- Updated dependencies [50a5b38]
+  - @moxxy/sdk@0.14.5
+  - @moxxy/cli@0.13.2
+  - @moxxy/chat-model@0.2.3
+  - @moxxy/client-core@0.8.2
+  - @moxxy/client-platform-web@0.1.19
+  - @moxxy/desktop-host@0.7.1
+  - @moxxy/desktop-ipc-contract@0.9.1
+  - @moxxy/ipc-server-ws@0.1.18
+  - @moxxy/plugin-channel-mobile@0.1.19
+  - @moxxy/plugin-stt-whisper-codex@0.0.22
+  - @moxxy/plugin-vault@0.0.22
+  - @moxxy/runner@0.2.9
+  - @moxxy/workflows-builder@0.1.10
+
 ## 0.11.0
 
 ### Minor Changes

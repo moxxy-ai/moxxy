@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/mode-default",
   "private": true,
-  "version": "0.0.21",
+  "version": "0.0.22",
   "description": "Default loop strategy for moxxy — Claude Code-style ReAct loop.",
   "type": "module",
   "main": "./dist/index.js",

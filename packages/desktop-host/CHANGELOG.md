@@ -1,5 +1,19 @@
 # @moxxy/desktop-host
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [50a5b38]
+- Updated dependencies [50a5b38]
+- Updated dependencies [50a5b38]
+  - @moxxy/sdk@0.14.5
+  - @moxxy/core@0.2.8
+  - @moxxy/desktop-ipc-contract@0.9.1
+  - @moxxy/plugin-stt-whisper-codex@0.0.22
+  - @moxxy/plugin-vault@0.0.22
+  - @moxxy/runner@0.2.9
+
 ## 0.7.0
 
 ### Minor Changes
