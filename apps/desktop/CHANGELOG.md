@@ -1,5 +1,12 @@
 # @moxxy/desktop
 
+## 0.17.1
+
+### Patch Changes
+
+- Updated dependencies [a2cb758]
+  - @moxxy/cli@0.14.4
+
 ## 0.17.0
 
 ### Minor Changes
