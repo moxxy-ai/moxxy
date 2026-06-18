@@ -38,7 +38,7 @@ describe('collaboration fold', () => {
       }),
       ce('collab_agent_spawned', { id: 'backend', role: 'implementer' }),
       ce('collab_message', { kind: 'message', message: { id: 'm1', from: 'backend', to: 'all', body: 'starting', ts: 5000 } }),
-      ce('collab_board_update', { kind: 'board', action: 'claim', item: { id: 't1', title: 'api.ts', status: 'claimed', owner: 'backend' } }),
+      ce('collab_board_update', { kind: 'board', action: 'claim', item: { id: 't1', title: 'api.ts', status: 'claimed', owner: 'backend', paths: ['src/api.ts'], detail: 'build the api' } }),
       ce('collab_agent_done', { kind: 'agent_done', agentId: 'backend', summary: 'done api' }),
       ce('collab_control', { kind: 'control', control: { paused: true } }),
       ce('collab_conflict', { agentId: 'tests', files: ['shared.ts'] }),
@@ -57,6 +57,9 @@ describe('collaboration fold', () => {
     expect(collab.agents.find((a) => a.id === 'backend')?.summary).toBe('done api');
     expect(collab.messages.map((m) => m.body)).toEqual(['starting']);
     expect(collab.tasks[0]?.status).toBe('claimed');
+    // claimed paths fold into the task (the run's deliverables) + detail
+    expect(collab.tasks[0]?.paths).toEqual(['src/api.ts']);
+    expect(collab.tasks[0]?.detail).toBe('build the api');
     expect(collab.contracts[0]?.title).toBe('API');
     expect(collab.control?.paused).toBe(true);
     expect(collab.conflicts[0]?.files).toEqual(['shared.ts']);

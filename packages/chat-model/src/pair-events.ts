@@ -237,17 +237,23 @@ function handleCollabEvent(
       if (typeof item.id === 'string') {
         const existing = block.tasks.find((x) => x.id === item.id);
         const owner = typeof item.owner === 'string' ? item.owner : null;
+        const paths = Array.isArray(item.paths) ? item.paths.filter((x): x is string => typeof x === 'string') : undefined;
+        const detail = typeof item.detail === 'string' ? item.detail : undefined;
         if (!existing) {
           block.tasks.push({
             id: item.id,
             title: String(item.title ?? ''),
             status: String(item.status ?? 'open'),
             owner,
+            ...(paths && paths.length > 0 ? { paths } : {}),
+            ...(detail ? { detail } : {}),
           });
         } else {
           existing.title = String(item.title ?? existing.title);
           existing.status = String(item.status ?? existing.status);
           existing.owner = owner ?? existing.owner;
+          if (paths && paths.length > 0) existing.paths = paths;
+          if (detail) existing.detail = detail;
         }
       }
       break;
