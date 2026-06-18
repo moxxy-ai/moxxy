@@ -9,6 +9,12 @@ export interface UseAnonymizer {
    *  discriminated union (`{text}` | `{error}`) — a bad parse is data, not a
    *  thrown error. All redaction then happens in the renderer (offline). */
   readonly pickAndParse: () => Promise<AnonymizerParseResult | null>;
+  /** Parse a drag-and-dropped document from the base64 BYTES the renderer
+   *  already holds (the dropped file's contents) — no path crosses the boundary,
+   *  so main reads no arbitrary file. The caller reads the `File` + base64-encodes
+   *  it (this hook is DOM-free, so it takes plain strings). Same offline guarantee
+   *  + result shape as {@link pickAndParse}. */
+  readonly parseDroppedBytes: (name: string, dataBase64: string) => Promise<AnonymizerParseResult>;
   /** Save renderer-produced redacted text via a native Save dialog. Returns the
    *  chosen path, or null if cancelled. */
   readonly save: (suggestedName: string, content: string) => Promise<string | null>;
@@ -39,6 +45,23 @@ export function useAnonymizer(): UseAnonymizer {
     }
   }, []);
 
+  const parseDroppedBytes = useCallback(
+    async (name: string, dataBase64: string): Promise<AnonymizerParseResult> => {
+      setBusy(true);
+      setError(null);
+      try {
+        return await api().invoke('anonymizer.parseDocumentBytes', { name, dataBase64 });
+      } catch (e) {
+        const message = toErrorMessage(e);
+        setError(message);
+        return { error: message };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
   const save = useCallback(
     async (suggestedName: string, content: string): Promise<string | null> => {
       setError(null);
@@ -52,5 +75,5 @@ export function useAnonymizer(): UseAnonymizer {
     [],
   );
 
-  return { pickAndParse, save, busy, error };
+  return { pickAndParse, parseDroppedBytes, save, busy, error };
 }

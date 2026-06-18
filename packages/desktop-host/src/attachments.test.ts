@@ -154,4 +154,55 @@ describe('parseFileToText', () => {
   it('returns null for an unreadable path', async () => {
     expect(await parseFileToText('/no/such/file.txt')).toBeNull();
   });
+
+  it('strips RTF control words to plain text (by extension)', async () => {
+    const rtf =
+      '{\\rtf1\\ansi\\deff0 {\\fonttbl{\\f0 Helvetica;}}\\f0\\fs24 ' +
+      'Hello \\b John Smith\\b0 from \\i Berlin\\i0 .\\par Email john@acme.com}';
+    const { path: p } = await tmpFile('memo.rtf', rtf);
+    const text = await parseFileToText(p);
+    expect(text).not.toBeNull();
+    expect(text).toContain('Hello John Smith from Berlin');
+    expect(text).toContain('john@acme.com');
+    // No RTF control words survive.
+    expect(text).not.toMatch(/\\rtf1|\\fonttbl|\\par|\\b0/);
+  });
+
+  it('detects RTF by its magic signature even without a .rtf extension', async () => {
+    const rtf = '{\\rtf1\\ansi Plain content here.\\par}';
+    const { path: p } = await tmpFile('mystery.dat', rtf);
+    expect(await parseFileToText(p)).toContain('Plain content here.');
+  });
+
+  it("decodes RTF \\'xx hex escapes", async () => {
+    // \'e9 is é in the default code page.
+    const rtf = "{\\rtf1\\ansi caf\\'e9 owner Ren\\'e9}";
+    const { path: p } = await tmpFile('accents.rtf', rtf);
+    const text = await parseFileToText(p);
+    expect(text).toContain('café');
+    expect(text).toContain('René');
+  });
+
+  it('recovers readable prose from a legacy binary .doc (OLE)', async () => {
+    // A synthetic OLE doc: the compound-doc magic header, then a WordDocument
+    // stream of readable prose interleaved with NUL/control noise (the shape
+    // legacyDocToText recovers).
+    const OLE_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    const noise = Buffer.from([0, 1, 0, 2, 0, 0, 3]);
+    const prose = Buffer.from('Dear Jane Doe, your account 12345 is ready.', 'latin1');
+    const more = Buffer.from('Contact: jane@example.com', 'latin1');
+    const buf = Buffer.concat([OLE_MAGIC, Buffer.alloc(20), noise, prose, noise, more, noise]);
+    const { path: p } = await tmpFile('letter.doc', buf);
+    const text = await parseFileToText(p);
+    expect(text).not.toBeNull();
+    expect(text).toContain('Dear Jane Doe, your account 12345 is ready.');
+    expect(text).toContain('jane@example.com');
+  });
+
+  it('returns null for a .doc with no recoverable text', async () => {
+    const OLE_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    const buf = Buffer.concat([OLE_MAGIC, Buffer.alloc(64, 0)]);
+    const { path: p } = await tmpFile('empty.doc', buf);
+    expect(await parseFileToText(p)).toBeNull();
+  });
 });

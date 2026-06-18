@@ -11,6 +11,16 @@ you introduce or notice gets written down the moment you see it. See AGENTS.md �
 (merged, PR #6). What remains below is what was deliberately deferred, what was blocked
 as unsafe to do mechanically, and debt accrued since.
 
+**Accrued 2026-06-18 (anonymizer offline ORT).** Shipping the onnxruntime-web WASM
+runtime in the app shell (`apps/desktop` → `dist/ort/`, pinned via the worker's
+`wasmPaths`) makes the NER backend load from `'self'` instead of the jsdelivr CDN. But
+onnxruntime-web's internal `new URL('ort-wasm-simd-threaded.jsep.wasm', import.meta.url)`
+ALSO makes Vite emit a second, hashed copy of the same ~21 MB binary under
+`dist/assets/` that is never loaded at runtime (`proxy:false` + our `wasmPaths` win).
+It's dead weight — ~21 MB of orphan that nonetheless rides every Tier-1 hot-update
+bundle. Follow-up: stop Vite resolving that internal `new URL` (e.g. a resolve alias /
+`assetsInclude` exclusion) so only `dist/ort/` ships. `apps/desktop/electron.vite.config.ts`.
+
 **Last refreshed:** 2026-06-09 (second pass) — **journal repair + audit intake.** PRs #113
 and #115 rebuilt this file from a branch cut before #107/#108 merged, silently resurrecting
 two entries those PRs had retired (P1 #2's growth defect, P2 #6 mode-loop scaffolding) and

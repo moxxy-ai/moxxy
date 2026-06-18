@@ -415,6 +415,18 @@ export interface IpcCommands {
    *  locally. The file is read ONLY if its provenance is authorized (picked or
    *  under a workspace cwd). No provider, no runner, no network. */
   'anonymizer.parseDocument': (args: { path: string }) => Promise<AnonymizerParseResult>;
+  /** Parse a document the user DRAG-AND-DROPPED onto the anonymizer, from the
+   *  base64 BYTES the renderer already holds (the dropped `File`'s contents) —
+   *  NOT a path. The renderer legitimately has the dropped file's content, so
+   *  this grants main no new authority: it extracts text from the supplied bytes
+   *  (no fs read of a renderer-named path, no provider/runner/network). This is
+   *  the safe alternative to taking a path, which a compromised renderer could
+   *  forge to read an arbitrary file — exactly what the picker's provenance gate
+   *  exists to prevent. Bounded size (see `ipcInputSchemas`). */
+  'anonymizer.parseDocumentBytes': (args: {
+    name: string;
+    dataBase64: string;
+  }) => Promise<AnonymizerParseResult>;
   /** Save renderer-produced redacted text to a user-chosen location via a
    *  native Save dialog. Main writes ONLY where the user pointed; returns the
    *  path or null if cancelled. */

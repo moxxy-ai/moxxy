@@ -205,6 +205,13 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // takes nothing — pin it to "nothing" so no args can be smuggled across.
   'anonymizer.pickDocument': z.undefined(),
   'anonymizer.parseDocument': z.object({ path: z.string().min(1).max(4096) }),
+  // A drag-dropped doc: the renderer sends the dropped file's BYTES (base64),
+  // not a path — so there's no arbitrary-file-read to gate, only a size to cap.
+  // ~67 MB of base64 ≈ 50 MB of file, matching the picker's practical ceiling.
+  'anonymizer.parseDocumentBytes': z.object({
+    name: z.string().min(1).max(255),
+    dataBase64: z.string().min(1).max(67_000_000),
+  }),
   'anonymizer.saveRedacted': z.object({
     suggestedName: z.string().min(1).max(255),
     content: z.string().max(20_000_000),

@@ -1,6 +1,113 @@
 import { defineConfig, externalizeDepsPlugin, loadEnv } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { copyFileSync, mkdirSync, existsSync, createReadStream } from 'node:fs';
+import type { Plugin } from 'vite';
+
+/**
+ * The onnxruntime-web WASM artifacts the anonymizer's NER worker needs at
+ * runtime. transformers.js (which bundles onnxruntime-web) dynamically
+ * `import()`s `ort-wasm-simd-threaded.jsep.mjs` (the JS glue), which in turn
+ * fetch-compiles `ort-wasm-simd-threaded.jsep.wasm` (the ~21 MB binary).
+ *
+ * By DEFAULT transformers.js resolves these from the jsdelivr CDN — which (a)
+ * breaks the offline guarantee and (b) is blocked by the renderer CSP (and just
+ * fails outright when the user is offline). So we ship them as part of the app
+ * shell, served from the renderer's OWN origin at `/ort/<file>`, and point ORT
+ * at that local base via `env.backends.onnx.wasm.wasmPaths` in the worker. They
+ * are part of the bundle (unlike the ~109 MB model, which is install-downloaded)
+ * because they are tiny relative to the app and always required.
+ *
+ * The exact set is read from the installed `@huggingface/transformers` so a
+ * version bump can't silently desync the shipped glue from the runtime that
+ * loads it.
+ */
+const ORT_WASM_FILES = [
+  'ort-wasm-simd-threaded.jsep.mjs',
+  'ort-wasm-simd-threaded.jsep.wasm',
+] as const;
+
+/** Base URL path (relative to the renderer origin) the worker's `wasmPaths`
+ *  points at; MUST match {@link ../desktop/src/apps/anonymizer/ner/ner.worker.ts}. */
+const ORT_SERVE_BASE = '/ort/';
+
+function transformersDistDir(): string {
+  const require = createRequire(import.meta.url);
+  // The package's `exports` map doesn't expose `./package.json`, so resolve the
+  // package entry itself — every conditional export lands in `dist/`, so its
+  // dirname IS the dist dir (where the ORT artifacts live). Robust to pnpm's
+  // symlink layout.
+  const entry = require.resolve('@huggingface/transformers');
+  return path.dirname(entry);
+}
+
+/**
+ * Vite plugin: ship the onnxruntime-web WASM artifacts at `/ort/<file>` from the
+ * renderer origin, in BOTH dev (a static middleware) and prod (copied into
+ * `dist/ort/` so electron-builder packs them and the loopback / file:// server
+ * serves them). Nothing is fetched from a CDN.
+ */
+function ortWasmAssets(): Plugin {
+  const distDir = transformersDistDir();
+  return {
+    name: 'moxxy-ort-wasm-assets',
+    apply: 'build',
+    writeBundle(options): void {
+      const outDir = options.dir ?? path.resolve(__dirname, 'dist');
+      const ortOut = path.join(outDir, 'ort');
+      mkdirSync(ortOut, { recursive: true });
+      for (const file of ORT_WASM_FILES) {
+        const src = path.join(distDir, file);
+        if (!existsSync(src)) {
+          throw new Error(
+            `[ort-wasm] expected ${file} in @huggingface/transformers/dist (${distDir}); ` +
+              `the NER worker would fall back to the jsdelivr CDN and break offline use. ` +
+              `Re-run pnpm install or update ORT_WASM_FILES for this transformers version.`,
+          );
+        }
+        copyFileSync(src, path.join(ortOut, file));
+      }
+    },
+  };
+}
+
+/** Dev-only twin of {@link ortWasmAssets}: serve `/ort/<file>` from the
+ *  installed transformers dist so the worker resolves the same local paths the
+ *  packaged build serves (the Vite dev server is the renderer origin in dev). */
+function ortWasmDevServer(): Plugin {
+  const distDir = transformersDistDir();
+  return {
+    name: 'moxxy-ort-wasm-dev-server',
+    apply: 'serve',
+    configureServer(server): void {
+      // Match on the FULL request path (not connect's mounted/stripped url) so
+      // the behaviour matches the packaged `/ort/<file>` serving exactly.
+      server.middlewares.use((req, res, next) => {
+        const pathname = (req.url ?? '').split('?')[0] ?? '';
+        if (!pathname.startsWith(ORT_SERVE_BASE)) {
+          next();
+          return;
+        }
+        const file = pathname.slice(ORT_SERVE_BASE.length);
+        if (!(ORT_WASM_FILES as readonly string[]).includes(file)) {
+          next();
+          return;
+        }
+        const abs = path.join(distDir, file);
+        if (!existsSync(abs)) {
+          next();
+          return;
+        }
+        res.setHeader(
+          'Content-Type',
+          file.endsWith('.wasm') ? 'application/wasm' : 'text/javascript',
+        );
+        createReadStream(abs).pipe(res);
+      });
+    },
+  };
+}
 
 /**
  * Workspace packages the main process imports at runtime. They MUST be
@@ -95,7 +202,7 @@ export default defineConfig(({ mode }) => {
   },
   renderer: {
     root: '.',
-    plugins: [react()],
+    plugins: [react(), ortWasmAssets(), ortWasmDevServer()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),

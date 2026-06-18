@@ -68,6 +68,7 @@ import { buildOAuthHostPatterns, cleanOAuthUserAgent } from './oauth-window.js';
 import { makeCertVerifyProc, makeCertificateErrorHandler } from './loopback-tls.js';
 import { armBootProbe } from './boot-probe.js';
 import { installApplicationMenu } from './menus.js';
+import { registerAppAssetSchemePrivileged } from './app-scheme.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
 // shell PATH / system `node`). Point the CLI resolver at a self-contained,
@@ -80,30 +81,20 @@ if (app.isPackaged && !process.env.MOXXY_CLI_ENTRY) {
   const entry = preferredCliEntry(app.getPath('userData'), process.resourcesPath);
   if (entry) process.env.MOXXY_CLI_ENTRY = entry;
 }
-import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, protocol, session, shell, systemPreferences } from 'electron';
+import { ipcMain, Tray, Menu, nativeImage, nativeTheme, globalShortcut, session, shell, systemPreferences } from 'electron';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Register the local-only `moxxy-app://` asset scheme as privileged BEFORE
-// app-ready (Electron only honors registerSchemesAsPrivileged pre-ready). It
-// serves an installed app's downloaded assets (the anonymizer's NER model) from
-// `userData/moxxy-apps` over a confined GET/HEAD handler (no network egress);
-// the renderer + its worker fetch the model with it (CSP allows `moxxy-app:` in
-// connect-src). `standard + secure` so it's a trusted, fetch/stream-capable
-// origin; `supportFetchAPI`/`stream`/`bytes` so transformers.js can fetch + range
-// the ~109 MB model; `corsEnabled` so a worker request isn't CORS-blocked.
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'moxxy-app',
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      stream: true,
-      corsEnabled: true,
-    },
-  },
-]);
+// The local-only `moxxy-app://` asset scheme (serves an installed app's
+// downloaded assets — e.g. the anonymizer's NER model — from `userData/moxxy-apps`
+// over a confined GET/HEAD handler with no network egress) is registered as
+// privileged by the immutable bootstrap, which is the only code guaranteed to
+// run BEFORE `app` is ready (Electron only honors registerSchemesAsPrivileged
+// pre-ready). This module is loaded by the bootstrap via `import()` AFTER ready,
+// so a top-level registration here would throw and crash the override on load —
+// see ./app-scheme. This call is a defensive no-op in the normal (bootstrap)
+// path; it only does anything if `index.ts` is ever the direct pre-ready entry.
+registerAppAssetSchemePrivileged();
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL'];
 

@@ -351,6 +351,16 @@ export function clerkCspHostSources(publishableKey?: string | null): string[] {
  * from the publishable key (see {@link clerkCspHostSources}); empty for test
  * keys.
  *
+ * The anonymizer's NER worker loads onnxruntime-web's WASM artifacts
+ * (`ort-wasm-simd-threaded.jsep.{mjs,wasm}`) — the `.mjs` glue is a dynamic
+ * module `import()` and the `.wasm` is fetch-compiled. Both ride entirely on
+ * `'self'`: we ship them in the app shell at `/ort/` (served from the renderer's
+ * own origin — see `electron.vite.config.ts`'s `ortWasmAssets` plugin and the
+ * worker's `wasmPaths`), NOT from a CDN. So `script-src 'self'` covers the glue
+ * import, `worker-src 'self'` covers the worker, and `connect-src 'self'` +
+ * `'wasm-unsafe-eval'` cover the binary's fetch + compile — no extra origin and
+ * no CDN (e.g. jsdelivr) is ever permitted.
+ *
  * `connect-src` additionally allows the `moxxy-app:` scheme: the anonymizer's
  * renderer worker fetches its locally installed model files over
  * `moxxy-app://assets/<appId>/...`. That scheme is served by a confined,

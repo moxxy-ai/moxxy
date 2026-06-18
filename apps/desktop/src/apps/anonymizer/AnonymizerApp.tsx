@@ -29,6 +29,17 @@ function parseTerms(s: string): string[] {
     .filter(Boolean);
 }
 
+/** Base64-encode bytes for the drag-and-drop parse IPC. Chunked so a large file
+ *  doesn't exceed the argument-count limit of `String.fromCharCode(...)`. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
 /**
  * Offline document anonymizer. Paste text or open a document, and the redaction
  * runs ENTIRELY in this renderer — structured PII via `@moxxy/anonymizer`
@@ -43,6 +54,7 @@ export function AnonymizerApp({ onExit }: DesktopAppProps): JSX.Element {
   const [input, setInput] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const [categories, setCategories] = useState<ReadonlySet<PiiCategory>>(
     () => new Set(STRUCTURED_CATEGORIES),
   );
@@ -87,16 +99,49 @@ export function AnonymizerApp({ onExit }: DesktopAppProps): JSX.Element {
     });
   };
 
-  const openDocument = async (): Promise<void> => {
-    setFileError(null);
-    const r = await anon.pickAndParse();
-    if (!r) return; // cancelled
+  const applyParse = (r: { text: string } | { error: string }): void => {
     if ('error' in r) {
       setFileError(r.error);
       return;
     }
     setInput(r.text);
     setFileName('document');
+  };
+
+  const openDocument = async (): Promise<void> => {
+    setFileError(null);
+    const r = await anon.pickAndParse();
+    if (!r) return; // cancelled
+    applyParse(r);
+  };
+
+  // Drag-and-drop: read the dropped file's BYTES in the renderer (it already
+  // has them — no filesystem access needed), base64-encode, and parse them in
+  // main. We never send a path, so main can't be tricked into reading an
+  // arbitrary file.
+  const onDrop = (e: React.DragEvent): void => {
+    e.preventDefault();
+    setDragActive(false);
+    setFileError(null);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    void (async () => {
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        applyParse(await anon.parseDroppedBytes(file.name || 'document', bytesToBase64(bytes)));
+      } catch {
+        setFileError('Could not read the dropped file.');
+      }
+    })();
+  };
+
+  const onDragOver = (e: React.DragEvent): void => {
+    e.preventDefault();
+    if (!dragActive) setDragActive(true);
+  };
+  const onDragLeave = (e: React.DragEvent): void => {
+    e.preventDefault();
+    setDragActive(false);
   };
 
   const copyOut = (): void => {
@@ -153,10 +198,33 @@ export function AnonymizerApp({ onExit }: DesktopAppProps): JSX.Element {
               style={{ width: '100%', fontSize: 13, lineHeight: 1.5 }}
             />
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div
+              data-testid="anon-dropzone"
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                alignItems: 'flex-start',
+                padding: '0.9rem',
+                border: `1px dashed ${
+                  dragActive ? 'var(--color-accent)' : 'var(--color-border)'
+                }`,
+                borderRadius: 'var(--radius-block)',
+                background: dragActive ? 'var(--color-bg-card)' : 'transparent',
+                transition: 'border-color 120ms, background 120ms',
+              }}
+            >
               <Button variant="secondary" data-testid="anon-pick" onClick={() => void openDocument()}>
                 <Icon name="attach" size={14} /> Choose a document…
               </Button>
+              <span style={dim}>or drag &amp; drop a file here</span>
+              <span style={dim}>
+                Supports PDF, Word (.doc/.docx), RTF, OpenDocument (.odt/.ods/.odp), spreadsheets,
+                slides, and plain text.
+              </span>
               {anon.busy && <span style={dim}>Reading document…</span>}
               {fileName && !anon.busy && (
                 <span style={dim}>Loaded {result.report.total} item(s) from your document.</span>

@@ -230,6 +230,13 @@ function FolderRow({
       className="row-button"
       style={{
         position: 'relative',
+        // While its ⋯ menu is open this row must paint ABOVE the rows
+        // below it — the menu is anchored inside this row's subtree, and
+        // the ActionsOverlay's `transform` traps the menu's own z-index
+        // in a local stacking context, so without lifting the row a later
+        // sibling row would paint over the open menu (it appears
+        // see-through / overlapped). See RowMenu.
+        zIndex: menuOpen ? 30 : undefined,
         display: 'flex',
         alignItems: 'center',
         gap: 6,
@@ -385,6 +392,11 @@ function SessionRow({
         className={active ? undefined : 'row-button'}
         style={{
           position: 'relative',
+          // While its ⋯ menu is open, lift this row above the rows below
+          // so the menu (anchored in this row's subtree, with its z-index
+          // trapped inside the ActionsOverlay's transform stacking
+          // context) paints opaquely over them instead of being covered.
+          zIndex: menuOpen ? 30 : undefined,
           display: 'flex',
           alignItems: 'center',
           gap: 8,

@@ -61,6 +61,150 @@ function isPdf(buf: Buffer, ext: string): boolean {
   return ext === '.pdf' || (buf.length >= 5 && buf.toString('latin1', 0, 5) === '%PDF-');
 }
 
+/** RTF by extension or its `{\rtf` magic signature. */
+function isRtf(buf: Buffer, ext: string): boolean {
+  return ext === '.rtf' || buf.toString('latin1', 0, 5) === '{\\rtf';
+}
+
+/** Legacy binary Word (`.doc`) / OLE compound document magic
+ *  (`D0 CF 11 E0 A1 B1 1A E1`). officeparser only handles the OOXML `.docx`. */
+function isLegacyDoc(buf: Buffer, ext: string): boolean {
+  const OLE_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+  return ext === '.doc' || (buf.length >= 8 && buf.subarray(0, 8).equals(OLE_MAGIC));
+}
+
+/** RTF control groups whose CONTENTS are metadata, not document prose — their
+ *  whole `{...}` group is skipped so font/colour/style names don't leak in. */
+const RTF_SKIP_GROUPS = new Set([
+  'fonttbl',
+  'colortbl',
+  'stylesheet',
+  'info',
+  'pntext',
+  'listtable',
+  'listoverridetable',
+  'rsidtbl',
+  'generator',
+  'themedata',
+  'colorschememapping',
+  'latentstyles',
+  'datastore',
+]);
+
+/**
+ * Strip RTF control words / groups to plain text — dependency-free (RTF is
+ * 7-bit ASCII: `\controlword`, `{`/`}` groups, and `\'xx` hex escapes). Skips
+ * metadata groups (font/colour/style tables) and any `{\*\...}` destination
+ * group, and treats a control word as a word boundary so adjacent runs don't
+ * fuse. Good enough to recover the document's prose for redaction without
+ * pulling in a heavyweight RTF parser. Returns null if nothing readable remains.
+ */
+function rtfToText(buf: Buffer): string | null {
+  const rtf = buf.toString('latin1');
+  let out = '';
+  // Group-depth stack: each entry says whether that group's text is suppressed
+  // (a metadata/destination group nests inside an already-suppressed one too).
+  const skipStack: boolean[] = [];
+  const suppressed = (): boolean => skipStack.some(Boolean);
+
+  for (let i = 0; i < rtf.length; i++) {
+    const ch = rtf[i]!;
+    if (ch === '{') {
+      // Open a group. Decide if it's a skip group by peeking the destination
+      // control word that (optionally after `\*`) starts it.
+      const after = rtf.slice(i + 1, i + 40);
+      const dest = /^\\\*?\\([a-z]+)/i.exec(after);
+      const isStar = /^\\\*/.test(after);
+      const skip = (dest && RTF_SKIP_GROUPS.has(dest[1]!.toLowerCase())) || isStar;
+      skipStack.push(Boolean(skip));
+      continue;
+    }
+    if (ch === '}') {
+      skipStack.pop();
+      continue;
+    }
+    if (ch === '\\') {
+      const next = rtf[i + 1];
+      // `\'xx` → a single byte; decode the hex pair.
+      if (next === "'") {
+        const hex = rtf.slice(i + 2, i + 4);
+        const code = Number.parseInt(hex, 16);
+        if (!suppressed() && Number.isFinite(code)) out += String.fromCharCode(code);
+        i += 3;
+        continue;
+      }
+      // A control word: `\word` optionally followed by a numeric arg, then a
+      // single optional space delimiter. `\par`/`\line`/`\tab` → whitespace;
+      // any other control word is a word boundary (emit a space so e.g.
+      // `Smith\b0 from` doesn't become `Smithfrom`).
+      const m = /^\\([a-z]+)(-?\d+)? ?/i.exec(rtf.slice(i));
+      if (m) {
+        const word = m[1]!.toLowerCase();
+        if (!suppressed()) {
+          if (word === 'par' || word === 'line' || word === 'sect') out += '\n';
+          else if (word === 'tab') out += '\t';
+          else out += ' ';
+        }
+        i += m[0].length - 1;
+        continue;
+      }
+      // An escaped literal (`\{`, `\}`, `\\`).
+      if (next === '{' || next === '}' || next === '\\') {
+        if (!suppressed()) out += next;
+        i += 1;
+        continue;
+      }
+      continue;
+    }
+    if (ch === '\r' || ch === '\n') continue; // raw line breaks are formatting
+    if (!suppressed()) out += ch;
+  }
+  const text = out
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ +\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * Best-effort plain-text recovery from a legacy binary `.doc` (OLE compound
+ * document). There is no dependency-free full parser, but the WordDocument
+ * stream stores the body as readable text interleaved with control/formatting
+ * bytes; pulling out the runs of printable characters recovers the prose well
+ * enough for PII redaction. We scan for runs of printable ASCII / Latin-1 (and
+ * common whitespace), drop short noise runs, and join them. Returns null when
+ * too little readable text is found (e.g. a corrupt or non-text doc).
+ */
+function legacyDocToText(buf: Buffer): string | null {
+  const runs: string[] = [];
+  let cur = '';
+  const flush = (): void => {
+    // Keep runs of ≥4 printable chars; shorter ones are almost always
+    // stray bytes from the binary structures, not prose.
+    if (cur.trim().length >= 4) runs.push(cur);
+    cur = '';
+  };
+  for (let i = 0; i < buf.length; i++) {
+    const b = buf[i]!;
+    const printable =
+      b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b !== 0x7f && b <= 0xfe);
+    if (printable) {
+      cur += String.fromCharCode(b);
+    } else {
+      flush();
+    }
+  }
+  flush();
+  const text = runs
+    .join('\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  // Require a minimum signal so we don't hand back a pile of binary noise.
+  return text.length >= 16 ? text : null;
+}
+
 /** Extract plain text from an Office/ODF/PDF buffer. Returns null on failure
  *  (corrupt / unsupported / empty) so the caller can skip rather than throw. */
 async function extractText(buf: Buffer, name: string): Promise<string | null> {
@@ -74,32 +218,54 @@ async function extractText(buf: Buffer, name: string): Promise<string | null> {
 }
 
 /**
- * Read a file and return its plain text, mirroring {@link buildAttachments}'
- * per-file text logic WITHOUT the attachment/size machinery: PDFs and Office /
- * OpenDocument files go through officeparser; any other file is returned as
- * UTF-8 when it isn't binary (a NUL byte ⇒ binary ⇒ null). Returns null on a
- * read failure, on a binary/unsupported file, or when no text could be
- * extracted.
+ * Extract plain text from an already-read document BUFFER, dispatching by magic
+ * bytes + the supplied `name`'s extension. The format-handling core shared by
+ * {@link parseFileToText} (path-based — the picker flow) and the anonymizer's
+ * drag-and-drop path (which sends the bytes the renderer already holds). Handles:
+ *   - PDF + Office/ODF (`.docx`/`.xlsx`/`.pptx`/`.odt`/`.ods`/`.odp`) → officeparser
+ *   - RTF (`.rtf`)            → a dependency-free control-word stripper
+ *   - legacy Word (`.doc`)   → best-effort printable-run recovery from the OLE doc
+ *   - text / code            → UTF-8 (a NUL byte ⇒ binary ⇒ null)
+ * Returns null for a binary/unsupported buffer or when no text could be
+ * extracted. No provider, no runner, no network — just local parsing.
+ */
+export async function parseBufferToText(buf: Buffer, name: string): Promise<string | null> {
+  const ext = path.extname(name).toLowerCase();
+  // PDF (by extension or magic bytes) or Office/ODF → officeparser.
+  if (isPdf(buf, ext) || OFFICE_EXTENSIONS.has(ext)) {
+    return extractText(buf, name);
+  }
+  // RTF → strip control words locally (officeparser doesn't handle RTF, and the
+  // raw bytes are readable-but-noisy markup, so don't fall through to UTF-8).
+  if (isRtf(buf, ext)) {
+    return rtfToText(buf);
+  }
+  // Legacy binary `.doc` (OLE) → best-effort printable-run recovery (must come
+  // BEFORE the binary/NUL check below, since OLE docs are full of NUL bytes).
+  if (isLegacyDoc(buf, ext)) {
+    return legacyDocToText(buf);
+  }
+  // Anything else: UTF-8 text, unless it looks binary.
+  if (buf.includes(0)) return null;
+  return buf.toString('utf8');
+}
+
+/**
+ * Read a file and return its plain text via {@link parseBufferToText}. Returns
+ * null on a read failure (in addition to the buffer parser's null cases).
  *
- * Reused by the offline anonymizer (`anonymizer.parseDocument`): no provider, no
- * runner, no network — just readFile + officeparser.
+ * Reused by the offline anonymizer's picker flow (`anonymizer.parseDocument`),
+ * which provenance-gates the path BEFORE calling this — no provider, no runner,
+ * no network.
  */
 export async function parseFileToText(absPath: string): Promise<string | null> {
-  const ext = path.extname(absPath).toLowerCase();
-  const name = path.basename(absPath);
   let buf: Buffer;
   try {
     buf = await readFile(absPath);
   } catch {
     return null;
   }
-  // PDF (by extension or magic bytes) or Office/ODF → officeparser.
-  if (isPdf(buf, ext) || OFFICE_EXTENSIONS.has(ext)) {
-    return extractText(buf, name);
-  }
-  // Anything else: UTF-8 text, unless it looks binary.
-  if (buf.includes(0)) return null;
-  return buf.toString('utf8');
+  return parseBufferToText(buf, path.basename(absPath));
 }
 
 export async function buildAttachments(

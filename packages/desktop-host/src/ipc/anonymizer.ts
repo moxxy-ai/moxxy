@@ -23,14 +23,16 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 import type { RunnerPool } from '../runner-pool';
 import type { DeskStore } from '../desks';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
-import { parseFileToText } from '../attachments.js';
+import { parseFileToText, parseBufferToText } from '../attachments.js';
 import { handle } from './shared';
 
 /** Document extensions the anonymizer can parse. Mirrors the picker filter and
- *  {@link parseFileToText}'s capabilities. */
+ *  {@link parseFileToText}'s capabilities (PDF + Office/ODF via officeparser,
+ *  legacy `.doc` + `.rtf` via the local recovery helpers, everything else as
+ *  UTF-8 text). */
 const DOCUMENT_EXTENSIONS = [
-  'pdf', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp',
-  'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'rtf', 'html', 'xml',
+  'pdf', 'doc', 'docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp', 'rtf',
+  'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'log', 'html', 'xml',
 ];
 
 /**
@@ -82,10 +84,24 @@ export function registerAnonymizerHandlers(pool: RunnerPool, desks: DeskStore): 
     const cwds = await authorizedCwds(pool, desks);
     const { authorized } = await authorizeAttachments([{ path, name: basename(path) }], cwds);
     if (authorized.length === 0) {
-      return { error: "This file isn't authorized to read. Pick it via the document picker." };
+      return { error: "This file isn't authorized to read. Open it via the picker or drop it here." };
     }
-    // No provider, no runner, no network — just readFile + officeparser.
+    // No provider, no runner, no network — just local extraction.
     const text = await parseFileToText(path);
+    return text ? { text } : { error: 'Could not extract text from this document.' };
+  });
+
+  handle('anonymizer.parseDocumentBytes', async ({ name, dataBase64 }) => {
+    // A drag-and-drop sends the BYTES the renderer already legitimately holds
+    // (the dropped File's contents), NOT a path — so there is no provenance gate
+    // to run and no arbitrary-file-read to worry about: main never opens a
+    // renderer-named path, it only extracts text from the supplied buffer. (A
+    // path-based drop would let a compromised renderer forge a path and
+    // exfiltrate any file, defeating parseDocument's gate above.) Size is capped
+    // by the input schema. No provider, no runner, no network.
+    const buf = Buffer.from(dataBase64, 'base64');
+    if (buf.byteLength === 0) return { error: 'The dropped file was empty.' };
+    const text = await parseBufferToText(buf, name);
     return text ? { text } : { error: 'Could not extract text from this document.' };
   });
 
