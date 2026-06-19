@@ -77,6 +77,40 @@ describe('@moxxy/plugin-commands', () => {
     }
   });
 
+  // Worst-case: even the plain id/cwd reads must not crash /info when the
+  // session is a foreign/malformed object (e.g. over the WS bridge) whose
+  // property accessors are throwing getters.
+  it('/info degrades id/cwd to "?" when those getters throw', async () => {
+    const hostileSession = {
+      get id(): never {
+        throw new Error('id getter exploded');
+      },
+      get cwd(): never {
+        throw new Error('cwd getter exploded');
+      },
+      providers: { getActiveName: () => 'anthropic' },
+      modes: { getActive: () => ({ name: 'default' }) },
+      tools: { list: () => [] },
+      skills: { list: () => [] },
+      agents: { list: () => [] },
+      commands: { list: () => [] },
+      pluginHost: { list: () => [] },
+    };
+    const info = (commandsPlugin.commands ?? []).find((c) => c.name === 'info');
+    if (!info) throw new Error('missing command: info');
+    const out = await info.handler({
+      channel: 'tui',
+      sessionId: 'sess-x' as never,
+      args: '',
+      session: hostileSession,
+    });
+    expect(out.kind).toBe('text');
+    if (out.kind === 'text') {
+      expect(out.text).toContain('session:   ?');
+      expect(out.text).toContain('cwd:       ?');
+    }
+  });
+
   it('/clear and /new return session-action variants', async () => {
     const clear = await callCommand('clear');
     expect(clear.kind).toBe('session-action');
@@ -98,6 +132,60 @@ describe('@moxxy/plugin-commands', () => {
       expect(out.text).toContain('/compact');
       expect(out.text).toContain('/info');
       expect(out.text).toContain('/help');
+    }
+  });
+
+  // Worst-case: /help reads s.commands.list() (like /info). If that registry
+  // throws (plugin host mid-reload, a RemoteSession over the WS bridge) the
+  // handler must degrade — never throw an un-try/catch'd channel down.
+  it('/help degrades to "(no commands registered)" when the registry throws', async () => {
+    const help = (commandsPlugin.commands ?? []).find((c) => c.name === 'help');
+    if (!help) throw new Error('missing command: help');
+    const out = await help.handler({
+      channel: 'tui',
+      sessionId: 'sess-x' as never,
+      args: '',
+      session: {
+        ...fakeSession,
+        commands: {
+          list: () => {
+            throw new Error('registry mid-reload');
+          },
+        },
+      },
+    });
+    expect(out).toEqual({ kind: 'text', text: '(no commands registered)' });
+  });
+
+  // A registry that returns a non-array (malformed/foreign session) must
+  // collapse to empty rather than crash on .filter/.sort.
+  it('/help degrades when the registry returns a non-array', async () => {
+    const help = (commandsPlugin.commands ?? []).find((c) => c.name === 'help');
+    if (!help) throw new Error('missing command: help');
+    const out = await help.handler({
+      channel: 'tui',
+      sessionId: 'sess-x' as never,
+      args: '',
+      session: { ...fakeSession, commands: { list: () => 'not-an-array' as never } },
+    });
+    expect(out).toEqual({ kind: 'text', text: '(no commands registered)' });
+  });
+
+  // A buggy channel passing a non-string `args` must not crash /help on
+  // `.trim()` — it degrades to the full list rather than throwing.
+  it('/help tolerates a non-string args (lists all instead of crashing)', async () => {
+    const help = (commandsPlugin.commands ?? []).find((c) => c.name === 'help');
+    if (!help) throw new Error('missing command: help');
+    const out = await help.handler({
+      channel: 'tui',
+      sessionId: 'sess-1' as never,
+      args: undefined as never,
+      session: fakeSession,
+    });
+    expect(out.kind).toBe('text');
+    if (out.kind === 'text') {
+      expect(out.text).toContain('/info');
+      expect(out.text).toContain('/compact');
     }
   });
 

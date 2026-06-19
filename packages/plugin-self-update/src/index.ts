@@ -39,6 +39,7 @@ export {
 export { classify, gatherSignals, type ClassifyResult } from './classify.js';
 export {
   finalizeStagedCoreUpdate,
+  gcCoreTxns,
   listCoreTxns,
   detectCoreInstall,
   readCoreJournal,

@@ -20,6 +20,13 @@ import type { WebhookTrigger } from './store.js';
  * untrusted-content envelope with unguessable delimiters. The substituted text
  * therefore cannot close the fence and masquerade as operator instructions:
  * classic prompt-injection hardening (the body is DATA, never instructions).
+ *
+ * `{path}` is included in the untrusted set: although the operator picks the
+ * trigger id, the listener accepts an arbitrary query string after it
+ * (`/webhook/<id>?<attacker-controlled>`), so the substituted path carries
+ * sender-supplied text and must be fenced like the body/headers. `{method}` is
+ * the only HTTP-derived field left raw — the listener rejects anything but POST
+ * before a prompt is ever rendered, so its value is a constant, not data.
  */
 
 export interface TemplateContext {
@@ -69,7 +76,9 @@ export function renderPrompt(ctx: TemplateContext): string {
       return fenceUntrusted(bodyJson, nonce);
     }
     if (token === 'method') return ctx.method;
-    if (token === 'path') return ctx.path;
+    // The path's query string is fully sender-controlled, so fence it as
+    // untrusted data — it must not be able to inject operator instructions.
+    if (token === 'path') return fenceUntrusted(ctx.path, nonce);
     if (token === 'trigger_name') return ctx.trigger.name;
     if (token === 'fired_at') return ctx.firedAt.toISOString();
     if (token.startsWith('header.')) {

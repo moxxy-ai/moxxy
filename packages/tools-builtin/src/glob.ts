@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { defineTool, z } from '@moxxy/sdk';
-import { clampString, globToRegExp, IGNORED_DIR_NAMES, resolvePath } from './util.js';
+import { clampString, globToRegExp, IGNORED_DIR_NAMES, MAX_WALK_DEPTH, resolvePath } from './util.js';
 
 export const globTool = defineTool({
   name: 'Glob',
@@ -77,7 +77,7 @@ async function* fsGlob(
   // Track resolved dir paths we've already descended into so a self- or
   // cross-symlink cycle doesn't loop forever.
   const visited = new Set<string>();
-  yield* walk(baseDir, regex, baseDir, signal, visited);
+  yield* walk(baseDir, regex, baseDir, signal, visited, 0);
 }
 
 async function* walk(
@@ -86,8 +86,13 @@ async function* walk(
   cursor: string,
   signal: AbortSignal,
   visited: Set<string>,
+  depth: number,
 ): AsyncIterable<string> {
   if (signal.aborted) return;
+  // Bound recursion depth: a pathologically deep real tree (the `visited` set
+  // only stops *symlink cycles*, not genuine depth) would otherwise overflow
+  // the call stack with an uncatchable RangeError. Mirrors Grep's ceiling.
+  if (depth >= MAX_WALK_DEPTH) return;
   // Resolve via realpath so two different symlinks pointing at the same
   // directory collapse to a single visited entry. If realpath fails (broken
   // link), skip this branch entirely.
@@ -125,7 +130,7 @@ async function* walk(
       }
     }
     if (isDir) {
-      yield* walk(root, regex, full, signal, visited);
+      yield* walk(root, regex, full, signal, visited, depth + 1);
     }
     if (isFile) {
       const relative = path.relative(root, full);

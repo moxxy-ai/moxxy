@@ -16,7 +16,7 @@ export { VaultStore, VaultPassphraseError } from './store.js';
 export type { VaultEntry, VaultEntryInfo, VaultStoreOptions } from './store.js';
 export { createCombinedKeySource, createStaticKeySource, type MasterKeySource } from './keysource.js';
 export { resolveString, resolveValue, containsPlaceholder } from './placeholder.js';
-export { deriveKey, encrypt, decrypt, generateSalt, randomCode } from './crypto.js';
+export { deriveKey, deriveKeyAsync, encrypt, decrypt, generateSalt, randomCode } from './crypto.js';
 
 export interface BuildVaultPluginOptions {
   readonly filePath?: string;

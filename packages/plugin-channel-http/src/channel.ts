@@ -21,6 +21,12 @@ export interface HttpChannelOptions {
   /** Max turns running concurrently on the shared session; excess requests get
    *  a 429. Bounds provider-stream fan-out and history interleaving. */
   readonly maxConcurrentTurns?: number;
+  /** Abort an SSE turn whose consumer has stalled (socket open but not reading)
+   *  for this many ms, so a half-open client can't keep a provider stream alive
+   *  forever. A live-but-slow consumer resets the timer on every flushed write.
+   *  Defaults to 120_000; set <= 0 to disable (not recommended for a network
+   *  bind). */
+  readonly streamStallMs?: number;
   /**
    * Tool names that the model is allowed to call without further interaction.
    * This is the entire permission story for HTTP — there's no human in the
@@ -45,6 +51,7 @@ export class HttpChannel implements Channel<HttpStartOpts> {
   private readonly host: string;
   private readonly authToken: string | null;
   private readonly maxConcurrentTurns: number;
+  private readonly streamStallMs: number | undefined;
   private readonly logger: HttpChannelOptions['logger'];
   private server: Server | null = null;
   private boundPortValue = 0;
@@ -64,6 +71,12 @@ export class HttpChannel implements Channel<HttpStartOpts> {
       typeof opts.maxConcurrentTurns === 'number' && opts.maxConcurrentTurns > 0
         ? Math.floor(opts.maxConcurrentTurns)
         : 4;
+    // undefined => router uses its DEFAULT_STREAM_STALL_MS; a finite number
+    // (including <= 0 to disable) is honored as-is.
+    this.streamStallMs =
+      typeof opts.streamStallMs === 'number' && Number.isFinite(opts.streamStallMs)
+        ? opts.streamStallMs
+        : undefined;
     this.logger = opts.logger;
     this.permissionResolver = opts.allowedTools && opts.allowedTools.length > 0
       ? createAllowListResolver([...opts.allowedTools])
@@ -93,6 +106,7 @@ export class HttpChannel implements Channel<HttpStartOpts> {
       authToken: this.authToken,
       logger: this.logger as RouterContext['logger'],
       turnLimiter: new TurnLimiter(this.maxConcurrentTurns),
+      ...(this.streamStallMs !== undefined ? { streamStallMs: this.streamStallMs } : {}),
     };
 
     const server = createServer(async (req, res) => {

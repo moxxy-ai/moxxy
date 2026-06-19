@@ -6,7 +6,16 @@ export { geminiModels };
 
 /** Gemini's OpenAI-compatibility endpoint (trailing slash matters for the SDK). */
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
-const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash';
+
+/**
+ * Model used when a request didn't pin one. MUST exist in {@link geminiModels}:
+ * the descriptor for the default model drives the default request's
+ * context-window/capability budget, so a default id absent from the catalog
+ * would silently fall back to the host's generic miss-path budget (exactly the
+ * unlisted-id trap the catalog docstring warns about) for every default call.
+ * The exported constant lets the package's own tests pin that invariant.
+ */
+export const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash';
 
 /**
  * Google Gemini, served via Gemini's OpenAI-compatibility endpoint so it

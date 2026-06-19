@@ -81,4 +81,21 @@ describe('normalizeWhisperUpload', () => {
     const out = normalizeWhisperUpload(buf, 'audio/ogg');
     expect([...out.bytes]).toEqual([5, 6, 7]);
   });
+
+  it('degrades to the default when a non-string mimeType slips past the type', () => {
+    // The Telegram path forwards `media.mime_type` from raw update JSON, which a
+    // crafted message could make a number/object/array. `.toLowerCase()` would
+    // throw on these; the runtime guard must fall back to audio/wav instead.
+    for (const bad of [123, {}, [], true, Symbol('x')] as unknown[]) {
+      const out = normalizeWhisperUpload(new Uint8Array([1]), bad as string | undefined);
+      expect(out.mimeType).toBe('audio/wav');
+      expect(out.filename).toBe('audio.wav');
+    }
+  });
+
+  it('treats null mimeType like a missing one', () => {
+    const out = normalizeWhisperUpload(new Uint8Array([1]), null as unknown as undefined);
+    expect(out.mimeType).toBe('audio/wav');
+    expect(out.filename).toBe('audio.wav');
+  });
 });

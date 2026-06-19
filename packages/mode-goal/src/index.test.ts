@@ -307,6 +307,69 @@ describe('goalMode end-to-end', () => {
     ).toBe(false);
   });
 
+  // A degenerate caller-supplied bound (0 / negative / NaN / fractional) bypasses
+  // the config schema (programmatic callers: subagents/workflows forward it raw).
+  // Without the clamp the for-loop never runs and control falls straight to the
+  // misleading "iteration cap reached (0)" fatal — work was never done, yet the
+  // message blames the model. The clamp must run at least one real iteration.
+  describe('degenerate maxIterations is clamped, not fatal-with-zero-work', () => {
+    for (const bad of [0, -5, Number.NaN, 1.9]) {
+      it(`runs ≥1 iteration and completes when maxIterations=${String(bad)}`, async () => {
+        const provider = new FakeProvider({
+          script: [toolUseReply('goal_complete', { summary: 'did one step' }, 'gc-clamp')],
+        });
+        const session = createFakeSession({ provider });
+        session.pluginHost.registerStatic(goalModePlugin);
+        session.modes.setActive(GOAL_MODE_NAME);
+
+        const events = await collectTurn(session, 'do it', { maxIterations: bad });
+
+        // It actually drove the model (real work happened) and completed —
+        // it did NOT fall through to the zero-work iteration-cap fatal.
+        expect(
+          events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed'),
+        ).toBe(true);
+        expect(
+          events.some(
+            (e) => e.type === 'error' && e.kind === 'fatal' && e.message.includes('iteration cap'),
+          ),
+        ).toBe(false);
+        // The provider was actually called (the loop body ran at least once).
+        expect(provider.received.length).toBeGreaterThanOrEqual(1);
+      });
+    }
+
+    it('reports the clamped cap (not the raw degenerate value) when it later runs out', async () => {
+      // maxIterations=0 clamps to 1; the model never completes, so the run hits
+      // the cap after a single iteration and the surfaced cap is the clamped 1.
+      const provider = new FakeProvider({
+        script: Array.from({ length: 3 }, (_, i) => toolUseReply('work', { step: i }, `c${i}`)),
+      });
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+      session.tools.register(
+        defineTool({
+          name: 'work',
+          description: '',
+          inputSchema: z.object({ step: z.number() }),
+          handler: () => 'ok',
+        }),
+      );
+
+      const events = await collectTurn(session, 'never finish', { maxIterations: 0 });
+
+      const cap = events.find(
+        (e) => e.type === 'plugin_event' && e.subtype === 'goal_max_iterations',
+      );
+      if (cap?.type !== 'plugin_event') throw new Error('expected goal_max_iterations');
+      // The reported cap is the clamped 1, never the misleading 0.
+      expect((cap.payload as { maxIterations: number }).maxIterations).toBe(1);
+      // …and one real iteration's worth of work actually ran first.
+      expect(provider.received.length).toBe(1);
+    });
+  });
+
   describe('retryable provider errors (busy-loop guard)', () => {
     // Make the back-off instant + deterministic so the bounded-retry path runs
     // without real timers. Restore after every test (the seam is a module

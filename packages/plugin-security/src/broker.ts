@@ -574,10 +574,42 @@ interface ExecResult {
 const BROKER_DEFAULT_ENV: ReadonlyArray<string> = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TERM'];
 
 /**
+ * Dynamic-linker / code-injection env variables that a per-call `optsEnv` must
+ * NEVER be able to set on a brokered child. These inject attacker code into ANY
+ * spawned binary regardless of the command allowlist (`LD_PRELOAD` loads a
+ * shared object into the process; the `DYLD_*` family is macOS's equivalent), so
+ * a hostile brokered handler could set `LD_PRELOAD=/tmp/evil.so` and turn an
+ * allowlisted `echo`/`cat` into arbitrary code execution. They have no
+ * legitimate use in a sandboxed broker call, so we strip them unconditionally
+ * from the caller-supplied env. (They could still arrive via the host's own
+ * `process.env` IF the tool explicitly allowlists them in `caps.env`, which is
+ * an authored, auditable choice — only the UNFILTERED per-call path is closed.)
+ *
+ * Matched case-insensitively; `DYLD_*` is matched by prefix to cover the whole
+ * insert/library/framework-path family without enumerating every variant.
+ */
+const INJECTION_ENV_DENY: ReadonlyArray<string> = [
+  'ld_preload',
+  'ld_library_path',
+  'ld_audit',
+];
+const INJECTION_ENV_DENY_PREFIX = 'dyld_';
+
+function isInjectionEnvKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return INJECTION_ENV_DENY.includes(lower) || lower.startsWith(INJECTION_ENV_DENY_PREFIX);
+}
+
+/**
  * Curate the env a brokered subprocess inherits: only the keys in the tool's
  * `caps.env` allowlist (or a minimal default), plus any explicit per-call
  * `env`. Never the full parent `process.env` — that would leak the host's
  * secrets into the child.
+ *
+ * The per-call `optsEnv` may override an allowlisted key's VALUE or add benign
+ * keys, but dynamic-linker / preload variables are stripped from it first (see
+ * {@link isInjectionEnvKey}) so a hostile handler can't smuggle `LD_PRELOAD` /
+ * `DYLD_*` into an allowlisted child and execute arbitrary code that way.
  *
  * Exported so every isolator that spawns a child (e.g. the wasm broker's
  * synchronous `spawnSync`) curates env the same way instead of inheriting
@@ -593,7 +625,13 @@ export function buildBrokerEnv(
     const v = process.env[key];
     if (v !== undefined) env[key] = v;
   }
-  return { ...env, ...(optsEnv ?? {}) };
+  if (optsEnv) {
+    for (const [k, v] of Object.entries(optsEnv)) {
+      if (isInjectionEnvKey(k)) continue; // drop loader-injection vars
+      env[k] = v;
+    }
+  }
+  return env;
 }
 
 async function brokerExec(
@@ -649,7 +687,20 @@ async function brokerExec(
   const timeoutMs = opts.timeoutMs as number | undefined;
 
   // Optional command allowlist. When `caps.commands` is set, the command
-  // basename (or absolute path) must appear in the list.
+  // basename (or the literal command string) must appear in the list.
+  //
+  // For a PATH-FORM command (one containing a separator, e.g. `/tmp/echo` or
+  // `./echo`) the basename alone is forgeable: a symlink/hardlink named after an
+  // allowlisted binary (`/tmp/echo -> /bin/rm`) would pass the basename check yet
+  // execute `rm`. So we ALSO canonicalize the path-form command via realpath and
+  // require the resolved target's basename to be allowlisted too — the link's
+  // disguise can't survive canonicalization. A bare name (no separator) is left
+  // to spawn's PATH resolution; portably canonicalizing that (PATHEXT, multiple
+  // PATH dirs) is a larger change and tracked separately.
+  //
+  // NOTE: allowlisting an interpreter (`node`/`python`/`sh`) grants arbitrary
+  // code execution by design — the allowlist constrains WHICH binary runs, not
+  // what that binary then does. Document interpreters accordingly when declaring.
   const allowlist = caps.commands;
   if (allowlist && allowlist.length > 0) {
     const base = path.basename(command);
@@ -657,6 +708,24 @@ async function brokerExec(
       throw new Error(
         `[broker:exec] command '${command}' is outside the tool's declared commands allowlist`,
       );
+    }
+    // Re-check the canonical target's basename for a path-form command so a
+    // renamed symlink can't smuggle a different binary past the basename gate.
+    if (command.includes(path.sep) || command.includes('/')) {
+      let realBase: string;
+      try {
+        realBase = path.basename(await fs.realpath(command));
+      } catch {
+        // Command path doesn't resolve (missing / dangling link); let spawn
+        // surface the ENOENT rather than masking it as an allowlist denial.
+        realBase = base;
+      }
+      if (realBase !== base && !allowlist.includes(realBase)) {
+        throw new Error(
+          `[broker:exec] command '${command}' resolves to '${realBase}', ` +
+            `which is outside the tool's declared commands allowlist`,
+        );
+      }
     }
   }
 

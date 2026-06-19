@@ -49,6 +49,16 @@ export const resolveSafe = resolvePath;
 export const IGNORED_DIR_NAMES = new Set(['node_modules', '.git', 'dist', '.turbo']);
 
 /**
+ * Max directory depth either walker (Glob, Grep) descends into. Both recurse
+ * into real subdirectories; an unbounded recursion over a pathologically deep
+ * tree (build artifacts, fuzzers, a symlink-free but genuinely-deep checkout)
+ * would otherwise overflow the call stack with an uncatchable RangeError that
+ * the per-dir `try/catch` (which only wraps `readdir`) cannot recover from.
+ * Shared so the two walkers stay in sync.
+ */
+export const MAX_WALK_DEPTH = 100;
+
+/**
  * Files larger than this are not slurped fully into the heap — a multi-hundred-MB
  * log, a SQLite db, or a media blob would otherwise OOM the process on a path the
  * model invokes constantly (Read/Edit/Write/Grep). Result clamping bounds the
@@ -74,10 +84,27 @@ export function clampString(s: string, max: number): string {
 }
 
 /**
+ * Cap the length of a model/user-supplied glob before it is compiled to a
+ * RegExp. `globToRegExp` only ever emits linear constructs (`.*`, `[^/]*`,
+ * `[^/]`), so it can't produce catastrophic backtracking — but an unbounded
+ * input would still build an unbounded regex and let an absurd pattern grow
+ * the heap. A 4 KB ceiling is far beyond any real glob and degrades to a clean
+ * error instead of a silent blowup. Mirrors Grep's `MAX_PATTERN_LEN`.
+ */
+export const MAX_GLOB_LEN = 4_096;
+
+/**
  * Convert a glob pattern (`**`, `*`, `?`) to an anchored RegExp. Shared by
- * the Glob and Grep tools; not exposed externally.
+ * the Glob and Grep tools; not exposed externally. Rejects absurdly long
+ * inputs rather than compiling them.
  */
 export function globToRegExp(pattern: string): RegExp {
+  if (pattern.length > MAX_GLOB_LEN) {
+    throw new MoxxyError({
+      code: 'TOOL_ERROR',
+      message: `glob pattern too long (${pattern.length} > ${MAX_GLOB_LEN} chars).`,
+    });
+  }
   const escaped = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\?/g, '[^/]')

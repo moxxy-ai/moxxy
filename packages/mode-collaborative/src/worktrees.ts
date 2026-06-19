@@ -28,9 +28,24 @@ export interface GitResult {
 // A stable identity so commits work even where the repo/user has none (CI).
 const IDENTITY = ['-c', 'user.name=moxxy-collab', '-c', 'user.email=collab@moxxy.local'];
 
+const DEFAULT_GIT_MAXBUFFER = 64 * 1024 * 1024;
+
+/** The stdout/stderr capture cap for git children. 64MB by default; a *positive*
+ *  `MOXXY_COLLAB_GIT_MAXBUFFER` override lets tests trigger a real overflow with a
+ *  tiny limit so the truncation-refusal chain is exercised against a real child
+ *  process (a real 64MB overflow is too slow/flaky to provoke in the suite).
+ *  Ignored unless it parses to a finite, positive integer, so a hostile/garbage
+ *  env value can never shrink or disable the production cap. */
+function gitMaxBuffer(): number {
+  const raw = process.env.MOXXY_COLLAB_GIT_MAXBUFFER;
+  if (!raw) return DEFAULT_GIT_MAXBUFFER;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_GIT_MAXBUFFER;
+}
+
 export function git(cwd: string, args: ReadonlyArray<string>): Promise<GitResult> {
   return new Promise((resolve) => {
-    execFile('git', args as string[], { cwd, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile('git', args as string[], { cwd, maxBuffer: gitMaxBuffer() }, (err, stdout, stderr) => {
       // maxBuffer overflow surfaces as a STRING code, not a numeric git exit
       // code; Node aborts the child and stdout is a truncated prefix. Flag it so
       // parsers refuse the partial output instead of mis-reading it as exit 1.
@@ -44,8 +59,10 @@ export function git(cwd: string, args: ReadonlyArray<string>): Promise<GitResult
 
 /** Throw if a git result was truncated by maxBuffer overflow. Callers that PARSE
  *  stdout (file lists, diffs, conflict sets) must call this so a partial capture
- *  aborts the integration instead of silently corrupting ownership resolution. */
-function assertNotTruncated(r: GitResult, op: string): void {
+ *  aborts the integration instead of silently corrupting ownership resolution.
+ *  Exported for direct unit coverage (a real 64MB overflow is too slow/flaky to
+ *  trigger end-to-end in the suite). */
+export function assertNotTruncated(r: GitResult, op: string): void {
   if (r.truncated) {
     throw new Error(`git ${op} output exceeded the 64MB buffer and was truncated — refusing to act on partial output`);
   }
@@ -350,9 +367,11 @@ export function peerReaderFor(worktrees: ReadonlyMap<string, string>, baseSha: s
 /**
  * A {@link PeerReader} for the lock-coordinated shared-workspace path: all agents
  * share ONE tree, so peer-read is just "read the live shared workspace" (agent id
- * is ignored). The same `resolveWithin` traversal guard applies — `path` is still
- * untrusted peer input over the socket. Note: a read can catch a teammate's file
- * mid-write (there is no isolation here); callers are told to read released work.
+ * is ignored). The same traversal + symlink guard as `peerReaderFor` applies —
+ * `path` is still untrusted peer input over the socket, and the shared tree is
+ * attacker-influenced content (a planted symlink could otherwise escape the cwd).
+ * Note: a read can catch a teammate's file mid-write (there is no isolation here);
+ * callers are told to read released work.
  */
 export function cwdPeerReader(cwd: string): PeerReader {
   return {
@@ -362,7 +381,7 @@ export function cwdPeerReader(cwd: string): PeerReader {
       return (await isGitRepo(cwd)) ? changedFiles(cwd) : [];
     },
     async read(_agentId, path) {
-      return readFile(resolveWithin(cwd, path), 'utf8');
+      return readFile(await resolveWithinReal(cwd, path), 'utf8');
     },
     async diff() {
       return ''; // no base commit to diff against without git

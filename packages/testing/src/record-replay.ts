@@ -38,6 +38,14 @@ export class RecordedProvider implements LLMProvider {
   private readonly fixtureDir: string;
   private readonly upstream?: LLMProvider;
   private readonly testName: string;
+  // Absolute fixture paths this instance touched, de-duped in insertion order.
+  // `written` = persisted in record mode; `read` = matched in replay mode.
+  // Exposes which fixtures a run actually used so a consumer can report or prune
+  // without resorting to a brittle directory mtime-diff (used by the fixture
+  // recorder) — and so an external pruner can compute the orphaned set
+  // (committed fixtures that no live run touches).
+  private readonly _written = new Set<string>();
+  private readonly _read = new Set<string>();
 
   constructor(opts: RecordedProviderOptions) {
     this.name = opts.upstream?.name ?? 'recorded';
@@ -46,6 +54,16 @@ export class RecordedProvider implements LLMProvider {
     this.fixtureDir = opts.fixtureDir;
     this.upstream = opts.upstream;
     this.testName = opts.testName ?? 'default';
+  }
+
+  /** Fixture files this instance has written (record mode), in write order. */
+  get writtenFixtures(): ReadonlyArray<string> {
+    return [...this._written];
+  }
+
+  /** Fixture files this instance has read back (replay mode), in read order. */
+  get readFixtures(): ReadonlyArray<string> {
+    return [...this._read];
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
@@ -63,6 +81,7 @@ export class RecordedProvider implements LLMProvider {
             `Re-run with MOXXY_FIXTURES=record to capture.`,
         );
       }
+      this._read.add(this.fixturePath(hash));
       for (const event of fixture.events) yield event;
       return;
     }
@@ -141,7 +160,9 @@ export class RecordedProvider implements LLMProvider {
     // Atomic write (tmp + rename, per repo invariant 5) so an interrupted
     // record run (Ctrl-C mid-write) can never leave a torn fixture that then
     // fails JSON.parse on the next replay. writeFileAtomic mkdir's the dir.
-    await writeFileAtomic(this.fixturePath(fixture.hash), JSON.stringify(fixture, null, 2));
+    const file = this.fixturePath(fixture.hash);
+    await writeFileAtomic(file, JSON.stringify(fixture, null, 2));
+    this._written.add(file);
   }
 }
 

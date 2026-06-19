@@ -14,6 +14,7 @@ import {
   __setClaudeFetch,
   __setClaudeOpenBrowser,
   __setClaudeSleep,
+  __setClaudeTimeoutMs,
 } from './login.js';
 
 interface FakeVault extends OAuthVault {
@@ -70,13 +71,34 @@ afterAll(async () => {
 beforeEach(() => {
   __setClaudeOpenBrowser(async () => {});
   __setClaudeSleep(async () => {}); // don't actually back off under test
+  __setClaudeTimeoutMs(50); // bound the hung-connection tests; default is 30s
   __setClaudeFetch(async () => {
     throw new Error('unexpected fetch — a test forgot to stub __setClaudeFetch');
   });
 });
 
+/**
+ * A fetch that respects the `AbortSignal` exactly like the real one: it never
+ * resolves on its own, so it only settles when the per-attempt deadline aborts
+ * it (mirroring a half-open socket / black-holing proxy).
+ */
+function hangingFetch(): typeof fetch {
+  return ((_url, init) =>
+    new Promise((_resolve, reject) => {
+      const signal = (init as { signal?: AbortSignal } | undefined)?.signal;
+      if (signal?.aborted) {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      signal?.addEventListener('abort', () => {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      });
+    })) as typeof fetch;
+}
+
 afterAll(() => {
   __setClaudeFetch(fetch);
+  __setClaudeTimeoutMs(30_000);
 });
 
 describe('claudeLogin', () => {
@@ -236,6 +258,36 @@ describe('claudeLogin', () => {
     const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
     expect(calls).toBe(2);
     expect(res.expiresAt).toBeGreaterThan(0);
+  });
+
+  it('aborts a hung connection on the per-attempt deadline and retries', async () => {
+    const vault = makeVault();
+    const hang = hangingFetch();
+    let calls = 0;
+    __setClaudeFetch(async (url, init) => {
+      calls++;
+      // First attempt: a half-open socket that never responds — must be aborted
+      // by the deadline (not hang forever), reclassified as a transient, retried.
+      if (calls < 2) return hang(url, init);
+      return jsonResponse({ access_token: 'after-timeout', token_type: 'Bearer', expires_in: 3600 });
+    });
+
+    const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
+    expect(calls).toBe(2);
+    expect(vault.store.get('oauth/claude-code/access_token')).toBe('after-timeout');
+    expect(res.expiresAt).toBeGreaterThan(0);
+  });
+
+  it('surfaces the transient-retry hint when every attempt hangs past the deadline', async () => {
+    const vault = makeVault();
+    const hang = hangingFetch();
+    let calls = 0;
+    __setClaudeFetch((url, init) => {
+      calls++;
+      return hang(url, init);
+    });
+    await expect(claudeLogin(makeCtx(vault, ['', 'AUTHCODE']))).rejects.toThrow(/after 3 attempts/);
+    expect(calls).toBe(3);
   });
 
   it('refuses without a TTY prompt', async () => {

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { Buffer } from 'node:buffer';
 import * as path from 'node:path';
 import { definePlugin, type CapabilitySpec, type IsolatedToolCall, type Isolator, type Plugin } from '@moxxy/sdk';
-import { checkAllCaps, pathInScope, buildBrokerEnv } from '@moxxy/plugin-security';
+import { checkAllCaps, pathInScope, buildBrokerEnv, expandHomeAndCwd } from '@moxxy/plugin-security';
 
 /**
  * WebAssembly Isolator. Runs wasm handlers in V8's wasm VM — the
@@ -329,6 +329,21 @@ export function buildWasmHostImports(
           ? memoryHolder.alloc(bytes.length)
           : reserveScratch(memOf(), bytes.length);
     if (bytes.length > 0) {
+      // The `region` comes from the module's own `alloc` export (or the
+      // bump-allocator fallback). Validate it lands inside linear memory BEFORE
+      // constructing the view: a buggy/hostile `alloc` returning a negative or
+      // out-of-range pointer would otherwise make `new Uint8Array(...)` throw a
+      // bare `RangeError: Invalid typed array length/offset` with no
+      // `[security:wasm]` framing — the same opaque-trap class already guarded
+      // for the out-pointer pair in `writePtrPair`. Frame it as an actionable
+      // ABI error instead.
+      const byteLength = memOf().buffer.byteLength;
+      if (!Number.isInteger(region) || region < 0 || region + bytes.length > byteLength) {
+        throw new Error(
+          `[security:wasm] module alloc returned an out-of-range scratch region ` +
+            `(region=${region}, len=${bytes.length}, memory=${byteLength} bytes)`,
+        );
+      }
       new Uint8Array(memOf().buffer, region, bytes.length).set(bytes);
     }
     writePtrPair(memOf(), outPtrOut, outLenOut, region, bytes.length);
@@ -719,8 +734,34 @@ function canonicalScopeRootsSync(
 ): ReadonlyArray<string> {
   const roots: string[] = [];
   for (const glob of globs) {
-    const expanded = expandPattern(glob, cwd);
+    // Reuse the canonical `$cwd`/`~`/relative expander from plugin-security
+    // rather than a local copy: the local one accepted `$cwdEVIL` (no separator)
+    // and didn't throw on an unset HOME, both of which could mis-derive the
+    // scope root. One shared expander = one validated boundary.
+    const expanded = expandHomeAndCwd(glob, cwd);
     const wildcard = expanded.search(/[*?[]/);
+    if (wildcard === -1 && !expanded.endsWith(path.sep)) {
+      // A wildcard-free pattern with no trailing separator denotes exactly ONE
+      // path. Its scope root must be that exact path, canonicalized WITHOUT
+      // following a symlink at its own final component — otherwise a single-file
+      // cap like read:['/work/exact'] where '/work/exact' is itself a symlink
+      // would resolve to (and thus admit) whatever it points at, AND taking the
+      // parent dirname here would broaden the root to the whole parent directory.
+      // Canonicalize the PARENT chain and re-append the leaf so a symlinked leaf's
+      // realpath differs from this root and is rejected. (Parity with broker.ts.)
+      const parent = path.dirname(expanded);
+      const leaf = path.basename(expanded);
+      let parentReal: string;
+      try {
+        parentReal = realpathSync(parent);
+      } catch {
+        parentReal = realpathDeepestSync(parent);
+      }
+      roots.push(path.join(parentReal, leaf));
+      continue;
+    }
+    // Wildcarded pattern (or a literal dir written with a trailing sep): the
+    // canonical root is the literal directory prefix the glob spans beneath.
     const literal = wildcard === -1 ? expanded : expanded.slice(0, wildcard);
     const base = literal.endsWith(path.sep) ? literal.slice(0, -1) : path.dirname(literal);
     const normalized = path.normalize(base || path.sep);
@@ -731,16 +772,6 @@ function canonicalScopeRootsSync(
     }
   }
   return roots;
-}
-
-/** Resolve `$cwd` / `~` / relative globs to an absolute lexical path. */
-function expandPattern(pattern: string, cwd: string): string {
-  if (pattern.startsWith('$cwd')) return path.normalize(cwd + pattern.slice('$cwd'.length));
-  if (pattern.startsWith('~/')) {
-    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-    return path.normalize(home + pattern.slice(1));
-  }
-  return path.isAbsolute(pattern) ? path.normalize(pattern) : path.resolve(cwd, pattern);
 }
 
 /** True when `child` is `root` itself or a descendant of it. */
@@ -788,6 +819,13 @@ function realpathDeepestSync(abs: string): string {
  * adding an `integrity` field to `HandlerModuleRef`.
  */
 async function fetchWasmBytes(url: string, signal: AbortSignal): Promise<Uint8Array> {
+  // Short-circuit an already-aborted call for EVERY scheme — `fetch` honors the
+  // signal natively, but the local `data:`/`file:` decodes below would otherwise
+  // still run their (potentially multi-MB) work before the outer Promise.race
+  // discards the result. Bail before doing it.
+  if (signal.aborted) {
+    throw new Error('[security:wasm] module fetch aborted');
+  }
   if (url.startsWith('data:')) {
     const comma = url.indexOf(',');
     if (comma < 0) throw new Error(`[security:wasm] malformed data URL (no comma separator)`);

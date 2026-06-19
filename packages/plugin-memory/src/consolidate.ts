@@ -116,7 +116,20 @@ function tokenize(text: string): string[] {
 export interface ConsolidateOptions {
   readonly tag?: string;
   readonly dryRun?: boolean;
+  /**
+   * Upper bound (ms) on each per-cluster provider stream. A hung/stalled
+   * provider must not let `memory_consolidate` block forever — without this the
+   * `for await` loop has no timeout and waits indefinitely for the next event.
+   * The timeout aborts that one stream; the cluster is recorded as not-merged.
+   * Default {@link DEFAULT_CONSOLIDATE_TIMEOUT_MS}. Set to 0 to disable.
+   */
+  readonly timeoutMs?: number;
+  /** Optional caller abort (e.g. session shutdown); combined with the timeout. */
+  readonly signal?: AbortSignal;
 }
+
+/** Default per-cluster provider-stream timeout for {@link consolidateMemory}. */
+export const DEFAULT_CONSOLIDATE_TIMEOUT_MS = 60_000;
 
 export interface ConsolidationOutcome {
   readonly clusters: ReadonlyArray<{
@@ -133,6 +146,7 @@ export async function consolidateMemory(
   provider: LLMProvider,
   opts: ConsolidateOptions = {},
 ): Promise<ConsolidationOutcome> {
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_CONSOLIDATE_TIMEOUT_MS;
   const all = await store.list();
   const plan = planConsolidation(all, { tag: opts.tag });
   const byName = new Map(all.map((e) => [e.frontmatter.name, e]));
@@ -165,19 +179,54 @@ export async function consolidateMemory(
       )
       .join('\n\n');
 
+    // Bound the per-cluster stream: a hung provider must not stall consolidation
+    // forever. Combine an optional caller signal with a timeout abort, and clear
+    // the timer in finally so it never leaks past this cluster. We RACE each
+    // iterator step against the abort signal so even a provider that ignores
+    // `req.signal` (and never yields again) can't hang us — we abandon its
+    // iterator and move on. The cluster is recorded as not-merged.
+    const signal = combineAbort(opts.signal, timeoutMs);
     let response = '';
-    for await (const event of provider.stream({
+    let aborted = false;
+    const iterable = provider.stream({
       model: provider.models[0]?.id ?? 'unknown',
       system: SYSTEM_PROMPT,
-      messages: [
-        { role: 'user', content: [{ type: 'text', text: prompt }] },
-      ],
+      messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
       maxTokens: 2000,
-    })) {
-      if (event.type === 'text_delta') response += event.delta;
-      if (event.type === 'error') {
-        throw new Error(`consolidate: provider error: ${event.message}`);
+      ...(signal.signal ? { signal: signal.signal } : {}),
+    });
+    const iterator = iterable[Symbol.asyncIterator]();
+    try {
+      for (;;) {
+        const step = await raceAbort(iterator.next(), signal.signal);
+        if (step === ABORTED) {
+          aborted = true;
+          break;
+        }
+        if (step.done) break;
+        const event = step.value;
+        if (event.type === 'text_delta') response += event.delta;
+        if (event.type === 'error') {
+          throw new Error(`consolidate: provider error: ${event.message}`);
+        }
       }
+    } catch (err) {
+      // A provider that honors the signal by throwing also degrades cleanly.
+      if (signal.signal?.aborted || isAbortError(err)) {
+        aborted = true;
+      } else {
+        throw err;
+      }
+    } finally {
+      // Abandon a non-cooperative iterator so it can release resources; ignore
+      // any return() error — we're already moving on.
+      if (aborted) void iterator.return?.(undefined).catch(() => {});
+      signal.dispose();
+    }
+    if (aborted) {
+      console.warn(`[plugin-memory] consolidate: provider stream aborted for cluster ${cluster.key} (timeout ${timeoutMs}ms)`);
+      outcomes.push({ key: cluster.key, merged: cluster.members, into: null, dryRun: false });
+      continue;
     }
 
     const extracted = extractJson(response);
@@ -228,6 +277,84 @@ export async function consolidateMemory(
   }
 
   return { clusters: outcomes, stable: plan.stable };
+}
+
+/**
+ * Combine an optional caller signal with a timeout into one AbortSignal,
+ * returning a `dispose()` that clears the timer so it can't fire (and keep the
+ * event loop alive) after the stream finishes. Returns `{ signal: undefined }`
+ * when neither bound applies, so we don't pass an always-open signal needlessly.
+ */
+function combineAbort(
+  caller: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal | undefined; dispose: () => void } {
+  const useTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
+  if (!caller && !useTimeout) return { signal: undefined, dispose: () => {} };
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(caller?.reason);
+  if (caller) {
+    if (caller.aborted) controller.abort(caller.reason);
+    else caller.addEventListener('abort', onAbort, { once: true });
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  if (useTimeout && !controller.signal.aborted) {
+    timer = setTimeout(() => controller.abort(new Error('consolidate: provider stream timed out')), timeoutMs);
+    // Don't keep the process alive solely for this watchdog.
+    timer.unref?.();
+  }
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      if (timer) clearTimeout(timer);
+      caller?.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+/** Sentinel resolved by {@link raceAbort} when the signal fires first. */
+const ABORTED = Symbol('aborted');
+
+/**
+ * Race a pending step against an abort signal. Returns the step's result if it
+ * settles first, or {@link ABORTED} if the signal fires first — so a provider
+ * that ignores `req.signal` and never yields again can't stall the loop. The
+ * abandoned `next()` promise is left to settle on its own (its rejection, if
+ * any, is swallowed); the caller stops consuming the iterator.
+ */
+function raceAbort<T>(
+  step: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T | typeof ABORTED> {
+  if (!signal) return step;
+  if (signal.aborted) {
+    void step.catch(() => {});
+    return Promise.resolve(ABORTED);
+  }
+  return new Promise<T | typeof ABORTED>((resolve, reject) => {
+    const onAbort = () => {
+      void step.catch(() => {});
+      resolve(ABORTED);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    step.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(e);
+      },
+    );
+  });
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof Error && err.name === 'AbortError') ||
+    (typeof err === 'object' && err !== null && (err as { name?: string }).name === 'AbortError')
+  );
 }
 
 // Upper bound on the JSON span we'll JSON.parse from a model response. The

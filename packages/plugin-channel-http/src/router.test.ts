@@ -35,8 +35,10 @@ function makeResponse(): ServerResponse & {
   _status: number;
   _headers: Record<string, string | number | string[]>;
   _body: string;
-  _emit(event: string): void;
+  _emit(event: string, ...args: unknown[]): void;
   _writeReturns: boolean;
+  _fireTimeout(): void;
+  _timeoutMs: number;
 } {
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   const res = {
@@ -44,6 +46,8 @@ function makeResponse(): ServerResponse & {
     _headers: {} as Record<string, string | number | string[]>,
     _body: '',
     _writeReturns: true,
+    _timeoutMs: -1,
+    _timeoutCb: undefined as undefined | (() => void),
     headersSent: false,
     writableEnded: false,
     destroyed: false,
@@ -64,6 +68,16 @@ function makeResponse(): ServerResponse & {
       this._body += chunk;
       return this._writeReturns;
     },
+    // Mirror http.ServerResponse#setTimeout: setTimeout(0) disarms.
+    setTimeout(ms: number, cb?: () => void) {
+      this._timeoutMs = ms;
+      this._timeoutCb = ms > 0 ? cb : undefined;
+      return this;
+    },
+    // Test helper: simulate the socket-inactivity timeout firing.
+    _fireTimeout() {
+      this._timeoutCb?.();
+    },
     on(event: string, fn: (...args: unknown[]) => void) {
       if (!listeners.has(event)) listeners.set(event, new Set());
       listeners.get(event)!.add(fn);
@@ -82,15 +96,17 @@ function makeResponse(): ServerResponse & {
       listeners.get(event)?.delete(fn);
       return this;
     },
-    _emit(event: string) {
-      for (const fn of [...(listeners.get(event) ?? [])]) fn();
+    _emit(event: string, ...args: unknown[]) {
+      for (const fn of [...(listeners.get(event) ?? [])]) fn(...args);
     },
   } as unknown as ServerResponse & {
     _status: number;
     _headers: Record<string, string | number | string[]>;
     _body: string;
-    _emit(event: string): void;
+    _emit(event: string, ...args: unknown[]): void;
     _writeReturns: boolean;
+    _fireTimeout(): void;
+    _timeoutMs: number;
   };
   return res;
 }
@@ -558,6 +574,90 @@ describe('handleTurnStream — backpressure + closed-socket safety', () => {
     (res as unknown as { writableEnded: boolean }).writableEnded = true;
     res._emit('close');
     await expect(done).resolves.toBeUndefined();
+  });
+
+  it('aborts the turn when a stalled consumer trips the write-side timeout', async () => {
+    // A consumer that never reads: every write reports backpressure and 'drain'
+    // never fires. Without the stall timeout the handler would park forever,
+    // keeping the provider stream (and billing) alive.
+    let signal: AbortSignal | undefined;
+    const session = {
+      runTurn: (_p: string, opts?: { signal?: AbortSignal }) => {
+        signal = opts?.signal;
+        return (async function* () {
+          for (let i = 0; i < 100; i++) {
+            yield { type: 'assistant_chunk', delta: String(i) } as unknown as MoxxyEvent;
+          }
+        })();
+      },
+    } as unknown as ClientSession;
+    const res = makeResponse();
+    res._writeReturns = false; // permanent backpressure: the handler parks on 'drain'
+
+    let settled = false;
+    const done = handleTurnStream(
+      makeIncoming({ method: 'POST', url: '/v1/turn/stream', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res,
+      { session, authToken: 'x', logger: silentLogger, streamStallMs: 1000 },
+    ).then(() => { settled = true; });
+
+    // Let the handler reach the first parked write.
+    await new Promise((r) => setTimeout(r, 5));
+    expect(settled).toBe(false);
+    expect(signal!.aborted).toBe(false);
+
+    // Fire the inactivity timeout — must abort the turn and let the handler exit.
+    res._fireTimeout();
+    await done;
+    expect(settled).toBe(true);
+    expect(signal!.aborted).toBe(true);
+  });
+
+  it('disarms the stall timer after the stream settles cleanly', async () => {
+    const session = {
+      runTurn: () =>
+        (async function* () {
+          yield { type: 'assistant_chunk', delta: 'a' } as unknown as MoxxyEvent;
+        })(),
+    } as unknown as ClientSession;
+    const res = makeResponse();
+    await handleTurnStream(
+      makeIncoming({ method: 'POST', url: '/v1/turn/stream', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res,
+      { session, authToken: 'x', logger: silentLogger, streamStallMs: 1000 },
+    );
+    // The finally block calls res.setTimeout(0) to disarm; firing now is a no-op
+    // (the callback was cleared) and must not throw.
+    expect(res._timeoutMs).toBe(0);
+    expect(() => res._fireTimeout()).not.toThrow();
+  });
+
+  it('treats a response-socket error as a disconnect (aborts, no crash, no rethrow)', async () => {
+    // An unhandled 'error' on a ServerResponse is a fatal uncaughtException in
+    // Node. The handler must absorb it: abort the turn and resolve, never throw.
+    let signal: AbortSignal | undefined;
+    const session = {
+      runTurn: (_p: string, opts?: { signal?: AbortSignal }) => {
+        signal = opts?.signal;
+        return (async function* () {
+          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+        })();
+      },
+    } as unknown as ClientSession;
+    const warn = vi.fn();
+    const res = makeResponse();
+
+    const done = handleTurnStream(
+      makeIncoming({ method: 'POST', url: '/v1/turn/stream', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res,
+      { session, authToken: 'x', logger: { warn } },
+    );
+    await new Promise((r) => setTimeout(r, 5));
+    // Emit a socket error mid-stream — must not propagate.
+    expect(() => res._emit('error', new Error('ECONNRESET'))).not.toThrow();
+    await expect(done).resolves.toBeUndefined();
+    expect(signal!.aborted).toBe(true);
+    expect(warn).toHaveBeenCalledWith('http stream response error', expect.objectContaining({}));
   });
 });
 

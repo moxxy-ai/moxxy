@@ -255,6 +255,65 @@ describe('TransformersEmbedder', () => {
     expect(opts[0]).toMatchObject({ truncation: true, pooling: 'mean', normalize: true });
   });
 
+  it('throws on a zero-length vector (3D empty-sequence / partial-load row)', async () => {
+    // A 0-dim embedding cosines to 0 against everything → silently dead-last
+    // ranking for that record. Must fail loud, not slip through the dim check.
+    const factory: PipelineFactory = async () => async () =>
+      ({ tolist: () => [[[]]] }); // 3D, batch-of-1, empty sequence → empty vector
+    const e = new TransformersEmbedder({ model: 'Xenova/unknown', pipelineFactory: factory });
+    await expect(e.embed(['a'])).rejects.toThrow(/zero-length vector/);
+  });
+
+  it('throws on a ragged batch (vectors of differing lengths within one call)', async () => {
+    // cosineSimilarity zips to Math.min(len) and never errors, so a short row
+    // would silently misrank. The per-vector dim check must reject the batch.
+    const factory: PipelineFactory = async () => async (input) => {
+      const inputs = Array.isArray(input) ? input : [input];
+      // First vector dim 3, second dim 2 — ragged.
+      return { tolist: () => inputs.map((_, i) => (i === 0 ? [1, 2, 3] : [1, 2])) };
+    };
+    const e = new TransformersEmbedder({ model: 'Xenova/unknown', pipelineFactory: factory });
+    await expect(e.embed(['a', 'b'])).rejects.toThrow(/ragged batch/);
+  });
+
+  it('throws on a ragged batch even across chunk boundaries', async () => {
+    // The dim is established on the first chunk's first vector and enforced for
+    // every later chunk, so a width change in a later chunk is still caught.
+    let call = 0;
+    const factory: PipelineFactory = async () => async (input) => {
+      const inputs = Array.isArray(input) ? input : [input];
+      call++;
+      // Chunk 1 emits dim 3, chunk 2 emits dim 4.
+      const width = call === 1 ? 3 : 4;
+      return { tolist: () => inputs.map(() => Array(width).fill(1)) };
+    };
+    const e = new TransformersEmbedder({
+      model: 'Xenova/unknown',
+      pipelineFactory: factory,
+      batchSize: 2,
+    });
+    await expect(e.embed(['a', 'b', 'c'])).rejects.toThrow(/ragged batch/);
+  });
+
+  it('coerces a non-string (null/number) input to "" instead of crashing', async () => {
+    // embed() is typed ReadonlyArray<string> but an untyped/hostile caller can
+    // smuggle a non-string through; it must degrade (empty string), not throw a
+    // TypeError that takes down the whole recall.
+    const received: string[] = [];
+    const factory: PipelineFactory = async () => async (input) => {
+      const inputs = (Array.isArray(input) ? input : [input]) as string[];
+      received.push(...inputs);
+      return { tolist: () => inputs.map(() => [1]) };
+    };
+    const e = new TransformersEmbedder({ dimensions: 1, pipelineFactory: factory });
+    // Cast through unknown to model a hostile/untyped caller.
+    const hostile = ['ok', null, 42] as unknown as ReadonlyArray<string>;
+    const out = await e.embed(hostile);
+    // One vector per input, positionally aligned; non-strings became ''.
+    expect(out).toHaveLength(3);
+    expect(received).toEqual(['ok', '', '']);
+  });
+
   it('clamps a pathologically huge input to a bounded byte length before embedding', async () => {
     let receivedLen = -1;
     const factory: PipelineFactory = async () => async (input) => {

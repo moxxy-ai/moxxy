@@ -83,16 +83,29 @@ const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
  *  cross-package gateway concern (see deferred). 24 MB ≈ ~18 MB decoded — two
  *  full 9 MB picks, which is the practical mobile ceiling. */
 const MAX_INLINE_ATTACHMENTS_TOTAL = 24_000_000;
+/** Strict base64 shape (optional `=` padding). Shared between the transcribe
+ *  guard and the inline-attachment guard so a non-base64 string never reaches a
+ *  `Buffer.from(x,'base64')` / provider decoder, which silently drops invalid
+ *  chars and decodes a partial/garbage buffer. Empty matches (the size bound,
+ *  not emptiness, is the host guard). */
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 /** Strict base64 (optional `=` padding) — MUST match the transcribe handler's
  *  own `BASE64_RE` (packages/desktop-host/src/ipc/session.ts) so the contract
- *  rejects the same malformed payload one hop EARLIER. `Buffer.from(x,'base64')`
- *  silently drops invalid chars and decodes a partial/garbage buffer, so a
- *  non-base64 string must never reach the decoder. Empty is allowed (the size
- *  bound, not emptiness, is what guards the host here). */
-const base64 = z
-  .string()
-  .max(MAX_AUDIO_BASE64)
-  .regex(/^[A-Za-z0-9+/]*={0,2}$/, 'must be base64');
+ *  rejects the same malformed payload one hop EARLIER. Empty is allowed (the
+ *  size bound, not emptiness, is what guards the host here). */
+const base64 = z.string().max(MAX_AUDIO_BASE64).regex(BASE64_RE, 'must be base64');
+
+/** Inline-attachment kinds whose `content` is base64-encoded BYTES (vs. the
+ *  text kinds `stdin`/`file`, which carry inline UTF-8). For these the renderer-
+ *  /remote-supplied `content` is decoded host-side (mobile path) or handed to a
+ *  provider as image/document/audio data (`project-messages.ts`), so a malformed
+ *  base64 string would decode to garbage — reject it at the boundary, one hop
+ *  before any decoder, exactly as `session.transcribe` does for `audioBase64`. */
+const BASE64_ATTACHMENT_KINDS: ReadonlySet<UserPromptAttachment['kind']> = new Set([
+  'image',
+  'document',
+  'audio',
+]);
 
 /** Slash-command name — a registry slug, never a path or shell text. */
 const commandName = z
@@ -196,7 +209,19 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       .max(8)
       .superRefine((entries, ctx) => {
         let total = 0;
-        for (const e of entries) {
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i]!;
+          // Binary kinds (image/document/audio) carry base64 bytes that get
+          // decoded host-side / by the provider — a non-base64 string would
+          // decode to garbage, so reject it here (text kinds carry UTF-8 and
+          // are intentionally unconstrained beyond the size cap).
+          if (BASE64_ATTACHMENT_KINDS.has(e.kind) && !BASE64_RE.test(e.content)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [i, 'content'],
+              message: `inline ${e.kind} attachment content must be base64`,
+            });
+          }
           total += e.content.length;
           if (total > MAX_INLINE_ATTACHMENTS_TOTAL) {
             ctx.addIssue({

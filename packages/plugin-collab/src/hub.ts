@@ -134,6 +134,15 @@ export async function createCollaborationHub(opts: CreateHubOptions): Promise<Co
     if (!peerReader) throw new RpcError('collab: peer-read is not available in this collaboration');
     return peerReader;
   };
+  /** Resolve + validate the target of a peer-read. The injected reader maps an
+   *  agentId onto a worktree path, so an UNKNOWN id must be rejected at the hub
+   *  (the trust boundary) before the reader's filesystem access is invoked —
+   *  defense-in-depth against a peer probing for non-roster targets. */
+  const requireKnownTarget = (v: unknown): string => {
+    const target = reqString(v, 'agentId');
+    if (!state.knowsAgent(target)) throw new RpcError(`collab: unknown agent "${target}"`);
+    return target;
+  };
 
   const onConnection = (transport: Transport): void => {
     const peer = new JsonRpcPeer(transport);
@@ -258,17 +267,17 @@ export async function createCollaborationHub(opts: CreateHubOptions): Promise<Co
 
     peer.handle(CollabHubMethod.PeerFiles, async (params) => {
       const p = (params ?? {}) as Partial<PeerFilesParams>;
-      return { files: await requirePeerReader().files(reqString(p.agentId, 'agentId')) };
+      return { files: await requirePeerReader().files(requireKnownTarget(p.agentId)) };
     });
 
     peer.handle(CollabHubMethod.PeerRead, async (params) => {
       const p = (params ?? {}) as Partial<PeerReadParams>;
-      return { content: await requirePeerReader().read(reqString(p.agentId, 'agentId'), reqString(p.path, 'path')) };
+      return { content: await requirePeerReader().read(requireKnownTarget(p.agentId), reqString(p.path, 'path')) };
     });
 
     peer.handle(CollabHubMethod.PeerDiff, async (params) => {
       const p = (params ?? {}) as Partial<PeerDiffParams>;
-      return { diff: await requirePeerReader().diff(reqString(p.agentId, 'agentId')) };
+      return { diff: await requirePeerReader().diff(requireKnownTarget(p.agentId)) };
     });
 
     peer.onClose(() => {

@@ -508,6 +508,66 @@ describe('wasm broker: scratch coordination with module allocator', () => {
       await fs.unlink(tmp).catch(() => undefined);
     }
   });
+
+  it('frames an out-of-range module-alloc region instead of an opaque RangeError', async () => {
+    // A buggy/hostile module's `alloc` returns a pointer past the end of linear
+    // memory. The host's result-byte write must surface a framed [security:wasm]
+    // ABI error rather than a bare `RangeError: Invalid typed array length`,
+    // mirroring the out-pointer-pair guard.
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-badalloc-${Date.now()}.txt`);
+    await fs.writeFile(tmp, 'payload-bytes');
+    try {
+      _resetScratch();
+      const memory = new WebAssembly.Memory({ initial: 2 }); // 128KiB
+      const byteLength = memory.buffer.byteLength;
+      // alloc lies: it hands back a pointer well past the end of memory.
+      const alloc = (): number => byteLength + 4096;
+      const imports = buildWasmHostImports({ current: memory, alloc }, {
+        fs: { read: [`${os.tmpdir()}/**`] },
+      }, '/tmp');
+      const outPtrOut = 32;
+      const outLenOut = 36;
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      expect(() =>
+        (imports.broker_fs_read_file as (...args: number[]) => number)(
+          pathPtr,
+          pathLen,
+          outPtrOut,
+          outLenOut,
+        ),
+      ).toThrow(/module alloc returned an out-of-range scratch region/);
+    } finally {
+      await fs.unlink(tmp).catch(() => undefined);
+    }
+  });
+
+  it('frames a negative module-alloc region', async () => {
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-negalloc-${Date.now()}.txt`);
+    await fs.writeFile(tmp, 'payload-bytes');
+    try {
+      _resetScratch();
+      const memory = new WebAssembly.Memory({ initial: 2 });
+      const alloc = (): number => -8; // nonsense pointer
+      const imports = buildWasmHostImports({ current: memory, alloc }, {
+        fs: { read: [`${os.tmpdir()}/**`] },
+      }, '/tmp');
+      const outPtrOut = 32;
+      const outLenOut = 36;
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      expect(() =>
+        (imports.broker_fs_read_file as (...args: number[]) => number)(
+          pathPtr,
+          pathLen,
+          outPtrOut,
+          outLenOut,
+        ),
+      ).toThrow(/module alloc returned an out-of-range scratch region/);
+    } finally {
+      await fs.unlink(tmp).catch(() => undefined);
+    }
+  });
 });
 
 describe('wasm broker: out-pointer bounds', () => {

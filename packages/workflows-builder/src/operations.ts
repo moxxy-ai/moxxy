@@ -271,7 +271,17 @@ export function setLoopBody(
 ): BuilderState {
   const loopNode = state.nodes.find((n) => n.id === loopId);
   if (!loopNode || loopNode.kind !== 'loop') return state;
-  const cleaned = dedupe(body).filter((id) => id !== loopId && state.nodes.some((n) => n.id === id));
+  // A body member gets `needs: [loop]`. If the loop already (transitively)
+  // depends on that member, that edge closes a cycle the engine can never
+  // schedule — exactly the invariant connectNeeds/setLoopExit guard against.
+  // Drop such ancestors from the body so this path can't author an invalid DAG
+  // either (the member stays a plain upstream of the loop instead).
+  const cleaned = dedupe(body).filter(
+    (id) =>
+      id !== loopId &&
+      state.nodes.some((n) => n.id === id) &&
+      !wouldCreateCycle(state, loopId, id),
+  );
   const bodySet = new Set(cleaned);
   const prevBody = new Set(loopNode.loop?.body ?? []);
   const nodes = state.nodes.map((n) => {

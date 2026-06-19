@@ -189,6 +189,20 @@ export interface SubprocessIsolatorOptions {
    */
   readonly maxOutputBytes?: number;
   /**
+   * Hard cap on the number of brokered ops (`fs`/`fetch`/`exec`) the
+   * parent will run concurrently on behalf of one child. Each
+   * `broker-request` line is tiny to send but triggers a heavyweight
+   * parent-side operation (an open fd, a socket, a spawned exec child),
+   * so the output-byte cap alone does NOT bound the work a hostile child
+   * can fan out: it can stream thousands of cheap request lines and make
+   * the PARENT (the trust boundary) hold thousands of concurrent
+   * handles. Requests beyond this ceiling are rejected back to the child
+   * (its `rpc` promise rejects) rather than queued or crashing the
+   * parent — degrade, never crash. Default 128. Set higher only if a
+   * trusted handler legitimately needs more parallelism.
+   */
+  readonly maxInflightBrokerOps?: number;
+  /**
    * Allowlist of env keys the child inherits from the parent process.
    * Default: a minimal POSIX-friendly set (PATH/HOME/USER/SHELL/LANG/LC_ALL/TERM).
    * Override per tool via `caps.env`.
@@ -217,6 +231,18 @@ const KILL_GRACE_MS = 2_000;
  * bound. Tunable via `SubprocessIsolatorOptions.maxOutputBytes`.
  */
 const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Default ceiling on concurrent parent-side brokered ops per child. The
+ * byte cap bounds what the child can *send*, but each broker-request is
+ * a tiny line that fans out into a real parent-side handle (fd / socket
+ * / spawned exec child). Without a concurrency cap a hostile child can
+ * stream cheap request lines and drive the parent to exhaust fds /
+ * sockets / PIDs — a resource-exhaustion attack on the trust boundary
+ * that the output cap does not catch. 128 is comfortably above any
+ * legitimate handler's parallelism while still bounding a flood.
+ */
+const DEFAULT_MAX_INFLIGHT_BROKER_OPS = 128;
 
 /**
  * Cap on retained stderr. Only the tail is surfaced in the exit error,
@@ -251,6 +277,12 @@ const ABORT_GRACE_MS = 150;
  *   (stdout + stderr, `maxOutputBytes`, default 8 MiB) and the retained
  *   stderr tail, so a child that floods/emits a gigantic line can't OOM
  *   the host (the trust boundary).
+ * - **Bounded brokered concurrency** — the parent runs at most
+ *   `maxInflightBrokerOps` (default 128) brokered ops at once per child;
+ *   excess `broker-request`s are rejected back to the child instead of
+ *   fanning out unbounded fds / sockets / exec children, so a child that
+ *   streams cheap request lines can't exhaust host handles (the byte cap
+ *   doesn't catch this — the lines are tiny).
  * - **Cooperative cancel** — on timeout / host-abort the parent posts
  *   `{ type: 'abort' }` (firing the handler's `ctx.signal`) before the
  *   SIGTERM -> SIGKILL escalation, giving a well-behaved handler a grace
@@ -270,6 +302,10 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
   const defaultTimeMs = opts.defaultTimeMs ?? 60_000;
   const defaultMemMb = opts.defaultMemMb ?? 256;
   const maxOutputBytes = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+  const maxInflightBrokerOps = Math.max(
+    1,
+    Math.floor(opts.maxInflightBrokerOps ?? DEFAULT_MAX_INFLIGHT_BROKER_OPS),
+  );
   const nodePath = opts.nodePath ?? process.execPath;
 
   return {
@@ -356,6 +392,14 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         // PARENT (the trust boundary) to OOM. Crossing the cap rejects
         // and kills the child.
         let outputBytes = 0;
+        // Number of brokered ops currently running on behalf of this
+        // child. Each broker-request line is cheap for the child to send
+        // but holds a real parent-side handle (fd / socket / spawned exec
+        // child) until it settles, so a flood of request lines is a
+        // resource-exhaustion vector the byte cap does NOT bound. Cap the
+        // concurrency; excess requests are rejected back to the child
+        // rather than queued or crashing the parent.
+        let inflightBrokerOps = 0;
         let killEscalation: ReturnType<typeof setTimeout> | undefined;
         const cleanup = new Set<() => void>();
         cleanup.add(() => signal.removeEventListener('abort', onHostAbortLink));
@@ -492,6 +536,32 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
             // handler can flush. Every op is still cap-checked by
             // `handleBrokerRequest`, so this grants no new authority.
             if (torndown) return;
+            // Bound concurrency: a hostile child can stream cheap
+            // broker-request lines faster than the parent settles them,
+            // each pinning a real fd / socket / exec child. Past the
+            // ceiling, reject the request back to the child (its `rpc`
+            // promise rejects) instead of fanning out unbounded work or
+            // crashing the parent. The byte cap can't catch this — the
+            // request lines are tiny.
+            if (inflightBrokerOps >= maxInflightBrokerOps) {
+              // Reject in the broker-response shape the child's `rpc`
+              // already understands, so an over-flooding handler sees a
+              // normal op failure rather than a hang.
+              const overflow = {
+                type: 'broker-response' as const,
+                id: msg.id,
+                ok: false as const,
+                errorName: 'Error',
+                errorMessage: `[security:subprocess] too many concurrent brokered ops (limit ${maxInflightBrokerOps})`,
+              };
+              try {
+                child.stdin.write(JSON.stringify(overflow) + '\n');
+              } catch {
+                // Child closed stdin; ignore — likely about to exit.
+              }
+              return;
+            }
+            inflightBrokerOps++;
             void handleBrokerRequest(msg, {
               caps,
               cwd: call.cwd,
@@ -500,15 +570,19 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
               // where the host `signal` never aborts. fs.* ops ignore the
               // signal, so a cooperative flush still completes.
               signal: brokerAbort.signal,
-            }).then((response) => {
-              if (!torndown) {
-                try {
-                  child.stdin.write(JSON.stringify(response) + '\n');
-                } catch {
-                  // Child closed stdin; ignore — likely about to exit.
+            })
+              .then((response) => {
+                if (!torndown) {
+                  try {
+                    child.stdin.write(JSON.stringify(response) + '\n');
+                  } catch {
+                    // Child closed stdin; ignore — likely about to exit.
+                  }
                 }
-              }
-            });
+              })
+              .finally(() => {
+                inflightBrokerOps--;
+              });
             return;
           }
           if (settled) return;

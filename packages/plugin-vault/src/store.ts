@@ -306,8 +306,34 @@ export class VaultStore {
       if (!this.file || !this.masterKey) throw new Error('vault not open');
       const entry = this.file.entries[name];
       if (!entry) return null;
-      return decrypt(entry, this.masterKey);
+      return this.decryptEntry(name, entry);
     });
+  }
+
+  /**
+   * Decrypt a single stored blob, converting any low-level crypto failure into
+   * a friendly `VAULT_CORRUPT` error. `validateVaultFile` only guarantees the
+   * blob's iv/tag/data are *strings*, not that they base64-decode to the right
+   * lengths — a partially-corrupted entry (e.g. a truncated `iv` or `tag`, or a
+   * value re-keyed out-of-band) passes structural validation yet makes Node's
+   * AES-GCM throw a raw `ERR_CRYPTO_INVALID_IV` / `ERR_CRYPTO_INVALID_AUTH_TAG`
+   * / auth-tag-mismatch error. The vault's passphrase is already verified
+   * against the canary on open(), so a per-entry decrypt failure means THAT
+   * entry is corrupt, not that the whole vault is locked — surface a targeted
+   * recovery hint instead of crashing the caller with a cryptic crypto error.
+   */
+  private decryptEntry(name: string, entry: VaultEntry): string {
+    try {
+      return decrypt(entry, this.masterKey!);
+    } catch (err) {
+      throw new MoxxyError({
+        code: 'VAULT_CORRUPT',
+        message: `vault: entry '${name}' could not be decrypted (corrupt or re-keyed)`,
+        hint: `Re-store it with \`/vault set ${name} <value>\`, or back up and remove ${this.filePath} to re-initialize.`,
+        context: { filePath: this.filePath, name },
+        cause: err,
+      });
+    }
   }
 
   async has(name: string): Promise<boolean> {

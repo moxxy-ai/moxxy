@@ -225,6 +225,36 @@ describe('VaultStore', () => {
     expect(await store.get('k')).toBe('v1');
   });
 
+  it('get() of a structurally-valid-but-corrupt entry yields VAULT_CORRUPT, not a raw crypto error', async () => {
+    // A vault whose canary is fine (passphrase verifies on open) but ONE entry
+    // has a malformed blob: an empty `iv` and a truncated `tag`. Both are
+    // strings, so validateVaultFile passes, but Node's AES-GCM throws a raw
+    // ERR_CRYPTO_INVALID_IV / ERR_CRYPTO_INVALID_AUTH_TAG when decrypting it.
+    // get() must convert that into a friendly VAULT_CORRUPT MoxxyError naming
+    // the entry — degrade, never crash, on partial corruption.
+    const store = newStore();
+    await store.set('good', 'value'); // creates the vault + canary
+    const onDisk = JSON.parse(await fs.readFile(filePath, 'utf8'));
+    const now = new Date().toISOString();
+    for (const bad of [
+      { iv: '', tag: 'AA==', data: '', createdAt: now, updatedAt: now }, // empty IV
+      { iv: 'AAAAAAAAAAAA', tag: '', data: '', createdAt: now, updatedAt: now }, // empty tag
+      { iv: 'AAAAAAAAAAAA', tag: 'AA==', data: '', createdAt: now, updatedAt: now }, // short tag
+      { iv: 'AAAAAAAAAAAAAAAA', tag: 'AAAAAAAAAAAAAAAAAAAAAA==', data: 'AAAA', createdAt: now, updatedAt: now }, // wrong key/auth mismatch
+    ]) {
+      onDisk.entries.broken = bad;
+      await fs.writeFile(filePath, JSON.stringify(onDisk, null, 2), 'utf8');
+      const fresh = newStore();
+      const err = await fresh.get('broken').catch((e) => e);
+      expect(MoxxyError.isMoxxyError(err), `blob=${JSON.stringify(bad)}`).toBe(true);
+      expect((err as MoxxyError).code, `blob=${JSON.stringify(bad)}`).toBe('VAULT_CORRUPT');
+      expect((err as MoxxyError).context, `blob=${JSON.stringify(bad)}`).toMatchObject({ name: 'broken' });
+      // A good sibling entry on the same file still decrypts (one bad entry
+      // doesn't lock the whole vault).
+      expect(await fresh.get('good')).toBe('value');
+    }
+  });
+
   it('close() zeroes the master key and can be reopened', async () => {
     const key = deriveKey('close-test', generateSalt());
     const store = new VaultStore({ filePath, keySource: createStaticKeySource(key) });

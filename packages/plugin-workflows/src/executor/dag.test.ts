@@ -469,6 +469,37 @@ describe('dag executor', () => {
     expect(events).toContain('workflow_completed');
   });
 
+  it('flags workflow_completed with empty:true when the run produced no terminal output (Finding 8)', async () => {
+    // A run that completes cleanly but whose sole sink yields empty output (e.g.
+    // a logic step that returns an empty `text`) must NOT be silently treated as
+    // a clean delivery of nothing — the completion event carries `empty:true` so
+    // the delivery layer can warn instead of delivering a blank body.
+    const events: Array<{ subtype: string; payload: unknown }> = [];
+    const h = makeHarness({
+      emit: (subtype, payload) => void events.push({ subtype, payload }),
+      logicResponses: { gen: '{"text":""}' },
+    } as Partial<WorkflowRunDeps>);
+    const result = await dagExecutor.run(
+      wf({ name: 'empty-sink', description: 'x', steps: [{ id: 'gen', bridge: 'produce nothing' }] }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.output).toBe('');
+    const completed = events.find((e) => e.subtype === 'workflow_completed');
+    expect(completed?.payload).toMatchObject({ name: 'empty-sink', empty: true });
+  });
+
+  it('does NOT flag empty when the run produced terminal output', async () => {
+    const events: Array<{ subtype: string; payload: unknown }> = [];
+    const h = makeHarness({ emit: (subtype, payload) => void events.push({ subtype, payload }) });
+    await dagExecutor.run(
+      wf({ name: 'has-output', description: 'x', steps: [{ id: 'a', prompt: 'go' }] }),
+      h.deps,
+    );
+    const completed = events.find((e) => e.subtype === 'workflow_completed');
+    expect((completed?.payload as { empty?: boolean })?.empty).toBeUndefined();
+  });
+
   it('pauses on awaitInput and resumes after operator reply', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'wf-pause-'));
     const store = new WorkflowRunStore(dir);

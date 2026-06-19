@@ -117,4 +117,28 @@ describe('verifyDelivery', () => {
     });
     expect(res.ok).toBe(false);
   });
+
+  it('degrades (no crash) on a hostile Stripe header key like __proto__', () => {
+    // A malicious sender packs a `__proto__=` (or `constructor=`) segment into
+    // the Stripe-Signature header. The parser must treat it as an ordinary
+    // (ignored) entry, not index into Object.prototype and throw on `.push`.
+    // Worst case here is a clean mismatch verdict, never an exception.
+    const run = () =>
+      verifyDelivery({
+        verification: {
+          type: 'hmac',
+          secret: 'whsec_test_1234567890',
+          signatureHeader: 'stripe-signature',
+          algorithm: 'sha256',
+          scheme: 'stripe',
+          timestampToleranceSec: 300,
+        },
+        headers: { 'stripe-signature': '__proto__=evil,constructor=x,t=123,v1=abc' },
+        body: Buffer.from('{}'),
+      });
+    expect(run).not.toThrow();
+    expect(run().ok).toBe(false);
+    // The pollution attempt must not have touched the real prototype.
+    expect(({} as Record<string, unknown>)['evil']).toBeUndefined();
+  });
 });

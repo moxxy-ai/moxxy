@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { handleBrokerRequest, type BrokerRequest } from './broker.js';
+import { buildBrokerEnv, handleBrokerRequest, type BrokerRequest } from './broker.js';
 
 const req = (op: string, args: unknown[], id = 1): BrokerRequest =>
   ({ type: 'broker-request', id, op: op as BrokerRequest['op'], args });
@@ -265,6 +265,64 @@ describe('broker: exec', () => {
     if (!res.ok) expect(res.errorMessage).toMatch(/commands allowlist/);
   });
 
+  // LOW (audit): the allowlist matched path.basename(command), so a symlink
+  // NAMED after an allowlisted binary (e.g. `<tmp>/echo -> /bin/cat`) passed the
+  // basename gate yet executed the OTHER binary. The broker now canonicalizes a
+  // path-form command and re-checks the resolved target's basename.
+  it('denies a path-form command whose symlink resolves to a non-allowlisted binary', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-cmd-link-'));
+    const fake = path.join(dir, 'echo'); // basename 'echo' is allowlisted…
+    try {
+      // …but it actually points at `cat`, which is NOT allowlisted.
+      await fs.symlink('/bin/cat', fake);
+      const res = await handleBrokerRequest(
+        req('exec', [fake, ['/etc/hosts']]),
+        {
+          caps: {
+            subprocess: true,
+            ...({ commands: ['echo'] } as Record<string, unknown>),
+          },
+          cwd: '/tmp',
+          signal: new AbortController().signal,
+        },
+      );
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.errorMessage).toMatch(/resolves to 'cat'.*outside the tool's declared commands allowlist/);
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Control: a path-form command whose symlink resolves to an allowlisted
+  // binary is still permitted (no false rejection).
+  it('allows a path-form command whose symlink resolves to an allowlisted binary', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-cmd-link-ok-'));
+    const link = path.join(dir, 'echo');
+    try {
+      await fs.symlink('/bin/echo', link);
+      const res = await handleBrokerRequest(
+        req('exec', [link, ['linked-ok']]),
+        {
+          caps: {
+            subprocess: true,
+            ...({ commands: ['echo'] } as Record<string, unknown>),
+          },
+          cwd: '/tmp',
+          signal: new AbortController().signal,
+        },
+      );
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        const v = res.value as { stdout: string };
+        expect(v.stdout).toContain('linked-ok');
+      }
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
   // MEDIUM (audit): argv must be a string[]; a bare string would be spread
   // into single-char args by spawn. Reject with a clear error.
   it('rejects a non-array argv', async () => {
@@ -331,6 +389,25 @@ describe('broker: exec', () => {
     if (res.ok) {
       const v = res.value as { stdout: string };
       expect(v.stdout).toContain('small-output');
+    }
+  });
+
+  // SECURITY: a hostile brokered handler must NOT be able to inject code into an
+  // allowlisted child via a per-call LD_PRELOAD/DYLD_* env override — that would
+  // turn an allowlisted `echo`/`cat` into arbitrary code execution regardless of
+  // the command allowlist. The broker strips loader-injection vars from opts.env.
+  it('strips LD_PRELOAD from a per-call opts.env before spawning', async () => {
+    const res = await handleBrokerRequest(
+      req('exec', ['/bin/sh', ['-c', 'printf "%s" "${LD_PRELOAD:-NONE}"'], {
+        env: { LD_PRELOAD: '/tmp/evil.so' },
+      }]),
+      { caps: { subprocess: true, env: ['PATH'] }, cwd: '/tmp', signal: new AbortController().signal },
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const v = res.value as { stdout: string };
+      // The child saw NO LD_PRELOAD — the injection var never reached it.
+      expect(v.stdout).toBe('NONE');
     }
   });
 
@@ -655,5 +732,65 @@ describe('broker: fs symlink escape (u105-4)', () => {
     );
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.value).toBe('plain-data');
+  });
+});
+
+// ---------- SECURITY: buildBrokerEnv loader-injection hardening ----------
+
+describe('buildBrokerEnv', () => {
+  it('curates from the allowlist and never leaks an un-allowlisted parent var', () => {
+    const KEY = `MOXXY_TEST_SECRET_${Date.now()}`;
+    process.env[KEY] = 'leak-me';
+    process.env['MOXXY_TEST_ALLOWED'] = 'ok';
+    try {
+      const env = buildBrokerEnv({ env: ['MOXXY_TEST_ALLOWED'] }, undefined);
+      expect(env['MOXXY_TEST_ALLOWED']).toBe('ok');
+      expect(env[KEY]).toBeUndefined();
+    } finally {
+      delete process.env[KEY];
+      delete process.env['MOXXY_TEST_ALLOWED'];
+    }
+  });
+
+  it('lets a per-call optsEnv add/override a benign key', () => {
+    const env = buildBrokerEnv({ env: [] }, { CUSTOM_FLAG: 'on' });
+    expect(env['CUSTOM_FLAG']).toBe('on');
+  });
+
+  it('strips LD_PRELOAD / LD_LIBRARY_PATH / LD_AUDIT from optsEnv (case-insensitive)', () => {
+    const env = buildBrokerEnv({ env: [] }, {
+      LD_PRELOAD: '/tmp/a.so',
+      ld_library_path: '/tmp/lib',
+      LD_AUDIT: '/tmp/audit.so',
+      KEEP: 'yes',
+    });
+    expect(env['LD_PRELOAD']).toBeUndefined();
+    expect(env['ld_library_path']).toBeUndefined();
+    expect(env['LD_AUDIT']).toBeUndefined();
+    expect(env['KEEP']).toBe('yes');
+  });
+
+  it('strips the whole DYLD_* family from optsEnv', () => {
+    const env = buildBrokerEnv({ env: [] }, {
+      DYLD_INSERT_LIBRARIES: '/tmp/a.dylib',
+      DYLD_LIBRARY_PATH: '/tmp/lib',
+      DYLD_FRAMEWORK_PATH: '/tmp/fw',
+      Dyld_Print_Libraries: '1',
+    });
+    expect(Object.keys(env).some((k) => k.toLowerCase().startsWith('dyld_'))).toBe(false);
+  });
+
+  it('does not allow optsEnv to re-introduce an injection var even if allowlisted', () => {
+    // A handler that names LD_PRELOAD in caps.env can inherit the host's value
+    // (an auditable authored choice), but the UNFILTERED per-call override must
+    // still be dropped — opts.env can never set a loader-injection var.
+    process.env['LD_PRELOAD'] = '/host/value.so';
+    try {
+      const env = buildBrokerEnv({ env: ['LD_PRELOAD'] }, { LD_PRELOAD: '/attacker.so' });
+      // The host's allowlisted value survives; the attacker's override does not.
+      expect(env['LD_PRELOAD']).toBe('/host/value.so');
+    } finally {
+      delete process.env['LD_PRELOAD'];
+    }
   });
 });

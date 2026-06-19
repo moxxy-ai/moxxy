@@ -459,7 +459,7 @@ function AskPrompt({ workspaceId }: { workspaceId: string | null }): React.JSX.E
           disabled={!canAllow}
           accessibilityRole="button"
           accessibilityState={{ disabled: !canAllow }}
-          accessibilityLabel={label === 'Approval requested' ? 'Approve' : 'Allow'}
+          accessibilityLabel={ask.kind === 'approval' ? 'Approve' : 'Allow'}
         >
           <Text style={styles.askBtnLabel}>Allow</Text>
         </Pressable>

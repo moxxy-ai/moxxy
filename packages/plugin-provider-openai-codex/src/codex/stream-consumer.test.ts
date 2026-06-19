@@ -230,6 +230,30 @@ describe('consumeResponsesSse', () => {
     expect(events.some((e) => e.type === 'message_end')).toBe(false);
   });
 
+  it('bounds cross-frame tool-arg accumulation: many valid delta frames error instead of OOMing', async () => {
+    // Each frame here IS well-formed and individually under the frame-buffer cap,
+    // so the consumer's per-frame reassembly cap never trips. The unbounded vector
+    // is `entry.args += delta` accumulating across frames — the handler must cap it
+    // and surface a single terminal error.
+    const bigDelta = 'a'.repeat(1024 * 1024); // 1 MiB per frame
+    const frames = [
+      frame({
+        type: 'response.output_item.added',
+        item: { type: 'function_call', id: 'fc1', call_id: 'call_1', name: 'echo' },
+      }),
+      // 30 MiB of cumulative args — far over the 16 MiB cap — across 30 frames.
+      ...Array.from({ length: 30 }, () =>
+        frame({ type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: bigDelta }),
+      ),
+    ];
+    const events = await drain(streamOf(frames));
+    const errs = events.filter((e) => e.type === 'error');
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatchObject({ retryable: false });
+    // The failed turn must not also emit a trailing message_end.
+    expect(events.some((e) => e.type === 'message_end')).toBe(false);
+  });
+
   it('accumulates usage from response.completed onto message_end', async () => {
     const events = await drain(
       streamOf([

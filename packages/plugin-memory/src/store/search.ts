@@ -43,21 +43,28 @@ export async function recallVector(
       const queryIdx = misses.length;
       const toEmbed = [...misses.map((m) => m.text), query];
       const fresh = await embedder.embed(toEmbed);
-      const qVec = fresh[queryIdx]!;
+      const qVec = fresh[queryIdx];
       // Map each missed corpus index to its freshly-embedded vector so the
       // stitch loop below stays O(1) per entry instead of scanning `misses`.
+      // A misbehaving embedder may under-return; only valid vectors get mapped,
+      // and missing ones stay absent so rankCosine drops them (never crashes).
       const freshByEntryIndex = new Map<number, ReadonlyArray<number>>();
       for (const [j, m] of misses.entries()) {
-        freshByEntryIndex.set(m.index, fresh[j]!);
+        const v = fresh[j];
+        if (Array.isArray(v)) freshByEntryIndex.set(m.index, v);
       }
-      // Stitch results: cached + freshly-embedded
-      const vecs: ReadonlyArray<number>[] = [];
+      // Stitch results: cached + freshly-embedded. Holes (undefined) survive to
+      // rankCosine, which skips them rather than throwing.
+      const vecs: Array<ReadonlyArray<number> | undefined> = [];
       for (let i = 0; i < all.length; i++) {
-        vecs.push(cached[i] ?? freshByEntryIndex.get(i)!);
+        vecs.push(cached[i] ?? freshByEntryIndex.get(i));
       }
-      // Persist fresh vectors
+      // Persist ONLY valid fresh vectors — never write an `undefined`/non-array
+      // vector to the on-disk cache, which would poison it permanently (every
+      // future recall would read back a corrupt entry).
       for (const [j, m] of misses.entries()) {
-        index.set(all[m.index]!.frontmatter.name, m.text, fresh[j]!);
+        const v = fresh[j];
+        if (Array.isArray(v)) index.set(all[m.index]!.frontmatter.name, m.text, v);
       }
       index.prune(all.map((e) => e.frontmatter.name));
       await index.flush();
@@ -80,7 +87,12 @@ async function rankAllFresh(
   embedder: EmbeddingProvider,
 ): Promise<ReadonlyArray<RankedMemory>> {
   const vectors = await embedder.embed([...corpus, query]);
-  const queryVec = vectors[vectors.length - 1]!;
+  // The query is embedded at index `corpus.length`. Address it by that fixed
+  // position (not `vectors.length - 1`): if the embedder under-returns and drops
+  // the query, `length - 1` would silently grab the last CORPUS vector and use
+  // it as the query. `vectors[corpus.length]` is `undefined` in that case, which
+  // rankCosine handles by returning an empty result — degrade, never mislead.
+  const queryVec = vectors[corpus.length];
   return rankCosine(all, vectors.slice(0, all.length), queryVec, limit);
 }
 
@@ -99,21 +111,33 @@ export function rankByKeywords(
 
 function rankCosine(
   entries: ReadonlyArray<MemoryEntry>,
-  vectors: ReadonlyArray<ReadonlyArray<number>>,
-  query: ReadonlyArray<number>,
+  vectors: ReadonlyArray<ReadonlyArray<number> | undefined>,
+  query: ReadonlyArray<number> | undefined,
   limit: number,
 ): ReadonlyArray<RankedMemory> {
+  // A misbehaving/hostile embedder can return fewer vectors than requested (or
+  // a non-array element) — the EmbeddingProvider.embed contract promises order
+  // but not count. Without this guard `query.length`/`vec.length` throws an
+  // opaque TypeError and recall crashes instead of degrading. A bad embedder
+  // must yield an empty/partial result set, never crash memory_recall.
+  if (!Array.isArray(query) || query.length === 0) {
+    console.warn(
+      '[plugin-memory] embedder returned no usable query vector; skipping vector recall',
+    );
+    return [];
+  }
   const ranked: RankedMemory[] = [];
   for (let i = 0; i < entries.length; i++) {
-    const vec = vectors[i]!;
+    const vec = vectors[i];
     // cosineSimilarity silently truncates to the shorter vector, so a stale
     // cached vector or a provider quirk of the wrong dimensionality would
-    // produce a plausible-but-wrong score (invisible corruption). Skip the
-    // entry loudly instead of ranking it on a mismatched basis.
-    if (vec.length !== query.length) {
+    // produce a plausible-but-wrong score (invisible corruption). A missing
+    // vector (embedder under-returned) is the same hazard. Skip the entry
+    // loudly instead of ranking it on a mismatched or absent basis.
+    if (!Array.isArray(vec) || vec.length !== query.length) {
       console.warn(
         `[plugin-memory] skipping '${entries[i]!.frontmatter.name}' in recall: ` +
-          `vector dim ${vec.length} != query dim ${query.length} (cache/embedder drift)`,
+          `vector dim ${Array.isArray(vec) ? vec.length : 'missing'} != query dim ${query.length} (cache/embedder drift)`,
       );
       continue;
     }

@@ -58,9 +58,22 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 // Warn at most once per distinct non-loopback host. Bounded so a pathological
-// caller that cycles base URLs can't grow this without limit.
+// caller that cycles base URLs can't grow this without limit; once the bound is
+// reached, further never-before-seen hosts are silently suppressed (rather than
+// re-warning on every call) — 64 distinct remote endpoints is already
+// pathological, and unbounded log spam is its own failure mode.
 const warnedRemoteHosts = new Set<string>();
 const MAX_WARNED_HOSTS = 64;
+
+/**
+ * Test-only: clear the once-per-host warning memo so a suite can assert
+ * deterministic warn counts independent of which other tests ran first. Not part
+ * of the runtime API — the memo is process-lifetime and never reset in prod.
+ * @internal
+ */
+export function __resetRemoteWarningsForTests(): void {
+  warnedRemoteHosts.clear();
+}
 
 /**
  * Resolve and validate the base URL the prompt (which can carry session context,
@@ -96,8 +109,14 @@ function resolveLocalBaseURL(cfg: OpenAICompatConfig): string {
       context: { provider: 'local', url: raw },
     });
   }
-  if (!isLoopbackHost(url.hostname) && !warnedRemoteHosts.has(url.hostname)) {
-    if (warnedRemoteHosts.size < MAX_WARNED_HOSTS) warnedRemoteHosts.add(url.hostname);
+  if (
+    !isLoopbackHost(url.hostname) &&
+    !warnedRemoteHosts.has(url.hostname) &&
+    warnedRemoteHosts.size < MAX_WARNED_HOSTS
+  ) {
+    // Only warn for hosts we can record, so the once-per-host guarantee holds
+    // even past the cap (an unrecorded host would otherwise re-warn every call).
+    warnedRemoteHosts.add(url.hostname);
     console.warn(
       `[local] sending prompts to a non-local endpoint (${url.host}). ` +
         'Conversation context, file contents and shown secrets are POSTed there.',

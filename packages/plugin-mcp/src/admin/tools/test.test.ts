@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { McpClientLike, McpServerConfig } from '../../types.js';
 import type { AddServerInput } from '../schema.js';
 
@@ -80,5 +80,44 @@ describe('admin/tools/test (mcp_test_server)', () => {
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/list boom/);
     expect(closed).toBe(1);
+  });
+
+  describe('bounded connect/discovery (no infinite hang)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('returns ok:false with a timeout error when connect never resolves', async () => {
+      vi.useFakeTimers();
+      // A wedged / unreachable server must NOT hang the tool call forever —
+      // the bounded connect surfaces a readable timeout as a normal failure.
+      hoisted.impl = () => new Promise<McpClientLike>(() => {});
+      const tool = buildTestServerTool();
+      const promise = tool.handler(input(), ctx()) as Promise<{ ok: boolean; error: string }>;
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      const res = await promise;
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/timed out/);
+    });
+
+    it('returns ok:false with a timeout error when listTools never resolves, and closes the client', async () => {
+      vi.useFakeTimers();
+      let closed = 0;
+      hoisted.impl = async () => ({
+        listTools: () => new Promise<{ tools: never[] }>(() => {}),
+        callTool: async () => ({ content: [] }),
+        close: async () => {
+          closed++;
+        },
+      });
+      const tool = buildTestServerTool();
+      const promise = tool.handler(input(), ctx()) as Promise<{ ok: boolean; error: string }>;
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      const res = await promise;
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/timed out/);
+      // The finally{} must still close the connected-but-mute client.
+      expect(closed).toBe(1);
+    });
   });
 });

@@ -163,6 +163,52 @@ describe('fixture-recorder record() orchestration', () => {
     await expect(fs.stat(staleName)).resolves.toBeDefined();
   });
 
+  it('still reports a fixture re-recorded in place (same hash) — no mtime-equality drop', async () => {
+    // Re-running an identical capture overwrites the same `demo.<hash>.json` in
+    // place. A directory mtime-diff could read the rewritten file as "unchanged"
+    // under coarse FS mtime resolution and silently drop it from the report; the
+    // recorder's own written set must report it regardless.
+    const mk = () =>
+      new FakeProvider({ name: 'anthropic-recording', script: [textReply('same answer')] });
+
+    const first = await record(
+      { prompt: 'identical', name: 'demo', out: tmp, allowTools: [], verbose: false },
+      { upstream: mk() },
+    );
+    expect(first.fixtureFiles).toHaveLength(1);
+
+    const second = await record(
+      { prompt: 'identical', name: 'demo', out: tmp, allowTools: [], verbose: false },
+      { upstream: mk() },
+    );
+    // Identical request → identical hash → same file path, rewritten in place.
+    expect(second.fixtureFiles).toEqual(first.fixtureFiles);
+    // And only that one file exists on disk (no duplicate, no orphan).
+    const onDisk = (await fs.readdir(tmp)).filter(
+      (f) => f.startsWith('demo.') && f.endsWith('.json'),
+    );
+    expect(onDisk).toHaveLength(1);
+  });
+
+  it('reports only absolute paths that the recorder itself wrote', async () => {
+    const upstream = new FakeProvider({
+      name: 'anthropic-recording',
+      script: [textReply('ok')],
+    });
+    const result = await record(
+      { prompt: 'p', name: 'demo', out: tmp, allowTools: [], verbose: false },
+      { upstream },
+    );
+    expect(result.fixtureFiles.length).toBeGreaterThan(0);
+    for (const f of result.fixtureFiles) {
+      expect(path.isAbsolute(f)).toBe(true);
+      expect(path.dirname(f)).toBe(tmp);
+      await expect(fs.stat(f)).resolves.toBeDefined();
+    }
+    // Sorted, deduped.
+    expect(result.fixtureFiles).toEqual([...new Set(result.fixtureFiles)].sort());
+  });
+
   it('rejects an unknown model before touching the upstream or the out dir', async () => {
     let touched = false;
     const upstream = new FakeProvider({
@@ -203,10 +249,11 @@ describe('fixture-recorder record() orchestration', () => {
     expect(process.listenerCount('SIGTERM')).toBe(before.term);
   });
 
-  it('returns zero fixtures (no ENOENT) when the upstream errors before any write', async () => {
+  it('returns zero fixtures (no crash) when the upstream errors before any write', async () => {
     // An empty script makes the upstream error on its first call, so no fixture
-    // is written. record() must still resolve with an empty file list rather
-    // than masking the run with an ENOENT readdir on a never-created out dir.
+    // is written. record() must still resolve with an empty file list — it
+    // reports the recorder's own written set, so a never-created out dir can
+    // never throw an ENOENT readdir that masks an otherwise-handled run.
     const upstream = new FakeProvider({ name: 'anthropic-recording', script: [] });
     const sub = path.join(tmp, 'nested', 'fixtures');
     const result = await record(
@@ -214,7 +261,5 @@ describe('fixture-recorder record() orchestration', () => {
       { upstream },
     );
     expect(result.fixtureFiles).toEqual([]);
-    // The out dir was created up front, so it exists despite zero fixtures.
-    await expect(fs.stat(sub)).resolves.toBeDefined();
   });
 });

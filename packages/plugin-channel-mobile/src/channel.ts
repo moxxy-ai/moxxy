@@ -185,7 +185,19 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     // back to zero AFTER at least one client connected, abort in-flight turns +
     // drain parked asks so an abandoned turn/ask can't strand the runner. The
     // timer is unref'd (never holds the process open) and cleared on teardown.
+    //
+    // The RISING edge is driven by `onConnection`, NOT the poll: a fast-crashing
+    // client (the hostile case — connect, fire a turn, die within one poll
+    // window) would read clientCount()===0 on both surrounding polls, so a
+    // poll-only `sawClient` flag would never see the connect and never drain the
+    // stranded turn/ask. `onConnection` marks `sawClient` synchronously the
+    // instant a client attaches, so the next falling-edge poll still drains it.
+    // `onConnection` is additive (the bridge already registered bus.attach), so
+    // this doesn't disturb connection routing.
     let sawClient = false;
+    server.onConnection(() => {
+      sawClient = true;
+    });
     this.disconnectSweep = setInterval(() => {
       const n = server.clientCount();
       if (n > 0) {

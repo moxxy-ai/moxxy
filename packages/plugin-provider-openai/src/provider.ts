@@ -269,7 +269,12 @@ export class OpenAIProvider implements LLMProvider {
                 emittedStart: false,
               };
               pending.set(idx, entry);
-            } else if (tcDelta.id) {
+            } else if (tcDelta.id && !entry.emittedStart) {
+              // Adopt a late-arriving id ONLY before tool_use_start fires.
+              // Once start is emitted, the id is the dispatcher's correlation
+              // key for the matching _delta/_end events; mutating it here (a
+              // non-conforming backend that re-echoes a different id mid-call)
+              // would orphan the start and drop the tool result silently.
               entry.id = tcDelta.id;
             }
             if (tcDelta.function?.name && !entry.name) entry.name = tcDelta.function.name;

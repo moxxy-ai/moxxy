@@ -57,11 +57,24 @@ function App(): JSX.Element {
       {chatOpen ? (
         <ChatPanel messages={messages} status={status} onSend={sendPrompt} onClose={() => setChatOpen(false)} />
       ) : (
-        <button className="chat-fab" onClick={() => setChatOpen(true)} aria-label="Chat with the agent">
+        <button
+          className="chat-fab"
+          onClick={() => setChatOpen(true)}
+          aria-label={unread ? 'Chat with the agent — new message' : 'Chat with the agent'}
+        >
           <span aria-hidden>💬</span>
-          {unread && <span className="chat-dot" />}
+          {/* The dot is a non-text colour cue; the unread state itself is also
+              carried in aria-label above (colour is never the sole signal) and
+              announced via the off-screen live region below. */}
+          {unread && <span className="chat-dot" aria-hidden="true" />}
         </button>
       )}
+      {/* Off-screen live region: announces that the agent replied while the chat
+          panel is closed, so a screen-reader user isn't left silent (the red FAB
+          dot is purely visual). */}
+      <div className="visually-hidden" role="status" aria-live="polite">
+        {unread ? 'The agent sent a new message. Open chat to read it.' : ''}
+      </div>
     </div>
   );
 }

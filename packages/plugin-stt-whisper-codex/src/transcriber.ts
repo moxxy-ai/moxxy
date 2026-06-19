@@ -110,34 +110,61 @@ export class CodexOAuthTranscriber implements Transcriber {
     // can tell our deadline apart from a caller abort and surface NETWORK_TIMEOUT
     // explicitly (classifyNetworkError keys off `AbortError`, not the
     // `TimeoutError` an AbortSignal.timeout would raise).
+    //
+    // The single deadline spans BOTH the fetch AND the subsequent body read: a
+    // slow-loris peer can send response *headers* promptly (resolving the fetch
+    // promise) and then dribble the *body* one byte at a time, so capping only
+    // the body SIZE isn't enough — the body read must also abort on the same
+    // deadline. We therefore keep the timer armed through the body read and only
+    // clear it in the outer `finally`.
     const timeout = this.armTimeout();
     const signal = combineSignals(opts.signal, timeout?.signal);
 
-    let response: Response;
-    try {
-      response = await this.fetchImpl(this.endpoint, {
-        method: 'POST',
-        headers: buildCodexTranscribeHeaders(tokens, sessionId),
-        body: form,
-        ...(signal ? { signal } : {}),
+    const timedOutError = (err: unknown): MoxxyError =>
+      new MoxxyError({
+        code: 'NETWORK_TIMEOUT',
+        message: `Codex transcription timed out after ${this.requestTimeoutMs}ms.`,
+        context: { provider: CODEX_PROVIDER_ID, url: this.endpoint },
+        cause: err,
       });
-    } catch (err) {
-      if (timeout?.timedOut() && !opts.signal?.aborted) {
-        throw new MoxxyError({
-          code: 'NETWORK_TIMEOUT',
-          message: `Codex transcription timed out after ${this.requestTimeoutMs}ms.`,
-          context: { provider: CODEX_PROVIDER_ID, url: this.endpoint },
-          cause: err,
+
+    try {
+      let response: Response;
+      try {
+        response = await this.fetchImpl(this.endpoint, {
+          method: 'POST',
+          headers: buildCodexTranscribeHeaders(tokens, sessionId),
+          body: form,
+          ...(signal ? { signal } : {}),
         });
+      } catch (err) {
+        if (timeout?.timedOut() && !opts.signal?.aborted) throw timedOutError(err);
+        const network = classifyNetworkError(err, { url: this.endpoint, provider: CODEX_PROVIDER_ID });
+        if (network) throw network;
+        throw err;
       }
-      const network = classifyNetworkError(err, { url: this.endpoint, provider: CODEX_PROVIDER_ID });
-      if (network) throw network;
-      throw err;
+
+      const raw = await readCappedBody(response, MAX_CODEX_TRANSCRIBE_BODY_BYTES, signal);
+      // A body read that stalled past the deadline aborts via `signal`; surface
+      // it as a timeout (our deadline) or a NETWORK_ABORTED (caller cancelled)
+      // the same way a hung fetch is, instead of silently parsing a truncated body.
+      if (timeout?.timedOut() && !opts.signal?.aborted) throw timedOutError(undefined);
+      if (opts.signal?.aborted) {
+        const aborted = classifyNetworkError(
+          Object.assign(new Error('Request aborted while reading the response body.'), {
+            name: 'AbortError',
+          }),
+          { url: this.endpoint, provider: CODEX_PROVIDER_ID },
+        );
+        if (aborted) throw aborted;
+      }
+      return this.parseResponse(response, raw);
     } finally {
       timeout?.clear();
     }
+  }
 
-    const raw = await readCappedBody(response, MAX_CODEX_TRANSCRIBE_BODY_BYTES);
+  private parseResponse(response: Response, raw: string): TranscriptionResult {
     if (!response.ok) {
       const summary = summarizeCodexErrorBody(raw);
       const classified = classifyHttpStatus(response.status, {
@@ -350,16 +377,28 @@ function buildCodexTranscribeHeaders(tokens: CodexTokens, sessionId: string): He
  * Read a response body to text, but stop once `maxBytes` have been buffered and
  * cancel the rest of the stream. A success body is a tiny `{ text }` JSON; only
  * a hostile/broken backend would stream more, so a tight cap is safe and keeps a
- * multi-GB body from ballooning memory before we parse/inspect it. A missing
- * body or a decode/read failure yields `''`.
+ * multi-GB body from ballooning memory before we parse/inspect it.
+ *
+ * `signal` carries the same request deadline (and caller abort) the fetch used:
+ * a slow-loris peer that returns headers promptly then dribbles the body would
+ * otherwise hang this read forever (the size cap doesn't help when bytes arrive
+ * slowly, not all at once), so the read also aborts on the deadline. A missing
+ * body, an abort, or a decode/read failure yields whatever was read so far (or
+ * `''`); the caller checks the timeout flag to decide whether to surface it as
+ * NETWORK_TIMEOUT.
  */
-async function readCappedBody(response: Response, maxBytes: number): Promise<string> {
+async function readCappedBody(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<string> {
   const body = response.body;
   if (!body) {
     // No stream (e.g. some fetch polyfills / mocks); fall back to text() — those
-    // bodies are already in memory so there's nothing to cap.
+    // bodies are already in memory so there's nothing to cap. Race it against the
+    // deadline so even a polyfill that buffers slowly can't hang us.
     try {
-      return await response.text();
+      return await abortable(response.text(), signal);
     } catch {
       return '';
     }
@@ -368,6 +407,14 @@ async function readCappedBody(response: Response, maxBytes: number): Promise<str
   const decoder = new TextDecoder('utf-8');
   let received = 0;
   let out = '';
+  const onAbort = () => {
+    // Unblock a pending reader.read() on the deadline / caller abort.
+    reader.cancel().catch(() => {});
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
   try {
     while (received < maxBytes) {
       const { done, value } = await reader.read();
@@ -381,8 +428,34 @@ async function readCappedBody(response: Response, maxBytes: number): Promise<str
   } catch {
     return out;
   } finally {
+    signal?.removeEventListener('abort', onAbort);
     reader.cancel().catch(() => {});
   }
+}
+
+/**
+ * Reject `promise` as soon as `signal` aborts, so a body that can't be streamed
+ * (e.g. a mock's `text()` that never settles) still honours the deadline. The
+ * underlying work is left to settle/garbage-collect on its own — we only stop
+ * awaiting it.
+ */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new Error('aborted'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error('aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
 }
 
 function summarizeCodexErrorBody(raw: string): string | undefined {

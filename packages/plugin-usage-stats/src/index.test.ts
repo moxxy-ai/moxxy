@@ -91,6 +91,12 @@ class FakeLog {
     this.clearListeners.add(fn);
     return () => this.clearListeners.delete(fn);
   }
+  /** Test-only: how many clear listeners are currently registered. Lets a test
+   * assert the plugin actually tears its `onClear` subscription down on shutdown
+   * (no leaked listener under a one-instance-many-sessions host). */
+  get clearListenerCount() {
+    return this.clearListeners.size;
+  }
   /** Append more live events after `onInit` has captured the boundary. */
   push(...more: MoxxyEvent[]) {
     this.events.push(...more);
@@ -221,12 +227,12 @@ describe('usage-stats plugin', () => {
     expect(file.models['anthropic/opus']!.inputTokens).toBe(12);
   });
 
-  it('folds the whole log when onShutdown fires without a preceding onInit (cursor defaults to 0)', async () => {
-    // Documents the deliberate default-0 cursor: the "counted exactly once on
+  it('folds the whole log when onShutdown fires without a preceding onInit (cursor defaults to null)', async () => {
+    // Documents the deliberate null-cursor default: the "counted exactly once on
     // resume" guarantee hinges on onInit running first to capture the restored
     // prefix length. On an abnormal lifecycle (onShutdown with no onInit) the
-    // cursor stays 0 and the entire log is folded — accepted behavior, asserted
-    // here so a future guard change is a conscious one.
+    // cursor is absent → treated as null → the entire log is folded — accepted
+    // behavior, asserted here so a future guard change is a conscious one.
     const plugin = buildUsageStatsPlugin({ statsPath });
     const events = [resp(0, 'opus', 100), resp(1, 'opus', 50)];
 
@@ -235,5 +241,217 @@ describe('usage-stats plugin', () => {
     const file = await loadUsageStats(statsPath);
     expect(file.models['anthropic/opus']!.calls).toBe(2);
     expect(file.models['anthropic/opus']!.inputTokens).toBe(150);
+  });
+
+  it('onShutdown degrades to a no-op (resolves, writes nothing) when the reader throws', async () => {
+    // Worst case: a hostile/half-implemented reader whose `ofType` throws on the
+    // 5s-timeboxed shutdown path. The plugin must swallow it — usage stats are an
+    // optional, best-effort layer — and resolve instead of rejecting the hook
+    // (which the host would log as a spurious failure). No file is written.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const hostile = {
+      length: 1,
+      at: () => undefined,
+      slice: () => [],
+      ofType: () => {
+        throw new Error('reader exploded');
+      },
+      byTurn: () => [],
+      toJSON: () => [],
+    } as unknown as EventLogReader;
+    const ctx = { sessionId: sid, cwd: '/tmp', log: hostile, env: {} } as AppContext;
+
+    await expect(plugin.hooks!.onShutdown!(ctx)).resolves.toBeUndefined();
+    // Nothing folded → file never created.
+    expect((await loadUsageStats(statsPath)).models).toEqual({});
+  });
+
+  it('onInit degrades gracefully when boundarySeq/onClear throw, still counting the run', async () => {
+    // A reader that throws from `ofType` (the boundarySeq fallback) AND from
+    // `onClear` at init time must not crash init. The cursor falls back to null
+    // (fold-whole-suffix default), so a subsequent shutdown with a WORKING reader
+    // still records the run rather than silently losing it.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const throwingInit = {
+      length: 3, // non-empty → boundarySeq won't early-return; no baseSeq → hits ofType
+      at: () => undefined,
+      slice: () => [],
+      ofType: () => {
+        throw new Error('ofType exploded at init');
+      },
+      byTurn: () => [],
+      toJSON: () => [],
+      onClear: () => {
+        throw new Error('onClear exploded at init');
+      },
+    } as unknown as EventLogReader;
+    const initCtx = { sessionId: sid, cwd: '/tmp', log: throwingInit, env: {} } as AppContext;
+
+    // onInit is synchronous; it must not throw despite ofType + onClear both
+    // throwing. (`Promise.resolve` tolerates the sync void return.)
+    expect(() => plugin.hooks!.onInit!(initCtx)).not.toThrow();
+
+    // Now shut down with a healthy reader: null cursor folds the whole log.
+    await plugin.hooks!.onShutdown!(ctxFor([resp(0, 'opus', 10), resp(1, 'opus', 20)]));
+
+    const file = await loadUsageStats(statsPath);
+    expect(file.models['anthropic/opus']!.calls).toBe(2);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(30);
+  });
+
+  it('onShutdown tears down the onClear listener even when the fold/merge path throws (no leak)', async () => {
+    // The unsubscribe + map deletes must run before (and regardless of) the
+    // fold/merge, so a throwing reader can't strand the onClear listener or leave
+    // the cursor map growing unbounded under a one-instance-many-sessions host.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    let unsubscribed = false;
+    let throwFromOfType = false;
+    const log = {
+      length: 0,
+      at: () => undefined,
+      slice: () => [],
+      ofType: () => {
+        if (throwFromOfType) throw new Error('shutdown reader exploded');
+        return [];
+      },
+      byTurn: () => [],
+      toJSON: () => [],
+      onClear: () => () => {
+        unsubscribed = true;
+      },
+    } as unknown as EventLogReader;
+    const ctx = { sessionId: sid, cwd: '/tmp', log, env: {} } as AppContext;
+
+    await plugin.hooks!.onInit!(ctx); // registers the clear listener (ofType ok: empty log path)
+    throwFromOfType = true; // now the fold path will throw on shutdown
+    await expect(plugin.hooks!.onShutdown!(ctx)).resolves.toBeUndefined();
+    // Listener was unsubscribed despite the fold throwing → no leak.
+    expect(unsubscribed).toBe(true);
+  });
+
+  it('degrades to a no-op when the reader returns a non-array from ofType (not just when it throws)', async () => {
+    // Worst case beyond a throwing reader: a half-implemented/hostile reader
+    // whose `ofType` returns garbage (a number, null) instead of an array. The
+    // plugin does `responses.filter(...)`, which raises a TypeError on a
+    // non-array — it must be swallowed by the same best-effort guard, resolving
+    // the hook and writing nothing rather than crashing the timeboxed shutdown.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    for (const bogus of [42, null, 'nope', { length: 1 }] as unknown[]) {
+      const garbageReader = {
+        length: 1,
+        at: () => undefined,
+        slice: () => [],
+        ofType: () => bogus,
+        byTurn: () => [],
+        toJSON: () => [],
+      } as unknown as EventLogReader;
+      const ctx = { sessionId: sid, cwd: '/tmp', log: garbageReader, env: {} } as AppContext;
+      await expect(plugin.hooks!.onShutdown!(ctx)).resolves.toBeUndefined();
+    }
+    // No call ever produced a fold-able array → file never created.
+    expect((await loadUsageStats(statsPath)).models).toEqual({});
+  });
+
+  it('onShutdown for a session that never ran onInit folds the whole log and leaves no leaked state', async () => {
+    // Abnormal lifecycle on a SHARED instance: onShutdown arrives for a session
+    // id the plugin never saw onInit for (absent cursor → treated as null →
+    // whole-log fold). It must not throw on the map.delete of an absent key, and
+    // a SECOND shutdown for the same id must behave identically (idempotent,
+    // never resurrecting a stale cursor) — proving the map self-cleans even on
+    // the no-onInit path so it can't grow unbounded under a many-sessions host.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const events = [resp(0, 'opus', 100)];
+
+    await expect(plugin.hooks!.onShutdown!(ctxFor(events))).resolves.toBeUndefined();
+    // A repeat shutdown re-folds the same whole log (cursor still absent → null),
+    // so it must not throw; the aggregate doubles, which is the documented
+    // whole-log-fold default, asserted so a future guard change is deliberate.
+    await expect(plugin.hooks!.onShutdown!(ctxFor(events))).resolves.toBeUndefined();
+
+    const file = await loadUsageStats(statsPath);
+    expect(file.models['anthropic/opus']!.calls).toBe(2);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(200);
+  });
+
+  it('a re-init of the same session id replaces (does not stack) the onClear listener', async () => {
+    // Worst case under a host that re-dispatches onInit for the same session id
+    // without an intervening onShutdown (e.g. a buggy/abnormal lifecycle, or a
+    // resume that re-inits). Each init must REPLACE the prior onClear listener,
+    // not add a second one — otherwise listeners would accumulate (a leak) and a
+    // single clear() would fire stale closures. We assert the real FakeLog only
+    // ever holds one listener across repeated inits, and exactly zero after
+    // shutdown.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const log = new FakeLog([resp(0, 'opus', 10)]);
+
+    await plugin.hooks!.onInit!(ctxForLog(log));
+    await plugin.hooks!.onInit!(ctxForLog(log));
+    await plugin.hooks!.onInit!(ctxForLog(log));
+    expect(log.clearListenerCount).toBe(1); // replaced each time, never stacked
+
+    await plugin.hooks!.onShutdown!(ctxForLog(log));
+    expect(log.clearListenerCount).toBe(0); // fully torn down
+  });
+
+  it('preserves a valid resume boundary when onClear registration throws (no double-count)', async () => {
+    // Regression: `boundarySeq` succeeds (a clean restored prefix, seqs 100..102)
+    // but the reader's `onClear` registration throws. The boundary is the
+    // load-bearing correctness value — it must SURVIVE the onClear failure.
+    // Discarding it (resetting the cursor to null) would re-fold the entire
+    // restored prefix on shutdown and DOUBLE-COUNT 7000 restored tokens into the
+    // lifetime aggregate. Only the single live call (30) may be counted.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const restored = [resp(100, 'opus', 1000), resp(101, 'opus', 2000), resp(102, 'opus', 4000)];
+    const onClearThrows = {
+      length: restored.length,
+      baseSeq: 100, // boundarySeq takes the O(1) path → 100 + 3 - 1 = 102
+      at: () => undefined,
+      slice: () => [],
+      ofType: ((type: string) =>
+        type === 'provider_response' ? restored : []) as EventLogReader['ofType'],
+      byTurn: () => [],
+      toJSON: () => restored,
+      onClear: () => {
+        throw new Error('onClear registration exploded');
+      },
+    } as unknown as EventLogReader;
+    const initCtx = { sessionId: sid, cwd: '/tmp', log: onClearThrows, env: {} } as AppContext;
+
+    expect(() => plugin.hooks!.onInit!(initCtx)).not.toThrow();
+    // Shut down with restored prefix + one live call. The preserved boundary (102)
+    // must exclude every restored response and include only the live one.
+    await plugin.hooks!.onShutdown!(ctxFor([...restored, resp(103, 'opus', 30)]));
+
+    const file = await loadUsageStats(statsPath);
+    expect(file.models['anthropic/opus']!.calls).toBe(1);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(30); // not 7030
+  });
+
+  it('actually tears down the real onClear listener on shutdown (no leaked subscription)', async () => {
+    // The prior "no leak" test used a hand-rolled fake whose unsubscribe just
+    // flipped a flag; it could not prove the real subscription was removed. Here
+    // the stateful FakeLog tracks live listeners, so we assert the count returns
+    // to zero after shutdown — and that a post-shutdown clear() can't resurrect a
+    // cursor entry by firing a stale listener.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const log = new FakeLog([resp(0, 'opus', 100)]);
+
+    await plugin.hooks!.onInit!(ctxForLog(log));
+    expect(log.clearListenerCount).toBe(1); // listener registered
+
+    log.push(resp(1, 'opus', 50));
+    await plugin.hooks!.onShutdown!(ctxForLog(log));
+    expect(log.clearListenerCount).toBe(0); // torn down — no leak
+
+    // A clear() now fires no plugin listener; a second shutdown sees an absent
+    // cursor (null) and folds the (post-clear, empty) log → still no crash.
+    log.clear();
+    await expect(plugin.hooks!.onShutdown!(ctxForLog(log))).resolves.toBeUndefined();
+
+    const file = await loadUsageStats(statsPath);
+    // Only the first run's live call (50) — the restored 100 was excluded, and
+    // the post-shutdown clear added nothing.
+    expect(file.models['anthropic/opus']!.calls).toBe(1);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(50);
   });
 });

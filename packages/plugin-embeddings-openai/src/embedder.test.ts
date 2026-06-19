@@ -154,6 +154,24 @@ describe('OpenAIEmbedder', () => {
     await expect(e.embed(['a'])).rejects.toThrow(/non-vector/);
   });
 
+  it('throws when an embedding contains a non-finite value (NaN/Infinity would corrupt cosine)', async () => {
+    const nan = rawClient(() => ({ data: [{ embedding: [1, Number.NaN], index: 0 }] })) as unknown as OpenAI;
+    await expect(new OpenAIEmbedder({ client: nan }).embed(['a'])).rejects.toThrow(/non-finite/);
+
+    const inf = rawClient(() => ({
+      data: [{ embedding: [Number.POSITIVE_INFINITY], index: 0 }],
+    })) as unknown as OpenAI;
+    await expect(new OpenAIEmbedder({ client: inf }).embed(['a'])).rejects.toThrow(/non-finite/);
+
+    const str = rawClient(() => ({ data: [{ embedding: [1, '2'], index: 0 }] })) as unknown as OpenAI;
+    await expect(new OpenAIEmbedder({ client: str }).embed(['a'])).rejects.toThrow(/non-finite/);
+  });
+
+  it('throws when an embedding is an empty array', async () => {
+    const client = rawClient(() => ({ data: [{ embedding: [], index: 0 }] })) as unknown as OpenAI;
+    await expect(new OpenAIEmbedder({ client }).embed(['a'])).rejects.toThrow(/empty/);
+  });
+
   it('reorders out-of-order response data by the per-item index', async () => {
     // Proxy returns items in reversed order; we must map by `index`, not array order.
     const client = rawClient(() => ({
@@ -181,6 +199,37 @@ describe('OpenAIEmbedder', () => {
 
     const oob = rawClient(() => ({ data: [{ embedding: [1], index: 5 }] })) as unknown as OpenAI;
     await expect(new OpenAIEmbedder({ client: oob }).embed(['a'])).rejects.toThrow(/out-of-range/);
+  });
+
+  it('bounds the real client with a finite per-request timeout (no 10-min hang on a slow baseURL)', () => {
+    // Construct WITHOUT an injected client so the real OpenAI client is built.
+    const e = new OpenAIEmbedder({ apiKey: 'sk-test' });
+    const client = (e as unknown as { client: { timeout: number; maxRetries: number } }).client;
+    // Default bound is 30s, well under the SDK's 10-minute default.
+    expect(client.timeout).toBe(30_000);
+    expect(client.maxRetries).toBe(2);
+  });
+
+  it('honors an explicit timeoutMs / maxRetries override on the real client', () => {
+    const e = new OpenAIEmbedder({ apiKey: 'sk-test', timeoutMs: 5_000, maxRetries: 0 });
+    const client = (e as unknown as { client: { timeout: number; maxRetries: number } }).client;
+    expect(client.timeout).toBe(5_000);
+    expect(client.maxRetries).toBe(0);
+  });
+
+  it('throws at construction on an invalid timeoutMs (would otherwise revert to the 10-min default)', () => {
+    expect(() => new OpenAIEmbedder({ apiKey: 'sk-test', timeoutMs: 0 })).toThrow(/timeoutMs/);
+    expect(() => new OpenAIEmbedder({ apiKey: 'sk-test', timeoutMs: -1 })).toThrow(/timeoutMs/);
+    expect(() => new OpenAIEmbedder({ apiKey: 'sk-test', timeoutMs: 1.5 })).toThrow(/timeoutMs/);
+    expect(() => new OpenAIEmbedder({ apiKey: 'sk-test', timeoutMs: 10 * 60_000 + 1 })).toThrow(
+      /timeoutMs/,
+    );
+  });
+
+  it('throws at construction on an invalid maxRetries', () => {
+    expect(() => new OpenAIEmbedder({ apiKey: 'sk-test', maxRetries: -1 })).toThrow(/maxRetries/);
+    expect(() => new OpenAIEmbedder({ apiKey: 'sk-test', maxRetries: 1.5 })).toThrow(/maxRetries/);
+    expect(() => new OpenAIEmbedder({ apiKey: 'sk-test', maxRetries: 99 })).toThrow(/maxRetries/);
   });
 
   it('ignores dimensions for ada-002 (API does not support it) and keeps dim 1536', async () => {

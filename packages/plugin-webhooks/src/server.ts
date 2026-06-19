@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readRequestBody } from '@moxxy/sdk/server';
 import { DeliveryDedupeCache } from './dedupe.js';
 import { shouldFire } from './filter.js';
+import { RateLimiter } from './rate-limit.js';
 import type { WebhookDispatcher } from './runner.js';
 import { renderPrompt } from './template.js';
 import type { WebhookStore } from './store.js';
@@ -30,6 +31,15 @@ export interface WebhookServerOptions {
   readonly maxBodyBytes?: number;
   /** Override dedupe cache (tests). */
   readonly dedupe?: DeliveryDedupeCache;
+  /**
+   * Sustained requests/second admitted PER TRIGGER before the expensive
+   * verify/parse/regex work runs. Excess requests get a cheap 429. Default 20/s
+   * (burst = capacity). Set to 0 / negative to disable (not recommended on a
+   * non-loopback bind). A flood beyond this never reaches HMAC/JSON/regex.
+   */
+  readonly ratePerSec?: number;
+  /** Override the rate limiter (tests). */
+  readonly rateLimiter?: RateLimiter;
 }
 
 export interface WebhookServerHandle {
@@ -44,10 +54,21 @@ export class WebhookServer {
   private server: Server | null = null;
   private readonly dedupe: DeliveryDedupeCache;
   private readonly maxBodyBytes: number;
+  /** Per-trigger admission control; null when explicitly disabled. */
+  private readonly rateLimiter: RateLimiter | null;
 
   constructor(private readonly opts: WebhookServerOptions) {
     this.dedupe = opts.dedupe ?? new DeliveryDedupeCache();
     this.maxBodyBytes = opts.maxBodyBytes ?? 1024 * 1024;
+    if (opts.rateLimiter) {
+      this.rateLimiter = opts.rateLimiter;
+    } else if (opts.ratePerSec !== undefined && opts.ratePerSec <= 0) {
+      this.rateLimiter = null;
+    } else {
+      this.rateLimiter = new RateLimiter(
+        opts.ratePerSec !== undefined ? { ratePerSec: opts.ratePerSec } : {},
+      );
+    }
   }
 
   /** Start listening. Resolves once the socket is bound. */
@@ -132,6 +153,19 @@ export class WebhookServer {
     if (!trigger.enabled) {
       res.writeHead(503, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'trigger_disabled' }));
+      return;
+    }
+
+    // Per-trigger admission control runs BEFORE any expensive work (body read,
+    // HMAC verify, JSON parse, regex match). Keyed by the resolved trigger id so
+    // an unknown/unauthenticated id can never allocate a bucket (the 404 above
+    // already short-circuited those). A flood — even one carrying a captured
+    // valid signature — is shed here with a cheap 429 instead of pinning the
+    // single event loop on cryptographic + parse work for every replayed copy.
+    if (this.rateLimiter && !this.rateLimiter.tryAcquire(trigger.id)) {
+      this.opts.logger?.warn?.('webhooks: rate limited', { trigger: trigger.name });
+      res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' });
+      res.end(JSON.stringify({ error: 'rate_limited' }));
       return;
     }
 

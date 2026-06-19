@@ -72,7 +72,11 @@ export function verifyDelivery(input: VerificationInput): VerificationResult {
 
   if (v.scheme === 'stripe') {
     // Stripe-Signature: `t=1492774577,v1=5257a8...,v0=...`
-    const parts: Record<string, string[]> = {};
+    // Null-prototype map so an attacker-supplied key like `__proto__` or
+    // `constructor` is treated as an ordinary entry (and `parts[k] ??= []`
+    // never resolves to an inherited Object.prototype member that would throw
+    // on `.push`). Hostile header keys degrade to a plain mismatch, not a crash.
+    const parts: Record<string, string[]> = Object.create(null);
     for (const piece of header.split(',')) {
       const eq = piece.indexOf('=');
       if (eq < 0) continue;

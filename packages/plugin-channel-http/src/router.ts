@@ -44,7 +44,20 @@ export interface RouterContext {
    *  existing embedders/tests keep working unbounded; the channel always
    *  supplies one. */
   readonly turnLimiter?: TurnLimiter;
+  /** Abort an SSE turn whose consumer has stalled (socket open but not reading)
+   *  for this many ms. Bounds the backpressure park in {@link handleTurnStream}
+   *  so a half-open client can't keep a provider stream (and billing) alive
+   *  forever. Optional; defaults to {@link DEFAULT_STREAM_STALL_MS}. */
+  readonly streamStallMs?: number;
 }
+
+/** Default write-side idle timeout for an SSE turn. A live-but-slow consumer
+ *  resets this on every flushed write; only a truly stalled (open-but-silent)
+ *  reader trips it, at which point we abort the turn — the same outcome as a
+ *  clean disconnect, just without waiting for a TCP close that may never come.
+ *  Generous so normal inter-event gaps (model thinking, tool calls) don't trip
+ *  it. */
+export const DEFAULT_STREAM_STALL_MS = 120_000;
 
 export type RouteHandler = (req: IncomingMessage, res: ServerResponse, ctx: RouterContext) => Promise<void>;
 
@@ -335,10 +348,36 @@ export async function handleTurnStream(
   const onClose = (): void => controller.abort();
   res.on('close', onClose);
 
+  // Degrade, never crash: an unhandled 'error' on a ServerResponse is fatal
+  // (uncaughtException). Treat any response-socket error like a disconnect —
+  // abort the turn and let the finally clean up — instead of letting it
+  // propagate and take down the whole runner process.
+  const onError = (err: unknown): void => {
+    ctx.logger?.warn('http stream response error', {
+      err: err instanceof Error ? err.message : String(err),
+    });
+    controller.abort();
+  };
+  res.on('error', onError);
+
+  // A stalled-but-open consumer (reads nothing, never closes the socket) would
+  // otherwise park `safeWrite` on 'drain' indefinitely, keeping the provider
+  // stream — and billing — alive forever. The request/keep-alive timeouts cover
+  // header/body reads, NOT an in-progress response. `res.setTimeout` fires on
+  // write-side socket inactivity; a live-but-slow consumer resets it on every
+  // flushed write, so only a true stall trips it. We abort (same as a close).
+  const stallMs = ctx.streamStallMs ?? DEFAULT_STREAM_STALL_MS;
+  if (stallMs > 0) {
+    res.setTimeout(stallMs, () => {
+      ctx.logger?.warn('http stream consumer stalled; aborting turn', { stallMs });
+      controller.abort();
+    });
+  }
+
   // Respect TCP backpressure: a slow/stalled-but-open consumer would otherwise
   // let Node's internal write queue grow unbounded (a tool-heavy turn emits
   // thousands of large events) until OOM. When `write` returns false we pause
-  // until 'drain', escaping early if the turn is aborted (client gone).
+  // until 'drain', escaping early if the turn is aborted (client gone/stalled).
   const safeWrite = async (chunk: string): Promise<void> => {
     if (res.writableEnded || res.destroyed) return;
     if (res.write(chunk)) return;
@@ -369,6 +408,12 @@ export async function handleTurnStream(
     );
   } finally {
     res.off('close', onClose);
+    res.off('error', onError);
+    // Disarm the stall timer so it can't fire (and abort) after the stream has
+    // already settled, and so the timer doesn't keep a handle alive.
+    if (stallMs > 0) {
+      try { res.setTimeout(0); } catch { /* response already torn down */ }
+    }
     ctx.turnLimiter?.release();
     // The client may have hung up mid-stream; end() on an already-ended/
     // destroyed response throws ERR_STREAM_WRITE_AFTER_END.

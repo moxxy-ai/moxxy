@@ -628,6 +628,7 @@ async function overlayApplied(
 export async function finalizeStagedCoreUpdate(
   moxxyDir: string,
   install?: CoreInstallInfo | null,
+  keepTerminal = 5,
 ): Promise<ReadonlyArray<string>> {
   const committed: string[] = [];
   for (const j of await listCoreTxns(moxxyDir)) {
@@ -661,11 +662,32 @@ export async function finalizeStagedCoreUpdate(
     await writeCoreJournal(moxxyDir, j).catch(() => undefined);
     committed.push(j.txnId);
   }
+  // Reclaim disk: every core txn parks a full pre-overlay dist snapshot, so old
+  // terminal txns would otherwise accumulate unbounded. Boot is the safe, single
+  // place to prune (all staged txns above are now terminal). Best-effort.
+  await gcCoreTxns(moxxyDir, keepTerminal).catch(() => undefined);
   return committed;
 }
 
 export function newCoreTxnId(now: Date = new Date()): string {
   return `core-${newTxnId(now)}`;
+}
+
+/**
+ * Prune old terminal core transactions. Each core txn parks a full pre-overlay
+ * `dist` snapshot of every patched package (tens of MB), and nothing else ever
+ * deletes them — left unbounded they accumulate on disk across every
+ * apply/rollback cycle. Keep only the most recent `keep` terminal
+ * (committed / rolled_back) txns; never touch a non-terminal one (an open /
+ * provisioned / verified / staged_restart txn whose snapshot finalize or a
+ * rollback may still need). Best-effort: a failed delete is ignored.
+ */
+export async function gcCoreTxns(moxxyDir: string, keep: number): Promise<void> {
+  const all = await listCoreTxns(moxxyDir);
+  const terminal = all.filter((j) => j.state === 'committed' || j.state === 'rolled_back');
+  for (const j of terminal.slice(Math.max(0, keep))) {
+    await fs.rm(coreTxnDir(moxxyDir, j.txnId), { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 /**
@@ -694,9 +716,14 @@ export function safeRepoPath(repo: string, rel: string): string {
     return resolved;
   }
 
-  // Walk each existing path component from the root down. If any component is a
-  // symlink, refuse: we won't follow links out of (or laterally within) the clone.
-  const relParts = path.relative(realRoot, path.resolve(realRoot, rel)).split(path.sep).filter(Boolean);
+  // The portion *inside* the repo is the path relative to the (textual) root —
+  // computed from `resolved`, NOT by re-resolving `rel` against realRoot. An
+  // absolute `rel` (legitimately repo-prefixed) makes `path.resolve(realRoot,
+  // rel)` ignore realRoot, and when the root traverses a symlink (e.g. macOS
+  // /var→/private/var, or a symlinked $HOME) the relative diff is then all `..`
+  // and a valid in-repo absolute path is wrongly rejected. Anchoring the
+  // already-validated in-repo segments onto realRoot avoids that.
+  const relParts = path.relative(root, resolved).split(path.sep).filter(Boolean);
   if (relParts.some((p) => p === '..')) {
     throw new Error(`path escapes the provisioned repo: ${rel}`);
   }

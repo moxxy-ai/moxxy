@@ -23,6 +23,8 @@ function coerceOptions(config: Record<string, unknown>): OpenAIEmbedderOptions {
     model?: OpenAIEmbedderOptions['model'];
     dimensions?: number;
     batchSize?: number;
+    timeoutMs?: number;
+    maxRetries?: number;
   } = {};
   const stringField = (key: 'apiKey' | 'baseURL'): void => {
     const v = config[key];
@@ -32,7 +34,7 @@ function coerceOptions(config: Record<string, unknown>): OpenAIEmbedderOptions {
     }
     out[key] = v;
   };
-  const numberField = (key: 'dimensions' | 'batchSize'): void => {
+  const numberField = (key: 'dimensions' | 'batchSize' | 'timeoutMs' | 'maxRetries'): void => {
     const v = config[key];
     if (v === undefined) return;
     if (typeof v !== 'number' || !Number.isFinite(v)) {
@@ -44,6 +46,8 @@ function coerceOptions(config: Record<string, unknown>): OpenAIEmbedderOptions {
   stringField('baseURL');
   numberField('dimensions');
   numberField('batchSize');
+  numberField('timeoutMs');
+  numberField('maxRetries');
   if (config.model !== undefined) {
     if (typeof config.model !== 'string') {
       throw new Error("@moxxy/plugin-embeddings-openai: 'model' must be a string.");

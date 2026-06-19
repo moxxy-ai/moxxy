@@ -9,9 +9,15 @@
  * read it) so the desktop can list the directory directly.
  */
 
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+
+/** Hard retention cap on the archive dir. Without this, every collaboration ever
+ *  run leaks one JSON file under ~/.moxxy/collab/runs forever — the desktop
+ *  history reader already caps its own fan-out, but the directory itself grows
+ *  unbounded. We keep the newest `MAX_RUN_RECORDS` and prune the rest on write. */
+export const MAX_RUN_RECORDS = 200;
 
 /** `$MOXXY_HOME` or `~/.moxxy` — the single source of truth for the home dir,
  *  matching `@moxxy/sdk`'s `moxxyHome()` (inlined to avoid an entry-point dep). */
@@ -58,14 +64,87 @@ export function collabRunsDir(): string {
   return join(moxxyHome(), 'collab', 'runs');
 }
 
-/** Persist one run record. Best-effort: never throws (archiving must not sink a run). */
+/** Persist one run record. Best-effort: never throws (archiving must not sink a
+ *  run). Writes atomically (tmp + rename) so a crash mid-write can't leave a
+ *  half-written, unparseable record, then prunes the dir to its retention cap. */
 export function writeRunRecord(rec: CollabRunRecord): void {
   try {
     const dir = collabRunsDir();
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${rec.runId}.json`), `${JSON.stringify(rec, null, 2)}\n`);
+    const final = join(dir, `${rec.runId}.json`);
+    // A unique-ish tmp name so concurrent writers (different runs) don't collide.
+    const tmp = `${final}.${process.pid}.${Date.now().toString(36)}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(rec, null, 2)}\n`);
+    renameSync(tmp, final); // POSIX-atomic; crash mid-write leaves the prior file intact
   } catch {
     // archiving is an enhancement, not a prerequisite
+  }
+  pruneRunRecords();
+}
+
+/** Enforce the retention cap: keep the newest `MAX_RUN_RECORDS` VALID archive
+ *  files, delete the rest. Valid records are ranked among themselves by
+ *  `startedAtMs`. Corrupt/foreign/unparseable `.json` files carry no value AND
+ *  their mtime lives in a different magnitude than `startedAtMs` (mtime is always
+ *  ~now in epoch-ms; a real run's `startedAtMs` can be far older), so ranking them
+ *  by mtime in the same space made a fresh corrupt file outrank every legitimate
+ *  record and pin the dir open forever — the opposite of "evictable". Instead we
+ *  sort corrupt files strictly BELOW every valid record (oldest among themselves
+ *  by mtime), so a bad file is always the FIRST to be evicted and can never wedge
+ *  the sweep. A leftover `.tmp` is always swept. Best-effort, bounded, never throws. */
+function pruneRunRecords(max: number = MAX_RUN_RECORDS): void {
+  try {
+    const dir = collabRunsDir();
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return; // no dir yet
+    }
+    const ranked: Array<{ file: string; key: number; valid: boolean }> = [];
+    for (const name of names) {
+      const full = join(dir, name);
+      // Sweep stale temp files from interrupted atomic writes regardless of cap.
+      if (name.endsWith('.tmp')) {
+        rmSync(full, { force: true });
+        continue;
+      }
+      if (!name.endsWith('.json')) continue;
+      let key: number;
+      let valid = false;
+      try {
+        const parsed = JSON.parse(readFileSync(full, 'utf8')) as { startedAtMs?: unknown };
+        if (typeof parsed.startedAtMs === 'number' && Number.isFinite(parsed.startedAtMs)) {
+          key = parsed.startedAtMs;
+          valid = true;
+        } else {
+          // Parses but has no usable timestamp → treat as foreign/corrupt: rank by
+          // mtime among the other corrupt files, strictly below every valid record.
+          key = statSync(full).mtimeMs;
+        }
+      } catch {
+        // Unparseable/corrupt or unreadable → rank by mtime among corrupt files.
+        try {
+          key = statSync(full).mtimeMs;
+        } catch {
+          continue; // vanished underneath us
+        }
+      }
+      ranked.push({ file: full, key, valid });
+    }
+    if (ranked.length <= max) return;
+    // Valid records sort ABOVE every corrupt file (newest valid first), so corrupt
+    // files are always at the tail and evicted first; corrupt files tie-break by
+    // mtime (oldest first). Both key spaces only ever compare like-with-like.
+    ranked.sort((a, b) => {
+      if (a.valid !== b.valid) return a.valid ? -1 : 1;
+      return b.key - a.key; // newest first within each tier
+    });
+    for (const { file } of ranked.slice(max)) {
+      rmSync(file, { force: true });
+    }
+  } catch {
+    // pruning is housekeeping; a failure must never sink a run
   }
 }
 

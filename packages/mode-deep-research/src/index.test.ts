@@ -40,12 +40,39 @@ describe('parseQueries', () => {
     expect(parseQueries('No queries here.')).toEqual([]);
   });
 
-  it('drops wrapped continuation lines (queries are single-line by spec)', () => {
-    // A non-list line after an item is NOT joined onto the prior item — it is
-    // silently dropped. Pin this so the behavior is encoded, not just commented.
+  it('joins a wrapped continuation onto the prior item instead of truncating it', () => {
+    // Worst case: the planner wraps a long query across two lines. The
+    // continuation must be re-joined, not dropped — a truncated half-question
+    // would otherwise be sent verbatim to a subagent.
     expect(
       parseQueries('QUERIES:\n1. first part of a long query\nthat wrapped onto a new line\n2. second query'),
-    ).toEqual(['first part of a long query', 'second query']);
+    ).toEqual(['first part of a long query that wrapped onto a new line', 'second query']);
+  });
+
+  it('does NOT glue an item across a blank line or a trailing paragraph', () => {
+    // A blank line ends the continuation run, so an unrelated trailing note is
+    // not appended to the last query.
+    expect(
+      parseQueries('QUERIES:\n1. only real query\n\nThis is unrelated trailing prose.'),
+    ).toEqual(['only real query']);
+  });
+
+  it('drops a non-list line that precedes any item (no item to continue)', () => {
+    // A continuation with nothing open is junk preamble — dropped, never
+    // promoted to its own item.
+    expect(parseQueries('QUERIES:\nstray preamble line\n1. the real query')).toEqual([
+      'the real query',
+    ]);
+  });
+
+  it('bounds a single item even under a flood of continuation lines', () => {
+    // Hostile input: hundreds of continuation lines all attach to one item.
+    // The joined item must stay bounded rather than growing without limit.
+    const flood = ['QUERIES:', '1. start'];
+    for (let i = 0; i < 500; i += 1) flood.push('x'.repeat(50));
+    const [item] = parseQueries(flood.join('\n'));
+    expect(item).toBeDefined();
+    expect(item!.length).toBeLessThanOrEqual(2000);
   });
 });
 

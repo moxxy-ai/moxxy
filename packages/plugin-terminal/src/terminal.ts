@@ -19,32 +19,39 @@ const shared = new Map<string, TerminalProcess>();
  */
 const pending = new Map<string, Promise<TerminalProcess>>();
 /**
- * Set true once `closeAllTerminals` runs. A create that was in flight at
- * shutdown resolves AFTER `closeAllTerminals` cleared `shared`; without this
- * gate that freshly-spawned shell would never be killed (the onShutdown hook
- * already ran), stranding a live PTY/child past session teardown. The create
- * continuation checks this flag and self-disposes.
+ * Monotonic shutdown generation, bumped by every `closeAllTerminals`. A create
+ * captures the epoch when it STARTS; if a shutdown happened since (the epoch
+ * advanced), its continuation self-disposes — the kill loop already ran and
+ * cleared `shared`, so storing that freshly-spawned shell would strand a live
+ * PTY/child past session teardown (the onShutdown hook already fired).
+ *
+ * A counter, not a boolean, on purpose: a new session reusing this module
+ * singleton calls `getSharedTerminal` again, which must re-arm so the NEW
+ * create is retained. A boolean reset on every call would ALSO resurrect a
+ * STALE pre-shutdown create that resolves after the re-arm, double-spawning and
+ * orphaning a shell. Comparing the create's captured epoch to the live one
+ * disposes only the creates that actually straddle a shutdown, regardless of
+ * later re-arms.
  */
-let closed = false;
+let epoch = 0;
 
 export async function getSharedTerminal(
   cwd: string,
   create: (cwd: string) => Promise<TerminalProcess> = createTerminalProcess,
 ): Promise<TerminalProcess> {
-  // A fresh terminal is requested again (e.g. a new tool call after a prior
-  // teardown), so re-arm: any create from here on must be retained, not
-  // orphaned by an earlier shutdown's flag.
-  closed = false;
   const existing = shared.get(cwd);
   if (existing && existing.alive) return existing;
   const inFlight = pending.get(cwd);
   if (inFlight) return inFlight;
+  // Capture the epoch this create belongs to. If a shutdown bumps `epoch` while
+  // we await, the continuation sees the mismatch and disposes the orphan.
+  const startedEpoch = epoch;
   const promise = (async () => {
     const proc = await create(cwd);
-    // Shutdown landed while this create was in flight — the kill loop already
-    // ran and cleared `shared`, so dispose this orphan immediately instead of
-    // storing a shell nothing will ever kill.
-    if (closed) {
+    // A shutdown landed while this create was in flight (epoch advanced) — the
+    // kill loop already ran and cleared `shared`, so dispose this orphan
+    // immediately instead of storing a shell nothing will ever kill.
+    if (epoch !== startedEpoch) {
       proc.kill();
       return proc;
     }
@@ -54,9 +61,10 @@ export async function getSharedTerminal(
     });
     return proc;
   })().finally(() => {
-    // Clear the in-flight slot only once this create settles; a later caller
-    // then sees the resolved process in `shared` (or retries on failure).
-    pending.delete(cwd);
+    // Clear the in-flight slot only once this create settles, AND only if it's
+    // still ours — a shutdown + re-arm may have replaced the slot with a newer
+    // create for the same cwd, which we must not clobber.
+    if (pending.get(cwd) === promise) pending.delete(cwd);
   });
   pending.set(cwd, promise);
   return promise;
@@ -64,13 +72,21 @@ export async function getSharedTerminal(
 
 /** Dispose every shared terminal (plugin shutdown / session close). */
 export function closeAllTerminals(): void {
-  // Mark closed FIRST so any create that resolves after this point self-kills
-  // (see getSharedTerminal). `pending.clear()` alone is insufficient — the
-  // promise body still runs to completion and would otherwise store the proc.
-  closed = true;
+  // Bump the epoch FIRST so any create that resolves after this point sees the
+  // mismatch and self-kills (see getSharedTerminal). `pending.clear()` alone is
+  // insufficient — the promise body still runs to completion and would
+  // otherwise store the proc.
+  epoch += 1;
   for (const proc of shared.values()) proc.kill();
   shared.clear();
   pending.clear();
+}
+
+/** A terminal dimension (cols/rows) is usable only if it's a finite, positive
+ *  number. Rejects NaN/Infinity/0/negatives/floats-with-no-magnitude before
+ *  they reach the PTY, where they'd throw or be silently coerced. */
+function isValidDimension(n: number | undefined): boolean {
+  return typeof n === 'number' && Number.isFinite(n) && n >= 1;
 }
 
 // --- Surface ----------------------------------------------------------------
@@ -130,8 +146,16 @@ export function buildTerminalSurface() {
           }
         },
         resize: (size) => {
-          if (size.cols && size.rows) proc.resize(size.cols, size.rows);
-          else ctx.logger?.debug?.('terminal surface dropped malformed resize', { size });
+          // Validate before touching the PTY: a viewer/relay may send NaN,
+          // Infinity, floats, negatives, or 0 (SurfaceSize.cols/rows are bare
+          // `number`s — anything decoded off the wire). `resize` in pty.ts also
+          // clamps, but reject obviously-bad shapes here with a diagnostic so a
+          // dropped resize is traceable rather than a silent no-op.
+          if (isValidDimension(size.cols) && isValidDimension(size.rows)) {
+            proc.resize(size.cols as number, size.rows as number);
+          } else {
+            ctx.logger?.debug?.('terminal surface dropped malformed resize', { size });
+          }
         },
         close: () => {
           // Detach this viewer; the underlying shared process stays alive for
@@ -180,7 +204,12 @@ export function buildTerminalTool() {
     handler: async (input, ctx) => {
       const proc = await getSharedTerminal(ctx.cwd ?? process.cwd());
       const timeoutMs = input.timeoutMs ?? 30_000;
-      return runCommand(proc, input.command, makeMarker(), timeoutMs);
+      // Honor the turn's abort signal: when the loop/user cancels the turn, the
+      // command must stop waiting PROMPTLY rather than blocking the tool slot for
+      // up to the full timeout (600s) on a session that's already being torn down.
+      // We do NOT kill the shared shell (it's user-facing and may host other work)
+      // — we just stop awaiting its sentinel.
+      return runCommand(proc, input.command, makeMarker(), timeoutMs, ctx.signal);
     },
   });
 }
@@ -238,11 +267,14 @@ export function runCommand(
   command: string,
   marker: string,
   timeoutMs: number,
+  /** Optional turn-abort signal; firing it finishes the command immediately
+   *  (timedOut=false) without waiting for the sentinel or the timeout. */
+  signal?: AbortSignal,
 ): Promise<{ output: string; exitCode: number | null; timedOut: boolean }> {
   // Idle shell (no pending tail) → write synchronously (undefined). Busy shell →
   // defer this command's writes until the current tail settles.
   const startWrites = commandTails.get(proc);
-  const run = runCommandSerialized(proc, command, marker, timeoutMs, startWrites);
+  const run = runCommandSerialized(proc, command, marker, timeoutMs, startWrites, signal);
   // This command becomes the new tail; later callers wait on it. Swallow
   // rejections (it never rejects today) so one failure can't poison the queue.
   const settled = run.then(
@@ -265,6 +297,8 @@ function runCommandSerialized(
   timeoutMs: number,
   /** Resolves when it's this command's turn to write; undefined = write now. */
   startWrites: Promise<void> | undefined,
+  /** Turn-abort signal; firing it finishes immediately (see runCommand). */
+  signal: AbortSignal | undefined,
 ): Promise<{ output: string; exitCode: number | null; timedOut: boolean }> {
   return new Promise((resolve) => {
     let acc = '';
@@ -275,16 +309,36 @@ function runCommandSerialized(
       unsubData();
       unsubExit();
       clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener('abort', onAbort);
       resolve({ output: cleanOutput(acc, command, marker), exitCode, timedOut });
     };
+    // Already aborted before we even start? Finish immediately — don't write to
+    // the shell, don't arm a timeout. The command never runs; null exit.
+    if (signal?.aborted) {
+      // `finish` below isn't fully wired yet (unsubData/unsubExit/timer are
+      // declared after this point), so resolve directly for the pre-armed case.
+      resolve({ output: '', exitCode: null, timedOut: false });
+      return;
+    }
+    // Abort while waiting/running → stop awaiting the sentinel and resolve with a
+    // null exit (the command may have partially run; we report what we captured).
+    // We deliberately do NOT kill the shared shell here — it is user-facing and
+    // may be hosting other work; we only detach this command's reader.
+    const onAbort = (): void => finish(null, false);
+    signal?.addEventListener('abort', onAbort, { once: true });
     // Compile the sentinel matcher ONCE — `marker` is fixed for this call. The
     // sentinel is `<marker> <digits>`; the marker is `__MOXXY_DONE_<hex>__`, so
-    // nothing in it is a regex metacharacter and it needs no escaping. ANCHOR
-    // the match to a line boundary so command OUTPUT that merely CONTAINS the
-    // literal string (echoing a captured transcript, grepping a file) cannot
-    // false-trigger completion — only the printf's own line, preceded by a
-    // newline and followed by one (printf always appends `\n`), matches.
-    const sentinel = new RegExp(`(?:^|\\n)${marker} (\\d+)\\r?\\n`);
+    // nothing in it is a regex metacharacter and it needs no escaping. Anchor the
+    // match to a REAL newline — `\n` only, NOT the regex `^` — so command OUTPUT
+    // that merely CONTAINS the literal string (echoing a captured transcript,
+    // grepping a file) cannot false-trigger completion. (`^` is deliberately
+    // excluded: we scan a SLICE of the buffer for O(n) cost, and `^` would match
+    // the slice's first char even when that char is mid-line — a hostile line
+    // like `prefix<marker> 137` whose `<marker>` happens to land at the slice
+    // start would otherwise spoof an attacker-chosen exit code. By requiring a
+    // literal `\n`, a sentinel is only ever recognized when a genuine newline
+    // precedes it in the buffer.) printf always appends a trailing `\n`.
+    const sentinel = new RegExp(`\\n${marker} (\\d+)\\r?\\n`);
     // Re-scanning the whole accumulated buffer per chunk is O(n^2). The sentinel
     // appears exactly once (unique marker) and we finish on first match, so it
     // suffices to scan only the new chunk plus a carry-over of the previous
@@ -292,6 +346,12 @@ function runCommandSerialized(
     // a leading newline + marker + space + a generous run of digits + trailing
     // newline.
     const carry = marker.length + 64;
+    // The shell ALWAYS echoes the command (and our printf) on their own lines, so
+    // a real sentinel is always preceded by a newline IN the buffer — we never
+    // need to treat the very first byte of the stream as a line start. To keep
+    // the `\n`-anchored match correct across the slice boundary, the scan window
+    // is widened by one extra leading char so the newline that precedes a
+    // sentinel can never be sliced away (see `scanStart` below).
     let scanFrom = 0;
     const unsubData = proc.onData((d) => {
       // Begin the scan window just before the bytes that could only now have
@@ -306,11 +366,20 @@ function runCommandSerialized(
         acc = acc.slice(removed);
         from = Math.max(0, from - removed);
       }
-      // The sentinel prints "<marker> <exit>" on its own line once the command
-      // finishes. Match the VALUE form (not the echoed command that contains
-      // `$?`), so the literal command line doesn't false-trigger completion.
+      // Scan from one char BEFORE `from` so the newline that precedes a sentinel
+      // straddling the carry boundary is inside the window (the match needs the
+      // leading `\n`). Slicing exactly at `from` could otherwise drop that
+      // newline and miss — or, with a bare `^` anchor, falsely match — the
+      // sentinel. Backing up one char keeps the real preceding newline in scope.
+      const scanStart = Math.max(0, from - 1);
+      // At the TRUE stream start (scanStart === 0) a sentinel may legitimately be
+      // the very first line, with no real newline before it. Prepend a synthetic
+      // `\n` ONLY there so the `\n`-anchored match recognizes it — this never
+      // creates a false mid-stream line start, because it's applied solely when
+      // the slice begins at byte 0 of the whole stream.
+      const hay = scanStart > 0 ? acc.slice(scanStart) : `\n${acc}`;
       sentinel.lastIndex = 0;
-      const m = sentinel.exec(from > 0 ? acc.slice(from) : acc);
+      const m = sentinel.exec(hay);
       if (m) finish(Number(m[1]), false);
       // Everything before this point can never start a future sentinel match.
       scanFrom = Math.max(0, acc.length - carry);
@@ -329,6 +398,16 @@ function runCommandSerialized(
     // non-PTY pipe the shell still runs both sequentially.
     const writeAndArm = (): void => {
       if (settled) return; // shell died (or we were torn down) before our turn
+      // The shell is ALREADY dead at write time (it exited before our turn, or
+      // in the TOCTOU window between getSharedTerminal returning it and now).
+      // `onExit` won't fire again — it already fired and is single-shot — so a
+      // bare write would hang to the full timeout (up to 600s) on a known-dead
+      // process. Finish immediately instead. Reported as timedOut=false / null
+      // exit: the command never actually ran, so there is no real exit status.
+      if (!proc.alive) {
+        finish(null, false);
+        return;
+      }
       timer = setTimeout(() => finish(null, true), timeoutMs);
       proc.write(`${command}\n`);
       proc.write(`\nprintf '%s %s\\n' "${marker}" "$?"\n`);

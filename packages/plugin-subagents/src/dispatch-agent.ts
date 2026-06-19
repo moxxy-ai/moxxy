@@ -13,6 +13,15 @@ import {
 const MAX_PROMPT_CHARS = 20_000;
 /** Upper bound on a per-child system-prompt override. */
 const MAX_SYSTEM_PROMPT_CHARS = 8_000;
+/**
+ * Aggregate text budget across the WHOLE batch (sum of every spec's prompt +
+ * systemPrompt). The per-field caps bound one child, but 8 specs each at the
+ * field ceiling still total ~224K chars, dispatched as 8 *concurrent*
+ * completions — a sudden cost/context/memory spike reachable from untrusted
+ * model output. This caps the simultaneous fan-out payload below that
+ * worst case while staying generously above any real multi-agent call.
+ */
+const MAX_BATCH_TEXT_CHARS = 60_000;
 /** This tool's own name — never re-granted to children by default so a model
  *  can't drive an unbounded recursive fan-out (8^N sessions). */
 const DISPATCH_AGENT_TOOL_NAME = 'dispatch_agent';
@@ -116,6 +125,21 @@ export function buildDispatchAgentTool(deps: DispatchAgentDeps) {
         .array(agentSpecSchema)
         .min(1)
         .max(8)
+        .superRefine((specs, ctx) => {
+          // Bound the *aggregate* concurrent fan-out payload, not just each
+          // child. Reject the whole batch before any session is spawned.
+          let total = 0;
+          for (const s of specs) total += s.prompt.length + (s.systemPrompt?.length ?? 0);
+          if (total > MAX_BATCH_TEXT_CHARS) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message:
+                `dispatch_agent batch payload too large: ${total} chars across ${specs.length} ` +
+                `agent(s) exceeds the ${MAX_BATCH_TEXT_CHARS}-char aggregate limit. Spawn fewer ` +
+                `agents per call or shorten the prompts/systemPrompts.`,
+            });
+          }
+        })
         .describe('Specs for the agents to spawn. Run in parallel; results returned in order.'),
     }),
     handler: async (input, ctx) => {

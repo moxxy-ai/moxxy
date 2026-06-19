@@ -525,15 +525,19 @@ function readRoster(path: string, maxAgents: number): RosterEntry[] {
       const id = slug(r.id);
       if (!id || seen.has(id) || id === ARCHITECT_AGENT_ID) continue;
       seen.add(id);
+      const ownedPaths = cleanOwnedPaths(r.ownedPaths);
       out.push({
         id,
-        name: typeof r.name === 'string' ? r.name : id,
+        // `name` and `subtask` are LLM-authored free text. `subtask` is carried in
+        // a spawned peer's env (COLLAB_ENV.Subtask) — an unbounded value bloats the
+        // child's environment — so strip NULs and cap both.
+        name: cleanText(r.name, 80) || id,
         // Carry the architect's proposed role (pm/designer/developer/qa/writer/…)
         // so the team is cross-functional, not a pool of identical implementers.
         role: cleanRole(r.role),
-        subtask: r.subtask,
-        ...(Array.isArray(r.ownedPaths) ? { ownedPaths: r.ownedPaths.filter((p) => typeof p === 'string') } : {}),
-        ...(typeof r.model === 'string' ? { model: r.model } : {}),
+        subtask: cleanText(r.subtask, 2000),
+        ...(ownedPaths.length ? { ownedPaths } : {}),
+        ...(typeof r.model === 'string' ? { model: cleanText(r.model, 100) } : {}),
         ...(typeof r.charter === 'string' && r.charter.trim() ? { charter: cleanCharter(r.charter) } : {}),
       });
       if (out.length >= maxAgents) break;
@@ -573,6 +577,39 @@ function cleanRole(raw: unknown): string {
   const r = raw.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
   if (!r || r === ARCHITECT_AGENT_ID) return 'implementer';
   return r;
+}
+
+/** Bound a piece of LLM-authored free text: strip NULs (they can't legally appear
+ *  in an env var and corrupt downstream parsing), trim, and length-cap. Non-strings
+ *  → ''. */
+function cleanText(raw: unknown, max: number): string {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(/\u0000/g, '').trim().slice(0, max);
+}
+
+/** Max owned-path claims kept per roster entry, and the per-path length cap. The
+ *  architect is told to claim the narrowest set, but the roster is untrusted LLM
+ *  output — a runaway list of thousands of claims would bloat the board AND make
+ *  the O(claims) ownership scan pathological — so bound both count and length. */
+const MAX_OWNED_PATHS = 64;
+const MAX_OWNED_PATH_LEN = 512;
+
+/** Normalise a roster entry's `ownedPaths`: keep only non-empty strings, strip
+ *  NULs, length-cap each path, dedupe, and cap the count. These feed the file-lock
+ *  board + the integrate ownership map, both untrusted-input surfaces. */
+function cleanOwnedPaths(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of raw) {
+    if (typeof p !== 'string') continue;
+    const cleaned = p.replace(/\u0000/g, '').trim().slice(0, MAX_OWNED_PATH_LEN);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+    if (out.length >= MAX_OWNED_PATHS) break;
+  }
+  return out;
 }
 
 /** Sanitise an architect-authored charter: strip NULs and cap length (it's

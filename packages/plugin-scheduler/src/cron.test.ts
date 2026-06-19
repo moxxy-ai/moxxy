@@ -189,6 +189,51 @@ describe('nextFireTime', () => {
     expect(wc.minute).toBe(30);
   });
 
+  // Worst case (DoS): a structurally-impossible expression in an EXPLICIT IANA
+  // zone must NOT walk the full 366-day minute-by-minute window (~527k
+  // Intl.formatToParts calls, ~2s of blocked event loop) before returning null.
+  // The calendar-fact pre-check bails instantly. We assert correctness (null)
+  // AND a tight time bound so a regression that removes the short-circuit fails.
+  it('bails instantly (not a 2s walk) on an impossible explicit-zone cron', () => {
+    const after = new Date(Date.UTC(2026, 0, 1, 0, 0, 0));
+    const start = performance.now();
+    expect(nextFireTime('0 0 30 2 *', after, 'America/New_York')).toBeNull(); // Feb 30
+    expect(nextFireTime('0 0 31 4 *', after, 'America/New_York')).toBeNull(); // Apr 31
+    expect(nextFireTime('0 0 31 4,6,9,11 *', after, 'Asia/Tokyo')).toBeNull(); // 31st of only 30-day months
+    const elapsed = performance.now() - start;
+    // Three impossible explicit-zone evaluations. Pre-fix this was ~6s; the
+    // short-circuit makes it sub-millisecond. Generous bound to avoid CI flake.
+    expect(elapsed).toBeLessThan(250);
+  });
+
+  it('does NOT declare a valid sparse explicit-zone cron impossible', () => {
+    const after = new Date(Date.UTC(2026, 0, 1, 0, 0, 0));
+    // Jan 31 exists — must resolve, not be short-circuited to null.
+    const jan31 = nextFireTime('0 0 31 1 *', after, 'America/New_York');
+    expect(jan31).not.toBeNull();
+    const wc = wallClockInZone(jan31!, 'America/New_York');
+    expect(wc.hour).toBe(0);
+  });
+
+  it('still finds leap-year Feb 29 (29 is a legal DOM, not impossible)', () => {
+    // 2028 is a leap year. The pre-check uses Feb max = 29 so it does not
+    // wrongly reject Feb 29; the walk then lands on it.
+    const after = new Date(2028, 0, 1, 0, 0, 0);
+    const next = nextFireTime('0 0 29 2 *', after);
+    expect(next).not.toBeNull();
+    expect(next!.getMonth()).toBe(1); // February
+    expect(next!.getDate()).toBe(29);
+  });
+
+  it('does NOT treat an impossible-DOM cron as impossible when DOW is restricted (OR-semantics)', () => {
+    // `0 0 30 2 5` = (Feb 30, never) OR (any Friday). The Friday arm makes it
+    // perfectly reachable; the pre-check must NOT short-circuit it to null.
+    const after = new Date(2026, 0, 1, 0, 0, 0);
+    const next = nextFireTime('0 0 30 2 5', after);
+    expect(next).not.toBeNull();
+    expect(next!.getDay()).toBe(5); // matched via the Friday (DOW) arm
+  });
+
   // Worst case: a non-IANA timeZone must NOT throw a RangeError out of
   // nextFireTime (which would abort the whole poller tick) — it returns null
   // (treated as "never due") instead.

@@ -10,6 +10,7 @@ import {
   detectNewDeps,
   finalizeStagedCoreUpdate,
   findRepoPkgDir,
+  gcCoreTxns,
   listCoreTxns,
   overlayPackages,
   provisionWorkspace,
@@ -94,6 +95,32 @@ describe('safeRepoPath', () => {
     await fs.mkdir(path.join(repo, 'packages', 'core', 'src'), { recursive: true });
     const p = safeRepoPath(repo, 'packages/core/src/a.ts');
     expect(p.endsWith(path.join('packages', 'core', 'src', 'a.ts'))).toBe(true);
+  });
+
+  it('accepts an ABSOLUTE in-repo path even when the repo root traverses a symlink', async () => {
+    // Regression: when the repo root resolves through a symlink (the norm on
+    // macOS, where the tmp dir lives under /var→/private/var, and anywhere
+    // $HOME/.moxxy is symlinked), a legitimate absolute path *inside* the repo
+    // must not be misread as escaping. The realpath re-check must anchor the
+    // already-validated in-repo segments onto realRoot, not re-resolve the raw
+    // (possibly absolute) input against it.
+    const base = await tmp();
+    const realTarget = path.join(base, 'real-repo');
+    await fs.mkdir(path.join(realTarget, 'packages', 'core', 'src'), { recursive: true });
+    // A symlink to the repo root: the raw path differs from its realpath on
+    // every platform, deterministically exercising the symlinked-root case.
+    const repo = path.join(base, 'repo-link');
+    await fs.symlink(realTarget, repo, 'dir');
+    const real = await fs.realpath(repo);
+    expect(repo === real).toBe(false);
+
+    const abs = path.join(repo, 'packages', 'core', 'src', 'a.ts');
+    const p = safeRepoPath(repo, abs);
+    expect(p).toBe(path.join(real, 'packages', 'core', 'src', 'a.ts'));
+  });
+
+  it('still rejects an absolute path OUTSIDE the repo', () => {
+    expect(() => safeRepoPath('/repo', '/etc/passwd')).toThrow(/escapes/);
   });
 });
 
@@ -458,5 +485,58 @@ describe('core journal', () => {
     await writeCoreJournal(moxxy, j);
     expect((await readCoreJournal(moxxy, 'core-1')).state).toBe('provisioned');
     expect((await listCoreTxns(moxxy)).length).toBe(1);
+  });
+});
+
+describe('gcCoreTxns', () => {
+  /** Write a core journal with a given id/state and a snapshot file. */
+  async function seedTxn(moxxy: string, id: string, state: CoreJournal['state']): Promise<void> {
+    await writeCoreJournal(moxxy, {
+      txnId: id,
+      createdAt: new Date(2026, 0, parseInt(id.replace(/\D/g, ''), 10) || 1).toISOString(),
+      updatedAt: new Date().toISOString(),
+      packages: ['@moxxy/core'],
+      version: '1.0.0',
+      repoDir: '/repo',
+      state,
+      attempts: [],
+    });
+    // A dist snapshot — the thing GC must reclaim.
+    const snap = path.join(coreTxnDir(moxxy, id), 'snapshot', 'core');
+    await fs.mkdir(snap, { recursive: true });
+    await fs.writeFile(path.join(snap, 'index.js'), '// snapshot\n', 'utf8');
+  }
+
+  it('prunes old terminal txns (snapshot dirs) but keeps non-terminal ones', async () => {
+    const moxxy = await tmp();
+    await seedTxn(moxxy, 'core-1', 'committed');
+    await seedTxn(moxxy, 'core-2', 'rolled_back');
+    await seedTxn(moxxy, 'core-3', 'committed');
+    // A non-terminal txn whose snapshot finalize/rollback may still need.
+    await seedTxn(moxxy, 'core-9', 'staged_restart');
+
+    await gcCoreTxns(moxxy, 1);
+
+    const remaining = (await listCoreTxns(moxxy)).map((j) => j.txnId).sort();
+    // keep=1 terminal (the newest, core-3) + the non-terminal staged one survives.
+    expect(remaining).toEqual(['core-3', 'core-9']);
+    // The pruned txn's snapshot is gone from disk.
+    await expect(fs.access(coreTxnDir(moxxy, 'core-1'))).rejects.toBeTruthy();
+    await expect(fs.access(coreTxnDir(moxxy, 'core-9'))).resolves.toBeUndefined();
+  });
+
+  it('finalizeStagedCoreUpdate prunes terminal history after committing', async () => {
+    const moxxy = await tmp();
+    // Two already-committed (terminal) txns + one staged that will commit now.
+    await seedTxn(moxxy, 'core-1', 'committed');
+    await seedTxn(moxxy, 'core-2', 'committed');
+    await seedTxn(moxxy, 'core-3', 'staged_restart');
+
+    // keepTerminal=1 → after committing core-3, only the newest terminal survives.
+    await finalizeStagedCoreUpdate(moxxy, null, 1);
+
+    const ids = (await listCoreTxns(moxxy)).map((j) => j.txnId);
+    expect(ids).toContain('core-3'); // just committed, newest
+    expect(ids.length).toBe(1);
   });
 });

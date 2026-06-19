@@ -199,6 +199,34 @@ describe('board file locks', () => {
     if (!clash.ok) expect(clash.ownedBy).toBe('backend');
   });
 
+  it('rejects a NEW claim with no usable paths (no junk pathless lock)', () => {
+    const { state, events } = mkState();
+    // The hub force-casts a malformed RPC to []; a NEW claim must not mint a
+    // pathless lock item that locks nothing and pollutes the board.
+    const empty = state.boardClaim('backend', []);
+    expect(empty.ok).toBe(false);
+    expect(state.boardItems()).toHaveLength(0);
+    expect(events.some((e) => e.kind === 'board')).toBe(false);
+
+    // Paths that collapse to nothing after normalization are likewise rejected.
+    const dupOnly = state.boardClaim('backend', ['src/a', './src/a', 'src/a/']);
+    // (these are NOT empty — they normalize to one real path — so this succeeds)
+    expect(dupOnly.ok).toBe(true);
+    if (dupOnly.ok) expect(dupOnly.item.paths).toEqual(['src/a']); // de-duped on create
+  });
+
+  it('re-claiming an existing item with empty paths is a harmless status touch', () => {
+    const { state } = mkState();
+    const first = state.boardClaim('backend', ['src/a']);
+    expect(first.ok).toBe(true);
+    const id = first.ok ? first.item.id : '';
+    // An empty re-claim of an EXISTING owned item must not drop its paths.
+    const touched = state.boardClaim('backend', [], id);
+    expect(touched.ok).toBe(true);
+    if (touched.ok) expect(touched.item.paths).toEqual(['src/a']);
+    expect(state.boardClaim('tests', ['src/a']).ok).toBe(false); // still locked
+  });
+
   it('re-claiming an item merges paths rather than dropping the old lock', () => {
     const { state } = mkState();
     const first = state.boardClaim('backend', ['src/a']);

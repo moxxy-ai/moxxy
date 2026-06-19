@@ -442,6 +442,102 @@ describe('CodexOAuthTranscriber hardening', () => {
     }
   });
 
+  it('rejects with NETWORK_TIMEOUT when headers arrive but the body never finishes (slow-loris body)', async () => {
+    const vault = await makeVault();
+    await persistCodexTokens(vault, {
+      access: 'access-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    // Send a 200 + headers + one byte of body, then hold the body open forever.
+    // The fetch promise resolves (headers are in), so a size-only cap wouldn't
+    // help — the deadline must also span the body read.
+    const liveResponses: ServerResponse[] = [];
+    const server = await startServer((_request, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.write('{');
+      liveResponses.push(res);
+      // Never call res.end(): the body stream dribbles and stalls.
+    });
+    try {
+      const transcriber = new CodexOAuthTranscriber({
+        vault,
+        baseUrl: server.baseUrl,
+        requestTimeoutMs: 80,
+      });
+      await expect(
+        transcriber.transcribe(new Uint8Array([1, 2, 3, 4]), { mimeType: 'audio/wav' }),
+      )
+        .rejects
+        .toMatchObject({ code: 'NETWORK_TIMEOUT' });
+    } finally {
+      for (const res of liveResponses) res.destroy();
+      await server.close();
+    }
+  });
+
+  it('caps an oversized body read instead of buffering the whole thing', async () => {
+    const vault = await makeVault();
+    await persistCodexTokens(vault, {
+      access: 'access-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    // A 200 whose body is megabytes of junk before any closing brace: the read
+    // must stop at the cap (yielding unparseable truncated JSON) rather than
+    // buffering it all. We assert it surfaces a structured PROVIDER error and
+    // returns promptly, not that it OOMs.
+    const server = await startServer((_request, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(`{"text":"${'A'.repeat(8 * 1024 * 1024)}`); // 8MB, no closing quote/brace
+    });
+    try {
+      const transcriber = new CodexOAuthTranscriber({ vault, baseUrl: server.baseUrl });
+      await expect(
+        transcriber.transcribe(new Uint8Array([1, 2, 3, 4]), { mimeType: 'audio/wav' }),
+      )
+        .rejects
+        .toMatchObject({ code: 'PROVIDER_UNKNOWN_RESPONSE' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('honours a caller AbortSignal mid-flight without hanging', async () => {
+    const vault = await makeVault();
+    await persistCodexTokens(vault, {
+      access: 'access-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    const liveResponses: ServerResponse[] = [];
+    const server = await startServer((_request, res) => {
+      // Hold open so the caller's own abort is what settles the promise.
+      liveResponses.push(res);
+    });
+    try {
+      const controller = new AbortController();
+      const transcriber = new CodexOAuthTranscriber({
+        vault,
+        baseUrl: server.baseUrl,
+        // Disable the internal deadline so only the caller signal can settle it.
+        requestTimeoutMs: 0,
+      });
+      const pending = transcriber.transcribe(new Uint8Array([1, 2, 3, 4]), {
+        mimeType: 'audio/wav',
+        signal: controller.signal,
+      });
+      setTimeout(() => controller.abort(), 30);
+      await expect(pending).rejects.toMatchObject({ code: 'NETWORK_ABORTED' });
+    } finally {
+      for (const res of liveResponses) res.destroy();
+      await server.close();
+    }
+  });
+
   it('truncates and sanitizes the body of an unmapped non-2xx status in the error cause', async () => {
     const vault = await makeVault();
     await persistCodexTokens(vault, {

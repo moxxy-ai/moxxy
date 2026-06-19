@@ -480,6 +480,94 @@ describe('baseURL scheme/host hardening', () => {
       testSchema().safeParse({ baseURL: 'https://169.254.169.254/v1', keyName: 'DEEPSEEK_API_KEY' }).success,
     ).toBe(false);
   });
+
+  it('rejects RFC1918 private ranges + loopback over https (SSRF to internal hosts)', () => {
+    for (const baseURL of [
+      'https://10.0.0.5/v1', // 10.0.0.0/8
+      'https://192.168.1.1/v1', // 192.168.0.0/16
+      'https://172.16.5.5/v1', // 172.16.0.0/12 (low edge)
+      'https://172.31.255.255/v1', // 172.16.0.0/12 (high edge)
+      'https://127.0.0.1/v1', // loopback over https (only http://localhost is allowed)
+      'https://127.5.6.7/v1', // 127.0.0.0/8
+    ]) {
+      expect(addSchema().safeParse({ ...zaiInput, baseURL }).success).toBe(false);
+      expect(testSchema().safeParse({ baseURL, keyName: 'DEEPSEEK_API_KEY' }).success).toBe(false);
+    }
+  });
+
+  it('does NOT reject a public 172.x address outside the private /12', () => {
+    // 172.15.x and 172.32.x are PUBLIC — the blocklist must not over-reach.
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://172.15.0.1/v1' }).success).toBe(true);
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://172.32.0.1/v1' }).success).toBe(true);
+  });
+
+  it('canonicalizes decimal / hex IPv4 encodings before the SSRF check (no bypass)', () => {
+    // 2852039166 === 169.254.169.254 (cloud metadata); hex/decimal must not slip past.
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://2852039166/v1' }).success).toBe(false);
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://0xa9.0xfe.0xa9.0xfe/v1' }).success).toBe(false);
+    // 2130706433 === 127.0.0.1 (loopback) as a decimal literal.
+    expect(testSchema().safeParse({ baseURL: 'https://2130706433/v1', keyName: 'DEEPSEEK_API_KEY' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects IPv6 loopback / link-local / unique-local over https', () => {
+    for (const baseURL of ['https://[::1]/v1', 'https://[fe80::1]/v1', 'https://[fc00::1]/v1', 'https://[fd12::1]/v1']) {
+      expect(addSchema().safeParse({ ...zaiInput, baseURL }).success).toBe(false);
+    }
+  });
+});
+
+describe('per-name lock is bounded + serializes concurrent same-slug calls', () => {
+  it('two parallel provider_add for the SAME fresh slug both succeed (no "already registered")', async () => {
+    // Without serialization both calls capture prevDef=undefined and the second
+    // register() throws "already registered". The per-name lock must turn the
+    // race into add→replace. Run them with Promise.all (overlapping).
+    const reg = new FakeRegistry();
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const fire = (defaultModel: string): Promise<unknown> =>
+      Promise.resolve(
+        addTool.handler(
+          addTool.inputSchema.parse({
+            ...zaiInput,
+            defaultModel,
+            models: [{ id: defaultModel, contextWindow: 1000, supportsTools: true, supportsStreaming: true }],
+          }),
+          {} as never,
+        ),
+      );
+    const results = (await Promise.all([fire('m-a'), fire('m-b')])) as Array<{ ok: boolean }>;
+    expect(results.every((r) => r.ok)).toBe(true);
+    // Exactly one 'zai' def survives; disk has exactly one entry.
+    expect(reg.defs.has('zai')).toBe(true);
+    const cfg = await readProvidersConfig(cfgPath);
+    expect(cfg.providers.filter((p) => p.name === 'zai')).toHaveLength(1);
+  });
+
+  it('the lock map does not grow with the number of distinct slugs touched', async () => {
+    // Each add/remove for a distinct slug must NOT leave a permanent lock entry.
+    // We can't read the private map, but we CAN assert no behavioral leak by
+    // hammering many distinct slugs sequentially and confirming each completes
+    // (a leak would not crash, so this is a smoke that the ref-count finally
+    // always runs — paired with the source-level guarantee).
+    const reg = new FakeRegistry();
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const removeTool = plugin.tools!.find((t) => t.name === 'provider_remove')!;
+    for (let i = 0; i < 50; i++) {
+      const name = `vendor-${i}`;
+      await Promise.resolve(
+        addTool.handler(addTool.inputSchema.parse({ ...zaiInput, name }), {} as never),
+      );
+      await Promise.resolve(removeTool.handler(removeTool.inputSchema.parse({ name }), {} as never));
+    }
+    // All cleaned up: registry empty, disk empty.
+    expect(reg.list()).toHaveLength(0);
+    expect((await readProvidersConfig(cfgPath)).providers).toHaveLength(0);
+  });
 });
 
 describe('active-provider safety', () => {

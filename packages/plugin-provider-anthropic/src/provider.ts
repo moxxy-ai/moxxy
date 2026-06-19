@@ -452,7 +452,7 @@ export class AnthropicProvider implements LLMProvider {
                   // `error`, instead of feeding `{ _rawPartial }` into the tool —
                   // which erased all signal that the model's call was garbage.
                   pendingToolUses.delete(id);
-                  if (typeof event.index === 'number') blockIndexToId.delete(event.index);
+                  pruneBlockIndex(blockIndexToId, event.index, id);
                   stopReason = 'error';
                   yield {
                     type: 'error',
@@ -463,7 +463,7 @@ export class AnthropicProvider implements LLMProvider {
                 }
                 yield { type: 'tool_use_end', id, input: parsed };
                 pendingToolUses.delete(id);
-                if (typeof event.index === 'number') blockIndexToId.delete(event.index);
+                pruneBlockIndex(blockIndexToId, event.index, id);
               }
             }
             break;
@@ -653,17 +653,40 @@ function idOfBlock(
     return blockIndexToId.get(event.index) ?? null;
   }
   // Fallback when `index` is missing (older SDKs / hand-rolled fakes): only
-  // unambiguous when exactly one tool_use is pending. `blockIndexToId` is only
-  // pruned on content_block_stop with a numeric index, so in an index-less
-  // stream a finished block's entry can linger and falsely satisfy size===1;
-  // require the id to still be PENDING (deleted on tool_use_end) so a new
-  // block's deltas never route onto a stale, already-finished entry.
+  // unambiguous when exactly one tool_use is pending. `pruneBlockIndex` deletes
+  // a finished block's entry on content_block_stop even in an index-less stream,
+  // so a stale entry can't linger to falsely satisfy size===1 for a later block;
+  // we still require the id to be PENDING as a belt-and-suspenders guard.
   if (blockIndexToId.size === 1) {
     for (const id of blockIndexToId.values()) {
       if (!pendingToolUses || pendingToolUses.has(id)) return id;
     }
   }
   return null;
+}
+
+/**
+ * Remove a finished tool block's index→id mapping. Prefers the numeric index
+ * (real Anthropic streams), but falls back to deleting by VALUE (`id`) so an
+ * index-less stream doesn't leave a stale entry lingering — which would break
+ * the size===1 fallback for the next serial tool block (its deltas would route
+ * nowhere). Index-less streams therefore stay correct for strictly-serial tools.
+ */
+function pruneBlockIndex(
+  blockIndexToId: Map<number, string>,
+  index: number | undefined,
+  id: string,
+): void {
+  if (typeof index === 'number') {
+    blockIndexToId.delete(index);
+    return;
+  }
+  for (const [k, v] of blockIndexToId) {
+    if (v === id) {
+      blockIndexToId.delete(k);
+      return;
+    }
+  }
 }
 
 function mapStopReason(s: string): StopReason {

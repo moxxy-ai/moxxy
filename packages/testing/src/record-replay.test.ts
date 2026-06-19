@@ -38,6 +38,43 @@ describe('RecordedProvider', () => {
     expect(replayed).toBe('hi back');
   });
 
+  it('tracks written and read fixture paths so consumers need no mtime diff', async () => {
+    const upstream = new FakeProvider({ script: [textReply('hi back')] });
+    const recorder = new RecordedProvider({ mode: 'record', upstream, fixtureDir: dir, testName: 'tracked' });
+    expect(recorder.writtenFixtures).toEqual([]);
+    for await (const _ of recorder.stream(req())) void _;
+    expect(recorder.writtenFixtures).toHaveLength(1);
+    expect(recorder.writtenFixtures[0]).toContain('tracked.');
+    // Nothing read in record mode.
+    expect(recorder.readFixtures).toEqual([]);
+
+    const replayer = new RecordedProvider({ mode: 'replay', fixtureDir: dir, testName: 'tracked' });
+    for await (const _ of replayer.stream(req())) void _;
+    expect(replayer.readFixtures).toHaveLength(1);
+    expect(replayer.readFixtures[0]).toBe(recorder.writtenFixtures[0]);
+    // The replayer wrote nothing.
+    expect(replayer.writtenFixtures).toEqual([]);
+  });
+
+  it('does not record a written/read path when a record-mode capture aborts', async () => {
+    const exploding: LLMProvider = {
+      name: 'boom',
+      models: [],
+      async *stream() {
+        throw new Error('drop');
+      },
+      async countTokens() {
+        return 0;
+      },
+    };
+    const recorder = new RecordedProvider({ mode: 'record', upstream: exploding, fixtureDir: dir, testName: 'aborted' });
+    await expect(async () => {
+      for await (const _ of recorder.stream(req())) void _;
+    }).rejects.toThrow(/failed mid-record/);
+    // No fixture persisted → nothing tracked as written.
+    expect(recorder.writtenFixtures).toEqual([]);
+  });
+
   it('replay mode without fixture throws helpfully', async () => {
     const r = new RecordedProvider({ mode: 'replay', fixtureDir: dir, testName: 'missing' });
     await expect(async () => {

@@ -96,31 +96,6 @@ export async function record(
       'persisted into the committed fixture.\n',
   );
 
-  const { promises: fs } = await import('node:fs');
-  // writeFileAtomic mkdir's the out dir lazily on first write, but a turn that
-  // never hits the upstream writes nothing — so create it up front to keep the
-  // post-turn diff readdir from throwing ENOENT and masking a 0-fixture run.
-  await fs.mkdir(out, { recursive: true });
-
-  // Snapshot the matching fixtures (name + mtime) BEFORE the turn so the result
-  // reports only files THIS run actually wrote, never stale fixtures orphaned by
-  // a prior run with a different --prompt/--model that share the --name prefix.
-  const matches = async (): Promise<Map<string, number>> => {
-    const entries = (await fs.readdir(out)).filter(
-      (f) => f.startsWith(`${flags.name}.`) && f.endsWith('.json'),
-    );
-    const m = new Map<string, number>();
-    for (const f of entries) {
-      try {
-        m.set(f, (await fs.stat(path.join(out, f))).mtimeMs);
-      } catch {
-        // Raced/removed between readdir and stat — treat as absent.
-      }
-    }
-    return m;
-  };
-  const before = await matches();
-
   const upstream = opts.upstream ?? new AnthropicProvider({});
   const recorder = new RecordedProvider({
     mode: 'record',
@@ -177,14 +152,14 @@ export async function record(
     await session.close().catch(() => {});
   }
 
-  const after = await matches();
-  const written: string[] = [];
-  for (const [f, mtime] of after) {
-    const prior = before.get(f);
-    if (prior === undefined || mtime > prior) written.push(f);
-  }
-  written.sort();
-  return { fixtureFiles: written.map((f) => path.join(out, f)), events: events.length };
+  // The recorder itself tracks the EXACT absolute paths it wrote this run, so we
+  // report those directly rather than diffing a directory listing. A directory
+  // mtime-diff is fragile under coarse FS mtime resolution (a fixture rewritten
+  // in the same clock tick reads as "unchanged" and is silently dropped from the
+  // report) and under clock skew; the recorder's set has neither failure mode and
+  // can never include a stale fixture orphaned by a prior --name-sharing run.
+  const fixtureFiles = [...recorder.writtenFixtures].sort();
+  return { fixtureFiles, events: events.length };
 }
 
 export function parseFlags(argv: ReadonlyArray<string>): Flags | { help: true } {

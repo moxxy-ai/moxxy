@@ -351,6 +351,36 @@ describe('admin/runtime', () => {
       vi.useRealTimers();
     });
 
+    it('attachServer (eager add path) rejects when connect never resolves', async () => {
+      vi.useFakeTimers();
+      // The eager add path drives `mcp_add_server` / `enableAndAttach`; a
+      // wedged spawn here would hang the tool call forever without a bound.
+      hoisted.connectImpl = () => new Promise<McpClientLike>(() => {});
+      const rt = createMcpRuntime(makeRegistry());
+      const promise = rt.attachServer({ kind: 'stdio', name: 'demo', command: 'x' });
+      const assertion = expect(promise).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      await assertion;
+    });
+
+    it('attachServer rejects when listTools never resolves and closes the opened client', async () => {
+      vi.useFakeTimers();
+      const client = makeClient({
+        listTools: () => new Promise<{ tools: ReadonlyArray<McpToolDescriptor> }>(() => {}),
+      });
+      hoisted.connectImpl = async () => client;
+      const rt = createMcpRuntime(makeRegistry());
+      const promise = rt.attachServer({ kind: 'stdio', name: 'demo', command: 'x' });
+      const assertion = expect(promise).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      await assertion;
+      // A connected-but-mute server must not leak its child process / socket
+      // when discovery times out.
+      expect(client.closed).toBe(1);
+      // Nothing got registered for the failed attach.
+      expect(rt.runtimes.has('demo')).toBe(false);
+    });
+
     it('refreshServerCache rejects (does not hang) when connect never resolves', async () => {
       vi.useFakeTimers();
       // connect hangs forever — without the bounded timeout this would wedge

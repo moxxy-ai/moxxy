@@ -95,4 +95,61 @@ describe('shipped builtin skills', () => {
     // registered default tool — a body reference would stall onboarding.
     expect(body).not.toMatch(/\bWebFetch\b/);
   });
+
+  it('no shipped skill body references the non-existent WebFetch tool (the original drift)', async () => {
+    const files = await listSkillFiles();
+    const offenders: string[] = [];
+    for (const file of files) {
+      const raw = await fs.readFile(file, 'utf8');
+      const { body } = parseFrontmatterFile(raw);
+      if (/\bWebFetch\b/.test(body)) offenders.push(path.basename(file));
+    }
+    expect(offenders, `bodies must use \`web_fetch\`, not \`WebFetch\`: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('frontmatter name matches the filename slug', async () => {
+    const files = await listSkillFiles();
+    const mismatched: string[] = [];
+    for (const file of files) {
+      const raw = await fs.readFile(file, 'utf8');
+      const { frontmatter } = parseFrontmatterFile(raw);
+      const slug = path.basename(file, '.md');
+      if (frontmatter.name !== slug) {
+        mismatched.push(`${path.basename(file)} declares name="${String(frontmatter.name)}"`);
+      }
+    }
+    // A name/filename mismatch is confusing at best and, if the name collides
+    // with another skill, lets one silently shadow the other in the registry.
+    expect(mismatched, mismatched.join('\n')).toEqual([]);
+  });
+
+  it('skill names are unique', async () => {
+    const files = await listSkillFiles();
+    const seen = new Map<string, string>();
+    const dupes: string[] = [];
+    for (const file of files) {
+      const raw = await fs.readFile(file, 'utf8');
+      const { frontmatter } = parseFrontmatterFile(raw);
+      const name = String(frontmatter.name);
+      const prev = seen.get(name);
+      if (prev) dupes.push(`${name}: ${prev} & ${path.basename(file)}`);
+      else seen.set(name, path.basename(file));
+    }
+    expect(dupes, dupes.join('\n')).toEqual([]);
+  });
+
+  it('allowed-tools arrays have no empty or duplicate entries', async () => {
+    const files = await listSkillFiles();
+    const bad: string[] = [];
+    for (const file of files) {
+      const raw = await fs.readFile(file, 'utf8');
+      const { frontmatter } = parseFrontmatterFile(raw);
+      const tools = frontmatter['allowed-tools'];
+      if (!Array.isArray(tools)) continue;
+      const strs = tools.filter((t): t is string => typeof t === 'string');
+      if (strs.some((t) => t.trim() === '')) bad.push(`${path.basename(file)}: empty allowed-tools entry`);
+      if (new Set(strs).size !== strs.length) bad.push(`${path.basename(file)}: duplicate allowed-tools entry`);
+    }
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
 });

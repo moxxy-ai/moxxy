@@ -14,9 +14,10 @@ The user has asked for something for which no existing skill matches. Your job i
    to `~/.moxxy/skills/`, and hot-swap the registry. This is the path that can't ship
    invalid frontmatter or clobber an existing skill.
 3. Only hand-write the file with `Write` if the tool is unavailable. If you do, the
-   frontmatter MUST satisfy the schema:
-   - `name`: kebab-case slug, no more than 60 chars
-   - `description`: one sentence, < 120 chars
+   frontmatter MUST satisfy the schema (hard caps: `name` <=120, `description` <=240).
+   Aim well under those for legibility — these are style budgets, not the wall:
+   - `name`: kebab-case slug, aim for <=60 chars (schema hard cap 120)
+   - `description`: one sentence, aim for <=120 chars (schema hard cap 240)
    - `triggers`: 2–5 short phrases a user might say
    - `allowed-tools`: only the tools you need
    The body is the instructions for future invocations: numbered steps, the minimum

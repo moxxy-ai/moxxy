@@ -50,3 +50,25 @@ export async function readGlobalHandler() {
 export async function cleanExitHandler() {
   process.exit(0);
 }
+
+// Returns a value the V8 structured-clone serializer cannot handle (a
+// function). The worker shim's own postMessage of the result throws a
+// synchronous DataCloneError, which the shim catches and re-posts as a
+// clean error `result` — the parent must reject fast with that error,
+// never stall to the budget and never crash the worker.
+export async function nonCloneableHandler() {
+  return { fn: () => 42, ok: true };
+}
+
+// Posts a stray, unrecognized message type to the parent BEFORE
+// returning normally. The parent's onMessage must ignore the unknown
+// type (not coerce it into a spurious `new Error(undefined)` rejection)
+// and still settle on the subsequent terminal `result`. `node:worker_threads`
+// is not on the blocklist (the shim itself needs it), so a handler can
+// reach `parentPort`.
+export async function strayMessageThenResolveHandler(input) {
+  const { parentPort } = await import('node:worker_threads');
+  parentPort.postMessage({ type: 'note', detail: 'forward-compat ping' });
+  parentPort.postMessage({ unrelated: true });
+  return { ok: true, echoed: input };
+}

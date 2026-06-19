@@ -81,6 +81,40 @@ describe('FakeProvider', () => {
     expect(p.received[0]).toBe(r);
   });
 
+  it('bounds the received buffer to maxReceived under high turn counts', async () => {
+    // Worst case: a long-lived instance driven through many turns (goal-mode /
+    // fuzz). Without a cap each request retains the full history → O(turns *
+    // history). maxReceived must keep only the most recent N, dropping the
+    // oldest, so retention stays bounded no matter how many turns run.
+    const p = new FakeProvider({ script: Array.from({ length: 50 }, () => textReply('x')), maxReceived: 3 });
+    for (let i = 0; i < 50; i++) {
+      const r = { ...req(), system: `turn-${i}` };
+      for await (const _ of p.stream(r)) void _;
+    }
+    expect(p.received).toHaveLength(3);
+    // Newest three retained, oldest evicted.
+    expect(p.received.map((r) => r.system)).toEqual(['turn-47', 'turn-48', 'turn-49']);
+  });
+
+  it('maxReceived=0 retains nothing (fully disables request capture)', async () => {
+    const p = new FakeProvider({ script: [textReply('x'), textReply('y')], maxReceived: 0 });
+    for await (const _ of p.stream(req())) void _;
+    for await (const _ of p.stream(req())) void _;
+    expect(p.received).toHaveLength(0);
+  });
+
+  it('reset() clears the received buffer and rewinds the cursor', async () => {
+    const p = new FakeProvider({ script: [textReply('one'), textReply('two')] });
+    for await (const _ of p.stream(req())) void _;
+    expect(p.received).toHaveLength(1);
+    p.reset();
+    expect(p.received).toHaveLength(0);
+    // Cursor rewound: the first scripted reply is served again.
+    let out = '';
+    for await (const e of p.stream(req())) if (e.type === 'text_delta') out += e.delta;
+    expect(out).toBe('one');
+  });
+
   it('toolUseReply emits expected event shape', async () => {
     const p = new FakeProvider({ script: [toolUseReply('Read', { file_path: 'x' }, 'c1')] });
     const events = [];

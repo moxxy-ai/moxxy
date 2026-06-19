@@ -5,6 +5,7 @@ import {
   localProviderDef,
   localModels,
   DEFAULT_LOCAL_BASE_URL,
+  __resetRemoteWarningsForTests,
 } from './index.js';
 
 describe('@moxxy/plugin-provider-local', () => {
@@ -42,6 +43,7 @@ describe('@moxxy/plugin-provider-local', () => {
 
     beforeEach(() => {
       warn.mockClear();
+      __resetRemoteWarningsForTests();
       delete process.env.LOCAL_MODEL_BASE_URL;
     });
     afterEach(() => {
@@ -75,7 +77,22 @@ describe('@moxxy/plugin-provider-local', () => {
     it('does not warn for a loopback endpoint (the local happy path)', () => {
       localProviderDef.createClient({ baseURL: 'http://127.0.0.1:11434/v1' });
       localProviderDef.createClient({ baseURL: 'http://localhost:1234/v1' });
+      localProviderDef.createClient({ baseURL: 'http://[::1]:11434/v1' });
+      localProviderDef.createClient({ baseURL: 'http://dev.localhost/v1' });
+      localProviderDef.createClient({ baseURL: 'http://127.5.5.5/v1' });
       expect(warn).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'http://localhost.evil.com/v1',
+      'http://127.0.0.1.evil.com/v1',
+      'http://[fe80::1]/v1',
+      'http://192.168.1.50:11434/v1',
+    ])('warns for a remote host that merely looks loopback-ish (%s)', (baseURL) => {
+      // The dangerous direction is mis-classifying a REMOTE host as loopback and
+      // silently suppressing the egress warning. These must all warn.
+      localProviderDef.createClient({ baseURL });
+      expect(warn).toHaveBeenCalled();
     });
 
     it('warns once per distinct non-loopback host so data egress is visible', () => {
@@ -84,6 +101,21 @@ describe('@moxxy/plugin-provider-local', () => {
       expect(warn).toHaveBeenCalledTimes(1);
       localProviderDef.createClient({ baseURL: 'http://other.example.org:8080/v1' });
       expect(warn).toHaveBeenCalledTimes(2);
+    });
+
+    it('never re-warns for an already-seen host, even past the bound (no unbounded log spam)', () => {
+      // Cycle many distinct remote hosts so the warn cap is reached, then replay
+      // the exact same hosts. The worst case the bound protects against is a
+      // caller cycling base URLs: hosts beyond the cap must NOT re-warn on every
+      // call. So the second pass over the identical hosts must emit zero warns.
+      const hosts = Array.from({ length: 80 }, (_, i) => `https://spam-${i}.example.net/v1`);
+      for (const baseURL of hosts) localProviderDef.createClient({ baseURL });
+      const afterFirstPass = warn.mock.calls.length;
+      warn.mockClear();
+      for (const baseURL of hosts) localProviderDef.createClient({ baseURL });
+      expect(warn).not.toHaveBeenCalled();
+      // First pass is itself bounded: at most one warn per distinct host.
+      expect(afterFirstPass).toBeLessThanOrEqual(hosts.length);
     });
 
     it('honours the LOCAL_MODEL_BASE_URL env fallback for non-CLI callers', () => {

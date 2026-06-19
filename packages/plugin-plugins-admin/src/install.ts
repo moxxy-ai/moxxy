@@ -39,6 +39,12 @@ const VERSION_RE = /^[0-9a-zA-Z*~^v<>=][0-9a-zA-Z.~^*<=> -]*$/;
 // can't grow an unbounded string before the process closes. Only the last 400
 // chars are ever surfaced, so a small bounded tail is plenty.
 const MAX_STDERR_BYTES = 8 * 1024;
+// Grace window after a cooperative SIGTERM (on abort) before escalating to an
+// unmaskable SIGKILL. A malicious package's lifecycle script — or a wedged npm —
+// can trap/ignore SIGTERM and survive, so a bare SIGTERM does not actually
+// guarantee cancellation. Mirrors the SIGTERM→SIGKILL escalation used in
+// runner-supervisor / isolator-subprocess.
+const SIGKILL_GRACE_MS = 2_000;
 
 export interface InstallPluginDeps {
   /**
@@ -267,16 +273,36 @@ function runNpm(
       stderr += d.toString('utf8');
       if (stderr.length > MAX_STDERR_BYTES) stderr = stderr.slice(-MAX_STDERR_BYTES);
     });
+    // Escalation timer armed on abort: if the child ignores/traps SIGTERM it is
+    // SIGKILL'd after the grace window so aborting the turn truly cancels npm.
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const onAbort = (): void => {
-      child.kill('SIGTERM');
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* already exited */
+      }
+      killTimer = setTimeout(() => {
+        try {
+          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        } catch {
+          /* already exited */
+        }
+      }, SIGKILL_GRACE_MS);
+      // Don't let a pending escalation timer keep the event loop alive.
+      killTimer.unref?.();
+    };
+    const cleanup = (): void => {
+      signal?.removeEventListener('abort', onAbort);
+      if (killTimer) clearTimeout(killTimer);
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     child.on('error', (err) => {
-      signal?.removeEventListener('abort', onAbort);
+      cleanup();
       reject(err);
     });
     child.on('close', (code) => {
-      signal?.removeEventListener('abort', onAbort);
+      cleanup();
       resolve({ exitCode: code ?? -1, stderr });
     });
   });

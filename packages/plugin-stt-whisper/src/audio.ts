@@ -68,7 +68,14 @@ export function normalizeWhisperUpload(
   // MIME types are case-insensitive (RFC 2045) and may carry a `; codecs=…`
   // parameter; some callers (Telegram) forward the header verbatim without
   // normalizing. Canonicalize once so casing/params don't miss the table.
-  const mt = (mimeType || 'audio/wav').toLowerCase().split(';')[0]!.trim();
+  //
+  // `mimeType` is *typed* `string | undefined`, but the value crosses a trust
+  // boundary unvalidated: the Telegram path forwards `media.mime_type` from raw
+  // update JSON, which a crafted message could make a number/object/array.
+  // Guard the runtime type so `.toLowerCase()` can't throw on hostile input —
+  // anything non-string degrades to the default rather than crashing the path.
+  const rawMime = typeof mimeType === 'string' ? mimeType : '';
+  const mt = (rawMime || 'audio/wav').toLowerCase().split(';')[0]!.trim();
   if (mt === MOXXY_PCM16_24KHZ_MIME) {
     return {
       bytes: pcm16MonoToWav(bytes, 24_000),

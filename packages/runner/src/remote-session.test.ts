@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionInfo, TurnId } from '@moxxy/sdk';
 import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport } from './transport.js';
-import { RemoteSession, isMoxxyCommandLine } from './remote-session.js';
+import { RemoteSession, isMoxxyCommandLine, spawnText } from './remote-session.js';
 import { RunnerMethod, RunnerNotification } from './protocol.js';
 
 /** A pair of in-memory transports wired to each other (mirrors jsonrpc.test). */
@@ -191,5 +191,36 @@ describe('isMoxxyCommandLine (mismatch-recovery kill gate)', () => {
     expect(isMoxxyCommandLine('moxxyish-tool run')).toBe(false);
     expect(isMoxxyCommandLine('')).toBe(false);
     expect(isMoxxyCommandLine('   ')).toBe(false);
+  });
+});
+
+describe('spawnText (bounded recovery sub-command)', () => {
+  // The recovery sequence (killAndUnlinkRunner) awaits ps/lsof one after the
+  // other. If a sub-command hangs (lsof on a stale mount is the classic case)
+  // the Promise must still SETTLE — otherwise the whole reconnect path wedges
+  // forever. These assert the worst cases the audit's kill gate didn't cover.
+  const isWin = process.platform === 'win32';
+
+  it.skipIf(isWin)(
+    'kills and gives up on a hung sub-command within the timeout (no infinite hang)',
+    async () => {
+      // `sleep 60` never exits on its own; a 100ms bound must reclaim it.
+      const started = Date.now();
+      const out = await spawnText('sleep', ['60'], 100);
+      const elapsed = Date.now() - started;
+      expect(out).toBe('');
+      // Resolved by the timeout, nowhere near the 60s sleep.
+      expect(elapsed).toBeLessThan(2_000);
+    },
+  );
+
+  it('resolves empty (never rejects) when the binary does not exist', async () => {
+    const out = await spawnText('definitely-not-a-real-binary-xyzzy', ['--nope'], 1_000);
+    expect(out).toBe('');
+  });
+
+  it.skipIf(isWin)('returns the trimmed stdout of a fast command', async () => {
+    const out = await spawnText('printf', ['hello'], 2_000);
+    expect(out).toBe('hello');
   });
 });

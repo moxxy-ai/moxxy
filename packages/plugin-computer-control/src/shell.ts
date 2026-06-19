@@ -73,12 +73,29 @@ export function runProcess(
   } = {},
 ): Promise<ProcResult> {
   return new Promise((resolve, reject) => {
+    // An ALREADY-aborted signal never emits 'abort' to a listener added after
+    // the fact (DOM semantics), so without this short-circuit a cancelled turn
+    // would still spawn the child and run it to completion — defeating the
+    // abort contract. Resolve immediately as an aborted no-op without spawning.
+    if (opts.signal?.aborted) {
+      resolve({
+        exitCode: -1,
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+        aborted: true,
+        tooLarge: false,
+      });
+      return;
+    }
     const child = spawn(cmd, [...args], { stdio: ['pipe', 'pipe', 'pipe'] });
-    // Collect stdout chunks and concat ONCE at close — re-concatenating the
-    // whole accumulated buffer on every 'data' event is O(n^2) and churns the
-    // GC.
+    // Collect BOTH stdout and stderr as chunks and concat ONCE at close.
+    // Re-concatenating the whole accumulated buffer on every 'data' event is
+    // O(n^2) and churns the GC; decoding each chunk with `.toString('utf8')`
+    // in isolation also corrupts any multibyte sequence (e.g. an osascript
+    // error containing a non-ASCII app name) that straddles a chunk boundary.
     const stdoutChunks: Buffer[] = [];
-    let stderr = '';
+    const stderrChunks: Buffer[] = [];
     let outputBytes = 0;
     let settled = false;
     let timedOut = false;
@@ -125,8 +142,11 @@ export function runProcess(
       : null;
 
     child.stdout.on('data', (chunk: Buffer) => {
-      stdoutChunks.push(chunk);
       outputBytes += chunk.length;
+      // Once over the cap we stop retaining further chunks (the child is being
+      // killed) so a flood between the cap-trip and SIGTERM landing can't keep
+      // growing memory; we still account the bytes to keep `outputBytes` honest.
+      if (!tooLarge) stdoutChunks.push(chunk);
       if (!tooLarge && outputBytes > MAX_OUTPUT_BYTES) {
         tooLarge = true;
         forceKill();
@@ -134,9 +154,7 @@ export function runProcess(
     });
     child.stderr.on('data', (chunk: Buffer) => {
       outputBytes += chunk.length;
-      // Bound the retained stderr string too: once over the cap we stop
-      // appending (the child is being killed) so a stderr flood can't OOM.
-      if (!tooLarge) stderr += chunk.toString('utf8');
+      if (!tooLarge) stderrChunks.push(chunk);
       if (!tooLarge && outputBytes > MAX_OUTPUT_BYTES) {
         tooLarge = true;
         forceKill();
@@ -168,7 +186,7 @@ export function runProcess(
       resolve({
         exitCode: code ?? -1,
         stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr,
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
         timedOut,
         aborted,
         tooLarge,

@@ -37,6 +37,7 @@ import {
   type WebhookVerification,
 } from './store.js';
 import { shouldFire, type FilterInput } from './filter.js';
+import { RateLimiter, type RateLimitOptions } from './rate-limit.js';
 import { describeTrigger, redactVerification } from './describe.js';
 import { renderPrompt, type TemplateContext } from './template.js';
 import {
@@ -68,6 +69,7 @@ export {
   WebhookDispatcher,
   WebhookServer,
   DeliveryDedupeCache,
+  RateLimiter,
   defaultWebhookInboxDir,
   // Verification + templating
   verifyDelivery,
@@ -103,6 +105,7 @@ export {
   type TunnelKind,
   type TunnelStartOptions,
   type WebhooksToolDeps,
+  type RateLimitOptions,
 };
 
 export interface BuildWebhooksPluginOptions {
@@ -127,6 +130,12 @@ export interface BuildWebhooksPluginOptions {
   readonly listenerOverride?: { readonly host?: string; readonly port?: number };
   /** Max accepted body size (bytes). Default 1MB. */
   readonly maxBodyBytes?: number;
+  /**
+   * Sustained requests/second admitted per trigger before verify/parse work.
+   * Default 20/s. 0 or negative disables admission control (not recommended on
+   * a non-loopback bind).
+   */
+  readonly ratePerSec?: number;
 }
 
 export interface BuiltWebhooksPlugin {
@@ -218,6 +227,7 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
           dispatcher,
           ...(opts.logger ? { logger: opts.logger } : {}),
           ...(opts.maxBodyBytes !== undefined ? { maxBodyBytes: opts.maxBodyBytes } : {}),
+          ...(opts.ratePerSec !== undefined ? { ratePerSec: opts.ratePerSec } : {}),
         });
         try {
           serverHandle = await serverInstance.start();

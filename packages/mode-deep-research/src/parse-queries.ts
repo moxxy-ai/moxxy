@@ -23,21 +23,50 @@ export function parseFollowups(text: string): string[] {
   return items;
 }
 
+/**
+ * Cap on a single joined query/follow-up. A hostile or malformed model could
+ * emit thousands of continuation lines that all attach to one item; bound the
+ * per-item growth so a mangled plan can't produce a multi-MB subagent prompt.
+ */
+const MAX_ITEM_CHARS = 2000;
+
 function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {
   const lines = text.split('\n');
   const items: string[] = [];
+  // Tracks whether the previous meaningful line was (or extended) a list item,
+  // so we only ever join wrapped continuations onto a real item.
+  let continuationOpen = false;
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line) continue;
+    // A blank line ends the current item's continuation run: a wrapped query
+    // never spans a blank line, so this prevents an unrelated trailing
+    // paragraph from being glued onto the last query.
+    if (!line) {
+      continuationOpen = false;
+      continue;
+    }
     if (headerRegex.test(line)) {
+      // A header also closes any open continuation run.
+      continuationOpen = false;
       continue;
     }
     const m = /^(?:\d+[.)]|[-*•])\s*(.+)$/.exec(line);
     if (m) {
       items.push(m[1]!.trim());
+      continuationOpen = true;
+      continue;
     }
-    // Non-list lines (incl. wrapped continuations of a prior item) are
-    // dropped: queries/followups are single-line by spec.
+    // Non-list line. If it directly continues an open item (the model wrapped a
+    // long query across lines), join it on rather than silently truncating the
+    // query — a dropped continuation gets sent to a subagent as a half-question.
+    // A non-list line with NO open item (junk preamble, a "(none …)" header
+    // parenthetical, etc.) is still dropped.
+    if (continuationOpen && items.length > 0) {
+      const last = items[items.length - 1]!;
+      const joined = `${last} ${line}`;
+      items[items.length - 1] =
+        joined.length > MAX_ITEM_CHARS ? joined.slice(0, MAX_ITEM_CHARS) : joined;
+    }
   }
   return items;
 }

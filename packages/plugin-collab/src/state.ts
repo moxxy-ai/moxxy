@@ -343,13 +343,24 @@ export class CollaborationState {
 
   /** Exclusive path lease — the cross-process file lock. Rejects on overlap. */
   boardClaim(by: string, paths: ReadonlyArray<string>, id?: string): BoardClaimResult {
-    const owner = this.conflictingOwner(by, paths);
+    // De-dup once up front so the create path matches the re-claim (merge) path
+    // and a peer can't smuggle the same path in twice (e.g. ['a','a','./a']).
+    const wanted = uniquePaths(paths);
+    const owner = this.conflictingOwner(by, wanted);
     if (owner) return { ok: false, ownedBy: owner, paths };
     // A caller-supplied id only ever ATTACHES the claim to an EXISTING item. We
     // never mint a NEW item under a caller id: caller ids share no namespace with
     // the `t<n>` auto-counter, so a peer can't pre-create `t5` and have a later
     // auto-claim clobber it (and overwrite/steal its lock with no release event).
     const item = id ? this.board.get(id) : undefined;
+    // A NEW claim with no usable paths is a meaningless, pathless lock — a junk
+    // board item that locks nothing. The tool schema enforces min(1), but the hub
+    // is the trust boundary, so a malformed RPC must be rejected here, not minted.
+    // (A re-claim of an EXISTING item with empty paths stays a harmless status
+    // touch below, so this only rejects the nonsensical create.)
+    if (!item && wanted.length === 0) {
+      return { ok: false, ownedBy: by, paths };
+    }
     // (Re)assigning an existing item must not hijack one another agent already
     // owns: an item's current owner still holds whatever paths it leased even if
     // those paths don't overlap the freshly requested ones (which is why
@@ -360,9 +371,9 @@ export class CollaborationState {
     if (!item) {
       const created: BoardItem = {
         id: `t${++this.boardSeq}`,
-        title: paths.join(', '),
+        title: wanted.join(', '),
         status: 'claimed',
-        paths,
+        paths: wanted,
         owner: by,
         createdBy: by,
         updatedBy: by,
@@ -377,7 +388,7 @@ export class CollaborationState {
     // them: a narrowing replace would silently drop the lock on the omitted
     // paths (no release event, no conflictingOwner protection) while the owner
     // may still be editing them — corrupting the file-lock invariant.
-    item.paths = uniquePaths([...(item.paths ?? []), ...paths]);
+    item.paths = uniquePaths([...(item.paths ?? []), ...wanted]);
     item.status = item.status === 'open' ? 'claimed' : item.status;
     item.owner = by;
     item.updatedBy = by;

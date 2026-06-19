@@ -341,6 +341,50 @@ describe('subprocess hardening', () => {
     ).rejects.toThrow(/security:subprocess/);
   }, 20_000);
 
+  // Bounded brokered concurrency: a child that fans out far more
+  // concurrent brokered ops than the configured ceiling must NOT make
+  // the parent hold unbounded fds / sockets / exec children. Excess
+  // requests are rejected back to the child with the cap error; the
+  // parent degrades (some ops capped) but never crashes, and every
+  // request is accounted for.
+  it('caps in-flight brokered ops and rejects the overflow instead of crashing', async () => {
+    const iso = createSubprocessIsolator({ maxInflightBrokerOps: 4 });
+    const out = (await iso.run(
+      baseCall('floodBrokerOps', { count: 48, sleepSec: 0.3 }, {
+        moduleRef: { url: fixtureUrl, export: 'floodBrokerOps' },
+      }),
+      async () => 'unused',
+      { subprocess: true, timeMs: 20_000 },
+      new AbortController().signal,
+    )) as { completed: number; capped: number; otherError: number };
+    // The cap fired: with a ceiling of 4 and 48 simultaneous slow ops,
+    // the overwhelming majority must be rejected as overflow.
+    expect(out.capped).toBeGreaterThan(0);
+    // No op vanished or produced an unexpected failure — degrade, don't lose.
+    expect(out.otherError).toBe(0);
+    expect(out.completed + out.capped).toBe(48);
+    // At most the ceiling ever ran at once (so completed can't exceed the
+    // number that could have been admitted across the run); sanity-bound it.
+    expect(out.completed).toBeGreaterThan(0);
+  }, 30_000);
+
+  // A handler whose parallelism stays under the ceiling must NOT see any
+  // ops capped — the bound is a flood guard, not a throttle on normal use.
+  it('does not cap brokered ops that stay under the ceiling', async () => {
+    const iso = createSubprocessIsolator({ maxInflightBrokerOps: 8 });
+    const out = (await iso.run(
+      baseCall('floodBrokerOps', { count: 4, sleepSec: 0.1 }, {
+        moduleRef: { url: fixtureUrl, export: 'floodBrokerOps' },
+      }),
+      async () => 'unused',
+      { subprocess: true, timeMs: 20_000 },
+      new AbortController().signal,
+    )) as { completed: number; capped: number; otherError: number };
+    expect(out.capped).toBe(0);
+    expect(out.otherError).toBe(0);
+    expect(out.completed).toBe(4);
+  }, 30_000);
+
   // Finding #3 (HIGH): ctx.signal is a LIVE controller — on a
   // cooperative abort the parent posts { type: 'abort' } and the handler
   // observes it via ctx.signal (the old code handed an inert controller

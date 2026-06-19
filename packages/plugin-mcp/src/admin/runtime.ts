@@ -50,8 +50,29 @@ export function createMcpRuntime(
    * them into mcp.json for lazy boots next time.
    */
   const attachServer: McpRuntime['attachServer'] = async (server) => {
-    const client = await connect(server);
-    const list = await client.listTools();
+    // Bound the connect + listTools handshake. `mcp_add_server` and
+    // `enableAndAttach` drive this path at the model's request; a wedged
+    // server spawn (or a connected-but-mute endpoint that never answers
+    // listTools) would otherwise hang the tool call indefinitely — a
+    // permanent pending dot with no recovery short of killing moxxy. On
+    // timeout we reject AND close any client that opened, so a slow-to-spawn
+    // stdio child / socket can't leak after we've given up on it.
+    const client = await withTimeout(
+      connect(server),
+      MCP_CONNECT_TIMEOUT_MS,
+      `MCP connect "${server.name}"`,
+    );
+    let list: { tools: ReadonlyArray<McpToolDescriptor> };
+    try {
+      list = await withTimeout(
+        client.listTools(),
+        MCP_CONNECT_TIMEOUT_MS,
+        `MCP listTools "${server.name}"`,
+      );
+    } catch (err) {
+      await client.close().catch(() => {});
+      throw err;
+    }
     const descriptors = list.tools;
     // List ONCE and feed the descriptors into the lazy wrapper over the
     // already-open client — wrapMcpServerTools would call listTools a second

@@ -1,5 +1,6 @@
 import { defineTool, type ToolDef } from '@moxxy/sdk';
 import { defaultClientFactory } from '../../client.js';
+import { MCP_CONNECT_TIMEOUT_MS, withTimeout } from '../../timeout.js';
 import { wrapMcpServerTools } from '../../wrap.js';
 import { addServerInput, validateAddServerInput } from '../schema.js';
 import { resolveServerSecrets, type McpSecretResolver } from '../secrets.js';
@@ -42,10 +43,22 @@ export function buildTestServerTool(deps: TestServerToolDeps = {}): ToolDef {
       const server = validateAddServerInput(input);
       let client: Awaited<ReturnType<typeof defaultClientFactory>> | null = null;
       try {
-        client = await defaultClientFactory(
-          await resolveServerSecrets(server, deps.secretResolver ?? null),
+        // Bound the connect + listTools handshake so a wedged / unreachable
+        // server surfaces as a readable connection error instead of hanging
+        // this tool call forever (defaultClientFactory + listTools take no
+        // AbortSignal). On timeout the inner `connect` may still resolve a
+        // client after we've rejected; the finally{} below closes whatever
+        // `client` we captured, so a late-opening handle isn't leaked.
+        client = await withTimeout(
+          defaultClientFactory(await resolveServerSecrets(server, deps.secretResolver ?? null)),
+          MCP_CONNECT_TIMEOUT_MS,
+          `MCP connect "${server.name}"`,
         );
-        const wrapped = await wrapMcpServerTools({ server, client });
+        const wrapped = await withTimeout(
+          wrapMcpServerTools({ server, client }),
+          MCP_CONNECT_TIMEOUT_MS,
+          `MCP listTools "${server.name}"`,
+        );
         return {
           ok: true,
           name: server.name,

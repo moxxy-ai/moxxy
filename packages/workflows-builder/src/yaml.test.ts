@@ -137,6 +137,17 @@ describe('yaml codec — untrusted-input hardening', () => {
     expect(() => fromYaml(yaml)).toThrow(/nesting too deep/);
   });
 
+  it('throws a catchable Error on a deeply nested FLOW scalar (not a RangeError)', () => {
+    // A hand-authored `x: [[[…]]]` recurses one parseScalar frame per bracket
+    // level. Without a flow-depth cap this overflows the call stack with an
+    // uncatchable RangeError — the block-nesting guard alone doesn't cover the
+    // flow path. The cap must convert it into a normal Error the UI can show.
+    const yaml = `x: ${'['.repeat(20_000)}1${']'.repeat(20_000)}\n`;
+    expect(() => fromYaml(yaml)).toThrow(/too deep/);
+    // a shallow flow array of arrays still parses normally.
+    expect(fromYaml('x: [1, 2, [3, 4]]\n')).toEqual({ x: [1, 2, [3, 4]] });
+  });
+
   it('rejects an oversized input instead of trying to parse it', () => {
     const huge = 'k: ' + 'x'.repeat(2_000_001) + '\n';
     expect(() => fromYaml(huge)).toThrow(/too large/);

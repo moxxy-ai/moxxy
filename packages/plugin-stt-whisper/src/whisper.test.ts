@@ -135,6 +135,55 @@ describe('WhisperTranscriber', () => {
     expect(result.language).toBeUndefined();
     expect(result.durationSec).toBeUndefined();
   });
+
+  it('drops malformed segments from a hostile verbose_json response without crashing', async () => {
+    // A vendor (or man-in-the-middle) response whose segments array is full of
+    // junk: null, a primitive, missing fields, wrong types, and non-finite
+    // bounds. A blind `.start` read on `null` would throw; an unchecked map
+    // would leak `{ text: 123 }`. Each bad entry must be dropped; only the one
+    // well-formed segment survives.
+    const client = fakeOpenAI(() => ({
+      text: 'ok',
+      segments: [
+        null,
+        42,
+        'not-an-object',
+        { start: 0, end: 1 }, // missing text
+        { start: 0, text: 'no end' }, // missing end
+        { start: 'x', end: 1, text: 'bad start' }, // non-number start
+        { start: 0, end: 1, text: 99 }, // non-string text
+        { start: Number.NaN, end: 1, text: 'nan start' }, // non-finite
+        { start: 0, end: Infinity, text: 'inf end' }, // non-finite
+        { start: 1, end: 2, text: 'good' }, // the only valid one
+      ],
+    }));
+    const t = new WhisperTranscriber({ client });
+    const result = await t.transcribe(new Uint8Array([1]), { mimeType: 'audio/ogg' });
+    expect(result.text).toBe('ok');
+    expect(result.segments).toEqual([{ start: 1, end: 2, text: 'good' }]);
+  });
+
+  it('returns an empty segments array when every segment is malformed', async () => {
+    const client = fakeOpenAI(() => ({ text: 'ok', segments: [null, undefined, {}] }));
+    const t = new WhisperTranscriber({ client });
+    const result = await t.transcribe(new Uint8Array([1]), { mimeType: 'audio/ogg' });
+    expect(result.segments).toEqual([]);
+  });
+
+  it('does not crash when mimeType is a non-string at runtime (untrusted Telegram path)', async () => {
+    const create = vi.fn(async () => ({ text: 'ok' }));
+    const client = { audio: { transcriptions: { create } } } as unknown as OpenAI;
+    const t = new WhisperTranscriber({ client });
+    // A crafted Telegram update could deliver a non-string mime_type; the type
+    // says `string` but the runtime value is hostile. Must degrade, not throw.
+    const result = await t.transcribe(new Uint8Array([1]), {
+      mimeType: 123 as unknown as string,
+    });
+    expect(result.text).toBe('ok');
+    const req = create.mock.calls[0]![0] as { file: File };
+    // Defaults to the audio/wav fallback filename rather than crashing.
+    expect(req.file.name).toBe('audio.wav');
+  });
 });
 
 describe('WhisperTranscriber.run() error translation', () => {

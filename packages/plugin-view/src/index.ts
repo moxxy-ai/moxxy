@@ -98,16 +98,39 @@ export function buildViewPlugin(opts: BuildViewPluginOptions): Plugin {
       if (!renderer) {
         return { ok: false, rendered: false, errors: [{ message: 'no active view renderer' }] };
       }
-      const result = renderer.parse(input.spec);
+      // `renderer.parse` is a caller-supplied closure: core's default renderer
+      // never throws (it wraps everything, even a RangeError, into a structured
+      // result), but a swapped-in custom renderer carries no such guarantee. A
+      // throw here would surface as a generic turn-level error instead of a
+      // structured tool result, so guard it like every other external closure.
+      let result: ReturnType<ViewRendererDef['parse']>;
+      try {
+        result = renderer.parse(input.spec);
+      } catch (e) {
+        const message = e instanceof Error && e.message ? e.message : 'view renderer failed';
+        return { ok: false, rendered: false, errors: [{ message }] };
+      }
       if (!result.ok) {
-        return { ok: false, rendered: false, errors: result.errors.map((e) => ({ message: e.message, line: e.line })) };
+        // `errors` may be malformed (custom renderer); degrade to a single
+        // generic error rather than throwing on a non-iterable `.map`.
+        const errs = Array.isArray(result.errors)
+          ? result.errors.map((e) => ({ message: e?.message ?? 'parse error', line: e?.line }))
+          : [{ message: 'view renderer reported a parse failure' }];
+        return { ok: false, rendered: false, errors: errs };
+      }
+      // A custom renderer can return `ok:true` with a missing/null doc or root;
+      // reject with an honest message instead of letting the count below crash
+      // and report "too deeply nested".
+      const root = result.doc?.root;
+      if (root == null || (root.kind !== 'element' && root.kind !== 'text')) {
+        return { ok: false, rendered: false, errors: [{ message: 'view renderer returned a malformed AST' }] };
       }
       // Bound the AST independently of the source length. countNodesBounded is
       // iterative so a deep tree from a custom renderer cannot overflow the
       // stack; we still wrap defensively so the handler can never throw.
       let nodeCount: number;
       try {
-        nodeCount = countNodesBounded(result.doc.root, MAX_VIEW_NODES);
+        nodeCount = countNodesBounded(root, MAX_VIEW_NODES);
       } catch {
         return { ok: false, rendered: false, errors: [{ message: 'view too deeply nested' }] };
       }

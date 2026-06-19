@@ -77,4 +77,64 @@ describe('grepTool hardening', () => {
     const out = (await grepTool.handler({ pattern: 'NEEDLE' }, baseCtx())) as string;
     expect(out).toContain('top.ts:1:NEEDLE');
   });
+
+  it('refuses an exponential-backtracking pattern instead of running it (no DoS hang)', async () => {
+    // `(.*a)+b` against a long all-'a' line is classic exponential backtracking
+    // — measured at 60+ s on ~100 chars. A synchronous `re.test()` can't be
+    // interrupted, so the linter must refuse it up front, fast.
+    await fs.writeFile(path.join(tmp, 'mono.txt'), 'a'.repeat(200_000));
+    const start = Date.now();
+    await expect(grepTool.handler({ pattern: '(.*a)+b' }, baseCtx())).rejects.toThrow(
+      /catastrophic backtracking|nested-quantifier/i,
+    );
+    // The refusal is a cheap structural check — must return effectively instantly,
+    // never having compiled or run the pattern.
+    expect(Date.now() - start).toBeLessThan(2_000);
+  });
+
+  it('refuses the other classic ReDoS shapes (nested star, alternation-in-group)', async () => {
+    await fs.writeFile(path.join(tmp, 'a.txt'), 'x\n');
+    await expect(grepTool.handler({ pattern: '(a+)+$' }, baseCtx())).rejects.toThrow(/backtracking|nested/i);
+    await expect(grepTool.handler({ pattern: '(a|a)*$' }, baseCtx())).rejects.toThrow(/backtracking|nested/i);
+    await expect(grepTool.handler({ pattern: '(\\d+)*x' }, baseCtx())).rejects.toThrow(/backtracking|nested/i);
+  });
+
+  it('still allows ordinary patterns with .* and a single group (no false positive)', async () => {
+    // A benign `.*` and a single non-repeating group must NOT be refused — these
+    // are the bread-and-butter search patterns the model uses constantly.
+    await fs.writeFile(path.join(tmp, 'a.ts'), 'import foo from "bar";\n');
+    const out1 = (await grepTool.handler({ pattern: 'import.*from' }, baseCtx())) as string;
+    expect(out1).toContain('a.ts:1:import foo from');
+    const out2 = (await grepTool.handler({ pattern: '(foo|baz)' }, baseCtx())) as string;
+    expect(out2).toContain('a.ts:1:');
+  });
+
+  it('bounds work on a single huge line for a benign pattern (line-length cap)', async () => {
+    // No newline → one array element → the per-line yield never fires. The
+    // MAX_LINE_LEN cap must still let this complete quickly with a benign
+    // (linear) pattern, matching content in the head.
+    await fs.writeFile(path.join(tmp, 'big.txt'), 'HELLO' + 'a'.repeat(2 * 1024 * 1024));
+    const start = Date.now();
+    const out = (await grepTool.handler({ pattern: 'HELLO' }, baseCtx())) as string;
+    expect(out).toContain('big.txt:1:HELLO');
+    expect(Date.now() - start).toBeLessThan(5_000);
+  }, 10_000);
+
+  it('rejects an over-long glob filter instead of compiling it', async () => {
+    await fs.writeFile(path.join(tmp, 'a.ts'), 'x\n');
+    const glob = '*'.repeat(5_000); // > MAX_GLOB_LEN (4096)
+    await expect(grepTool.handler({ pattern: 'x', glob }, baseCtx())).rejects.toThrow(
+      /glob pattern too long/i,
+    );
+  });
+
+  it('appends a truncation marker when the match cap is hit (does not silently drop)', async () => {
+    // Three matching lines, cap at 2 → the model must be told the result is
+    // partial so it does not conclude there are no further matches.
+    await fs.writeFile(path.join(tmp, 'm.txt'), 'NEEDLE\nNEEDLE\nNEEDLE\n');
+    const out = (await grepTool.handler({ pattern: 'NEEDLE', maxMatches: 2 }, baseCtx())) as string;
+    expect(out).toMatch(/truncated — reached the 2-match cap/i);
+    // The two real matches are still present.
+    expect(out.split('\n').filter((l) => l.includes('NEEDLE')).length).toBe(2);
+  });
 });

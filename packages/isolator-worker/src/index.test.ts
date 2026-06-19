@@ -152,6 +152,45 @@ describe('workerIsolator', () => {
     expect(Date.now() - started).toBeLessThan(5000);
   });
 
+  // A handler that returns a value the structured-clone serializer
+  // rejects (a function) must NOT stall to the budget or crash the
+  // worker: the in-worker shim's postMessage throws a synchronous
+  // DataCloneError, the shim catches it and re-posts a clean error
+  // `result`, and the parent rejects fast with that error.
+  it('rejects fast (no stall, no crash) when the handler returns a non-cloneable value', async () => {
+    const iso = createWorkerIsolator();
+    const started = Date.now();
+    await expect(
+      iso.run(
+        call({ moduleRef: { url: fixtureUrl, export: 'nonCloneableHandler' }, input: {} }),
+        async () => 'unused',
+        { timeMs: 10_000 },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/could not be cloned|DataClone/i);
+    // Must not have waited out the budget — this is a fast failure.
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  // A worker that posts an unrecognized message type (a future/forward-
+  // compat or malformed message that is neither 'broker-request' nor a
+  // well-formed 'result') must be IGNORED by the parent, not coerced
+  // into a spurious `new Error(undefined)` rejection. The subsequent
+  // terminal `result` must still settle the call normally.
+  it('ignores stray/unknown worker message types and still settles on the result', async () => {
+    const iso = createWorkerIsolator();
+    const out = await iso.run(
+      call({
+        moduleRef: { url: fixtureUrl, export: 'strayMessageThenResolveHandler' },
+        input: { marker: 42 },
+      }),
+      async () => 'unused',
+      { timeMs: 5000 },
+      new AbortController().signal,
+    );
+    expect(out).toEqual({ ok: true, echoed: { marker: 42 } });
+  });
+
   // The boundary test. We set a global in the main thread, then ask
   // the worker to read it. The worker must NOT see it — that's the
   // entire justification for the 'worker' strength claim. If this

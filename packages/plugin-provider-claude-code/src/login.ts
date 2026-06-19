@@ -263,6 +263,26 @@ interface ClaudeExchangeResult {
   readonly accountEmail?: string;
 }
 
+/**
+ * Anthropic's OAuth endpoints (both `claude.ai/oauth/authorize` and the token
+ * endpoint) intermittently return a transient HTTP 500 — the *same* request
+ * then succeeds on retry. So retry 5xx/429/network failures with a short
+ * backoff before giving up. 4xx (bad/expired/already-used code, invalid_grant)
+ * is deterministic and surfaced immediately, never retried.
+ */
+const TOKEN_POST_MAX_ATTEMPTS = 3;
+const TOKEN_POST_BACKOFF_MS = [600, 1800] as const;
+/**
+ * Per-attempt deadline on the token POST. Node's `fetch` has NO default
+ * timeout, so a half-open TCP socket (server accepts but never responds — a
+ * stalled edge node, a black-holing proxy, a captive portal that keeps the
+ * connection alive) would hang the whole login/refresh indefinitely. Bound
+ * each attempt; a timeout aborts the request and is classed as a transient
+ * network error, so the retry loop tries again and ultimately surfaces the
+ * "endpoint kept failing" hint instead of wedging forever.
+ */
+const TOKEN_POST_TIMEOUT_MS = 30_000;
+
 /** Test seam so the exchange/refresh can run against a fake fetch. */
 let fetchImpl: typeof fetch = fetch;
 export function __setClaudeFetch(f: typeof fetch): void {
@@ -281,15 +301,11 @@ export function __setClaudeSleep(f: (ms: number) => Promise<void>): void {
   sleepImpl = f;
 }
 
-/**
- * Anthropic's OAuth endpoints (both `claude.ai/oauth/authorize` and the token
- * endpoint) intermittently return a transient HTTP 500 — the *same* request
- * then succeeds on retry. So retry 5xx/429/network failures with a short
- * backoff before giving up. 4xx (bad/expired/already-used code, invalid_grant)
- * is deterministic and surfaced immediately, never retried.
- */
-const TOKEN_POST_MAX_ATTEMPTS = 3;
-const TOKEN_POST_BACKOFF_MS = [600, 1800] as const;
+/** Test seam to shrink the per-attempt network deadline (default {@link TOKEN_POST_TIMEOUT_MS}). */
+let timeoutMs = TOKEN_POST_TIMEOUT_MS;
+export function __setClaudeTimeoutMs(ms: number): void {
+  timeoutMs = ms;
+}
 
 async function exchangeClaudeCode(
   code: string,
@@ -348,6 +364,9 @@ async function postClaudeToken(body: Record<string, string>): Promise<ClaudeExch
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(body),
+        // Bound a hung connection so it surfaces as a retryable network error
+        // (TimeoutError) rather than blocking the login/refresh forever.
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       transient = `network error (${err instanceof Error ? err.message : String(err)})`;

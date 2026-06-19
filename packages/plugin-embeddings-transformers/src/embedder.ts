@@ -70,8 +70,15 @@ export class TransformersEmbedder implements EmbeddingProvider {
   private readonly cacheDir?: string;
   private extractor: Awaited<ReturnType<PipelineFactory>> | null = null;
   private extractorPromise: Promise<Awaited<ReturnType<PipelineFactory>>> | null = null;
-  /** Set once on the first successful extractor call, to validate declared `dim`. */
-  private observedDimChecked = false;
+  /**
+   * The vector length the model actually emits, captured from the first vector
+   * ever produced. Every subsequent vector is validated against it so a model
+   * that emits *ragged* (within-batch inconsistent) or empty vectors fails loud
+   * instead of silently feeding mismatched-length rows into the memory index —
+   * cosineSimilarity zips to the shorter length and never errors, so a single
+   * short/empty vector silently corrupts recall otherwise.
+   */
+  private observedDim: number | null = null;
 
   // embed() assumes the caller serializes concurrent embed() calls per instance
   // (the memory store wraps recall in a per-instance mutex). transformers.js
@@ -155,32 +162,65 @@ export class TransformersEmbedder implements EmbeddingProvider {
   }
 
   /**
-   * Catch a stale `KNOWN_DIMS` entry, a swapped/quantized model, or a wrong
-   * `dimensions` override once, instead of silently building the memory index
-   * with one dimensionality while the model emits another (→ mismatched-length
-   * cosine zips and degraded recall, never an error). Only enforced when a dim
-   * is actually declared; `'dynamic'` models adopt whatever the model returns.
+   * Validate EVERY produced vector's length, not just the first:
+   *   1. Catch a stale `KNOWN_DIMS` entry, a swapped/quantized model, or a wrong
+   *      `dimensions` override, instead of silently building the memory index
+   *      with one dimensionality while the model emits another.
+   *   2. Reject a zero-length vector (e.g. the 3D-fallback's empty-sequence row,
+   *      or a partially-loaded model) — a 0-dim vector cosines to 0 against
+   *      everything and silently ruins that record's ranking.
+   *   3. Reject a ragged batch (vectors of differing lengths within one embed()
+   *      call) — cosineSimilarity zips to `Math.min(len)` and never errors, so a
+   *      single short row otherwise misranks with no diagnostic.
+   * Checks 2 and 3 hold even for `'dynamic'`-dim models (which adopt whatever the
+   * model returns); check 1 only fires when a concrete dim is declared.
    */
   private checkObservedDim(observed: number): void {
-    if (this.observedDimChecked) return;
-    this.observedDimChecked = true;
-    const declared = this.dim;
-    if (declared !== 'dynamic' && observed !== declared) {
+    if (observed <= 0) {
       throw new Error(
-        `transformers embedder: model '${this.model}' produced ${observed}-dim vectors ` +
-          `but '${this.name}' declares dim ${declared}. Fix the 'dimensions' override or ` +
-          `KNOWN_DIMS before this corrupts the memory index.`,
+        `transformers embedder: model '${this.model}' produced a zero-length vector; ` +
+          'a 0-dim embedding silently corrupts the memory index (cosine 0 vs all).',
+      );
+    }
+    if (this.observedDim === null) {
+      this.observedDim = observed;
+      const declared = this.dim;
+      if (declared !== 'dynamic' && observed !== declared) {
+        throw new Error(
+          `transformers embedder: model '${this.model}' produced ${observed}-dim vectors ` +
+            `but '${this.name}' declares dim ${declared}. Fix the 'dimensions' override or ` +
+            `KNOWN_DIMS before this corrupts the memory index.`,
+        );
+      }
+      return;
+    }
+    if (observed !== this.observedDim) {
+      throw new Error(
+        `transformers embedder: model '${this.model}' produced a ${observed}-dim vector ` +
+          `after a ${this.observedDim}-dim vector (ragged batch). Mismatched-length vectors ` +
+          'zip to the shorter length in cosine similarity and silently corrupt recall.',
       );
     }
   }
 }
 
-/** Truncate a string to at most `maxBytes` UTF-8 bytes (on a char boundary). */
+/**
+ * Truncate a string to at most `maxBytes` UTF-8 bytes (on a char boundary).
+ * Coerces non-strings to '' rather than throwing: `embed()` is typed
+ * `ReadonlyArray<string>`, but a buggy/hostile caller can still pass a
+ * `null`/`undefined`/non-string through the untyped boundary, and a TypeError
+ * here would crash the whole recall instead of degrading. An empty string still
+ * yields a valid (non-empty) embedding from the model, so positional alignment
+ * with the input batch is preserved.
+ */
 function clampBytes(text: string, maxBytes: number): string {
+  if (typeof text !== 'string') return '';
   // Fast path: ASCII-heavy strings within the cap (1 char >= 1 byte).
   if (text.length <= maxBytes) return text;
   const encoded = new TextEncoder().encode(text);
   if (encoded.length <= maxBytes) return text;
+  // `fatal:false` (default) emits U+FFFD for a multi-byte char split at the
+  // byte boundary rather than throwing — so truncation never crashes.
   return new TextDecoder().decode(encoded.subarray(0, maxBytes));
 }
 

@@ -88,6 +88,7 @@ export function Modal({
   children,
   onClose,
   width = 380,
+  describedById,
 }: ModalProps): JSX.Element {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
@@ -187,6 +188,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={describedById}
         tabIndex={-1}
         style={{
           width,
@@ -238,9 +240,13 @@ export function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmProps): JSX.Element {
+  const messageId = useId();
   return (
-    <Modal title={title} onClose={onCancel}>
-      <p style={{ margin: 0, fontSize: 13.5, color: 'var(--color-text-muted)', lineHeight: 1.55 }}>
+    <Modal title={title} onClose={onCancel} describedById={messageId}>
+      <p
+        id={messageId}
+        style={{ margin: 0, fontSize: 13.5, color: 'var(--color-text-muted)', lineHeight: 1.55 }}
+      >
         {message}
       </p>
       <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>

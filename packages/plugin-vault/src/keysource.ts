@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { writeFileAtomic, moxxyPath } from '@moxxy/sdk/server';
-import { deriveKey } from './crypto.js';
+import { deriveKeyAsync } from './crypto.js';
 
 const KEYCHAIN_SERVICE = 'moxxy';
 const KEYCHAIN_ACCOUNT = 'vault-master-key';
@@ -64,12 +64,12 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
   // (passphrase, salt) so a salt change still re-derives. Single entry — the
   // env passphrase and the on-disk salt are stable for a process lifetime.
   let envCache: { passphrase: string; saltB64: string; key: Buffer } | null = null;
-  const deriveEnvKey = (passphrase: string, salt: Buffer): Buffer => {
+  const deriveEnvKey = async (passphrase: string, salt: Buffer): Promise<Buffer> => {
     const saltB64 = salt.toString('base64');
     if (envCache && envCache.passphrase === passphrase && envCache.saltB64 === saltB64) {
       return envCache.key;
     }
-    const key = deriveKey(passphrase, salt);
+    const key = await deriveKeyAsync(passphrase, salt);
     envCache = { passphrase, saltB64, key };
     return key;
   };
@@ -88,7 +88,7 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
       const envValue = process.env[envName];
       if (envValue) {
         resolvedName = `env:${envName}`;
-        return deriveEnvKey(envValue, salt);
+        return await deriveEnvKey(envValue, salt);
       }
 
       if (!opts.disableKeytar) {
@@ -117,7 +117,7 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
 
       const passphrase = await opts.passphrasePrompt();
       resolvedName = 'passphrase';
-      const key = deriveKey(passphrase, salt);
+      const key = await deriveKeyAsync(passphrase, salt);
       await persistKey(key.toString('base64'));
       return key;
     },

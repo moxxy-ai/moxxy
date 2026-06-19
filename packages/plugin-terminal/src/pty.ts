@@ -55,12 +55,31 @@ interface NodePtyProcess {
   kill(signal?: string): void;
 }
 
+/**
+ * Resolve a usable NodePtyModule from whatever `import('node-pty')` yields, or
+ * null. Handles ESM/CJS interop (`.spawn` on the namespace OR on `.default`) and
+ * — critically — REQUIRES a callable `spawn` on whichever we pick. A malformed /
+ * partially-shimmed module (a `default` that lacks `spawn`, a non-function
+ * `spawn`) must degrade to the piped fallback HERE rather than be returned and
+ * blow up later as `pty.spawn is not a function` inside `createTerminalProcess`.
+ * Exported for tests — the optional dep is never present in CI, so the
+ * shape-resolution logic is unit-tested against hand-built module objects.
+ */
+export function resolveNodePtyModule(m: unknown): NodePtyModule | null {
+  const hasSpawn = (v: unknown): v is NodePtyModule =>
+    typeof v === 'object' && v !== null && typeof (v as { spawn?: unknown }).spawn === 'function';
+  if (hasSpawn(m)) return m;
+  const def = (m as { default?: unknown } | null | undefined)?.default;
+  if (hasSpawn(def)) return def;
+  return null;
+}
+
 let nodePtyPromise: Promise<NodePtyModule | null> | undefined;
 /** Lazy-load node-pty; resolves to null when it isn't installed/usable. */
 function loadNodePty(): Promise<NodePtyModule | null> {
   if (!nodePtyPromise) {
     nodePtyPromise = import('node-pty' as string)
-      .then((m) => (m?.spawn ? (m as unknown as NodePtyModule) : (m?.default ?? null) as NodePtyModule | null))
+      .then((m) => resolveNodePtyModule(m))
       .catch(() => null);
   }
   return nodePtyPromise;
@@ -150,6 +169,18 @@ const MAX_SCROLLBACK = 200_000;
  * MAX_SCROLLBACK chars.
  */
 const SCROLLBACK_SLACK = 100_000;
+
+/** Upper bound on a PTY dimension. A viewer/relay could request an absurd
+ *  cols/rows (off the wire, unvalidated upstream); node-pty/conpty allocates
+ *  per-cell and can throw or wedge on extreme values, so cap to a generous but
+ *  finite ceiling. Far larger than any real terminal. */
+const MAX_DIMENSION = 10_000;
+
+/** Floor to an integer and clamp into [1, MAX_DIMENSION]; non-finite → 1. */
+function clampDimension(n: number): number {
+  if (!Number.isFinite(n)) return 1;
+  return Math.min(MAX_DIMENSION, Math.max(1, Math.floor(n)));
+}
 
 export type TerminalBackend = 'pty' | 'pipe';
 
@@ -290,8 +321,11 @@ export class TerminalProcessImpl implements TerminalProcess {
 
   resize(cols: number, rows: number): void {
     if (this.pty && this.alive) {
+      // Coerce to a sane integer in [1, MAX_DIMENSION]. Callers SHOULD pre-validate
+      // (terminal.ts isValidDimension), but a float/huge value reaching node-pty
+      // can throw or wedge conpty, so clamp defensively here too.
       try {
-        this.pty.resize(Math.max(1, cols), Math.max(1, rows));
+        this.pty.resize(clampDimension(cols), clampDimension(rows));
       } catch {
         /* resize on a dead pty — ignore */
       }

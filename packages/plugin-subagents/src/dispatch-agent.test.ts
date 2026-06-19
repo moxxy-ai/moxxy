@@ -319,4 +319,26 @@ describe('subagents — input bounds', () => {
     const parsed = tool.inputSchema.safeParse({ agents });
     expect(parsed.success).toBe(false);
   });
+
+  it('rejects a batch whose aggregate payload exceeds the budget even when each spec is within its field caps', () => {
+    // 8 prompts each just under the 20K per-field cap parse field-by-field, but
+    // ~144K chars dispatched as 8 concurrent completions is the worst-case spike
+    // the aggregate budget exists to refuse — before any session is spawned.
+    const big = 'x'.repeat(18_000);
+    const agents = Array.from({ length: 8 }, () => ({ prompt: big }));
+    const parsed = tool.inputSchema.safeParse({ agents });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues.some((i) => /aggregate limit/.test(i.message))).toBe(true);
+    }
+  });
+
+  it('accepts a realistically-sized multi-agent batch under the aggregate budget', () => {
+    // Five agents with substantial-but-reasonable prompts must still parse.
+    const agents = Array.from({ length: 5 }, (_, i) => ({
+      prompt: `research subtopic ${i}: ` + 'detail '.repeat(200),
+      systemPrompt: 'be concise '.repeat(50),
+    }));
+    expect(tool.inputSchema.safeParse({ agents }).success).toBe(true);
+  });
 });

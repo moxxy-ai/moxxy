@@ -324,6 +324,11 @@ describe('globTool', () => {
     expect(out).not.toContain('c.md');
   });
 
+  it('rejects an over-long glob pattern instead of building an unbounded regex', async () => {
+    const pattern = '*'.repeat(5_000); // > MAX_GLOB_LEN (4096)
+    await expect(globTool.handler({ pattern }, baseCtx())).rejects.toThrow(/glob pattern too long/i);
+  });
+
   it('terminates on a symlink cycle', async () => {
     // Create dir/loop -> dir, plus a real file inside dir. Before the fix,
     // walk() recursed forever. The handler must complete and find the file.

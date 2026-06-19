@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { makeExecutable, TerminalProcessImpl } from './pty.js';
+import { makeExecutable, resolveNodePtyModule, TerminalProcessImpl } from './pty.js';
 
 const MAX_SCROLLBACK = 200_000;
 
@@ -29,6 +29,37 @@ function fakeChild(stdinWrite?: (d?: string) => void): {
   proc.stdin = stdin;
   return { stdout: proc.stdout, stderr: proc.stderr, stdin, proc };
 }
+
+describe('resolveNodePtyModule (degrade on a malformed optional dep)', () => {
+  it('accepts a namespace with a callable spawn', () => {
+    const mod = { spawn: () => ({}) };
+    expect(resolveNodePtyModule(mod)).toBe(mod);
+  });
+
+  it('accepts a CJS-interop module whose spawn lives on .default', () => {
+    const def = { spawn: () => ({}) };
+    expect(resolveNodePtyModule({ default: def })).toBe(def);
+  });
+
+  it('rejects a module whose default lacks spawn (degrade to pipe, no later throw)', () => {
+    // A partially-shimmed module: a `default` object with no spawn. The old code
+    // returned it and let `pty.spawn(...)` blow up with "is not a function".
+    expect(resolveNodePtyModule({ default: { notSpawn: 1 } })).toBeNull();
+  });
+
+  it('rejects a non-function spawn', () => {
+    expect(resolveNodePtyModule({ spawn: 'nope' })).toBeNull();
+    expect(resolveNodePtyModule({ default: { spawn: 42 } })).toBeNull();
+  });
+
+  it('rejects null / undefined / primitive module shapes without throwing', () => {
+    expect(resolveNodePtyModule(null)).toBeNull();
+    expect(resolveNodePtyModule(undefined)).toBeNull();
+    expect(resolveNodePtyModule('node-pty')).toBeNull();
+    expect(resolveNodePtyModule(123)).toBeNull();
+    expect(resolveNodePtyModule({})).toBeNull();
+  });
+});
 
 describe('makeExecutable (node-pty spawn-helper repair)', () => {
   let dir: string | null = null;

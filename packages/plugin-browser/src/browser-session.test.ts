@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
 import {
+  browserSidecarCall,
   buildBrowserSessionTool,
   closeBrowserSidecar,
   resolveBrowserInstallRoot,
@@ -190,6 +191,86 @@ describe('browser_session parent-side per-call timeout', () => {
     await expect(tool.handler({ action: { kind: 'url' } }, baseCtx())).rejects.toThrow(/timed out/);
     // No throw / no hang on cleanup proves the entry was dropped.
     await closeBrowserSidecar();
+  });
+});
+
+describe('browser_session pending-map bound (MAX_PENDING)', () => {
+  it('rejects with "busy" once the queued-request ceiling is hit, instead of growing pending unbounded', async () => {
+    // A wedged sidecar head (never replies) + a chatty caller (surface polls at
+    // 3/s) must NOT let the parent accumulate pending entries without limit. The
+    // bound is 256; the 257th call degrades to a clean "busy" rejection rather
+    // than an OOM. Earlier calls stay pending (a long timeout keeps them alive
+    // for the duration of the test) and the shared sidecar is untouched.
+    const { spawn } = makeSilentSpawn();
+    // Long per-call timeout so the first 256 stay pending while we probe the 257th.
+    const deps = { sidecarPath: '/fake.js', spawnFn: spawn, callTimeoutMs: 60_000 };
+    const pending: Array<Promise<unknown>> = [];
+    for (let i = 0; i < 256; i++) {
+      // Swallow each eventual rejection (closeBrowserSidecar rejects them all on
+      // teardown) so they don't surface as unhandled rejections.
+      pending.push(browserSidecarCall('url', {}, deps).catch(() => undefined));
+    }
+    // The 257th must be rejected synchronously-ish with a bounded "busy" error.
+    await expect(browserSidecarCall('url', {}, deps)).rejects.toThrow(/busy/i);
+    // Tear down: closing rejects every still-pending call (sidecar "exited").
+    await closeBrowserSidecar();
+    await Promise.all(pending);
+  });
+});
+
+/**
+ * A sidecar whose child IGNORES SIGTERM — only a SIGKILL emits `exit`. Drives
+ * the close() escalation path: SIGTERM first, then SIGKILL after the grace
+ * timeout, so a wedged child can't survive as an orphan after session shutdown.
+ */
+function makeStubbornSpawn(): {
+  spawn: (path: string) => SidecarStream;
+  signalsSent: string[];
+} {
+  const signalsSent: string[] = [];
+  const spawn = (_p: string): SidecarStream => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    // Consume input but never reply — close()'s `close` RPC will time out fast
+    // (callTimeoutMs), then the SIGTERM→SIGKILL escalation runs.
+    stdin.on('data', () => {});
+    const exitListeners: Array<(code: number | null) => void> = [];
+    return {
+      stdin,
+      stdout,
+      kill: (signal?: NodeJS.Signals) => {
+        signalsSent.push(signal ?? 'SIGTERM');
+        // Only SIGKILL actually terminates this stubborn child.
+        if (signal === 'SIGKILL') for (const l of exitListeners) l(null);
+        return true;
+      },
+      once: (_e, listener) => {
+        exitListeners.push(listener as (code: number | null) => void);
+      },
+    };
+  };
+  return { spawn, signalsSent };
+}
+
+describe('browser_session close() SIGKILL escalation', () => {
+  it('escalates SIGTERM → SIGKILL when the child ignores SIGTERM, and still resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      const { spawn, signalsSent } = makeStubbornSpawn();
+      // Short call timeout so the best-effort `close` RPC inside close() gives up fast.
+      const deps = { sidecarPath: '/fake.js', spawnFn: spawn, callTimeoutMs: 20 };
+      // Spawn the singleton via a normal call (which will itself time out — swallow it).
+      void browserSidecarCall('url', {}, deps).catch(() => undefined);
+      // Drive the close: advance through the close-RPC timeout, then the 2s SIGKILL grace.
+      const closing = closeBrowserSidecar();
+      await vi.advanceTimersByTimeAsync(20); // close RPC times out
+      await vi.advanceTimersByTimeAsync(2000); // SIGTERM grace elapses → SIGKILL
+      await closing; // must resolve, not hang
+      expect(signalsSent).toContain('SIGTERM');
+      expect(signalsSent).toContain('SIGKILL');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

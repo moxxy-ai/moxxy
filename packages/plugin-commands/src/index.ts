@@ -45,8 +45,11 @@ const infoCmd: CommandDef = {
   handler: ({ session }) => {
     const s = session as SessionShape;
     const lines = [
-      `session:   ${s.id}`,
-      `cwd:       ${s.cwd}`,
+      // Guard even the plain `id`/`cwd` reads: on a foreign/malformed session
+      // object over the WS bridge these could be throwing getters, and the
+      // contract is that this read-only command never crashes the channel.
+      `session:   ${safe(() => s.id) ?? '?'}`,
+      `cwd:       ${safe(() => s.cwd) ?? '?'}`,
       `provider:  ${safe(() => s.providers.getActiveName()) ?? '(none)'}`,
       `mode:      ${safe(() => s.modes.getActive()?.name) ?? '(none)'}`,
       // Each registry read is guarded: a flapping/partially-constructed
@@ -99,16 +102,26 @@ const helpCmd: CommandDef = {
   argumentHint: '[command]',
   handler: ({ session, channel, args }) => {
     const s = session as SessionShape;
-    const visible = s.commands
-      .list()
+    // Guard the registry read the same way `/info` does: a flapping or
+    // partially-constructed `commands` registry (plugin host mid-reload, a
+    // RemoteSession over the WS bridge) must degrade to a benign message
+    // rather than throw — handlers must return `{kind:'error'}`/text, never
+    // crash an un-try/catch'd channel (the mobile host's runCommand path).
+    // `?? []` also collapses a registry whose `.list()` returns a non-array.
+    const all = safe(() => s.commands.list());
+    const registered: ReadonlyArray<CommandDef> = Array.isArray(all) ? all : [];
+    const visible = registered
       .filter((c) => !c.channels || c.channels.includes(channel))
       .sort((a, b) => a.name.localeCompare(b.name));
     if (visible.length === 0) return { kind: 'text', text: '(no commands registered)' };
     // `/help <command>` — show one command's detail (description + usage).
-    const query = args.trim().replace(/^\//, '').toLowerCase();
+    // Coerce `args` defensively: the contract types it `string`, but a buggy
+    // channel passing `undefined`/non-string must degrade to "list all" rather
+    // than crash on `.trim()`.
+    const query = String(args ?? '').trim().replace(/^\//, '').toLowerCase();
     if (query) {
       const match = visible.find(
-        (c) => c.name === query || c.aliases?.includes(query),
+        (c) => c.name === query || (Array.isArray(c.aliases) && c.aliases.includes(query)),
       );
       if (!match) return { kind: 'text', text: `no command named "/${query}" (try /help)` };
       const lines = [`/${match.name}  —  ${match.description}`];

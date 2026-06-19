@@ -290,4 +290,20 @@ describe('wasmIsolator module fetch + compile failure paths', () => {
       ),
     ).rejects.toThrow(/refusing to fetch module over a non-https scheme/);
   });
+
+  it('short-circuits an already-aborted call before decoding a local data: module', async () => {
+    // An already-aborted signal must bail before the (potentially multi-MB)
+    // local decode runs — parity with the https path which threads the signal.
+    const iso = createWasmIsolator({ defaultTimeMs: 10_000 });
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(
+      iso.run(
+        baseCall('echo', {}),
+        async () => 'unused',
+        {},
+        ctrl.signal,
+      ),
+    ).rejects.toThrow(/aborted/);
+  });
 });

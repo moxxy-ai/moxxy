@@ -1,6 +1,7 @@
 import net from 'node:net';
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
+import type { Transport } from '@moxxy/runner';
 import { encodeWsBearerProtocol, MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk/server';
 import {
   createWebSocketTransportServer,
@@ -213,6 +214,52 @@ describe('createWebSocketTransportServer', () => {
     await expect(
       connect(server.address, { headers: { authorization: 'Bearer rotated-token' } }),
     ).resolves.toBeDefined();
+  });
+
+  it('evicts a stalled slow reader from the periodic sweep AFTER sends stop', async () => {
+    // Regression: the per-send guard only re-evaluated eviction on the next
+    // send, so a peer that stalled with a large backlog and then went idle (no
+    // further broadcasts to it) pinned its multi-megabyte buffer for the
+    // connection's lifetime. The independent sweep must terminate it WITHOUT any
+    // further send re-triggering the check.
+    //
+    // To isolate the sweep as the evictor (not the per-send check), keep the
+    // backlog in the soft-limit→hard-ceiling band: the synchronous blast below
+    // builds ~tens of MB, so a 32 MB soft limit (128 MB hard ceiling) is
+    // exceeded (arming the grace clock) but never hits the immediate hard
+    // ceiling. The 200 sends finish in milliseconds — far inside the 800 ms
+    // grace — so NO send can trip the grace deadline. Only the later sweep can.
+    let accepted: Transport | undefined;
+    const server = await startServer({
+      maxBufferedBytes: 32 * 1024 * 1024,
+      bufferStallGraceMs: 800,
+    });
+    server.onConnection((t) => {
+      accepted = t;
+    });
+
+    const client = await connect(server.address, { headers: bearerHeaders });
+    // Stop the client from draining its socket so the server-side backlog grows
+    // and stays high (the OS receive window + send buffer fill and don't move).
+    // NOTE: a paused client never processes the eventual close frame, so we
+    // assert eviction from the SERVER side (clientCount), not the client's
+    // 'close' event — that is exactly the idle path the sweep must cover.
+    (client as unknown as { _socket: net.Socket })._socket.pause();
+
+    expect(accepted).toBeDefined();
+    const big = 'x'.repeat(256 * 1024);
+    for (let i = 0; i < 200; i++) accepted!.send({ big });
+    // Still admitted right after the blast — the per-send check did NOT evict
+    // (backlog is under the hard ceiling and grace has not elapsed).
+    expect(server.clientCount()).toBe(1);
+
+    // The sweep interval is floored at 1000 ms; by ~1000 ms the 800 ms grace has
+    // elapsed and the sweep — with no further send — must terminate the socket.
+    const deadline = Date.now() + 4000;
+    while (server.clientCount() > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(server.clientCount()).toBe(0);
   });
 });
 

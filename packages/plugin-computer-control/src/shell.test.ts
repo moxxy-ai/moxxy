@@ -65,6 +65,43 @@ describe('runProcess exit/stderr/abort/timeout', () => {
     expect(procFailureCause(res, 30_000)).toBe('');
   });
 
+  it('captures multibyte stderr without corruption (chunk-boundary safe)', async () => {
+    // A flood of 3-byte glyphs forces the stream to split a UTF-8 sequence
+    // mid-character across 'data' chunk boundaries (the ~8 KB pipe chunk size
+    // is not a multiple of 3, so a boundary lands inside a glyph). Decoding
+    // each chunk in isolation — the pre-fix behavior — emits replacement chars
+    // (U+FFFD); concat-at-close preserves the exact bytes. This matters for
+    // osascript/sips error text with non-ASCII app names.
+    // Exit only AFTER the write fully drains so the pipe isn't truncated by a
+    // premature process.exit (a harness artifact, not the behavior under test).
+    const count = 20000;
+    const script = `process.stderr.write('世'.repeat(${count}), () => process.exit(1));`;
+    const res = await runProcess(process.execPath, ['-e', script], { timeoutMs: 30_000 });
+    expect(res.exitCode).toBe(1);
+    expect(res.stderr).toBe('世'.repeat(count));
+    expect(res.stderr).not.toContain('�');
+  });
+
+  it('does not spawn and resolves as aborted when the signal is ALREADY aborted', async () => {
+    // DOM semantics: addEventListener('abort', ...) on an already-aborted
+    // signal never fires — so without an up-front check a cancelled turn would
+    // still run the child to completion. The child here would write a sentinel
+    // and exit 0 if it ran; we assert it never did.
+    const ctrl = new AbortController();
+    ctrl.abort();
+    const script = "process.stdout.write('SHOULD_NOT_RUN'); process.exit(0);";
+    const res = await runProcess(process.execPath, ['-e', script], {
+      signal: ctrl.signal,
+      timeoutMs: 30_000,
+    });
+    expect(res.aborted).toBe(true);
+    expect(res.stdout).toBe('');
+    expect(res.exitCode).toBe(-1);
+    expect(res.timedOut).toBe(false);
+    expect(res.tooLarge).toBe(false);
+    expect(procFailureCause(res)).toBe('aborted (turn cancelled)');
+  });
+
   it('rejects when the binary does not exist (spawn error)', async () => {
     await expect(
       runProcess('definitely-not-a-real-binary-xyz', [], { timeoutMs: 30_000 }),
@@ -120,9 +157,12 @@ describe('runProcess exit/stderr/abort/timeout', () => {
     `;
     const res = await runProcess(process.execPath, ['-e', script], { timeoutMs: 30_000 });
     expect(res.tooLarge).toBe(true);
-    // The captured output is bounded — we kept at most a bounded overshoot of
-    // the cap (one in-flight chunk past the threshold), never the full target.
-    expect(Buffer.byteLength(res.stdout, 'utf8')).toBeLessThan(MAX_OUTPUT_BYTES + 8 * 1024 * 1024);
+    // We STOP retaining chunks the instant the cap is tripped, so the captured
+    // output never exceeds the cap plus one already-buffered chunk — it does
+    // NOT keep growing toward `target` while the child is being killed.
+    expect(Buffer.byteLength(res.stdout, 'utf8')).toBeLessThanOrEqual(
+      MAX_OUTPUT_BYTES + 1024 * 1024,
+    );
     expect(res.timedOut).toBe(false);
     expect(procFailureCause(res, 30_000)).toContain('output exceeded');
   });

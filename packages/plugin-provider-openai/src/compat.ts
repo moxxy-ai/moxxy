@@ -84,13 +84,31 @@ export interface DefineOpenAICompatProviderSpec {
 export function defineOpenAICompatProvider(spec: DefineOpenAICompatProviderSpec): ProviderDef {
   const resolveApiKey = spec.resolveApiKey ?? ((cfg: OpenAICompatConfig) => cfg.apiKey);
   const resolveBaseURL = spec.resolveBaseURL ?? ((cfg: OpenAICompatConfig) => cfg.baseURL ?? spec.baseURL);
+  // A key-bearing compat vendor ALWAYS pins `baseURL` to its own third-party
+  // host. If the resolved apiKey is empty, the OpenAI SDK ctor silently falls
+  // back to `process.env.OPENAI_API_KEY` (and OPENAI_BASE_URL is irrelevant
+  // because we override baseURL) — which would ship the user's real OpenAI
+  // credential to api.x.ai / Google / a runtime-registered vendor on a merely
+  // MISCONFIGURED provider (no key set). Refuse an empty resolved key centrally
+  // so every authenticating vendor (xai/google/provider-admin entries) is safe
+  // without each re-adding its own guard. `validate: false` vendors (local
+  // servers that don't authenticate and legitimately use a placeholder key via
+  // resolveApiKey) are exempt.
+  const requiresKey = spec.validate !== false;
   return defineProvider({
     name: spec.name,
     models: [...spec.models],
     createClient: (config) => {
       const cfg = pickOpenAICompatConfig(config);
+      const apiKey = resolveApiKey(cfg);
+      if (requiresKey && (typeof apiKey !== 'string' || apiKey.trim().length === 0)) {
+        throw new Error(
+          `${spec.name} requires an API key — configure the ${spec.name} provider's apiKey ` +
+            `(refusing to fall back to OPENAI_API_KEY against ${spec.name}'s endpoint)`,
+        );
+      }
       return new OpenAIProvider({
-        apiKey: resolveApiKey(cfg),
+        apiKey,
         name: spec.name,
         baseURL: resolveBaseURL(cfg),
         defaultModel: cfg.defaultModel ?? spec.defaultModel,

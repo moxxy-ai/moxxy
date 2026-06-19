@@ -116,11 +116,24 @@ function isSafeBaseURL(value: string): boolean {
   const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
   if (url.protocol === 'http:') return isLocalhost;
   if (url.protocol !== 'https:') return false;
-  // Block obvious link-local / metadata / unspecified targets even over https.
+  // `localhost` over https is the only allowed loopback name; everything below
+  // operates on the WHATWG-canonicalized host (decimal/hex/octal IPv4 forms are
+  // already folded to dotted-decimal, so a `169.254.x` / private prefix can't be
+  // smuggled as `https://2852039166/v1`).
+  // Block loopback, link-local / metadata, unspecified, AND RFC1918 private
+  // ranges even over https — a stored Bearer credential must not be egressable
+  // to an internal/metadata host via a base URL the user might not scrutinize.
   if (
+    host === 'localhost' ||
+    host.startsWith('127.') || // IPv4 loopback 127.0.0.0/8
     host.startsWith('169.254.') || // IPv4 link-local incl. cloud metadata 169.254.169.254
-    host.startsWith('0.') ||
+    host.startsWith('0.') || // "this" network 0.0.0.0/8
     host === '0.0.0.0' ||
+    host.startsWith('10.') || // RFC1918 10.0.0.0/8
+    host.startsWith('192.168.') || // RFC1918 192.168.0.0/16
+    isPrivate172(host) || // RFC1918 172.16.0.0/12
+    host === '::1' ||
+    host === '[::1]' || // IPv6 loopback
     host.startsWith('[fe80:') || // IPv6 link-local
     host.startsWith('[fc') || // IPv6 unique-local fc00::/7
     host.startsWith('[fd')
@@ -128,6 +141,14 @@ function isSafeBaseURL(value: string): boolean {
     return false;
   }
   return true;
+}
+
+/** True for a dotted-decimal IPv4 host in the RFC1918 172.16.0.0/12 range. */
+function isPrivate172(host: string): boolean {
+  const m = /^172\.(\d{1,3})\./.exec(host);
+  if (!m) return false;
+  const octet = Number(m[1]);
+  return octet >= 16 && octet <= 31;
 }
 
 const safeBaseURLSchema = z
@@ -244,15 +265,13 @@ interface ProviderAdminEngine {
 function createProviderAdminEngine(opts: BuildProviderAdminPluginOptions): ProviderAdminEngine {
   const { providerRegistry, configPath, resolveActiveConfig } = opts;
   const ownNames = new Set<string>();
-  const locks = new Map<string, Mutex>();
-  const lockFor = (name: string): Mutex => {
-    let m = locks.get(name);
-    if (!m) {
-      m = createMutex();
-      locks.set(name, m);
-    }
-    return m;
-  };
+  // Per-name mutexes, ref-counted so the map is bounded by the number of
+  // CONCURRENTLY-active names, not the cumulative count of every slug ever seen.
+  // Without the counter a model issuing many distinct provider_add/remove calls
+  // would grow this map without bound for the life of the runner. We can't probe
+  // a Mutex's queue (the interface only exposes `run`), so we track holders
+  // ourselves and drop the entry when the last in-flight call for a name settles.
+  const locks = new Map<string, { mutex: Mutex; holders: number }>();
   return {
     providerRegistry,
     configPath,
@@ -260,8 +279,22 @@ function createProviderAdminEngine(opts: BuildProviderAdminPluginOptions): Provi
     isBuiltin(name: string): boolean {
       return providerRegistry.list().some((p) => p.name === name) && !ownNames.has(name);
     },
-    withLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
-      return lockFor(name).run(fn);
+    async withLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+      let slot = locks.get(name);
+      if (!slot) {
+        slot = { mutex: createMutex(), holders: 0 };
+        locks.set(name, slot);
+      }
+      slot.holders += 1;
+      try {
+        return await slot.mutex.run(fn);
+      } finally {
+        slot.holders -= 1;
+        // Last holder out removes the entry. A name acquired again later just
+        // creates a fresh mutex — serialization is only ever needed between
+        // OVERLAPPING calls, which by definition still share this live slot.
+        if (slot.holders === 0 && locks.get(name) === slot) locks.delete(name);
+      }
     },
     async rebuildActiveIfNeeded(name: string): Promise<void> {
       if (!resolveActiveConfig) return;

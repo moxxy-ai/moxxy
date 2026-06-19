@@ -7,6 +7,31 @@ import {
 } from './stream-types.js';
 
 /**
+ * Hard cap on a single tool call's accumulated argument text. `entry.args` grows
+ * by every `function_call_arguments.delta`; unlike the consumer's per-frame
+ * reassembly buffer (which shrinks once a frame is parsed), this accumulates
+ * ACROSS frames and is otherwise unbounded — a hostile stream of millions of
+ * small, individually-valid delta frames would grow it to OOM without ever
+ * tripping the frame-buffer cap. 16 MiB is far beyond any legitimate tool-call
+ * payload. Exceeding it is treated as a hostile stream (terminal error).
+ */
+const MAX_TOOL_ARGS_CHARS = 16 * 1024 * 1024;
+
+/**
+ * Hard cap on the number of concurrently-pending function calls. Each distinct
+ * `output_item.added` function_call seeds a `pending` entry that lives until its
+ * `.done` (or the post-stream flush); a hostile stream could emit unbounded
+ * distinct ids and never finish them, growing the Map without limit. No real
+ * turn fans out to anywhere near this many parallel tool calls.
+ */
+const MAX_PENDING_TOOL_CALLS = 1024;
+
+const TOOL_STREAM_LIMIT_ERROR = (what: string): SseStepResult => ({
+  events: [{ type: 'error', message: `Codex tool-call stream exceeded ${what} limit`, retryable: false }],
+  terminal: true,
+});
+
+/**
  * Map a single Responses-API SSE event to zero or more moxxy ProviderEvents.
  * Centralized here so the streaming loop stays a thin "read frame → call
  * this → yield" structure and the event taxonomy is easy to test directly.
@@ -47,6 +72,12 @@ export function handleSseEvent(
 
   if (type === 'response.output_item.added' && ev.item?.type === 'function_call') {
     const id = ev.item.id ?? ev.item.call_id ?? `call_${pending.size}`;
+    // Bound the number of in-flight tool calls: a hostile stream could otherwise
+    // seed unbounded distinct ids and never `.done` them, growing the Map to OOM.
+    // (A new id that would overflow is rejected; re-using an existing id is fine.)
+    if (!pending.has(id) && pending.size >= MAX_PENDING_TOOL_CALLS) {
+      return TOOL_STREAM_LIMIT_ERROR('pending-call count');
+    }
     const callId = ev.item.call_id ?? id;
     const name = ev.item.name ?? '';
     const entry: PendingFunctionCall = {
@@ -69,6 +100,11 @@ export function handleSseEvent(
     const entry = pending.get(id);
     const delta = ev.delta ?? '';
     if (entry && typeof delta === 'string') {
+      // Bound the per-call argument accumulation: this grows across frames and
+      // is not covered by the consumer's per-frame reassembly cap.
+      if (entry.args.length + delta.length > MAX_TOOL_ARGS_CHARS) {
+        return TOOL_STREAM_LIMIT_ERROR('argument size');
+      }
       entry.args += delta;
       const outId = entry.callId || entry.id;
       // If we hadn't emitted tool_use_start yet (server sent the args

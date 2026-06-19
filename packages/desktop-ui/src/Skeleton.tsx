@@ -97,6 +97,10 @@ function Row(): JSX.Element {
 }
 
 function Card({ lines = 2 }: { readonly lines?: number }): JSX.Element {
+  // Clamp to a sane, non-negative integer: `Array.from({ length })` throws a
+  // RangeError on a negative / fractional / NaN length, so a stray `lines={0}`
+  // or `lines={-1}` from a call site must not crash the placeholder.
+  const extra = Math.max(0, Math.floor(Number.isFinite(lines) ? lines : 2) - 1);
   return (
     <div
       aria-hidden
@@ -111,7 +115,7 @@ function Card({ lines = 2 }: { readonly lines?: number }): JSX.Element {
       }}
     >
       <Line width="40%" height={12} />
-      {Array.from({ length: lines - 1 }).map((_, i) => (
+      {Array.from({ length: extra }).map((_, i) => (
         <Line key={i} width={`${30 + i * 20}%`} height={10} />
       ))}
     </div>

@@ -61,8 +61,10 @@ export function FileDiffView({ display }: { display: FileDiffDisplay }): React.J
   return (
     <View
       style={styles.card}
+      // Not a single a11y element: the header + per-row labels below let a
+      // screen reader navigate the diff line-by-line instead of collapsing it
+      // into one opaque announcement. (A label here would be ignored anyway.)
       accessible={false}
-      accessibilityLabel={`File diff for ${path}: added ${added} lines, removed ${removed} lines`}
     >
       <View style={styles.header}>
         <Text style={styles.headerTitle} numberOfLines={1}>

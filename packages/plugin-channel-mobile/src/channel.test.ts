@@ -20,6 +20,7 @@ vi.mock('@moxxy/ipc-server-ws', () => ({
 vi.mock('./qr.js', () => ({ printConnectInfo: vi.fn(async () => {}) }));
 
 import { MobileChannel } from './channel.js';
+import { MobileSessionHost } from './single-session-host.js';
 
 /** A session that records log subscription + resolver installs/clears. */
 function fakeSession() {
@@ -109,12 +110,19 @@ describe('MobileChannel.start teardown on startup failure', () => {
 });
 
 /** A live-server stub for the happy path: `clientCount` is caller-controlled so
- *  a test can simulate a connect→disconnect transition. */
+ *  a test can simulate a connect→disconnect transition. `onConnection` captures
+ *  the channel's handler so a test can fire a synchronous "client attached"
+ *  edge (the rising edge the poll alone can miss). */
 function fakeServer(clientCount: () => number) {
+  const connectionHandlers: Array<(t: unknown) => void> = [];
   return {
     address: 'ws://127.0.0.1:8765',
     clientCount: vi.fn(() => clientCount()),
-    onConnection: vi.fn(),
+    onConnection: vi.fn((h: (t: unknown) => void) => {
+      connectionHandlers.push(h);
+    }),
+    /** Fire every registered onConnection handler (simulate a client attaching). */
+    fireConnection: () => connectionHandlers.forEach((h) => h({})),
     setAllowedOrigins: vi.fn(),
     rotateAuthToken: vi.fn(),
     close: vi.fn(async () => {}),
@@ -150,6 +158,39 @@ describe('MobileChannel disconnect sweep', () => {
     vi.advanceTimersByTime(5000);
     expect(server.clientCount.mock.calls.length).toBe(pollsBeforeStop);
     vi.useRealTimers();
+  });
+
+  it('drains a fast-crashing client whose connect the poll never saw (rising edge via onConnection)', async () => {
+    vi.useFakeTimers();
+    const drain = vi
+      .spyOn(MobileSessionHost.prototype, 'onAllClientsDisconnected')
+      .mockImplementation(() => {});
+    try {
+      // clientCount() is ALWAYS 0: the client connected and died entirely
+      // within a single poll window, so no poll ever observes n>0. Only the
+      // onConnection edge proves a client was here — the falling-edge poll must
+      // still drain it, or the stranded turn/ask leaks forever.
+      const server = fakeServer(() => 0);
+      startWsBridge.mockResolvedValue(server as any);
+      const { session } = fakeSession();
+      const handle = await new MobileChannel({ token: 'tok', tunnel: 'localhost' }).start({ session });
+
+      // The channel registered its rising-edge handler.
+      expect(server.onConnection).toHaveBeenCalled();
+      // A client attaches and is gone before any poll runs.
+      server.fireConnection();
+      // Next poll sees count 0 with sawClient already true → drains.
+      vi.advanceTimersByTime(1000);
+      expect(drain).toHaveBeenCalledTimes(1);
+      // Edge-triggered: a second poll with no new connection must NOT re-drain.
+      vi.advanceTimersByTime(1000);
+      expect(drain).toHaveBeenCalledTimes(1);
+
+      await handle.stop();
+    } finally {
+      drain.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('passes allowQueryToken through and closes it via MOXXY_MOBILE_QUERY_TOKEN', async () => {

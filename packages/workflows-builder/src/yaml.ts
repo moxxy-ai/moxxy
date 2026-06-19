@@ -367,7 +367,7 @@ function looksLikeKey(s: string): boolean {
   return splitKey(s) !== null;
 }
 
-function parseScalar(token: string): unknown {
+function parseScalar(token: string, depth = 0): unknown {
   const t = token.trim();
   if (t === '[]') return [];
   if (t === '{}') return {};
@@ -382,11 +382,16 @@ function parseScalar(token: string): unknown {
     return Number.isSafeInteger(n) && String(n) === t ? n : t;
   }
   if (/^-?\d+\.\d+$/.test(t)) return Number.parseFloat(t);
-  // Flow sequence of scalars: ["a", "b"] / [a, b]
+  // Flow sequence of scalars: ["a", "b"] / [a, b]. This recurses one frame per
+  // nesting level, so a hand-authored `[[[…]]]` would otherwise blow the call
+  // stack with an UNCATCHABLE RangeError — the same trust-boundary DoS the block
+  // parser guards via MAX_DEPTH. Bound the flow recursion identically so the
+  // failure stays a catchable Error the UI can show as a validation banner.
   if (t.startsWith('[') && t.endsWith(']')) {
+    if (depth >= MAX_DEPTH) throw new Error('yaml: flow nesting too deep');
     const inner = t.slice(1, -1).trim();
     if (inner === '') return [];
-    return splitFlow(inner).map((x) => parseScalar(x));
+    return splitFlow(inner).map((x) => parseScalar(x, depth + 1));
   }
   return unquote(t);
 }

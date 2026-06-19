@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { surfaceInputParamsSchema } from './protocol.js';
+import {
+  surfaceInputParamsSchema,
+  transcribeParamsSchema,
+  synthesizeParamsSchema,
+  commandRunParamsSchema,
+  MAX_TRANSCRIBE_AUDIO_B64_BYTES,
+  MAX_SYNTHESIZE_TEXT_BYTES,
+} from './protocol.js';
 
 // The fast-path size guard on surfaceInputParamsSchema MUST accept/reject the
 // EXACT same set of messages as the prior unconditional
@@ -84,5 +91,60 @@ describe('surfaceInputParamsSchema size guard (byte-identical to JSON.stringify 
       }
       expect(accepts(message)).toBe(exactWithinCap(message));
     }
+  });
+});
+
+// Every wire payload in protocol.ts is length-bounded so a hostile/buggy
+// same-user client (the runner accepts multi-client attach over the 0700 socket)
+// can't drive an unbounded allocation. These media/command fields were the lone
+// uncapped strings; assert the worst case is rejected at the wire boundary
+// rather than ballooning memory inside the handler.
+describe('media + command param size caps (hostile-input rejection)', () => {
+  it('accepts a normal transcribe payload', () => {
+    expect(
+      transcribeParamsSchema.safeParse({
+        audio: 'AAAA',
+        mimeType: 'audio/webm',
+        language: 'en',
+        prompt: 'hello',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects an over-cap audio blob without decoding it', () => {
+    const audio = 'A'.repeat(MAX_TRANSCRIBE_AUDIO_B64_BYTES + 1);
+    expect(transcribeParamsSchema.safeParse({ audio }).success).toBe(false);
+    // Exactly at the cap is still accepted.
+    expect(
+      transcribeParamsSchema.safeParse({ audio: 'A'.repeat(MAX_TRANSCRIBE_AUDIO_B64_BYTES) })
+        .success,
+    ).toBe(true);
+  });
+
+  it('rejects megabytes stuffed into a descriptor field (e.g. language)', () => {
+    expect(
+      transcribeParamsSchema.safeParse({ audio: 'AAAA', language: 'x'.repeat(5_000) }).success,
+    ).toBe(false);
+  });
+
+  it('rejects over-cap synthesize text', () => {
+    expect(
+      synthesizeParamsSchema.safeParse({ text: 'x'.repeat(MAX_SYNTHESIZE_TEXT_BYTES + 1) }).success,
+    ).toBe(false);
+    expect(
+      synthesizeParamsSchema.safeParse({ text: 'x'.repeat(MAX_SYNTHESIZE_TEXT_BYTES) }).success,
+    ).toBe(true);
+  });
+
+  it('rejects an empty or over-long command name/channel', () => {
+    expect(
+      commandRunParamsSchema.safeParse({ name: '', args: '', channel: 'tui' }).success,
+    ).toBe(false);
+    expect(
+      commandRunParamsSchema.safeParse({ name: 'x'.repeat(121), args: '', channel: 'tui' }).success,
+    ).toBe(false);
+    expect(
+      commandRunParamsSchema.safeParse({ name: 'model', args: 'opus', channel: 'tui' }).success,
+    ).toBe(true);
   });
 });

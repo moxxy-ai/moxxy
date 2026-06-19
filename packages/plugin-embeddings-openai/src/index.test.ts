@@ -34,4 +34,18 @@ describe('openaiEmbedderDef.createClient config validation', () => {
     expect(() => openaiEmbedderDef.createClient({ batchSize: 0 })).toThrow(/batchSize/);
     expect(() => openaiEmbedderDef.createClient({ dimensions: -1 })).toThrow(/dimensions/);
   });
+
+  it('rejects a non-number timeoutMs / maxRetries and enforces the range after coercion', () => {
+    expect(() => openaiEmbedderDef.createClient({ timeoutMs: '30s' })).toThrow(/timeoutMs/);
+    expect(() => openaiEmbedderDef.createClient({ maxRetries: Number.NaN })).toThrow(/maxRetries/);
+    // Finite-but-invalid: type guard passes, constructor range check must reject.
+    expect(() => openaiEmbedderDef.createClient({ timeoutMs: 0 })).toThrow(/timeoutMs/);
+    expect(() => openaiEmbedderDef.createClient({ maxRetries: -1 })).toThrow(/maxRetries/);
+  });
+
+  it('threads a valid timeoutMs through to the constructed client', () => {
+    const e = openaiEmbedderDef.createClient({ apiKey: 'sk-test', timeoutMs: 7_500 });
+    const client = (e as unknown as { client: { timeout: number } }).client;
+    expect(client.timeout).toBe(7_500);
+  });
 });

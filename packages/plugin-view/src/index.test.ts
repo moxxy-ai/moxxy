@@ -157,6 +157,65 @@ describe('present_view tool', () => {
     expect(r.url).toBeUndefined();
   });
 
+  it('degrades to a structured error when a custom renderer.parse throws', () => {
+    // The default renderer never throws, but a swapped-in custom renderer is
+    // not bound by that guarantee — a throw must become a tool error, not a
+    // turn-level exception out of the handler.
+    const throwing: ViewRendererDef = {
+      name: 'throwing',
+      allowList: [],
+      parse: () => {
+        throw new Error('renderer exploded');
+      },
+      validate: () => [],
+    };
+    const t = toolOf(buildViewPlugin({ getRenderer: () => throwing }));
+    let r: PresentViewResult;
+    expect(() => {
+      r = t.handler({ spec: '<view/>' }, ctx) as PresentViewResult;
+    }).not.toThrow();
+    expect(r!.ok).toBe(false);
+    expect(r!.rendered).toBe(false);
+    expect(r!.errors?.[0]?.message).toMatch(/renderer exploded/);
+  });
+
+  it('rejects a malformed AST (missing root) with an honest message', () => {
+    // A custom renderer claims ok:true but returns no usable root; the handler
+    // must reject cleanly (and NOT mislabel it "too deeply nested").
+    const malformed: ViewRendererDef = {
+      name: 'malformed',
+      allowList: [],
+      parse: () => ({ ok: true, doc: { root: undefined } as unknown as ViewParseResult['doc'] }) as ViewParseResult,
+      validate: () => [],
+    };
+    const t = toolOf(buildViewPlugin({ getRenderer: () => malformed }));
+    let r: PresentViewResult;
+    expect(() => {
+      r = t.handler({ spec: '<view/>' }, ctx) as PresentViewResult;
+    }).not.toThrow();
+    expect(r!.ok).toBe(false);
+    expect(r!.ast).toBeUndefined();
+    expect(r!.errors?.[0]?.message).toMatch(/malformed AST/);
+  });
+
+  it('degrades when a custom renderer reports a failure with non-iterable errors', () => {
+    // ok:false but `errors` is not an array — the handler must not throw on
+    // `.map` and must surface a generic failure instead.
+    const bad: ViewRendererDef = {
+      name: 'bad-errors',
+      allowList: [],
+      parse: () => ({ ok: false, errors: null as unknown as [] }) as ViewParseResult,
+      validate: () => [],
+    };
+    const t = toolOf(buildViewPlugin({ getRenderer: () => bad }));
+    let r: PresentViewResult;
+    expect(() => {
+      r = t.handler({ spec: '<view/>' }, ctx) as PresentViewResult;
+    }).not.toThrow();
+    expect(r!.ok).toBe(false);
+    expect(r!.errors?.[0]?.message).toMatch(/parse failure/);
+  });
+
   it('short-circuits when the turn is already aborted', () => {
     const t = toolOf(buildViewPlugin({ getRenderer: () => defaultViewRenderer }));
     const ac = new AbortController();

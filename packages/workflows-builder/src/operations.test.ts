@@ -200,6 +200,25 @@ describe('loop node body + exit model', () => {
     expect(s).toBe(before);
   });
 
+  it('setLoopBody refuses to put an ancestor of the loop into the body (no cycle)', () => {
+    // loop already needs `seed` (wired via `after`). Putting `seed` into the body
+    // would give seed `needs: [loop]` while loop still needs seed → an
+    // unschedulable cycle seed↔loop. setLoopBody must drop such ancestors the same
+    // way setLoopExit/connectNeeds guard their own needs edges, so this in-canvas
+    // path can't author an invalid DAG the server would only reject after save.
+    let s = loopFixture();
+    expect(wouldCreateCycle(s, 'loop', 'seed')).toBe(true);
+    s = setLoopBody(s, 'loop', ['seed', 'improve']);
+    // seed (the ancestor) is excluded; the legitimate member is kept.
+    expect(s.nodes.find((n) => n.id === 'loop')!.loop!.body).toEqual(['improve']);
+    // seed did NOT gain needs:[loop] — the cycle was refused, not authored.
+    expect(s.nodes.find((n) => n.id === 'seed')!.needs).not.toContain('loop');
+    expect(s.nodes.find((n) => n.id === 'improve')!.needs).toContain('loop');
+    // and no body member both depends on and is depended-on-by the loop.
+    const loop = s.nodes.find((n) => n.id === 'loop')!;
+    expect(loop.needs).toEqual(['seed']); // loop still plainly downstream of seed
+  });
+
   it('setLoopConfig clamps maxIterations to 1..50', () => {
     let s = loopFixture();
     s = setLoopConfig(s, 'loop', { maxIterations: 999, condition: 'good enough?' });
