@@ -12,9 +12,39 @@
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		639EC3BD0CEAA4AB8F0CAC0D /* libPods-MoxxyMobileGateway.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 19B1E2E2765575E472559547 /* libPods-MoxxyMobileGateway.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		D00000000000000000000001 /* MoxxyActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* MoxxyActivityAttributes.swift */; };
+		D00000000000000000000002 /* MoxxyLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000012 /* MoxxyLiveActivity.swift */; };
+		D00000000000000000000003 /* MoxxyLiveActivityBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000013 /* MoxxyLiveActivityBridge.m */; };
+		D00000000000000000000004 /* MoxxyLiveActivityWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000015 /* MoxxyLiveActivityWidget.swift */; };
+		D00000000000000000000005 /* MoxxyActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00000000000000000000011 /* MoxxyActivityAttributes.swift */; };
+		D00000000000000000000006 /* MoxxyLiveActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D00000000000000000000014 /* MoxxyLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D252A5BAB1C9631D778FD9DE /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 9EC83DED365A8027DA13305F /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		D00000000000000000000060 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D00000000000000000000040;
+			remoteInfo = MoxxyLiveActivityExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D00000000000000000000030 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D00000000000000000000006 /* MoxxyLiveActivityExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* MoxxyMobileGateway.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MoxxyMobileGateway.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -23,10 +53,16 @@
 		19B1E2E2765575E472559547 /* libPods-MoxxyMobileGateway.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-MoxxyMobileGateway.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FF10CDD6EFC93E832DA8F7B /* Pods-MoxxyMobileGateway.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MoxxyMobileGateway.debug.xcconfig"; path = "Target Support Files/Pods-MoxxyMobileGateway/Pods-MoxxyMobileGateway.debug.xcconfig"; sourceTree = "<group>"; };
 		75A3B4864C8575002F74A8FA /* Pods-MoxxyMobileGateway.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MoxxyMobileGateway.release.xcconfig"; path = "Target Support Files/Pods-MoxxyMobileGateway/Pods-MoxxyMobileGateway.release.xcconfig"; sourceTree = "<group>"; };
-		9EC83DED365A8027DA13305F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = MoxxyMobileGateway/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		9EC83DED365A8027DA13305F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = MoxxyMobileGateway/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = MoxxyMobileGateway/SplashScreen.storyboard; sourceTree = "<group>"; };
 		B8DA775088E0A448136CD5BD /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-MoxxyMobileGateway/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		D00000000000000000000011 /* MoxxyActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MoxxyActivityAttributes.swift; path = MoxxyMobileGateway/MoxxyActivityAttributes.swift; sourceTree = "<group>"; };
+		D00000000000000000000012 /* MoxxyLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MoxxyLiveActivity.swift; path = MoxxyMobileGateway/MoxxyLiveActivity.swift; sourceTree = "<group>"; };
+		D00000000000000000000013 /* MoxxyLiveActivityBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = MoxxyLiveActivityBridge.m; path = MoxxyMobileGateway/MoxxyLiveActivityBridge.m; sourceTree = "<group>"; };
+		D00000000000000000000014 /* MoxxyLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MoxxyLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		D00000000000000000000015 /* MoxxyLiveActivityWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MoxxyLiveActivityWidget.swift; path = MoxxyLiveActivityExtension/MoxxyLiveActivityWidget.swift; sourceTree = "<group>"; };
+		D00000000000000000000016 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = MoxxyLiveActivityExtension/Info.plist; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = MoxxyMobileGateway/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* MoxxyMobileGateway-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "MoxxyMobileGateway-Bridging-Header.h"; path = "MoxxyMobileGateway/MoxxyMobileGateway-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -41,6 +77,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D00000000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -49,6 +92,9 @@
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
 				F11748442D0722820044C1D9 /* MoxxyMobileGateway-Bridging-Header.h */,
+				D00000000000000000000011 /* MoxxyActivityAttributes.swift */,
+				D00000000000000000000012 /* MoxxyLiveActivity.swift */,
+				D00000000000000000000013 /* MoxxyLiveActivityBridge.m */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -81,7 +127,6 @@
 				6FF10CDD6EFC93E832DA8F7B /* Pods-MoxxyMobileGateway.debug.xcconfig */,
 				75A3B4864C8575002F74A8FA /* Pods-MoxxyMobileGateway.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -96,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07FAE1A68108700A75B9A /* MoxxyMobileGateway */,
+				D00000000000000000000020 /* MoxxyLiveActivityExtension */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
@@ -111,6 +157,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* MoxxyMobileGateway.app */,
+				D00000000000000000000014 /* MoxxyLiveActivityExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -132,6 +179,15 @@
 			path = MoxxyMobileGateway/Supporting;
 			sourceTree = "<group>";
 		};
+		D00000000000000000000020 /* MoxxyLiveActivityExtension */ = {
+			isa = PBXGroup;
+			children = (
+				D00000000000000000000015 /* MoxxyLiveActivityWidget.swift */,
+				D00000000000000000000016 /* Info.plist */,
+			);
+			name = MoxxyLiveActivityExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -144,6 +200,7 @@
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
+				D00000000000000000000030 /* Embed App Extensions */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				C0D3C0DE0000000000000001 /* Generate Expo Constants app.config */,
@@ -152,11 +209,29 @@
 			buildRules = (
 			);
 			dependencies = (
+				D00000000000000000000061 /* PBXTargetDependency */,
 			);
 			name = MoxxyMobileGateway;
 			productName = MoxxyMobileGateway;
 			productReference = 13B07F961A680F5B00A75B9A /* MoxxyMobileGateway.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D00000000000000000000040 /* MoxxyLiveActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D00000000000000000000070 /* Build configuration list for PBXNativeTarget "MoxxyLiveActivityExtension" */;
+			buildPhases = (
+				D00000000000000000000050 /* Sources */,
+				D00000000000000000000031 /* Frameworks */,
+				D00000000000000000000051 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = MoxxyLiveActivityExtension;
+			productName = MoxxyLiveActivityExtension;
+			productReference = D00000000000000000000014 /* MoxxyLiveActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -168,6 +243,9 @@
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1250;
+					};
+					D00000000000000000000040 = {
+						CreatedOnToolsVersion = 15.0;
 					};
 				};
 			};
@@ -185,6 +263,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* MoxxyMobileGateway */,
+				D00000000000000000000040 /* MoxxyLiveActivityExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -198,6 +277,13 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				D252A5BAB1C9631D778FD9DE /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000051 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -323,6 +409,8 @@
 			buildActionMask = 2147483647;
 			files = (
 			);
+			inputPaths = (
+			);
 			name = "Generate Expo Constants app.config";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle/app.config",
@@ -339,11 +427,31 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
+				D00000000000000000000001 /* MoxxyActivityAttributes.swift in Sources */,
+				D00000000000000000000002 /* MoxxyLiveActivity.swift in Sources */,
+				D00000000000000000000003 /* MoxxyLiveActivityBridge.m in Sources */,
 				077CDB1EFC9877649061E253 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D00000000000000000000050 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D00000000000000000000005 /* MoxxyActivityAttributes.swift in Sources */,
+				D00000000000000000000004 /* MoxxyLiveActivityWidget.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D00000000000000000000061 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D00000000000000000000040 /* MoxxyLiveActivityExtension */;
+			targetProxy = D00000000000000000000060 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -354,6 +462,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = MoxxyMobileGateway/MoxxyMobileGateway.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GJ62RJ9FA4;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -365,7 +474,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -390,13 +499,14 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = MoxxyMobileGateway/MoxxyMobileGateway.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GJ62RJ9FA4;
 				INFOPLIST_FILE = MoxxyMobileGateway/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 0.1.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -530,6 +640,58 @@
 			};
 			name = Release;
 		};
+		D00000000000000000000071 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GJ62RJ9FA4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MoxxyLiveActivityExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kamiloxen1.moxxy-mobile-gateway.MoxxyLiveActivityExtension";
+				PRODUCT_NAME = MoxxyLiveActivityExtension;
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		D00000000000000000000072 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GJ62RJ9FA4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = MoxxyLiveActivityExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.kamiloxen1.moxxy-mobile-gateway.MoxxyLiveActivityExtension";
+				PRODUCT_NAME = MoxxyLiveActivityExtension;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -547,6 +709,15 @@
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D00000000000000000000070 /* Build configuration list for PBXNativeTarget "MoxxyLiveActivityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00000000000000000000071 /* Debug */,
+				D00000000000000000000072 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

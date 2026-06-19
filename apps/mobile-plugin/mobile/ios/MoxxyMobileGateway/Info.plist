@@ -53,9 +53,11 @@
     <string>Connect to the Moxxy runner on your computer over your local Wi-Fi network.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Allow Moxxy Mobile Gateway to access your microphone for voice input.</string>
-    <key>NSPhotoLibraryUsageDescription</key>
-    <string>Allow Moxxy Mobile Gateway to attach screenshots and photos to your Moxxy messages.</string>
-    <key>NSUserActivityTypes</key>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Allow Moxxy Mobile Gateway to attach screenshots and photos to your Moxxy messages.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSUserActivityTypes</key>
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
     </array>
