@@ -1,5 +1,12 @@
 # @moxxy/mode-deep-research
 
+## 0.0.25
+
+### Patch Changes
+
+- Updated dependencies [92fecb8]
+  - @moxxy/sdk@0.15.2
+
 ## 0.0.24
 
 ### Patch Changes

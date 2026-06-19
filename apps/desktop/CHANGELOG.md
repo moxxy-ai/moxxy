@@ -1,5 +1,42 @@
 # @moxxy/desktop
 
+## 0.22.1
+
+### Patch Changes
+
+- 92fecb8: Close the cross-package hardening items deferred from the repo-wide sweep, with
+  regression tests:
+
+  - **Bugs:** `countNodes()` recursion → iterative (no RangeError on a deep AST);
+    subagent `spawnAll` now settles all children (one child's setup failure no
+    longer orphans its siblings); the runner socket path honors `$MOXXY_HOME`; the
+    computer-control screenshot tool result is projected as a provider image block
+    so the model can actually see screenshots; `MoxxyRequirement.version` narrowed
+    to the plugin kind; `CompactorDef.compact` signature aligned; `isFileDiffDisplay`
+    validation tightened.
+  - **DRY:** `sleepWithAbort` / `nextBackoffMs` extracted into `@moxxy/sdk` (shared by
+    the default and goal modes); the isolator shim + broker-op concurrency limiter
+    single-sourced in `@moxxy/plugin-security` and applied to both isolators; desktop
+    loopback ports hoisted to one module; a shared collab-store helper extracted.
+  - **Accessibility / contract:** a global `prefers-reduced-motion` rule for inline
+    transitions; real ARIA roles + roving focus + Escape + focus-restore on the
+    anonymizer filter dropdown; zod schemas for the collab IPC channels.
+
+- Updated dependencies [92fecb8]
+  - @moxxy/cli@0.14.10
+  - @moxxy/sdk@0.15.2
+  - @moxxy/chat-model@0.3.2
+  - @moxxy/client-core@0.10.1
+  - @moxxy/client-platform-web@0.1.28
+  - @moxxy/desktop-host@0.8.3
+  - @moxxy/desktop-ipc-contract@0.10.2
+  - @moxxy/ipc-server-ws@0.1.27
+  - @moxxy/plugin-channel-mobile@0.1.28
+  - @moxxy/plugin-stt-whisper-codex@0.0.25
+  - @moxxy/plugin-vault@0.0.25
+  - @moxxy/runner@0.2.15
+  - @moxxy/workflows-builder@0.1.13
+
 ## 0.22.0
 
 ### Minor Changes

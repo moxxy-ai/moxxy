@@ -1,5 +1,12 @@
 # @moxxy/plugin-browser
 
+## 0.0.29
+
+### Patch Changes
+
+- Updated dependencies [92fecb8]
+  - @moxxy/sdk@0.15.2
+
 ## 0.0.28
 
 ### Patch Changes
