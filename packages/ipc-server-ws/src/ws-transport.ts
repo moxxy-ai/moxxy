@@ -116,6 +116,13 @@ class WsTransport implements Transport {
   send(frame: unknown): void {
     if (this.ws.readyState !== this.ws.OPEN) return;
     if (this.evictIfStalled()) return;
+    // NOTE: `JSON.stringify` throws synchronously on a BigInt/circular frame. We
+    // deliberately let that throw propagate to the caller rather than swallow it
+    // here: on the request/response path `JsonRpcPeer.dispatchRequest` catches it
+    // and converts it into an error reply (so the requester is answered, not left
+    // hanging), and on the broadcast/notify fan-out `WebSocketCommandBus.broadcast`
+    // already wraps each `notify` so one bad payload can't abort delivery to the
+    // rest. Swallowing here would break the response path (silent no-reply).
     this.ws.send(JSON.stringify(frame));
   }
 

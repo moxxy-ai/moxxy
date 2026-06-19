@@ -120,16 +120,38 @@ export class WsRpcClient {
       ? new this.ctor(this.url, [...this.protocols])
       : new this.ctor(this.url);
     this.socket = socket;
+    // Capture the live socket per-handler so a stale socket that fires late (a
+    // dead socket whose close raced us, or one whose onopen arrives after we
+    // moved on) can never mutate state for the *current* connection.
     socket.onopen = () => {
+      if (this.socket !== socket) return;
       this.reconnectAttempts = 0;
       this.setStatus('open');
       for (const frame of this.outbox.splice(0)) socket.send(frame);
     };
-    socket.onmessage = (ev) => this.handleFrame(ev.data);
-    socket.onclose = () => this.handleClose();
+    socket.onmessage = (ev) => {
+      if (this.socket !== socket) return;
+      this.handleFrame(ev.data);
+    };
+    socket.onclose = () => {
+      if (this.socket !== socket) return;
+      this.handleClose();
+    };
     socket.onerror = () => {
       // A socket error is followed by a close; let handleClose do the cleanup.
     };
+  }
+
+  /** Detach a socket's event handlers so it can no longer mutate client state.
+   *  Both close() and a drop null `this.socket`, but the discarded socket object
+   *  retains its handler closures; a late frame (buffered notification, a
+   *  delayed onopen on a stale socket) would otherwise still dispatch into a
+   *  connection the owner has already torn down or replaced. */
+  private detach(socket: WebSocketLike): void {
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onclose = null;
+    socket.onerror = null;
   }
 
   /** Issue a request and await the reply. Rejects with the host's error (coded
@@ -186,7 +208,14 @@ export class WsRpcClient {
     for (const waiter of this.pending.values()) waiter.reject(closed);
     this.pending.clear();
     this.outbox.length = 0;
-    this.socket?.close();
+    // Detach handlers BEFORE close() so the (possibly synchronous) onclose this
+    // call may trigger can't re-enter handleClose, and so any late frame the OS
+    // delivers after we've torn down never reaches a now-unsubscribed owner.
+    const socket = this.socket;
+    if (socket) {
+      this.detach(socket);
+      socket.close();
+    }
     this.socket = null;
     this.setStatus('closed');
   }
@@ -240,6 +269,9 @@ export class WsRpcClient {
   }
 
   private handleClose(): void {
+    // Detach the dead socket so a frame it buffered (or a late onopen on a
+    // half-open socket) can't dispatch into the reconnected/closed client.
+    if (this.socket) this.detach(this.socket);
     this.socket = null;
     // Fail every in-flight AND queued request, and drop the queued frames:
     // callers must see a transport error — replaying a queued non-idempotent

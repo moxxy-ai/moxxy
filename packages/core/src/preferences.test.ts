@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -117,6 +117,28 @@ describe('preferences store', () => {
     const loaded = await loadPreferences();
     expect(loaded.model).toBe('a');
     expect(loaded.mode).toBe('goal');
+  });
+
+  it('swallows a write failure: logs to stderr but never throws (best-effort contract)', async () => {
+    // savePreferences is documented best-effort — a persist failure must NOT
+    // bubble out and break the slash-command / shutdown that triggered it. Force
+    // an unwritable target by pointing MOXXY_HOME *under a regular file*, so the
+    // atomic writer's `mkdir(dirname)` fails with ENOTDIR.
+    const blocker = path.join(tmpHome, 'not-a-dir');
+    await fs.writeFile(blocker, 'x', 'utf8');
+    const prevMoxxyHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = path.join(blocker, 'nested'); // dirname is a file → mkdir fails
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      // Must resolve, not reject — the pick still took effect in-session.
+      await expect(savePreferences({ model: 'm' })).resolves.toBeUndefined();
+      // The failure is surfaced (not silently swallowed) on stderr.
+      expect(stderr).toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      if (prevMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = prevMoxxyHome;
+    }
   });
 
   it('keeps ALL distinct keys present under many overlapping writers', async () => {

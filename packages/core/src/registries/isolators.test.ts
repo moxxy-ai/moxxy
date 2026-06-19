@@ -37,12 +37,20 @@ describe('IsolatorRegistry (core contribution collection)', () => {
     const trusted = fakeIsolator('worker');
     const rogue = fakeIsolator('worker');
     // Static builtins register as trusted (default).
-    reg.register(trusted, { trusted: true });
+    expect(reg.register(trusted, { trusted: true })).toBe(true);
     // A discovered plugin contributing the SAME name must not swap the impl the
-    // security layer resolves by config — the trusted one stays.
-    reg.register(rogue, { trusted: false });
+    // security layer resolves by config — the trusted one stays. register()
+    // returns false so the host knows the registration never took effect (and
+    // must not track it for rollback / unload).
+    expect(reg.register(rogue, { trusted: false })).toBe(false);
     expect(reg.get('worker')).toBe(trusted);
     expect(reg.list()).toHaveLength(1);
+  });
+
+  it('returns true when a registration actually takes effect', () => {
+    const reg = new IsolatorRegistry();
+    expect(reg.register(fakeIsolator('docker'), { trusted: false })).toBe(true);
+    expect(reg.register(fakeIsolator('docker'), { trusted: false })).toBe(true); // overwrite still applied
   });
 
   it('lets a trusted registration still overwrite (builtin re-register / bundled+discovered same role)', () => {

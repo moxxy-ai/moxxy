@@ -6,9 +6,8 @@
 
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, readdir, unlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyHome, writeFileAtomic } from '@moxxy/sdk/server';
 import type { SkillFile } from '@moxxy/desktop-ipc-contract';
 
 /** Pull the frontmatter `description` (cheap regex — no YAML dep) so the
@@ -25,9 +24,11 @@ async function readDescription(file: string): Promise<string | undefined> {
   }
 }
 
-/** Resolved at call time so tests can mock `os.homedir()`. */
+/** Resolved at call time so tests can mock the home dir. Routes through
+ *  moxxyHome() so $MOXXY_HOME relocates skills consistently with the runner's
+ *  own skill loader (which also reads moxxyHome()/skills). */
 function skillsDir(): string {
-  return path.join(homedir(), '.moxxy', 'skills');
+  return path.join(moxxyHome(), 'skills');
 }
 
 export async function listSkills(): Promise<SkillFile[]> {

@@ -59,6 +59,10 @@ export function AppCard({
     <li
       data-testid={`app-card-${def.id}`}
       style={{
+        // `position: relative` scopes the visually-hidden live region below: an
+        // absolutely-positioned child with no positioned ancestor anchors to an
+        // arbitrary outer container and can affect page scroll width.
+        position: 'relative',
         listStyle: 'none',
         padding: '1rem 1.1rem',
         background: 'var(--color-bg-card)',
@@ -71,6 +75,7 @@ export function AppCard({
       }}
     >
       <span
+        role="status"
         aria-live="polite"
         data-testid={`app-status-${def.id}`}
         style={{

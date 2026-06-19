@@ -74,6 +74,19 @@ export const securityConfigSchema = z.object({
    * Useful for hardening once every in-use tool has been audited.
    */
   requireDeclaration: z.boolean().optional(),
+  /**
+   * Tighten the in-process input cap-check from best-effort to fail-closed.
+   * By default the fs/net checks only inspect string values under a recognized
+   * key name (`file`, `path`, `url`, …), so a path/URL carried by an
+   * unrecognized field (`config`, `manifest`, `webhook`) is not checked. With
+   * `strict: true`, any string value that is unambiguously an absolute path or a
+   * bare http(s) URL is treated as in-scope-required regardless of key name, so
+   * an unrecognized carrier fails closed. Consumed by `@moxxy/plugin-security`
+   * (`SecurityPluginConfig.strict`); without this field the loader's schema would
+   * silently strip a user's `security.strict: true` and the hardening would be
+   * lost. Defaults to false at the consumer.
+   */
+  strict: z.boolean().optional(),
 });
 
 export const embeddingsConfigSchema = z.object({

@@ -243,15 +243,24 @@ export function readConfirmed(userDataDir: string): string | null {
 /** Numeric major.minor.patch compare (ignores any prerelease/build suffix).
  *  Intentionally a dependency-free duplicate of @moxxy/sdk's `compareSemver`:
  *  this module is baked into the immutable desktop bootstrap and MUST NOT import
- *  @moxxy/sdk's barrel (node built-ins only, see the file header). Keep the two
- *  in sync by hand. NOTE: returns 0 for same-core tags that differ only in their
- *  prerelease/build suffix (e.g. `1.0.0` vs `1.0.0+build`), so any caller that
- *  sorts tags must add a deterministic tie-break at the sort site. */
+ *  @moxxy/sdk's barrel (node built-ins only, see the file header). Behaviourally
+ *  aligned with the SDK on all CLEAN tags but DELIBERATELY stricter on malformed
+ *  ones (this copy gates which signed bundle is loaded / superseded) — don't
+ *  "resync" it back to the SDK's `parseInt||0`. NOTE: returns 0 for same-core
+ *  tags that differ only in their prerelease/build suffix (e.g. `1.0.0` vs
+ *  `1.0.0+build`), so any caller that sorts tags must add a deterministic
+ *  tie-break at the sort site.
+ *
+ *  A core SEGMENT that isn't a pure run of digits (e.g. `1.x.0`, `1..0`,
+ *  `1.0.0a` — `isSafeVersion`'s charset admits letters) is treated as LOWER than
+ *  any real number (sentinel −1, below the 0 a real segment can be) rather than
+ *  silently coerced to 0: a malformed tag must never tie with or out-sort a clean
+ *  one in the floor gate or the "newest desktop-v*" selection. */
 export function compareSemver(a: string, b: string): number {
   const parse = (s: string): number[] =>
-    (s.split('-')[0] ?? '')
+    (s.split('-')[0]?.split('+')[0] ?? '')
       .split('.')
-      .map((n) => Number.parseInt(n, 10) || 0);
+      .map((n) => (/^\d+$/.test(n) ? Number.parseInt(n, 10) : -1));
   const pa = parse(a);
   const pb = parse(b);
   for (let i = 0; i < 3; i += 1) {
@@ -429,8 +438,21 @@ export interface BootRecovery {
  * Gives a freshly-installed version exactly ONE chance (its breadcrumb is only
  * written when it's actually loaded), then auto-recovers on the next launch.
  * Runs in the bootstrap BEFORE {@link resolveActiveBundle}.
+ *
+ * `validate` (optional) closes an OBSERVABILITY gap: without it the rollback
+ * commits to `confirmed` after only checking that its `manifest.json` exists, so
+ * if that bundle is itself now tampered/incompatible this returns
+ * `rolledBackTo:<v>` and then the very next {@link resolveActiveBundleDetailed}
+ * silently rejects it and falls to floor — a boot-log that CLAIMS a rollback
+ * that never took. Pass the same gate the caller is about to run (the bootstrap's
+ * `resolveActiveBundleDetailed` opts, sans `userDataDir`) and the rollback only
+ * commits to a candidate that actually resolves; otherwise `active` is left
+ * cleared (→ floor) and `rolledBackTo` is honestly null.
  */
-export function recoverFromFailedBoot(userDataDir: string): BootRecovery {
+export function recoverFromFailedBoot(
+  userDataDir: string,
+  validate?: Omit<ResolveOpts, 'userDataDir'>,
+): BootRecovery {
   const crumb = readBreadcrumb(userDataDir);
   if (!crumb) return { poisoned: null, rolledBackTo: null };
 
@@ -449,6 +471,14 @@ export function recoverFromFailedBoot(userDataDir: string): BootRecovery {
     existsSync(path.join(bundleRoot(userDataDir, confirmed), 'manifest.json'))
   ) {
     setActiveVersion(userDataDir, confirmed);
+    // When a gate is supplied, only KEEP the rollback if the target fully
+    // resolves (signature/compat/file-integrity) — otherwise undo it so the boot
+    // path falls cleanly to the floor and we don't claim a rollback that the
+    // imminent resolve will reject.
+    if (validate && !resolveActiveBundleDetailed({ userDataDir, ...validate }).bundle) {
+      clearActiveVersion(userDataDir);
+      return { poisoned: crumb.version, rolledBackTo: null };
+    }
     return { poisoned: crumb.version, rolledBackTo: confirmed };
   }
   return { poisoned: crumb.version, rolledBackTo: null };

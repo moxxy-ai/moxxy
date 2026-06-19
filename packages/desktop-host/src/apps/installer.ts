@@ -126,6 +126,44 @@ interface InstalledMarker {
 export type FetchLike = typeof fetch;
 
 /**
+ * Per-(appsRoot,appId) async mutex. Both {@link installApp} and
+ * {@link uninstallApp} acquire it so a fast Install-then-Uninstall (or an
+ * Uninstall fired while a long model download is mid-flight) can NEVER run
+ * `rm -rf <appDir>` concurrently with the download's `mkdir`/`createWriteStream`/
+ * `rename`/marker-`writeFile`. Without this the two operations have no defined
+ * ordering: a renamed asset or the marker could land AFTER the rm sweep, leaving
+ * a half-populated dir whose marker claims "installed" but whose files are gone
+ * (only self-healed later by {@link appStatus}), or surface confusing ENOENT
+ * errors mid-install. Serialising them removes the race outright.
+ *
+ * The map entry holds the tail of the lock's promise chain; it is cleaned up
+ * once no waiter remains so the map can't grow without bound across many apps.
+ */
+const opLocks = new Map<string, Promise<void>>();
+
+async function withAppLock<T>(appsRoot: string, appId: string, fn: () => Promise<T>): Promise<T> {
+  const key = `${appsRoot}\0${appId}`;
+  const prev = opLocks.get(key) ?? Promise.resolve();
+  // Chain after whatever op currently holds the lock. We never reject this
+  // chain (errors are swallowed into the chain) so one failed op can't poison
+  // the next acquirer; the real result/throw is surfaced to THIS caller below.
+  let release!: () => void;
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  opLocks.set(key, next);
+  await prev; // wait our turn
+  try {
+    return await fn();
+  } finally {
+    release();
+    // If we're still the tail (no one chained after us) drop the entry so the
+    // map doesn't accumulate one resolved promise per app installed.
+    if (opLocks.get(key) === next) opLocks.delete(key);
+  }
+}
+
+/**
  * Resolve an app's directory under `appsRoot`, asserting the id is a safe slug.
  * Exported so the asset protocol resolves the SAME dir for serving.
  */
@@ -244,6 +282,10 @@ function knownTotal(spec: AppInstallSpec): number {
  * into place, so a crash mid-download never leaves a truncated file masquerading
  * as complete. On success an `installed.json` marker is written; any failure
  * emits a final `phase:'error'` progress event and returns an `error` status.
+ *
+ * Serialised against {@link uninstallApp} for the same (appsRoot,appId) via
+ * {@link withAppLock} so a concurrent uninstall can never `rm -rf` the dir while
+ * a download is mid-flight.
  */
 export async function installApp(
   spec: AppInstallSpec,
@@ -251,6 +293,18 @@ export async function installApp(
   onProgress: (p: AppInstallProgress) => void,
   fetchImpl: FetchLike = fetch,
   maxAssetBytes: number = MAX_ASSET_BYTES,
+): Promise<AppInstallStatus> {
+  return withAppLock(appsRoot, spec.id, () =>
+    installAppLocked(spec, appsRoot, onProgress, fetchImpl, maxAssetBytes),
+  );
+}
+
+async function installAppLocked(
+  spec: AppInstallSpec,
+  appsRoot: string,
+  onProgress: (p: AppInstallProgress) => void,
+  fetchImpl: FetchLike,
+  maxAssetBytes: number,
 ): Promise<AppInstallStatus> {
   const dir = appDir(appsRoot, spec.id);
   // Per-app egress allow-list (auditable, not inherited) — falls back to the
@@ -449,9 +503,16 @@ export async function installApp(
 /**
  * Remove an app's installed assets. `rm -rf` the app dir; reports
  * 'not-installed' (the post-condition) even if the dir was already absent.
+ *
+ * Serialised against {@link installApp} for the same (appsRoot,appId) via
+ * {@link withAppLock}: it waits for an in-flight install to finish before
+ * sweeping the dir, so the two never race (no half-populated "installed" dir, no
+ * mid-install ENOENT).
  */
 export async function uninstallApp(appId: string, appsRoot: string): Promise<AppInstallStatus> {
-  const dir = appDir(appsRoot, appId);
-  await rm(dir, { recursive: true, force: true });
-  return { appId, state: 'not-installed' };
+  const dir = appDir(appsRoot, appId); // also validates the slug before we take the lock
+  return withAppLock(appsRoot, appId, async () => {
+    await rm(dir, { recursive: true, force: true });
+    return { appId, state: 'not-installed' };
+  });
 }

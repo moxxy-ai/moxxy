@@ -16,8 +16,8 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
+import { moxxyHome } from '@moxxy/sdk/server';
 import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
 
 /** Bound the live `/v1/models` request so a hung provider can't wedge the
@@ -64,7 +64,9 @@ interface StoredProvidersConfig {
 /** Read ~/.moxxy/providers.json without depending on the plugin. */
 async function readStoredProviders(): Promise<StoredProvidersConfig> {
   try {
-    const p = path.join(homedir(), '.moxxy', 'providers.json');
+    // providers.json is written by the CLI's provider-admin under moxxyHome()
+    // (honors $MOXXY_HOME); a hardcoded ~/.moxxy would miss a relocated home.
+    const p = path.join(moxxyHome(), 'providers.json');
     const body = await readFile(p, 'utf8');
     const json = JSON.parse(body) as StoredProvidersConfig;
     if (json && Array.isArray(json.providers)) return json;

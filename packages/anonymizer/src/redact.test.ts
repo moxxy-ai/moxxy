@@ -54,6 +54,17 @@ describe('redact', () => {
     expect(text).toBe('v4 IP_1 and v6 IP_2');
   });
 
+  it('does not leak an over-long url through redaction (windowed-scan recall)', () => {
+    // A url longer than a scan window used to be dropped by detection and survive
+    // verbatim in the output (its token query string and all) — the worst failure
+    // for a redactor. It must now be removed.
+    const url = `https://evil.test/?token=${'s'.repeat(40_000)}`;
+    const { text, report } = redact(`leak ${url} here`, { categories: ['url'] });
+    expect(report.counts.url).toBe(1);
+    expect(text).toBe('leak [URL] here');
+    expect(text).not.toContain('token=');
+  });
+
   it('does not blow up quadratically redacting a document full of PII', () => {
     // 20k IPs is the pathological case for a per-span string-splice loop
     // (O(numSpans * docLength)); the single-pass join must stay near-linear. The

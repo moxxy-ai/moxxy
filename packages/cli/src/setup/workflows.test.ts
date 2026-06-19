@@ -578,6 +578,100 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     }
   });
 
+  it('sweeps stale *.jsonl run records on boot (unbounded-growth guard)', async () => {
+    // Every runWorkflow appends a `<ulid>.jsonl` run record under
+    // ~/.moxxy/workflow-runs/ and nothing else removes them — over months of
+    // scheduled runs they grow without bound. onReady must call sweepStaleRecords.
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-sweeprec-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+
+    // Plant one stale (>30d old) and one fresh run record.
+    const recordsDir = path.join(process.env.MOXXY_HOME, 'workflow-runs');
+    await fs.mkdir(recordsDir, { recursive: true });
+    const stale = path.join(recordsDir, 'old-run.jsonl');
+    const fresh = path.join(recordsDir, 'new-run.jsonl');
+    await fs.writeFile(stale, '{}\n');
+    await fs.writeFile(fresh, '{}\n');
+    // Backdate the stale record well past the 30d TTL.
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    await fs.utimes(stale, old, old);
+
+    const session = new Session({ cwd, logger: silentLogger });
+    session.workflowExecutors.register({ name: 'stub', run: async () => ({ ok: true, steps: [], output: '' }) });
+    const integration = buildWorkflowsIntegration({
+      session,
+      scheduleStore: new ScheduleStore({ file: path.join(cwd, 'sched.json') }),
+    });
+    session.pluginHost.registerStatic(integration.plugin);
+    try {
+      await session.dispatcher.dispatchInit(session.appContext());
+      // The sweep is fire-and-forget in onReady; wait for the stale record to go.
+      await vi.waitFor(async () => {
+        const remaining = await fs.readdir(recordsDir);
+        expect(remaining).toContain('new-run.jsonl'); // fresh kept
+        expect(remaining).not.toContain('old-run.jsonl'); // stale swept
+      });
+    } finally {
+      integration.stop();
+    }
+  });
+
+  it('drops an invalid schedule.timeZone but still syncs the (system-local) cron', async () => {
+    // The internal workflow→scheduler bridge passes timeZone through unvalidated.
+    // A non-IANA zone reaching the scheduler makes `nextFireTime` return null —
+    // the entry is NEVER due, a silently non-firing schedule. The sync must drop
+    // the bad zone (cron falls back to system-local) and warn, NOT pass it on.
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-badtz-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, 'tz-wf.yaml'),
+      [
+        'name: tz-wf',
+        'description: valid cron, garbage timezone',
+        'on:',
+        '  schedule:',
+        "    cron: '0 9 * * *'",
+        '    timeZone: Mars/Phobos',
+        'delivery:',
+        '  inbox: false',
+        'steps:',
+        '  - id: s1',
+        '    prompt: hi',
+        '',
+      ].join('\n'),
+    );
+
+    const session = new Session({ cwd, logger: silentLogger });
+    session.workflowExecutors.register({ name: 'stub', run: async () => ({ ok: true, steps: [], output: '' }) });
+    const scheduleStore = new ScheduleStore({ file: path.join(cwd, 'sched.json') });
+    const integration = buildWorkflowsIntegration({ session, scheduleStore });
+    session.pluginHost.registerStatic(integration.plugin);
+    try {
+      await session.dispatcher.dispatchInit(session.appContext());
+
+      const entry = (await scheduleStore.list()).find(
+        (e) => e.source === 'workflow' && e.workflowName === 'tz-wf',
+      );
+      // The cron synced (workflow still fires)...
+      expect(entry?.cron).toBe('0 9 * * *');
+      // ...but the garbage timeZone was dropped, not persisted (which would have
+      // made the entry permanently never-due).
+      expect(entry?.timeZone).toBeUndefined();
+    } finally {
+      integration.stop();
+    }
+  });
+
   it('delivers a resumed run to the inbox once it completes (Finding 1, resume side)', async () => {
     // The resume side of the human-in-the-loop loop: a checkpoint that completes
     // on resume IS terminal, so it must land in the inbox (unlike the paused

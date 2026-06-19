@@ -637,6 +637,46 @@ export function pairToolEvents(
  * over the same events in the same order. A golden test asserts this
  * deep-equality after every event across many recorded sequences.
  */
+/** True outside a known production build. Dev/test get an extra interior
+ *  integrity check on `syncTo`; production stays strictly O(1). Read once at
+ *  module load (not per call) so it can't be toggled mid-fold. */
+const FOLD_DEV_CHECKS: boolean = (() => {
+  try {
+    return (
+      typeof process !== 'undefined' &&
+      (process as { env?: Record<string, string | undefined> }).env?.NODE_ENV !== 'production'
+    );
+  } catch {
+    // No `process` (browser/RN bundle without a shim): default to off so we
+    // never pay the interior scan on a hot client render path.
+    return false;
+  }
+})();
+
+const FNV_BASIS = 0x811c9dc5;
+const FNV_PRIME = 0x01000193;
+
+/** Mix one event id into a running FNV-1a hash (order- and content-sensitive,
+ *  with a separator so "ab"+"c" ≠ "a"+"bc"). Shared by the incremental rolling
+ *  hash ({@link IncrementalFold.push}) and the prefix recompute
+ *  ({@link IncrementalFold.canExtend}) so the two always agree. Dev-only. */
+function mixEventId(h: number, id: string): number {
+  for (let j = 0; j < id.length; j += 1) {
+    h ^= id.charCodeAt(j);
+    h = Math.imul(h, FNV_PRIME);
+  }
+  h ^= 0x2c; // ',' separator
+  return Math.imul(h, FNV_PRIME);
+}
+
+/** Cheap, order-sensitive rolling hash of an event-id prefix. Used only by the
+ *  dev-only interior integrity check; never on the production path. */
+function hashEventIds(events: ReadonlyArray<MoxxyEvent>, upto: number): number {
+  let h = FNV_BASIS;
+  for (let i = 0; i < upto; i += 1) h = mixEventId(h, events[i]!.id);
+  return h >>> 0;
+}
+
 export class IncrementalFold {
   private state: FoldState;
   private prefixLength = 0;
@@ -647,6 +687,17 @@ export class IncrementalFold {
    *  longer valid and we must rebuild from scratch. */
   private headId: string | null = null;
   private tailId: string | null = null;
+  /** Reference identity of the last folded event object. The immutable log
+   *  appends new objects and never swaps an existing element, so an unchanged
+   *  tail keeps the SAME object reference across snapshots. Checking `===`
+   *  catches a tail rewrite even if its id was reused — strictly stronger than
+   *  the id check, still O(1). */
+  private tailEvent: MoxxyEvent | null = null;
+  /** Rolling hash of all folded event ids (dev-only). Maintained O(1) per
+   *  push; compared against a fresh hash of the incoming prefix in
+   *  {@link canExtend} ONLY when {@link FOLD_DEV_CHECKS} is on, to catch an
+   *  interior in-place rewrite that head+tail checks miss. */
+  private foldedHash = FNV_BASIS;
 
   constructor(compactByName: CompactToolMap = EMPTY_COMPACT_MAP) {
     this.state = createFoldState(compactByName);
@@ -668,6 +719,8 @@ export class IncrementalFold {
     stepFold(this.state, event);
     if (this.prefixLength === 0) this.headId = event.id;
     this.tailId = event.id;
+    this.tailEvent = event;
+    if (FOLD_DEV_CHECKS) this.foldedHash = mixEventId(this.foldedHash, event.id);
     this.prefixLength += 1;
     this.rev += 1;
   }
@@ -707,6 +760,8 @@ export class IncrementalFold {
     this.prefixLength = 0;
     this.headId = null;
     this.tailId = null;
+    this.tailEvent = null;
+    this.foldedHash = FNV_BASIS;
     this.rev += 1;
   }
 
@@ -720,16 +775,38 @@ export class IncrementalFold {
    *  (no prepend) and the event at `prefixLength-1` to be the last one we
    *  folded (no in-place rewrite or replacement of the prefix).
    *
-   *  This is intentionally O(1): a full interior scan would reintroduce the
-   *  O(n²)/turn cost this class exists to kill. It therefore relies on the
-   *  load-bearing upstream invariant that a settled event id is never rewritten
-   *  in place (only its tool outcome, which the fold owns). `incremental-fold`
-   *  pins that contract with a test. */
+   *  The PRODUCTION path is O(1): a full interior scan would reintroduce the
+   *  O(n²)/turn cost this class exists to kill. It relies on the load-bearing
+   *  upstream invariant that a settled event is never rewritten in place (only
+   *  its tool outcome, which the fold owns). Two cheap O(1) guards harden it:
+   *    - head id match (catches a prepend),
+   *    - tail REFERENCE identity (catches a tail rewrite even with a reused id;
+   *      the immutable log preserves object identity for an unchanged element).
+   *
+   *  In dev/test ({@link FOLD_DEV_CHECKS}) ONLY, an extra O(prefix) interior
+   *  hash compare catches a mid-prefix rewrite that the head+tail checks can't
+   *  see, forcing a rebuild (and a console warning) so a regression in any
+   *  upstream log surfaces immediately instead of folding stale. This scan is
+   *  never run in production. `incremental-fold` pins the contract with a test. */
   private canExtend(events: ReadonlyArray<MoxxyEvent>): boolean {
     if (this.prefixLength === 0) return true; // empty fold extends to anything
     if (events.length < this.prefixLength) return false; // shrank → rebuild
     if (events[0]!.id !== this.headId) return false; // head shifted (prepend)
-    return events[this.prefixLength - 1]!.id === this.tailId;
+    const tail = events[this.prefixLength - 1]!;
+    if (tail.id !== this.tailId) return false; // tail id rewritten
+    if (this.tailEvent !== null && tail !== this.tailEvent) return false; // tail object swapped
+    if (FOLD_DEV_CHECKS && hashEventIds(events, this.prefixLength) !== (this.foldedHash >>> 0)) {
+      // An interior event was rewritten in place — the immutable-log invariant
+      // was violated. Force a rebuild so the tree can't fold stale, and shout.
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[chat-model] IncrementalFold: folded-prefix integrity check failed — ' +
+          'an interior event was rewritten in place (violates the append-only log invariant). ' +
+          'Rebuilding the fold from scratch.',
+      );
+      return false;
+    }
+    return true;
   }
 }
 

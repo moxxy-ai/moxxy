@@ -20,7 +20,7 @@ import {
   type BridgeOutbound,
   type BridgeRequest,
 } from './bridge.js';
-import type { AppPermission } from './permissions.js';
+import { isAppPermission, type AppPermission } from './permissions.js';
 
 export interface MoxxyApp {
   /** Capabilities the host granted this app (its manifest's `permissions`). */
@@ -101,7 +101,13 @@ export function connectMoxxyApp(opts: number | ConnectOptions = {}): Promise<Mox
 
       if (data.kind === 'ready') {
         if (granted) return; // already connected; ignore duplicates
-        granted = data.permissions;
+        // `data.permissions` is untrusted shape (postMessage): coerce to a frozen
+        // array of KNOWN permissions so a buggy/compromised host that sends a
+        // non-array (or unknown strings) can't make `granted.includes(...)` throw
+        // on the first call or advertise a capability the closed set doesn't
+        // define. An unknown permission is dropped, not surfaced.
+        const perms = Array.isArray(data.permissions) ? data.permissions : [];
+        granted = Object.freeze(perms.filter(isAppPermission));
         clearTimeout(timer);
         resolveReady(makeApp());
         return;
@@ -154,7 +160,26 @@ export function connectMoxxyApp(opts: number | ConnectOptions = {}): Promise<Mox
         // Target the host origin loosely ('*') — the iframe only ever has ONE
         // parent (the host renderer), and the host validates the source frame +
         // app id on its side. No secrets travel in params.
-        parent.postMessage(req, '*');
+        //
+        // postMessage clones `req` structurally; non-cloneable `params` (a
+        // function, a class instance, a DOM node) throw `DataCloneError`
+        // synchronously. Reclaim the pending entry + timer immediately so a bad
+        // call can't strand them for `callTimeoutMs`, and reject with a clear
+        // message instead of leaking the raw clone error.
+        try {
+          parent.postMessage(req, '*');
+        } catch (err) {
+          if (pending.delete(id)) {
+            clearTimeout(callTimer);
+            reject(
+              new Error(
+                `bridge call ${method} could not be sent (params are not cloneable): ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              ),
+            );
+          }
+        }
       });
     }
 

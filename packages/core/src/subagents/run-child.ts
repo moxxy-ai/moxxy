@@ -126,7 +126,7 @@ export async function runChildTurn(args: {
   });
 
   if (retainSession) {
-    registerRetainedChild({
+    const evicted = registerRetainedChild({
       label,
       childSessionId,
       childTurnId,
@@ -139,9 +139,37 @@ export async function runChildTurn(args: {
       parentTurnId,
       tokensUsed: capture.tokensUsed,
     });
+    // A capped/TTL-expired paused child is now unreachable: its `continue()`
+    // will fail. Surface that on the EVICTED child's own parent log (best-effort
+    // — a warning append must never take this spawn down) so the operator who
+    // started it isn't left waiting on a resume that can no longer happen.
+    await warnEvicted(evicted);
   }
 
   return capture.result;
+}
+
+/**
+ * Emit a `subagent_warning` on each evicted child's OWN parent log so the
+ * operator who spawned a now-unreachable paused child sees why its `continue()`
+ * will fail. Best-effort: a warning-append reject (or a since-closed parent
+ * session) must never propagate out of the spawn that triggered the eviction.
+ */
+async function warnEvicted(evicted: ReadonlyArray<RetainedChildSession>): Promise<void> {
+  for (const e of evicted) {
+    try {
+      await emitSubagentWarning(
+        e.parentSession,
+        e.parentTurnId,
+        e.label,
+        e.childSessionId,
+        `retained subagent "${e.label}" was evicted before resume ` +
+          `(retention cap or TTL reached); its continue() will no longer work`,
+      );
+    } catch {
+      // A closed/failing parent log must not abort the spawn that evicted it.
+    }
+  }
 }
 
 export async function continueChildTurn(args: {
@@ -442,15 +470,53 @@ function buildChildContext(
   };
 }
 
+/**
+ * Build an error-bearing {@link SubagentResult} for a spec whose `runChildTurn`
+ * threw during setup (before it could degrade the error into a result itself).
+ * Keeps `spawnAll` total: one result per spec, in input order, never a thrown
+ * batch. The real child id is unknown here (setup failed before it was captured),
+ * so a fresh placeholder id is minted; the result still carries the failing
+ * spec's label and the error message.
+ */
+function spawnFailureResult(spec: SubagentSpec, reason: unknown): SubagentResult {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return {
+    label: spec.label ?? 'subagent',
+    childSessionId: newSessionId(),
+    text: '',
+    stopReason: 'error' as StopReason,
+    error: { message },
+  };
+}
+
 export function createSubagentSpawner(rt: SubagentRuntime): SubagentSpawner {
   return {
     async spawn(spec) {
       return runChildTurn({ rt, spec, retainSession: spec.retainSession === true });
     },
     async spawnAll(specs) {
-      return Promise.all(
-        specs.map((s) => runChildTurn({ rt, spec: s, retainSession: s.retainSession === true })),
+      // Per-child degradation: a single child's PRE-`try` setup throw (no active
+      // provider, a `compactors.getActive()` config error, a log-append reject in
+      // `resolveStrategy`) must NOT reject the whole batch. `Promise.all` would do
+      // exactly that, and worse — it would orphan the still-running sibling
+      // promises, whose later settlement surfaces as an `unhandledRejection`.
+      // Convert every spec into one result in input order; a setup throw becomes
+      // an error-bearing `SubagentResult` so a fan-out partially succeeds instead
+      // of taking the parent turn down with it.
+      const settled = await Promise.all(
+        specs.map(async (spec): Promise<SubagentResult> => {
+          try {
+            return await runChildTurn({ rt, spec, retainSession: spec.retainSession === true });
+          } catch (err) {
+            // A PRE-`try` setup throw inside runChildTurn (no active provider, a
+            // failing getActive(), a log-append reject in resolveStrategy) is
+            // caught HERE per-child so it can't reject the batch or orphan a
+            // sibling. The outer Promise.all is now safe: every element resolves.
+            return spawnFailureResult(spec, err);
+          }
+        }),
       );
+      return settled;
     },
     async continue(args: SubagentContinueArgs) {
       return continueChildTurn(args);

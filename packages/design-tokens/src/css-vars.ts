@@ -58,19 +58,35 @@ function cssVarName(path: string): string {
 
 /** Recursively flatten a token palette to ordered {@link TokenLeaf}s. Numbers
  *  (radii) are emitted with a `px` unit; strings are verbatim. Anything that is
- *  neither a string nor a finite number is rejected loudly — a malformed token
- *  (object where a leaf is expected, `NaN`, `null`) must fail at generation time
- *  rather than silently emit `[object Object]` / `NaNpx` into CSS.
+ *  neither a string, a finite number, nor a plain nested object is rejected
+ *  loudly — a malformed token (an array, a `NaN`, a `null`, a boolean, an
+ *  empty section) must fail at generation time rather than silently emit
+ *  `[object Object]` / `NaNpx` / `--color-foo-0` garbage into CSS.
+ *
+ *  Arrays are treated as INVALID leaves (not recursed into): a palette section
+ *  that is an array is a mistake, and recursing would project numeric-indexed
+ *  CSS vars (`--color-foo-0`) that no `:root` declares. An empty object section
+ *  is likewise a mistake (it would contribute zero vars and silently shrink the
+ *  generated block) and is rejected.
  *
  *  Exported (internal) so the guard is directly regression-tested; not part of
  *  the package's documented surface. */
 export function flattenTokens(node: unknown, prefix = ''): TokenLeaf[] {
   const out: TokenLeaf[] = [];
-  if (node === null || typeof node !== 'object') {
-    // A primitive at the top level is not a valid palette.
-    throw new TypeError(`design-tokens: expected an object palette, got ${typeof node}`);
+  if (node === null || typeof node !== 'object' || Array.isArray(node)) {
+    // Only a plain object is a valid palette / palette section.
+    const got = node === null ? 'null' : Array.isArray(node) ? 'array' : typeof node;
+    throw new TypeError(
+      `design-tokens: expected an object palette${prefix ? ` at "${prefix}"` : ''}, got ${got}`,
+    );
   }
-  for (const [key, raw] of Object.entries(node as Record<string, unknown>)) {
+  const entries = Object.entries(node as Record<string, unknown>);
+  if (entries.length === 0) {
+    throw new TypeError(
+      `design-tokens: token section "${prefix || '(root)'}" is empty (would emit no CSS vars)`,
+    );
+  }
+  for (const [key, raw] of entries) {
     const path = prefix ? `${prefix}.${key}` : key;
     if (typeof raw === 'string') {
       out.push({ path, value: raw });
@@ -79,12 +95,11 @@ export function flattenTokens(node: unknown, prefix = ''): TokenLeaf[] {
         throw new TypeError(`design-tokens: token "${path}" is a non-finite number`);
       }
       out.push({ path, value: `${raw}px` });
-    } else if (raw !== null && typeof raw === 'object') {
+    } else if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
       out.push(...flattenTokens(raw, path));
     } else {
-      throw new TypeError(
-        `design-tokens: token "${path}" has unsupported type ${raw === null ? 'null' : typeof raw}`,
-      );
+      const type = raw === null ? 'null' : Array.isArray(raw) ? 'array' : typeof raw;
+      throw new TypeError(`design-tokens: token "${path}" has unsupported type ${type}`);
     }
   }
   return out;

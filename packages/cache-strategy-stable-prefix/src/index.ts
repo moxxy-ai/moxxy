@@ -48,12 +48,18 @@ export function createStablePrefixCacheStrategy(): CacheStrategyDef {
 
       // Long-lived breakpoint at the stable prefix boundary (e.g. the elision
       // high-water mark). Only when it is strictly before the tail — otherwise
-      // the tail breakpoint already covers it. A breakpoint on a system message
-      // is silently dropped by the Anthropic translator, so guard against it
-      // here exactly as the rolling tail does (lastNonSystemIndex).
+      // the tail breakpoint already covers it. Constraints, each defending a
+      // silently-dropped breakpoint the provider would never honor:
+      //   - integer & in range: the Anthropic translator matches the hint's
+      //     messageIndex against integer message positions; a NaN/float/out-of-
+      //     range index matches none and is dropped with no error (same hazard
+      //     the rolling tail normalizes via Math.trunc on the volatile count).
+      //   - non-system role: a cache_control on a system-role message is skipped
+      //     by the translator, exactly as lastNonSystemIndex defends the tail.
       const stableIdx = ctx.stablePrefixMessageIndex;
       if (
         stableIdx != null &&
+        Number.isInteger(stableIdx) &&
         stableIdx >= 0 &&
         stableIdx < lastIdx &&
         messages[stableIdx]?.role !== 'system'

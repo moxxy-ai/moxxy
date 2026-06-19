@@ -91,6 +91,38 @@ describe('CommandRegistry', () => {
     expect(reg.get('m')?.name).toBe('mode');
   });
 
+  it('register() leaves NO partial state when a later alias collides', () => {
+    const reg = new CommandRegistry();
+    reg.register(fakeCommand('compact', { aliases: ['cc'] }));
+    // The new command's FIRST alias is free, its SECOND ('cc') collides. The
+    // registration must throw atomically: neither the command nor its first
+    // alias may be left behind.
+    expect(() =>
+      reg.register(fakeCommand('clear', { aliases: ['fresh', 'cc'] })),
+    ).toThrow(/alias already in use/);
+    expect(reg.has('clear')).toBe(false);
+    expect(reg.get('fresh')).toBeUndefined();
+    // The first command is untouched.
+    expect(reg.get('cc')?.name).toBe('compact');
+  });
+
+  it('replace() leaves the PRIOR definition intact when a new alias collides', () => {
+    const reg = new CommandRegistry();
+    reg.register(fakeCommand('compact', { aliases: ['c'] }));
+    reg.register(fakeCommand('mode', { aliases: ['m'] }));
+    // Replacing /mode where the SECOND new alias ('c') is owned by /compact must
+    // throw without first destroying /mode's existing alias 'm' (the prior bug:
+    // delete-prior-then-add left the registry corrupted on a mid-loop throw).
+    expect(() =>
+      reg.replace(fakeCommand('mode', { aliases: ['m2', 'c'] })),
+    ).toThrow(/alias already in use/);
+    // /mode's original def + alias survive untouched.
+    expect(reg.get('m')?.name).toBe('mode');
+    expect(reg.get('m2')).toBeUndefined();
+    // /compact still owns 'c'.
+    expect(reg.get('c')?.name).toBe('compact');
+  });
+
   it('listForChannel filters channel-scoped commands', () => {
     const reg = new CommandRegistry();
     reg.register(fakeCommand('everywhere'));

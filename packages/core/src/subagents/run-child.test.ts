@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ModeContext, ModeDef, MoxxyEvent, ProviderDef } from '@moxxy/sdk';
 import { defineMode, defineProvider, definePlugin } from '@moxxy/sdk';
 import { Session } from '../session.js';
-import { continueChildTurn, runChildTurn, type SubagentRuntime } from './run-child.js';
+import {
+  continueChildTurn,
+  createSubagentSpawner,
+  runChildTurn,
+  type SubagentRuntime,
+} from './run-child.js';
 import { clearRetainedChildren } from './registry.js';
 
 // A mode that reports the model it was handed — lets tests observe the
@@ -206,6 +211,59 @@ function makeGatedMode(gate: Promise<void>): ModeDef {
     },
   });
 }
+
+describe('spawnAll per-child degradation', () => {
+  it('isolates one child setup throw — siblings still resolve, batch never rejects', async () => {
+    const session = buildSession(['parent-model']);
+    const rt = buildRuntime(session, 'parent-model');
+    const spawner = createSubagentSpawner(rt);
+
+    // Force a PRE-`try` setup throw for exactly the SECOND child: buildChildContext
+    // calls appContext() for every child, so throw on its second invocation. With
+    // Promise.all this would reject the whole batch and orphan the first (still
+    // running) child's promise → an unhandledRejection; with allSettled it must
+    // degrade to one error-bearing result while the sibling succeeds.
+    const realAppContext = session.appContext.bind(session);
+    let appCtxCalls = 0;
+    vi.spyOn(session, 'appContext').mockImplementation(() => {
+      appCtxCalls += 1;
+      if (appCtxCalls === 2) throw new Error('boom: provider config gone');
+      return realAppContext();
+    });
+
+    const results = await spawner.spawnAll([
+      { prompt: 'echo', mode: 'echo-model', label: 'good' },
+      { prompt: 'echo', mode: 'echo-model', label: 'doomed' },
+    ]);
+
+    // The batch resolves (never rejects) with one result PER spec, in input order.
+    expect(results).toHaveLength(2);
+    expect(results.map((r) => r.label)).toEqual(['good', 'doomed']);
+    // Exactly one child degraded to an error-bearing result; the sibling succeeded.
+    const errored = results.filter((r) => r.stopReason === 'error');
+    const ok = results.filter((r) => r.stopReason === 'end_turn');
+    expect(errored).toHaveLength(1);
+    expect(ok).toHaveLength(1);
+    expect(errored[0]!.error?.message).toContain('boom');
+    expect(ok[0]!.text).toBe('parent-model');
+    vi.restoreAllMocks();
+  });
+
+  it('returns one result per spec in input order on the all-success path', async () => {
+    const session = buildSession(['parent-model']);
+    const rt = buildRuntime(session, 'parent-model');
+    const spawner = createSubagentSpawner(rt);
+
+    const results = await spawner.spawnAll([
+      { prompt: 'a', mode: 'echo-model', label: 'one' },
+      { prompt: 'b', mode: 'echo-model', label: 'two' },
+      { prompt: 'c', mode: 'echo-model', label: 'three' },
+    ]);
+
+    expect(results.map((r) => r.label)).toEqual(['one', 'two', 'three']);
+    expect(results.every((r) => r.stopReason === 'end_turn')).toBe(true);
+  });
+});
 
 describe('continueChildTurn re-entrancy', () => {
   it('rejects a concurrent continue() for the same retained child (claim-then-run)', async () => {

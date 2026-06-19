@@ -78,6 +78,23 @@ describe('pageEvents (pure newest-first paging)', () => {
     expect(pageEvents([], 3, 5)).toEqual({ events: [], prevCursor: null });
   });
 
+  it('a non-finite `before` cursor degrades to the newest page (no NaN prevCursor)', () => {
+    const log = makeLog(10);
+    // `pageEvents` is exported public API; a corrupt cursor (NaN / Infinity from
+    // a hand-edited or wire-mangled page request) must not poison the result.
+    // Worst case if unguarded: every `seq < NaN` is false → empty page with
+    // `prevCursor: NaN`, which JSON-serializes to `null` and wedges the walk.
+    for (const bad of [NaN, Infinity, -Infinity, 1.5] as number[]) {
+      const page = pageEvents(log, bad, 3);
+      // Treated as the newest page (before=null) — last `limit` events.
+      expect(page.events.map((e) => e.seq)).toEqual([7, 8, 9]);
+      expect(page.prevCursor).toBe(7);
+      expect(Number.isNaN(page.prevCursor as number)).toBe(false);
+    }
+    // Empty-log path also never emits a NaN cursor for a bad `before`.
+    expect(pageEvents([], NaN, 5)).toEqual({ events: [], prevCursor: null });
+  });
+
   it('walking all pages reconstructs the full log exactly once, in order', () => {
     const log = makeLog(23);
     const collected: number[] = [];

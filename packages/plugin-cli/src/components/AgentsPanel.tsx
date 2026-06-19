@@ -5,6 +5,7 @@ import { formatElapsed } from '@moxxy/chat-model';
 import { Colors } from '../theme.js';
 import { Modal, type ModalTab } from './Modal.js';
 import { useScrollableList } from './useScrollableList.js';
+import { isSecretKey, REDACTED_PLACEHOLDER } from './redact.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
 const WINDOW = 16;
@@ -286,7 +287,18 @@ function summarizeArgs(input: unknown): string {
   try {
     const entries = Object.entries(input as Record<string, unknown>);
     if (entries.length === 0) return '';
-    return truncate(oneLine(entries.map(([k, v]) => `${k}=${stringifyValue(v)}`).join(', ')), 60);
+    // Redact secret-named field VALUES (api keys / tokens / passwords) so the
+    // subagent activity panel can't echo secret material to the scrollback —
+    // the same hazard the permission prompt guards against. A length cap is
+    // not redaction.
+    return truncate(
+      oneLine(
+        entries
+          .map(([k, v]) => `${k}=${isSecretKey(k) ? REDACTED_PLACEHOLDER : stringifyValue(v)}`)
+          .join(', '),
+      ),
+      60,
+    );
   } catch {
     return '[…]';
   }

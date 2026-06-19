@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeMoxxyRunner } from './run-tui.js';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { looksLikeMoxxyRunner, readSocketHolderPid } from './run-tui.js';
 
 describe('looksLikeMoxxyRunner (kill guard)', () => {
   it('refuses non-positive / non-integer PIDs', async () => {
@@ -20,5 +22,29 @@ describe('looksLikeMoxxyRunner (kill guard)', () => {
     // guard must return false — confirming it does not blanket-approve any live
     // PID just because the process exists.
     expect(await looksLikeMoxxyRunner(process.pid)).toBe(false);
+  });
+});
+
+describe('readSocketHolderPid (bounded lsof recovery)', () => {
+  it('returns null (no false PID) for a path nothing holds, and never hangs', async () => {
+    // No process holds this path, so lsof exits with no output — the helper must
+    // resolve null, not a bogus PID that would authorize a kill.
+    const phantom = path.join(tmpdir(), `moxxy-no-such-sock-${process.pid}.sock`);
+    const pid = await readSocketHolderPid(phantom, 3000);
+    expect(pid).toBeNull();
+  });
+
+  it('resolves (bounded) even with a near-zero timeout — recovery can never wedge tui', async () => {
+    // The worst case this guards: lsof hangs (stalled mount / huge FD table)
+    // while the user is already stranded by a stale runner. A tiny timeout must
+    // still settle to null instead of hanging forever. Race it against a wall
+    // clock so a regression (unbounded read) fails the test deterministically.
+    const phantom = path.join(tmpdir(), `moxxy-timeout-sock-${process.pid}.sock`);
+    const settled = readSocketHolderPid(phantom, 1).then(() => 'settled' as const);
+    const watchdog = new Promise<'hung'>((r) => {
+      const t = setTimeout(() => r('hung'), 2000);
+      t.unref?.();
+    });
+    expect(await Promise.race([settled, watchdog])).toBe('settled');
   });
 });

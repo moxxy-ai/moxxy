@@ -97,6 +97,19 @@ channels:
     expect(result.config.security?.enabled).toBeUndefined();
   });
 
+  it('preserves security.strict instead of silently stripping it', async () => {
+    // Regression: `strict` is consumed by @moxxy/plugin-security
+    // (SecurityPluginConfig.strict). If it were absent from securityConfigSchema,
+    // zod would strip the unknown key on load and a user who set
+    // `security.strict: true` would silently lose the hardening.
+    await fs.writeFile(
+      path.join(tmp, 'moxxy.config.yaml'),
+      `security:\n  enabled: true\n  isolator: inproc\n  strict: true\n`,
+    );
+    const result = await loadConfig({ cwd: tmp, skipUser: true });
+    expect(result.config.security?.strict).toBe(true);
+  });
+
   it('accepts a partial embeddings block missing `provider` (optional field)', async () => {
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.yaml'),

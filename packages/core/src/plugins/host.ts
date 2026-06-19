@@ -224,13 +224,6 @@ export class PluginHost implements PluginHostHandle {
     // plugin (manifest present) is not. The isolator registry uses this to
     // refuse letting a discovered plugin shadow a trusted isolator name.
     const trusted = manifest === undefined;
-    // Snapshot the contributed names BEFORE registering (same as the original
-    // two-phase order), keyed by REGISTRY_KINDS field. Building the names from
-    // the same table the registration loop uses keeps the two in lockstep.
-    const names = {} as Record<keyof RegistryNameRecord, ReadonlyArray<string>>;
-    for (const kind of REGISTRY_KINDS) {
-      names[kind.recordField] = kind.defs(plugin).map((def) => kind.nameOf(def));
-    }
 
     // Register in REGISTRY_KINDS order — the exact set + order the original
     // hand-written register sequence used (incl. viewRenderers/tunnelProviders
@@ -243,7 +236,13 @@ export class PluginHost implements PluginHostHandle {
     try {
       for (const kind of REGISTRY_KINDS) {
         for (const def of kind.defs(plugin)) {
-          kind.register(this.opts, def, trusted);
+          // A `false` return means the registration was REFUSED without taking
+          // effect (an untrusted plugin shadowing a trusted isolator). Don't
+          // track it — neither for rollback (unregistering would delete the
+          // trusted impl this plugin never owned) NOR for the LoadedRecord (so
+          // a clean `unload` later doesn't delete that same trusted impl).
+          const applied = kind.register(this.opts, def, trusted);
+          if (applied === false) continue;
           registered.push({ kind, name: kind.nameOf(def) });
         }
       }
@@ -265,6 +264,14 @@ export class PluginHost implements PluginHostHandle {
       }
       throw err;
     }
+
+    // Build the LoadedRecord's per-kind name lists from what was ACTUALLY
+    // applied (the `registered` list), not from the raw `defs` snapshot — a
+    // refused isolator registration must not appear here, or `unload` would
+    // unregister a name this plugin never owned (deleting a trusted builtin).
+    const names = {} as Record<keyof RegistryNameRecord, string[]>;
+    for (const kind of REGISTRY_KINDS) names[kind.recordField] = [];
+    for (const { kind, name } of registered) names[kind.recordField].push(name);
 
     return {
       plugin,

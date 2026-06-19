@@ -254,6 +254,43 @@ describe('recoverFromFailedBoot (boot-probe rollback)', () => {
       '0.0.6',
     );
   });
+
+  it('with a validate gate, COMMITS the rollback only when the target actually resolves', () => {
+    installBundle('0.0.6');
+    markConfirmed(tmp, '0.0.6');
+    installBundle('0.0.7');
+    writeBreadcrumb(tmp, '0.0.7');
+    const r = recoverFromFailedBoot(tmp, { publicKeyPem: PUBKEY, shell: SHELL });
+    expect(r.rolledBackTo).toBe('0.0.6');
+    expect(readActiveVersion(tmp)).toBe('0.0.6');
+  });
+
+  it('with a validate gate, does NOT claim a rollback whose target no longer resolves', () => {
+    // The confirmed-good 0.0.6 is now INCOMPATIBLE (needs a newer Electron) — the
+    // imminent resolve would reject it and fall to floor. Without the gate this
+    // returned rolledBackTo:0.0.6 (a lie); with it, active is cleared and the
+    // report is honest.
+    installBundle('0.0.6', { minElectron: '99.0.0' });
+    markConfirmed(tmp, '0.0.6');
+    installBundle('0.0.7');
+    writeBreadcrumb(tmp, '0.0.7');
+    const r = recoverFromFailedBoot(tmp, { publicKeyPem: PUBKEY, shell: SHELL });
+    expect(r.poisoned).toBe('0.0.7');
+    expect(r.rolledBackTo).toBeNull(); // honest: the target can't actually load
+    expect(readActiveVersion(tmp)).toBeNull(); // → floor, matching what resolve will do
+  });
+
+  it('without a validate gate, preserves the legacy existsSync-only rollback behavior', () => {
+    // Same incompatible-confirmed setup, but no gate passed: backward-compatible
+    // callers keep the prior behavior (commit on manifest existence).
+    installBundle('0.0.6', { minElectron: '99.0.0' });
+    markConfirmed(tmp, '0.0.6');
+    installBundle('0.0.7');
+    writeBreadcrumb(tmp, '0.0.7');
+    const r = recoverFromFailedBoot(tmp);
+    expect(r.rolledBackTo).toBe('0.0.6');
+    expect(readActiveVersion(tmp)).toBe('0.0.6');
+  });
 });
 
 describe('helpers', () => {
@@ -274,6 +311,18 @@ describe('helpers', () => {
     expect(compareSemver('1.0.0', '1.0.0+build')).toBe(0);
     expect(compareSemver('1.0.0+build', '1.0.0')).toBe(0);
     expect(compareSemver('1.0.0+a', '1.0.0+b')).toBe(0);
+  });
+
+  it('compareSemver treats a malformed core segment as LOWER than any clean tag', () => {
+    // `isSafeVersion`'s charset admits letters, so a junk tag like `1.0.0a` can
+    // reach the comparator. It must never silently tie with or out-sort a clean
+    // tag (which would mis-pick "newest" / mis-gate older-than-floor).
+    expect(compareSemver('1.0.0a', '1.0.0')).toBe(-1); // junk patch < clean 0
+    expect(compareSemver('1.0.0', '1.0.0a')).toBe(1);
+    expect(compareSemver('1.x.0', '1.0.0')).toBe(-1); // junk minor sinks the whole tag
+    expect(compareSemver('1..0', '1.0.0')).toBe(-1); // empty segment is not pure-digit
+    // Two malformed tags still order deterministically (both sink to the sentinel).
+    expect(compareSemver('1.0.0a', '1.0.0a')).toBe(0);
   });
 
   it('isCompatible needs both the Electron floor and an exact ABI', () => {

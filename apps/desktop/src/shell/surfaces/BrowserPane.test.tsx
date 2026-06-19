@@ -74,6 +74,31 @@ describe('BrowserPane keyboard forwarding', () => {
     surfaceEl.dispatchEvent(evt);
     expect(evt.defaultPrevented).toBe(false);
   });
+
+  it('Escape blurs the view (keyboard escape hatch) and is NOT forwarded to the page', async () => {
+    // WCAG 2.1.2: because Tab is forwarded to the page, the view would otherwise
+    // be a keyboard trap. Escape must release focus to the host UI rather than
+    // proxying yet another key into the page.
+    const spy = installFakeApi();
+    const { container } = render(<BrowserPane workspaceId="ws-1" />);
+    const surfaceEl = container.querySelector('[tabindex="0"]') as HTMLElement;
+    await waitFor(() => expect(screen.queryByText(/Browser unavailable/i)).toBeNull());
+
+    surfaceEl.focus();
+    expect(document.activeElement).toBe(surfaceEl);
+
+    const before = spy.inputs.length;
+    const evt = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    surfaceEl.dispatchEvent(evt);
+
+    // Consumed (so it doesn't trigger a host-level Escape handler) …
+    expect(evt.defaultPrevented).toBe(true);
+    // … focus left the trap …
+    expect(document.activeElement).not.toBe(surfaceEl);
+    // … and no key input was proxied to the page.
+    await Promise.resolve();
+    expect(spy.inputs.slice(before)).toEqual([]);
+  });
 });
 
 describe('BrowserPane wheel coalescing', () => {

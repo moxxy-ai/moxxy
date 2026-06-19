@@ -2,7 +2,7 @@ import { type FSWatcher, watch as fsWatch } from 'node:fs';
 import * as path from 'node:path';
 import { type Session } from '@moxxy/core';
 import type { MoxxyEvent, Workflow } from '@moxxy/sdk';
-import { type ScheduleStore, isValidCron } from '@moxxy/plugin-scheduler';
+import { type ScheduleStore, isValidCron, isValidTimeZone } from '@moxxy/plugin-scheduler';
 import type { WorkflowStore } from '@moxxy/plugin-workflows';
 import type { MiniLogger, WorkflowRunner } from './build-workflow-runner.js';
 
@@ -282,6 +282,14 @@ export function wireWorkflowTriggers(args: {
           typeof sched?.runAt === 'string' ? Date.parse(sched.runAt) : sched?.runAt;
         const runAt = typeof parsedRunAt === 'number' && Number.isFinite(parsedRunAt) ? parsedRunAt : undefined;
         const cron = sched?.cron && isValidCron(sched.cron) ? sched.cron : undefined;
+        // A non-IANA timeZone string reaches here unvalidated (the internal
+        // workflow→scheduler bridge skips the authoring-boundary check). If it
+        // survived to the scheduler, `nextFireTime` returns null for a bad zone
+        // — the entry would NEVER be due, a silent non-firing schedule. Drop the
+        // bad zone (cron falls back to system-local) and warn so the user can
+        // fix it, rather than the workflow mysteriously never running.
+        const timeZone =
+          sched?.timeZone && isValidTimeZone(sched.timeZone) ? sched.timeZone : undefined;
         if (sched && sched.cron && !cron) {
           logger?.warn?.('workflows: ignoring invalid cron expression', {
             workflow: workflow.name,
@@ -294,6 +302,12 @@ export function wireWorkflowTriggers(args: {
             runAt: sched.runAt,
           });
         }
+        if (sched && sched.timeZone && !timeZone) {
+          logger?.warn?.('workflows: ignoring invalid schedule.timeZone (using system local)', {
+            workflow: workflow.name,
+            timeZone: sched.timeZone,
+          });
+        }
         if (sched && (cron || runAt !== undefined)) {
           await scheduleStore.syncWorkflowSchedule(workflow.name, {
             id: '',
@@ -303,7 +317,7 @@ export function wireWorkflowTriggers(args: {
             prompt: `Run the "${workflow.name}" workflow now using the workflow_run tool, then briefly report what each step did.`,
             ...(cron ? { cron } : {}),
             ...(runAt !== undefined ? { runAt } : {}),
-            ...(sched.timeZone ? { timeZone: sched.timeZone } : {}),
+            ...(timeZone ? { timeZone } : {}),
             enabled: true,
             createdAt: 0,
             source: 'workflow',

@@ -49,27 +49,40 @@ const retained = new Map<string, RetainedChildSession>();
 /** Child session ids with a `continue()` currently in flight (claim-then-run). */
 const busy = new Set<string>();
 
-function pruneExpired(now: number): void {
+/** Drop entries past their TTL and return them so the caller can warn. */
+function pruneExpired(now: number): RetainedChildSession[] {
+  const expired: RetainedChildSession[] = [];
   for (const [id, entry] of retained) {
     if (entry.retainedAt !== undefined && now - entry.retainedAt >= RETAIN_TTL_MS) {
       retained.delete(id);
+      expired.push(entry);
     }
   }
+  return expired;
 }
 
-export function registerRetainedChild(session: RetainedChildSession): void {
+/**
+ * Register (or re-register) a retained child. Returns the entries DROPPED by
+ * this call — TTL-expired children plus any evicted to make room under the cap —
+ * so the caller can surface a `subagent_warning` for each (a paused `awaitInput`
+ * child whose `continue()` will now fail with "no retained subagent session").
+ * The registry has no SessionRuntime handle of its own, so it can't emit.
+ */
+export function registerRetainedChild(session: RetainedChildSession): RetainedChildSession[] {
   const now = Date.now();
-  pruneExpired(now);
+  const evicted = pruneExpired(now);
   const id = String(session.childSessionId);
   // Map preserves insertion order, so the first key is the oldest. Evict
   // oldest until we have room for this one (Map.set on an existing id is an
   // update, not an insert, so don't count a re-register against the cap).
   while (retained.size >= MAX_RETAINED && !retained.has(id)) {
-    const oldest = retained.keys().next().value;
-    if (oldest === undefined) break;
-    retained.delete(oldest);
+    const [oldestId, oldestEntry] = retained.entries().next().value ?? [];
+    if (oldestId === undefined) break;
+    retained.delete(oldestId);
+    if (oldestEntry) evicted.push(oldestEntry);
   }
   retained.set(id, { ...session, retainedAt: now });
+  return evicted;
 }
 
 export function getRetainedChild(childSessionId: SessionId): RetainedChildSession | undefined {

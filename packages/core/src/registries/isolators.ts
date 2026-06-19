@@ -33,7 +33,15 @@ export class IsolatorRegistry {
   /** Names registered by a trusted (static) source — these are never shadowed. */
   private readonly trustedNames = new Set<string>();
 
-  register(iso: Isolator, opts: IsolatorRegisterOptions = {}): void {
+  /**
+   * Register an isolator by name. Returns `true` when the impl was stored,
+   * `false` when the registration was REFUSED (a discovered plugin trying to
+   * shadow a trusted name). The boolean lets the PluginHost avoid tracking a
+   * refused registration for rollback — otherwise a later mid-`applyPlugin`
+   * failure would `unregister(name)` and delete the very trusted isolator the
+   * refusal protected.
+   */
+  register(iso: Isolator, opts: IsolatorRegisterOptions = {}): boolean {
     const trusted = opts.trusted ?? true;
     if (!trusted && this.trustedNames.has(iso.name)) {
       // A discovered plugin must not shadow a trusted isolator: that would let
@@ -42,7 +50,7 @@ export class IsolatorRegistry {
         'IsolatorRegistry: refusing to let a discovered plugin shadow a trusted isolator',
         { name: iso.name },
       );
-      return;
+      return false;
     }
     if (this.impls.has(iso.name) && !trusted) {
       // Replacing an existing (untrusted) entry from another discovered copy:
@@ -55,6 +63,7 @@ export class IsolatorRegistry {
     // bundled built-in AND a discovered copy). Same name → same role; last wins.
     this.impls.set(iso.name, iso);
     if (trusted) this.trustedNames.add(iso.name);
+    return true;
   }
 
   unregister(name: string): void {

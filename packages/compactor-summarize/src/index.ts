@@ -1,6 +1,7 @@
 import {
   defineCompactor,
   definePlugin,
+  toolResultBytes,
   type CompactContext,
   type CompactorDef,
   type EventLogReader,
@@ -175,6 +176,10 @@ async function providerSummary(text: string, ctx?: CompactContext): Promise<stri
       maxTokens: SUMMARY_MAX_TOKENS,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
     })) {
+      // Stop consuming (and accumulating `out`) the moment the turn is
+      // cancelled, even if the provider keeps yielding — the final abort gate
+      // in compact() will then no-op rather than rewrite abandoned history.
+      if (ctx.signal?.aborted) throwAbort();
       if (event.type === 'text_delta') out += event.delta;
       if (event.type === 'error') {
         // An `error` event during an aborted turn is the cancellation, not a
@@ -231,19 +236,36 @@ function describeEvent(e: MoxxyEvent): string | null {
 }
 
 /** Characters this event contributes to the projected context — what the
- *  summary actually replaces. Mirrors the SDK estimate's per-event costing. */
+ *  summary actually replaces. Must mirror the SDK estimate's per-event costing
+ *  (`eventChars` in compactor-helpers.ts) so `tokensSaved` reflects the REAL
+ *  context delta, not a divergent local guess. In particular:
+ *    - user_prompt counts inlined file/stdin attachment text (it costs real
+ *      prompt tokens), so a compacted prompt that carried a large pasted file
+ *      isn't under-credited;
+ *    - tool_result routes through the shared `toolResultBytes`, which sizes a
+ *      rich `ToolDisplayResult` (file diff) by its short `forModel` string —
+ *      not the bulky `display` payload `JSON.stringify` would have measured,
+ *      which previously over-credited savings for diff results. */
 function contextChars(e: MoxxyEvent): number {
   switch (e.type) {
-    case 'user_prompt':
-      return e.text.length;
+    case 'user_prompt': {
+      let n = e.text.length;
+      for (const att of e.attachments ?? []) {
+        if (att.kind === 'file' || att.kind === 'stdin') n += att.content.length;
+      }
+      return n;
+    }
     case 'assistant_message':
       return e.content.length;
     case 'tool_call_requested':
       return e.name.length + safeJsonLen(e.input);
     case 'tool_result':
+      // Match `eventChars`'s error costing exactly (message + a small fixed
+      // overhead for the "[error] " framing), and otherwise size the payload
+      // through the shared `toolResultBytes` so a rich `ToolDisplayResult` is
+      // measured by its `forModel` string, not its bulky `display` field.
       if (e.error) return (e.error.message?.length ?? 0) + 12;
-      if (typeof e.output === 'string') return e.output.length;
-      return safeJsonLen(e.output);
+      return toolResultBytes(e.output);
     default:
       return 0;
   }

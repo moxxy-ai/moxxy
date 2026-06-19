@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -129,6 +129,40 @@ describe('usage-stats store', () => {
       // merge-then-clear ordering: aggregate is empty.
       expect(file.models).toEqual({});
     }
+  });
+
+  it('swallows a write failure on merge: logs to stderr, returns the merged file, never throws', async () => {
+    // mergeUsageStats runs on shutdown and is documented best-effort — losing one
+    // session's stats must never block shutdown. Force an unwritable target by
+    // pointing the file *under a regular file* so the atomic writer's
+    // `mkdir(dirname)` fails with ENOTDIR.
+    const blocker = path.join(tmpDir, 'blocker');
+    await fs.writeFile(blocker, 'x', 'utf8');
+    const unwritable = path.join(blocker, 'nested', 'usage.json');
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const result = await mergeUsageStats(
+        { 'anthropic/opus': totals({ inputTokens: 5 }) },
+        unwritable,
+      );
+      // Resolves with the in-memory merged file (the caller still sees the delta),
+      // and surfaces the persist failure on stderr rather than throwing.
+      expect(result.models['anthropic/opus']!.inputTokens).toBe(5);
+      expect(stderr).toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('clearUsageStats rejects (loud) if it cannot write — a clear that did not persist must not look successful', async () => {
+    // Unlike merge, clear is an explicit user action (`/usage clear`); silently
+    // swallowing its failure would tell the user the aggregate was wiped when it
+    // was not. We pin the current behavior so a future refactor can't quietly
+    // turn it into a no-op success.
+    const blocker = path.join(tmpDir, 'clear-blocker');
+    await fs.writeFile(blocker, 'x', 'utf8');
+    const unwritable = path.join(blocker, 'nested', 'usage.json');
+    await expect(clearUsageStats(unwritable)).rejects.toBeInstanceOf(Error);
   });
 
   it('coalesces a missing firstSeen on merge rather than emitting undefined', async () => {

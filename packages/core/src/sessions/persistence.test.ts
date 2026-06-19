@@ -287,6 +287,37 @@ describe('SessionPersistence', () => {
     detach();
   });
 
+  it('a user_prompt with a non-string text does not crash the persistence listener', async () => {
+    const dir = await makeTempDir();
+    const id = '01BADTEXT00000000000000000';
+    const { logger } = captureLogger();
+    const log = new EventLog();
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir, logger });
+    const detach = persistence.attach(log);
+
+    // A hostile / hand-built event whose `text` is not a string. `firstPromptLabel`
+    // runs `[...text]` inside the log listener chain — without the coercion this
+    // throws, latching the misleading "persistence degraded" warning and dropping
+    // the row. It must instead degrade gracefully (label coerced, write succeeds).
+    await log.append({
+      type: 'user_prompt',
+      sessionId: id as never,
+      turnId: 't1' as never,
+      source: 'user',
+      text: null as unknown as string,
+    });
+    await persistence.flush();
+    await persistence.settleWrites();
+
+    // The disk write was not poisoned by the bad label.
+    expect(persistence.degraded).toBe(false);
+    const [row] = await readIndex(dir);
+    expect(row?.id).toBe(id);
+    expect(typeof row?.firstPrompt).toBe('string');
+
+    detach();
+  });
+
   it('two concurrent sessions both survive (no shared-index clobber)', async () => {
     const dir = await makeTempDir();
     const idA = '01AAAA00000000000000000001';

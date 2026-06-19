@@ -31,27 +31,60 @@ import { probeSession, setupSessionWithConfig, type BootStep } from '../setup.js
  *  holding the socket, then unlink the socket file so the next
  *  spawn binds cleanly. macOS / Linux only — lsof on Windows is
  *  out of scope here. */
-async function killStaleRunnerAt(socketPath: string): Promise<void> {
-  if (!existsSync(socketPath)) return;
-  const pid = await new Promise<number | null>((resolve) => {
+/**
+ * Read the PID holding `socketPath` via `lsof -t`, BOUNDED by `timeoutMs`.
+ * `lsof` can hang (a stalled NFS mount, a host with a huge FD table) — and the
+ * caller runs precisely when the user is already stranded by a stale runner, so
+ * an unbounded read here would let the recovery itself wedge `moxxy tui`
+ * forever. On timeout (or any error / non-numeric output) we kill the child and
+ * resolve `null`; the caller then just unlinks the stale socket without killing
+ * anything. Exported for failure-path testing.
+ */
+export async function readSocketHolderPid(
+  socketPath: string,
+  timeoutMs = 3000,
+): Promise<number | null> {
+  return new Promise<number | null>((resolve) => {
     if (process.platform === 'win32') return resolve(null);
     let out = '';
+    let settled = false;
+    let child: ReturnType<typeof spawn> | null = null;
+    const finish = (value: number | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child?.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
+      finish(null);
+    }, timeoutMs);
+    timer.unref?.();
     try {
-      const child = spawn('lsof', ['-t', socketPath], {
+      child = spawn('lsof', ['-t', socketPath], {
         stdio: ['ignore', 'pipe', 'ignore'],
       });
-      child.stdout.on('data', (b) => {
+      child.stdout?.on('data', (b) => {
         out += b.toString();
       });
-      child.on('error', () => resolve(null));
+      child.on('error', () => finish(null));
       child.on('close', () => {
         const parsed = parseInt(out.trim().split('\n')[0] ?? '', 10);
-        resolve(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+        finish(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
       });
     } catch {
-      resolve(null);
+      finish(null);
     }
   });
+}
+
+async function killStaleRunnerAt(socketPath: string): Promise<void> {
+  if (!existsSync(socketPath)) return;
+  const pid = await readSocketHolderPid(socketPath);
   // Only kill a PID we can positively identify as a moxxy runner. A stale
   // socket file plus a recycled PID (the OS reassigned it to an unrelated
   // process) or a racy lsof read would otherwise make us SIGKILL an arbitrary

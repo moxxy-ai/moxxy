@@ -240,7 +240,7 @@ describe('pairToolEvents — orphan tool call at a turn boundary', () => {
     const tc = asToolCall(blocks[0]);
     expect(tc.outcome).toMatchObject({ type: 'denied' });
     // The late result falls through to a generic event block.
-    const last = blocks[blocks.length - 1];
+    const last = blocks[blocks.length - 1]!;
     expect(last.kind).toBe('event');
   });
 });
@@ -309,7 +309,7 @@ describe('pairToolEvents — skill grouping', () => {
     expect(firstScope.children).toHaveLength(1);
     expect(isSettled(firstScope)).toBe(true);
 
-    expect(blocks[1].kind).toBe('event');
+    expect(blocks[1]!.kind).toBe('event');
 
     const contScope = asScope(blocks[2]);
     // Continuation carries the SAME skill event through to the grouping.
@@ -401,7 +401,7 @@ describe('pairToolEvents — compact-tool live aggregation', () => {
     const live = asLive(blocks[0]);
     expect(live.closed).toBe(true);
     expect(isSettled(live)).toBe(true);
-    expect(blocks[1].kind).toBe('event');
+    expect(blocks[1]!.kind).toBe('event');
   });
 });
 

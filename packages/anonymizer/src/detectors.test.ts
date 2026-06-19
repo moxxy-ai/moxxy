@@ -45,6 +45,47 @@ describe('email', () => {
     const filler = 'x'.repeat(40_000);
     expect(values('email', `${filler} a.b@example.com ${filler}`)).toEqual(['a.b@example.com']);
   });
+  it('recovers an email that straddles a window boundary', () => {
+    // An email whose chars cross the MAX_SCAN_LEN edge is clipped by the first
+    // window; the edge-recovery path must re-find it whole (no false negative).
+    const email = 'longuser.name+tag@subdomain.example.co.uk';
+    const before = 'word '.repeat(3270); // ~16350 chars, ends on a boundary
+    expect(values('email', `${before}${email} tail`)).toEqual([email]);
+  });
+});
+
+describe('url (unbounded match — windowed-scan recall)', () => {
+  it('matches a simple url', () => {
+    expect(values('url', 'see https://example.com/path?q=1 here')).toEqual([
+      'https://example.com/path?q=1',
+    ]);
+  });
+  it('recovers a url LONGER than a scan window (no silent false negative)', () => {
+    // URL is the only built-in detector with no length cap, so a single match can
+    // exceed MAX_SCAN_LEN. Before edge-recovery such a url touched the right edge
+    // of EVERY non-final window and was dropped forever — a silent leak of (e.g.)
+    // a session token in its query string. It must now be detected whole.
+    const url = `https://evil.test/?token=${'s'.repeat(40_000)}`;
+    const text = `leak ${url} here`;
+    expect(values('url', text)).toEqual([url]);
+  });
+  it('recovers a long url that crosses the first window boundary', () => {
+    const url = `http://x.io/${'a'.repeat(20_000)}`;
+    const pre = `${'p'.repeat(16_380)} `; // url begins right at the window edge
+    expect(values('url', `${pre}${url} z`)).toEqual([url]);
+  });
+  it('stays bounded with many long boundary-crossing urls (no quadratic recovery)', () => {
+    // Many edge-touching unbounded matches exercise the recovery path repeatedly;
+    // it must stay a single linear pass each, not a per-position rescan.
+    const one = `http://x.io/${'a'.repeat(1500)} `;
+    let text = '';
+    while (text.length < 400_000) text += one;
+    const t0 = Date.now();
+    const out = values('url', text);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.every((v) => v.length === one.trim().length)).toBe(true); // all recovered whole
+    expect(Date.now() - t0).toBeLessThan(2_000);
+  });
 });
 
 describe('credit card (Luhn)', () => {
@@ -149,5 +190,22 @@ describe('custom terms', () => {
     expect(detectCustom('Hi JoséÁlvarez', ['José']).map((s) => s.value)).toEqual([]);
     // The standalone whole word still matches.
     expect(detectCustom('Hi José there', ['José']).map((s) => s.value)).toEqual(['José']);
+  });
+  it('degrades (does not crash) on an absurdly long term', () => {
+    // A huge term, escaped and wrapped in lookaround, can exceed the engine's
+    // regex size limit and throw "Invalid regular expression" out of the whole
+    // detect()/redact() call — a redactor must never crash on hostile input. The
+    // over-length term is silently skipped instead.
+    const huge = 'a'.repeat(100_000);
+    expect(() => detectCustom(`prefix ${huge} suffix`, [huge])).not.toThrow();
+    expect(detectCustom(`prefix ${huge} suffix`, [huge])).toEqual([]);
+  });
+  it('a bad (over-length) term does not suppress a good one in the same list', () => {
+    // One uncompilable term must not take down the rest of the list.
+    const spans = detectCustom('keep secret-x here', ['a'.repeat(50_000), 'secret-x']);
+    expect(spans.map((s) => s.value)).toEqual(['secret-x']);
+  });
+  it('skips empty / whitespace-only terms', () => {
+    expect(detectCustom('anything at all', ['', '   ', '\t'])).toEqual([]);
   });
 });

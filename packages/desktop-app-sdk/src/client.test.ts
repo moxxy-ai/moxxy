@@ -146,6 +146,48 @@ describe('call permission + timeout + malformed responses', () => {
   });
 });
 
+describe('malformed ready handshake', () => {
+  it('coerces a non-array permissions to an empty grant set (no crash on call)', async () => {
+    const p = connectMoxxyApp({ callTimeoutMs: 50 });
+    // A buggy/compromised host sends a STRING where an array is expected.
+    dispatch({ __moxxy: BRIDGE_TAG, kind: 'ready', permissions: 'documents.open' });
+    const app = await p;
+    expect(app.permissions).toEqual([]);
+    // The call fails fast as "not permitted" rather than throwing
+    // `granted.includes is not a function`.
+    await expect(app.openDocument()).rejects.toThrow(/not permitted/);
+  });
+
+  it('drops unknown permission strings and freezes the grant set', async () => {
+    const p = connectMoxxyApp();
+    dispatch({
+      __moxxy: BRIDGE_TAG,
+      kind: 'ready',
+      permissions: ['documents.open', 'fs.readAll', 42, null],
+    });
+    const app = await p;
+    expect(app.permissions).toEqual(['documents.open']);
+    expect(Object.isFrozen(app.permissions)).toBe(true);
+  });
+});
+
+describe('non-cloneable params', () => {
+  it('rejects with a clear message and reclaims the pending entry + timer', async () => {
+    vi.useFakeTimers();
+    const app = await connectGranted(['session.send']);
+    // postMessage clones structurally; a function is not cloneable -> the fake
+    // parent throws synchronously to model DataCloneError.
+    parent.postMessage.mockImplementationOnce(() => {
+      throw new DOMException('could not be cloned', 'DataCloneError');
+    });
+    const call = app.sendToSession({ text: 'hi', meta: { fn: 1 } } as never);
+    await expect(call).rejects.toThrow(/could not be sent \(params are not cloneable\)/);
+    // The reclaim happened immediately; the dangling timer firing is a no-op
+    // (no double-settle, no unhandled rejection).
+    await vi.advanceTimersByTimeAsync(50);
+  });
+});
+
 describe('disconnect teardown', () => {
   it('removes the listener and rejects in-flight calls', async () => {
     const app = await connectGranted(['documents.open']);

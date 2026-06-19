@@ -62,6 +62,26 @@ describe('retained-child registry hardening', () => {
     expect(live).toBeLessThanOrEqual(64);
   });
 
+  it('returns the entry evicted under the cap so the caller can warn the operator', () => {
+    // Fill to the cap, then one more — the registering call must hand back the
+    // oldest (k0) it dropped so run-child can emit a subagent_warning for it.
+    for (let i = 0; i < 64; i++) registerRetainedChild(makeEntry(`c${i}`));
+    const evicted = registerRetainedChild(makeEntry('overflow'));
+    expect(evicted.map((e) => String(e.childSessionId))).toContain('c0');
+    expect(getRetainedChild(asSessionId('c0'))).toBeUndefined();
+  });
+
+  it('returns TTL-expired entries it pruned on the next register', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    registerRetainedChild(makeEntry('aged'));
+
+    vi.setSystemTime(31 * 60 * 1000);
+    const evicted = registerRetainedChild(makeEntry('newcomer'));
+    expect(evicted.map((e) => String(e.childSessionId))).toContain('aged');
+    expect(getRetainedChild(asSessionId('aged'))).toBeUndefined();
+  });
+
   it('evicts a stale paused child after the TTL on the next register', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

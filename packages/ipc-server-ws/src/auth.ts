@@ -70,7 +70,12 @@ export function checkWsOrigin(
   allowedOrigins: readonly string[] = [],
 ): boolean {
   const origin = req.headers.origin;
-  if (!origin) return true;
+  // No Origin header → native client → allow. A non-string value (a duplicate
+  // `Origin` header surfaces as `string[]`) is hostile/ambiguous and can never
+  // match a single allow-listed origin — reject it rather than calling
+  // `.toLowerCase()` on a non-string and throwing inside the upgrade handler.
+  if (origin === undefined) return true;
+  if (typeof origin !== 'string') return false;
   const lower = origin.toLowerCase();
   return allowedOrigins.some((allowed) => allowed.toLowerCase() === lower);
 }

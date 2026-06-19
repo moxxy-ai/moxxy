@@ -226,6 +226,76 @@ describe('runTurn worst-case hardening', () => {
     expect(session.signal.aborted).toBe(false); // session-level signal untouched
   });
 
+  it('an abandoned turn does NOT apply a mode switch it requested before being abandoned', async () => {
+    // A mode that immediately requests a hand-off, then loops until aborted and
+    // returns CLEANLY (no throw) on `signal.aborted` — so strategyError stays
+    // null. If the post-turn switch were gated only on `!strategyError`, an
+    // abandoned (consumer-broke-early) turn would silently flip the session into
+    // 'other' behind the user's back. It must stay on the original mode.
+    const requestThenLoop = defineMode({
+      name: 'requester',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        ctx.requestModeSwitch('other');
+        for (let i = 0; ; i++) {
+          if (ctx.signal.aborted) return; // clean return on abandonment
+          await ctx.emit({
+            type: 'assistant_message',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'assistant',
+            text: `tick-${i}`,
+          });
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      },
+    });
+
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'switch-on-abandon',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [requestThenLoop, defineMode({ name: 'other', run: async function* () {} })],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('requester');
+
+    // Abandon after the first event — the strategy aborts and returns cleanly.
+    for await (const event of runTurn(session, 'go')) {
+      if (event.type === 'assistant_message') break;
+    }
+
+    // The requested switch must be DROPPED because the turn was abandoned.
+    expect(session.modes.getActive().name).toBe('requester');
+  });
+
+  it('a completed turn still applies a requested mode switch', async () => {
+    // The positive case: a mode that requests a switch and completes normally
+    // hands off as before — the abandonment gate must not regress this.
+    const requestThenDone = defineMode({
+      name: 'handoff',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        ctx.requestModeSwitch('target');
+      },
+    });
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'switch-on-complete',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [requestThenDone, defineMode({ name: 'target', run: async function* () {} })],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('handoff');
+
+    await collectTurn(session, 'go');
+    expect(session.modes.getActive().name).toBe('target');
+  });
+
   it('fires turnEnd even when the strategy throws (paired with turnStart)', async () => {
     const calls: string[] = [];
     const throwingMode = defineMode({

@@ -634,16 +634,26 @@ export function pageEvents(
   limit: number,
 ): EventPage {
   const cap = Math.max(0, Math.floor(limit));
+  // `pageEvents` is an exported public API (runner + disk paths call it), so it
+  // must self-defend rather than trust every caller to pre-validate. A
+  // non-finite `before` (NaN/Infinity from a corrupt cursor) would otherwise
+  // make every `seq < before` comparison false, collapse the page to empty, and
+  // hand back `prevCursor: before` — a NaN that JSON-serializes to `null`,
+  // silently wedging the client's backward walk. Coerce any non-integer cursor
+  // to the newest page (`null`) so a bad cursor degrades to "start over from the
+  // top" instead of a poisoned cursor.
+  const safeBefore =
+    before === null || !Number.isInteger(before) ? null : before;
   if (cap === 0 || events.length === 0) {
-    return { events: [], prevCursor: events.length === 0 ? null : before };
+    return { events: [], prevCursor: events.length === 0 ? null : safeBefore };
   }
   // Exclusive upper bound by `seq`: the first index whose event is NOT older
   // than `before`. `before == null` (newest page) keeps the whole array.
   let end = events.length;
-  if (before !== null) {
+  if (safeBefore !== null) {
     end = 0;
     for (let i = 0; i < events.length; i += 1) {
-      if (events[i]!.seq < before) end = i + 1;
+      if (events[i]!.seq < safeBefore) end = i + 1;
       else break;
     }
   }
@@ -677,9 +687,15 @@ function metaPath(dir: string, id: string): string {
  * First 80 chars of a prompt for the picker label, sliced on code-point (not
  * UTF-16 code-unit) boundaries so the cut never splits a surrogate pair (emoji,
  * astral CJK) into a lone half-character that renders as a broken glyph.
+ *
+ * `text` is typed `string`, but this runs inside the log listener chain — a
+ * throw here would latch the misleading "persistence degraded" warning. Coerce
+ * a non-string (a hand-built `EmittedEvent`, a future schema variant) instead of
+ * letting `[...text]` throw on `undefined`/`null`.
  */
 function firstPromptLabel(text: string): string {
-  return [...text].slice(0, 80).join('');
+  const s = typeof text === 'string' ? text : String(text ?? '');
+  return [...s].slice(0, 80).join('');
 }
 
 async function writeJsonAtomic(target: string, value: unknown): Promise<void> {

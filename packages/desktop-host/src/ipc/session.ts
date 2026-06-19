@@ -40,7 +40,7 @@ const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
  * in one place so `collab.active` and `collab.end` can't drift apart — the
  * lock's location is the coordinator's contract, not three hand-edited spots.
  */
-function collabLockPath(homedir: string, join: (...parts: string[]) => string): string {
+export function collabLockPath(homedir: string, join: (...parts: string[]) => string): string {
   return process.env.MOXXY_COLLAB_LOCK || join(homedir, '.moxxy', 'collab', 'active.lock');
 }
 
@@ -55,7 +55,7 @@ interface CollabLockInfo {
 /** Parse a lock file's JSON and verify it carries a usable numeric pid — a
  *  truncated/corrupt lock (non-object, missing/garbage pid) is treated as
  *  "no live holder" rather than handed to `process.kill` with a bad value. */
-function parseCollabLock(raw: string): CollabLockInfo | null {
+export function parseCollabLock(raw: string): CollabLockInfo | null {
   let info: unknown;
   try {
     info = JSON.parse(raw);

@@ -144,6 +144,7 @@ export function ProvidersTab({
                       // Also disable while a toggle is in flight to stop
                       // re-clicks queuing conflicting enable/disable calls.
                       disabled={(p.active && p.enabled) || toggling.has(p.name)}
+                      busy={toggling.has(p.name)}
                       onClick={() => toggleProvider(p.name, !p.enabled)}
                     />
                   </span>

@@ -17,15 +17,22 @@ import { deleteSkill, listSkills, readSkill, writeSkill } from './skills';
 
 let tmpHome: string;
 let savedHome: string | undefined;
+let savedMoxxyHome: string | undefined;
 
 beforeEach(() => {
   tmpHome = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'moxxy-skills-')));
   savedHome = process.env.HOME;
+  savedMoxxyHome = process.env.MOXXY_HOME;
   process.env.HOME = tmpHome;
+  // skillsDir() = moxxyHome()/skills; with no $MOXXY_HOME it falls to
+  // <HOME>/.moxxy/skills. Clear any leaked override so the HOME route applies.
+  delete process.env.MOXXY_HOME;
 });
 
 afterEach(() => {
   process.env.HOME = savedHome;
+  if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = savedMoxxyHome;
   rmSync(tmpHome, { recursive: true, force: true });
 });
 
@@ -39,6 +46,21 @@ describe('skills', () => {
     const list = await listSkills();
     expect(list.map((s) => s.name)).toEqual(['hello.md']);
     expect(await readSkill('hello.md')).toBe('# hi');
+  });
+
+  it('writes skills under $MOXXY_HOME when relocated (matches the runner loader)', async () => {
+    // The runner's skill loader reads moxxyHome()/skills; if the desktop wrote to
+    // a hardcoded ~/.moxxy/skills the agent would never see a skill the user
+    // authored after relocating state with $MOXXY_HOME.
+    const relocated = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'moxxy-home-')));
+    try {
+      process.env.MOXXY_HOME = relocated;
+      await writeSkill('relocated.md', '# moved');
+      expect((await listSkills()).map((s) => s.name)).toEqual(['relocated.md']);
+      expect(await readSkill('relocated.md')).toBe('# moved');
+    } finally {
+      rmSync(relocated, { recursive: true, force: true });
+    }
   });
 
   it('rejects path traversal', async () => {

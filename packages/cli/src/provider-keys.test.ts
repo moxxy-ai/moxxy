@@ -19,6 +19,8 @@ afterEach(async () => {
   await fs.rm(tmp, { recursive: true, force: true });
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  delete process.env.GEMINI_API_KEY;
 });
 
 describe('resolveProviderApiKey', () => {
@@ -120,5 +122,41 @@ describe('resolveProviderApiKey', () => {
     const out = await resolveProviderApiKey('openai', vault);
     expect(out.providerConfig.apiKey).toBe('sk-openai');
     expect(out.canonicalName).toBe('OPENAI_API_KEY');
+  });
+
+  it('falls back to a vendor-doc env alias when the canonical name is unset (GEMINI → google)', async () => {
+    // Google AI Studio docs hand users GEMINI_API_KEY; the google provider
+    // resolves under the canonical GOOGLE_API_KEY. The alias must be honored so
+    // a user who followed Google's own setup just works.
+    process.env.GEMINI_API_KEY = 'sk-gemini';
+    const out = await resolveProviderApiKey('google', vault, { interactive: false });
+    expect(out.source).toBe('env');
+    expect(out.providerConfig.apiKey).toBe('sk-gemini');
+    // The reported/persisted name stays canonical — we never store the alias.
+    expect(out.canonicalName).toBe('GOOGLE_API_KEY');
+  });
+
+  it('the canonical env var wins over the alias when both are set', async () => {
+    process.env.GOOGLE_API_KEY = 'sk-canonical';
+    process.env.GEMINI_API_KEY = 'sk-alias';
+    const out = await resolveProviderApiKey('google', vault, { interactive: false });
+    expect(out.providerConfig.apiKey).toBe('sk-canonical');
+  });
+
+  it('the vault still outranks a vendor-doc env alias', async () => {
+    await vault.set('GOOGLE_API_KEY', 'sk-from-vault');
+    process.env.GEMINI_API_KEY = 'sk-alias';
+    const out = await resolveProviderApiKey('google', vault, { interactive: false });
+    expect(out.source).toBe('vault');
+    expect(out.providerConfig.apiKey).toBe('sk-from-vault');
+  });
+
+  it('an empty alias env var is ignored (does not satisfy resolution)', async () => {
+    // A user who `export GEMINI_API_KEY=` (empty) must not be treated as having a
+    // key — fall through to AUTH_NO_CREDENTIALS rather than activating with ''.
+    process.env.GEMINI_API_KEY = '';
+    await expect(
+      resolveProviderApiKey('google', vault, { interactive: false }),
+    ).rejects.toThrow(/No API key found for provider/);
   });
 });

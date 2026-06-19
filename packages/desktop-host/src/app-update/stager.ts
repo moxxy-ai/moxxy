@@ -383,9 +383,27 @@ interface BundlePayload {
 }
 
 /**
+ * Serializes ALL in-flight stage operations, keyed by `userDataDir`. The
+ * activation step (`rmSync(finalRoot)` then `movePopulatedDir(incoming →
+ * finalRoot)` then `setActiveVersion`) is NOT atomic across calls: two concurrent
+ * `downloadAndStage` runs (a double-clicked Update button, a renderer retry, the
+ * WS bridge racing a window) can interleave so one `rmSync`s the dir the other
+ * just renamed into (ENOENT/EEXIST on rename), or `setActiveVersion` lands the
+ * loser's pointer over the winner's bytes — yielding a half-populated / wrong-
+ * bytes bundle the boot gate then rejects. The IPC layer SHOULD also coalesce
+ * (it owns the user-facing "already updating" state), but this in-package mutex
+ * makes the dangerous filesystem swap correct on its own, for any caller.
+ */
+const stageLocks = new Map<string, Promise<unknown>>();
+
+/**
  * Download → integrity-check → extract → atomically install. Throws (with a
  * human-readable message the UI surfaces) on any failure; on success the bundle
  * is installed and marked active, ready for the next launch.
+ *
+ * Concurrent calls for the SAME `userDataDir` are serialized (see
+ * {@link stageLocks}) so two installs can't interleave the non-atomic activation
+ * swap and corrupt the bundle dir.
  */
 export async function downloadAndStage(
   opts: {
@@ -404,6 +422,36 @@ export async function downloadAndStage(
     onProgress?: (p: Progress) => void;
   },
   deps: StagerDeps = {},
+): Promise<{ version: string }> {
+  // Chain onto any in-flight stage for this userData so the activation swaps run
+  // strictly one-at-a-time. A failed predecessor must NOT poison the chain, so we
+  // swallow its rejection here (each caller still sees its own outcome).
+  const prior = stageLocks.get(opts.userDataDir) ?? Promise.resolve();
+  const run = prior.then(
+    () => stageOne(opts, deps),
+    () => stageOne(opts, deps),
+  );
+  // Track the tail so the next caller waits on THIS run; clear the slot only when
+  // we are still the tail (a later caller may have replaced us) to avoid leaking
+  // a resolved promise per userData forever.
+  stageLocks.set(opts.userDataDir, run);
+  try {
+    return await run;
+  } finally {
+    if (stageLocks.get(opts.userDataDir) === run) stageLocks.delete(opts.userDataDir);
+  }
+}
+
+async function stageOne(
+  opts: {
+    userDataDir: string;
+    manifest: AppManifest;
+    publicKeyPem: string;
+    bundleUrl?: string;
+    cliRunnerProtocol?: number;
+    onProgress?: (p: Progress) => void;
+  },
+  deps: StagerDeps,
 ): Promise<{ version: string }> {
   const { userDataDir, manifest, publicKeyPem, onProgress } = opts;
   const report = onProgress ?? (() => {});
@@ -513,10 +561,34 @@ export async function downloadAndStage(
     writeFileSync(path.join(incoming, 'manifest.json'), JSON.stringify(manifest, null, 2));
 
     // 5. Activate: swap the dir into place, then flip the active pointer.
+    //
+    // Re-staging an EXISTING version (the common "reinstall to un-wedge" flow,
+    // and possibly the version THIS process is currently running) must not delete
+    // the live dir before the replacement is in place: an rmSync(finalRoot) →
+    // crash → empty finalRoot would strand the running bundle's files. So move
+    // the old dir ASIDE first, commit the new one, and only then remove the old —
+    // a failure at any point leaves either the old or the new complete tree, never
+    // a hole.
     report({ phase: 'activate', message: 'Finishing…' });
     const finalRoot = bundleRoot(userDataDir, manifest.version);
-    if (existsSync(finalRoot)) rmSync(finalRoot, { recursive: true, force: true });
-    movePopulatedDir(incoming, finalRoot);
+    const retired = existsSync(finalRoot)
+      ? `${finalRoot}.retired-${randomBytes(6).toString('hex')}`
+      : null;
+    if (retired) renameSync(finalRoot, retired);
+    try {
+      movePopulatedDir(incoming, finalRoot);
+    } catch (e) {
+      // Roll the old dir back so a failed swap doesn't leave the version missing.
+      if (retired && !existsSync(finalRoot)) {
+        try {
+          renameSync(retired, finalRoot);
+        } catch {
+          /* best effort — the outer finally still cleans `incoming` */
+        }
+      }
+      throw e;
+    }
+    if (retired) rmSync(retired, { recursive: true, force: true });
     setActiveVersion(userDataDir, manifest.version);
     // The user explicitly chose to install this version — clear any prior poison
     // mark so a one-off failed boot can't leave it permanently unloadable (the

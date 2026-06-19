@@ -123,6 +123,15 @@ function Surface({
       .catch(() => undefined);
   }, [stage, hasTranscriber]);
 
+  // Collapsing back to the inactive square hides the recording UI but the voice
+  // recorder lives on the always-mounted Surface — so without explicitly
+  // stopping it, the mic would keep capturing with NO visible indicator (a
+  // privacy leak). Stop any in-flight recording before collapsing.
+  const collapse = (): void => {
+    if (voice.phase === 'recording') voice.stop();
+    setStage('inactive');
+  };
+
   if (stage === 'inactive')
     return <Inactive onActivate={() => setStage('active')} />;
   if (stage === 'active')
@@ -133,7 +142,7 @@ function Surface({
         transcribing={voice.phase === 'transcribing'}
         analyser={analyser}
         onToggleMic={voice.toggle}
-        onCollapse={() => setStage('inactive')}
+        onCollapse={collapse}
         onText={() => setStage('mini-text')}
       />
     );

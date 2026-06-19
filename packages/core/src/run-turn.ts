@@ -175,11 +175,15 @@ export async function* runTurn(
     if (!completed) turnController.abort('runTurn iteration abandoned');
     if (strategyPromise) await strategyPromise;
     // Apply a mode hand-off the strategy requested, now that the turn has
-    // fully drained. Only on clean completion (a thrown/aborted turn keeps
-    // the current mode); an unknown target is ignored so a bad name can't
-    // wedge the session. The registry's setActive triggers the runner's
-    // InfoChanged broadcast, so channels see the new mode.
-    if (requestedModeSwitch && !strategyError) {
+    // fully drained. Only on clean completion: a thrown turn (strategyError) OR
+    // an ABANDONED turn (consumer broke out early — `completed` is false, and a
+    // mode that returns cleanly on `signal.aborted` leaves strategyError null)
+    // keeps the current mode, so an unwatched/cancelled turn can't silently
+    // flip the session into a different mode behind the user's back. An unknown
+    // target is ignored so a bad name can't wedge the session. The registry's
+    // setActive triggers the runner's InfoChanged broadcast, so channels see the
+    // new mode.
+    if (requestedModeSwitch && completed && !strategyError) {
       try {
         session.modes.setActive(requestedModeSwitch);
       } catch {

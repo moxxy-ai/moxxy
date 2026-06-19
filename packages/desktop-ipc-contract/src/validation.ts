@@ -76,6 +76,23 @@ const MAX_AUDIO_BASE64 = 40_000_000;
 /** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
  *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
 const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
+/** Aggregate ceiling across ALL inline-attachment entries on one runTurn so the
+ *  per-entry cap × 8 entries can't sum to ~96 MB of base64 (~72 MB decoded) that
+ *  the host must buffer + decode at once. Bounds the single-call blast radius;
+ *  the per-CONNECTION budget across N concurrent bearer-holding peers is a
+ *  cross-package gateway concern (see deferred). 24 MB ≈ ~18 MB decoded — two
+ *  full 9 MB picks, which is the practical mobile ceiling. */
+const MAX_INLINE_ATTACHMENTS_TOTAL = 24_000_000;
+/** Strict base64 (optional `=` padding) — MUST match the transcribe handler's
+ *  own `BASE64_RE` (packages/desktop-host/src/ipc/session.ts) so the contract
+ *  rejects the same malformed payload one hop EARLIER. `Buffer.from(x,'base64')`
+ *  silently drops invalid chars and decodes a partial/garbage buffer, so a
+ *  non-base64 string must never reach the decoder. Empty is allowed (the size
+ *  bound, not emptiness, is what guards the host here). */
+const base64 = z
+  .string()
+  .max(MAX_AUDIO_BASE64)
+  .regex(/^[A-Za-z0-9+/]*={0,2}$/, 'must be base64');
 
 /** Slash-command name — a registry slug, never a path or shell text. */
 const commandName = z
@@ -128,7 +145,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'provider.login.answer': z.object({ loginId, value: z.string().max(8192) }),
   'provider.login.cancel': z.object({ loginId }),
   'session.transcribe': z.object({
-    audioBase64: z.string().max(MAX_AUDIO_BASE64),
+    audioBase64: base64,
     mimeType: z.string().max(128).optional(),
   }),
   // Read-only snapshots and the abort RPC are reachable over the remote (WS)
@@ -165,7 +182,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       .max(64)
       .optional(),
     // Inline attachments cross the wire as payload (remote/mobile clients) —
-    // bound both the entry count and per-entry content size.
+    // bound the entry count, the per-entry content size, AND (below) the sum of
+    // all entries so 8 × the per-entry cap can't force ~72 MB of transient decode.
     inlineAttachments: z
       .array(
         z.object({
@@ -176,6 +194,19 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
         }),
       )
       .max(8)
+      .superRefine((entries, ctx) => {
+        let total = 0;
+        for (const e of entries) {
+          total += e.content.length;
+          if (total > MAX_INLINE_ATTACHMENTS_TOTAL) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `inline attachments exceed the ${MAX_INLINE_ATTACHMENTS_TOTAL}-char aggregate cap`,
+            });
+            return;
+          }
+        }
+      })
       .optional(),
   }),
   // Runs an arbitrary registered slash command — the audit flagged this as the
@@ -307,6 +338,13 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     before: z.number().int().nonnegative().nullable(),
     limit: z.number().int().positive().max(2000),
   }),
+  // Reads + parses archived collab run files off disk (~/.moxxy/collab/runs).
+  // The handler already clamps `limit` and bounds its file scan, but this is a
+  // filesystem-touching command, so it gets the boundary check the module header
+  // promises: a positive, bounded page size (matching the handler's 200 ceiling)
+  // so a hostile renderer can't push a non-integer/NaN/huge window across.
+  'collab.history': z.object({ limit: z.number().int().positive().max(200) }).partial().optional(),
+  'collab.end': z.object({ workspaceId: optionalWorkspace }).optional(),
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.
   'settings.vaultSet': z.object({

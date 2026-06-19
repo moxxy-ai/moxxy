@@ -13,7 +13,7 @@
  * invalidating the old QR and kicking every connected device.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { useMobileGateway } from '@moxxy/client-core';
 import { Button, Icon } from '@moxxy/desktop-ui';
@@ -86,17 +86,30 @@ export function MobileTab(): JSX.Element {
   const { status, loading, busy, error, setEnabled, rotateToken } = useMobileGateway();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  // Reset timers cleared on unmount so a closed panel can't setState after
+  // teardown (and the timers are released).
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const failedTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(
+    () => () => {
+      clearTimeout(copiedTimer.current);
+      clearTimeout(failedTimer.current);
+    },
+    [],
+  );
 
   const copyUrl = (): void => {
     if (!status.connectUrl) return;
     setCopyFailed(false);
     const ok = (): void => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1500);
     };
     const fail = (): void => {
       setCopyFailed(true);
-      setTimeout(() => setCopyFailed(false), 4000);
+      clearTimeout(failedTimer.current);
+      failedTimer.current = setTimeout(() => setCopyFailed(false), 4000);
     };
     // The Clipboard API can reject in a packaged renderer (permission / focus /
     // insecure-context). Surface the failure instead of swallowing it, so the
@@ -170,6 +183,7 @@ export function MobileTab(): JSX.Element {
             on={status.enabled}
             label={`${status.enabled ? 'Disable' : 'Enable'} mobile gateway`}
             disabled={busy}
+            busy={busy}
             onClick={() => {
               if (!busy) void setEnabled(!status.enabled);
             }}
@@ -272,6 +286,7 @@ export function MobileTab(): JSX.Element {
                 variant="secondary"
                 data-testid="mobile-regenerate"
                 disabled={busy}
+                aria-busy={busy || undefined}
                 onClick={() => {
                   if (!busy) void rotateToken();
                 }}

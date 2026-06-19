@@ -69,8 +69,14 @@ export interface RegistryKind<TDef> {
    * `trusted` is true for statically-registered builtins and false for
    * discovered (untrusted) plugins; most kinds ignore it, but the isolator
    * registry uses it to refuse letting a discovered plugin shadow a builtin.
+   *
+   * Returns `false` when the registration was REFUSED without taking effect
+   * (currently only the isolator registry, when an untrusted plugin tries to
+   * shadow a trusted name). PluginHost must NOT track a refused registration
+   * for rollback — unregistering it on a later mid-`applyPlugin` failure would
+   * delete a name this plugin never actually owned. `void`/`true` means applied.
    */
-  readonly register: (opts: PluginHostOptions, def: TDef, trusted: boolean) => void;
+  readonly register: (opts: PluginHostOptions, def: TDef, trusted: boolean) => void | boolean;
   /** Remove a previously-registered name from its registry. */
   readonly unregister: (opts: PluginHostOptions, name: string) => void;
   /**
@@ -211,7 +217,8 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     recordField: 'isolatorNames',
     defs: (p) => p.isolators ?? [],
     nameOf: (i: Isolator) => i.name,
-    register: (o, i: Isolator, trusted) => o.isolators.register(i, { trusted, logger: o.logger }),
+    register: (o, i: Isolator, trusted): boolean =>
+      o.isolators.register(i, { trusted, logger: o.logger }),
     unregister: (o, n) => o.isolators.unregister(n),
   } satisfies RegistryKind<Isolator>,
   {

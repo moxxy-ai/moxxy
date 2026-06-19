@@ -182,6 +182,30 @@ describe('PermissionEngine', () => {
     expect(e2.check(call('Read'))?.mode).toBe('allow');
   });
 
+  it('throws on a corrupt (non-ENOENT) policy file rather than silently loading empty rules', async () => {
+    // Security-critical: a present-but-unparseable policy file MUST fail loud, not
+    // degrade to the empty `{ allow: [], deny: [] }` policy. Silently emptying it
+    // would drop every user deny rule (fail-OPEN) — a truncated mid-write or
+    // hand-corrupted file would then let denied tool calls through. ENOENT
+    // (no file at all) is the only "absent → empty" case; corruption throws.
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
+    try {
+      // (a) Non-JSON garbage.
+      const badJson = path.join(tmp, 'bad.json');
+      await fs.writeFile(badJson, '{ this is not json', 'utf8');
+      await expect(PermissionEngine.load(badJson)).rejects.toBeInstanceOf(Error);
+
+      // (b) Valid JSON but schema-invalid (allow is not an array of rules) — a
+      // shape a naive `try { parse } catch { empty }` would also have to reject,
+      // or it would silently discard the deny rules in a malformed file.
+      const badShape = path.join(tmp, 'shape.json');
+      await fs.writeFile(badShape, JSON.stringify({ allow: 'oops', deny: [{ name: 'Bash' }] }), 'utf8');
+      await expect(PermissionEngine.load(badShape)).rejects.toBeInstanceOf(Error);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('persists addAllow', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
     const file = path.join(tmp, 'permissions.json');

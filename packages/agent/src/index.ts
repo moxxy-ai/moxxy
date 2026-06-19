@@ -37,14 +37,18 @@ export interface OpenAIPresetOptions extends ProviderPresetOptions {
 
 /**
  * Drop absent config fields so they don't override provider defaults.
- * Empty strings count as absent: an unset-but-present env var (`OPENAI_API_KEY=`)
- * would otherwise freeze `apiKey: ''`, defeating the provider's own env fallback
- * (`'' ?? x` short-circuits to `''`) and turning a clear no-key path into an
- * opaque 401 at the first turn.
+ * Blank strings count as absent: an unset-but-present env var (`OPENAI_API_KEY=`,
+ * or a templated `.env` leaving `OPENAI_API_KEY="   "`) would otherwise freeze
+ * `apiKey: '   '`, defeating the provider's own env fallback (`'…' ?? x`
+ * short-circuits to the blank string) and turning a clear no-key path into an
+ * opaque 401 at the first turn. Trimming here keeps the no-key path live and
+ * mirrors the providers' own `key.trim()` validation.
  */
 function clean(config: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(config).filter(([, v]) => v !== undefined && v !== ''),
+    Object.entries(config).filter(
+      ([, v]) => v !== undefined && !(typeof v === 'string' && v.trim() === ''),
+    ),
   );
 }
 

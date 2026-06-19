@@ -150,32 +150,20 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
       const rule = { name: row.name, ...(row.reason ? { reason: row.reason } : {}) };
       const reAdd = (kind: 'allow' | 'deny'): Promise<unknown> =>
         kind === 'allow' ? engine.addAllow(rule) : engine.addDeny(rule);
-      void (async () => {
-        let removed = false;
-        try {
-          await engine.removeByName(row.name);
-          removed = true;
-          await reAdd(targetKind);
-          refresh(engine);
+      void flipRule({
+        remove: () => engine.removeByName(row.name),
+        reAdd,
+        from: row.kind,
+        to: targetKind,
+      }).then((result) => {
+        refresh(engine);
+        if (result.ok) {
           setDirty(true);
           setStatus(`flipped ${row.name} → ${targetKind}`);
-        } catch (err) {
-          // The flip is two writes (remove + re-add). If the re-add fails
-          // after the remove succeeded we'd silently DROP the rule — the
-          // worst outcome being a vanished deny. Best-effort restore the
-          // original so a failed toggle leaves the policy as it was.
-          if (removed) {
-            try {
-              await reAdd(row.kind);
-            } catch {
-              // restore also failed — nothing more we can safely do; the
-              // error is already surfaced below.
-            }
-          }
-          refresh(engine);
-          setStatus(`flip FAILED for ${row.name}: ${errMessage(err)}`);
+        } else {
+          setStatus(`flip FAILED for ${row.name}: ${errMessage(result.error)}`);
         }
-      })();
+      });
       return;
     }
     if (input === 'q' || (key.ctrl && input === 'c')) {
@@ -231,6 +219,41 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
 
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+export type FlipResult = { ok: true } | { ok: false; error: unknown };
+
+/**
+ * Atomically flip a permission rule from `from` to `to`. The flip is two disk
+ * writes (remove + re-add); if the re-add fails AFTER the remove succeeded we'd
+ * silently DROP the rule — the worst outcome being a vanished DENY rule on a
+ * security-policy editor. This best-effort restores the original kind so a
+ * failed toggle leaves the policy exactly as it was. Never throws — the caller
+ * surfaces the error via the returned result. Exported for unit tests.
+ */
+export async function flipRule(ops: {
+  readonly remove: () => Promise<unknown>;
+  readonly reAdd: (kind: 'allow' | 'deny') => Promise<unknown>;
+  readonly from: 'allow' | 'deny';
+  readonly to: 'allow' | 'deny';
+}): Promise<FlipResult> {
+  let removed = false;
+  try {
+    await ops.remove();
+    removed = true;
+    await ops.reAdd(ops.to);
+    return { ok: true };
+  } catch (error) {
+    if (removed) {
+      try {
+        await ops.reAdd(ops.from);
+      } catch {
+        // Restore also failed — nothing more we can safely do; the original
+        // error is still surfaced to the caller.
+      }
+    }
+    return { ok: false, error };
+  }
 }
 
 function toRows(engine: PermissionEngine): Row[] {

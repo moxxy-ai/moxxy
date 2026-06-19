@@ -28,11 +28,45 @@ interface ModalProps {
   readonly children: React.ReactNode;
   readonly onClose: () => void;
   readonly width?: number;
+  /**
+   * Id of the element describing the dialog's body, wired to `aria-describedby`
+   * so a screen reader announces the message (not just the title) on open.
+   */
+  readonly describedById?: string;
 }
 
 // Module-level stack of open modals so Escape only closes the top-most one
 // when several are nested (e.g. a ConfirmModal opened from within a Modal).
 const MODAL_STACK: symbol[] = [];
+
+// Ref-counted background-scroll lock. Each open modal increments the count;
+// the body's original `overflow` is captured only on the 0→1 transition and
+// restored only on the 1→0 transition. Without ref-counting, a modal that
+// closes out of LIFO order (backdrop-click / programmatic close of an inner
+// dialog before its parent) would restore `overflow` while another modal is
+// still open, re-enabling background scroll under it.
+let scrollLockCount = 0;
+let savedBodyOverflow = '';
+
+function acquireScrollLock(): void {
+  if (typeof document === 'undefined') return;
+  const body = document.body;
+  if (scrollLockCount === 0) {
+    savedBodyOverflow = body.style.overflow;
+    body.style.overflow = 'hidden';
+  }
+  scrollLockCount += 1;
+}
+
+function releaseScrollLock(): void {
+  if (typeof document === 'undefined') return;
+  if (scrollLockCount === 0) return;
+  scrollLockCount -= 1;
+  if (scrollLockCount === 0) {
+    document.body.style.overflow = savedBodyOverflow;
+    savedBodyOverflow = '';
+  }
+}
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -79,10 +113,9 @@ export function Modal({
       (first ?? dialog).focus();
     }
 
-    // Lock background scroll for the modal's lifetime.
-    const body = typeof document !== 'undefined' ? document.body : undefined;
-    const prevOverflow = body?.style.overflow;
-    if (body) body.style.overflow = 'hidden';
+    // Lock background scroll for the modal's lifetime (ref-counted so an inner
+    // dialog closing before its parent doesn't unlock scroll under the parent).
+    acquireScrollLock();
 
     const onKey = (e: KeyboardEvent): void => {
       if (!isTop()) return;
@@ -121,7 +154,7 @@ export function Modal({
       window.removeEventListener('keydown', onKey, true);
       const idx = MODAL_STACK.indexOf(token);
       if (idx !== -1) MODAL_STACK.splice(idx, 1);
-      if (body) body.style.overflow = prevOverflow ?? '';
+      releaseScrollLock();
       // Restore focus to the trigger if it's still in the document.
       if (prevActive && prevActive.isConnected) prevActive.focus();
     };

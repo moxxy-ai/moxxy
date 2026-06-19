@@ -193,8 +193,22 @@ async function invoke(
   // which includes SharedArrayBuffer; WebAssembly.compile wants a
   // non-shared ArrayBuffer. Our bytes always come from a non-shared
   // ArrayBuffer (fs.readFile / Buffer.from / fetch arrayBuffer).
-  const module = await WebAssembly.compile(bytes as unknown as BufferSource);
-  const instance = await WebAssembly.instantiate(module, { env });
+  //
+  // Frame compile/instantiate failures: corrupt or non-wasm bytes (e.g. a
+  // server that serves an HTML error page instead of the module, a truncated
+  // download, or a module importing a host symbol we don't supply) otherwise
+  // surface as a bare `CompileError`/`LinkError` with no `[security:wasm]`
+  // context. Degrade to an actionable error rather than leaking the raw trap.
+  let instance: WebAssembly.Instance;
+  try {
+    const module = await WebAssembly.compile(bytes as unknown as BufferSource);
+    instance = await WebAssembly.instantiate(module, { env });
+  } catch (e) {
+    throw new Error(
+      `[security:wasm] failed to compile/instantiate module '${call.moduleRef!.url}': ` +
+        `${(e as Error).message}`,
+    );
+  }
   const exports = instance.exports as WasmMemoryExports;
   if (!(exports.memory instanceof WebAssembly.Memory)) {
     throw new Error(`[security:wasm] module does not export 'memory'`);
@@ -763,8 +777,10 @@ function realpathDeepestSync(abs: string): string {
 /**
  * Fetch wasm bytes from a `handlerModule` URL. Local schemes (`file:`, `data:`)
  * are always allowed; remote fetch is restricted to `https:` so a network MITM
- * can't swap the executable module bytes (plaintext `http:` is rejected). The
- * download is bound to the abort `signal` and capped at `MAX_OUTPUT_BYTES`.
+ * can't swap the executable module bytes (plaintext `http:` is rejected). Every
+ * scheme is capped at `MAX_OUTPUT_BYTES` so an oversized module (inline `data:`,
+ * a huge local `.wasm`, or a remote response) can't force an unbounded
+ * allocation; the remote download is additionally bound to the abort `signal`.
  *
  * NOTE: there is no subresource-integrity pin — `HandlerModuleRef` carries no
  * hash field — so a compromised/re-published https host can still serve hostile
@@ -774,14 +790,48 @@ function realpathDeepestSync(abs: string): string {
 async function fetchWasmBytes(url: string, signal: AbortSignal): Promise<Uint8Array> {
   if (url.startsWith('data:')) {
     const comma = url.indexOf(',');
-    if (comma < 0) throw new Error(`[security:wasm] malformed data URL`);
+    if (comma < 0) throw new Error(`[security:wasm] malformed data URL (no comma separator)`);
     const meta = url.slice(5, comma);
     const data = url.slice(comma + 1);
-    if (meta.includes('base64')) return new Uint8Array(Buffer.from(data, 'base64'));
-    return new Uint8Array(Buffer.from(decodeURIComponent(data), 'binary'));
+    let bytes: Buffer;
+    try {
+      bytes = meta.includes('base64')
+        ? Buffer.from(data, 'base64')
+        : // `decodeURIComponent` throws `URIError: URI malformed` on a bad
+          // percent-escape (e.g. a truncated `%E0`); frame it instead of
+          // leaking the bare URIError out of the isolator boundary.
+          Buffer.from(decodeURIComponent(data), 'binary');
+    } catch (e) {
+      throw new Error(`[security:wasm] malformed data URL: ${(e as Error).message}`);
+    }
+    if (bytes.length > MAX_OUTPUT_BYTES) {
+      throw new Error(
+        `[security:wasm] inline data: module is ${bytes.length} bytes (> ${MAX_OUTPUT_BYTES} limit)`,
+      );
+    }
+    return new Uint8Array(bytes);
   }
   if (url.startsWith('file:')) {
-    const filePath = fileURLToPath(url);
+    let filePath: string;
+    try {
+      filePath = fileURLToPath(url);
+    } catch (e) {
+      throw new Error(`[security:wasm] malformed file: URL '${url}': ${(e as Error).message}`);
+    }
+    // Cap by the on-disk size BEFORE reading so a multi-gigabyte local `.wasm`
+    // can't force an unbounded `readFile` allocation (parity with the remote
+    // streamed cap; local paths previously skipped the limit entirely).
+    let size: number;
+    try {
+      size = statSync(filePath).size;
+    } catch (e) {
+      throw new Error(`[security:wasm] cannot stat module '${filePath}': ${(e as Error).message}`);
+    }
+    if (size > MAX_OUTPUT_BYTES) {
+      throw new Error(
+        `[security:wasm] module at ${filePath} is ${size} bytes (> ${MAX_OUTPUT_BYTES} limit)`,
+      );
+    }
     return new Uint8Array(await fs.readFile(filePath));
   }
   if (!url.startsWith('https:')) {

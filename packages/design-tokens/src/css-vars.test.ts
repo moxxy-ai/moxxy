@@ -146,10 +146,47 @@ describe('forward token→CSS-var coverage', () => {
     expect(() => flattenTokens({ color: { primary: true as unknown } })).toThrow(/unsupported/);
     expect(() => flattenTokens({ color: { primary: null } })).toThrow(/unsupported/);
     expect(() => flattenTokens('not-a-palette')).toThrow(/expected an object/);
+    expect(() => flattenTokens(42)).toThrow(/expected an object/);
+    expect(() => flattenTokens(undefined)).toThrow(/expected an object/);
+  });
+
+  it('flattenTokens rejects arrays loudly (no numeric-indexed `--color-foo-0` vars)', () => {
+    // Array at the top level — must NOT be treated as a palette.
+    expect(() => flattenTokens(['#fff', '#000'])).toThrow(/got array/);
+    // Array as a leaf — must NOT be recursed into.
+    expect(() => flattenTokens({ color: { primary: ['#fff'] as unknown } })).toThrow(
+      /unsupported type array/,
+    );
+    // Array as a nested section — same.
+    expect(() => flattenTokens({ color: ['#fff'] as unknown })).toThrow(/unsupported type array/);
+  });
+
+  it('flattenTokens rejects empty sections loudly (would silently emit no CSS vars)', () => {
+    expect(() => flattenTokens({})).toThrow(/empty/);
+    expect(() => flattenTokens({ color: {} })).toThrow(/section "color" is empty/);
   });
 
   it('flattenTokens covers exactly the real token leaves', () => {
     expect(flattenTokens(tokens).map((l) => l.path).sort()).toEqual(leafPaths(tokens).sort());
+  });
+
+  it('the name-override table has no stale entries (every override targets a real leaf)', () => {
+    // A leftover override for a path that no longer exists in index.ts is dead
+    // config that silently never fires — assert each override key is a real leaf.
+    const realLeaves = new Set(leafPaths(tokens));
+    for (const overriddenPath of Object.keys(NAME_OVERRIDES)) {
+      expect(
+        realLeaves.has(overriddenPath),
+        `override for "${overriddenPath}" targets a path that is not a token leaf (stale)`,
+      ).toBe(true);
+    }
+  });
+
+  it('produces no duplicate CSS-var names (an override collision would silently drop a token)', () => {
+    const names = CSS_VAR_MAP.map(([n]) => n);
+    expect(new Set(names).size).toBe(names.length);
+    const darkNames = DARK_CSS_VAR_MAP.map(([n]) => n);
+    expect(new Set(darkNames).size).toBe(darkNames.length);
   });
 });
 

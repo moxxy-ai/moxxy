@@ -11,11 +11,10 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createMutex, type Mutex } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyHome, writeFileAtomic } from '@moxxy/sdk/server';
 import type { Desk, DeskSession, SessionsOverview } from '@moxxy/desktop-ipc-contract';
 
 /**
@@ -34,7 +33,8 @@ interface DeskDoc {
   desks: Desk[];
 }
 
-const DESK_FILE = path.join(homedir(), '.moxxy', 'desktop', 'desks.json');
+// moxxyHome() honors $MOXXY_HOME so all desktop+CLI state relocates together.
+const DESK_FILE = path.join(moxxyHome(), 'desktop', 'desks.json');
 const DEFAULT_COLORS = [
   '#3b82f6', // blue   — Growth Team accent
   '#ef4444', // red    — Product Launch accent

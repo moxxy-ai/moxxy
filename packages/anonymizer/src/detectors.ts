@@ -27,6 +27,11 @@ const MAX_SCAN_LEN = 16_384;
  * SCAN_OVERLAP} chars before the previous window ended), so chunking never
  * hides a match shorter than this. Comfortably exceeds the longest plausible
  * structured PII value (e.g. an IBAN ≤ 34, an email ≤ ~320).
+ *
+ * The one detector with no length cap is `url` (`[^…]+` runs to whitespace), so
+ * a single URL can exceed even {@link MAX_SCAN_LEN}. The overlap alone can't
+ * recover those; edge-touching matches are instead re-matched whole against the
+ * full text (see {@link scan} / `recoverFromEdge`).
  */
 const SCAN_OVERLAP = 1_024;
 
@@ -60,14 +65,48 @@ function scan(
     const isLast = end >= text.length;
     const slice = text.slice(pos, end);
     for (const span of scanWindow(slice, pos, re, category, accept, isLast)) {
-      // A match touching the right edge of a non-final window may be truncated;
-      // skip it here — it reappears whole in the next (overlapping) window.
-      if (!isLast && span.end >= end) continue;
+      // A match touching the right edge of a non-final window may be truncated.
+      // The next (overlapping) window normally re-finds it whole — but only if
+      // its true length is below the overlap. An UNBOUNDED detector (URL has no
+      // length cap) can produce a match longer than any window, which would then
+      // touch the right edge of EVERY non-final window and be dropped forever — a
+      // silent false negative that leaks the value un-redacted. So when a match
+      // touches a non-final edge, recover its complete form by re-matching once
+      // against the full text anchored at the match's absolute start. This is a
+      // single linear pass (the built-in unbounded regex, URL, is non-backtracking
+      // `[^…]+`), not a per-position rescan, so it cannot reintroduce O(n²).
+      if (!isLast && span.end >= end) {
+        const recovered = recoverFromEdge(text, re, category, span.start, accept);
+        if (recovered && !byStart.has(recovered.start)) byStart.set(recovered.start, recovered);
+        continue;
+      }
       if (!byStart.has(span.start)) byStart.set(span.start, span);
     }
     if (isLast) break;
   }
   return [...byStart.values()].sort((a, b) => a.start - b.start);
+}
+
+/** Recover the COMPLETE match that begins at absolute offset `from` in the full
+ *  `text`, used when a window clipped it at its right edge. Runs the regex once
+ *  anchored at `from` (single linear pass) and accepts it only if it actually
+ *  starts there and passes `accept`. Returns null if nothing valid begins there
+ *  (e.g. a bounded detector's clipped fragment that the next window handles). */
+function recoverFromEdge(
+  text: string,
+  re: RegExp,
+  category: PiiCategory,
+  from: number,
+  accept?: (match: string) => boolean,
+): PiiSpan | null {
+  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  g.lastIndex = from;
+  const m = g.exec(text);
+  if (!m || m.index !== from) return null; // must begin exactly at the clipped start
+  const value = m[0] ?? '';
+  if (!value) return null;
+  if (accept && !accept(value)) return null;
+  return { category, start: from, end: from + value.length, value };
 }
 
 /** Scan a single window `slice` (whose first char is at absolute offset `base`
@@ -251,17 +290,44 @@ function escapeRegExp(s: string): string {
 
 /** Compiled custom-term regexes, memoized by trimmed term to avoid recompiling
  *  on every keystroke. Bounded so a huge or churning term list can't grow the
- *  cache without limit (a slow memory leak on a long-lived renderer). */
-const CUSTOM_RE_CACHE = new Map<string, RegExp>();
+ *  cache without limit (a slow memory leak on a long-lived renderer). A `null`
+ *  cache entry marks a term we deliberately refuse to compile (see below) so we
+ *  don't re-attempt it on every call. */
+const CUSTOM_RE_CACHE = new Map<string, RegExp | null>();
 const CUSTOM_RE_CACHE_MAX = 2048;
 
-function customTermRegex(term: string): RegExp {
+/**
+ * Upper bound on a custom term's length. A term this long is never a real
+ * name/address, and feeding one into `new RegExp(...)` risks V8's "regular
+ * expression too large" error — which, unguarded, throws out of the whole
+ * `detect()`/`redact()` call and crashes the redactor on hostile/pasted input.
+ * A redactor must degrade, never crash, so an over-length term is simply skipped.
+ */
+const MAX_CUSTOM_TERM_LEN = 1_024;
+
+/** Compile (and memoize) the boundary regex for `term`, or return null if the
+ *  term is too long or the engine rejects the pattern. Never throws. */
+function customTermRegex(term: string): RegExp | null {
   const cached = CUSTOM_RE_CACHE.get(term);
-  if (cached) return cached;
-  // Unicode-aware boundaries: \w is ASCII-only, which mishandles accented/CJK
-  // custom terms (over- or under-redaction). \p{L}\p{N}_ with the 'u' flag
-  // treats any Unicode letter/number as a word char.
-  const re = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, 'giu');
+  if (cached !== undefined) return cached; // hit (a real regex OR a cached null)
+  let re: RegExp | null = null;
+  if (term.length <= MAX_CUSTOM_TERM_LEN) {
+    // Unicode-aware boundaries: \w is ASCII-only, which mishandles accented/CJK
+    // custom terms (over- or under-redaction). \p{L}\p{N}_ with the 'u' flag
+    // treats any Unicode letter/number as a word char. Wrapped in try/catch:
+    // some engines defer compilation, so an over-large pattern can throw here OR
+    // at first use — either way we degrade to "no match" rather than crashing.
+    try {
+      const compiled = new RegExp(
+        `(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`,
+        'giu',
+      );
+      compiled.test(''); // force lazy compile now so a throw is caught here, not later
+      re = compiled;
+    } catch {
+      re = null;
+    }
+  }
   if (CUSTOM_RE_CACHE.size >= CUSTOM_RE_CACHE_MAX) {
     // Evict the oldest entry (Map preserves insertion order) to stay bounded.
     const oldest = CUSTOM_RE_CACHE.keys().next().value;
@@ -271,13 +337,16 @@ function customTermRegex(term: string): RegExp {
   return re;
 }
 
-/** Literal, case-insensitive, word-boundary matches of user-supplied terms. */
+/** Literal, case-insensitive, word-boundary matches of user-supplied terms.
+ *  Hostile input (empty, whitespace, or absurdly long terms) is skipped, never
+ *  fatal. */
 export function detectCustom(text: string, terms: readonly string[]): PiiSpan[] {
   const spans: PiiSpan[] = [];
   for (const term of terms) {
     const t = term.trim();
     if (!t) continue;
     const re = customTermRegex(t);
+    if (!re) continue; // term too long / uncompilable — skip rather than crash
     re.lastIndex = 0; // cached regexes are stateful ('g' flag) — reset per use
     for (const m of text.matchAll(re)) {
       const value = m[0] ?? '';

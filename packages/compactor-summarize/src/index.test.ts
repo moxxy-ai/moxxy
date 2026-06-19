@@ -47,6 +47,40 @@ function toolCall(seq: number, turnId: string, name: string, input: unknown): Mo
   } as MoxxyEvent;
 }
 
+function toolResult(seq: number, turnId: string, output: unknown): MoxxyEvent {
+  return {
+    id: `r${seq}` as never,
+    seq,
+    ts: 0,
+    type: 'tool_result',
+    sessionId: 'sess' as never,
+    turnId: turnId as never,
+    source: 'tool',
+    callId: `call-${seq}` as never,
+    ok: true,
+    output,
+  } as MoxxyEvent;
+}
+
+function userPrompt(
+  seq: number,
+  turnId: string,
+  text: string,
+  attachments?: ReadonlyArray<{ kind: string; content: string }>,
+): MoxxyEvent {
+  return {
+    id: `u${seq}` as never,
+    seq,
+    ts: 0,
+    type: 'user_prompt',
+    sessionId: 'sess' as never,
+    turnId: turnId as never,
+    source: 'user',
+    text,
+    ...(attachments ? { attachments } : {}),
+  } as MoxxyEvent;
+}
+
 describe('summarizeCompactor', () => {
   it('compacts events from 0 up to keepRecent-most-recent on first call', async () => {
     const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
@@ -323,5 +357,154 @@ describe('summarizeCompactor', () => {
     // C's seq 1 is NOT inside the replaced range.
     const [from, to] = result.replacedRange;
     expect(1 >= from && 1 <= to).toBe(false);
+  });
+
+  it('sizes a rich ToolDisplayResult tool_result by forModel, not the bulky display payload', async () => {
+    // A file-diff tool_result only sends its short `forModel` string to the
+    // model; `display` is a large channel-only payload. Accounting must credit
+    // the small `forModel` length, NOT what JSON.stringify(display) would
+    // measure — otherwise tokensSaved is wildly over-reported for diff turns.
+    const compactor = createSummarizeCompactor({
+      keepRecentTurns: 1,
+      summary: () => 'S', // 1-char summary so tokensSaved ≈ originalChars/4
+    });
+    const bigDisplay = {
+      kind: 'file-diff',
+      path: '/x',
+      mode: 'update',
+      added: 2_000,
+      removed: 0,
+      hunks: [
+        {
+          oldStart: 1,
+          oldLines: 0,
+          newStart: 1,
+          newLines: 2_000,
+          lines: Array.from({ length: 2_000 }, (_, i) => ({
+            kind: 'add',
+            text: `line ${i} ${'x'.repeat(20)}`,
+            newNo: i + 1,
+          })),
+        },
+      ],
+    };
+    const events: MoxxyEvent[] = [
+      toolResult(0, 't1', { forModel: 'edited 3 lines', display: bigDisplay }),
+      ev(1, 't2', 'turn2'),
+    ];
+    const result = await compactor.compact(events);
+    // forModel is 14 chars; tokensSaved = ceil((14 - 1)/4) = 4. If the bulky
+    // display were stringified (tens of KB) this would be in the thousands.
+    expect(result.tokensSaved).toBe(Math.ceil((14 - 1) / 4));
+    expect(result.tokensSaved).toBeLessThan(100);
+  });
+
+  it('credits inlined file/stdin attachment text in a compacted user_prompt', async () => {
+    // A user_prompt that pasted a large file carries the bytes in
+    // attachments[].content; those cost real prompt tokens. The replaced-cost
+    // accounting must include them so a compacted file-bearing prompt is not
+    // under-credited (image/document base64 is intentionally NOT counted).
+    const compactor = createSummarizeCompactor({
+      keepRecentTurns: 1,
+      summary: () => 'S',
+    });
+    const fileBody = 'F'.repeat(1_000);
+    const events: MoxxyEvent[] = [
+      userPrompt(0, 't1', 'review this', [
+        { kind: 'file', content: fileBody },
+        { kind: 'image', content: 'B'.repeat(5_000) }, // base64 — NOT counted
+      ]),
+      ev(1, 't2', 'turn2'),
+    ];
+    const result = await compactor.compact(events);
+    // originalChars = 'review this'(11) + file(1000) = 1011; image excluded.
+    const originalChars = 11 + 1_000;
+    expect(result.tokensSaved).toBe(Math.max(0, Math.ceil((originalChars - 1) / 4)));
+  });
+
+  it('does not crash and degrades to a marker for a tool_call with a BigInt input', async () => {
+    // BigInt makes JSON.stringify throw (TypeError) — the digest line must
+    // degrade to a marker rather than abort the whole compaction.
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 1 });
+    const events: MoxxyEvent[] = [
+      toolCall(0, 't1', 'Compute', { n: 10n }),
+      ev(1, 't2', 'turn2'),
+    ];
+    const result = await compactor.compact(events);
+    expect(result.replacedRange).toEqual([0, 0]);
+    expect(result.summary).toContain('Compute');
+    expect(result.summary).toContain('[unserializable]');
+  });
+
+  it('truncates an oversized digest with a head+tail marker before sending to the provider', async () => {
+    // When the digest exceeds MAX_SUMMARIZE_INPUT_CHARS the provider input must
+    // be a bounded head+tail window with a truncation marker — never the full
+    // unbounded text (which could blow the provider's own context).
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 1 });
+    let seenInput = '';
+    const provider = {
+      name: 'fake',
+      models: [{ id: 'm', contextWindow: 100_000, supportsTools: true, supportsStreaming: true }],
+      stream: async function* (req: {
+        messages: ReadonlyArray<{ content: ReadonlyArray<{ type: string; text?: string }> }>;
+      }) {
+        seenInput = req.messages[0]?.content[0]?.text ?? '';
+        yield { type: 'text_delta' as const, delta: 'ok' };
+        yield { type: 'message_end' as const, stopReason: 'end_turn' as const };
+      },
+      countTokens: () => Promise.resolve(0),
+    };
+    // Many old-turn events whose digest lines (each capped at ~200 chars by
+    // describeEvent) together exceed the 48k input ceiling. 400 * ~212 ≈ 85k.
+    const events: MoxxyEvent[] = [];
+    for (let i = 0; i < 400; i++) events.push(ev(i, 't1', 'Z'.repeat(300)));
+    events.push(ev(400, 't2', 'turn2'));
+    await compactor.compact(events, {
+      log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
+      budget: { contextWindow: 100_000, estimatedTokens: 90_000, reserveForOutput: 0 },
+      signal: new AbortController().signal,
+      provider: provider as never,
+      model: 'm',
+    });
+    expect(seenInput).toContain('[... digest truncated ...]');
+    // Bounded: well under the raw 60k+ digest length.
+    expect(seenInput.length).toBeLessThan(50_000);
+  });
+
+  it('aborts mid-stream: stops consuming the provider and throws instead of rewriting history', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
+    const controller = new AbortController();
+    let yields = 0;
+    const provider = {
+      name: 'fake',
+      models: [{ id: 'm', contextWindow: 100_000, supportsTools: true, supportsStreaming: true }],
+      // A provider that ignores the signal and keeps yielding — the compactor
+      // must still bail promptly (not drain the stream, not rewrite history).
+      stream: async function* () {
+        for (let i = 0; i < 1_000; i++) {
+          yields++;
+          if (i === 1) controller.abort(); // cancel after the 2nd chunk
+          yield { type: 'text_delta' as const, delta: 'x' };
+        }
+      },
+      countTokens: () => Promise.resolve(0),
+    };
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'turn1'),
+      ev(1, 't2', 'turn2'),
+      ev(2, 't3', 'turn3'),
+      ev(3, 't4', 'turn4'),
+    ];
+    await expect(
+      compactor.compact(events, {
+        log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
+        budget: { contextWindow: 100_000, estimatedTokens: 90_000, reserveForOutput: 0 },
+        signal: controller.signal,
+        provider: provider as never,
+        model: 'm',
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    // Bailed out long before draining all 1000 chunks.
+    expect(yields).toBeLessThan(10);
   });
 });

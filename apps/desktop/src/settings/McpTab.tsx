@@ -82,6 +82,7 @@ export function McpTab({
                   on={srv.connected}
                   label={`${srv.connected ? 'Disable' : 'Enable'} ${srv.name}`}
                   disabled={toggling.has(srv.name)}
+                  busy={toggling.has(srv.name)}
                   onClick={() => toggleServer(srv.name, !srv.connected)}
                 />
               }

@@ -396,6 +396,78 @@ describe('appDir slug bound (shared SDK APP_ID_RE)', () => {
   });
 });
 
+describe('install ⇄ uninstall serialization (no concurrent rm -rf race)', () => {
+  const spec: AppInstallSpec = {
+    id: 'anonymizer',
+    version: 'v1',
+    assets: [{ url: 'https://huggingface.co/a.bin', dest: 'a.bin' }],
+  };
+
+  it('an uninstall fired DURING an in-flight install waits for it, leaving a clean end state', async () => {
+    // A fetch whose body is gated on a manual release so the install is provably
+    // mid-flight when we fire the uninstall.
+    let releaseBody!: () => void;
+    const bodyGate = new Promise<void>((r) => {
+      releaseBody = r;
+    });
+    const slow: FetchLike = (async () => {
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          await bodyGate; // block until the test lets the download finish
+          controller.enqueue(new TextEncoder().encode('FULL'));
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200 });
+    }) as FetchLike;
+
+    const installP = installApp(spec, root, () => {}, slow);
+    // Fire uninstall while the install is parked on the body gate. With the lock
+    // it must NOT run until the install completes.
+    const uninstallP = uninstallApp('anonymizer', root);
+
+    // Let the install body flow, then await both ops.
+    releaseBody();
+    const [installStatus, uninstallStatus] = await Promise.all([installP, uninstallP]);
+
+    expect(installStatus.state).toBe('installed');
+    expect(uninstallStatus).toEqual({ appId: 'anonymizer', state: 'not-installed' });
+    // Final on-disk state is consistent with the LAST op (uninstall): the dir is
+    // gone, status is not-installed — never a half-populated "installed" dir.
+    expect((await appStatus(spec, root)).state).toBe('not-installed');
+    await expect(access(path.join(root, 'anonymizer', 'a.bin'))).rejects.toThrow();
+  });
+
+  it('serialized ops do not interleave: install fully completes before the uninstall sweeps', async () => {
+    // Run install and uninstall back-to-back without awaiting between them. The
+    // lock guarantees the install finishes (marker + asset written) before the
+    // rm runs, so we never observe the marker-without-files window.
+    const fetchImpl = fakeFetch({ 'https://huggingface.co/a.bin': 'BODY' });
+    const installP = installApp(spec, root, () => {}, fetchImpl);
+    const uninstallP = uninstallApp('anonymizer', root);
+    const [i, u] = await Promise.all([installP, uninstallP]);
+    expect(i.state).toBe('installed');
+    expect(u.state).toBe('not-installed');
+    // After both, the dir is gone (uninstall was the last to run).
+    expect((await appStatus(spec, root)).state).toBe('not-installed');
+  });
+
+  it('a failing op does not poison the lock for the next acquirer', async () => {
+    // First install fails (off-allow-list url) → its lock release must still let
+    // a subsequent good install proceed.
+    const bad: AppInstallSpec = {
+      ...spec,
+      assets: [{ url: 'http://169.254.169.254/x', dest: 'a.bin' }],
+    };
+    const failed = await installApp(bad, root, () => {});
+    expect(failed.state).toBe('error');
+
+    const fetchImpl = fakeFetch({ 'https://huggingface.co/a.bin': 'OK' });
+    const ok = await installApp(spec, root, () => {}, fetchImpl);
+    expect(ok.state).toBe('installed');
+  });
+});
+
 describe('content-length header edge cases', () => {
   const spec: AppInstallSpec = {
     id: 'anonymizer',

@@ -242,9 +242,11 @@ const ABORT_GRACE_MS = 150;
  * - **Restricted env** — the child sees only env keys in `caps.env`
  *   (or the configured allowlist). Other vars are not inherited.
  * - **Soft memory ceiling** — `caps.memMb` (falling back to
- *   `defaultMemMb`, default 256) is passed to the child as
- *   `--max-old-space-size`, so a runaway handler crashes the disposable
- *   child rather than exhausting host memory.
+ *   `defaultMemMb`, default 256; clamped to a finite >= 16) is passed to
+ *   the child as `--max-old-space-size`, so a runaway handler crashes the
+ *   disposable child rather than exhausting host memory. A non-finite
+ *   `caps.timeMs`/`caps.memMb` is rejected loudly rather than silently
+ *   defeating the budget / heap ceiling.
  * - **Bounded output** — the parent caps total buffered child output
  *   (stdout + stderr, `maxOutputBytes`, default 8 MiB) and the retained
  *   stderr tail, so a child that floods/emits a gigantic line can't OOM
@@ -252,7 +254,9 @@ const ABORT_GRACE_MS = 150;
  * - **Cooperative cancel** — on timeout / host-abort the parent posts
  *   `{ type: 'abort' }` (firing the handler's `ctx.signal`) before the
  *   SIGTERM -> SIGKILL escalation, giving a well-behaved handler a grace
- *   window to flush.
+ *   window to flush. In-flight brokered `fetch`/`exec` run under an
+ *   isolator-owned signal that aborts on timeout too (the host `signal`
+ *   doesn't), so a brokered op can't outlive the budget.
  *
  * **What it does NOT enforce** (parity with worker for now):
  * - Direct `node:fs` / `node:child_process` imports inside the child
@@ -284,8 +288,24 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         throw new Error(`[security:subprocess] ${verdict.reason}`);
       }
 
-      const timeMs = caps.timeMs ?? defaultTimeMs;
-      const memMb = caps.memMb ?? defaultMemMb;
+      // Coerce + clamp the cap declarations (a semi-trusted authoring
+      // surface) before they reach setTimeout / the spawn argv, mirroring
+      // the worker isolator. A non-finite value would otherwise silently
+      // defeat the headline guarantees: NaN/negative timeMs collapses the
+      // wall-clock timer (fire-immediately or never), and memMb === 0 /
+      // negative drops the `--max-old-space-size` flag entirely (V8 =
+      // "unlimited"), leaving the child with no heap ceiling. Reject
+      // non-finite values loudly instead.
+      const rawTimeMs = Number(caps.timeMs ?? defaultTimeMs);
+      const rawMemMb = Number(caps.memMb ?? defaultMemMb);
+      if (!Number.isFinite(rawTimeMs) || !Number.isFinite(rawMemMb)) {
+        throw new Error(
+          `[security:subprocess] tool '${call.toolName}' has a non-finite cap ` +
+            `(timeMs=${String(caps.timeMs)}, memMb=${String(caps.memMb)})`,
+        );
+      }
+      const timeMs = Math.max(1, Math.floor(rawTimeMs));
+      const memMb = Math.max(16, Math.floor(rawMemMb));
       // Curate the child env via the shared @moxxy/plugin-security helper so the
       // allowlist contract is single-sourced (its BROKER_DEFAULT_ENV is the
       // fallback when neither caps.env nor a configured allowlist is set).
@@ -293,13 +313,10 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
 
       // Honour the soft memMb capability via V8's heap ceiling so a
       // runaway handler crashes the disposable child instead of
-      // exhausting host memory. Must precede `-e` (Node ignores
-      // `--max-old-space-size` after the eval entry).
-      const nodeArgs = ['--input-type=module'];
-      if (memMb && Number.isFinite(memMb) && memMb > 0) {
-        nodeArgs.push(`--max-old-space-size=${Math.floor(memMb)}`);
-      }
-      nodeArgs.push('-e', SHIM_SOURCE);
+      // exhausting host memory. memMb is already clamped to a finite >= 16
+      // above, so the flag is always emitted. Must precede `-e` (Node
+      // ignores `--max-old-space-size` after the eval entry).
+      const nodeArgs = ['--input-type=module', `--max-old-space-size=${memMb}`, '-e', SHIM_SOURCE];
 
       const child = spawn(nodePath, nodeArgs, {
         cwd: call.cwd,
@@ -318,6 +335,15 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         let stdoutBuffer = '';
         let settled = false;
         let exited = false;
+        // Isolator-owned signal handed to in-flight broker ops. It is
+        // aborted on EITHER a host abort OR a budget timeout, so a brokered
+        // fetch/exec started during the graceful grace window — when the
+        // host `signal` is NOT yet aborted on the timeout path — is still
+        // promptly cancelled instead of running un-cancellable past the
+        // budget. Mirrors the worker isolator's `brokerAbort`.
+        const brokerAbort = new AbortController();
+        const onHostAbortLink = (): void => brokerAbort.abort();
+        signal.addEventListener('abort', onHostAbortLink, { once: true });
         // True once we've started tearing the child down (kill issued).
         // While settled-but-not-yet-torndown (the graceful abort grace
         // window) we keep servicing brokered requests so a cooperative
@@ -332,6 +358,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         let outputBytes = 0;
         let killEscalation: ReturnType<typeof setTimeout> | undefined;
         const cleanup = new Set<() => void>();
+        cleanup.add(() => signal.removeEventListener('abort', onHostAbortLink));
         const killChild = (): void => {
           torndown = true;
           // Only signal a child that actually launched and is still
@@ -370,6 +397,12 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
           cleanup.forEach((fn) => fn());
           cleanup.clear();
           action();
+          // Cancel any in-flight brokered op (a long fetch/exec) once the
+          // call has settled, on EVERY teardown path. On a timeout the host
+          // `signal` is NOT aborted, so without this a brokered op kicked
+          // off mid-call would keep running — and its spawned exec child /
+          // open socket would leak — past the budget. Idempotent.
+          brokerAbort.abort();
           if (!exited) {
             if (graceful && child.pid != null) {
               try {
@@ -462,7 +495,11 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
             void handleBrokerRequest(msg, {
               caps,
               cwd: call.cwd,
-              signal,
+              // Isolator-owned signal: aborted on host-abort OR timeout, so a
+              // brokered fetch/exec is cancelled even on the timeout path
+              // where the host `signal` never aborts. fs.* ops ignore the
+              // signal, so a cooperative flush still completes.
+              signal: brokerAbort.signal,
             }).then((response) => {
               if (!torndown) {
                 try {

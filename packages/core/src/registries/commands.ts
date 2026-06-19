@@ -22,36 +22,42 @@ export class CommandRegistry {
     if (this.aliases.has(cmd.name)) {
       throw new Error(`Command name already in use as an alias: /${cmd.name}`);
     }
-    this.commands.set(cmd.name, cmd);
+    // Validate EVERY alias up front, before mutating any state, so a collision
+    // on the second alias can't leave the command half-registered (def set +
+    // some aliases) — the registry stays atomic on a throw.
     for (const alias of cmd.aliases ?? []) {
       if (this.aliases.has(alias) || this.commands.has(alias)) {
         throw new Error(`Command alias already in use: /${alias}`);
       }
-      this.aliases.set(alias, cmd.name);
     }
+    this.commands.set(cmd.name, cmd);
+    for (const alias of cmd.aliases ?? []) this.aliases.set(alias, cmd.name);
   }
 
   replace(cmd: CommandDef): void {
-    // Clean up any aliases of the prior definition before re-adding.
     const prior = this.commands.get(cmd.name);
-    if (prior) {
-      for (const alias of prior.aliases ?? []) this.aliases.delete(alias);
-    }
-    this.commands.set(cmd.name, cmd);
+    const priorAliases = new Set(prior?.aliases ?? []);
+    // Validate the new aliases BEFORE mutating anything, mirroring register()'s
+    // guards so replace() can't silently hijack an alias owned by a different
+    // command or shadow another command's primary name. Validating first (rather
+    // than deleting the prior aliases then re-adding) keeps replace() atomic: a
+    // collision on a later alias must not have already destroyed the prior
+    // definition's aliases. An alias the prior def itself owned is exempt (it's
+    // about to be re-added under the same name).
     for (const alias of cmd.aliases ?? []) {
-      // Mirror register()'s guards so replace() can't silently hijack an alias
-      // owned by a different command, or shadow another command's primary name.
-      // (The prior def's own aliases were already cleared above, so re-adding
-      // them is fine.)
       const owner = this.aliases.get(alias);
-      if (owner && owner !== cmd.name) {
+      if (owner && owner !== cmd.name && !priorAliases.has(alias)) {
         throw new Error(`Command alias already in use: /${alias}`);
       }
       if (this.commands.has(alias) && alias !== cmd.name) {
         throw new Error(`Command alias already in use as a command name: /${alias}`);
       }
-      this.aliases.set(alias, cmd.name);
     }
+    // All validated — now mutate. Clean up the prior definition's aliases, then
+    // install the new def + its aliases.
+    for (const alias of priorAliases) this.aliases.delete(alias);
+    this.commands.set(cmd.name, cmd);
+    for (const alias of cmd.aliases ?? []) this.aliases.set(alias, cmd.name);
   }
 
   unregister(name: string): void {

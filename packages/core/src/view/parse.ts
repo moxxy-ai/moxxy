@@ -244,14 +244,47 @@ function build(tokens: Token[], src: string): BNode {
   return elements[0]!;
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  amp: '&',
+};
+
+/**
+ * Decode the named + numeric HTML character references a browser would resolve.
+ * Done in a SINGLE pass (one regex) so each `&…;` is consumed exactly once: a
+ * double-encoded `&amp;#58;` yields the literal `&#58;` rather than being
+ * re-decoded to `:` (which a naive chain of `.replace()` calls would do).
+ *
+ * Numeric references (`&#58;`, `&#x3a;`) MUST be decoded here, not just the
+ * named ones: this output feeds the href/src URL-scheme check in coerceValue,
+ * and a browser decodes `javascript&#58;alert(1)` to `javascript:` at click
+ * time. Decoding numeric refs first means isSafeViewUrl sees the same `:` the
+ * browser will, so an entity-obfuscated `javascript:`/`data:text` scheme is
+ * rejected instead of sailing through as a bogus relative URL. The SDK check
+ * additionally strips C0 control chars, so a numeric ref that decodes to one
+ * cannot smuggle a scheme either.
+ */
 function decodeEntities(s: string): string {
-  return s
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&');
+  if (s.indexOf('&') === -1) return s;
+  return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);/g, (whole, body: string) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      // Reject out-of-range / non-character code points (surrogates, > U+10FFFF);
+      // leave the raw text untouched rather than emit U+FFFD or throw.
+      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+        return whole;
+      }
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return whole;
+      }
+    }
+    return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body]! : whole;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -278,7 +311,13 @@ function coerceValue(
     return '';
   }
   if (spec.type === 'number') {
-    const num = Number(value);
+    // Only accept a plain decimal the agent actually wrote. JS `Number()` also
+    // parses `0x10`/`0b1`/`0o7`/`1e3` — so `cols="0x4"` would silently become 4
+    // (a human reads hex 16) and `cols="1e1"` → 10, surprising the author.
+    // Require an optional sign + digits with at most one decimal point; reject
+    // everything else with a clear error instead of guessing.
+    const trimmed = value.trim();
+    const num = /^[+-]?(\d+\.?\d*|\.\d+)$/.test(trimmed) ? Number(trimmed) : NaN;
     if (!Number.isFinite(num)) {
       errors.push({ message: `<${tag}> attribute "${name}" must be a number` });
       return 0;

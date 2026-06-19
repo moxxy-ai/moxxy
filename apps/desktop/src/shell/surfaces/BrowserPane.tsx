@@ -269,10 +269,19 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         return;
       }
     }
-    if (e.key === 'Escape' && capturing) {
+    if (e.key === 'Escape') {
+      // Escape is the keyboard ESCAPE HATCH. Tab (and arrows/etc.) are forwarded
+      // to the page so they drive in-page navigation — which means a keyboard
+      // user who tabs INTO this view can't tab back out (WCAG 2.1.2 "no keyboard
+      // trap"). Escape blurs the host so focus returns to the surrounding UI;
+      // in capture mode it first cancels the in-progress capture.
       e.preventDefault();
-      setCapturing(false);
-      setDrag(null);
+      if (capturing) {
+        setCapturing(false);
+        setDrag(null);
+        return;
+      }
+      hostRef.current?.blur();
       return;
     }
     const printable = e.key.length === 1;
@@ -423,6 +432,12 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
       <div
         ref={hostRef}
         tabIndex={0}
+        // `application` tells assistive tech to pass keystrokes through to this
+        // interactive surface (the keys are proxied to the live page) rather
+        // than intercepting them for browse-mode navigation. The label names
+        // the region and advertises the Escape hatch out of the keyboard trap.
+        role="application"
+        aria-label="Browser view — interactive. Press Escape to leave."
         onMouseDown={(e) => {
           if (capturing) {
             const p = relPos(e);
