@@ -74,6 +74,19 @@ describe('syncSkillSchedules', () => {
     expect(await store.list()).toEqual([]);
   });
 
+  it('does not resurrect a skill schedule deleted through the shared schedule store', async () => {
+    const reg = fakeRegistry([mkSkill('briefing', { cron: '0 9 * * *' })]);
+    await syncSkillSchedules(reg, store);
+    const created = (await store.list())[0]!;
+
+    await expect(store.delete(created.id)).resolves.toBe(true);
+    expect(await store.list()).toEqual([]);
+
+    const out = await syncSkillSchedules(reg, store);
+    expect(out).toEqual({ added: 0, removed: 0, updated: 0 });
+    expect(await store.list()).toEqual([]);
+  });
+
   it('leaves manual schedules alone', async () => {
     await store.create({ name: 'manual', prompt: 'p', cron: '0 9 * * *' });
     const reg = fakeRegistry([mkSkill('briefing', { cron: '0 10 * * *' })]);

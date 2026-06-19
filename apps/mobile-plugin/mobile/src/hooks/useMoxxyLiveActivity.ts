@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { AppState } from 'react-native';
 import {
   deriveMoxxyLiveActivitySnapshot,
   deriveMoxxyLiveActivityTransition,
@@ -9,7 +10,9 @@ import {
 import { moxxyLiveActivityClient } from '../liveActivityNative';
 import { useGatewayStore } from './useGatewayStore';
 
-const MIN_UPDATE_MS = 1500;
+const MIN_UPDATE_MS = 750;
+
+type ActiveMoxxyLiveActivitySnapshot = Extract<MoxxyLiveActivitySnapshot, { readonly active: true }>;
 
 export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLiveActivityClient) {
   const { chat, snapshot } = useGatewayStore();
@@ -27,27 +30,20 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
     [chat.items, snapshot],
   );
 
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
+  const clearPendingTimer = useCallback(() => {
+    if (!timerRef.current) return;
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
   }, []);
 
-  useEffect(() => {
-    const clearPendingTimer = () => {
-      if (!timerRef.current) return;
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    };
+  const requestNotificationsOnce = useCallback(async () => {
+    if (notificationsRequestedRef.current) return;
+    notificationsRequestedRef.current = true;
+    await client.requestNotificationAuthorization().catch(() => undefined);
+  }, [client]);
 
-    const requestNotificationsOnce = async () => {
-      if (notificationsRequestedRef.current) return;
-      notificationsRequestedRef.current = true;
-      await client.requestNotificationAuthorization().catch(() => undefined);
-    };
-
-    const send = async (state: Extract<MoxxyLiveActivitySnapshot, { readonly active: true }>) => {
+  const send = useCallback(
+    async (state: ActiveMoxxyLiveActivitySnapshot) => {
       if (!mountedRef.current) return;
       const available = await client.isAvailable().catch(() => false);
       if (!available || !mountedRef.current) return;
@@ -66,9 +62,12 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
       if (!mountedRef.current) return;
       lastSentRef.current = state;
       lastSentAtRef.current = Date.now();
-    };
+    },
+    [client, requestNotificationsOnce],
+  );
 
-    const schedule = (state: Extract<MoxxyLiveActivitySnapshot, { readonly active: true }>, dueAt: number) => {
+  const schedule = useCallback(
+    (state: ActiveMoxxyLiveActivitySnapshot, dueAt: number) => {
       pendingRef.current = state;
       clearPendingTimer();
       timerRef.current = setTimeout(() => {
@@ -77,8 +76,18 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
         timerRef.current = null;
         if (pending) void send(pending);
       }, Math.max(0, dueAt - Date.now()));
-    };
+    },
+    [clearPendingTimer, send],
+  );
 
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      clearPendingTimer();
+    };
+  }, [clearPendingTimer]);
+
+  useEffect(() => {
     const transition = deriveMoxxyLiveActivityTransition(previousRef.current, next, chat.items);
 
     if (transition.kind === 'start-or-update') {
@@ -103,10 +112,11 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
     if (transition.kind === 'end') {
       pendingRef.current = null;
       clearPendingTimer();
-      void client.end(transition.snapshot)
-        .then(() => requestNotificationsOnce())
-        .then(() => client.notifyCompletion(transition.notification))
-        .catch(() => undefined);
+      void Promise.allSettled([
+        client.end(transition.snapshot),
+        requestNotificationsOnce()
+          .then(() => client.notifyCompletion(transition.notification)),
+      ]);
       previousRef.current = null;
       lastSentRef.current = null;
       lastSentAtRef.current = 0;
@@ -114,5 +124,17 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
     }
 
     previousRef.current = next;
-  }, [chat.items, client, next]);
+  }, [chat.items, clearPendingTimer, client, next, requestNotificationsOnce, schedule, send]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') return;
+      const pending = pendingRef.current;
+      if (!pending) return;
+      pendingRef.current = null;
+      clearPendingTimer();
+      void send(pending);
+    });
+    return () => subscription.remove();
+  }, [clearPendingTimer, send]);
 }

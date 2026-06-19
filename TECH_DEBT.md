@@ -340,6 +340,12 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   Those flows stay with the agent/desktop actions for now because editing cron prompts
   needs a fuller validation and permission UX than a narrow parity list/toggle/delete
   screen.
+- **Retired (found + fixed same PR): source-owned schedules deleted from mobile could
+  reappear and keep firing.** `ScheduleStore.delete()` physically removed skill/workflow
+  mirror rows, so the next source sync recreated them from skill frontmatter or workflow
+  metadata. Source-owned deletions now leave a durable hidden tombstone that `list()`,
+  `get()`, updates, and the poller ignore, while sync keeps the tombstone until the
+  upstream source itself disappears.
 
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 

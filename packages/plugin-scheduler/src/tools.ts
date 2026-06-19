@@ -128,8 +128,8 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       name: 'schedule_delete',
       description:
         'Permanently remove a schedule by id. To temporarily pause, use schedule_disable ' +
-        'instead. Skill-driven schedules will be re-created from the skill frontmatter ' +
-        "on the next sync unless you also remove the skill's `schedule:` field.",
+        'instead. Source-driven skill/workflow schedules are hidden from the poller with ' +
+        'a durable user-deletion marker so they do not reappear on the next sync.',
       inputSchema: z.object({ id: z.string().min(1) }),
       permission: { action: 'prompt' },
       handler: async ({ id }) => {

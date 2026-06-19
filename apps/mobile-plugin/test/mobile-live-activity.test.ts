@@ -247,4 +247,14 @@ describe('mobile live activity sync planning', () => {
       minUpdateMs: 1500,
     })).toEqual({ kind: 'send' });
   });
+
+  it('sends terminal states immediately even inside the throttle window', () => {
+    expect(planMoxxyLiveActivitySync({
+      lastSent: activeSnapshot,
+      next: { ...activeSnapshot, phase: 'completed', detail: 'Done', progress: 1 },
+      now: 1200,
+      lastSentAt: 1000,
+      minUpdateMs: 1500,
+    })).toEqual({ kind: 'send' });
+  });
 });

@@ -3,6 +3,7 @@
     "name": "Moxxy Mobile Gateway",
     "slug": "moxxy-mobile-gateway",
     "scheme": "moxxy-mobile",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "platforms": [
