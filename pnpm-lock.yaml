@@ -861,6 +861,9 @@ importers:
       '@moxxy/desktop-ipc-contract':
         specifier: workspace:*
         version: link:../desktop-ipc-contract
+      '@moxxy/mode-collaborative':
+        specifier: workspace:*
+        version: link:../mode-collaborative
       '@moxxy/plugin-stt-whisper-codex':
         specifier: workspace:*
         version: link:../plugin-stt-whisper-codex
