@@ -51,3 +51,31 @@ describe('vault arg construction round-trip', () => {
     expect(buildArgString('vault', ['MY_KEY', 'a b'])).toBe('set MY_KEY "a b"');
   });
 });
+
+describe('quote — hostile / edge-case secret values', () => {
+  it('keeps the safe allow-list bare (incl. internal dashes)', () => {
+    expect(quote('OPENAI_API_KEY')).toBe('OPENAI_API_KEY');
+    expect(quote('sk-abc-123')).toBe('sk-abc-123');
+    expect(quote('a.b/c@d')).toBe('a.b/c@d');
+  });
+
+  it('escapes a trailing backslash so the next token is not eaten', () => {
+    // Before the fix `a\` became `"a\"` — the parser read `\"` as an escaped
+    // quote and merged/ate the following token. Now it round-trips.
+    expect(quote('a\\')).toBe('"a\\\\"');
+  });
+
+  it('escapes embedded backslashes AND quotes, backslash-first', () => {
+    expect(quote('a\\"b')).toBe('"a\\\\\\"b"');
+    expect(quote('a"b')).toBe('"a\\"b"');
+  });
+
+  it('quotes a value whose FIRST char is a dash so it cannot be read as a flag', () => {
+    expect(quote('--flag')).toBe('"--flag"');
+    expect(quote('-x')).toBe('"-x"');
+  });
+
+  it('quotes the empty string rather than emitting a bare token', () => {
+    expect(quote('')).toBe('""');
+  });
+});

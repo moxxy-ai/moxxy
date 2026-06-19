@@ -252,4 +252,39 @@ describe('large / deep documents', () => {
     const doc = ok(`<view>${inner}</view>`);
     expect(firstText(doc.root)).toBe('deep');
   });
+
+  it('rejects nesting past the depth cap instead of overflowing the stack', () => {
+    let inner = '<text>deep</text>';
+    for (let i = 0; i < 1000; i++) inner = `<stack>${inner}</stack>`;
+    const r = parse(`<view>${inner}</view>`);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((e) => /view nesting too deep/.test(e.message))).toBe(true);
+  });
+});
+
+describe('brace attribute values', () => {
+  it('strips outer braces and treats the inner text as the literal value', () => {
+    const doc = ok('<view><text>{plain}</text><image src="/x.png" alt={hello} /></view>');
+    expect(find(doc.root, 'image')!.props.alt).toBe('hello');
+  });
+
+  it('runs the URL-scheme check on the de-braced value (no { } bypass)', () => {
+    // The braces must NOT classify `{javascript:…}` as a harmless relative URL.
+    hasErr('<view><link href={javascript:alert(1)}>x</link></view>', /disallowed URL scheme/);
+    ok('<view><link href={https://ok.test/}>x</link></view>');
+  });
+});
+
+describe('component allow-list / expander coverage', () => {
+  it('rejects a component-flagged tag that has no registered expander', () => {
+    const allow = [
+      { tag: 'view', attrs: {}, allowedChildren: 'any' as const },
+      { tag: 'widget', attrs: {}, allowedChildren: 'none' as const, component: true },
+    ];
+    const r = parseView('<view><widget /></view>', allow);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((e) => /no registered expander/.test(e.message))).toBe(true);
+  });
 });

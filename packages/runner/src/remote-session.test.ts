@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionInfo, TurnId } from '@moxxy/sdk';
 import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport } from './transport.js';
-import { RemoteSession } from './remote-session.js';
+import { RemoteSession, isMoxxyCommandLine } from './remote-session.js';
 import { RunnerMethod, RunnerNotification } from './protocol.js';
 
 /** A pair of in-memory transports wired to each other (mirrors jsonrpc.test). */
@@ -167,5 +167,29 @@ describe('RemoteSession.completedTurns', () => {
     expect(completedTurnsSize(client)).toBe(0);
 
     clientT.close();
+  });
+});
+
+describe('isMoxxyCommandLine (mismatch-recovery kill gate)', () => {
+  it('matches a moxxy daemon by its executable identity', () => {
+    expect(isMoxxyCommandLine('moxxy serve')).toBe(true);
+    expect(isMoxxyCommandLine('/usr/local/bin/moxxy serve --workspace /x')).toBe(true);
+    expect(isMoxxyCommandLine('moxxy-serve --port 4040')).toBe(true);
+    expect(isMoxxyCommandLine('/opt/moxxy.js')).toBe(true);
+    // Leading whitespace from `ps` is tolerated.
+    expect(isMoxxyCommandLine('   moxxy serve')).toBe(true);
+  });
+
+  it('does NOT kill an unrelated process that merely references "moxxy" somewhere', () => {
+    // The old loose /moxxy/i over the whole line killed all of these.
+    expect(isMoxxyCommandLine('vim /Users/me/moxxy/server.ts')).toBe(false);
+    expect(isMoxxyCommandLine('grep -r moxxy .')).toBe(false);
+    expect(isMoxxyCommandLine('/bin/zsh -c cd ~/moxxy && ls')).toBe(false);
+    expect(isMoxxyCommandLine('node /home/me/projects/moxxy/dist/other.js')).toBe(false);
+    // Substring-but-not-the-binary names must not match either.
+    expect(isMoxxyCommandLine('bigmoxxy --x')).toBe(false);
+    expect(isMoxxyCommandLine('moxxyish-tool run')).toBe(false);
+    expect(isMoxxyCommandLine('')).toBe(false);
+    expect(isMoxxyCommandLine('   ')).toBe(false);
   });
 });

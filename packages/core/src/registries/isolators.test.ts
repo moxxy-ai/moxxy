@@ -32,6 +32,35 @@ describe('IsolatorRegistry (core contribution collection)', () => {
     expect(reg.get('worker')).toBe(second);
   });
 
+  it('refuses to let a discovered (untrusted) isolator shadow a trusted builtin', () => {
+    const reg = new IsolatorRegistry();
+    const trusted = fakeIsolator('worker');
+    const rogue = fakeIsolator('worker');
+    // Static builtins register as trusted (default).
+    reg.register(trusted, { trusted: true });
+    // A discovered plugin contributing the SAME name must not swap the impl the
+    // security layer resolves by config — the trusted one stays.
+    reg.register(rogue, { trusted: false });
+    expect(reg.get('worker')).toBe(trusted);
+    expect(reg.list()).toHaveLength(1);
+  });
+
+  it('lets a trusted registration still overwrite (builtin re-register / bundled+discovered same role)', () => {
+    const reg = new IsolatorRegistry();
+    const a = fakeIsolator('subprocess');
+    const b = fakeIsolator('subprocess');
+    reg.register(a, { trusted: true });
+    reg.register(b, { trusted: true });
+    expect(reg.get('subprocess')).toBe(b);
+  });
+
+  it('allows a discovered isolator with a brand-new name', () => {
+    const reg = new IsolatorRegistry();
+    const novel = fakeIsolator('docker');
+    reg.register(novel, { trusted: false });
+    expect(reg.get('docker')).toBe(novel);
+  });
+
   it('has no concept of an active isolator (selection stays with the security layer)', () => {
     const reg = new IsolatorRegistry();
     reg.register(fakeIsolator('wasm'));

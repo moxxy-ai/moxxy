@@ -50,6 +50,10 @@ export interface WebSocketCommandBusOptions {
 export class WebSocketCommandBus implements CommandBus, EventSink {
   private readonly methods = new Map<IpcCommandName, RegisteredHandler>();
   private readonly peers = new Set<JsonRpcPeer>();
+  /** The transport each live peer rides, so a double-attach of the same
+   *  transport (which would clobber its single frame handler per the Transport
+   *  contract) is ignored rather than silently creating a broken second peer. */
+  private readonly attachedTransports = new Set<Transport>();
   /** Deny-by-default allow-list (null ⇒ no filter; see the constructor). */
   private readonly allowedCommands: ReadonlySet<IpcCommandName> | null;
 
@@ -73,6 +77,11 @@ export class WebSocketCommandBus implements CommandBus, EventSink {
    * peer from the broadcast set when the link closes.
    */
   attach(transport: Transport): void {
+    // Re-attaching the same transport would create a second JsonRpcPeer that
+    // clobbers the first's frame handler (Transport allows one handler), leaving
+    // a half-dead duplicate in the broadcast set. Ignore the redundant attach.
+    if (this.attachedTransports.has(transport)) return;
+    this.attachedTransports.add(transport);
     const peer = new JsonRpcPeer(transport);
     for (const [channel, fn] of this.methods) {
       peer.handle(channel, async (params) => {
@@ -95,12 +104,39 @@ export class WebSocketCommandBus implements CommandBus, EventSink {
     this.peers.add(peer);
     peer.onClose(() => {
       this.peers.delete(peer);
+      this.attachedTransports.delete(transport);
     });
   }
 
   broadcast<K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void {
     for (const peer of this.peers) {
-      if (!peer.isClosed) peer.notify(channel, payload);
+      if (peer.isClosed) continue;
+      try {
+        // One un-serializable payload (BigInt/circular) or one bad peer must not
+        // abort the fan-out to the rest — `notify` → `JSON.stringify` can throw,
+        // and the throw would otherwise propagate back into the event emitter and
+        // skip every peer ordered after the first failure.
+        peer.notify(channel, payload);
+      } catch (err) {
+        console.warn('[moxxy] ws bridge: dropping broadcast to a peer', err);
+      }
     }
+  }
+
+  /**
+   * Deterministically tear down every attached peer (e.g. when the host stops
+   * the bridge), instead of relying purely on each transport's close event.
+   * Idempotent; safe to call from a host's shutdown path.
+   */
+  closeAll(): void {
+    for (const peer of [...this.peers]) {
+      try {
+        peer.close();
+      } catch {
+        // best-effort: a transport already torn down must not block the rest
+      }
+    }
+    this.peers.clear();
+    this.attachedTransports.clear();
   }
 }

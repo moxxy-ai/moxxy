@@ -69,11 +69,22 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     }
   } else if (args.sessionId) {
     // Sticky resume: a missing log just means "first run with this id" — start
-    // fresh under it rather than erroring (unlike explicit `--resume`).
+    // fresh under it rather than erroring (unlike explicit `--resume`). But only
+    // a genuine "not found" is benign: any OTHER failure (permission/IO error,
+    // an unexpected throw) would otherwise silently drop existing history and
+    // let a fresh session overwrite the same `<id>.jsonl`. Surface those so the
+    // loss isn't silent, then still start fresh to keep boot resilient.
     try {
       restoredEvents = await restoreSessionEvents(args.sessionId);
-    } catch {
+    } catch (err) {
       restoredEvents = [];
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/not found/i.test(msg)) {
+        args.logger.warn(
+          'sticky-resume: could not restore session log; starting fresh under the same id',
+          { session_id: args.sessionId, error: msg },
+        );
+      }
     }
   }
 

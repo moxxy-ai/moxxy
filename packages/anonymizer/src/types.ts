@@ -61,6 +61,10 @@ export interface DetectOptions {
   /** Externally-detected spans (e.g. on-device NER `person`/`org`/`location`)
    *  merged into the result through the same overlap-resolution pass. */
   readonly extraSpans?: readonly PiiSpan[];
+  /** Override the default overlap-resolution ranking. Merged over the built-in
+   *  PRIORITY map; higher wins when two spans overlap. Categories left out keep
+   *  their default (or a sane mid value for any unknown category). */
+  readonly priority?: Partial<Record<PiiCategory, number>>;
 }
 
 export interface RedactOptions extends DetectOptions {

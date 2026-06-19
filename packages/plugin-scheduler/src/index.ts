@@ -1,5 +1,5 @@
 import { definePlugin, type Plugin, type SkillRegistry } from '@moxxy/sdk';
-import { isValidCron, nextFireTime, parseCron } from './cron.js';
+import { isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
 import { SchedulerPoller, isDue } from './poller.js';
 import { defaultInboxDir, runSchedule, type InboxOptions, type SchedulePromptResult, type SchedulePromptRunner } from './runner.js';
 import { syncSkillSchedules } from './skill-sync.js';
@@ -20,6 +20,7 @@ export {
   buildSchedulerTools,
   isDue,
   isValidCron,
+  isValidTimeZone,
   nextFireTime,
   parseCron,
   defaultInboxDir,
@@ -77,7 +78,7 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
   readonly store: ScheduleStore;
   readonly poller: SchedulerPoller;
 } {
-  const store = opts.store ?? new ScheduleStore();
+  const store = opts.store ?? new ScheduleStore({ ...(opts.logger ? { logger: opts.logger } : {}) });
   const poller = new SchedulerPoller({
     store,
     runner: opts.runner,

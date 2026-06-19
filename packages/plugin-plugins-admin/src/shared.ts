@@ -17,6 +17,21 @@ export interface PluginSnapshot {
 }
 
 /**
+ * The snapshot kinds in a single place so {@link diffSnapshot} stays in lockstep
+ * with {@link PluginSnapshot}: adding a kind here (and to the interface) makes it
+ * appear in every diff automatically. `satisfies` makes a missing kind a compile
+ * error rather than a silently-omitted diff column.
+ */
+export const SNAPSHOT_KINDS = [
+  'tools',
+  'agents',
+  'providers',
+  'modes',
+  'compactors',
+  'channels',
+] as const satisfies ReadonlyArray<keyof PluginSnapshot>;
+
+/**
  * Guard an install/uninstall spec before it is handed to `npm` as a CLI
  * argument. `installPluginPackage` accepts more than a bare name — `name@version`,
  * `github:`/`git+`/`https://`/`ssh://` git specs, and local paths — so it cannot
@@ -45,9 +60,9 @@ export function assertSafeNpmSpec(spec: string): string {
 export function diffSnapshot(
   before: PluginSnapshot,
   after: PluginSnapshot,
-): Record<string, ReadonlyArray<string>> {
-  const out: Record<string, ReadonlyArray<string>> = {};
-  for (const key of ['tools', 'agents', 'providers', 'modes', 'compactors', 'channels'] as const) {
+): Partial<Record<keyof PluginSnapshot, ReadonlyArray<string>>> {
+  const out: Partial<Record<keyof PluginSnapshot, ReadonlyArray<string>>> = {};
+  for (const key of SNAPSHOT_KINDS) {
     const b = new Set(before[key]);
     const added = after[key].filter((n) => !b.has(n));
     if (added.length > 0) out[key] = added;

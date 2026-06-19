@@ -39,6 +39,14 @@ export async function throwHandler() {
 // set by the test runner; in the worker, the variable is undefined.
 // This is how we prove the worker has its own isolated state.
 export async function readGlobalHandler() {
-   
+
   return { seen: globalThis.__MOXXY_TEST_FLAG__ ?? null };
+}
+
+// Exits the worker cleanly (code 0) WITHOUT ever posting a terminal
+// `result` message. A handler (or a transitive import) calling
+// process.exit(0) is a protocol violation: the parent must reject
+// immediately on the early exit, not stall until the budget timer.
+export async function cleanExitHandler() {
+  process.exit(0);
 }

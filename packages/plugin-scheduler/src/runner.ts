@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
-import { nextFireTime } from './cron.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
 /**
@@ -28,7 +27,6 @@ export interface ScheduleRunOutcome {
   readonly inboxPath?: string;
   readonly text: string;
   readonly error?: string;
-  readonly nextFireAt?: number;
 }
 
 export interface InboxOptions {
@@ -66,10 +64,11 @@ async function writeInbox(
 }
 
 /**
- * Fire a single schedule. Updates the store with the outcome and
- * recomputes `nextFireAt` for recurring (cron-based) entries.
- * One-shot (`runAt`) entries get disabled after their single run so
- * the poller stops considering them.
+ * Fire a single schedule and persist the outcome (lastRunAt/lastResult).
+ * One-shot (`runAt`) entries get disabled after their single run so the
+ * poller stops considering them. The next cron fire is derived on demand by
+ * `describeEntry`/`isDue` from the stored entry — the single source of truth —
+ * so it is deliberately NOT recomputed here.
  */
 export async function runSchedule(
   entry: ScheduleEntry,
@@ -108,17 +107,10 @@ export async function runSchedule(
   };
   await store.update(entry.id, patch);
 
-  let nextFireAt: number | undefined;
-  if (!isOneShot && entry.cron) {
-    const next = nextFireTime(entry.cron, new Date(now), entry.timeZone);
-    if (next) nextFireAt = next.getTime();
-  }
-
   return {
     ok: !result.error,
     text: result.text,
     ...(result.error ? { error: result.error } : {}),
     ...(inboxPath ? { inboxPath } : {}),
-    ...(nextFireAt ? { nextFireAt } : {}),
   };
 }

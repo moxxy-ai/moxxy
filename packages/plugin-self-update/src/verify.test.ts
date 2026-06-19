@@ -63,4 +63,20 @@ describe('verifySkillFile', () => {
     await fs.writeFile(target.path, '---\nname: x\n---\nbody\n', 'utf8');
     expect((await verifySkillFile(target)).ok).toBe(false);
   });
+
+  it('accepts a CRLF (Windows-authored) skill', async () => {
+    const dir = await tempPluginDir();
+    await fs.mkdir(path.join(dir, 'skills'), { recursive: true });
+    const target = resolveTarget(dir, 'skill', 'crlf');
+    await fs.writeFile(target.path, '---\r\nname: good\r\ndescription: does a thing\r\n---\r\n\r\nbody\r\n', 'utf8');
+    expect((await verifySkillFile(target)).ok).toBe(true);
+  });
+
+  it('rejects an empty quoted value that the old \\S+ check accepted', async () => {
+    const dir = await tempPluginDir();
+    await fs.mkdir(path.join(dir, 'skills'), { recursive: true });
+    const target = resolveTarget(dir, 'skill', 'emptyname');
+    await fs.writeFile(target.path, '---\nname: ""\ndescription: ok\n---\nbody\n', 'utf8');
+    expect((await verifySkillFile(target)).ok).toBe(false);
+  });
 });

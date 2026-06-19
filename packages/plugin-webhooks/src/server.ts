@@ -139,8 +139,15 @@ export class WebhookServer {
     try {
       body = await readRequestBody(req, this.maxBodyBytes);
     } catch (err) {
+      // Generic to the (pre-auth) client — don't echo the internal error or the
+      // configured size limit. Detail goes to the server log only.
+      this.opts.logger?.warn?.('webhooks: rejected oversized body', {
+        trigger: trigger.name,
+        limit: this.maxBodyBytes,
+        err: err instanceof Error ? err.message : String(err),
+      });
       res.writeHead(413, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'payload_too_large', message: String(err) }));
+      res.end(JSON.stringify({ error: 'payload_too_large' }));
       return;
     }
 

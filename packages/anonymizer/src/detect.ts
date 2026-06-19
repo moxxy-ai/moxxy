@@ -31,6 +31,19 @@ const PRIORITY: Record<PiiCategory, number> = {
   date: 10,
 };
 
+/** Fallback rank for any category not present in the active priority map, so an
+ *  unlisted (e.g. future) category never makes the sort comparator return NaN. */
+const DEFAULT_PRIORITY = 45;
+
+/** Build a total `category → rank` lookup from the default map merged with any
+ *  caller overrides. Unknown categories resolve to {@link DEFAULT_PRIORITY}. */
+function resolvePriority(
+  overrides?: Partial<Record<PiiCategory, number>>,
+): (c: PiiCategory) => number {
+  if (!overrides) return (c) => PRIORITY[c] ?? DEFAULT_PRIORITY;
+  return (c) => overrides[c] ?? PRIORITY[c] ?? DEFAULT_PRIORITY;
+}
+
 /**
  * Detect PII in `text`. Returns non-overlapping spans in document order.
  *
@@ -48,7 +61,7 @@ export function detect(text: string, opts: DetectOptions = {}): PiiSpan[] {
   if (opts.customTerms?.length) raw.push(...detectCustom(text, opts.customTerms));
   if (opts.extraSpans?.length) raw.push(...opts.extraSpans);
 
-  return resolveOverlaps(raw);
+  return resolveOverlaps(raw, resolvePriority(opts.priority), text.length);
 }
 
 /** First index `i` in the start-sorted `kept` array with `kept[i].start >= start`. */
@@ -73,11 +86,20 @@ function lowerBoundByStart(kept: readonly PiiSpan[], start: number): number {
  *  over every kept span. This keeps the whole pass O(n log n) instead of O(n²),
  *  which matters on large documents (tens of thousands of detections, e.g. a log
  *  file full of IPs/emails) that would otherwise freeze the renderer. */
-function resolveOverlaps(spans: readonly PiiSpan[]): PiiSpan[] {
-  const valid = spans.filter((s) => s.end > s.start);
+function resolveOverlaps(
+  spans: readonly PiiSpan[],
+  rank: (c: PiiCategory) => number,
+  len: number,
+): PiiSpan[] {
+  // Keep only well-formed, in-bounds spans. `extraSpans` (e.g. NER output) are
+  // caller-supplied and may carry inverted or out-of-range offsets; an `end`
+  // past `text.length` would make redact()'s slice/replacement logic emit
+  // garbage, so clamp to `0 <= start < end <= len` here at the single point all
+  // spans converge.
+  const valid = spans.filter((s) => s.start >= 0 && s.end > s.start && s.end <= len);
   const ordered = [...valid].sort(
     (a, b) =>
-      PRIORITY[b.category] - PRIORITY[a.category] ||
+      rank(b.category) - rank(a.category) ||
       b.end - b.start - (a.end - a.start) ||
       a.start - b.start,
   );

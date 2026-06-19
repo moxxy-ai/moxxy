@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
+import { useFocusTrap } from '../useFocusTrap';
 
 interface GoalModalProps {
   /** Prefill the objective with whatever the user already typed in the
@@ -24,19 +25,16 @@ export function GoalModal({
 }: GoalModalProps): JSX.Element {
   const [objective, setObjective] = useState(defaultObjective);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
+  // Focus the textarea on open, trap Tab inside the dialog (so a keyboard user
+  // can't reach the composer behind the backdrop), handle Escape, and restore
+  // focus to the opener on close.
+  useFocusTrap({ containerRef: dialogRef, initialFocusRef: taRef, onEscape: onCancel });
+  // Select the prefilled objective so the user can overtype it immediately.
   useEffect(() => {
-    taRef.current?.focus();
     taRef.current?.select();
   }, []);
-
-  useEffect(() => {
-    const onKey = (e: globalThis.KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
 
   const canStart = objective.trim().length > 0;
   const start = (): void => {
@@ -64,7 +62,9 @@ export function GoalModal({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-label="Start a goal"
         onMouseDown={(e) => e.stopPropagation()}
         style={{

@@ -1,3 +1,4 @@
+import { rename } from 'node:fs/promises';
 import { createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
 import { moxxyPath } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
@@ -59,6 +60,13 @@ export const scheduleEntrySchema = z
         path: ['cron'],
       });
     }
+    // NOTE: the documented "exactly one of cron/runAt" contract is enforced at
+    // the authoring trust boundaries (the schedule_create tool input and the
+    // skill toEntryDraft path), NOT here — this schema validates EVERY internal
+    // persisted write (incl. the workflow bridge, which historically may pass
+    // both and rely on cron-precedence). Rejecting both here would throw inside
+    // those internal writers and poison their reconcile loop. isDue's cron-first
+    // precedence remains the well-defined fallback if both somehow persist.
     if (entry.cron && !isValidCron(entry.cron)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -66,6 +74,11 @@ export const scheduleEntrySchema = z
         path: ['cron'],
       });
     }
+    // timeZone is likewise validated at the authoring boundaries (tool input /
+    // skill draft), not here — the internal workflow bridge passes an
+    // unvalidated zone string through this schema. A bad zone that reaches the
+    // persisted layer is rendered harmless by nextFireTime, which returns null
+    // (entry never due) for a non-IANA zone instead of throwing mid-tick.
   });
 
 export type ScheduleEntry = z.infer<typeof scheduleEntrySchema>;
@@ -78,6 +91,15 @@ const fileSchema = z.object({
 export interface ScheduleStoreOptions {
   /** Override path — primarily for tests. Defaults to ~/.moxxy/schedules.json. */
   readonly file?: string;
+  /**
+   * Optional logger. When the schedules file is corrupt (bad JSON / schema
+   * mismatch) the store quarantines it and resets to empty; without a logger
+   * that data loss is silent. `undefined` => silent (the on-disk quarantined
+   * copy is still observable).
+   */
+  readonly logger?: {
+    warn?(msg: string, meta?: Record<string, unknown>): void;
+  };
 }
 
 export function defaultSchedulesFile(): string {
@@ -87,27 +109,59 @@ export function defaultSchedulesFile(): string {
 export class ScheduleStore {
   // Generic id-collection store owns the cache, write mutex, RMW `.slice()`
   // copy, and crash-atomic `{ version: 1, schedules: [...] }` write. A corrupt
-  // or unreadable file resets to empty and is left in place for inspection —
-  // same behavior as before, now via the shared `load` hook.
+  // file is quarantined (renamed to `<file>.corrupt-<ts>`) and the store resets
+  // to empty so the data loss is observable; an unreadable file resets to empty.
   private readonly store: JsonFileStore<ScheduleEntry>;
 
   constructor(opts: ScheduleStoreOptions = {}) {
+    const file = opts.file ?? defaultSchedulesFile();
+    const logger = opts.logger;
     this.store = createJsonFileStore<ScheduleEntry>({
-      file: opts.file ?? defaultSchedulesFile(),
+      file,
       itemsKey: 'schedules',
-      load: (raw) => {
+      load: async (raw) => {
         if (raw === null) return [];
+        let valid = false;
+        let schedules: ScheduleEntry[] = [];
         try {
           const parsed = fileSchema.safeParse(JSON.parse(raw));
-          return parsed.success ? [...parsed.data.schedules] : [];
+          if (parsed.success) {
+            valid = true;
+            schedules = [...parsed.data.schedules];
+          }
         } catch {
-          // Corrupt file — start fresh rather than crash. The bad file is
-          // left in place so the user can inspect it.
-          return [];
+          // fall through to quarantine
         }
+        if (valid) return schedules;
+        // Corrupt file (bad JSON or schema mismatch). Quarantine it under a
+        // timestamped name so the data loss is OBSERVABLE (and the original is
+        // recoverable) rather than silently masked by an empty reset — a single
+        // malformed byte from a partial external write would otherwise make
+        // every schedule vanish with no signal. Reset to empty either way so a
+        // bad file can't brick the whole scheduler.
+        const quarantine = `${file}.corrupt-${Date.now()}`;
+        try {
+          await rename(file, quarantine);
+          logger?.warn?.('scheduler: schedules file was corrupt; quarantined and reset', {
+            file,
+            quarantine,
+          });
+        } catch (err) {
+          logger?.warn?.('scheduler: schedules file was corrupt; failed to quarantine', {
+            file,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return [];
       },
       // Non-ENOENT read errors were previously swallowed to an empty store too.
-      onReadError: () => [],
+      onReadError: (err) => {
+        logger?.warn?.('scheduler: failed to read schedules file; using empty set', {
+          file,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        return [];
+      },
     });
   }
 
@@ -170,9 +224,10 @@ export class ScheduleStore {
    * Batch-reconcile every `source='skill'` row against `wanted` (skillName →
    * desired draft) in a SINGLE atomic write, instead of one whole-file
    * serialization + fsync per changed row. The diff (and the resulting array)
-   * is byte-identical to running the equivalent sequence of
-   * create/update/delete calls:
+   * matches running the equivalent sequence of create/update/delete calls:
    *   - skill rows whose skillName is absent from `wanted` are removed;
+   *   - duplicate skill rows sharing a skillName collapse to the first
+   *     (later copies are removed) so exactly one row survives per skillName;
    *   - present skillNames with no existing row are created (fresh id +
    *     createdAt), appended in `wanted` iteration order;
    *   - present skillNames with an existing row are updated IN PLACE (id,
@@ -187,22 +242,21 @@ export class ScheduleStore {
     let removed = 0;
     let updated = 0;
     await this.store.mutate((schedules) => {
-      // Index existing skill rows by skillName (first wins — mirrors the
-      // existingSkill map the sequential reconcile built).
-      const existingByName = new Map<string, number>();
-      for (let i = 0; i < schedules.length; i += 1) {
-        const s = schedules[i]!;
-        if (s.source === 'skill' && s.skillName && !existingByName.has(s.skillName)) {
-          existingByName.set(s.skillName, i);
-        }
-      }
-
-      // 1. Remove skill rows whose skill is gone / dropped its schedule.
+      // 1. Remove skill rows whose skill is gone / dropped its schedule, AND
+      //    collapse any duplicate skill rows that share a skillName down to the
+      //    first (a prior crash between writes or a hand edit could leave two
+      //    rows for the same skill; the stale duplicate would otherwise persist
+      //    forever and fire alongside the canonical row). The reconcile thus
+      //    converges to exactly one row per wanted skillName.
       const next: ScheduleEntry[] = [];
+      const keptSkillNames = new Set<string>();
       for (const s of schedules) {
-        if (s.source === 'skill' && s.skillName && !wanted.has(s.skillName)) {
-          removed += 1;
-          continue;
+        if (s.source === 'skill' && s.skillName) {
+          if (!wanted.has(s.skillName) || keptSkillNames.has(s.skillName)) {
+            removed += 1;
+            continue;
+          }
+          keptSkillNames.add(s.skillName);
         }
         next.push(s);
       }
@@ -288,7 +342,17 @@ export class ScheduleStore {
         (s) => !(s.source === 'workflow' && s.workflowName === workflowName),
       );
       if (entry) {
-        filtered.push(scheduleEntrySchema.parse({ ...entry, source: 'workflow', workflowName }));
+        // The workflow bridge passes `id: ''` as a "store assigns it" sentinel;
+        // mint a real id here so the (id-min-1) schema can't throw mid-mutate
+        // and silently strand every workflow schedule.
+        filtered.push(
+          scheduleEntrySchema.parse({
+            ...entry,
+            id: entry.id || ulid(),
+            source: 'workflow',
+            workflowName,
+          }),
+        );
       }
       return filtered;
     });

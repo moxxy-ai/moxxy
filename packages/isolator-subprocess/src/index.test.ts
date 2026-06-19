@@ -289,6 +289,100 @@ describe('subprocessIsolator', () => {
   });
 });
 
+describe('subprocess hardening', () => {
+  // Finding #1 (HIGH): a child that floods stdout with a giant,
+  // newline-free chunk must NOT be buffered unbounded in the parent —
+  // crossing the output cap rejects and kills the child.
+  it('bounds child output and rejects on an output flood', async () => {
+    const iso = createSubprocessIsolator({ maxOutputBytes: 1024 * 1024 });
+    await expect(
+      iso.run(
+        baseCall('floodStdout', {}, {
+          moduleRef: { url: fixtureUrl, export: 'floodStdout' },
+        }),
+        async () => 'unused',
+        { timeMs: 10_000 },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/output exceeded 1048576 bytes/);
+  }, 15_000);
+
+  // Finding #6 (MEDIUM): a non-zero exit with empty stderr must still
+  // produce a diagnostic exit-code message rather than an opaque/empty
+  // rejection.
+  it('surfaces the exit code when a child exits non-zero with empty stderr', async () => {
+    const iso = createSubprocessIsolator();
+    await expect(
+      iso.run(
+        baseCall('exitNonZeroSilently', {}, {
+          moduleRef: { url: fixtureUrl, export: 'exitNonZeroSilently' },
+        }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/exited with code 7/);
+  });
+
+  // Finding #4 (MEDIUM): caps.memMb is honored as a V8 heap ceiling in
+  // the child, so a memory-hog handler crashes the disposable child
+  // (the host is unaffected) and the call rejects rather than hanging.
+  it('honors caps.memMb as the child heap ceiling', async () => {
+    const iso = createSubprocessIsolator();
+    await expect(
+      iso.run(
+        baseCall('memoryHog', {}, {
+          moduleRef: { url: fixtureUrl, export: 'memoryHog' },
+        }),
+        async () => 'unused',
+        { memMb: 32, timeMs: 15_000 },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/security:subprocess/);
+  }, 20_000);
+
+  // Finding #3 (HIGH): ctx.signal is a LIVE controller — on a
+  // cooperative abort the parent posts { type: 'abort' } and the handler
+  // observes it via ctx.signal (the old code handed an inert controller
+  // that could never fire). We prove the signal fired by having the
+  // handler write a marker file through the broker on abort, BEFORE the
+  // kill escalation, then assert the marker exists.
+  it('fires the handler ctx.signal on cooperative abort', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-abrt-'));
+    const marker = path.join(dir, 'marker');
+    try {
+      const iso = createSubprocessIsolator();
+      const ctrl = new AbortController();
+      const p = iso.run(
+        baseCall('flushOnAbort', { marker }, {
+          cwd: dir,
+          moduleRef: { url: fixtureUrl, export: 'flushOnAbort' },
+        }),
+        async () => 'unused',
+        { timeMs: 10_000, fs: { write: [`${dir}/**`] } },
+        ctrl.signal,
+      );
+      setTimeout(() => ctrl.abort(), 150);
+      await expect(p).rejects.toThrow(/aborted/);
+
+      // The marker can only appear if ctx.signal actually fired in the
+      // child and the cooperative flush ran before the kill.
+      let wrote = false;
+      for (let i = 0; i < 40 && !wrote; i++) {
+        try {
+          await fs.access(marker);
+          wrote = true;
+        } catch {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }
+      expect(wrote).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+});
+
 describe('subprocess loader-hook layer', () => {
   it('blocks node:fs imports inside the child', async () => {
     const iso = createSubprocessIsolator();

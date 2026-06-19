@@ -41,6 +41,42 @@ describe('@moxxy/plugin-commands', () => {
     }
   });
 
+  // Worst-case: a registry getter throws (plugin host mid-reload, a
+  // partially-constructed RemoteSession over the WS bridge). The handler must
+  // still return a {kind:'text'} block — never throw — so an un-try/catch'd
+  // channel (e.g. the mobile host's runCommand dispatcher) can't crash.
+  it('/info degrades to "?" instead of throwing when a registry getter throws', async () => {
+    const boom = () => {
+      throw new Error('registry mid-reload');
+    };
+    const brokenSession = {
+      id: 'sess-x',
+      cwd: '/tmp',
+      providers: { getActiveName: boom },
+      modes: { getActive: boom },
+      tools: { list: boom },
+      skills: { list: boom },
+      agents: { list: boom },
+      commands: { list: boom },
+      pluginHost: { list: boom },
+    };
+    const info = (commandsPlugin.commands ?? []).find((c) => c.name === 'info');
+    if (!info) throw new Error('missing command: info');
+    const out = await info.handler({
+      channel: 'tui',
+      sessionId: 'sess-x' as never,
+      args: '',
+      session: brokenSession,
+    });
+    expect(out.kind).toBe('text');
+    if (out.kind === 'text') {
+      expect(out.text).toContain('provider:  (none)');
+      expect(out.text).toContain('tools:     ?');
+      expect(out.text).toContain('plugins:   ?');
+      expect(out.text).toContain('commands:  ?');
+    }
+  });
+
   it('/clear and /new return session-action variants', async () => {
     const clear = await callCommand('clear');
     expect(clear.kind).toBe('session-action');
@@ -428,6 +464,47 @@ describe('@moxxy/plugin-commands', () => {
     });
     expect(out.kind).toBe('text');
     if (out.kind === 'text') expect(out.text).toContain('~2M tokens saved');
+  });
+
+  // Worst-case: a malformed/foreign provider (e.g. passed over the WS bridge)
+  // whose `.models` is a throwing getter must NOT crash /compact — model/window
+  // resolution is guarded, so the compactor still runs with the fallback window.
+  it('/compact survives a provider whose .models getter throws', async () => {
+    const existing = [
+      { type: 'user_prompt', seq: 0, sessionId: 'sess-1', turnId: 'turn-1', source: 'user', text: 'x' },
+    ] as unknown as MoxxyEvent[];
+    let compacted = false;
+    const hostileProvider = {
+      name: 'evil',
+      get models(): never {
+        throw new Error('models getter exploded');
+      },
+    };
+    const out = await runCompact({
+      ...fakeSession,
+      signal: new AbortController().signal,
+      providers: { getActiveName: () => 'evil', getActive: () => hostileProvider },
+      log: { length: existing.length, slice: () => existing, append: async () => undefined },
+      compactors: {
+        getActive: () => ({
+          name: 'c',
+          shouldCompact: () => false,
+          compact: async () => {
+            compacted = true;
+            return {
+              type: 'compaction',
+              compactor: 'c',
+              replacedRange: [0, 0],
+              summary: 's',
+              tokensSaved: 42,
+            } as const;
+          },
+        }),
+      },
+    });
+    expect(compacted).toBe(true);
+    expect(out.kind).toBe('text');
+    if (out.kind === 'text') expect(out.text).toContain('42 tokens saved');
   });
 
   it('/help <command> shows a single command detail with usage and aliases', async () => {

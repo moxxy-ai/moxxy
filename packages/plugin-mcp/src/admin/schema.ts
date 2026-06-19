@@ -44,8 +44,14 @@ export const addServerInput = z.object({
   url: z
     .string()
     .url()
+    // Restrict to http(s): a bare .url() accepts file:, gopher:, ws:, etc.,
+    // turning a model-proposed MCP endpoint into an SSRF/file-read surface
+    // (e.g. file:///etc/passwd, http://169.254.169.254 metadata). The human
+    // permission prompt still gates the add/test, but reject obviously-wrong
+    // schemes before any connection is attempted.
+    .regex(/^https?:\/\//i, 'url must use the http:// or https:// scheme')
     .optional()
-    .describe('Required when kind="http" or "sse". Server URL.'),
+    .describe('Required when kind="http" or "sse". Server URL (http/https only).'),
   headers: z
     .record(z.string())
     .optional()

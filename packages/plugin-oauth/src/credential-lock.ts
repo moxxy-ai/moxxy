@@ -24,7 +24,8 @@
  * losing side recoverable even then.
  */
 
-import { mkdir, open, rm, stat } from 'node:fs/promises';
+import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { MoxxyError, createMutex, type Mutex } from '@moxxy/sdk';
 import { moxxyPath } from '@moxxy/sdk/server';
@@ -147,18 +148,26 @@ async function acquireFileLock(
       }
     }
     // Lock held — take over if the holder looks dead, else wait and re-try.
-    // There is a tolerated TOCTOU window here: two processes can both see the
-    // same lock as stale and rm() it, and one could unlink a holder's
-    // freshly-recreated lock. This widens (does not close) the race the
-    // lockfile narrows — acceptable because the file lock is explicitly
-    // best-effort (see the module header): the in-process mutex, the vault's
-    // read-merge-write persistence, and the invalid_grant re-read retry are
-    // the real correctness guards, and a double-takeover degrades to the same
-    // unlocked-but-recoverable path as a wedged lock.
+    // Takeover is made atomic via rename() to dodge the rm()+open() TOCTOU: a
+    // naive rm() lets two processes both judge the same lock stale and both
+    // delete it, and one could unlink a holder's freshly-recreated lock. POSIX
+    // rename is atomic and single-winner — only one racer's rename of the SAME
+    // inode succeeds; the loser's rename fails (ENOENT/the file moved) and it
+    // spins to re-acquire instead of clobbering the winner. We rename to a
+    // unique temp then rm that temp, so the original path is freed for the
+    // winner's `open('wx')` on the next spin. The file lock stays best-effort
+    // (see the module header): any failure degrades to the unlocked-but-
+    // recoverable path guarded by the in-process mutex + invalid_grant retry.
     try {
       const st = await stat(lockPath);
       if (Date.now() - st.mtimeMs > staleMs) {
-        await rm(lockPath, { force: true }).catch(() => {});
+        const tmp = `${lockPath}.stale-${process.pid}-${randomBytes(6).toString('hex')}`;
+        try {
+          await rename(lockPath, tmp);
+        } catch {
+          continue; // lost the takeover race (someone moved/recreated it) — respin
+        }
+        await rm(tmp, { force: true }).catch(() => {});
         continue;
       }
     } catch {

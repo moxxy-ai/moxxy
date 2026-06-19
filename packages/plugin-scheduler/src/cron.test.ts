@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidCron, nextFireTime, parseCron } from './cron.js';
+import { isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
 
 describe('parseCron', () => {
   it('parses every-minute', () => {
@@ -187,5 +187,33 @@ describe('nextFireTime', () => {
     const wc = wallClockInZone(next!, 'America/New_York');
     expect(wc.hour).toBe(2);
     expect(wc.minute).toBe(30);
+  });
+
+  // Worst case: a non-IANA timeZone must NOT throw a RangeError out of
+  // nextFireTime (which would abort the whole poller tick) — it returns null
+  // (treated as "never due") instead.
+  it('returns null instead of throwing for a non-IANA timeZone', () => {
+    const after = new Date(Date.UTC(2026, 4, 11, 0, 0, 0));
+    expect(() => nextFireTime('0 9 * * *', after, 'Mars/Phobos')).not.toThrow();
+    expect(nextFireTime('0 9 * * *', after, 'Mars/Phobos')).toBeNull();
+    // Other non-IANA strings are rejected the same way.
+    expect(nextFireTime('0 9 * * *', after, 'Not/AZone')).toBeNull();
+    expect(nextFireTime('0 9 * * *', after, '')).toBeNull();
+  });
+});
+
+describe('isValidTimeZone', () => {
+  it('accepts undefined / local / real IANA zones', () => {
+    expect(isValidTimeZone(undefined)).toBe(true);
+    expect(isValidTimeZone('local')).toBe(true);
+    expect(isValidTimeZone('UTC')).toBe(true);
+    expect(isValidTimeZone('America/New_York')).toBe(true);
+    expect(isValidTimeZone('Asia/Tokyo')).toBe(true);
+  });
+
+  it('rejects non-IANA strings that would make Intl throw', () => {
+    expect(isValidTimeZone('Mars/Phobos')).toBe(false);
+    expect(isValidTimeZone('Not/AZone')).toBe(false);
+    expect(isValidTimeZone('')).toBe(false);
   });
 });

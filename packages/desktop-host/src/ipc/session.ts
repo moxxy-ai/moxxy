@@ -21,12 +21,57 @@ import { persistImageBlob } from '../attachments.js';
 import {
   getInProcessPlugins,
   handle,
+  IpcError,
   mustDriver,
   resolveCtx,
   resolveDriver,
   resolveSupervisor,
   waitForSessionState,
 } from './shared';
+
+/** Strict base64 (optional `=` padding). `Buffer.from(x, 'base64')` silently
+ *  drops invalid characters and decodes a partial/garbage buffer, so reject a
+ *  malformed payload AT the boundary instead of feeding the transcriber junk. */
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/**
+ * The global single-flight lock the collaborative coordinator writes
+ * (`~/.moxxy/collab/active.lock`, overridable via `MOXXY_COLLAB_LOCK`). Derived
+ * in one place so `collab.active` and `collab.end` can't drift apart — the
+ * lock's location is the coordinator's contract, not three hand-edited spots.
+ */
+function collabLockPath(homedir: string, join: (...parts: string[]) => string): string {
+  return process.env.MOXXY_COLLAB_LOCK || join(homedir, '.moxxy', 'collab', 'active.lock');
+}
+
+/** Shape of the coordinator's lock record. Validated before we trust `pid`. */
+interface CollabLockInfo {
+  readonly pid: number;
+  readonly sessionId: string;
+  readonly task: string;
+  readonly startedAtMs: number;
+}
+
+/** Parse a lock file's JSON and verify it carries a usable numeric pid — a
+ *  truncated/corrupt lock (non-object, missing/garbage pid) is treated as
+ *  "no live holder" rather than handed to `process.kill` with a bad value. */
+function parseCollabLock(raw: string): CollabLockInfo | null {
+  let info: unknown;
+  try {
+    info = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof info !== 'object' || info === null) return null;
+  const rec = info as Record<string, unknown>;
+  if (typeof rec.pid !== 'number' || !Number.isInteger(rec.pid) || rec.pid <= 0) return null;
+  return {
+    pid: rec.pid,
+    sessionId: typeof rec.sessionId === 'string' ? rec.sessionId : '',
+    task: typeof rec.task === 'string' ? rec.task : '',
+    startedAtMs: typeof rec.startedAtMs === 'number' ? rec.startedAtMs : 0,
+  };
+}
 
 export function registerSessionHandlers(pool: RunnerPool): void {
   // ---- Session (per-workspace) --------------------------------------------
@@ -115,13 +160,10 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       const { readFileSync } = await import('node:fs');
       const { homedir } = await import('node:os');
       const { join } = await import('node:path');
-      const lockPath = process.env.MOXXY_COLLAB_LOCK || join(homedir(), '.moxxy', 'collab', 'active.lock');
-      const info = JSON.parse(readFileSync(lockPath, 'utf8')) as {
-        pid: number;
-        sessionId: string;
-        task: string;
-        startedAtMs: number;
-      };
+      const lockPath = collabLockPath(homedir(), join);
+      const info = parseCollabLock(readFileSync(lockPath, 'utf8'));
+      // A missing/corrupt lock (or one without a usable pid) → not active.
+      if (!info) return { active: false };
       // Liveness: a dead holder pid means the lock is stale → not active.
       try {
         process.kill(info.pid, 0);
@@ -143,9 +185,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       const { readFileSync, unlinkSync } = await import('node:fs');
       const { homedir } = await import('node:os');
       const { join } = await import('node:path');
-      const lockPath = process.env.MOXXY_COLLAB_LOCK || join(homedir(), '.moxxy', 'collab', 'active.lock');
+      const lockPath = collabLockPath(homedir(), join);
       try {
-        clearedTask = (JSON.parse(readFileSync(lockPath, 'utf8')) as { task?: string }).task;
+        clearedTask = parseCollabLock(readFileSync(lockPath, 'utf8'))?.task || undefined;
       } catch {
         // no lock to read
       }
@@ -162,22 +204,53 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   handle('collab.history', async (args) => {
     // Read archived run records straight from ~/.moxxy/collab/runs (self-
     // describing JSON), newest first — no runner round-trip, spans all workspaces.
+    //
+    // Hardening: the runs dir grows without bound (one file per collaboration),
+    // and the renderer's `limit` is untrusted. Reading + parsing every file
+    // SYNCHRONOUSLY on the Electron main event loop (the old impl) blocks all
+    // other IPC/animation/input. So: (1) all I/O is async (fs/promises +
+    // Promise.all), (2) `limit` is clamped, and (3) we never read more than a
+    // hard ceiling of files — the newest by mtime (a write-time proxy for run
+    // finish), then sort the parsed records by their authoritative `startedAtMs`.
     try {
-      const { readFileSync, readdirSync } = await import('node:fs');
+      const { readdir, readFile, stat } = await import('node:fs/promises');
       const { homedir } = await import('node:os');
       const { join } = await import('node:path');
       const home = process.env.MOXXY_HOME || join(homedir(), '.moxxy');
       const dir = join(home, 'collab', 'runs');
-      const limit = args?.limit ?? 50;
-      const records = readdirSync(dir)
-        .filter((f) => f.endsWith('.json'))
-        .map((f) => {
+      // Clamp the renderer-supplied limit to a sane window (default 50, max 200);
+      // a non-positive / non-finite value falls back to the default.
+      const requested = Number(args?.limit ?? 50);
+      const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), 200) : 50;
+      // Read at most this many files regardless of how large the dir grows — the
+      // newest by mtime. (mtime ordering tracks run-finish ordering, so the
+      // top-N by startedAtMs are within this window.)
+      const MAX_SCAN = 200;
+      const names = (await readdir(dir)).filter((f) => f.endsWith('.json'));
+      const withMtime = await Promise.all(
+        names.map(async (f) => {
           try {
-            return JSON.parse(readFileSync(join(dir, f), 'utf8')) as { startedAtMs?: number };
+            const s = await stat(join(dir, f));
+            return { f, mtimeMs: s.mtimeMs };
           } catch {
             return null;
           }
-        })
+        }),
+      );
+      const newest = withMtime
+        .filter((e): e is { f: string; mtimeMs: number } => e !== null)
+        .sort((a, b) => b.mtimeMs - a.mtimeMs)
+        .slice(0, MAX_SCAN);
+      const parsed = await Promise.all(
+        newest.map(async ({ f }) => {
+          try {
+            return JSON.parse(await readFile(join(dir, f), 'utf8')) as { startedAtMs?: number };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const records = parsed
         .filter((r): r is { startedAtMs?: number } => r !== null)
         .sort((a, b) => (b.startedAtMs ?? 0) - (a.startedAtMs ?? 0))
         .slice(0, limit);
@@ -212,6 +285,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // path. No round-trip through the runner socket needed (and no
     // RemoteSession.setActive throw to work around).
     const { transcriber } = getInProcessPlugins();
+    if (typeof audioBase64 !== 'string' || !BASE64_RE.test(audioBase64)) {
+      throw new IpcError('invalid-payload', 'audioBase64 is not valid base64');
+    }
     const audio = Buffer.from(audioBase64, 'base64');
     const result = await transcriber.transcribe(
       audio,

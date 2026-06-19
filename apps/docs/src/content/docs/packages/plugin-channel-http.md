@@ -66,5 +66,5 @@ disable all tools.
 
 ## See also
 
-- [HTTP channel guide](../guides/http-channel) — auth, SSE, deployment.
-- [Running as a service](../guides/running-as-a-service) — install as launchd / systemd.
+- [HTTP channel guide](../guides/http-channel.md) — auth, SSE, deployment.
+- [Running as a service](../guides/running-as-a-service.md) — install as launchd / systemd.

@@ -116,7 +116,7 @@ moxxy serve --background           # one process: every channel + scheduler + we
 moxxy serve --background --except telegram,http
 ```
 
-See [Running as a service](./running-as-a-service) for the full
+See [Running as a service](./running-as-a-service.md) for the full
 catalog.
 
 ## Testing without a real source

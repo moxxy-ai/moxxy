@@ -5,6 +5,7 @@ import { formatElapsed } from '@moxxy/chat-model';
 import { Colors, Glyphs, contextColor, badgeBackground } from '../theme.js';
 import { Spinner } from './Spinner.js';
 import { ModeFooter } from './ModeFooter.js';
+import { MOTION_ENABLED } from './motion.js';
 
 export interface StatusLineProps {
   /** Turn-in-flight marker. When set, shows the spinner + elapsed time. */
@@ -148,6 +149,7 @@ const ModeBadgePill: React.FC<{ badge: ModeBadge }> = ({ badge }) => (
 const BusyMarker: React.FC<{ startedAt: number }> = ({ startedAt }) => {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!MOTION_ENABLED) return; // freeze the elapsed clock for reduced-motion / non-TTY
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);

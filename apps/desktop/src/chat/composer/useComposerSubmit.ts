@@ -39,6 +39,16 @@ export interface ComposerSubmit {
   readonly startGoal: (objective: string) => void;
 }
 
+/** Drive the runner-side config (mode / auto-approve) and resolve once it has
+ *  applied, so a goal's first tool call can't race the approve flip. */
+async function applyGoalConfig(workspaceId: string): Promise<void> {
+  const a = api();
+  // Sequential: set the mode first, THEN auto-approve, so neither RPC can be
+  // reordered ahead of the turn we enqueue afterwards.
+  await a.invoke('session.setMode', { workspaceId, mode: 'goal' }).catch(() => {});
+  await a.invoke('session.setAutoApprove', { workspaceId, enabled: true }).catch(() => {});
+}
+
 export function useComposerSubmit({
   ready,
   canSubmit,
@@ -70,21 +80,30 @@ export function useComposerSubmit({
   // One-click goal: switch to goal mode, turn auto-approve ON, and start
   // working on the typed objective. Mirrors the TUI's `/goal <objective>`
   // (switch mode + yolo + submit). Needs an objective in the draft.
+  //
+  // The mode + auto-approve RPCs are AWAITED before the turn is enqueued: if
+  // the turn were sent before they applied, the goal's first tool call could
+  // hit the approval sheet (or run under the wrong mode), breaking the
+  // one-click "auto-approve on until done" contract the UI advertises.
   const startGoal = useCallback(
     (objective: string): void => {
       if (!ready) return;
       const trimmed = objective.trim();
       if (!trimmed) return;
-      void api().invoke('session.setMode', { workspaceId, mode: 'goal' }).catch(() => {});
-      setAutoApprove(true);
-      // Refresh the Mode chip so it reflects the switch immediately.
-      window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
-      onSend(trimmed, attachments.length > 0 ? attachments : undefined);
+      // Optimistically mirror the auto-approve flag to the store so the UI
+      // reflects it immediately; the awaited RPC below is what actually gates.
+      chatStore.setAutoApprove(workspaceId, true);
+      // Close the modal + clear the composer up front (the input is consumed).
       clearDraft();
       clearAttachments();
       closeGoal();
+      void applyGoalConfig(workspaceId).then(() => {
+        // Refresh the Mode chip so it reflects the switch.
+        window.dispatchEvent(new CustomEvent(SESSION_INFO_REFRESH_EVENT));
+        onSend(trimmed, attachments.length > 0 ? attachments : undefined);
+      });
     },
-    [ready, attachments, workspaceId, onSend, setAutoApprove, clearDraft, clearAttachments, closeGoal],
+    [ready, attachments, workspaceId, onSend, clearDraft, clearAttachments, closeGoal],
   );
 
   return { submit, setAutoApprove, startGoal };

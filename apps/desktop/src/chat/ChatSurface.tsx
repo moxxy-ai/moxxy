@@ -26,6 +26,9 @@ interface ChatSurfaceProps {
  *  while a search filter is active). */
 const EMPTY_EXTENSIONS: ReadonlyArray<import('@moxxy/client-core').Extension> = Object.freeze([]);
 
+/** Stable empty reference for suggestions while they're not shown. */
+const EMPTY_SUGGESTIONS: ReadonlyArray<string> = Object.freeze([]);
+
 type ChatEvent = import('@moxxy/sdk').MoxxyEvent;
 
 /**
@@ -59,7 +62,9 @@ export function filterEventsBySearch(
   query: string,
 ): ReadonlyArray<ChatEvent> {
   const q = query.toLowerCase();
-  return events.filter((_, i) => index[i]!.some((h) => h.includes(q)));
+  // Degrade a missing/short index row to 'no match' instead of throwing if the
+  // index↔events alignment invariant is ever violated by a caller.
+  return events.filter((_, i) => (index[i] ?? []).some((h) => h.includes(q)));
 }
 
 /**
@@ -95,6 +100,15 @@ export function ChatSurface({
     if (!searchQuery) return chat.events;
     return filterEventsBySearch(chat.events, searchIndex, searchQuery);
   }, [chat.events, searchQuery, searchIndex]);
+
+  // Suggested-action chips are only shown when the composer is idle and the
+  // transcript is non-empty. Compute them only then, and memoize on the event
+  // log so they aren't re-derived (regex scans) on every streaming tick.
+  const showSuggestions = ready && !chat.sending && !chat.isEmpty;
+  const suggestions = useMemo(
+    () => (showSuggestions ? deriveSuggestions(chat.events) : EMPTY_SUGGESTIONS),
+    [showSuggestions, chat.events],
+  );
 
   return (
     <main className="col-main col-main--flat">
@@ -133,11 +147,8 @@ export function ChatSurface({
           />
         )}
       </div>
-      {ready && !chat.sending && !chat.isEmpty && (
-        <SuggestedActions
-          suggestions={deriveSuggestions(chat.events)}
-          onPick={(p) => void chat.send(p)}
-        />
+      {showSuggestions && (
+        <SuggestedActions suggestions={suggestions} onPick={(p) => void chat.send(p)} />
       )}
       {activeAsk && <AskSheet ask={activeAsk} />}
       <Composer

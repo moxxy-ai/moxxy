@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useViewSocket } from './socket';
+import { stripTokenFromUrl, useViewSocket } from './socket';
 import { renderNode } from './render';
 import { ChatPanel } from './chat';
 
@@ -30,7 +30,13 @@ function App(): JSX.Element {
           )}
           moxxy
         </span>
-        <span className={connected ? 'status ok' : 'status'}>{connected ? '● live' : '○ connecting…'}</span>
+        <span
+          className={connected ? 'status ok' : 'status'}
+          role="status"
+          aria-live="polite"
+        >
+          {connected ? '● live' : '○ connecting…'}
+        </span>
       </header>
       <main>
         {view ? (
@@ -39,7 +45,13 @@ function App(): JSX.Element {
           <div className="empty">{status ? status.text : 'No view yet — ask the agent to build you an app.'}</div>
         )}
         {view && status && (
-          <div className={status.error ? 'turn-status err' : 'turn-status'}>{status.error ? `⚠ ${status.text}` : status.text}</div>
+          <div
+            className={status.error ? 'turn-status err' : 'turn-status'}
+            role="status"
+            aria-live="polite"
+          >
+            {status.error ? `⚠ ${status.text}` : status.text}
+          </div>
         )}
       </main>
       {chatOpen ? (
@@ -53,6 +65,10 @@ function App(): JSX.Element {
     </div>
   );
 }
+
+// Drop the bearer token from the visible URL after socket.ts has captured it
+// (socket is imported above, so its module-level capture has already run).
+stripTokenFromUrl();
 
 const root = document.getElementById('root');
 if (root) createRoot(root).render(<App />);

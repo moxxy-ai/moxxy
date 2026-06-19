@@ -7,11 +7,16 @@ function fakeClient(responses: number[][][]): { embeddings: { create: ReturnType
   return {
     embeddings: {
       create: vi.fn(async () => {
-        const data = responses[call++]!.map((embedding) => ({ embedding }));
+        const data = responses[call++]!.map((embedding, index) => ({ embedding, index }));
         return { data };
       }),
     },
   };
+}
+
+/** Client whose `create` returns a raw, untrusted response shape verbatim. */
+function rawClient(make: () => unknown): { embeddings: { create: ReturnType<typeof vi.fn> } } {
+  return { embeddings: { create: vi.fn(async () => make()) } };
 }
 
 describe('OpenAIEmbedder', () => {
@@ -91,6 +96,91 @@ describe('OpenAIEmbedder', () => {
       dimensions: 768,
     });
     expect(e.dim).toBe(768);
+  });
+
+  it('throws at construction on batchSize <= 0 (would otherwise infinite-loop embed())', () => {
+    expect(
+      () => new OpenAIEmbedder({ client: fakeClient([[]]) as unknown as OpenAI, batchSize: 0 }),
+    ).toThrow(/batchSize/);
+    expect(
+      () => new OpenAIEmbedder({ client: fakeClient([[]]) as unknown as OpenAI, batchSize: -5 }),
+    ).toThrow(/batchSize/);
+  });
+
+  it('throws at construction on a non-integer or over-limit batchSize', () => {
+    expect(
+      () => new OpenAIEmbedder({ client: fakeClient([[]]) as unknown as OpenAI, batchSize: 1.5 }),
+    ).toThrow(/batchSize/);
+    expect(
+      () => new OpenAIEmbedder({ client: fakeClient([[]]) as unknown as OpenAI, batchSize: 4096 }),
+    ).toThrow(/batchSize/);
+  });
+
+  it('throws at construction on an invalid dimensions override', () => {
+    expect(
+      () => new OpenAIEmbedder({ client: fakeClient([[]]) as unknown as OpenAI, dimensions: -1 }),
+    ).toThrow(/dimensions/);
+    expect(
+      () => new OpenAIEmbedder({ client: fakeClient([[]]) as unknown as OpenAI, dimensions: 0 }),
+    ).toThrow(/dimensions/);
+    expect(
+      () => new OpenAIEmbedder({ client: fakeClient([[]]) as unknown as OpenAI, dimensions: 1.5 }),
+    ).toThrow(/dimensions/);
+  });
+
+  it('propagates a rejected embeddings.create call', async () => {
+    const client = rawClient(() => {
+      throw new Error('boom');
+    }) as unknown as OpenAI;
+    const e = new OpenAIEmbedder({ client });
+    await expect(e.embed(['a'])).rejects.toThrow(/boom/);
+  });
+
+  it('throws when the response data length does not match the input length', async () => {
+    const client = rawClient(() => ({ data: [{ embedding: [1, 2], index: 0 }] })) as unknown as OpenAI;
+    const e = new OpenAIEmbedder({ client });
+    await expect(e.embed(['a', 'b'])).rejects.toThrow(/returned 1 embeddings for 2 inputs/);
+  });
+
+  it('throws when response.data is not an array', async () => {
+    const client = rawClient(() => ({ data: null })) as unknown as OpenAI;
+    const e = new OpenAIEmbedder({ client });
+    await expect(e.embed(['a'])).rejects.toThrow(/data is not an array/);
+  });
+
+  it('throws when an embedding is not a numeric vector', async () => {
+    const client = rawClient(() => ({ data: [{ embedding: 'nope', index: 0 }] })) as unknown as OpenAI;
+    const e = new OpenAIEmbedder({ client });
+    await expect(e.embed(['a'])).rejects.toThrow(/non-vector/);
+  });
+
+  it('reorders out-of-order response data by the per-item index', async () => {
+    // Proxy returns items in reversed order; we must map by `index`, not array order.
+    const client = rawClient(() => ({
+      data: [
+        { embedding: [9, 9], index: 1 },
+        { embedding: [1, 1], index: 0 },
+      ],
+    })) as unknown as OpenAI;
+    const e = new OpenAIEmbedder({ client });
+    const out = await e.embed(['a', 'b']);
+    expect(out).toEqual([
+      [1, 1],
+      [9, 9],
+    ]);
+  });
+
+  it('throws on a duplicate / out-of-range response index', async () => {
+    const dup = rawClient(() => ({
+      data: [
+        { embedding: [1], index: 0 },
+        { embedding: [2], index: 0 },
+      ],
+    })) as unknown as OpenAI;
+    await expect(new OpenAIEmbedder({ client: dup }).embed(['a', 'b'])).rejects.toThrow(/duplicate/);
+
+    const oob = rawClient(() => ({ data: [{ embedding: [1], index: 5 }] })) as unknown as OpenAI;
+    await expect(new OpenAIEmbedder({ client: oob }).embed(['a'])).rejects.toThrow(/out-of-range/);
   });
 
   it('ignores dimensions for ada-002 (API does not support it) and keeps dim 1536', async () => {

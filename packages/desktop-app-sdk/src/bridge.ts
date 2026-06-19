@@ -142,7 +142,12 @@ export function isBridgeRequest(value: unknown): value is BridgeRequest {
     typeof value === 'object' &&
     (value as { __moxxy?: unknown }).__moxxy === BRIDGE_TAG &&
     (value as { kind?: unknown }).kind === 'request' &&
-    typeof (value as { id?: unknown }).id === 'number' &&
+    // `id` correlates the response on the client's `pending` Map. Bound it to a
+    // non-negative safe integer so NaN/Infinity/fractional/negative ids (which
+    // could never round-trip a match) are rejected at the gate rather than
+    // producing responses that strand on the client.
+    Number.isSafeInteger((value as { id?: unknown }).id) &&
+    (value as { id: number }).id >= 0 &&
     typeof (value as { method?: unknown }).method === 'string'
   );
 }

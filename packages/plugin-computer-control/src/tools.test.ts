@@ -1,3 +1,4 @@
+import { MoxxyError } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
 import {
   applescriptTool,
@@ -8,6 +9,9 @@ import {
   screenshotTool,
   typeTool,
 } from './index.js';
+
+/** Minimal ToolContext stub — only `signal` is read by these handlers. */
+const fakeCtx = { signal: new AbortController().signal } as never;
 
 describe('@moxxy/plugin-computer-control schemas', () => {
   it('screenshot accepts an optional region', () => {
@@ -56,6 +60,21 @@ describe('@moxxy/plugin-computer-control schemas', () => {
   it('applescript needs a non-empty script', () => {
     expect(applescriptTool.inputSchema.safeParse({ script: 'return 1' }).success).toBe(true);
     expect(applescriptTool.inputSchema.safeParse({ script: '' }).success).toBe(false);
+  });
+
+  it('open rejects a target/app beginning with "-" (argument-injection guard, darwin only)', async () => {
+    // The guard runs after ensureDarwin, so on non-darwin hosts ensureDarwin
+    // throws first — assert that path too so the test is meaningful everywhere.
+    if (process.platform === 'darwin') {
+      await expect(openTool.handler({ target: '-g' }, fakeCtx)).rejects.toThrow(
+        /must not begin with '-'/,
+      );
+      await expect(openTool.handler({ app: '-n' }, fakeCtx)).rejects.toThrow(
+        /must not begin with '-'/,
+      );
+    } else {
+      await expect(openTool.handler({ target: '-g' }, fakeCtx)).rejects.toBeInstanceOf(MoxxyError);
+    }
   });
 
   it('every tool is permission:prompt — never auto-allowed', () => {

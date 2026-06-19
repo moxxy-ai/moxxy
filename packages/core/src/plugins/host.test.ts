@@ -418,6 +418,46 @@ describe('PluginHost', () => {
     });
   });
 
+  it('rolls back ALL contributions when one collides mid-registration (no orphans)', () => {
+    const { host, tools, providers } = makeHost();
+    // First plugin claims provider "dup".
+    host.registerStatic(
+      definePlugin({
+        name: 'first',
+        providers: [
+          defineProvider({
+            name: 'dup',
+            models: [],
+            createClient: () => ({ name: 'dup', models: [], stream: async function* () {}, countTokens: async () => 0 }),
+          }),
+        ],
+      }),
+    );
+    // Second plugin registers a tool FIRST (succeeds), then a provider named
+    // "dup" which collides → applyPlugin throws part way through. The already-
+    // registered tool must be rolled back, and no LoadedRecord must exist.
+    const colliding = definePlugin({
+      name: 'second',
+      tools: [
+        defineTool({ name: 'orphan-tool', description: '', inputSchema: z.any(), handler: () => null }),
+      ],
+      providers: [
+        defineProvider({
+          name: 'dup',
+          models: [],
+          createClient: () => ({ name: 'dup', models: [], stream: async function* () {}, countTokens: async () => 0 }),
+        }),
+      ],
+    });
+    expect(() => host.registerStatic(colliding)).toThrow(/already registered/);
+    // The tool registered before the collision must NOT be stranded.
+    expect(tools.has('orphan-tool')).toBe(false);
+    // The first plugin's provider survives; no duplicate from the failed load.
+    expect(providers.list().map((p) => p.name)).toEqual(['dup']);
+    // No half-loaded record for "second".
+    expect(host.list().map((p) => p.name)).toEqual(['first']);
+  });
+
   it('registerStatic + unload roundtrip transcribers', async () => {
     const { host, transcribers } = makeHost();
     const t = defineTranscriber({

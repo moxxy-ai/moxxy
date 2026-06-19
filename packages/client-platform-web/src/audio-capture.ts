@@ -77,14 +77,16 @@ export const webAudioCapture: AudioCapture = {
       }
     };
 
-    rec.addEventListener('dataavailable', (ev) => {
+    const onData = (ev: BlobEvent): void => {
       if (ev.data.size > 0) chunks.push(ev.data);
-    });
-    rec.addEventListener('stop', () => {
+    };
+    const onStop = (): void => {
       teardown();
       opts.onAnalyser?.(null);
       void finalize();
-    });
+    };
+    rec.addEventListener('dataavailable', onData);
+    rec.addEventListener('stop', onStop);
 
     try {
       rec.start();
@@ -103,6 +105,20 @@ export const webAudioCapture: AudioCapture = {
         }
       }
     } catch (e) {
+      // Drop the lifecycle listeners FIRST so the 'stop' the recorder emits
+      // below can't fire onStop → finalize → opts.onResult for a start() that
+      // already rejected (the caller's await threw and moved to phase 'error').
+      rec.removeEventListener('dataavailable', onData);
+      rec.removeEventListener('stop', onStop);
+      // Stop the recorder too — otherwise it's left 'recording' with no handle
+      // returned (orphaned, unstoppable).
+      if (rec.state === 'recording') {
+        try {
+          rec.stop();
+        } catch {
+          /* already stopped */
+        }
+      }
       teardown();
       throw e;
     }

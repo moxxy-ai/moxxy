@@ -113,6 +113,24 @@ export function isValidCron(expr: string): boolean {
 }
 
 /**
+ * Whether `tz` is an IANA zone the runtime's `Intl` accepts. A non-IANA
+ * string (e.g. 'PST', 'Mars/Phobos') makes `Intl.DateTimeFormat` throw a
+ * RangeError. `nextFireTime` would otherwise inherit that throw deep inside
+ * the poller tick (outside its per-entry try/catch), aborting evaluation of
+ * every schedule positioned after the bad one. We reject the zone at the
+ * trust boundary instead. `undefined`/'local' mean system-local (always ok).
+ */
+export function isValidTimeZone(tz: string | undefined): boolean {
+  if (tz === undefined || tz === 'local') return true;
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Minute-precision walk forward from `after` (exclusive) until every
  * field matches. Operates in the caller-supplied IANA timezone via
  * `Intl.DateTimeFormat` — defaults to system local. The walk is
@@ -125,6 +143,12 @@ export function nextFireTime(
   timeZone?: string,
 ): Date | null {
   const cron = parseCron(expr);
+  // Defense in depth: a malformed/legacy timeZone that slipped past the
+  // trust-boundary validation would make `Intl.DateTimeFormat` throw deep in
+  // the walk — outside the poller's per-entry guard, which would abort every
+  // later schedule's evaluation. Treat an unusable zone as "no reachable fire"
+  // (null) so the entry is simply never due, matching how callers handle null.
+  if (!isValidTimeZone(timeZone)) return null;
   // Start at after + 1 minute, zero seconds.
   const start = new Date(after.getTime() + 60_000);
   start.setSeconds(0, 0);

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Modal, Icon } from '@moxxy/desktop-ui';
 import { api } from '@moxxy/client-core';
-import { chatStore } from '@moxxy/client-core';
+import { chatStore, useChat } from '@moxxy/client-core';
 import type { ContextUsage } from '@moxxy/client-core';
 
 /** Compact token formatter — 1.2k / 3.40M / 812. */
@@ -40,6 +40,20 @@ export function UsageModal({
 }): JSX.Element {
   const [compacting, setCompacting] = useState(false);
   const [note, setNote] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  // The shared per-workspace compaction lock. Reading it (not just our local
+  // `compacting`) keeps the button disabled even if the modal is closed and
+  // reopened mid-compaction — otherwise a second compaction could race the
+  // runner's context rewrite.
+  const sharedCompacting = useChat(workspaceId).compacting;
+  // The runner round-trip can outlive the modal/ContextMeter (close-on-switch);
+  // guard the post-await setState so we don't touch a dead component.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const s = usage.summary;
   const f = usage.fraction;
@@ -48,6 +62,10 @@ export function UsageModal({
   const writeFrac = s.totalPrompt > 0 ? s.totalCacheCreation / s.totalPrompt : 0;
 
   const onCompact = async (): Promise<void> => {
+    // Idempotency guard: never launch a second compaction while one is already
+    // in flight for this workspace (survives a modal close/reopen via the
+    // shared lock, not just our local state).
+    if (compacting || sharedCompacting) return;
     setCompacting(true);
     setNote(null);
     // Lock the composer for the whole workspace while the runner summarizes —
@@ -59,15 +77,17 @@ export function UsageModal({
         name: 'compact',
         args: '',
       });
-      if (r.kind === 'error') {
-        setNote({ kind: 'error', text: r.message ?? 'compaction failed' });
-      } else {
-        setNote({ kind: 'ok', text: r.text ?? 'context compacted' });
+      if (mounted.current) {
+        if (r.kind === 'error') {
+          setNote({ kind: 'error', text: r.message ?? 'compaction failed' });
+        } else {
+          setNote({ kind: 'ok', text: r.text ?? 'context compacted' });
+        }
       }
     } catch {
-      setNote({ kind: 'error', text: 'compaction failed' });
+      if (mounted.current) setNote({ kind: 'error', text: 'compaction failed' });
     } finally {
-      setCompacting(false);
+      if (mounted.current) setCompacting(false);
       chatStore.setCompacting(workspaceId, false);
     }
   };
@@ -138,11 +158,11 @@ export function UsageModal({
           <Button
             variant="primary"
             onClick={() => void onCompact()}
-            disabled={compacting}
-            style={{ flexShrink: 0, gap: 7, opacity: compacting ? 0.6 : 1 }}
+            disabled={compacting || sharedCompacting}
+            style={{ flexShrink: 0, gap: 7, opacity: compacting || sharedCompacting ? 0.6 : 1 }}
           >
-            <Icon name={compacting ? 'rotate' : 'spark'} size={15} />
-            {compacting ? 'Compacting…' : 'Compact now'}
+            <Icon name={compacting || sharedCompacting ? 'rotate' : 'spark'} size={15} />
+            {compacting || sharedCompacting ? 'Compacting…' : 'Compact now'}
           </Button>
         </div>
       </footer>

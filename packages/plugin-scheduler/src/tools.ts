@@ -1,5 +1,5 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { isValidCron } from './cron.js';
+import { isValidCron, isValidTimeZone } from './cron.js';
 import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
@@ -19,6 +19,11 @@ const cronOrTimestamp = z
   })
   .refine((v) => !!v.cron || v.runAt !== undefined, {
     message: 'provide either `cron` or `runAt`',
+  })
+  // Documented contract: exactly one of cron/runAt. Supplying both is
+  // rejected (otherwise the runAt is silently ignored in favor of the cron).
+  .refine((v) => !(v.cron && v.runAt !== undefined), {
+    message: 'provide either `cron` or `runAt`, not both',
   });
 
 function describeEntry(entry: ScheduleEntry): Record<string, unknown> {
@@ -90,6 +95,11 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           typeof input.runAt === 'string' ? Date.parse(input.runAt) : input.runAt;
         if (input.cron && !isValidCron(input.cron)) {
           throw new Error(`invalid cron expression "${input.cron}"`);
+        }
+        if (input.timeZone !== undefined && !isValidTimeZone(input.timeZone)) {
+          throw new Error(
+            `invalid timeZone "${input.timeZone}" (must be an IANA zone or "local")`,
+          );
         }
         const created = await store.create({
           name: input.name,

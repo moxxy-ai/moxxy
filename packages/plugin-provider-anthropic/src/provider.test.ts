@@ -195,4 +195,50 @@ describe('AnthropicProvider.stream', () => {
     const p = new AnthropicProvider({ client: fake as never });
     expect(await p.countTokens({ model: 'm', messages: [] })).toBe(42);
   });
+
+  it('surfaces an error (not a junk tool input) when streamed tool JSON is malformed/truncated', async () => {
+    // A truncated input_json stream: the accumulated partial never closes.
+    const fake = fakeAnthropic([
+      { type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'c1', name: 'Read' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"file_path":"a' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 2 } },
+      { type: 'message_stop' },
+    ]);
+    const p = new AnthropicProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'm', messages: [] })) events.push(e);
+    // The malformed call must NOT reach the loop as a valid tool_use_end with junk.
+    expect(events.some((e) => e.type === 'tool_use_end')).toBe(false);
+    const err = events.find((e) => e.type === 'error');
+    expect(err).toMatchObject({ retryable: false });
+    expect((err as { message: string }).message).toContain('c1');
+    // The turn is marked as an error rather than a clean tool-use completion.
+    expect(events.at(-1)).toMatchObject({ type: 'message_end', stopReason: 'error' });
+  });
+
+  it('clamps a caller maxTokens above the model output ceiling and defaults to it', async () => {
+    const calls: Array<{ max_tokens?: number }> = [];
+    const client = {
+      messages: {
+        stream: (args: { max_tokens?: number }) => {
+          calls.push(args);
+          return (async function* () {
+            yield { type: 'message_stop' };
+          })();
+        },
+        countTokens: async () => ({ input_tokens: 0 }),
+      },
+    };
+    const p = new AnthropicProvider({ client: client as never });
+    // haiku ceiling is 64_000 — an absurd request must be clamped, not forwarded.
+    for await (const _ of p.stream({ model: 'claude-haiku-4-5-20251001', maxTokens: 5_000_000, messages: [] })) {
+      void _;
+    }
+    expect(calls[0]!.max_tokens).toBe(64_000);
+    // No maxTokens → defaults to the descriptor ceiling.
+    for await (const _ of p.stream({ model: 'claude-haiku-4-5-20251001', messages: [] })) void _;
+    expect(calls[1]!.max_tokens).toBe(64_000);
+  });
 });

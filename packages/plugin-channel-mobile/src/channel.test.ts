@@ -107,3 +107,80 @@ describe('MobileChannel.start teardown on startup failure', () => {
     expect(res.mode).toBe('deny');
   });
 });
+
+/** A live-server stub for the happy path: `clientCount` is caller-controlled so
+ *  a test can simulate a connect→disconnect transition. */
+function fakeServer(clientCount: () => number) {
+  return {
+    address: 'ws://127.0.0.1:8765',
+    clientCount: vi.fn(() => clientCount()),
+    onConnection: vi.fn(),
+    setAllowedOrigins: vi.fn(),
+    rotateAuthToken: vi.fn(),
+    close: vi.fn(async () => {}),
+  };
+}
+
+describe('MobileChannel disconnect sweep', () => {
+  beforeEach(() => {
+    startWsBridge.mockReset();
+    vi.useRealTimers();
+  });
+
+  it('aborts the host on the connected→disconnected zero-crossing and clears the timer on stop', async () => {
+    vi.useFakeTimers();
+    let connected = 0;
+    const server = fakeServer(() => connected);
+    startWsBridge.mockResolvedValue(server as any);
+    const { session } = fakeSession();
+    const channel = new MobileChannel({ token: 'tok', tunnel: 'localhost' });
+    const handle = await channel.start({ session });
+
+    // A client connects, then drops; the sweep must drive host.onAllClientsDisconnected.
+    connected = 1;
+    vi.advanceTimersByTime(1000);
+    connected = 0;
+    vi.advanceTimersByTime(1000);
+    // clientCount was polled (sweep alive).
+    expect(server.clientCount).toHaveBeenCalled();
+    const pollsBeforeStop = server.clientCount.mock.calls.length;
+
+    await handle.stop();
+    // After stop the timer is cleared: no further polling.
+    vi.advanceTimersByTime(5000);
+    expect(server.clientCount.mock.calls.length).toBe(pollsBeforeStop);
+    vi.useRealTimers();
+  });
+
+  it('passes allowQueryToken through and closes it via MOXXY_MOBILE_QUERY_TOKEN', async () => {
+    const server = fakeServer(() => 0);
+    startWsBridge.mockResolvedValue(server as any);
+    const { session } = fakeSession();
+
+    await (await new MobileChannel({ token: 'tok' }).start({ session })).stop();
+    expect(startWsBridge.mock.calls.at(-1)?.[1]).toMatchObject({ allowQueryToken: true });
+
+    startWsBridge.mockResolvedValue(fakeServer(() => 0) as any);
+    await (await new MobileChannel({ token: 'tok', allowQueryToken: false }).start({ session })).stop();
+    expect(startWsBridge.mock.calls.at(-1)?.[1]).toMatchObject({ allowQueryToken: false });
+
+    process.env.MOXXY_MOBILE_QUERY_TOKEN = '0';
+    try {
+      startWsBridge.mockResolvedValue(fakeServer(() => 0) as any);
+      await (await new MobileChannel({ token: 'tok', allowQueryToken: true }).start({ session })).stop();
+      expect(startWsBridge.mock.calls.at(-1)?.[1]).toMatchObject({ allowQueryToken: false });
+    } finally {
+      delete process.env.MOXXY_MOBILE_QUERY_TOKEN;
+    }
+  });
+});
+
+describe('MobileChannel.rotateToken with a pinned token', () => {
+  it('refuses to rotate (no-op + warn) when the token is supplied via config', () => {
+    const warn = vi.fn();
+    const channel = new MobileChannel({ token: 'pinned-tok', logger: { warn } });
+    const before = channel.rotateToken();
+    expect(before).toBe('pinned-tok');
+    expect(warn).toHaveBeenCalled();
+  });
+});

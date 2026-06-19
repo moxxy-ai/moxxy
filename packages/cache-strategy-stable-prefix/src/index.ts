@@ -37,15 +37,27 @@ export function createStablePrefixCacheStrategy(): CacheStrategyDef {
       // for this call only — they won't recur at the same position next call,
       // so a breakpoint on/after them is a guaranteed-wasted cache write.
       // Place the rolling tail breakpoint on the last STABLE message instead.
-      const volatileTail = Math.max(0, ctx.volatileTailMessageCount ?? 0);
+      // A malformed count (NaN/float/negative) must degrade to caching the true
+      // tail, never to silently dropping the rolling-tail breakpoint entirely.
+      const volatileTail = Math.max(
+        0,
+        Math.trunc(Number.isFinite(ctx.volatileTailMessageCount) ? ctx.volatileTailMessageCount! : 0),
+      );
       const lastIdx = lastNonSystemIndex(messages, messages.length - volatileTail);
       if (lastIdx < 0) return hints; // nothing but a system prompt (or volatile tail) yet
 
       // Long-lived breakpoint at the stable prefix boundary (e.g. the elision
       // high-water mark). Only when it is strictly before the tail — otherwise
-      // the tail breakpoint already covers it.
+      // the tail breakpoint already covers it. A breakpoint on a system message
+      // is silently dropped by the Anthropic translator, so guard against it
+      // here exactly as the rolling tail does (lastNonSystemIndex).
       const stableIdx = ctx.stablePrefixMessageIndex;
-      if (stableIdx != null && stableIdx >= 0 && stableIdx < lastIdx) {
+      if (
+        stableIdx != null &&
+        stableIdx >= 0 &&
+        stableIdx < lastIdx &&
+        messages[stableIdx]?.role !== 'system'
+      ) {
         hints.push({ target: { messageIndex: stableIdx } });
       }
 

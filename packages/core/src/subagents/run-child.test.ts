@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { ModeContext, ModeDef, MoxxyEvent, ProviderDef } from '@moxxy/sdk';
 import { defineMode, defineProvider, definePlugin } from '@moxxy/sdk';
 import { Session } from '../session.js';
-import { runChildTurn, type SubagentRuntime } from './run-child.js';
+import { continueChildTurn, runChildTurn, type SubagentRuntime } from './run-child.js';
+import { clearRetainedChildren } from './registry.js';
 
 // A mode that reports the model it was handed — lets tests observe the
 // child's EFFECTIVE model through the returned result text.
@@ -181,5 +182,69 @@ describe('runChildTurn model resolution', () => {
     // The grandchild echoes its own ctx.model — it must see the child's
     // resolved model ('cheap-model'), not the original parent's.
     expect(result.text).toBe('cheap-model');
+  });
+});
+
+// A mode that runs instantly on its FIRST invocation but blocks on an external
+// gate on every later turn — lets a test hold a continue() turn mid-flight while
+// a second continue() races it (without hanging the initial spawn).
+function makeGatedMode(gate: Promise<void>): ModeDef {
+  let calls = 0;
+  return defineMode({
+    name: 'gated',
+    run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+      calls += 1;
+      if (calls > 1) await gate;
+      await ctx.emit({
+        type: 'assistant_message',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'assistant',
+        content: 'done',
+        stopReason: 'end_turn',
+      });
+    },
+  });
+}
+
+describe('continueChildTurn re-entrancy', () => {
+  it('rejects a concurrent continue() for the same retained child (claim-then-run)', async () => {
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'gated-test',
+        version: '0.0.0',
+        providers: [makeProvider(['m'])],
+        modes: [makeGatedMode(gate)],
+      }),
+    );
+    session.providers.setActive('listed');
+    session.modes.setActive('gated');
+
+    const rt = buildRuntime(session, 'm');
+    const first = await runChildTurn({
+      rt,
+      spec: { prompt: 'go', mode: 'gated', retainSession: true },
+      retainSession: true,
+    });
+    const childId = first.childSessionId;
+
+    // Start the first continue (blocks inside the gated mode), then race a
+    // second continue for the same id before the first settles.
+    const p1 = continueChildTurn({ childSessionId: childId, prompt: 'again' });
+    // The entry is claimed synchronously, so the second continue must fail fast.
+    await expect(
+      continueChildTurn({ childSessionId: childId, prompt: 'race' }),
+    ).rejects.toThrow(/no retained subagent session/);
+
+    openGate();
+    const r1 = await p1;
+    expect(r1.text).toBe('done');
+
+    clearRetainedChildren(session.id);
   });
 });

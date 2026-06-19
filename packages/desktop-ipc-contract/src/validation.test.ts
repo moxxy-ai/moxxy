@@ -9,6 +9,21 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'javascript:alert(1)' })).toThrow();
   });
 
+  it('rejects openExternal URLs carrying embedded credentials (phishing primitive)', () => {
+    // `https://trusted.example@evil.example/...` opened in the default browser
+    // visits evil.example while looking like the trusted host — refuse it.
+    expect(() =>
+      validateIpcInput('onboarding.openExternal', { url: 'https://accounts.google.com@evil.example/x' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('onboarding.openExternal', { url: 'http://user:pass@evil.example/' }),
+    ).toThrow();
+    // Userinfo-free URLs (including ports/paths/queries) still pass.
+    expect(() =>
+      validateIpcInput('onboarding.openExternal', { url: 'https://docs.example.com:8443/a?b=1' }),
+    ).not.toThrow();
+  });
+
   it('confines provider names to a slug', () => {
     expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: 'openai-codex' })).not.toThrow();
     expect(() => validateIpcInput('provider.login.start', { loginId: 'abc', provider: '--flag' })).toThrow();
@@ -282,6 +297,46 @@ describe('IPC payload validation', () => {
       validateIpcInput('anonymizer.saveRedacted', {
         suggestedName: 'out.txt',
         content: 'x'.repeat(20_000_001),
+      }),
+    ).toThrow();
+  });
+
+  it('bounds the git.* commands that shell out to git', () => {
+    // isRepo/status carry only a workspaceId; diff also carries a path that
+    // reaches `git diff --no-index` for untracked files — both bounded so a
+    // hostile renderer can't OOM/smuggle an oversized argument across.
+    expect(() => validateIpcInput('git.isRepo', { workspaceId: 'ws' })).not.toThrow();
+    expect(() => validateIpcInput('git.isRepo', { workspaceId: '' })).toThrow();
+    expect(() => validateIpcInput('git.isRepo', {})).toThrow();
+    expect(() =>
+      validateIpcInput('git.isRepo', { workspaceId: 'w'.repeat(257) }),
+    ).toThrow();
+    expect(() => validateIpcInput('git.status', { workspaceId: 'ws' })).not.toThrow();
+    expect(() => validateIpcInput('git.status', { workspaceId: '' })).toThrow();
+    expect(() =>
+      validateIpcInput('git.diff', { workspaceId: 'ws', path: 'src/a.ts' }),
+    ).not.toThrow();
+    expect(() => validateIpcInput('git.diff', { workspaceId: 'ws', path: '' })).toThrow();
+    expect(() => validateIpcInput('git.diff', { workspaceId: '', path: 'a' })).toThrow();
+    expect(() => validateIpcInput('git.diff', { workspaceId: 'ws' })).toThrow();
+    expect(() =>
+      validateIpcInput('git.diff', { workspaceId: 'ws', path: 'x'.repeat(4097) }),
+    ).toThrow();
+  });
+
+  it('derives the runTurn inline-attachment kinds from the SDK enum', () => {
+    for (const kind of ['stdin', 'file', 'image', 'document', 'audio'] as const) {
+      expect(() =>
+        validateIpcInput('session.runTurn', {
+          prompt: 'x',
+          inlineAttachments: [{ kind, content: 'AAAA' }],
+        }),
+      ).not.toThrow();
+    }
+    expect(() =>
+      validateIpcInput('session.runTurn', {
+        prompt: 'x',
+        inlineAttachments: [{ kind: 'video', content: 'AAAA' }],
       }),
     ).toThrow();
   });

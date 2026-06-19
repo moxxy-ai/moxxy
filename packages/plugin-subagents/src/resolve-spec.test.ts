@@ -85,3 +85,66 @@ describe('resolveSpec', () => {
     expect(spec.label).toBe('default');
   });
 });
+
+describe('resolveSpec — recursion fan-out guard', () => {
+  // Untrusted model output can fan out 8 children; if each child inherits the
+  // full registry (including dispatch_agent) the depth is unbounded (8^N).
+  const parentTools = ['Read', 'Bash', 'dispatch_agent'];
+  const depsGuarded = {
+    getAgent: () => undefined,
+    getToolNames: () => parentTools,
+  };
+
+  it('defaults an unrestricted child to the parent tools MINUS dispatch_agent', () => {
+    const spec = resolveSpec(input(), depsGuarded);
+    expect(spec.allowedTools).toEqual(['Read', 'Bash']);
+    expect(spec.allowedTools).not.toContain('dispatch_agent');
+  });
+
+  it('preserves full inheritance (undefined allowlist) when getToolNames is not wired', () => {
+    const spec = resolveSpec(input(), { getAgent: () => undefined });
+    expect(spec.allowedTools).toBeUndefined();
+  });
+
+  it('lets the caller explicitly re-grant dispatch_agent', () => {
+    const spec = resolveSpec(
+      input({ allowedTools: ['Read', 'dispatch_agent'] }),
+      depsGuarded,
+    );
+    expect(spec.allowedTools).toEqual(['Read', 'dispatch_agent']);
+  });
+
+  it('lets a kind re-grant dispatch_agent via its allowedTools', () => {
+    const def: AgentDef = {
+      name: 'recurser',
+      description: 'x',
+      allowedTools: ['dispatch_agent', 'Read'],
+    };
+    const spec = resolveSpec(input({ agentType: 'recurser' }), {
+      getAgent: (n: string) => (n === 'recurser' ? def : undefined),
+      getToolNames: () => parentTools,
+    });
+    expect(spec.allowedTools).toEqual(['dispatch_agent', 'Read']);
+  });
+});
+
+describe('resolveSpec — label de-duplication', () => {
+  const deps = depsWith(undefined); // unknown kind → DEFAULT_AGENT (name "default")
+
+  it('suffixes a 1-based index for same-kind siblings in a multi-agent batch', () => {
+    const a = resolveSpec(input(), deps, { index: 0, total: 3 });
+    const b = resolveSpec(input(), deps, { index: 1, total: 3 });
+    const c = resolveSpec(input(), deps, { index: 2, total: 3 });
+    expect([a.label, b.label, c.label]).toEqual(['default-1', 'default-2', 'default-3']);
+  });
+
+  it('keeps the bare kind name for a single-agent batch', () => {
+    const spec = resolveSpec(input(), deps, { index: 0, total: 1 });
+    expect(spec.label).toBe('default');
+  });
+
+  it('never overrides an explicit caller label', () => {
+    const spec = resolveSpec(input({ label: 'mine' }), deps, { index: 1, total: 4 });
+    expect(spec.label).toBe('mine');
+  });
+});

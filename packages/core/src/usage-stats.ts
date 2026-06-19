@@ -1,8 +1,7 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { addModelTotals, createMutex, type ModelUsageTotals } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import { z } from 'zod';
 
 /**
  * Cross-session token usage, persisted at ~/.moxxy/usage.json. A forward-going
@@ -30,12 +29,35 @@ export interface UsageStatsFile {
 }
 
 export function usageStatsPath(): string {
-  return path.join(os.homedir(), '.moxxy', 'usage.json');
+  // Route through `moxxyPath` so a `$MOXXY_HOME` override relocates the usage
+  // aggregate alongside the rest of the data dir. Identical to
+  // `~/.moxxy/usage.json` when MOXXY_HOME is unset.
+  return moxxyPath('usage.json');
 }
 
 function emptyStats(): UsageStatsFile {
   return { version: 1, updatedAt: new Date().toISOString(), models: {} };
 }
+
+// Validates the on-disk shape so a hand-edited or partially-written file with a
+// non-numeric counter (e.g. `inputTokens: "100"`) can't flow into
+// `addModelTotals` and corrupt the persisted aggregate via string concatenation.
+// A failed parse falls through to `emptyStats()`, exactly like malformed JSON.
+const storedModelUsageSchema = z.object({
+  calls: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  cacheReadTokens: z.number(),
+  cacheCreationTokens: z.number(),
+  firstSeen: z.string(),
+  lastSeen: z.string(),
+});
+
+const usageStatsFileSchema = z.object({
+  version: z.literal(1),
+  updatedAt: z.string(),
+  models: z.record(z.string(), storedModelUsageSchema),
+});
 
 /**
  * Read the usage aggregate. Returns an empty file when missing or unparseable —
@@ -44,17 +66,12 @@ function emptyStats(): UsageStatsFile {
 export async function loadUsageStats(filePath: string = usageStatsPath()): Promise<UsageStatsFile> {
   try {
     const raw = await fs.readFile(filePath, 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as UsageStatsFile).models === 'object' &&
-      (parsed as UsageStatsFile).models !== null
-    ) {
-      return parsed as UsageStatsFile;
-    }
+    const result = usageStatsFileSchema.safeParse(JSON.parse(raw));
+    if (result.success) return result.data;
+    // shape-invalid (e.g. a non-numeric counter) — start fresh rather than let
+    // a corrupt entry poison the aggregate via string-concat addition.
   } catch {
-    // missing or malformed — start fresh
+    // missing or malformed JSON — start fresh
   }
   return emptyStats();
 }
@@ -97,7 +114,7 @@ export async function mergeUsageStats(
       if (d.calls === 0) continue;
       const existing = models[key];
       models[key] = existing
-        ? { ...addModelTotals(existing, d), firstSeen: existing.firstSeen, lastSeen: now }
+        ? { ...addModelTotals(existing, d), firstSeen: existing.firstSeen ?? now, lastSeen: now }
         : { ...d, firstSeen: now, lastSeen: now };
     }
     const next: UsageStatsFile = { version: 1, updatedAt: now, models };
@@ -113,7 +130,15 @@ export async function mergeUsageStats(
   });
 }
 
-/** Reset the aggregate to empty (the user-facing `/usage clear`). */
+/**
+ * Reset the aggregate to empty (the user-facing `/usage clear`). Runs inside the
+ * same `mergeMutex` as `mergeUsageStats` so a clear can't interleave with an
+ * in-flight merge's read-modify-write — otherwise the merge could write its
+ * stale-plus-delta snapshot back after the clear lands and resurrect the cleared
+ * aggregate (or the clear could clobber a concurrent merge).
+ */
 export async function clearUsageStats(filePath: string = usageStatsPath()): Promise<void> {
-  await writeAtomic(emptyStats(), filePath);
+  await mergeMutex.run(async () => {
+    await writeAtomic(emptyStats(), filePath);
+  });
 }

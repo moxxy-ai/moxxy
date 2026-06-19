@@ -2,6 +2,14 @@ import { isFileDiffDisplay, type MoxxyEvent, type ViewDoc } from '@moxxy/sdk';
 import type { ServerFrame } from './protocol.js';
 
 /**
+ * Cap on in-flight present_view calls awaiting their tool_result. A normal turn
+ * has at most a handful; entries only linger when a turn is aborted/errors before
+ * the tool resolves (no matching tool_result ever arrives). Bound it so an
+ * accumulation of aborts over a very long session can't leak unboundedly.
+ */
+const MAX_PENDING_CALLS = 64;
+
+/**
  * Folds the session's event stream into {@link ServerFrame}s for the browser.
  * Stateful: it correlates a `present_view` `tool_call_requested` with its
  * `tool_result` (to read the validated AST) and tracks the last view id so each
@@ -25,6 +33,13 @@ export class EventProjector {
         if (event.name === 'present_view') {
           const input = event.input as { fallbackText?: string } | undefined;
           this.presentCalls.set(String(event.callId), { fallbackText: input?.fallbackText });
+          // Evict the oldest pending call(s) if a long run of aborted/errored
+          // turns left their tool_result-less entries stranded.
+          while (this.presentCalls.size > MAX_PENDING_CALLS) {
+            const oldest = this.presentCalls.keys().next().value;
+            if (oldest === undefined) break;
+            this.presentCalls.delete(oldest);
+          }
           return [];
         }
         return [{ kind: 'status', turnId: String(event.turnId), phase: 'tool', text: `${event.name}…` }];

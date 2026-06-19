@@ -68,26 +68,35 @@ export async function handleProviderSetEnabled(
 export async function handleProviderRefreshReady(
   ctx: HandlerContext,
 ): Promise<Record<string, never>> {
-  const { session, broadcastInfo } = ctx;
+  const { session, prefsMutex, broadcastInfo } = ctx;
   // Re-probe every registered provider's credentials (vault keys / env /
   // OAuth tokens) so a key the user just saved flips readiness without a
   // runner restart. The resolver is the same non-interactive probe boot
   // uses; absent resolver (bare test sessions) → leave the set untouched.
   const resolver = session.credentialResolver;
   if (resolver) {
-    const ready = new Set<string>();
-    const active = session.providers.getActiveName();
-    if (active) ready.add(active);
-    for (const p of session.providers.list()) {
-      if (ready.has(p.name)) continue;
-      try {
-        await resolver(p.name);
-        ready.add(p.name);
-      } catch {
-        // not ready — leave out
+    // Run the read-await-loop-then-replace under the SAME mutex that serializes
+    // setActive/setEnabled. The body sequentially awaits a credential probe per
+    // provider, then assigns `session.readyProviders` in one shot — a multi-await
+    // critical section. Without serialization, two overlapping refreshReady calls
+    // (or a setActive landing mid-probe) can have the slower one's STALE set
+    // clobber the newer state (last-writer-wins). The mutex makes overlapping
+    // readiness recomputes serialize, matching setEnabled/setActive (invariant #5).
+    await prefsMutex.run(async () => {
+      const ready = new Set<string>();
+      const active = session.providers.getActiveName();
+      if (active) ready.add(active);
+      for (const p of session.providers.list()) {
+        if (ready.has(p.name)) continue;
+        try {
+          await resolver(p.name);
+          ready.add(p.name);
+        } catch {
+          // not ready — leave out
+        }
       }
-    }
-    session.readyProviders = ready;
+      session.readyProviders = ready;
+    });
   }
   broadcastInfo();
   return {};

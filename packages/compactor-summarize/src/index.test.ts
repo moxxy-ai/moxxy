@@ -32,6 +32,21 @@ function compaction(seq: number, range: [number, number], turnId: string): Moxxy
   } as MoxxyEvent;
 }
 
+function toolCall(seq: number, turnId: string, name: string, input: unknown): MoxxyEvent {
+  return {
+    id: `t${seq}` as never,
+    seq,
+    ts: 0,
+    type: 'tool_call_requested',
+    sessionId: 'sess' as never,
+    turnId: turnId as never,
+    source: 'model',
+    callId: `call-${seq}` as never,
+    name,
+    input,
+  } as MoxxyEvent;
+}
+
 describe('summarizeCompactor', () => {
   it('compacts events from 0 up to keepRecent-most-recent on first call', async () => {
     const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
@@ -81,7 +96,12 @@ describe('summarizeCompactor', () => {
       ev(7, 't5', 'turn5'),
     ];
     const result = await compactor.compact(events);
-    expect(result.replacedRange).toEqual([0, 0]);
+    // No-op range uses a sentinel that can never alias a live seq (seq 0 is a
+    // real event), so a caller that forgot to pre-filter still can't drop it.
+    expect(result.replacedRange).toEqual([
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER,
+    ]);
     expect(result.tokensSaved).toBe(0);
   });
 
@@ -155,5 +175,153 @@ describe('summarizeCompactor', () => {
     ];
     const result = await compactor.compact(events);
     expect(result.tokensSaved).toBe(0); // dispatcher will discard it
+  });
+
+  it('throws on an empty event log instead of fabricating a compaction', async () => {
+    const compactor = createSummarizeCompactor();
+    await expect(compactor.compact([])).rejects.toThrow(/no events/);
+  });
+
+  it('survives a tool_call with circular / undefined input (no crash, degrades to a marker)', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 1 });
+    const circular: Record<string, unknown> = {};
+    circular.self = circular; // JSON.stringify would throw
+    const events: MoxxyEvent[] = [
+      toolCall(0, 't1', 'Read', circular),
+      toolCall(1, 't1', 'NoArgs', undefined), // JSON.stringify(undefined) is not a string
+      ev(2, 't2', 'turn2'),
+    ];
+    // Must not throw, and must compact t1 (the oldest turn).
+    const result = await compactor.compact(events);
+    expect(result.replacedRange).toEqual([0, 1]);
+    expect(result.summary).toContain('Read');
+    expect(result.summary).not.toContain('undefined(');
+  });
+
+  it('falls back to a labeled digest when the provider stream emits an error event', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
+    const provider = {
+      name: 'fake',
+      models: [{ id: 'm', contextWindow: 100_000, supportsTools: true, supportsStreaming: true }],
+      stream: async function* () {
+        yield { type: 'error' as const, message: 'boom', retryable: true };
+      },
+      countTokens: () => Promise.resolve(0),
+    };
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'turn1-' + 'x'.repeat(400)),
+      ev(1, 't2', 'turn2'),
+      ev(2, 't3', 'turn3'),
+      ev(3, 't4', 'turn4'),
+    ];
+    const result = await compactor.compact(events, {
+      log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
+      budget: { contextWindow: 100_000, estimatedTokens: 90_000, reserveForOutput: 0 },
+      signal: new AbortController().signal,
+      provider: provider as never,
+      model: 'm',
+    });
+    expect(result.summary).toContain('not a summary'); // honest fallback label
+    expect(result.summary).toContain('turn1');
+  });
+
+  it('does NOT rewrite history when the turn is already aborted — it throws', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
+    const controller = new AbortController();
+    controller.abort();
+    let streamed = false;
+    const provider = {
+      name: 'fake',
+      models: [{ id: 'm', contextWindow: 100_000, supportsTools: true, supportsStreaming: true }],
+      stream: async function* () {
+        streamed = true;
+        yield { type: 'text_delta' as const, delta: 'should not be used' };
+      },
+      countTokens: () => Promise.resolve(0),
+    };
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'turn1'),
+      ev(1, 't2', 'turn2'),
+      ev(2, 't3', 'turn3'),
+      ev(3, 't4', 'turn4'),
+    ];
+    await expect(
+      compactor.compact(events, {
+        log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
+        budget: { contextWindow: 100_000, estimatedTokens: 90_000, reserveForOutput: 0 },
+        signal: controller.signal,
+        provider: provider as never,
+        model: 'm',
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(streamed).toBe(false); // bailed before touching the provider
+  });
+
+  it('does NOT degrade a cancelled custom summarizer to a fallback digest — it throws', async () => {
+    const controller = new AbortController();
+    const compactor = createSummarizeCompactor({
+      keepRecentTurns: 2,
+      summary: () => {
+        controller.abort(); // cancel mid-summary
+        return 'partial';
+      },
+    });
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'turn1'),
+      ev(1, 't2', 'turn2'),
+      ev(2, 't3', 'turn3'),
+      ev(3, 't4', 'turn4'),
+    ];
+    await expect(
+      compactor.compact(events, {
+        log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
+        budget: { contextWindow: 100_000, estimatedTokens: 90_000, reserveForOutput: 0 },
+        signal: controller.signal,
+      } as never),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('clamps keepRecentTurns=0 to >=1 so the active turn is never compacted away', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 0 });
+    const events: MoxxyEvent[] = [
+      ev(0, 't1', 'turn1'),
+      ev(1, 't2', 'turn2'),
+    ];
+    const result = await compactor.compact(events);
+    // With keepRecent floored to 1, only t1 is compacted; t2 (most recent) kept.
+    expect(result.replacedRange).toEqual([0, 0]);
+    expect(result.turnId).toBe('t1');
+  });
+
+  it('treats a NaN thresholdRatio as the 0.75 default so compaction still fires', () => {
+    const compactor = createSummarizeCompactor({ thresholdRatio: Number.NaN });
+    // estimatedTokens 80k of a 100k window > 0.75*100k → compaction triggers.
+    expect(
+      compactor.shouldCompact({} as never, {
+        contextWindow: 100_000,
+        estimatedTokens: 80_000,
+        reserveForOutput: 0,
+      }),
+    ).toBe(true);
+  });
+
+  it('only compacts the contiguous leading run under interleaved turnIds (never engulfs a kept turn)', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 2 });
+    // Interleaved: A, C, A, D. first-occurrence unique = [A, C, D]; keepRecent=2
+    // keeps C+D, compacts only A. C (KEPT) sits at seq 1, BETWEEN A's two events
+    // (seq 0 and seq 2). A last-match scan would set the range to [0,2], dropping
+    // C's seq 1 from projection. The leading-run stops at the first kept event,
+    // so the emitted range is [0,0] and never engulfs C.
+    const events: MoxxyEvent[] = [
+      ev(0, 'A', 'a-first'),
+      ev(1, 'C', 'c-kept'),
+      ev(2, 'A', 'a-second'),
+      ev(3, 'D', 'd'),
+    ];
+    const result = await compactor.compact(events);
+    expect(result.replacedRange).toEqual([0, 0]);
+    // C's seq 1 is NOT inside the replaced range.
+    const [from, to] = result.replacedRange;
+    expect(1 >= from && 1 <= to).toBe(false);
   });
 });

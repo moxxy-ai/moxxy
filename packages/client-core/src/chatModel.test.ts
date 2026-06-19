@@ -11,6 +11,8 @@ import {
   buildRenderNodes,
   createRuntime,
   groupToolNodes,
+  isRenderedEvent,
+  registerRenderablePlugin,
   type ChatRuntime,
   type Extension,
   type FoldedBlock,
@@ -332,5 +334,23 @@ describe('groupToolNodes', () => {
     const out = groupToolNodes([toolNode('bash'), toolNode('grep'), extNode(), toolNode('ls'), toolNode('cat')]);
     // group(2) + ext + group(2)
     expect(out.map((n) => n.kind)).toEqual(['tool-group', 'ext', 'tool-group']);
+  });
+});
+
+describe('isRenderedEvent plugin registry seam', () => {
+  const pluginEvent = (pluginId: string): MoxxyEvent =>
+    evt('plugin_event', { pluginId, subtype: 'x', payload: {} });
+
+  it('renders the seeded first-party plugin ids and rejects unknown ones', () => {
+    expect(isRenderedEvent(pluginEvent('@moxxy/subagents'))).toBe(true);
+    expect(isRenderedEvent(pluginEvent('@moxxy/mode-collaborative'))).toBe(true);
+    expect(isRenderedEvent(pluginEvent('@moxxy/something-else'))).toBe(false);
+  });
+
+  it('registerRenderablePlugin opts a plugin in without editing the core module', () => {
+    const id = '@moxxy/plugin-author-test';
+    expect(isRenderedEvent(pluginEvent(id))).toBe(false);
+    registerRenderablePlugin(id);
+    expect(isRenderedEvent(pluginEvent(id))).toBe(true);
   });
 });

@@ -10,7 +10,22 @@
  */
 
 import { z } from 'zod';
+import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
+
+/** Single source of truth for the runtime attachment-kind enum. It is tied to
+ *  the SDK's `UserPromptAttachment.kind` union by the assertion below, so if the
+ *  SDK adds/removes a kind this stops compiling instead of silently drifting
+ *  (the Zod enum would otherwise reject legit payloads with no typecheck link). */
+const USER_PROMPT_ATTACHMENT_KINDS = ['stdin', 'file', 'image', 'document', 'audio'] as const;
+// Compile-time bidirectional check: the tuple's members exactly cover the union.
+type _AttachmentKindsCover = UserPromptAttachment['kind'] extends
+  (typeof USER_PROMPT_ATTACHMENT_KINDS)[number]
+  ? (typeof USER_PROMPT_ATTACHMENT_KINDS)[number] extends UserPromptAttachment['kind']
+    ? true
+    : never
+  : never;
+const _attachmentKindsCover: _AttachmentKindsCover = true;
 
 /** Mirror of the main-process provider-name guard: a strict slug so a
  *  provider name can't inject a CLI flag or traverse the vault keyspace. */
@@ -24,12 +39,16 @@ const httpUrl = z
   .string()
   .refine((s) => {
     try {
-      const p = new URL(s).protocol;
-      return p === 'http:' || p === 'https:';
+      const u = new URL(s);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+      // Reject embedded credentials: `https://accounts.google.com@evil/...`
+      // opened in the default browser is a phishing primitive, and the validator
+      // is the documented choke point in front of shell.openExternal.
+      return u.username === '' && u.password === '';
     } catch {
       return false;
     }
-  }, 'must be an http(s) URL');
+  }, 'must be an http(s) URL without embedded credentials');
 
 /** Skill names map to files under ~/.moxxy/skills — forbid traversal and
  *  absolute paths, allow nested folders. */
@@ -150,7 +169,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     inlineAttachments: z
       .array(
         z.object({
-          kind: z.enum(['stdin', 'file', 'image', 'document', 'audio']),
+          kind: z.enum(USER_PROMPT_ATTACHMENT_KINDS),
           content: z.string().max(MAX_INLINE_ATTACHMENT_CONTENT),
           name: z.string().max(1024).optional(),
           mediaType: z.string().max(128).optional(),
@@ -195,6 +214,19 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: z.string().min(1).max(256),
     path: z.string().min(1).max(4096),
     force: z.boolean().optional(),
+  }),
+  // Git (Files-changed pane + diff viewer) shells out to `git` with the
+  // renderer-supplied workspaceId, and git.diff additionally with a renderer
+  // path that reaches `git diff --no-index -- <devNull> <path>` for untracked
+  // files. They touch a child process + the filesystem, so they get the same
+  // boundary check as the sibling workspace.* commands (the cwd-scoping authz
+  // lives handler-side; this caps the shape so a hostile renderer can't OOM/
+  // smuggle an oversized argument across).
+  'git.isRepo': z.object({ workspaceId: z.string().min(1).max(256) }),
+  'git.status': z.object({ workspaceId: z.string().min(1).max(256) }),
+  'git.diff': z.object({
+    workspaceId: z.string().min(1).max(256),
+    path: z.string().min(1).max(4096),
   }),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
   // Session config mutation — pin the effort to the known enum so a renderer

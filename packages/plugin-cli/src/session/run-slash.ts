@@ -25,7 +25,18 @@ export interface SlashDeps {
 
 export function runSlash(cmd: string, deps: SlashDeps): void {
   const [head, ...rest] = cmd.split(/\s+/);
-  const name = head!.slice(1); // drop leading "/"
+  // Guard an empty/whitespace command so this stays safe for any caller (not
+  // just handleSubmit, which only calls with a leading "/"). A bare "/" or ""
+  // would otherwise slice an empty name and fall through inconsistently.
+  if (!head || head === '/') {
+    deps.setSystemNotice(`unknown command: ${cmd}   (try /help)`);
+    return;
+  }
+  const name = head.slice(1); // drop leading "/"
+  // Case-folded key for the channel-local switch + intercepts below, so
+  // `/Queue` resolves the same as `/queue` (the registry lookup keeps the
+  // original case to match how plugins registered their command names).
+  const key = name.toLowerCase();
   const args = rest.join(' ');
 
   // First: route through the channel-agnostic command registry.
@@ -34,7 +45,7 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
   // `/workflows` opens an interactive TUI modal (list + enable/disable + run),
   // intercepted BEFORE the command registry so the overlay wins here while
   // non-TUI channels (which don't run this code) still get the text command.
-  if (name === 'workflows' || name === 'workflow' || name === 'flows') {
+  if (key === 'workflows' || key === 'workflow' || key === 'flows') {
     deps.setSystemNotice(null);
     deps.setOverlay({ kind: 'workflows' });
     return;
@@ -68,25 +79,26 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
   }
 
   // Channel-local commands the registry can't host because their
-  // handlers mutate React state or open Ink overlays.
-  switch (head) {
-    case '/queue':
+  // handlers mutate React state or open Ink overlays. Match against the
+  // case-folded key so `/Queue` resolves the same as `/queue`.
+  switch (key) {
+    case 'queue':
       return handleQueue(deps);
-    case '/clear-queue':
+    case 'clear-queue':
       return handleClearQueue(deps);
-    case '/tools':
+    case 'tools':
       deps.setSystemNotice(null);
       deps.setOverlay({ kind: 'tools' });
       return;
-    case '/skills':
+    case 'skills':
       deps.setSystemNotice(null);
       deps.setOverlay({ kind: 'skills' });
       return;
-    case '/agents':
+    case 'agents':
       deps.setSystemNotice(null);
       deps.setOverlay({ kind: 'agents' });
       return;
-    case '/usage':
+    case 'usage':
       deps.setSystemNotice(null);
       // `/usage clear` resets the saved cross-session aggregate; bare `/usage`
       // opens the panel. Clearing is a user-only action (no model tool).
@@ -102,21 +114,21 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       }
       deps.setOverlay({ kind: 'usage' });
       return;
-    case '/model':
+    case 'model':
       return openModelPicker(deps);
-    case '/mcp':
+    case 'mcp':
       return openMcpPicker(deps);
-    case '/mode':
-    case '/loop':
+    case 'mode':
+    case 'loop':
       return openModePicker(deps, args);
-    case '/plugins':
+    case 'plugins':
       return openPluginsPicker(deps);
-    case '/goal':
+    case 'goal':
       return startGoal(deps, args);
-    case '/collab':
+    case 'collab':
       return startCollab(deps, args);
-    case '/yolo':
-    case '/auto-approve':
+    case 'yolo':
+    case 'auto-approve':
       deps.setYolo((y) => {
         const next = !y;
         deps.setSystemNotice(

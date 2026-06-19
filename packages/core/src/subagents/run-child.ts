@@ -46,9 +46,10 @@ import {
 } from './events.js';
 import { buildFilteredToolRegistry } from './tools.js';
 import {
-  getRetainedChild,
+  claimRetainedChild,
   registerRetainedChild,
   releaseRetainedChild,
+  unclaimRetainedChild,
   type RetainedChildSession,
 } from './registry.js';
 
@@ -86,10 +87,13 @@ export async function runChildTurn(args: {
   if ('failure' in resolved) return resolved.failure;
   const { strategy, strategyName } = resolved;
 
+  // `undefined` means "inherit the full parent registry"; a present-but-empty
+  // array means "deny all" (least-privilege). Collapsing the two would turn an
+  // explicit [] into full tool inheritance — the opposite of the caller's intent.
   const toolRegistry: ToolRegistry =
-    spec.allowedTools && spec.allowedTools.length > 0
-      ? buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools))
-      : parentSession.tools;
+    spec.allowedTools === undefined
+      ? parentSession.tools
+      : buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools));
 
   const childModel = await resolveChildModel(rt, spec, label, childSessionId);
 
@@ -133,6 +137,7 @@ export async function runChildTurn(args: {
       strategyName,
       parentSession,
       parentTurnId,
+      tokensUsed: capture.tokensUsed,
     });
   }
 
@@ -144,42 +149,58 @@ export async function continueChildTurn(args: {
   prompt: string;
   label?: string;
 }): Promise<SubagentResult> {
-  const retained = getRetainedChild(args.childSessionId);
+  // Claim-then-run: atomically remove the entry from the registry and mark it
+  // busy so a racing continue()/release() for the same id can't observe the
+  // live entry and drive strategy.run over the same childLog/childCtx in
+  // parallel (interleaved appends, double-seeded prompts, double release).
+  const retained = claimRetainedChild(args.childSessionId);
   if (!retained) {
     throw new Error(`no retained subagent session for "${String(args.childSessionId)}"`);
   }
 
-  await retained.childLog.append({
-    type: 'user_prompt',
-    sessionId: retained.childSessionId,
-    turnId: retained.childTurnId,
-    source: 'user',
-    text: args.prompt,
-  });
+  try {
+    await retained.childLog.append({
+      type: 'user_prompt',
+      sessionId: retained.childSessionId,
+      turnId: retained.childTurnId,
+      source: 'user',
+      text: args.prompt,
+    });
 
-  const rt: SubagentRuntime = {
-    parentSession: retained.parentSession,
-    parentTurnId: retained.parentTurnId,
-    parentSignal: retained.childCtx.signal,
-    parentModel: retained.childCtx.model,
-  };
+    const rt: SubagentRuntime = {
+      parentSession: retained.parentSession,
+      parentTurnId: retained.parentTurnId,
+      // Re-derive the resume signal from the still-live owning session rather
+      // than reusing the possibly-already-aborted per-turn signal captured at
+      // first-turn spawn time (which would cancel the resume before any work).
+      parentSignal: retained.parentSession.signal,
+      parentModel: retained.childCtx.model,
+    };
 
-  const capture = await executeChildLoop({
-    rt,
-    spec: retained.spec,
-    label: args.label ?? retained.label,
-    childSessionId: retained.childSessionId,
-    childTurnId: retained.childTurnId,
-    childLog: retained.childLog,
-    childCtx: retained.childCtx,
-    strategy: retained.strategy,
-    strategyName: retained.strategyName,
-    emitCompleted: true,
-    skipStartEvent: true,
-  });
+    const capture = await executeChildLoop({
+      rt,
+      spec: retained.spec,
+      label: args.label ?? retained.label,
+      childSessionId: retained.childSessionId,
+      childTurnId: retained.childTurnId,
+      childLog: retained.childLog,
+      childCtx: retained.childCtx,
+      strategy: retained.strategy,
+      strategyName: retained.strategyName,
+      emitCompleted: true,
+      skipStartEvent: true,
+      // Carry forward the cost accumulated across prior turns so the deferred
+      // subagent_completed reports the retained session's cumulative usage, not
+      // just this last continue's delta.
+      priorTokensUsed: retained.tokensUsed ?? 0,
+    });
 
-  releaseRetainedChild(args.childSessionId);
-  return capture.result;
+    return capture.result;
+  } finally {
+    // The entry was already removed by the claim; just drop the busy marker so
+    // a future continue() (if the session were re-registered) isn't blocked.
+    unclaimRetainedChild(args.childSessionId);
+  }
 }
 
 async function executeChildLoop(args: {
@@ -194,7 +215,8 @@ async function executeChildLoop(args: {
   strategyName: string;
   emitCompleted: boolean;
   skipStartEvent?: boolean;
-}): Promise<{ result: SubagentResult }> {
+  priorTokensUsed?: number;
+}): Promise<{ result: SubagentResult; tokensUsed: number }> {
   const {
     rt,
     spec,
@@ -207,6 +229,7 @@ async function executeChildLoop(args: {
     strategyName,
     emitCompleted,
     skipStartEvent,
+    priorTokensUsed = 0,
   } = args;
   const { parentSession, parentTurnId } = rt;
 
@@ -214,7 +237,7 @@ async function executeChildLoop(args: {
     text: '',
     stopReason: 'end_turn' as StopReason,
     error: null as string | null,
-    tokensUsed: 0,
+    tokensUsed: priorTokensUsed,
   };
 
   const unsubCapture = childLog.subscribe((e) => {
@@ -280,7 +303,7 @@ async function executeChildLoop(args: {
     );
   }
 
-  return { result };
+  return { result, tokensUsed: capture.tokensUsed };
 }
 
 async function resolveStrategy(
@@ -296,23 +319,26 @@ async function resolveStrategy(
   const exact = parentSession.modes.list().find((s) => s.name === requestedStrategy);
   if (exact) return { strategy: exact, strategyName: requestedStrategy };
 
-  // Fall back to the default mode if the model invented a name
-  // (e.g. "react"). Failing the child outright wastes the user's turn —
-  // any reasonable agent task can run on the default mode. We surface the
-  // fallback as a non-fatal warning event so the operator sees it.
-  const fallback = parentSession.modes.list().find((s) => s.name === 'default');
+  // Fall back when the model invented a name (e.g. "react"). Failing the child
+  // outright wastes the user's turn — any reasonable agent task can run on the
+  // session's current strategy. Prefer a mode literally named "default", then
+  // the session's active mode (a host may ship a renamed/alternative default),
+  // surfacing the fallback as a non-fatal warning so the operator sees it.
+  const fallback =
+    parentSession.modes.list().find((s) => s.name === 'default') ??
+    safeActiveMode(parentSession);
   if (fallback) {
     await emitSubagentWarning(
       parentSession,
       parentTurnId,
       label,
       childSessionId,
-      `unknown mode "${requestedStrategy}" — falling back to "default"`,
+      `unknown mode "${requestedStrategy}" — falling back to "${fallback.name}"`,
     );
-    return { strategy: fallback, strategyName: 'default' };
+    return { strategy: fallback, strategyName: fallback.name };
   }
 
-  // No default mode either — that's a config error, not a model mistake.
+  // No fallback mode at all — that's a config error, not a model mistake.
   await emitSubagentStart(parentSession, parentTurnId, label, childSessionId, spec, requestedStrategy);
   const errorMsg = `Subagent failed: unknown mode "${requestedStrategy}" and no fallback available`;
   await emitSubagentCompleted(parentSession, parentTurnId, label, childSessionId, '', 'error', errorMsg, spec.agentType ?? 'default', 0);
@@ -325,6 +351,17 @@ async function resolveStrategy(
       error: { message: errorMsg },
     },
   };
+}
+
+/** `modes.getActive()` throws when no mode is active; treat that as "no fallback". */
+function safeActiveMode(
+  parentSession: SessionRuntime,
+): ReturnType<SessionRuntime['modes']['list']>[number] | undefined {
+  try {
+    return parentSession.modes.getActive();
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -105,7 +105,19 @@ function rankCosine(
 ): ReadonlyArray<RankedMemory> {
   const ranked: RankedMemory[] = [];
   for (let i = 0; i < entries.length; i++) {
-    const score = cosineSimilarity(vectors[i]!, query);
+    const vec = vectors[i]!;
+    // cosineSimilarity silently truncates to the shorter vector, so a stale
+    // cached vector or a provider quirk of the wrong dimensionality would
+    // produce a plausible-but-wrong score (invisible corruption). Skip the
+    // entry loudly instead of ranking it on a mismatched basis.
+    if (vec.length !== query.length) {
+      console.warn(
+        `[plugin-memory] skipping '${entries[i]!.frontmatter.name}' in recall: ` +
+          `vector dim ${vec.length} != query dim ${query.length} (cache/embedder drift)`,
+      );
+      continue;
+    }
+    const score = cosineSimilarity(vec, query);
     if (score > 0) ranked.push({ entry: entries[i]!, score });
   }
   ranked.sort((a, b) => b.score - a.score);

@@ -20,6 +20,24 @@ import { chmodSync, existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as nodePath from 'node:path';
 
+/**
+ * Upper bound on output/exit listeners on a single shared process. A surface
+ * whose `close()` never runs (the viewer disconnects abnormally, the desktop
+ * crashes mid-stream) leaks its subscription for the life of the shared shell.
+ * Past this many live listeners we warn once — a runaway count is a leak, not a
+ * legitimate fan-out (only a handful of viewers + the per-command reader are
+ * ever expected). The set is not hard-capped (dropping a real viewer's stream
+ * is worse than the warning), but the diagnostic makes the leak visible.
+ */
+const LISTENER_WARN_THRESHOLD = 64;
+
+/**
+ * Grace period before escalating a kill() from SIGTERM to SIGKILL. An
+ * interactive shell that ignores/handles SIGTERM (or is wedged) would otherwise
+ * never die; after this we force it.
+ */
+const KILL_ESCALATION_MS = 2_000;
+
 /** Minimal slice of node-pty we use — declared locally so typecheck never needs
  *  `@types/node-pty` (the dep is optional). */
 interface NodePtyModule {
@@ -159,6 +177,7 @@ export class TerminalProcessImpl implements TerminalProcess {
   private readonly dataListeners = new Set<(d: string) => void>();
   private readonly exitListeners = new Set<(c: number) => void>();
   private buffer = '';
+  private warnedListenerLeak = false;
   alive = true;
 
   constructor(
@@ -171,6 +190,14 @@ export class TerminalProcessImpl implements TerminalProcess {
       pty.onData((d) => this.emitData(d));
       pty.onExit((e) => this.emitExit(e.exitCode));
     } else if (child) {
+      // The shared child is long-lived and may be (re)subscribed by several
+      // viewers over its lifetime; make the intent explicit so Node never emits
+      // a false-positive "possible EventEmitter memory leak detected" warning on
+      // its streams. Our own fan-out Sets are the real bound (see addListener).
+      child.stdout.setMaxListeners(0);
+      child.stderr.setMaxListeners(0);
+      child.stdin.setMaxListeners(0);
+      child.setMaxListeners(0);
       child.stdout.on('data', (b: Buffer) => this.emitData(b.toString('utf8')));
       child.stderr.on('data', (b: Buffer) => this.emitData(b.toString('utf8')));
       child.on('exit', (code) => this.emitExit(code ?? 0));
@@ -181,6 +208,20 @@ export class TerminalProcessImpl implements TerminalProcess {
       child.stdin.on('error', () => {
         /* broken pipe after shell exit — ignored */
       });
+    }
+  }
+
+  /** Warn once when a listener Set grows past the leak threshold (a viewer whose
+   *  close() never ran keeps its subscription for the shell's whole life). */
+  private checkListenerLeak(): void {
+    if (this.warnedListenerLeak) return;
+    if (this.dataListeners.size + this.exitListeners.size > LISTENER_WARN_THRESHOLD) {
+      this.warnedListenerLeak = true;
+       
+      console.warn(
+        `[plugin-terminal] shared terminal has ${this.dataListeners.size} data + ` +
+          `${this.exitListeners.size} exit listeners — likely a viewer that never closed.`,
+      );
     }
   }
 
@@ -217,11 +258,13 @@ export class TerminalProcessImpl implements TerminalProcess {
 
   onData(cb: (d: string) => void): () => void {
     this.dataListeners.add(cb);
+    this.checkListenerLeak();
     return () => this.dataListeners.delete(cb);
   }
 
   onExit(cb: (c: number) => void): () => void {
     this.exitListeners.add(cb);
+    this.checkListenerLeak();
     return () => this.exitListeners.delete(cb);
   }
 
@@ -259,12 +302,57 @@ export class TerminalProcessImpl implements TerminalProcess {
   kill(): void {
     if (!this.alive) return;
     try {
-      this.pty?.kill();
-      this.child?.kill();
+      if (this.pty) {
+        // node-pty kills the conpty/pty session; on POSIX it signals the shell.
+        // Send SIGTERM, then escalate to SIGKILL after a grace period if the
+        // shell ignores/handles it (a wedged shell would otherwise never die).
+        this.pty.kill();
+        const pty = this.pty;
+        setTimeout(() => {
+          try {
+            pty.kill('SIGKILL');
+          } catch {
+            /* already gone */
+          }
+        }, KILL_ESCALATION_MS).unref?.();
+      }
+      if (this.child) this.killChildTree(this.child);
     } catch {
       /* already gone */
     }
     this.emitExit(0);
+  }
+
+  /**
+   * Terminate the piped shell AND its descendants. The child is spawned
+   * `detached` (its own process group), so a negative-pid signal reaches the
+   * whole tree — otherwise a running grandchild (a `sleep`, a dev server, a
+   * `tail -f`, a build) is reparented to init and leaks past session teardown,
+   * holding ports/files. Escalate SIGTERM → SIGKILL after a grace period.
+   */
+  private killChildTree(child: ChildProcessWithoutNullStreams): void {
+    const pid = child.pid;
+    const signalGroup = (signal: NodeJS.Signals): void => {
+      try {
+        if (pid !== undefined && process.platform !== 'win32') {
+          // Negative pid = the whole process group (requires detached spawn).
+          process.kill(-pid, signal);
+        } else {
+          // Windows / unknown pid: node handles its own tree (taskkill /T-like).
+          child.kill(signal);
+        }
+      } catch {
+        // No such process group (already dead) or not permitted — fall back to
+        // signaling just the child so we never leave it running.
+        try {
+          child.kill(signal);
+        } catch {
+          /* already gone */
+        }
+      }
+    };
+    signalGroup('SIGTERM');
+    setTimeout(() => signalGroup('SIGKILL'), KILL_ESCALATION_MS).unref?.();
   }
 }
 
@@ -273,6 +361,14 @@ export async function createTerminalProcess(cwd: string): Promise<TerminalProces
   const shell = defaultShell();
   const cols = 80;
   const rows = 24;
+  // SECURITY: the shared shell deliberately inherits the runner's full
+  // environment (API keys, tokens, MOXXY_* signing keys). This mirrors a real
+  // user shell so the agent's commands behave as the user expects (a script
+  // that needs $GITHUB_TOKEN works). The trade-off is that `env`/`printenv` can
+  // surface secrets into captured output and scrollback — acceptable because the
+  // terminal is a deliberately user-facing, user-controllable surface. Do NOT
+  // strip vars here (it would silently break legitimate commands); gate any
+  // scrubbing behind an explicit opt-in if ever needed.
   const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'xterm-256color' };
   const pty = await loadNodePty();
   let ptyError: string | null = pty ? null : 'node-pty is not installed';
@@ -307,6 +403,10 @@ export async function createTerminalProcess(cwd: string): Promise<TerminalProces
     cwd,
     env: { ...env, PS1: '$ ' },
     stdio: ['pipe', 'pipe', 'pipe'],
+    // Own process group (POSIX) so kill() can signal the WHOLE tree by negative
+    // pid — otherwise grandchildren (a dev server, a `tail -f`, a build) outlive
+    // the session. No-op semantics on Windows; node-pty handles its own tree.
+    detached: process.platform !== 'win32',
   });
   return new TerminalProcessImpl('pipe', null, child, ptyError);
 }

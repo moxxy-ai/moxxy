@@ -23,17 +23,33 @@ export {
   advertisedOrigins,
 } from './pairing.js';
 
-export type TunnelChoice = 'localhost' | 'cloudflared' | 'ngrok';
+/** `localhost` (no tunnel) plus the name of any registered provider. Kept a wide
+ *  `string` so a provider registered via {@link registerTunnelProvider} is a
+ *  valid choice without editing this union (the built-ins are documented here). */
+export type TunnelChoice = 'localhost' | 'cloudflared' | (string & {});
+
+/**
+ * Registry of tunnel providers keyed by name, instead of a hardcoded if/else.
+ * A new provider (e.g. the planned self-hosted relay client) registers itself
+ * via {@link registerTunnelProvider} rather than threading a third arm through
+ * `tunnelProviderFor` + `normalizeTunnelChoice` + the index.ts guard.
+ */
+const tunnelProviders = new Map<string, TunnelProviderDef>([
+  [cloudflaredTunnel.name, cloudflaredTunnel],
+  [ngrokTunnel.name, ngrokTunnel],
+]);
+
+/** Register (or override) a tunnel provider under its `name`. */
+export function registerTunnelProvider(provider: TunnelProviderDef): void {
+  tunnelProviders.set(provider.name, provider);
+}
 
 export function normalizeTunnelChoice(raw: string | undefined): TunnelChoice {
   const v = (process.env.MOXXY_MOBILE_TUNNEL ?? raw ?? 'localhost').trim().toLowerCase();
-  if (v === 'cloudflared' || v === 'ngrok') return v;
-  return 'localhost';
+  return tunnelProviders.has(v) ? v : 'localhost';
 }
 
-/** The provider for a choice, or null for `localhost` (no tunnel). */
+/** The provider for a choice, or null for `localhost` / an unknown name. */
 export function tunnelProviderFor(choice: TunnelChoice): TunnelProviderDef | null {
-  if (choice === 'cloudflared') return cloudflaredTunnel;
-  if (choice === 'ngrok') return ngrokTunnel;
-  return null;
+  return tunnelProviders.get(choice) ?? null;
 }

@@ -61,21 +61,23 @@ export function redact(text: string, opts: RedactOptions = {}): RedactResult {
   const mode: RedactionMode = opts.mode ?? 'label';
 
   // Compute the replacement string per span LEFT-TO-RIGHT so pseudonym numbers
-  // follow reading order, ...
-  const counters = new Map<PiiCategory, number>();
-  const memo = new Map<string, string>(); // `${category}:${lower(value)}` → token
+  // follow reading order. Key the memo + counter by the visible LABEL, not the
+  // category: distinct categories that share a label (ipv4/ipv6 → 'IP') must
+  // share one IP_n sequence so two different values never collapse to one token.
+  const counters = new Map<string, number>();
+  const memo = new Map<string, string>(); // `${label}:${lower(value)}` → token
   const replacementFor = (span: PiiSpan): string => {
     const label = LABELS[span.category];
     if (mode === 'label') return `[${label}]`;
-    const key = `${span.category}:${span.value.toLowerCase()}`;
+    const key = `${label}:${span.value.toLowerCase()}`;
     const existing = memo.get(key);
     if (existing) return existing;
     let token: string;
     if (mode === 'hash') {
       token = `[${label}:${shortHash(span.value.toLowerCase(), opts.hashSalt ?? '')}]`;
     } else {
-      const n = (counters.get(span.category) ?? 0) + 1;
-      counters.set(span.category, n);
+      const n = (counters.get(label) ?? 0) + 1;
+      counters.set(label, n);
       token = `${label}_${n}`;
     }
     memo.set(key, token);
@@ -83,12 +85,21 @@ export function redact(text: string, opts: RedactOptions = {}): RedactResult {
   };
   const replacements = spans.map(replacementFor);
 
-  // ...then splice RIGHT-TO-LEFT so earlier offsets stay valid as we go.
-  let out = text;
-  for (let i = spans.length - 1; i >= 0; i--) {
+  // ...then rebuild the output in a single LEFT-TO-RIGHT pass: append the gap
+  // before each span and its replacement, then the trailing tail, and join once.
+  // `detect()` returns spans sorted by start and non-overlapping, so prevEnd is
+  // monotonic. This is O(docLength + numSpans) — slicing per span and
+  // re-concatenating the whole (growing) string would be O(numSpans * docLength)
+  // and freezes the renderer on a document full of PII.
+  const parts: string[] = [];
+  let prevEnd = 0;
+  for (let i = 0; i < spans.length; i++) {
     const span = spans[i]!;
-    out = out.slice(0, span.start) + replacements[i] + out.slice(span.end);
+    parts.push(text.slice(prevEnd, span.start), replacements[i]!);
+    prevEnd = span.end;
   }
+  parts.push(text.slice(prevEnd));
+  const out = parts.join('');
 
   const counts = emptyCounts();
   for (const s of spans) counts[s.category] += 1;

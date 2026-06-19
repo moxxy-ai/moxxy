@@ -17,7 +17,7 @@
 import { createHash } from 'node:crypto';
 import { randomBytes } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
-import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, renameSync, rmSync, cpSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -52,6 +52,87 @@ export function isAllowedUpdateHost(url: string): boolean {
     return ALLOWED_HOSTS.some((re) => re.test(u.hostname));
   } catch {
     return false;
+  }
+}
+
+/** Per-request network timeout. A hung connection (no bytes, half-open socket)
+ *  must not wedge an in-flight update forever — abort and surface a real error. */
+const FETCH_TIMEOUT_MS = 60_000;
+/** Cap how many redirect hops we manually follow. Bounds work and stops a
+ *  redirect loop from spinning forever. */
+const MAX_REDIRECTS = 5;
+/** Hard ceiling on a downloaded bundle, well above any real release (current
+ *  bundles are a few MB; even the largest plausible dist tree is far under
+ *  this). A response that streams past it — chunked with no content-length, or
+ *  steered to a hostile host — is aborted before it can OOM the process. */
+const MAX_BUNDLE_BYTES = 512 * 1024 * 1024;
+/** Mirror of {@link MAX_BUNDLE_BYTES} for the inflated payload: a hash-matching
+ *  but pathological gzip (signing-key compromise / builder bug) can't be allowed
+ *  to inflate without bound. */
+const MAX_INFLATED_BYTES = 1024 * 1024 * 1024;
+
+/**
+ * `fetch` that enforces the host allowlist on EVERY hop. The platform `fetch`
+ * with `redirect:'follow'` only validates the URL we hand it, never the 302
+ * targets — GitHub release-asset downloads redirect to object-store hostnames
+ * outside the allowlist, so the SSRF/privacy boundary ("only allowlisted hosts
+ * are ever contacted") would silently stop holding past the first hop. We follow
+ * manually with `redirect:'manual'` and re-run {@link isAllowedUpdateHost} on
+ * each `Location` before refetching. Also wires an AbortController timeout so a
+ * hung connection can't wedge the update.
+ */
+async function fetchAllowed(
+  fetchImpl: typeof fetch,
+  url: string,
+  init?: RequestInit,
+): Promise<Response> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!isAllowedUpdateHost(current)) {
+      throw new Error('update host is not on an allowed origin');
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetchImpl(current, { ...init, redirect: 'manual', signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+    // A `redirect:'manual'` response surfaces 3xx as an opaque/`type:'opaqueredirect'`
+    // response or a normal 3xx with a `Location`. Some test/polyfill fetches
+    // ignore `redirect:'manual'` and pre-follow; in that case status is 2xx and
+    // there is no Location, so we return it (the final URL was the allowlisted
+    // one we asked for).
+    const status = res.status;
+    const isRedirect = res.type === 'opaqueredirect' || (status >= 300 && status < 400);
+    if (!isRedirect) return res;
+    const location = res.headers.get('location');
+    if (!location) {
+      // Opaque redirect with no readable target — can't re-validate, so refuse
+      // rather than blindly follow.
+      throw new Error('update redirect target could not be validated');
+    }
+    current = new URL(location, current).toString();
+  }
+  throw new Error('too many update redirects');
+}
+
+/** Like {@link fetchAllowed} but WITHOUT the host allowlist — only the timeout.
+ *  For the dev/test manifest override, which is intentionally off-allowlist (it
+ *  is only ever forwarded on an unpackaged build) but must still bound a hung
+ *  connection. */
+async function fetchWithTimeout(
+  fetchImpl: typeof fetch,
+  url: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetchImpl(url, { ...init, redirect: 'follow', signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -122,7 +203,9 @@ function nextLink(header: string | null): string | undefined {
  * We page with `per_page=100` and follow `Link: rel="next"` up to
  * {@link MAX_RELEASE_PAGES} so a burst of newer non-desktop releases (frequent
  * `@moxxy/cli` npm cuts) can't bury the latest `desktop-v*` below the first page
- * and make a real update masquerade as "no release found".
+ * and make a real update masquerade as "no release found". Releases come back
+ * newest-first, so once a page yields ANY `desktop-v*` candidate we stop paging:
+ * a later page can only hold older tags.
  */
 async function resolveDesktopRelease(
   repo: string,
@@ -135,8 +218,7 @@ async function resolveDesktopRelease(
     let releases: unknown;
     let linkHeader: string | null;
     try {
-      const res = await fetchImpl(url, {
-        redirect: 'follow',
+      const res = await fetchAllowed(fetchImpl, url, {
         // GitHub's API rejects requests without a User-Agent.
         headers: { accept: 'application/vnd.github+json', 'user-agent': 'moxxy-desktop' },
       });
@@ -148,6 +230,7 @@ async function resolveDesktopRelease(
     }
     if (!Array.isArray(releases)) return null;
 
+    const before = candidates.length;
     for (const r of releases) {
       if (
         !!r &&
@@ -166,10 +249,17 @@ async function resolveDesktopRelease(
         });
       }
     }
+    // Newest-first ordering: a page that produced a candidate has the newest
+    // desktop-v* on it, so no later page can beat it — stop walking.
+    if (candidates.length > before) break;
     url = nextLink(linkHeader);
   }
 
-  candidates.sort((a, b) => compareSemver(a.version, b.version));
+  // Sort newest-LAST. compareSemver returns 0 for same-core tags that differ only
+  // in their build/prerelease suffix, so add a deterministic tie-break (tag
+  // compare) — otherwise two equal-core tags order unspecified and "the highest"
+  // isn't stable across runs.
+  candidates.sort((a, b) => compareSemver(a.version, b.version) || (a.version < b.version ? -1 : a.version > b.version ? 1 : 0));
   const latest = candidates[candidates.length - 1];
   if (!latest) return null;
 
@@ -224,8 +314,17 @@ export async function checkForUpdate(
 
   let manifestUrl: string;
   let bundleUrl: string | undefined;
+  // The discovered (prod) manifest URL is allowlist-pinned on every hop; the
+  // dev/test override is intentionally off-allowlist (the IPC gate only forwards
+  // it on an unpackaged build), but still require https so it can't be silently
+  // downgraded to http even in dev.
+  let pinManifestHost = true;
   if (manifestUrlOverride) {
-    manifestUrl = manifestUrlOverride; // dev override — not host-pinned
+    if (!/^https:\/\//i.test(manifestUrlOverride)) {
+      return none('The update manifest URL must use https.');
+    }
+    manifestUrl = manifestUrlOverride;
+    pinManifestHost = false;
   } else {
     const release = await resolveDesktopRelease(repo, fetchImpl);
     if (!release) return none('Could not find a published desktop release to update from.');
@@ -235,7 +334,9 @@ export async function checkForUpdate(
 
   let text: string;
   try {
-    const res = await fetchImpl(manifestUrl, { redirect: 'follow' });
+    const res = pinManifestHost
+      ? await fetchAllowed(fetchImpl, manifestUrl)
+      : await fetchWithTimeout(fetchImpl, manifestUrl);
     if (!res.ok) return none(`Update manifest not reachable (HTTP ${res.status}).`);
     text = await res.text();
   } catch {
@@ -326,13 +427,23 @@ export async function downloadAndStage(
     throw new Error('update bundle is not hosted on an allowed origin');
   }
 
-  // 1. Download the gzipped bundle, streaming progress.
+  // 1. Download the gzipped bundle, streaming progress. The allowlist is
+  // re-checked on EVERY redirect hop (object-store 302s leave github.com), and a
+  // timeout bounds a hung connection.
   report({ phase: 'download', message: 'Downloading…' });
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const res = await fetchImpl(downloadUrl, { redirect: 'follow' });
+  const res = await fetchAllowed(fetchImpl, downloadUrl);
   if (!res.ok) throw new Error(`bundle download failed (HTTP ${res.status})`);
   const total = Number(res.headers.get('content-length')) || undefined;
-  const gz = await readAll(res, (received) => report({ phase: 'download', received, total }));
+  // Reject a declared-oversize download before reading a single byte.
+  if (typeof total === 'number' && total > MAX_BUNDLE_BYTES) {
+    throw new Error('update bundle is larger than the maximum allowed size');
+  }
+  const gz = await readAll(
+    res,
+    (received) => report({ phase: 'download', received, total }),
+    MAX_BUNDLE_BYTES,
+  );
   // Reconcile the bar with the bytes actually received: a chunked / proxy-
   // stripped response has no content-length (total undefined → indeterminate
   // bar), and a transport-compressed content-length can differ from the
@@ -348,11 +459,16 @@ export async function downloadAndStage(
     throw new Error('bundle hash does not match the signed manifest');
   }
 
-  // 3. Decode the bundle.
+  // 3. Decode the bundle. Bound the inflate so a hash-matching but pathological
+  // archive (signing-key compromise / builder bug) can't OOM where a bounded
+  // inflate fails cleanly — gunzipSync throws RangeError past maxOutputLength.
   let payload: BundlePayload;
   try {
-    payload = JSON.parse(gunzipSync(gz).toString('utf8')) as BundlePayload;
-  } catch {
+    payload = JSON.parse(
+      gunzipSync(gz, { maxOutputLength: MAX_INFLATED_BYTES }).toString('utf8'),
+    ) as BundlePayload;
+  } catch (e) {
+    if (e instanceof RangeError) throw new Error('bundle payload too large');
     throw new Error('bundle payload is corrupt');
   }
   if (payload.version !== manifest.version || !payload.files || typeof payload.files !== 'object') {
@@ -400,7 +516,7 @@ export async function downloadAndStage(
     report({ phase: 'activate', message: 'Finishing…' });
     const finalRoot = bundleRoot(userDataDir, manifest.version);
     if (existsSync(finalRoot)) rmSync(finalRoot, { recursive: true, force: true });
-    renameSync(incoming, finalRoot);
+    movePopulatedDir(incoming, finalRoot);
     setActiveVersion(userDataDir, manifest.version);
     // The user explicitly chose to install this version — clear any prior poison
     // mark so a one-off failed boot can't leave it permanently unloadable (the
@@ -415,28 +531,56 @@ export async function downloadAndStage(
   return { version: manifest.version };
 }
 
-/** Drain a fetch Response body into one Buffer, reporting cumulative bytes. */
+/** Drain a fetch Response body into one Buffer, reporting cumulative bytes and
+ *  aborting once `maxBytes` is exceeded — a chunked / no-content-length response
+ *  must not grow the buffer without bound (OOM DoS). */
 async function readAll(
   res: Response,
   onChunk: (received: number) => void,
+  maxBytes: number,
 ): Promise<Buffer> {
   if (!res.body) {
     const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > maxBytes) throw new Error('update bundle exceeded the maximum allowed size');
     onChunk(buf.length);
     return buf;
   }
   const reader = res.body.getReader();
   const chunks: Buffer[] = [];
   let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      const buf = Buffer.from(value);
-      chunks.push(buf);
-      received += buf.length;
-      onChunk(received);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        const buf = Buffer.from(value);
+        received += buf.length;
+        if (received > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error('update bundle exceeded the maximum allowed size');
+        }
+        chunks.push(buf);
+        onChunk(received);
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
   return Buffer.concat(chunks);
+}
+
+/** Move a fully-populated incoming dir onto `finalRoot`. `renameSync` is atomic
+ *  on the same filesystem (the normal case — both live under `<userData>/app/`),
+ *  but a relocated/network-redirected userData can land them on different devices
+ *  where rename throws EXDEV. Fall back to a recursive copy + remove so a staged
+ *  install isn't a silent dead-end. The caller's `finally` rmSyncs any leftover
+ *  `incoming`. */
+function movePopulatedDir(incoming: string, finalRoot: string): void {
+  try {
+    renameSync(incoming, finalRoot);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== 'EXDEV') throw e;
+    cpSync(incoming, finalRoot, { recursive: true });
+    rmSync(incoming, { recursive: true, force: true });
+  }
 }

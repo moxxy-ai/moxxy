@@ -64,7 +64,17 @@ async function sendImmediate(
       type: 'send_failed',
       message: toErrorMessage(e),
     });
+    // A failed send produces NO turn_complete, so the queue drainer would never
+    // fire — keep the queue moving by sending the next item now. Otherwise every
+    // remaining queued message strands behind the failure with no retry.
+    drainNext(workspaceId);
   }
+}
+
+/** Pop the next queued turn for a workspace and fire it (no-op when empty). */
+function drainNext(workspaceId: string): void {
+  const next = chatStore.shiftQueue(workspaceId);
+  if (next) void sendImmediate(workspaceId, next.prompt, next.attachments);
 }
 
 /** Sessions the desk registry auto-named — the ones whose sidebar title is
@@ -122,9 +132,15 @@ export function ChatStoreBridge(): null {
         turnId: string;
         error: string | null;
       }) => {
+        // A background/hidden turn (e.g. AI skill drafting) runs as a real
+        // runner turn and still emits turn_complete here — but draining the
+        // user's pending queue on its completion would fire a queued prompt out
+        // of band (possibly while a real foreground turn is still in flight).
+        // dispatch() clears the hidden flag, so capture it BEFORE dispatching.
+        const wasHidden = chatStore.isHidden(turnId);
         chatStore.dispatch(workspaceId, { type: 'turn_complete', turnId, error });
-        const next = chatStore.shiftQueue(workspaceId);
-        if (next) void sendImmediate(workspaceId, next.prompt, next.attachments);
+        if (wasHidden) return;
+        drainNext(workspaceId);
       },
     );
     const offAsk = wireAskBridge();
@@ -132,6 +148,12 @@ export function ChatStoreBridge(): null {
       offEvent();
       offComplete();
       offAsk();
+      // Cancel a pending title-refresh so it can't fire an IPC round-trip after
+      // the bridge (and the view) has torn down.
+      if (titleRefreshTimer) {
+        clearTimeout(titleRefreshTimer);
+        titleRefreshTimer = null;
+      }
     };
   }, []);
   return null;

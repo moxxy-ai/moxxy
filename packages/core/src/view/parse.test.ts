@@ -229,4 +229,18 @@ describe('validateDoc', () => {
     expect(errsFor('link', { href: 'https://example.com' })).toEqual([]);
     expect(errsFor('image', { src: 'data:image/png;base64,AAAA' })).toEqual([]);
   });
+
+  it('rejects a pathologically deep hand-built AST instead of overflowing the stack', () => {
+    // A validator that itself throws RangeError is worse than one that rejects.
+    // Build a tree far deeper than the parser's source-length budget would allow.
+    let root: ViewNode = { kind: 'element', tag: 'stack', props: {}, children: [] };
+    for (let i = 0; i < 20000; i++) {
+      root = { kind: 'element', tag: 'stack', props: {}, children: [root] };
+    }
+    let errs: ReadonlyArray<{ message: string }> = [];
+    expect(() => {
+      errs = validateDoc({ root }, DEFAULT_VIEW_TAGS);
+    }).not.toThrow();
+    expect(errs.some((e) => /view nesting too deep/.test(e.message))).toBe(true);
+  });
 });

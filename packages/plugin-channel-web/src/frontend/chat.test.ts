@@ -33,4 +33,15 @@ describe('ChatPanel', () => {
     expect(err).toContain('chat-status err');
     expect(err).toContain('boom');
   });
+
+  it('is an accessible modal dialog with a live message region', () => {
+    // Focus trap / Escape / focus restoration are effect-driven and need a DOM
+    // harness (this package's vitest env is `node`); the static markup still
+    // asserts the ARIA contract a screen reader relies on.
+    const html = render([{ role: 'assistant', text: 'hi' }]);
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain('aria-live="polite"');
+    expect(html).toMatch(/role="log"/);
+  });
 });

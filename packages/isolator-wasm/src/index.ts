@@ -1,4 +1,12 @@
-import { promises as fs, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync } from 'node:fs';
+import {
+  promises as fs,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  mkdirSync,
+  realpathSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Buffer } from 'node:buffer';
@@ -89,6 +97,24 @@ type WasmMemoryExports = {
 const SUCCESS = 0;
 const ERROR = 1;
 
+/**
+ * Hard ceiling on bytes the wasm broker will buffer or hand back across the
+ * boundary in one op — mirrors `@moxxy/plugin-security`'s `MAX_BROKER_OUTPUT_BYTES`
+ * (8 MB). Caps the handler's declared output region and the remote-module
+ * download so a buggy/hostile module returning `outputLen=0xffffffff` (or a
+ * gigabyte response) can't force a huge `TextDecoder`/`Buffer` allocation and
+ * OOM the host before parsing.
+ */
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+
+/** Upper bound on the number of argv elements a brokered exec may carry. */
+const MAX_EXEC_ARGV = 4096;
+
+// Encoders/decoders are stateless and reusable; allocating a fresh one per
+// broker call / string op (in a handler that loops over many ops) is pure waste.
+const UTF8_DECODER = new TextDecoder();
+const UTF8_ENCODER = new TextEncoder();
+
 export function createWasmIsolator(opts: WasmIsolatorOptions = {}): Isolator {
   const defaultTimeMs = opts.defaultTimeMs ?? 60_000;
 
@@ -110,30 +136,46 @@ export function createWasmIsolator(opts: WasmIsolatorOptions = {}): Isolator {
       const abortError = (): Error =>
         new Error(`[security:wasm] tool '${call.toolName}' aborted`);
 
-      return await Promise.race([
-        invoke(call, caps, signal),
-        new Promise<never>((_resolve, reject) => {
-          if (signal.aborted) {
-            reject(abortError());
-            return;
-          }
-          const timer = setTimeout(() => {
-            reject(
-              new Error(
-                `[security:wasm] tool '${call.toolName}' exceeded ${timeMs}ms budget`,
-              ),
-            );
-          }, timeMs);
-          signal.addEventListener(
-            'abort',
-            () => {
-              clearTimeout(timer);
+      // NOTE: wasm handler/broker execution is SYNCHRONOUS on the event loop
+      // (the wasm VM call and `spawnSync` block it), so neither this timer nor
+      // the abort listener can fire WHILE that synchronous work runs — they only
+      // win the race when `invoke` yields at an `await`. Hard wall-clock/abort
+      // enforcement against a runaway sync wasm loop requires running the module
+      // in a terminable Worker thread (out of scope here); `caps.timeMs` is also
+      // passed to `spawnSync` so a hung child is killed by the OS, not just here.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let onAbort: (() => void) | undefined;
+      try {
+        return await Promise.race([
+          invoke(call, caps, signal, timeMs),
+          new Promise<never>((_resolve, reject) => {
+            if (signal.aborted) {
               reject(abortError());
-            },
-            { once: true },
-          );
-        }),
-      ]);
+              return;
+            }
+            timer = setTimeout(() => {
+              reject(
+                new Error(
+                  `[security:wasm] tool '${call.toolName}' exceeded ${timeMs}ms budget`,
+                ),
+              );
+            }, timeMs);
+            // Don't keep the event loop alive solely for this timer; on the
+            // success path `invoke` resolves first and the (uncleared-until-
+            // finally) timer would otherwise delay a clean process exit.
+            timer.unref?.();
+            onAbort = (): void => reject(abortError());
+            signal.addEventListener('abort', onAbort, { once: true });
+          }),
+        ]);
+      } finally {
+        // Always clear the timer and remove the abort listener — without this
+        // the success path leaks one listener per call on a long-lived session
+        // signal (eventually MaxListenersExceededWarning) and a 60s timer that
+        // pins the event loop.
+        if (timer) clearTimeout(timer);
+        if (onAbort) signal.removeEventListener('abort', onAbort);
+      }
     },
   };
 }
@@ -141,11 +183,12 @@ export function createWasmIsolator(opts: WasmIsolatorOptions = {}): Isolator {
 async function invoke(
   call: IsolatedToolCall,
   caps: CapabilitySpec,
-  _signal: AbortSignal,
+  signal: AbortSignal,
+  timeMs: number,
 ): Promise<unknown> {
-  const bytes = await fetchWasmBytes(call.moduleRef!.url);
+  const bytes = await fetchWasmBytes(call.moduleRef!.url, signal);
   const memoryHolder: MemoryHolder = { current: null };
-  const env = buildWasmHostImports(memoryHolder, caps, call.cwd);
+  const env = buildWasmHostImports(memoryHolder, caps, call.cwd, timeMs);
   // BufferSource cast: TS5+ types Uint8Array as <ArrayBufferLike>
   // which includes SharedArrayBuffer; WebAssembly.compile wants a
   // non-shared ArrayBuffer. Our bytes always come from a non-shared
@@ -171,7 +214,7 @@ async function invoke(
     );
   }
 
-  const inputBytes = new TextEncoder().encode(JSON.stringify(call.input));
+  const inputBytes = UTF8_ENCODER.encode(JSON.stringify(call.input));
   const inputPtr = exports.alloc(inputBytes.length);
   new Uint8Array(exports.memory.buffer, inputPtr, inputBytes.length).set(inputBytes);
 
@@ -191,10 +234,33 @@ async function invoke(
   const outputLen = Number(packed & 0xffff_ffffn);
 
   if (outputLen === 0) return undefined;
+  // Validate the module-controlled (ptr,len) against the real buffer BEFORE
+  // constructing the view: an out-of-range len makes `new Uint8Array` throw a
+  // bare `RangeError: Invalid typed array length` with no context, and a
+  // multi-hundred-MB len would force a huge decode allocation (memory-pressure
+  // DoS). Frame both as actionable ABI errors and cap the size.
+  if (outputLen > MAX_OUTPUT_BYTES) {
+    throw new Error(
+      `[security:wasm] handler returned oversized output (${outputLen} bytes > ${MAX_OUTPUT_BYTES} limit)`,
+    );
+  }
+  const byteLength = exports.memory.buffer.byteLength;
+  if (outputPtr < 0 || outputPtr + outputLen > byteLength) {
+    throw new Error(
+      `[security:wasm] handler returned out-of-range output region ` +
+        `(ptr=${outputPtr}, len=${outputLen}, memory=${byteLength} bytes)`,
+    );
+  }
   const outputBytes = new Uint8Array(exports.memory.buffer, outputPtr, outputLen);
-  const outputJson = new TextDecoder().decode(outputBytes);
+  const outputJson = UTF8_DECODER.decode(outputBytes);
   if (outputJson === '') return undefined;
-  return JSON.parse(outputJson);
+  try {
+    return JSON.parse(outputJson);
+  } catch (e) {
+    throw new Error(
+      `[security:wasm] handler output is not valid JSON: ${(e as Error).message}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +293,7 @@ export function buildWasmHostImports(
   memoryHolder: MemoryHolder,
   caps: CapabilitySpec,
   cwd: string,
+  defaultTimeMs = 60_000,
 ): WebAssembly.ModuleImports {
   const memOf = (): WebAssembly.Memory => {
     const m = memoryHolder.current;
@@ -235,7 +302,7 @@ export function buildWasmHostImports(
   };
 
   const readStr = (ptr: number, len: number): string => {
-    return new TextDecoder().decode(new Uint8Array(memOf().buffer, ptr, len));
+    return UTF8_DECODER.decode(new Uint8Array(memOf().buffer, ptr, len));
   };
 
   const sendBytes = (outPtrOut: number, outLenOut: number, bytes: Uint8Array): void => {
@@ -254,7 +321,7 @@ export function buildWasmHostImports(
   };
 
   const sendStr = (outPtrOut: number, outLenOut: number, s: string): void => {
-    sendBytes(outPtrOut, outLenOut, new TextEncoder().encode(s));
+    sendBytes(outPtrOut, outLenOut, UTF8_ENCODER.encode(s));
   };
 
   const sendErr = (outPtrOut: number, outLenOut: number, message: string): number => {
@@ -274,15 +341,16 @@ export function buildWasmHostImports(
       outLenOut: number,
     ): number => {
       const filePath = readStr(pathPtr, pathLen);
-      if (!pathInScope(filePath, caps.fs, cwd, 'read')) {
-        return sendErr(
-          outPtrOut,
-          outLenOut,
-          `[broker:fs.readFile] path '${filePath}' is outside the tool's declared fs.read capability`,
-        );
+      let real: string;
+      try {
+        // Canonicalize + re-validate (symlink-free) so a symlink inside scope
+        // can't escape to an out-of-scope target. Throws when out of scope.
+        real = realpathInScope(filePath, caps, cwd, 'read', 'broker:fs.readFile');
+      } catch (e) {
+        return sendErr(outPtrOut, outLenOut, (e as Error).message);
       }
       try {
-        const bytes = readFileSync(filePath);
+        const bytes = readFileSync(real);
         sendBytes(outPtrOut, outLenOut, new Uint8Array(bytes));
         return SUCCESS;
       } catch (e) {
@@ -310,21 +378,24 @@ export function buildWasmHostImports(
       outLenOut: number,
     ): number => {
       const filePath = readStr(pathPtr, pathLen);
+      // Cap-check BEFORE touching the payload: an out-of-scope path is a clean
+      // deny, and a bogus `dataLen` shouldn't surface a RangeError that masks
+      // the real (cap) failure. Canonicalize so a symlinked parent dir can't
+      // smuggle the write out of scope.
+      let real: string;
+      try {
+        real = realpathInScope(filePath, caps, cwd, 'write', 'broker:fs.writeFile');
+      } catch (e) {
+        return sendErr(outPtrOut, outLenOut, (e as Error).message);
+      }
       // Read the payload as raw bytes — NOT through a UTF-8 round-trip, which
       // would lossily replace any non-UTF-8 byte with U+FFFD before it hits
       // disk. `.slice()` copies out of the live wasm buffer (which can be
       // detached/regrown later in the call). Mirrors read_file's byte fidelity.
       const data = new Uint8Array(memOf().buffer, dataPtr, dataLen).slice();
-      if (!pathInScope(filePath, caps.fs, cwd, 'write')) {
-        return sendErr(
-          outPtrOut,
-          outLenOut,
-          `[broker:fs.writeFile] path '${filePath}' is outside the tool's declared fs.write capability`,
-        );
-      }
       try {
-        mkdirSync(path.dirname(filePath), { recursive: true });
-        writeFileSync(filePath, Buffer.from(data));
+        mkdirSync(path.dirname(real), { recursive: true });
+        writeFileSync(real, Buffer.from(data));
         writePtrPair(memOf(), outPtrOut, outLenOut, 0, 0);
         return SUCCESS;
       } catch (e) {
@@ -343,15 +414,14 @@ export function buildWasmHostImports(
       outLenOut: number,
     ): number => {
       const dirPath = readStr(pathPtr, pathLen);
-      if (!pathInScope(dirPath, caps.fs, cwd, 'read')) {
-        return sendErr(
-          outPtrOut,
-          outLenOut,
-          `[broker:fs.readdir] path '${dirPath}' is outside the tool's declared fs.read capability`,
-        );
+      let real: string;
+      try {
+        real = realpathInScope(dirPath, caps, cwd, 'read', 'broker:fs.readdir');
+      } catch (e) {
+        return sendErr(outPtrOut, outLenOut, (e as Error).message);
       }
       try {
-        const entries = readdirSync(dirPath);
+        const entries = readdirSync(real);
         sendStr(outPtrOut, outLenOut, entries.join('\n'));
         return SUCCESS;
       } catch (e) {
@@ -370,15 +440,14 @@ export function buildWasmHostImports(
       outLenOut: number,
     ): number => {
       const filePath = readStr(pathPtr, pathLen);
-      if (!pathInScope(filePath, caps.fs, cwd, 'read')) {
-        return sendErr(
-          outPtrOut,
-          outLenOut,
-          `[broker:fs.stat] path '${filePath}' is outside the tool's declared fs.read capability`,
-        );
+      let real: string;
+      try {
+        real = realpathInScope(filePath, caps, cwd, 'read', 'broker:fs.stat');
+      } catch (e) {
+        return sendErr(outPtrOut, outLenOut, (e as Error).message);
       }
       try {
-        const st = statSync(filePath);
+        const st = statSync(real);
         sendStr(
           outPtrOut,
           outLenOut,
@@ -424,7 +493,30 @@ export function buildWasmHostImports(
       try {
         const json = readStr(argvJsonPtr, argvJsonLen);
         const parsed = JSON.parse(json) as unknown;
-        if (Array.isArray(parsed)) argv = parsed.map(String);
+        if (!Array.isArray(parsed)) {
+          return sendErr(outPtrOut, outLenOut, `[broker:exec] argv must be a JSON string[]`);
+        }
+        // Bound the argv before spawning: a module can hand over an arbitrarily
+        // large array, and a structured/non-string element should surface as an
+        // ABI error rather than being coerced to '[object Object]'.
+        if (parsed.length > MAX_EXEC_ARGV) {
+          return sendErr(
+            outPtrOut,
+            outLenOut,
+            `[broker:exec] argv length ${parsed.length} exceeds the ${MAX_EXEC_ARGV} limit`,
+          );
+        }
+        let totalArgvBytes = 0;
+        for (const el of parsed) {
+          if (typeof el !== 'string') {
+            return sendErr(outPtrOut, outLenOut, `[broker:exec] argv elements must be strings`);
+          }
+          totalArgvBytes += el.length;
+          if (totalArgvBytes > MAX_OUTPUT_BYTES) {
+            return sendErr(outPtrOut, outLenOut, `[broker:exec] argv total size exceeds the limit`);
+          }
+        }
+        argv = parsed as ReadonlyArray<string>;
       } catch (e) {
         return sendErr(outPtrOut, outLenOut, `[broker:exec] bad argv JSON: ${(e as Error).message}`);
       }
@@ -448,10 +540,23 @@ export function buildWasmHostImports(
           // no `env` would hand the child every API key/token/secret the host
           // holds. Mirrors the async broker's exec env curation.
           env: buildBrokerEnv(caps, undefined),
-          // Surface the tool's wall-clock budget so a runaway child is killed
-          // by spawnSync itself, not just the outer Promise.race timeout.
-          ...(caps.timeMs !== undefined ? { timeout: caps.timeMs } : {}),
+          // ALWAYS bound the child's wall clock: `spawnSync` blocks the event
+          // loop, so without a timeout a hung command (with no caps.timeMs)
+          // would wedge the host forever — the outer Promise.race can't fire
+          // while this synchronous call runs. Fall back to the isolator's
+          // default budget.
+          timeout: caps.timeMs ?? defaultTimeMs,
+          // Bound the buffered output to the async broker's 8 MB ceiling instead
+          // of relying on Node's 1 MB default — and keep the cap in parity.
+          maxBuffer: MAX_OUTPUT_BYTES,
         });
+        // spawnSync swallows failures into `res.error` (ENOENT, ETIMEDOUT,
+        // maxBuffer exceeded) while leaving status null and stdout/stderr empty.
+        // Surface it so the wasm caller learns the command failed rather than
+        // seeing a misleading empty success.
+        if (res.error) {
+          return sendErr(outPtrOut, outLenOut, `[broker:exec] ${res.error.message}`);
+        }
         sendStr(
           outPtrOut,
           outLenOut,
@@ -486,7 +591,20 @@ function reserveScratch(memory: WebAssembly.Memory, size: number): number {
   scratchOffsets.set(memory, next);
   const required = Math.ceil((next + 1) / 65536);
   const have = memory.buffer.byteLength / 65536;
-  if (required > have) memory.grow(required - have);
+  if (required > have) {
+    // `memory.grow` throws if the memory has a `maximum` that the growth would
+    // exceed, and returns -1 on failure. Either way, raise a framed OOM error
+    // instead of letting an opaque trap propagate out of the synchronous import.
+    let result: number;
+    try {
+      result = memory.grow(required - have);
+    } catch (e) {
+      throw new Error(`[security:wasm] scratch memory.grow failed: ${(e as Error).message}`);
+    }
+    if (result === -1) {
+      throw new Error(`[security:wasm] scratch memory.grow failed (memory maximum reached)`);
+    }
+  }
   return start;
 }
 
@@ -506,9 +624,136 @@ function writePtrPair(
   ptr: number,
   len: number,
 ): void {
+  // The out-pointers come from the wasm module. `DataView.setUint32` already
+  // bounds-checks (throwing RangeError on OOB), but validate up front so a
+  // module that points the host at an out-of-range/negative address gets a
+  // framed [security:wasm] error rather than an opaque trap.
+  const byteLength = memory.buffer.byteLength;
+  if (outPtrOut < 0 || outPtrOut + 4 > byteLength || outLenOut < 0 || outLenOut + 4 > byteLength) {
+    throw new Error(
+      `[security:wasm] broker out-pointer out of range ` +
+        `(outPtrOut=${outPtrOut}, outLenOut=${outLenOut}, memory=${byteLength} bytes)`,
+    );
+  }
   const view = new DataView(memory.buffer);
   view.setUint32(outPtrOut, ptr, true);
   view.setUint32(outLenOut, len, true);
+}
+
+// ---------------------------------------------------------------------------
+// Symlink-safe path scoping (synchronous port of the async broker)
+// ---------------------------------------------------------------------------
+//
+// `pathInScope` (from @moxxy/plugin-security) is PURELY LEXICAL: it normalizes
+// the string and matches it against the cap globs without ever touching the
+// filesystem. That leaves a symlink escape — a path that lexically sits inside
+// scope (`$cwd/link`) can point at `/etc/passwd` — plus a TOCTOU window. The
+// async broker (broker.ts:realpathInScope) closes this by resolving the real
+// path and re-validating it. Wasm imports are synchronous, so we mirror that
+// logic here with `realpathSync`. Kept in lockstep with broker.ts; see the
+// DRY follow-up to factor a shared `realpathInScopeSync` into plugin-security.
+
+/**
+ * Re-validate `filePath` against the declared fs scope AFTER resolving symlinks,
+ * returning the canonical path the caller should hand to the syscall (so the op
+ * runs on exactly what was validated). Throws a framed error when out of scope.
+ */
+function realpathInScope(
+  filePath: string,
+  caps: CapabilitySpec,
+  cwd: string,
+  mode: 'read' | 'write',
+  label: string,
+): string {
+  // Lexical gate first (cheap; rejects obvious out-of-scope inputs).
+  if (!pathInScope(filePath, caps.fs, cwd, mode)) {
+    throw new Error(
+      `[${label}] path '${filePath}' is outside the tool's declared fs.${mode} capability`,
+    );
+  }
+  const abs = path.isAbsolute(filePath) ? path.normalize(filePath) : path.resolve(cwd, filePath);
+  let real: string;
+  try {
+    real = realpathSync(abs);
+  } catch {
+    // Target doesn't exist yet (write/mkdir destination): canonicalize the
+    // deepest existing ancestor so a symlinked parent dir can't smuggle the
+    // op out of scope, while still allowing a brand-new leaf.
+    real = realpathDeepestSync(abs);
+  }
+  // Fast path: realpath unchanged → the lexical check already vetted it.
+  if (real === abs) return real;
+  // The path traversed a symlink — re-validate the REAL location against the
+  // CANONICALIZED scope roots. Canonicalizing both sides keeps benign system
+  // symlinks (macOS `/var`→`/private/var`, `/tmp`→`/private/tmp`) from causing
+  // false rejections, while a genuine escape canonicalizes to a root not under
+  // any allowed scope and is rejected.
+  const globs = mode === 'read' ? caps.fs?.read : caps.fs?.write;
+  const allowed = canonicalScopeRootsSync(globs ?? [], cwd);
+  if (!allowed.some((root) => isWithin(real, root))) {
+    throw new Error(
+      `[${label}] path '${filePath}' resolves (via symlink) to '${real}', ` +
+        `outside the tool's declared fs.${mode} capability`,
+    );
+  }
+  return real;
+}
+
+function canonicalScopeRootsSync(
+  globs: ReadonlyArray<string>,
+  cwd: string,
+): ReadonlyArray<string> {
+  const roots: string[] = [];
+  for (const glob of globs) {
+    const expanded = expandPattern(glob, cwd);
+    const wildcard = expanded.search(/[*?[]/);
+    const literal = wildcard === -1 ? expanded : expanded.slice(0, wildcard);
+    const base = literal.endsWith(path.sep) ? literal.slice(0, -1) : path.dirname(literal);
+    const normalized = path.normalize(base || path.sep);
+    try {
+      roots.push(realpathSync(normalized));
+    } catch {
+      roots.push(realpathDeepestSync(normalized));
+    }
+  }
+  return roots;
+}
+
+/** Resolve `$cwd` / `~` / relative globs to an absolute lexical path. */
+function expandPattern(pattern: string, cwd: string): string {
+  if (pattern.startsWith('$cwd')) return path.normalize(cwd + pattern.slice('$cwd'.length));
+  if (pattern.startsWith('~/')) {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+    return path.normalize(home + pattern.slice(1));
+  }
+  return path.isAbsolute(pattern) ? path.normalize(pattern) : path.resolve(cwd, pattern);
+}
+
+/** True when `child` is `root` itself or a descendant of it. */
+function isWithin(child: string, root: string): boolean {
+  if (child === root) return true;
+  const withSep = root.endsWith(path.sep) ? root : root + path.sep;
+  return child.startsWith(withSep);
+}
+
+/**
+ * Canonicalize the deepest existing ancestor of `abs`, then re-join the
+ * non-existent remainder, so a symlinked parent directory can't move a
+ * write/mkdir out of scope.
+ */
+function realpathDeepestSync(abs: string): string {
+  const parts = abs.split(path.sep);
+  for (let i = parts.length; i > 0; i--) {
+    const candidate = parts.slice(0, i).join(path.sep) || path.sep;
+    try {
+      const real = realpathSync(candidate);
+      const remainder = parts.slice(i);
+      return remainder.length ? path.join(real, ...remainder) : real;
+    } catch {
+      // ancestor doesn't exist either; keep walking up
+    }
+  }
+  return abs;
 }
 
 // ---------------------------------------------------------------------------
@@ -516,10 +761,17 @@ function writePtrPair(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch wasm bytes from any URL the SDK's `handlerModule` shape might
- * carry: `file://`, `data:application/wasm;base64,…`, or http(s).
+ * Fetch wasm bytes from a `handlerModule` URL. Local schemes (`file:`, `data:`)
+ * are always allowed; remote fetch is restricted to `https:` so a network MITM
+ * can't swap the executable module bytes (plaintext `http:` is rejected). The
+ * download is bound to the abort `signal` and capped at `MAX_OUTPUT_BYTES`.
+ *
+ * NOTE: there is no subresource-integrity pin — `HandlerModuleRef` carries no
+ * hash field — so a compromised/re-published https host can still serve hostile
+ * bytes that execute inside the host process. See the needsFollowup note about
+ * adding an `integrity` field to `HandlerModuleRef`.
  */
-async function fetchWasmBytes(url: string): Promise<Uint8Array> {
+async function fetchWasmBytes(url: string, signal: AbortSignal): Promise<Uint8Array> {
   if (url.startsWith('data:')) {
     const comma = url.indexOf(',');
     if (comma < 0) throw new Error(`[security:wasm] malformed data URL`);
@@ -532,11 +784,46 @@ async function fetchWasmBytes(url: string): Promise<Uint8Array> {
     const filePath = fileURLToPath(url);
     return new Uint8Array(await fs.readFile(filePath));
   }
-  const res = await fetch(url);
+  if (!url.startsWith('https:')) {
+    throw new Error(
+      `[security:wasm] refusing to fetch module over a non-https scheme: '${url}' ` +
+        `(use file:/data:/https: so module bytes can't be MITM'd)`,
+    );
+  }
+  const res = await fetch(url, { signal });
   if (!res.ok) {
     throw new Error(`[security:wasm] failed to fetch ${url}: ${res.status}`);
   }
-  return new Uint8Array(await res.arrayBuffer());
+  // Reject an oversized module by its declared length up front, then enforce the
+  // cap while streaming (a lying/absent Content-Length can't smuggle past it).
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_OUTPUT_BYTES) {
+    throw new Error(
+      `[security:wasm] module at ${url} is ${declared} bytes (> ${MAX_OUTPUT_BYTES} limit)`,
+    );
+  }
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array(await res.arrayBuffer());
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > MAX_OUTPUT_BYTES) {
+          throw new Error(
+            `[security:wasm] module at ${url} exceeded the ${MAX_OUTPUT_BYTES}-byte limit`,
+          );
+        }
+        chunks.push(value);
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => undefined);
+  }
+  return new Uint8Array(Buffer.concat(chunks));
 }
 
 /** Default singleton. Use `createWasmIsolator({...})` to tune. */

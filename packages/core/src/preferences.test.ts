@@ -10,13 +10,18 @@ import { loadPreferences, preferencesPath, savePreferences } from './preferences
 let tmpHome: string;
 let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
+let savedMoxxyHome: string | undefined;
 
 beforeEach(async () => {
   tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-prefs-'));
   savedHome = process.env.HOME;
   savedUserProfile = process.env.USERPROFILE;
+  savedMoxxyHome = process.env.MOXXY_HOME;
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
+  // The default-home tests below assert the `~/.moxxy` fallback, so MOXXY_HOME
+  // must be unset for them (it would otherwise win).
+  delete process.env.MOXXY_HOME;
   await fs.mkdir(path.join(tmpHome, '.moxxy'), { recursive: true });
 });
 
@@ -25,6 +30,8 @@ afterEach(async () => {
   else process.env.HOME = savedHome;
   if (savedUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = savedUserProfile;
+  if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = savedMoxxyHome;
   await fs.rm(tmpHome, { recursive: true, force: true });
 });
 
@@ -34,6 +41,28 @@ const readRaw = async (): Promise<unknown> =>
 describe('preferences store', () => {
   it('resolves the path under the (overridden) home dir', () => {
     expect(preferencesPath()).toBe(path.join(tmpHome, '.moxxy', 'preferences.json'));
+  });
+
+  it('honors $MOXXY_HOME so preferences follow the relocated data dir', async () => {
+    const altHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-prefs-alt-'));
+    const prevMoxxyHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = altHome;
+    try {
+      // Path now lives directly under MOXXY_HOME, NOT under ~/.moxxy.
+      expect(preferencesPath()).toBe(path.join(altHome, 'preferences.json'));
+      await savePreferences({ model: 'relocated' });
+      // Written to the relocated dir, not the homedir fallback.
+      const raw = await fs.readFile(path.join(altHome, 'preferences.json'), 'utf8');
+      expect(JSON.parse(raw).model).toBe('relocated');
+      // The homedir fallback location must remain empty.
+      await expect(
+        fs.readFile(path.join(tmpHome, '.moxxy', 'preferences.json'), 'utf8'),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      if (prevMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = prevMoxxyHome;
+      await fs.rm(altHome, { recursive: true, force: true });
+    }
   });
 
   it('returns an empty object when the file is missing', async () => {

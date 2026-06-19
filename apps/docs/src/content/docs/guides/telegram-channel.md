@@ -52,7 +52,7 @@ moxxy telegram                    # foreground (Ctrl-C to stop)
 moxxy service install telegram    # background as a launchd / systemd --user unit
 ```
 
-See [Running as a service](./running-as-a-service) for the service flow.
+See [Running as a service](./running-as-a-service.md) for the service flow.
 
 ## Slash commands
 
@@ -85,7 +85,7 @@ message as the feedback.
 | `telegram_unpair` | Forget the authorized chat. |
 
 `telegram_send_message` is what makes the scheduler useful from the
-Telegram side — see [Scheduler](./scheduler).
+Telegram side — see [Scheduler](./scheduler.md).
 
 ## Config
 

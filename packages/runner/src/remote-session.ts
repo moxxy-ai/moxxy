@@ -706,7 +706,31 @@ async function killProcessOnPort(port: number): Promise<void> {
 async function isMoxxyProcess(pid: number): Promise<boolean> {
   if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) return false;
   const command = await pidCommand(pid);
-  return command.length > 0 && /moxxy/i.test(command);
+  return command.length > 0 && isMoxxyCommandLine(command);
+}
+
+/**
+ * Decide whether a `ps -o command=` line names a moxxy DAEMON — not merely any
+ * process whose argv happens to contain "moxxy" somewhere. A loose substring
+ * (`/moxxy/i` over the whole line) would SIGKILL an unrelated same-user process
+ * that just references a moxxy path: an editor open on `~/moxxy/foo`, a `grep
+ * moxxy`, a shell that `cd`'d into `~/moxxy`. We only want the executable's own
+ * identity, so we look at the FIRST token's basename: the moxxy CLI sets
+ * `process.title` to `moxxy …` (so the line starts with `moxxy`), and a binary
+ * launched directly is `…/moxxy` / `…/moxxy-serve`. An arg three tokens in that
+ * mentions moxxy never matches.
+ */
+export function isMoxxyCommandLine(command: string): boolean {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
+  // The first whitespace-delimited token is the executable (or process.title's
+  // leading word). Its basename (after the last path separator) is the identity.
+  const first = trimmed.split(/\s+/)[0] ?? '';
+  const base = first.split(/[\\/]/).pop() ?? first;
+  // Match `moxxy`, `moxxy-serve`, `moxxy.js`, etc. — the binary's own name (or
+  // the leading word of the CLI's `process.title`) — but never an arbitrary
+  // token that merely embeds "moxxy" (e.g. `bigmoxxy`, `moxxyish`).
+  return /^moxxy([-_.]|$)/i.test(base);
 }
 
 /** A PID's command line via `ps`. Empty when the process is gone / unknowable. */

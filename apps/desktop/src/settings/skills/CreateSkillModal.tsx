@@ -39,7 +39,11 @@ Describe the inputs, the steps to take, and any constraints here.
   );
   const [busy, setBusy] = useState(false);
   const isMd = name.endsWith('.md');
-  const safeName = isMd && !/[/]/.test(name) && !name.startsWith('.');
+  // Allowlist mirroring the vault rule: a leading alphanumeric, then only
+  // [A-Za-z0-9._-], ending in `.md`, and no `..` anywhere. This blocks BOTH
+  // slash kinds, leading dots, drive prefixes, and embedded `..` traversal —
+  // the prior `!/[/]/` check let backslash paths and `sub\..\evil.md` through.
+  const safeName = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(name) && !name.includes('..');
   const collision = existing.includes(name);
   const canSubmit = safeName && !collision && body.trim().length > 0 && !busy;
 
@@ -66,10 +70,16 @@ Describe the inputs, the steps to take, and any constraints here.
             placeholder="my-skill.md"
             spellCheck={false}
           />
-          {!isMd && (
+          {!isMd ? (
             <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
               Filename must end in .md
             </span>
+          ) : (
+            !safeName && (
+              <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+                Use letters, digits, and . _ - only (no slashes, spaces, or “..”).
+              </span>
+            )
           )}
           {collision && (
             <span style={{ fontSize: 11.5, color: 'var(--color-red)' }}>

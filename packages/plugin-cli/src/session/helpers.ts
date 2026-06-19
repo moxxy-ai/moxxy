@@ -121,9 +121,17 @@ export function deriveMcpServers(
  *   \x1b[H   — move cursor to home (0,0)
  *
  * Ink's next paint draws the (now-empty) chat + bottom UI cleanly.
+ *
+ * Set `MOXXY_KEEP_SCROLLBACK=1` to skip the irreversible scrollback wipe
+ * (`\x1b[3J`): screen-reader users and anyone relying on terminal history can
+ * then keep prior context after /clear and /new. The visible viewport is still
+ * cleared so the fresh session renders cleanly. Callers should pair this with a
+ * spoken systemNotice ("session cleared") so assistive tech reads the state
+ * change.
  */
 export function clearTerminalScreen(): void {
   if (process.stdout.isTTY) {
-    process.stdout.write('\x1b[3J\x1b[2J\x1b[H');
+    const keepScrollback = process.env.MOXXY_KEEP_SCROLLBACK === '1';
+    process.stdout.write(keepScrollback ? '\x1b[2J\x1b[H' : '\x1b[3J\x1b[2J\x1b[H');
   }
 }

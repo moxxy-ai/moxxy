@@ -185,6 +185,51 @@ describe('consumeResponsesSse', () => {
     expect(events).toEqual([{ type: 'error', message: 'aborted', retryable: false }]);
   });
 
+  it('bounds the reassembly buffer: an endless body with no frame separator errors instead of OOMing', async () => {
+    // A misbehaving/MITM'd endpoint streams a continuous body that never emits a
+    // blank-line frame separator. Without the cap, `buffer` would grow until OOM.
+    const chunk = 'x'.repeat(1024 * 1024); // 1 MiB, no '\n\n' anywhere
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        // Far more than the 8 MiB cap if left unbounded; the consumer must bail
+        // long before this many reads complete.
+        if (reads >= 100) {
+          controller.close();
+          return;
+        }
+        reads += 1;
+        controller.enqueue(new TextEncoder().encode(chunk));
+      },
+    });
+    const events = await drain(body);
+    expect(events).toEqual([
+      { type: 'error', message: 'Codex stream frame exceeded size limit', retryable: false },
+    ]);
+    // It stopped reading well before draining all 100 MiB.
+    expect(reads).toBeLessThan(20);
+  });
+
+  it('does not flush a phantom tool call after a mid-stream response.failed (error supersedes pending)', async () => {
+    // A function_call starts (tool_use_start emitted) but the stream fails before
+    // its .done arrives. The failed turn must surface ONE error and must NOT flush
+    // a trailing tool_use_end on top of it.
+    const events = await drain(
+      streamOf([
+        frame({
+          type: 'response.output_item.added',
+          item: { type: 'function_call', id: 'fc1', call_id: 'call_1', name: 'echo' },
+        }),
+        frame({ type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: '{"x":1' }),
+        frame({ type: 'response.failed', error: { message: 'boom' } }),
+      ]),
+    );
+    const errs = events.filter((e) => e.type === 'error');
+    expect(errs).toHaveLength(1);
+    expect(events.some((e) => e.type === 'tool_use_end')).toBe(false);
+    expect(events.some((e) => e.type === 'message_end')).toBe(false);
+  });
+
   it('accumulates usage from response.completed onto message_end', async () => {
     const events = await drain(
       streamOf([

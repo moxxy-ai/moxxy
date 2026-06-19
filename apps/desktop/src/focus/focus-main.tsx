@@ -25,10 +25,10 @@ const root = document.getElementById('root');
 if (!root) {
   // Surface this in dev tools — without #root there's literally
   // nothing we can do.
-  // eslint-disable-next-line no-console
+   
   console.error('[focus] #root missing from focus.html');
 } else {
   ReactDOM.createRoot(root).render(<FocusWidget />);
-  // eslint-disable-next-line no-console
+   
   console.log('[focus] mounted');
 }

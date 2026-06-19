@@ -45,4 +45,24 @@ describe('detectGoalTerminal', () => {
     const out = detectGoalTerminal([result('c5', true)], [use('c5', GOAL_COMPLETE_TOOL, {})]);
     expect(out).toEqual({ kind: 'complete', summary: 'Goal completed.', evidence: [] });
   });
+
+  it('drops non-string evidence elements from raw (unvalidated) model input', () => {
+    // `input` is the RAW provider-emitted tool input — the model can put
+    // anything in `evidence`. Non-string elements must be filtered out, not
+    // unsafely cast to string[].
+    const batch = [
+      use('c6', GOAL_COMPLETE_TOOL, {
+        summary: 'done',
+        evidence: ['tests pass', 1, { a: 1 }, null, 'built'],
+      }),
+    ];
+    const out = detectGoalTerminal([result('c6', true)], batch);
+    expect(out).toEqual({ kind: 'complete', summary: 'done', evidence: ['tests pass', 'built'] });
+  });
+
+  it('coerces a non-string summary to the default', () => {
+    const batch = [use('c7', GOAL_COMPLETE_TOOL, { summary: 42, evidence: [] })];
+    const out = detectGoalTerminal([result('c7', true)], batch);
+    expect(out).toEqual({ kind: 'complete', summary: 'Goal completed.', evidence: [] });
+  });
 });

@@ -65,7 +65,12 @@ export interface JsonFileStoreOptions<T extends { id: string }> {
  * id/createdAt minting and bespoke methods on top of {@link mutate}.
  */
 export interface JsonFileStore<T extends { id: string }> {
-  /** Loaded snapshot (a fresh shallow copy; safe to mutate by the caller). */
+  /**
+   * Loaded snapshot: a fresh shallow copy of the array (safe to add/remove/
+   * reorder). The item objects are shared with the live cache — do NOT mutate
+   * them in place; replace them with new objects instead, or a later unrelated
+   * `mutate()` will persist the drive-by change.
+   */
   read(): Promise<T[]>;
   /** Find a single item by id, or `null`. */
   get(id: string): Promise<T | null>;
@@ -95,10 +100,13 @@ export function createJsonFileStore<T extends { id: string }>(
   } = opts;
 
   let cache: T[] | null = null;
+  // In-flight load so a burst of concurrent cold reads coalesces into one
+  // filesystem read + one parse pass, and the second loader can't clobber the
+  // first's cache assignment with a stale/half-applied snapshot.
+  let loading: Promise<void> | null = null;
   const mutex: Mutex = createMutex();
 
-  async function ensureLoaded(): Promise<void> {
-    if (cache) return;
+  async function loadIntoCache(): Promise<void> {
     let raw: string | null;
     try {
       raw = await readFile(file, 'utf8');
@@ -113,6 +121,15 @@ export function createJsonFileStore<T extends { id: string }>(
       }
     }
     cache = await load(raw);
+  }
+
+  function ensureLoaded(): Promise<void> {
+    if (cache) return Promise.resolve();
+    if (loading) return loading;
+    loading = loadIntoCache().finally(() => {
+      loading = null;
+    });
+    return loading;
   }
 
   async function persist(items: T[]): Promise<void> {
@@ -133,8 +150,12 @@ export function createJsonFileStore<T extends { id: string }>(
       await mutex.run(async () => {
         await ensureLoaded();
         const updated = await fn(cache!.slice());
-        cache = updated;
+        // Persist first so a write failure (ENOSPC/EACCES/EIO) leaves the
+        // in-memory cache consistent with disk — advancing the cache before the
+        // durable write would commit a phantom state on the next successful
+        // mutate and silently defeat the crash-atomic guarantee.
         await persist(updated);
+        cache = updated;
       });
     },
     invalidate(): void {

@@ -6,6 +6,21 @@ import { setupSessionWithConfig } from '../../setup.js';
 import { closeSession } from '../../setup/close-session.js';
 import { fmtNext, flag } from './format.js';
 
+/**
+ * Parse an `--at` value, requiring an ISO-8601 instant rather than relying on
+ * the implementation-defined behavior of bare `Date.parse` (which parses
+ * locale strings and surprising values like '2026-13-99' to whatever the
+ * engine decides). Returns epoch ms, or `undefined` if not a valid ISO-8601
+ * date/time. Accepts a date-only `YYYY-MM-DD` or a full date-time with an
+ * optional `Z`/offset.
+ */
+export function parseIsoAt(at: string): number | undefined {
+  const iso = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+  if (!iso.test(at.trim())) return undefined;
+  const ms = Date.parse(at.trim());
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 export async function listSchedules(store: ScheduleStore): Promise<number> {
   const all = await store.list();
   if (all.length === 0) {
@@ -43,10 +58,22 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
     process.stderr.write(colors.red(`invalid cron expression: "${cron}"`) + '\n');
     return 2;
   }
-  const runAt = at ? Date.parse(at) : undefined;
-  if (at && (runAt === undefined || Number.isNaN(runAt))) {
-    process.stderr.write(colors.red(`invalid --at timestamp: "${at}"`) + '\n');
+  const runAt = at ? parseIsoAt(at) : undefined;
+  if (at && runAt === undefined) {
+    process.stderr.write(
+      colors.red(`invalid --at timestamp: "${at}"`) +
+        '\n  expected an ISO-8601 instant, e.g. 2026-07-01T09:00:00Z\n',
+    );
     return 2;
+  }
+  if (runAt !== undefined && runAt < Date.now()) {
+    // Don't silently accept a past one-shot — depending on the poller it either
+    // never fires or fires immediately, with no signal to the user that they
+    // scheduled something in the past.
+    process.stderr.write(
+      colors.yellow(`warning: --at "${at}" is in the past; this one-shot may fire immediately or never.`) +
+        '\n',
+    );
   }
   const created = await store.create({
     name,

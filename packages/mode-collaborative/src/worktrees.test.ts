@@ -153,4 +153,57 @@ describe('worktree git engine', () => {
     const files = await changedFiles(repo);
     expect(files.some((f) => f.path === 'new.ts')).toBe(true);
   });
+
+  it('changedFiles parses spaced/quoted paths without keeping git quoting', async () => {
+    const repo = await initRepo();
+    // A path with a space: the old `slice(2).trim()` parse kept git's C-quoting
+    // (surrounding double-quotes) so ownership keying on the raw name silently missed.
+    writeFileSync(join(repo, 'a b.ts'), 'export const x = 1;\n');
+    const files = await changedFiles(repo);
+    const paths = files.map((f) => f.path);
+    expect(paths).toContain('a b.ts');
+    expect(paths.every((p) => !p.startsWith('"') && !p.endsWith('"'))).toBe(true);
+  });
+
+  it('changedFiles takes the NEW path of a rename, not the literal "old -> new"', async () => {
+    const repo = await initRepo();
+    // Commit a tracked file, then rename it so status reports a rename record.
+    writeFileSync(join(repo, 'old-name.ts'), 'export const x = 1;\n');
+    await git(repo, ['add', '-A']);
+    await git(repo, [...IDENT, 'commit', '-m', 'add old-name']);
+    const { renameSync } = await import('node:fs');
+    renameSync(join(repo, 'old-name.ts'), join(repo, 'new-name.ts'));
+    await git(repo, ['add', '-A']); // stage so the rename is detected (R record)
+
+    const files = await changedFiles(repo);
+    const paths = files.map((f) => f.path);
+    // The NEW path must be present; the malformed "old -> new" string must NOT.
+    expect(paths).toContain('new-name.ts');
+    expect(paths.some((p) => p.includes('->'))).toBe(false);
+    // The old path's source record must not leak in as its own entry.
+    expect(paths).not.toContain('old-name.ts');
+  });
+
+  it('peer-read does NOT follow a symlink that escapes the worktree', async () => {
+    const repo = await initRepo();
+    const base = await headSha(repo);
+    const wt = join(repo, '.wt-symlink');
+    await addWorktree({ repoCwd: repo, path: wt, branch: 'b/symlink', baseSha: base });
+    // A secret OUTSIDE the worktree.
+    const outsideDir = mkdtempSync(join(tmpdir(), 'mc-secret-'));
+    cleanups.push(() => rmSync(outsideDir, { recursive: true, force: true }));
+    const secret = join(outsideDir, 'secret.txt');
+    writeFileSync(secret, 'TOP SECRET\n');
+    // An attacker-planted symlink whose path-string ('leak') passes resolveWithin
+    // but whose on-disk target is outside the worktree.
+    const { symlinkSync } = await import('node:fs');
+    symlinkSync(secret, join(wt, 'leak'));
+
+    const reader = peerReaderFor(new Map([['victim', wt]]), base);
+    // In-tree reads still work.
+    writeFileSync(join(wt, 'inside.ts'), 'export const inside = true;\n');
+    expect(await reader.read('victim', 'inside.ts')).toContain('inside = true');
+    // The symlink escape is rejected, not silently followed to the secret.
+    await expect(reader.read('victim', 'leak')).rejects.toThrow(/escapes/);
+  });
 });

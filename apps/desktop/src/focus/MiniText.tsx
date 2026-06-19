@@ -76,6 +76,7 @@ export function MiniText({
       >
         <input
           autoFocus
+          aria-label="Ask Moxxy"
           placeholder={workspaceId ? 'Ask Moxxy…' : 'No active workspace'}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

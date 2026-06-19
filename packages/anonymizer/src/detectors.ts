@@ -9,26 +9,119 @@
 
 import type { PiiCategory, PiiSpan } from './types.js';
 
-/** Run a global regex over `text`, optionally filtering matches with `accept`. */
+/**
+ * Hard ceiling on the substring any single regex pass scans at once. Above this,
+ * the input is processed in overlapping windows (see {@link scan}). This is a
+ * defence-in-depth DoS bound: even if a detector regex is super-linear on some
+ * adversarial shape, per-pass cost stays bounded by a constant rather than
+ * scaling with total document length and freezing the renderer thread.
+ *
+ * Sized so the worst built-in regex stays comfortably sub-millisecond per pass
+ * while remaining far larger than any legitimate single PII match.
+ */
+const MAX_SCAN_LEN = 16_384;
+
+/**
+ * Overlap between consecutive scan windows, in chars. A real match split by a
+ * window boundary reappears whole in the next window (which starts {@link
+ * SCAN_OVERLAP} chars before the previous window ended), so chunking never
+ * hides a match shorter than this. Comfortably exceeds the longest plausible
+ * structured PII value (e.g. an IBAN ≤ 34, an email ≤ ~320).
+ */
+const SCAN_OVERLAP = 1_024;
+
+/** Run a global regex over `text`, optionally filtering matches with `accept`.
+ *
+ *  When `accept` rejects a greedy candidate we do NOT skip past the whole
+ *  consumed region (which would hide a valid PII value glued to an invalid
+ *  prefix — a silent false negative, the worst failure for a redactor). Instead
+ *  we rewind to one char past the candidate's start and re-scan, so a valid
+ *  sub-match immediately following the rejected prefix is still found. An empty
+ *  match always advances by one to guarantee termination.
+ *
+ *  For inputs longer than {@link MAX_SCAN_LEN} the scan runs over overlapping
+ *  windows so worst-case time stays bounded (ReDoS hardening); spans are
+ *  deduplicated by absolute start offset across windows. */
 function scan(
   text: string,
   re: RegExp,
   category: PiiCategory,
   accept?: (match: string) => boolean,
 ): PiiSpan[] {
+  if (text.length <= MAX_SCAN_LEN) return scanWindow(text, 0, re, category, accept, true);
+
+  // Overlapping windows: each starts SCAN_OVERLAP chars before the previous one
+  // ended, so any match clipped by a window's right edge is re-found whole in the
+  // next window. Dedup by absolute start (a match can surface in two windows).
+  const byStart = new Map<number, PiiSpan>();
+  const step = MAX_SCAN_LEN - SCAN_OVERLAP;
+  for (let pos = 0; pos < text.length; pos += step) {
+    const end = Math.min(pos + MAX_SCAN_LEN, text.length);
+    const isLast = end >= text.length;
+    const slice = text.slice(pos, end);
+    for (const span of scanWindow(slice, pos, re, category, accept, isLast)) {
+      // A match touching the right edge of a non-final window may be truncated;
+      // skip it here — it reappears whole in the next (overlapping) window.
+      if (!isLast && span.end >= end) continue;
+      if (!byStart.has(span.start)) byStart.set(span.start, span);
+    }
+    if (isLast) break;
+  }
+  return [...byStart.values()].sort((a, b) => a.start - b.start);
+}
+
+/** Scan a single window `slice` (whose first char is at absolute offset `base`
+ *  in the original text) and return spans with absolute offsets. */
+function scanWindow(
+  slice: string,
+  base: number,
+  re: RegExp,
+  category: PiiCategory,
+  accept: ((match: string) => boolean) | undefined,
+  _isLast: boolean,
+): PiiSpan[] {
   const out: PiiSpan[] = [];
-  for (const m of text.matchAll(re)) {
+  // The fast path (no validator) keeps matchAll; matches can't be sub-recovered.
+  if (!accept) {
+    const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+    for (const m of slice.matchAll(g)) {
+      const value = m[0] ?? '';
+      const start = m.index ?? -1;
+      if (!value || start < 0) continue;
+      out.push({ category, start: base + start, end: base + start + value.length, value });
+    }
+    return out;
+  }
+  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  let m: RegExpExecArray | null;
+  while ((m = g.exec(slice)) !== null) {
     const value = m[0] ?? '';
-    const start = m.index ?? -1;
-    if (!value || start < 0) continue;
-    if (accept && !accept(value)) continue;
-    out.push({ category, start, end: start + value.length, value });
+    const start = m.index;
+    if (!value) {
+      g.lastIndex += 1; // zero-width match: force progress
+      continue;
+    }
+    if (!accept(value)) {
+      g.lastIndex = start + 1; // rewind to recover a valid suffix sub-match
+      continue;
+    }
+    out.push({ category, start: base + start, end: base + start + value.length, value });
+    g.lastIndex = start + value.length;
   }
   return out;
 }
 
 // ── email ──────────────────────────────────────────────────────────────────
-const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24}\b/g;
+// Both the local part and the domain label count are BOUNDED. The unbounded
+// local part `[...]+` was the real ReDoS source: on `'x@'+'a.'.repeat(n)` the
+// engine restarts at every label char and scans the whole `a.a.a.…` run forward
+// looking for an `@` that never comes — O(n) work at each of n positions = O(n²),
+// which froze the renderer thread. Capping the local part at the RFC-5321 max of
+// 64 chars bounds that forward scan to a constant per position (→ linear), and
+// the `{1,32}` label cap (no domain has more) keeps the trailing-TLD failure from
+// re-trying an unbounded label chain. Happy-path matching is unchanged.
+const EMAIL_RE =
+  /\b[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.){1,32}[A-Za-z]{2,24}\b/g;
 
 // ── url ────────────────────────────────────────────────────────────────────
 // Stop at whitespace and trailing sentence punctuation/brackets.
@@ -39,7 +132,10 @@ const IPV4_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
 function isIpv4(m: string): boolean {
   const parts = m.split('.');
   if (parts.length !== 4) return false;
-  return parts.every((p) => p.length <= 3 && Number(p) <= 255);
+  // Reject zero-padded octets ('010', '00') — ambiguous (some parsers read a
+  // leading-zero octet as octal), so a dotted-quad like '010.020.030.040' is
+  // not unambiguously an address.
+  return parts.every((p) => /^(0|[1-9]\d{0,2})$/.test(p) && Number(p) <= 255);
 }
 
 // ── ipv6 ───────────────────────────────────────────────────────────────────
@@ -49,6 +145,12 @@ function isIpv6(m: string): boolean {
   if (!/^[0-9A-Fa-f:]+$/.test(m)) return false;
   if ((m.match(/::/g) ?? []).length > 1) return false; // at most one '::'
   if (/:::/.test(m)) return false;
+  // A bare leading/trailing single colon is malformed (':' only legal at an edge
+  // as part of '::'). Without this, the broad candidate regex glues a stray
+  // leading ':' to a valid suffix and emits e.g. ':fe80::1' instead of 'fe80::1'.
+  if ((m.startsWith(':') && !m.startsWith('::')) || (m.endsWith(':') && !m.endsWith('::'))) {
+    return false;
+  }
   const hasDouble = m.includes('::');
   const groups = m.split(':').filter((g) => g.length > 0);
   if (groups.some((g) => !/^[0-9A-Fa-f]{1,4}$/.test(g))) return false;
@@ -147,13 +249,36 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Compiled custom-term regexes, memoized by trimmed term to avoid recompiling
+ *  on every keystroke. Bounded so a huge or churning term list can't grow the
+ *  cache without limit (a slow memory leak on a long-lived renderer). */
+const CUSTOM_RE_CACHE = new Map<string, RegExp>();
+const CUSTOM_RE_CACHE_MAX = 2048;
+
+function customTermRegex(term: string): RegExp {
+  const cached = CUSTOM_RE_CACHE.get(term);
+  if (cached) return cached;
+  // Unicode-aware boundaries: \w is ASCII-only, which mishandles accented/CJK
+  // custom terms (over- or under-redaction). \p{L}\p{N}_ with the 'u' flag
+  // treats any Unicode letter/number as a word char.
+  const re = new RegExp(`(?<![\\p{L}\\p{N}_])${escapeRegExp(term)}(?![\\p{L}\\p{N}_])`, 'giu');
+  if (CUSTOM_RE_CACHE.size >= CUSTOM_RE_CACHE_MAX) {
+    // Evict the oldest entry (Map preserves insertion order) to stay bounded.
+    const oldest = CUSTOM_RE_CACHE.keys().next().value;
+    if (oldest !== undefined) CUSTOM_RE_CACHE.delete(oldest);
+  }
+  CUSTOM_RE_CACHE.set(term, re);
+  return re;
+}
+
 /** Literal, case-insensitive, word-boundary matches of user-supplied terms. */
 export function detectCustom(text: string, terms: readonly string[]): PiiSpan[] {
   const spans: PiiSpan[] = [];
   for (const term of terms) {
     const t = term.trim();
     if (!t) continue;
-    const re = new RegExp(`(?<!\\w)${escapeRegExp(t)}(?!\\w)`, 'gi');
+    const re = customTermRegex(t);
+    re.lastIndex = 0; // cached regexes are stateful ('g' flag) — reset per use
     for (const m of text.matchAll(re)) {
       const value = m[0] ?? '';
       const start = m.index ?? -1;

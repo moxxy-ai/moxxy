@@ -327,4 +327,114 @@ describe('admin/runtime', () => {
       expect(connected.env).toEqual({ KEY: 'plain-secret' });
     });
   });
+
+  describe('eager attach lists tools exactly once (no double round-trip)', () => {
+    it('calls listTools a single time even though it also wraps the tools', async () => {
+      const registry = makeRegistry();
+      let listCalls = 0;
+      const client = makeClient({
+        listTools: async () => {
+          listCalls++;
+          return { tools: [PING] };
+        },
+      });
+      hoisted.connectImpl = async () => client;
+      const rt = createMcpRuntime(registry);
+      await rt.attachServer({ kind: 'stdio', name: 'demo', command: 'x' });
+      expect(listCalls).toBe(1);
+      expect(registry.has('mcp__demo__ping')).toBe(true);
+    });
+  });
+
+  describe('boot-time connect is bounded by a timeout', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('refreshServerCache rejects (does not hang) when connect never resolves', async () => {
+      vi.useFakeTimers();
+      // connect hangs forever — without the bounded timeout this would wedge
+      // session boot (core awaits onInit serially).
+      hoisted.connectImpl = () => new Promise<McpClientLike>(() => {});
+      const rt = createMcpRuntime(makeRegistry());
+      const promise = rt.refreshServerCache(stored({ cachedTools: undefined }));
+      const assertion = expect(promise).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      await assertion;
+    });
+
+    it('refreshServerCache rejects when listTools never resolves but still closes the client', async () => {
+      vi.useFakeTimers();
+      const client = makeClient({
+        listTools: () => new Promise<{ tools: ReadonlyArray<McpToolDescriptor> }>(() => {}),
+      });
+      hoisted.connectImpl = async () => client;
+      const rt = createMcpRuntime(makeRegistry());
+      const promise = rt.refreshServerCache(stored({ cachedTools: undefined }));
+      const assertion = expect(promise).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      await assertion;
+      expect(client.closed).toBe(1);
+    });
+
+    it('lazy first-call connect rejects on timeout and retries cleanly afterward', async () => {
+      vi.useFakeTimers();
+      let attempt = 0;
+      const good = makeClient();
+      hoisted.connectImpl = () => {
+        attempt++;
+        if (attempt === 1) return new Promise<McpClientLike>(() => {}); // hangs
+        return Promise.resolve(good);
+      };
+      const registry = makeRegistry();
+      const rt = createMcpRuntime(registry);
+      rt.attachServerLazy(stored());
+      const tool = registry.tools.get('mcp__demo__ping') as {
+        handler: (i: unknown, c: unknown) => Promise<unknown>;
+      };
+      const first = tool.handler({}, baseCtx());
+      const assertion = expect(first).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      await assertion;
+      // The rejected connect promise was reset; a retry connects to the good client.
+      vi.useRealTimers();
+      const out = await tool.handler({}, baseCtx());
+      expect(out).toBe('pong ping');
+      expect(attempt).toBe(2);
+    });
+  });
+
+  describe('lazy connect racing detachServer does not leak the client', () => {
+    it('closes the freshly-opened client when the server was detached mid-connect', async () => {
+      const registry = makeRegistry();
+      const client = makeClient();
+      let releaseConnect: (() => void) | null = null;
+      // Hold the connect open until the test releases it, so we can detach
+      // the server while the connect is still in flight.
+      hoisted.connectImpl = () =>
+        new Promise<McpClientLike>((resolve) => {
+          releaseConnect = () => resolve(client);
+        });
+      const rt = createMcpRuntime(registry);
+      rt.attachServerLazy(stored());
+      const tool = registry.tools.get('mcp__demo__ping') as {
+        handler: (i: unknown, c: unknown) => Promise<unknown>;
+      };
+      const callPromise = tool.handler({}, baseCtx());
+      // Wait a tick so getOrConnect has entered the connect.
+      await Promise.resolve();
+      // Detach while the connect is in flight — the runtime entry is removed.
+      // detachServer awaits the (lazy sentinel) client.close(), which itself
+      // waits on the in-flight connectPromise, so don't await it before the
+      // connect is released or the test deadlocks.
+      const detachPromise = rt.detachServer('demo');
+      // Now let the connect resolve. The freshly-opened client has nowhere to
+      // live (entry gone, shutdown loop won't see it) so it must be closed here.
+      releaseConnect!();
+      await expect(callPromise).rejects.toThrow(/detached during connect/);
+      await detachPromise;
+      expect(client.closed).toBe(1);
+      expect(rt.runtimes.has('demo')).toBe(false);
+    });
+  });
 });

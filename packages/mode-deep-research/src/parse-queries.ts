@@ -13,9 +13,14 @@ export function parseQueries(text: string): string[] {
  * the loop treats both as "no more research needed, proceed to synthesis".
  */
 export function parseFollowups(text: string): string[] {
+  const items = parseNumberedBlock(text, /^followups\s*:?$/i);
   // "(none)" sentinel — the model is telling us no follow-ups are needed.
-  if (/followups\s*:\s*\(none\)/i.test(text)) return [];
-  return parseNumberedBlock(text, /^followups\s*:?$/i);
+  // Anchor it to a full line so a parenthetical that merely follows the
+  // header (e.g. "FOLLOWUPS:\n(none of the prior sources covered cost)\n1. …")
+  // doesn't swallow a genuine numbered list below it. Only honor the sentinel
+  // when no numbered items were parsed.
+  if (items.length === 0 && /^followups\s*:\s*\(none\)\s*$/im.test(text)) return [];
+  return items;
 }
 
 function parseNumberedBlock(text: string, headerRegex: RegExp): string[] {

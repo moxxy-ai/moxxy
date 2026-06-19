@@ -24,6 +24,30 @@ import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
  *  IPC handler (and the Settings model picker) indefinitely. */
 const MODELS_FETCH_TIMEOUT_MS = 15_000;
 
+/**
+ * The vault API key is about to ride on this baseURL's request — only attach it
+ * over `https:` (or http to localhost, for self-hosted dev endpoints). A
+ * `http://<remote>` or internal-IP baseURL (a poisoned providers.json could set
+ * one) would otherwise leak the bearer token in cleartext / to an SSRF target.
+ */
+function assertSafeProviderBase(base: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(base);
+  } catch {
+    throw new Error(`Invalid provider baseURL: ${base}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  if (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && isLocalhost)) {
+    return;
+  }
+  throw new Error(
+    `Refusing to send the API key to a non-https provider endpoint (${base}). ` +
+      'Use an https:// baseURL (http is allowed only for localhost).',
+  );
+}
+
 interface StoredProvider {
   readonly kind: 'openai-compat';
   readonly name: string;
@@ -162,8 +186,11 @@ export async function fetchProviderModels(
     // which is the truth. The caller merges with advertised models.
     return [];
   }
-  const apiKey = await vaultGet(envVarFor(entry));
   const base = entry.baseURL.replace(/\/+$/, '');
+  // Validate the endpoint BEFORE decrypting/attaching the key so a poisoned
+  // baseURL can't even trigger the vault read.
+  assertSafeProviderBase(base);
+  const apiKey = await vaultGet(envVarFor(entry));
   const url = `${base}/v1/models`;
   const res = await fetch(url, {
     headers: {

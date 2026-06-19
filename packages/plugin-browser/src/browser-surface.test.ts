@@ -212,6 +212,31 @@ describe('browser surface polling lifecycle', () => {
     surface.close();
   });
 
+  it('treats a malformed frame reply as a failed tick (no blank frame emitted)', async () => {
+    vi.useFakeTimers();
+    const sidecar = makeControllableSpawn();
+    // The sidecar replies ok, but with a frame missing base64/url — a partial or
+    // altered reply. The surface must NOT stream {base64: undefined} to subs.
+    sidecar.setHandler((method) =>
+      method === 'frame' ? { ok: true, result: { mediaType: 'image/jpeg' } } : { ok: false, message: 'x' },
+    );
+    const surface = buildBrowserSurface({ sidecarPath: '/fake.js', spawnFn: sidecar.spawn }).open();
+    const events: Array<{ type: string }> = [];
+    surface.onData((p) => events.push(p as { type: string }));
+
+    await flush();
+    // No frame payload streamed (it was treated as a failure).
+    expect(events.filter((e) => e.type === 'frame')).toHaveLength(0);
+    // Drive past FAIL_GRACE: a status surfaces instead of silent blanks.
+    for (let i = 1; i < FAIL_GRACE; i++) {
+      await vi.advanceTimersByTimeAsync(FRAME_INTERVAL_MS);
+      await flush();
+    }
+    expect(events.some((e) => e.type === 'status')).toBe(true);
+
+    surface.close();
+  });
+
   it('close() stops the poll — no further frame calls reach the sidecar', async () => {
     vi.useFakeTimers();
     const sidecar = makeControllableSpawn();

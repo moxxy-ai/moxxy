@@ -7,9 +7,12 @@
  * store/model/hook code path drive a live chat loop on RN, nothing more.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   FlatList,
+  findNodeHandle,
+  Modal,
   Pressable,
   SafeAreaView,
   StyleSheet,
@@ -36,8 +39,13 @@ import { FileDiffView } from './FileDiffView';
 // If a URL is baked in via env, connect straight away; otherwise show the QR
 // scanner so the user pairs by scanning the code `moxxy mobile` prints.
 // (The env path is for simulators on this machine — no camera needed.)
-const ENV_URL = process.env.EXPO_PUBLIC_MOXXY_WS_URL;
-const ENV_TOKEN = process.env.EXPO_PUBLIC_MOXXY_WS_TOKEN;
+//
+// SECURITY: every `EXPO_PUBLIC_*` var is inlined into the JS bundle at build
+// time, so a real pairing token here would ship as a recoverable literal in any
+// distributable build. Gate both behind `__DEV__` so they can only ever be a
+// dev/simulator shortcut and never compile into a production bundle.
+const ENV_URL = __DEV__ ? process.env.EXPO_PUBLIC_MOXXY_WS_URL : undefined;
+const ENV_TOKEN = __DEV__ ? process.env.EXPO_PUBLIC_MOXXY_WS_TOKEN : undefined;
 
 export default function App(): React.JSX.Element {
   // Seed `connected` from the env URL WITHOUT a side effect — bootMobile
@@ -67,20 +75,110 @@ export default function App(): React.JSX.Element {
       <StatusBar style="light" />
       <ConnectionBridge />
       <ChatStoreBridge />
-      <Chat />
+      <ErrorBoundary
+        fallback={(retry) => (
+          <View style={styles.center}>
+            <Text style={styles.centerText} accessibilityLiveRegion="assertive">
+              Something went wrong rendering the chat.
+            </Text>
+            <Pressable
+              style={styles.send}
+              onPress={retry}
+              accessibilityRole="button"
+              accessibilityLabel="Retry"
+            >
+              <Text style={styles.sendLabel}>Retry</Text>
+            </Pressable>
+          </View>
+        )}
+      >
+        <Chat />
+      </ErrorBoundary>
     </SafeAreaView>
   );
+}
+
+/**
+ * Generic render error boundary. The entire transcript is attacker-influenceable
+ * data forwarded from the paired runner; without this, one malformed event
+ * (e.g. a file-diff with a bad hunk shape) that throws during render unmounts
+ * the whole React tree to a blank screen with no recovery. Catch it, log it, and
+ * render a retry affordance so a single bad payload degrades gracefully.
+ */
+interface ErrorBoundaryProps {
+  readonly children: React.ReactNode;
+  readonly fallback: (retry: () => void) => React.ReactNode;
+}
+interface ErrorBoundaryState {
+  readonly error: Error | null;
+}
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error): void {
+    console.warn('[moxxy] render error caught by boundary:', error?.message ?? error);
+  }
+
+  private readonly retry = (): void => this.setState({ error: null });
+
+  render(): React.ReactNode {
+    if (this.state.error) return this.props.fallback(this.retry);
+    return this.props.children;
+  }
+}
+
+/** Per-row boundary: a single malformed transcript item degrades to a one-line
+ *  notice instead of taking down the whole list. */
+class RowErrorBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error): void {
+    console.warn('[moxxy] row render error:', error?.message ?? error);
+  }
+
+  render(): React.ReactNode {
+    if (this.state.failed) {
+      return (
+        <View style={styles.event}>
+          <Text style={styles.eventText}>⚠ Could not render this message.</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/** Extract the host:port for a confirmation prompt. Hermes' `URL` is unreliable,
+ *  so parse with a regex that ALSO rejects URLs whose authority is malformed
+ *  (e.g. embedded credentials/whitespace). Returns null when no clean host is
+ *  present — the caller then refuses to connect. */
+function wsHost(url: string): string | null {
+  const m = /^wss?:\/\/([^/?#\s@]+)(?:[/?#]|$)/i.exec(url);
+  return m ? m[1]! : null;
 }
 
 /** Pair by scanning the QR `moxxy mobile` prints. */
 function ConnectScreen({ onConnect }: { onConnect: (url: string) => void }): React.JSX.Element {
   const [permission, requestPermission] = useCameraPermissions();
-  const [scanned, setScanned] = useState(false);
+  // The scanned URL is staged here, NOT connected: scanning is a trust boundary
+  // (a malicious poster/screen QR could redirect the app to a hostile runner),
+  // so require an explicit "Connect to <host>?" confirmation first.
+  const [pending, setPending] = useState<{ url: string; host: string } | null>(null);
 
   if (!permission) {
     return (
       <SafeAreaView style={styles.center}>
-        <Text style={styles.centerText}>Preparing camera…</Text>
+        <Text style={styles.centerText} accessibilityLiveRegion="polite">
+          Preparing camera…
+        </Text>
       </SafeAreaView>
     );
   }
@@ -90,7 +188,12 @@ function ConnectScreen({ onConnect }: { onConnect: (url: string) => void }): Rea
         <Text style={styles.centerText}>
           Camera access is needed to scan the connection QR from `moxxy mobile`.
         </Text>
-        <Pressable style={styles.send} onPress={() => void requestPermission()}>
+        <Pressable
+          style={styles.send}
+          onPress={() => void requestPermission()}
+          accessibilityRole="button"
+          accessibilityLabel="Grant camera access"
+        >
           <Text style={styles.sendLabel}>Grant camera access</Text>
         </Pressable>
       </SafeAreaView>
@@ -103,20 +206,98 @@ function ConnectScreen({ onConnect }: { onConnect: (url: string) => void }): Rea
         style={styles.flex}
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
         onBarcodeScanned={
-          scanned
+          pending
             ? undefined
             : ({ data }) => {
-                if (/^wss?:\/\//i.test(data)) {
-                  setScanned(true);
-                  onConnect(data);
-                }
+                if (typeof data !== 'string' || !/^wss?:\/\//i.test(data)) return;
+                const host = wsHost(data);
+                if (!host) return; // malformed authority — refuse silently
+                setPending({ url: data, host });
               }
         }
       />
       <SafeAreaView style={styles.scanHint}>
         <Text style={styles.scanHintText}>Scan the QR printed by `moxxy mobile`</Text>
       </SafeAreaView>
+
+      <ConnectConfirm
+        pending={pending}
+        onCancel={() => setPending(null)}
+        onConfirm={() => {
+          if (pending) onConnect(pending.url);
+        }}
+      />
     </View>
+  );
+}
+
+/** Host-confirmation sheet shown after a QR scan. Real modal a11y: aria-modal,
+ *  Escape/back to cancel, focus moved to the primary action on open. */
+function ConnectConfirm({
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  pending: { url: string; host: string } | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}): React.JSX.Element {
+  const connectRef = useRef<View>(null);
+  // On open, move screen-reader focus onto the primary action so the sheet
+  // doesn't strand focus behind the scrim (focus is restored to the camera
+  // surface when the sheet unmounts).
+  useEffect(() => {
+    if (!pending) return undefined;
+    const id = setTimeout(() => {
+      const tag = connectRef.current ? findNodeHandle(connectRef.current) : null;
+      if (tag != null) AccessibilityInfo.setAccessibilityFocus(tag);
+    }, 50);
+    return () => clearTimeout(id);
+  }, [pending]);
+
+  return (
+    <Modal
+      visible={!!pending}
+      transparent
+      animationType="fade"
+      onRequestClose={onCancel}
+      accessibilityViewIsModal
+    >
+      <View style={styles.modalScrim}>
+        <View
+          style={styles.modalCard}
+          accessibilityViewIsModal
+          accessibilityLabel="Confirm connection"
+        >
+          <Text style={styles.modalTitle}>Connect to this server?</Text>
+          <Text style={styles.modalHost} accessibilityLabel={`Host ${pending?.host ?? ''}`}>
+            {pending?.host}
+          </Text>
+          <Text style={styles.modalBody}>
+            Only connect to a QR you printed from `moxxy mobile` on your own machine.
+          </Text>
+          <View style={styles.askButtons}>
+            <Pressable
+              style={[styles.askBtn, styles.askDeny]}
+              onPress={onCancel}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel and keep scanning"
+            >
+              <Text style={styles.askBtnLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              ref={connectRef}
+              style={styles.askBtn}
+              onPress={onConfirm}
+              accessibilityRole="button"
+              accessibilityLabel={`Connect to ${pending?.host ?? 'server'}`}
+            >
+              <Text style={styles.askBtnLabel}>Connect</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -125,9 +306,21 @@ function Chat(): React.JSX.Element {
   const { snapshot } = useConnection(workspaceId);
   const { events, streamingText, sending, send } = useChat(workspaceId);
   const [draft, setDraft] = useState('');
+  const inputRef = useRef<TextInput>(null);
 
   const phase = snapshot?.phase.phase ?? 'connecting…';
   const ready = !!workspaceId;
+
+  // Move focus to the composer once the chat surface becomes usable, so a
+  // screen-reader / keyboard user lands on the input instead of the header.
+  useEffect(() => {
+    if (ready) {
+      const id = setTimeout(() => inputRef.current?.focus(), 100);
+      return () => clearTimeout(id);
+    }
+    return undefined;
+  }, [ready]);
+
   // Derive the transcript projection from `events` only. Without the memo,
   // typing into the composer (local `draft` state) re-renders Chat and re-folds
   // the whole event array O(n) per keystroke for data that has not changed.
@@ -140,6 +333,9 @@ function Chat(): React.JSX.Element {
   );
 
   const onSend = (): void => {
+    // Share ONE gate with the Send button (which is disabled while `sending`):
+    // the keyboard return key must not enqueue a turn the button blocks.
+    if (sending) return;
     const text = draft.trim();
     if (!text || !ready) return;
     setDraft('');
@@ -148,7 +344,7 @@ function Chat(): React.JSX.Element {
 
   return (
     <View style={styles.flex}>
-      <Text style={styles.status}>
+      <Text style={styles.status} accessibilityLiveRegion="polite" accessibilityRole="text">
         moxxy · {phase}
         {ready ? '' : ' · waiting for a workspace'}
       </Text>
@@ -159,17 +355,23 @@ function Chat(): React.JSX.Element {
         data={lines}
         keyExtractor={({ event }) => event.id}
         renderItem={({ item }) => (
-          <View style={[styles.event, item.line.who === 'you' && styles.eventUser]}>
-            <Text style={styles.eventWho}>{item.line.who}</Text>
-            {item.line.diff ? (
-              <FileDiffView display={item.line.diff} />
-            ) : (
-              <Text style={styles.eventText}>{item.line.text}</Text>
-            )}
-          </View>
+          <RowErrorBoundary>
+            <View style={[styles.event, item.line.who === 'you' && styles.eventUser]}>
+              <Text style={styles.eventWho}>{item.line.who}</Text>
+              {item.line.diff ? (
+                <FileDiffView display={item.line.diff} />
+              ) : (
+                <Text style={styles.eventText}>{item.line.text}</Text>
+              )}
+            </View>
+          </RowErrorBoundary>
         )}
         ListFooterComponent={
-          streamingText ? <Text style={styles.streaming}>{streamingText}</Text> : null
+          streamingText ? (
+            <Text style={styles.streaming} accessibilityLiveRegion="polite">
+              {streamingText}
+            </Text>
+          ) : null
         }
         ListEmptyComponent={<Text style={styles.empty}>No messages yet — say hello.</Text>}
       />
@@ -178,6 +380,7 @@ function Chat(): React.JSX.Element {
 
       <View style={styles.composer}>
         <TextInput
+          ref={inputRef}
           style={styles.input}
           value={draft}
           onChangeText={setDraft}
@@ -186,11 +389,15 @@ function Chat(): React.JSX.Element {
           editable={ready}
           onSubmitEditing={onSend}
           returnKeyType="send"
+          accessibilityLabel="Message moxxy"
         />
         <Pressable
           style={[styles.send, (!ready || sending) && styles.sendDisabled]}
           disabled={!ready || sending}
           onPress={onSend}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !ready || sending, busy: sending }}
+          accessibilityLabel={sending ? 'Sending message' : 'Send message'}
         >
           <Text style={styles.sendLabel}>{sending ? '…' : 'Send'}</Text>
         </Pressable>
@@ -205,37 +412,65 @@ function AskPrompt({ workspaceId }: { workspaceId: string | null }): React.JSX.E
   const ask = useActiveAsk(workspaceId);
   if (!ask) return null;
 
+  // Only forward a concrete option id. An approval ask with no usable option
+  // would otherwise resolve the parked runner with optionId:'' (not a valid id)
+  // and drop the ask locally, leaving the user unable to act — keep it pending.
+  const allowOptionId = ask.kind === 'approval' ? ask.approval?.options[0]?.id : undefined;
+  const denyOptionId =
+    ask.kind === 'approval'
+      ? ask.approval?.options.find((o) => o.danger)?.id ?? ask.approval?.defaultOptionId
+      : undefined;
+
+  // For a permission ask both verdicts are always forwardable; for an approval
+  // ask a button is only actionable if it maps to a concrete option id.
+  const canAllow = ask.kind === 'permission' || !!allowOptionId;
+  const canDeny = ask.kind === 'permission' || !!denyOptionId;
+
   const allow = (): void => {
     if (ask.kind === 'permission') {
       askStore.respond(ask.requestId, { mode: 'allow' });
       return;
     }
-    // Only forward a concrete option id. An approval ask with no options would
-    // otherwise resolve the parked runner with optionId:'' (not a valid id) and
-    // drop the ask locally, leaving the user unable to act — keep it pending.
-    const optionId = ask.approval?.options[0]?.id;
-    if (optionId) askStore.respond(ask.requestId, { optionId });
+    if (allowOptionId) askStore.respond(ask.requestId, { optionId: allowOptionId });
   };
   const deny = (): void => {
     if (ask.kind === 'permission') {
       askStore.respond(ask.requestId, { mode: 'deny' });
       return;
     }
-    const optionId = ask.approval?.options.find((o) => o.danger)?.id ?? ask.approval?.defaultOptionId;
-    if (optionId) askStore.respond(ask.requestId, { optionId });
+    if (denyOptionId) askStore.respond(ask.requestId, { optionId: denyOptionId });
   };
 
   const label =
     ask.kind === 'permission' ? `Allow tool "${ask.tool?.name}"?` : 'Approval requested';
+  // Make the dead-end visible rather than a silent no-op tap.
+  const unanswerable = !canAllow && !canDeny;
 
   return (
-    <View style={styles.ask}>
+    <View style={styles.ask} accessibilityLiveRegion="polite">
       <Text style={styles.askLabel}>{label}</Text>
+      {unanswerable ? (
+        <Text style={styles.askNotice}>This approval can&apos;t be answered from mobile.</Text>
+      ) : null}
       <View style={styles.askButtons}>
-        <Pressable style={styles.askBtn} onPress={allow}>
+        <Pressable
+          style={[styles.askBtn, !canAllow && styles.sendDisabled]}
+          onPress={allow}
+          disabled={!canAllow}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canAllow }}
+          accessibilityLabel={label === 'Approval requested' ? 'Approve' : 'Allow'}
+        >
           <Text style={styles.askBtnLabel}>Allow</Text>
         </Pressable>
-        <Pressable style={[styles.askBtn, styles.askDeny]} onPress={deny}>
+        <Pressable
+          style={[styles.askBtn, styles.askDeny, !canDeny && styles.sendDisabled]}
+          onPress={deny}
+          disabled={!canDeny}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canDeny }}
+          accessibilityLabel="Deny"
+        >
           <Text style={styles.askBtnLabel}>Deny</Text>
         </Pressable>
       </View>
@@ -282,7 +517,9 @@ const palette = {
   border: '#2a2a33',
   text: '#f2f2f5',
   textMuted: '#b7b7c2',
-  textDim: '#6f6f7c',
+  // Raised from #6f6f7c so secondary labels / empty-state clear WCAG AA on the
+  // dark surfaces; still visibly dimmer than `textMuted`.
+  textDim: '#9a9aa6',
   primary: '#6c5ce7',
   primarySoft: '#27243d',
   red: '#d63a4f',
@@ -351,7 +588,9 @@ const styles = StyleSheet.create({
     backgroundColor: palette.primary,
     borderRadius: 12,
     paddingHorizontal: 18,
+    minHeight: 44, // 44x44 minimum hit target
     justifyContent: 'center',
+    alignItems: 'center',
   },
   sendDisabled: { opacity: 0.5 },
   sendLabel: { color: '#ffffff', fontWeight: '700' },
@@ -365,14 +604,37 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   askLabel: { color: palette.text, fontWeight: '600' },
+  askNotice: { color: palette.textMuted, fontSize: 12 },
   askButtons: { flexDirection: 'row', gap: 8 },
   askBtn: {
     flex: 1,
     backgroundColor: palette.primary,
     borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: 12,
+    minHeight: 44, // 44x44 minimum hit target
     alignItems: 'center',
+    justifyContent: 'center',
   },
   askDeny: { backgroundColor: palette.red },
   askBtnLabel: { color: '#ffffff', fontWeight: '700' },
+  modalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: palette.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 20,
+    gap: 10,
+  },
+  modalTitle: { color: palette.text, fontSize: 17, fontWeight: '700' },
+  modalHost: { color: palette.primary, fontSize: 15, fontWeight: '700' },
+  modalBody: { color: palette.textMuted, fontSize: 13 },
 });

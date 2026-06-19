@@ -35,6 +35,22 @@ describe('install_plugin tool', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('accepts common range / dist-tag version shapes', () => {
+    const tool = buildInstallPluginTool(noopDeps);
+    for (const version of ['latest', 'v1.2.3', '^1.0.0', '~2.3.4', '*', '2.x', '1.2.3-rc.1']) {
+      expect(tool.inputSchema.safeParse({ packageName: 'left-pad', version }).success).toBe(true);
+    }
+  });
+
+  // A flag-like version would otherwise produce a malformed `pkg@--evil` spec;
+  // reject it at the schema with a clear message instead.
+  it('rejects flag-like version values', () => {
+    const tool = buildInstallPluginTool(noopDeps);
+    for (const version of ['--evil', '-g', '-rc', '--registry=http://evil']) {
+      expect(tool.inputSchema.safeParse({ packageName: 'left-pad', version }).success).toBe(false);
+    }
+  });
 });
 
 describe('uninstall_plugin tool', () => {

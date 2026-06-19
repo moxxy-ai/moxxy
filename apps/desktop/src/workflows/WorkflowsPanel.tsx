@@ -34,6 +34,11 @@ export function WorkflowsPanel({
   if (editing !== undefined) {
     return (
       <WorkflowBuilder
+        // Re-key per target so switching workflows (Edit A → Back → Edit B, or
+        // re-entering quickly) mounts a FRESH builder instance: its
+        // `useWorkflowBuilder` state + the in-flight `load` are discarded, so a
+        // slower earlier load can't resolve last and hydrate the wrong YAML.
+        key={editing ?? '__new__'}
         name={editing}
         onClose={() => setEditing(undefined)}
         onSaved={() => {
@@ -144,6 +149,7 @@ export function WorkflowsPanel({
               <button
                 type="button"
                 data-testid={`edit-workflow-${w.name}`}
+                aria-label={`Edit ${w.name}`}
                 onClick={() => setEditing(w.name)}
                 style={pill('var(--color-purple)')}
               >
@@ -151,6 +157,8 @@ export function WorkflowsPanel({
               </button>
               <button
                 type="button"
+                aria-pressed={w.enabled}
+                aria-label={`${w.enabled ? 'Disable' : 'Enable'} ${w.name}`}
                 onClick={() => void wf.setEnabled(w.name, !w.enabled)}
                 style={pill(w.enabled ? 'var(--color-green)' : 'var(--color-text-dim)')}
               >
@@ -158,6 +166,7 @@ export function WorkflowsPanel({
               </button>
               <button
                 type="button"
+                aria-label={`Run ${w.name}`}
                 onClick={() => void wf.run(w.name)}
                 style={pill('var(--color-primary)')}
               >

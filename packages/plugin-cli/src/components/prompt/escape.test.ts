@@ -13,7 +13,8 @@ describe('matchEscape — kitty keyboard protocol (CSI <code>;<mods> u)', () => 
     expect(matchEscape(`${ESC}[13;5u`)).toMatchObject({ action: 'alt-enter' });
     // plain Enter is keycode 13 with modifiers=1 → not alt-enter, falls through
     // to the "unhandled kitty key" consume branch (ESC + "[13u" = 5 chars).
-    expect(matchEscape(`${ESC}[13u`)).toMatchObject({ action: 'esc-clear', len: 5 });
+    // Consumed as a NOOP (not esc-clear) so an unknown key can't wipe input.
+    expect(matchEscape(`${ESC}[13u`)).toMatchObject({ action: 'noop', len: 5 });
   });
 
   it('Shift+Tab (CSI 9;2 u) → shift-tab', () => {
@@ -35,9 +36,9 @@ describe('matchEscape — kitty keyboard protocol (CSI <code>;<mods> u)', () => 
     });
   });
 
-  it('a kitty key we do not handle is consumed (not rendered as junk)', () => {
+  it('a kitty key we do not handle is consumed as a noop (not rendered as junk, not a clear)', () => {
     // keycode 99 ('c') with no modifier → no special handling → consume.
-    expect(matchEscape(`${ESC}[99u`)).toMatchObject({ action: 'esc-clear', len: 5 });
+    expect(matchEscape(`${ESC}[99u`)).toMatchObject({ action: 'noop', len: 5 });
   });
 });
 
@@ -73,7 +74,8 @@ describe('matchEscape — SS3, meta, and edge cases', () => {
   it('SS3 home/end', () => {
     expect(matchEscape(`${ESC}OH`)).toEqual<EscapeMatch>({ action: 'home', len: 3 });
     expect(matchEscape(`${ESC}OF`)).toEqual<EscapeMatch>({ action: 'end', len: 3 });
-    expect(matchEscape(`${ESC}OP`)).toMatchObject({ action: 'esc-clear', len: 3 });
+    // Unknown SS3 is consumed as a noop (not a clear).
+    expect(matchEscape(`${ESC}OP`)).toMatchObject({ action: 'noop', len: 3 });
   });
 
   it('meta+b / meta+f → word motion; meta+DEL → word-back-delete', () => {
@@ -97,11 +99,13 @@ describe('matchEscape — SS3, meta, and edge cases', () => {
     expect(matchEscape(`${ESC}${ESC}`)).toEqual<EscapeMatch>({ action: 'esc-clear', len: 1 });
   });
 
-  it('unknown CSI is consumed up to the final-byte terminator', () => {
+  it('unknown CSI is consumed (noop) up to the final-byte terminator', () => {
     // CSI 200~ (bracketed paste marker is two-digit; use an unrecognized but
     // terminated sequence). `\x1b[99;99X` ends at the 'X' final byte.
+    // Consumed as a noop (not esc-clear) so a fancy-terminal key can't wipe
+    // a half-typed prompt.
     const seq = `${ESC}[99;99X`;
-    expect(matchEscape(seq)).toMatchObject({ action: 'esc-clear', len: seq.length });
+    expect(matchEscape(seq)).toMatchObject({ action: 'noop', len: seq.length });
   });
 
   it('an incomplete CSI (no terminator yet) returns null to await more data', () => {

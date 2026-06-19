@@ -45,6 +45,43 @@ function parseTerms(s: string): string[] {
     .filter(Boolean);
 }
 
+/** Stable empty-span reference so the `result` memo isn't invalidated by a fresh
+ *  `[]` literal every render when no NER spans currently apply. */
+const EMPTY_SPANS: readonly PiiSpan[] = [];
+
+/** Input length past which the synchronous redact pass is worth deferring. Below
+ *  it the pass is cheap enough to run on every keystroke (instant feedback). */
+const REDACT_DEBOUNCE_THRESHOLD = 20_000;
+
+/**
+ * Returns `value` immediately while it's short, but coalesces rapid changes to a
+ * trailing-edge update once it grows past `threshold`. Keeps small-input typing
+ * instant while sparing the UI thread the heavy redact pass on every keystroke
+ * of a large pasted document.
+ */
+function useDebouncedLargeInput(value: string, threshold: number, delayMs: number): string {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    // Small inputs (and any value that has already caught up) update inline so
+    // typing stays instant; only large, still-changing inputs are deferred.
+    if (value.length <= threshold) {
+      setDebounced(value);
+      return;
+    }
+    const handle = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(handle);
+  }, [value, threshold, delayMs]);
+
+  return debounced;
+}
+
+/** Upper bound on a dropped file's size. A document anonymizer works on text;
+ *  reading a multi-GB drop fully into the renderer heap (plus its ~1.33x base64
+ *  copy, plus the IPC serialization) would freeze or crash the renderer, so we
+ *  reject oversized drops before allocating anything. */
+const MAX_DROP_BYTES = 50 * 1_000_000;
+
 /** Base64-encode bytes for the drag-and-drop parse IPC. Chunked so a large file
  *  doesn't exceed the argument-count limit of `String.fromCharCode(...)`. */
 function bytesToBase64(bytes: Uint8Array): string {
@@ -81,24 +118,55 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
   );
   const [customTermsText, setCustomTermsText] = useState('');
   const [mode, setMode] = useState<RedactionMode>('label');
-  const [nerSpans, setNerSpans] = useState<readonly PiiSpan[]>([]);
-  const [saved, setSaved] = useState<string | null>(null);
+  // NER spans are tagged with the text they were computed against. Char offsets
+  // are only valid for that exact text, so the redactor applies them only when
+  // `forText === input` — a late/stale resolve never misaligns the new input.
+  const [ner, setNer] = useState<{ forText: string; spans: readonly PiiSpan[] }>({
+    forText: '',
+    spans: [],
+  });
+  // Transient feedback for the output actions: a saved-to-path success (shows a
+  // check + path) or a plain message (errors, "no active session"). Replaces the
+  // old single saved-path string so failures can be surfaced, not swallowed.
+  const [status, setStatus] = useState<{ kind: 'saved' | 'notice'; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   const nerEnabled = filters.has(NAMES_FILTER);
   const nerUnavailable = nerStatus === 'error';
 
+  // The structured detection + overlap resolution + splice (and SpanHighlight's
+  // rebuild) run synchronously on the UI thread. For a large pasted log file
+  // (the "tens of thousands of detections" case detect() calls out) doing that
+  // on every keystroke drops frames. Debounce the redacted snapshot once the
+  // input is large enough to matter; small inputs stay instant.
+  const redactInput = useDebouncedLargeInput(input, REDACT_DEBOUNCE_THRESHOLD, 200);
+
   // Run on-device NER (debounced) whenever the text or the toggle changes.
+  // The model can take far longer than the debounce, so a newer keystroke may
+  // start a second inference while the first is still in flight. Tagging the
+  // result with its source text (and dropping a resolve once cancelled) means a
+  // late/out-of-order resolve never reaches `redact`: applying offsets computed
+  // against stale text would shift them and either leak a real name or silently
+  // drop document content (redact() does not clamp spans to text.length). Keyed
+  // off `redactInput` so the NER spans and the redacted text always describe the
+  // same text.
   useEffect(() => {
-    if (!nerEnabled || !input.trim()) {
-      setNerSpans([]);
+    if (!nerEnabled || !redactInput.trim()) {
+      setNer({ forText: redactInput, spans: [] });
       return;
     }
+    const sourceText = redactInput;
+    let cancelled = false;
     const handle = setTimeout(() => {
-      void detectNames(input).then(setNerSpans);
+      void detectNames(sourceText).then((spans) => {
+        if (!cancelled) setNer({ forText: sourceText, spans });
+      });
     }, 350);
-    return () => clearTimeout(handle);
-  }, [input, nerEnabled, detectNames]);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [redactInput, nerEnabled, detectNames]);
 
   const customTerms = useMemo(() => parseTerms(customTermsText), [customTermsText]);
   const categoryList = useMemo(
@@ -106,15 +174,22 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
     [filters],
   );
 
+  // Only feed NER spans whose offsets were computed against the CURRENT redact
+  // input — a stale (still-in-flight or just-superseded) set is ignored, never
+  // misapplied. `EMPTY_SPANS` is a stable reference so the `result` memo isn't
+  // invalidated every render while NER is inactive/stale.
+  const activeNerSpans =
+    nerEnabled && ner.forText === redactInput ? ner.spans : EMPTY_SPANS;
+
   const result = useMemo(
     () =>
-      redact(input, {
+      redact(redactInput, {
         categories: categoryList,
         customTerms,
-        extraSpans: nerEnabled ? nerSpans : [],
+        extraSpans: activeNerSpans,
         mode,
       }),
-    [input, categoryList, customTerms, nerEnabled, nerSpans, mode],
+    [redactInput, categoryList, customTerms, activeNerSpans, mode],
   );
 
   const hasInput = input.trim().length > 0;
@@ -158,7 +233,7 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
     setInput('');
     setFileName(null);
     setFileError(null);
-    setNerSpans([]);
+    setNer({ forText: '', spans: [] });
   };
 
   // Drag-and-drop: read the dropped file's BYTES in the renderer (it already
@@ -169,8 +244,20 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
     e.preventDefault();
     setDragActive(false);
     setFileError(null);
-    const file = e.dataTransfer.files?.[0];
+    const files = e.dataTransfer.files;
+    const file = files?.[0];
     if (!file) return;
+    // Gate on size BEFORE reading: arrayBuffer() + base64 + IPC would otherwise
+    // load (and copy) the whole file into the renderer heap with no bound.
+    if (file.size > MAX_DROP_BYTES) {
+      setFileError(
+        `That file is too large (max ${Math.round(MAX_DROP_BYTES / 1_000_000)} MB). Paste the text instead.`,
+      );
+      return;
+    }
+    if (files && files.length > 1) {
+      setFileError('Only the first file was loaded.');
+    }
     void (async () => {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -194,17 +281,25 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
   };
 
   const copyOut = (): void => {
-    void navigator.clipboard.writeText(result.text);
-    setCopied(true);
-    setSaved(null);
-    window.setTimeout(() => setCopied(false), 1600);
+    setStatus(null);
+    // Only claim success once the write actually resolves — writeText can reject
+    // (no permission, window not focused, oversized payload). Reporting "Copied"
+    // before that would tell the user their redacted text is on the clipboard
+    // when it isn't.
+    void navigator.clipboard
+      .writeText(result.text)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1600);
+      })
+      .catch(() => setStatus({ kind: 'notice', text: "Couldn't copy to clipboard" }));
   };
 
   const saveOut = async (): Promise<void> => {
     const base = fileName && fileName !== 'Document' ? fileName.replace(/\.[^.]+$/, '') : 'document';
     const path = await anon.save(`${base}-redacted.txt`, result.text);
     if (path) {
-      setSaved(path);
+      setStatus({ kind: 'saved', text: path });
       setCopied(false);
     }
   };
@@ -214,11 +309,15 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
   // and a count for downstream use. Review-in-composer: it lands in the chat
   // composer for the user to review and send.
   const sendToChat = (): void => {
-    sendToSession?.({
+    const ok = sendToSession?.({
       title: `Redacted document${fileName && fileName !== 'Document' ? ` (${fileName})` : ''}`,
       text: result.text,
       meta: { source: 'anonymizer', redactions: result.report.total },
     });
+    // `sendToSession` returns false when there's no active session — surface it
+    // instead of letting the primary action no-op silently.
+    setCopied(false);
+    setStatus(ok ? null : { kind: 'notice', text: 'No active session to send to' });
   };
 
   return (
@@ -276,7 +375,7 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
                 <Field label="Filters" help="Which kinds of information to find and redact.">
                   <FilterSelect options={filterOptions} selected={filters} onChange={setFilters} />
                   {nerEnabled && nerError && (
-                    <span style={{ ...dim, color: 'var(--color-pink)', marginTop: 2 }}>
+                    <span role="alert" style={{ ...dim, color: 'var(--color-pink)', marginTop: 2 }}>
                       {nerError}
                     </span>
                   )}
@@ -315,7 +414,9 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
               <EmptyOutput />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <Counts counts={result.report.counts} total={result.report.total} />
+                <div role="status" aria-live="polite">
+                  <Counts counts={result.report.counts} total={result.report.total} />
+                </div>
 
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Button variant="primary" data-testid="anon-copy" onClick={copyOut}>
@@ -331,9 +432,20 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
                   <Button variant="secondary" data-testid="anon-save" onClick={() => void saveOut()}>
                     Save as…
                   </Button>
-                  {saved && (
-                    <span style={{ ...dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <Icon name="check" size={13} /> Saved to {saved}
+                  {status && (
+                    <span
+                      data-testid="anon-status"
+                      role="status"
+                      aria-live="polite"
+                      style={{ ...dim, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    >
+                      {status.kind === 'saved' ? (
+                        <>
+                          <Icon name="check" size={13} /> Saved to {status.text}
+                        </>
+                      ) : (
+                        status.text
+                      )}
                     </span>
                   )}
                 </div>
@@ -347,7 +459,7 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
                 {result.report.total > 0 && (
                   <Panel label="What was detected">
                     <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-                      <SpanHighlight text={input} spans={result.report.spans} />
+                      <SpanHighlight text={redactInput} spans={result.report.spans} />
                     </div>
                   </Panel>
                 )}

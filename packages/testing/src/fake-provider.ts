@@ -11,6 +11,14 @@ export interface FakeProviderOptions {
   readonly script?: ScriptedReplies;
   readonly byHash?: Record<string, ScriptedReply>;
   readonly onRequest?: (req: ProviderRequest) => void;
+  /**
+   * Cap on retained `received` requests. Each request can be the full
+   * conversation history, so an unbounded buffer is O(turns * history) for a
+   * long-lived instance (goal-mode / fuzz tests). When set, only the most
+   * recent N requests are kept. Default: unbounded (callers `reset()` between
+   * scenarios).
+   */
+  readonly maxReceived?: number;
 }
 
 const defaultModel: ModelDescriptor = {
@@ -29,6 +37,7 @@ export class FakeProvider implements LLMProvider {
   private readonly script: ScriptedReplies;
   private readonly byHash: Record<string, ScriptedReply>;
   private readonly onRequest?: (req: ProviderRequest) => void;
+  private readonly maxReceived?: number;
 
   constructor(opts: FakeProviderOptions = {}) {
     this.name = opts.name ?? 'fake';
@@ -36,11 +45,22 @@ export class FakeProvider implements LLMProvider {
     this.script = opts.script ?? [];
     this.byHash = opts.byHash ?? {};
     this.onRequest = opts.onRequest;
+    this.maxReceived = opts.maxReceived;
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
     this.received.push(req);
+    if (this.maxReceived !== undefined && this.received.length > this.maxReceived) {
+      this.received.splice(0, this.received.length - this.maxReceived);
+    }
     this.onRequest?.(req);
+    // Mirror the real provider abort contract (anthropic provider.ts:368-369):
+    // an already-aborted request yields a clean terminal error and stops, so
+    // loop-level cancellation paths get exercised against the fake too.
+    if (req.signal?.aborted) {
+      yield { type: 'error', message: 'aborted', retryable: false };
+      return;
+    }
     const hash = hashRequest(req);
     // byHash mode is exact-match-or-bust: a non-empty map that lacks this
     // request's hash is a test-author error, not a cue to fall through to the
@@ -66,6 +86,11 @@ export class FakeProvider implements LLMProvider {
       }
     }
     for (const event of reply) {
+      // Honor mid-stream cancellation between scripted events.
+      if (req.signal?.aborted) {
+        yield { type: 'error', message: 'aborted', retryable: false };
+        return;
+      }
       yield event;
     }
   }
@@ -73,7 +98,9 @@ export class FakeProvider implements LLMProvider {
   async countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number> {
     const blob =
       (req.system ?? '') +
-      req.messages.map((m) => m.content.map((c) => ('text' in c ? c.text : JSON.stringify(c))).join('')).join('') +
+      req.messages
+        .map((m) => m.content.map((c) => ('text' in c ? c.text : safeStringify(c))).join(''))
+        .join('') +
       (req.tools ?? []).map((t) => t.name + t.description).join('');
     return estimateTextTokens(blob);
   }
@@ -81,6 +108,20 @@ export class FakeProvider implements LLMProvider {
   reset(): void {
     this.cursor = 0;
     this.received.length = 0;
+  }
+}
+
+/**
+ * Best-effort stringify for token estimation: a content block carrying a
+ * circular reference or a BigInt would otherwise throw from JSON.stringify and
+ * abort the test under a serializer error instead of returning a count. A test
+ * double should tolerate odd inputs — fall back to an empty string.
+ */
+function safeStringify(c: unknown): string {
+  try {
+    return JSON.stringify(c) ?? '';
+  } catch {
+    return '';
   }
 }
 

@@ -35,13 +35,70 @@ export async function exchangeCodeForToken(
       classifyHttpStatus(res.status, { url: input.tokenUrl, body: text }) ??
       new MoxxyError({
         code: 'AUTH_INVALID',
-        message: `Token exchange failed (HTTP ${res.status}): ${text.slice(0, 300)}`,
-        context: { status: res.status, url: input.tokenUrl },
+        message: `Token exchange failed (HTTP ${res.status})${errorSummary(text)}`,
+        context: { status: res.status, url: input.tokenUrl, ...bodyContext(text) },
       })
     );
   }
-  const json = (await res.json()) as Record<string, unknown>;
+  const json = await parseJsonBody(res, input.tokenUrl);
   return parseTokenResponse(json);
+}
+
+/**
+ * Build a human-message suffix from a token-endpoint error body. Token
+ * endpoints return `{error, error_description}` (RFC 6749 §5.2); prefer those
+ * structured fields verbatim. For an opaque/HTML body (proxy/captive-portal
+ * error page) — provider/attacker-influenced text that flows to logs and can
+ * reach the model — emit nothing in the human message; the bounded raw body
+ * still lands in `context` via {@link bodyContext}.
+ */
+function errorSummary(body: string): string {
+  const fields = parseOauthError(body);
+  if (!fields) return '';
+  const { error, error_description } = fields;
+  const detail = error_description ?? error;
+  return detail ? `: ${detail.slice(0, 300)}` : '';
+}
+
+/** Truncated raw body for the error context only (never the human message). */
+function bodyContext(body: string): Record<string, string> {
+  return body ? { body: body.slice(0, 200) } : {};
+}
+
+function parseOauthError(body: string): { error?: string; error_description?: string } | null {
+  if (!body) return null;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const obj = parsed as Record<string, unknown>;
+    const error = typeof obj.error === 'string' ? obj.error : undefined;
+    const error_description =
+      typeof obj.error_description === 'string' ? obj.error_description : undefined;
+    if (!error && !error_description) return null;
+    return {
+      ...(error !== undefined ? { error } : {}),
+      ...(error_description !== undefined ? { error_description } : {}),
+    };
+  } catch {
+    return null; // opaque / HTML body — don't reflect it into the message
+  }
+}
+
+/**
+ * Parse a 2xx token-endpoint body as JSON. A provider (or an intercepting
+ * proxy / captive portal / load-balancer error page) can return HTTP 200 with
+ * a non-JSON or truncated body; an unguarded `res.json()` would reject with a
+ * native SyntaxError that escapes the MoxxyError boundary (no code/hint, and
+ * `isAuthRejection` can't classify it). Convert it to a typed error instead.
+ */
+async function parseJsonBody(res: { json(): Promise<unknown> }, url: string): Promise<Record<string, unknown>> {
+  return (await res.json().catch(() => {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: 'token endpoint returned a non-JSON success body',
+      context: { url },
+    });
+  })) as Record<string, unknown>;
 }
 
 /**
@@ -79,12 +136,12 @@ export async function refreshAccessToken(
       classifyHttpStatus(res.status, { url: input.tokenUrl, body: text }) ??
       new MoxxyError({
         code: 'AUTH_EXPIRED',
-        message: `Token refresh failed (HTTP ${res.status}): ${text.slice(0, 300)}`,
-        context: { status: res.status, url: input.tokenUrl },
+        message: `Token refresh failed (HTTP ${res.status})${errorSummary(text)}`,
+        context: { status: res.status, url: input.tokenUrl, ...bodyContext(text) },
       })
     );
   }
-  const json = (await res.json()) as Record<string, unknown>;
+  const json = await parseJsonBody(res, input.tokenUrl);
   return parseTokenResponse(json);
 }
 

@@ -80,4 +80,52 @@ describe('WorkflowRunStore', () => {
     const missing = new WorkflowRunStore(path.join(dir, 'does-not-exist'));
     expect(await missing.sweepStale()).toBe(0);
   });
+
+  it('rejects a path-traversal runId on load (no arbitrary-file read)', async () => {
+    // Plant a secret outside the store dir; a traversal id must not reach it.
+    const secret = path.join(dir, '..', 'secret.json');
+    await fs.writeFile(secret, JSON.stringify({ ...checkpoint(), pendingStepId: 'leak' }), 'utf8');
+    try {
+      for (const bad of [
+        '../secret',
+        '../../etc/passwd',
+        '..%2f..%2fsecret',
+        'not-a-ulid',
+        '01ARZ3NDEKTSV4RRFFQ69G5FA', // 25 chars (one short of a ulid)
+        '',
+      ]) {
+        expect(await store.load(bad)).toBeNull();
+      }
+    } finally {
+      await fs.rm(secret, { force: true });
+    }
+  });
+
+  it('does not unlink outside the store dir on a traversal runId (no arbitrary delete)', async () => {
+    const victim = path.join(dir, '..', 'victim.json');
+    await fs.writeFile(victim, 'keep me', 'utf8');
+    try {
+      await store.remove('../victim');
+      await store.remove('../../victim');
+      // The file outside the store survives the traversal attempts.
+      expect(await fs.readFile(victim, 'utf8')).toBe('keep me');
+    } finally {
+      await fs.rm(victim, { force: true });
+    }
+  });
+
+  it('returns null for a corrupt/tampered checkpoint instead of surfacing it', async () => {
+    const runId = await store.save(checkpoint());
+    const file = path.join(dir, `${runId}.json`);
+    // Truncated JSON (write that lost to the rename in an older build).
+    await fs.writeFile(file, '{"workflow":{"steps":', 'utf8');
+    expect(await store.load(runId)).toBeNull();
+    // Structurally wrong shapes (states null, steps not an array, missing fields).
+    await fs.writeFile(file, JSON.stringify({ workflow: { steps: 'nope' }, states: {}, pendingStepId: 'x' }), 'utf8');
+    expect(await store.load(runId)).toBeNull();
+    await fs.writeFile(file, JSON.stringify({ workflow: { steps: [] }, states: null, pendingStepId: 'x' }), 'utf8');
+    expect(await store.load(runId)).toBeNull();
+    await fs.writeFile(file, 'null', 'utf8');
+    expect(await store.load(runId)).toBeNull();
+  });
 });

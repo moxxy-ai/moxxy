@@ -35,6 +35,27 @@ const relPath = z
     'must be a relative path with no "..", leading slash, backslash, or empty segment',
   );
 
+/** A bare DNS hostname for `install.allowedHosts`: dot-separated labels of
+ *  `[a-z0-9]` with optional internal hyphens (RFC-1123, case-insensitive). The
+ *  installer compiles each entry into an exact-or-subdomain matcher and
+ *  regex-escapes it, so anything that isn't a plain hostname (a wildcard `*`, a
+ *  scheme/port/path, a leading/trailing dot, whitespace) would silently match
+ *  NOTHING or be misread as broader than it looks. Reject it at parse time so
+ *  the per-app egress allow-list means exactly what it says. A dotted-quad IPv4
+ *  literal is rejected too (the egress gate is for named CDN hosts, not raw IPs). */
+const hostname = z
+  .string()
+  .min(1)
+  .max(253)
+  .regex(
+    /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i,
+    'must be a bare hostname (no scheme, port, path, wildcard, or leading/trailing dot)',
+  )
+  .refine(
+    (h) => !/^\d{1,3}(\.\d{1,3}){3}$/.test(h),
+    'must be a named host, not a raw IPv4 address',
+  );
+
 /** One downloadable install asset. Mirrors the host installer's `AppAsset` so a
  *  manifest's `install.assets` drop straight into the existing download path. */
 export const appAssetSchema = z
@@ -59,10 +80,11 @@ export const appInstallSchema = z
     /** Bump to force existing installs to re-download (recorded in installed.json). */
     version: z.string().min(1).max(128),
     assets: z.array(appAssetSchema).min(1).max(256),
-    /** Hostnames this app may fetch its assets FROM (exact or subdomain match).
-     *  REQUIRED when there are assets — there is no global default host, so each
-     *  app's egress is explicit + auditable (no app inherits another's allow-list). */
-    allowedHosts: z.array(z.string().min(1).max(253)).min(1).max(32),
+    /** Bare hostnames this app may fetch its assets FROM (exact or subdomain
+     *  match). REQUIRED when there are assets — there is no global default host,
+     *  so each app's egress is explicit + auditable (no app inherits another's
+     *  allow-list). Each entry must be a plain hostname (see {@link hostname}). */
+    allowedHosts: z.array(hostname).min(1).max(32),
   })
   .strict();
 

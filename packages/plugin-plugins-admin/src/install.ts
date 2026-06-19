@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { defineTool, z } from '@moxxy/sdk';
+import { createMutex, defineTool, z } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
 
@@ -17,7 +17,28 @@ export function userPluginsDir(): string {
   return moxxyPath('plugins');
 }
 
-const VERSION_RE = /^[0-9a-z.~^*<=>-]+$/i;
+/**
+ * Serializes every npm mutation of the shared `~/.moxxy/plugins` tree. npm does
+ * not guard concurrent invocations against the same dir, so two parallel
+ * install_plugin tool calls (the loop can dispatch tools concurrently) — or an
+ * install racing an uninstall — would run two npm processes mutating the same
+ * node_modules / package-lock simultaneously and can corrupt the tree. Mirrors
+ * the config mutex; cross-process races (CLI vs running session) remain
+ * best-effort. Also closes the ensurePackageJson access→write TOCTOU.
+ */
+const pluginsDirMutex = createMutex();
+
+// A semver range, dist-tag, or `*`/`latest`. The first character must NOT be a
+// dash so a flag-like value (`--evil`, `-g`) is rejected at the schema with a
+// clear message rather than producing a malformed `pkg@--evil` spec that npm
+// rejects with a confusing error. The leading char is restricted to the legal
+// start of a version/range/tag (alnum, `*`, `~`, `^`, `v`, or a range operator
+// `<`/`>`/`=`); compound ranges may then contain interior spaces (`>=2 <3`).
+const VERSION_RE = /^[0-9a-zA-Z*~^v<>=][0-9a-zA-Z.~^*<=> -]*$/;
+// Cap captured npm stderr so a noisy / looping / malicious lifecycle script
+// can't grow an unbounded string before the process closes. Only the last 400
+// chars are ever surfaced, so a small bounded tail is plenty.
+const MAX_STDERR_BYTES = 8 * 1024;
 
 export interface InstallPluginDeps {
   /**
@@ -72,15 +93,17 @@ export async function installPluginPackage(
 ): Promise<InstallPluginPackageResult> {
   const spec = assertSafeNpmSpec(opts.packageName);
   const dir = userPluginsDir();
-  await ensurePackageJson(dir);
-  const { exitCode, stderr } = await runNpm(
-    ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
-    opts.signal,
-  );
-  if (exitCode !== 0) {
-    throw new Error(`npm install failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
-  }
-  return { installed: spec, dir };
+  return pluginsDirMutex.run(async () => {
+    await ensurePackageJson(dir);
+    const { exitCode, stderr } = await runNpm(
+      ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
+      opts.signal,
+    );
+    if (exitCode !== 0) {
+      throw new Error(`npm install failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
+    }
+    return { installed: spec, dir };
+  });
 }
 
 /**
@@ -91,15 +114,17 @@ export async function removePluginPackage(
 ): Promise<RemovePluginPackageResult> {
   const spec = assertSafeNpmSpec(opts.packageName);
   const dir = userPluginsDir();
-  await ensurePackageJson(dir);
-  const { exitCode, stderr } = await runNpm(
-    ['uninstall', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
-    opts.signal,
-  );
-  if (exitCode !== 0) {
-    throw new Error(`npm uninstall failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
-  }
-  return { removed: spec, dir };
+  return pluginsDirMutex.run(async () => {
+    await ensurePackageJson(dir);
+    const { exitCode, stderr } = await runNpm(
+      ['uninstall', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
+      opts.signal,
+    );
+    if (exitCode !== 0) {
+      throw new Error(`npm uninstall failed (exit ${exitCode}): ${truncate(stderr, 400)}`);
+    }
+    return { removed: spec, dir };
+  });
 }
 
 export function buildInstallPluginTool(deps: InstallPluginDeps) {
@@ -220,25 +245,27 @@ async function ensurePackageJson(dir: string): Promise<void> {
   }
 }
 
+/** The npm executable, resolved per-platform (Windows ships `npm.cmd`). */
+const NPM_BIN = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
 function runNpm(
   args: ReadonlyArray<string>,
   signal?: AbortSignal,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+): Promise<{ exitCode: number; stderr: string }> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new Error('npm aborted before start'));
       return;
     }
-    const child = spawn('npm', [...args], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+    // stdout is ignored (no caller reads it) so a verbose install can't buffer
+    // hundreds of MB; stderr is kept as a bounded tail for error reporting.
+    const child = spawn(NPM_BIN, [...args], {
+      stdio: ['ignore', 'ignore', 'pipe'],
     });
-    let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (d: Buffer) => {
-      stdout += d.toString('utf8');
-    });
     child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString('utf8');
+      if (stderr.length > MAX_STDERR_BYTES) stderr = stderr.slice(-MAX_STDERR_BYTES);
     });
     const onAbort = (): void => {
       child.kill('SIGTERM');
@@ -250,7 +277,7 @@ function runNpm(
     });
     child.on('close', (code) => {
       signal?.removeEventListener('abort', onAbort);
-      resolve({ exitCode: code ?? -1, stdout, stderr });
+      resolve({ exitCode: code ?? -1, stderr });
     });
   });
 }

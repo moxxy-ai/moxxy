@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import type { MemoryType } from '@moxxy/plugin-memory';
-import { formatRelative, formatSize, groupByType } from './memory.js';
+import { formatRelative, formatSize, groupByType, mapBounded } from './memory.js';
 
 /** Minimal stat object — groupByType only reads `entry.frontmatter.type`. */
 function statOfType(type: MemoryType): Parameters<typeof groupByType>[0][number] {
@@ -53,6 +53,37 @@ describe('formatSize', () => {
   it('switches to MB at exactly 1 MiB', () => {
     expect(formatSize(1024 * 1024)).toBe('1.0MB');
     expect(formatSize(1024 * 1024 * 3)).toBe('3.0MB');
+  });
+});
+
+describe('mapBounded', () => {
+  it('preserves input order in the output', async () => {
+    const out = await mapBounded([1, 2, 3, 4, 5], async (n) => n * 10, 2);
+    expect(out).toEqual([10, 20, 30, 40, 50]);
+  });
+
+  it('never exceeds the concurrency limit (bounds the fan-out so a huge store cannot EMFILE)', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const items = Array.from({ length: 500 }, (_, i) => i);
+    await mapBounded(
+      items,
+      async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight -= 1;
+      },
+      8,
+    );
+    expect(peak).toBeLessThanOrEqual(8);
+  });
+
+  it('handles an empty input without issuing any work', async () => {
+    let calls = 0;
+    const out = await mapBounded([], async () => (calls += 1));
+    expect(out).toEqual([]);
+    expect(calls).toBe(0);
   });
 });
 

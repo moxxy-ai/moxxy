@@ -1,5 +1,5 @@
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
-import { isValidCron } from './cron.js';
+import { isValidCron, isValidTimeZone } from './cron.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
 /**
@@ -20,12 +20,23 @@ function toEntryDraft(skill: Skill): Omit<ScheduleEntry, 'id' | 'createdAt'> | n
   if (!s) return null;
   if (!s.cron && s.runAt === undefined) return null;
   if (s.cron && !isValidCron(s.cron)) return null;
+  if (s.timeZone !== undefined && !isValidTimeZone(s.timeZone)) return null;
   const runAt =
     s.runAt === undefined
       ? undefined
       : typeof s.runAt === 'string'
         ? Date.parse(s.runAt)
         : s.runAt;
+  // An unparseable string runAt (e.g. "next tuesday") yields NaN. NaN would be
+  // rejected by scheduleEntrySchema (z.number().int()) deep inside the batched
+  // reconcile write, throwing and aborting the WHOLE skill-sync — every other
+  // skill's schedule with it. Skip this one skill instead (mirrors the
+  // invalid-cron branch) so one malformed frontmatter can't brick the batch.
+  if (typeof runAt === 'number' && Number.isNaN(runAt)) return null;
+  // Reject a schedule that supplies BOTH cron and runAt — the documented
+  // contract is exactly one. Silently taking the cron arm (as isDue does)
+  // contradicts the skill author's intent and the SDK doc, so skip it.
+  if (s.cron && runAt !== undefined) return null;
   return {
     name: skill.frontmatter.name,
     // The body of the skill IS the prompt — the model that runs at

@@ -9,9 +9,12 @@ import {
   routeRequest,
   handleHealth,
   handleTurn,
+  handleTurnStream,
   handleTurnAudio,
   driveTurn,
   turnRequestSchema,
+  TurnLimiter,
+  MAX_BUFFERED_EVENTS,
 } from './router.js';
 import type { MoxxyEvent } from '@moxxy/sdk';
 
@@ -33,13 +36,17 @@ function makeResponse(): ServerResponse & {
   _headers: Record<string, string | number | string[]>;
   _body: string;
   _emit(event: string): void;
+  _writeReturns: boolean;
 } {
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   const res = {
     _status: 0,
     _headers: {} as Record<string, string | number | string[]>,
     _body: '',
+    _writeReturns: true,
     headersSent: false,
+    writableEnded: false,
+    destroyed: false,
     writeHead(status: number, headers: Record<string, string | number | string[]>) {
       this._status = status;
       this._headers = headers;
@@ -47,16 +54,28 @@ function makeResponse(): ServerResponse & {
       return this;
     },
     end(body?: string) {
+      if (this.writableEnded) throw new Error('write after end');
       if (body !== undefined) this._body += body;
+      this.writableEnded = true;
       return this;
     },
     write(chunk: string) {
+      if (this.writableEnded || this.destroyed) return false;
       this._body += chunk;
-      return true;
+      return this._writeReturns;
     },
     on(event: string, fn: (...args: unknown[]) => void) {
       if (!listeners.has(event)) listeners.set(event, new Set());
       listeners.get(event)!.add(fn);
+      return this;
+    },
+    once(event: string, fn: (...args: unknown[]) => void) {
+      const wrap = (...args: unknown[]): void => {
+        listeners.get(event)?.delete(wrap);
+        fn(...args);
+      };
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(wrap);
       return this;
     },
     off(event: string, fn: (...args: unknown[]) => void) {
@@ -64,13 +83,14 @@ function makeResponse(): ServerResponse & {
       return this;
     },
     _emit(event: string) {
-      for (const fn of listeners.get(event) ?? []) fn();
+      for (const fn of [...(listeners.get(event) ?? [])]) fn();
     },
   } as unknown as ServerResponse & {
     _status: number;
     _headers: Record<string, string | number | string[]>;
     _body: string;
     _emit(event: string): void;
+    _writeReturns: boolean;
   };
   return res;
 }
@@ -348,6 +368,196 @@ describe('turnRequestSchema', () => {
 
   it('rejects non-string fields', () => {
     expect(() => turnRequestSchema.parse({ prompt: 123 })).toThrow();
+  });
+});
+
+describe('TurnLimiter', () => {
+  it('admits up to max and refuses beyond it, recovering on release', () => {
+    const limiter = new TurnLimiter(2);
+    expect(limiter.tryAcquire()).toBe(true);
+    expect(limiter.tryAcquire()).toBe(true);
+    expect(limiter.tryAcquire()).toBe(false);
+    limiter.release();
+    expect(limiter.tryAcquire()).toBe(true);
+    expect(limiter.active).toBe(2);
+  });
+
+  it('release() never underflows below zero', () => {
+    const limiter = new TurnLimiter(1);
+    limiter.release();
+    limiter.release();
+    expect(limiter.active).toBe(0);
+    expect(limiter.tryAcquire()).toBe(true);
+  });
+});
+
+describe('handleTurn — auth precedes body read', () => {
+  it('returns 401 without consuming the request body', async () => {
+    // A body stream that records whether anything read it. Auth must short-
+    // circuit before any byte is pulled, so an unauthenticated client can never
+    // force the (bounded) body buffering path.
+    let consumed = false;
+    const body = new Readable({
+      read() {
+        consumed = true;
+        this.push(null);
+      },
+    });
+    const socket = new Socket();
+    const req = body as unknown as IncomingMessage;
+    Object.assign(req, { method: 'POST', url: '/v1/turn', headers: {}, socket });
+
+    const session = { runTurn: () => (async function* () {})() } as unknown as ClientSession;
+    const res = makeResponse();
+    await handleTurn(req, res, { session, authToken: 'secret', logger: silentLogger });
+    expect(res._status).toBe(401);
+    expect(consumed).toBe(false);
+  });
+});
+
+describe('handleTurn — concurrency cap', () => {
+  const blockingSession = (): ClientSession =>
+    ({
+      runTurn: (_p: string, opts?: { signal?: AbortSignal }) =>
+        (async function* () {
+          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+        })(),
+    }) as unknown as ClientSession;
+
+  it('returns 429 once the turn limiter is saturated', async () => {
+    const session = blockingSession();
+    const limiter = new TurnLimiter(1);
+    const ctx = { session, authToken: 'x', logger: silentLogger, turnLimiter: limiter };
+
+    // First turn occupies the only slot (stays in-flight until aborted).
+    const res1 = makeResponse();
+    const first = handleTurn(
+      makeIncoming({ method: 'POST', url: '/v1/turn', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res1,
+      ctx,
+    );
+    // Give the first request time to read its body and acquire the slot.
+    await new Promise((r) => setTimeout(r, 20));
+
+    const res2 = makeResponse();
+    await handleTurn(
+      makeIncoming({ method: 'POST', url: '/v1/turn', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res2,
+      ctx,
+    );
+    expect(res2._status).toBe(429);
+    expect(JSON.parse(res2._body).error).toBe('too_many_turns');
+
+    // Unblock the first turn; its slot is released so a third now succeeds.
+    res1._emit('close');
+    await first;
+    expect(limiter.active).toBe(0);
+  });
+});
+
+describe('error shaping — internal errors not echoed verbatim', () => {
+  it('500 turn_failed returns a generic message, not the raw provider error', async () => {
+    const session = {
+      runTurn: () =>
+        (async function* () {
+          throw new Error('SECRET /Users/x/.moxxy/vault.json provider key sk-leak');
+        })(),
+    } as unknown as ClientSession;
+    const warn = vi.fn();
+    const res = makeResponse();
+    await handleTurn(
+      makeIncoming({ method: 'POST', url: '/v1/turn', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res,
+      { session, authToken: 'x', logger: { warn } },
+    );
+    expect(res._status).toBe(500);
+    const body = JSON.parse(res._body);
+    expect(body.error).toBe('turn_failed');
+    expect(body.message).not.toContain('SECRET');
+    expect(body.message).not.toContain('vault.json');
+    expect(body.message).not.toContain('sk-leak');
+    // Full detail still reaches the server-side log.
+    expect(warn).toHaveBeenCalledWith('http turn failed', expect.objectContaining({ err: expect.stringContaining('SECRET') }));
+  });
+});
+
+describe('driveTurn — buffered-events bound', () => {
+  it('stops collecting and aborts once MAX_BUFFERED_EVENTS is hit', async () => {
+    let aborted = false;
+    const session = {
+      runTurn: (_p: string, opts?: { signal?: AbortSignal }) => {
+        opts?.signal?.addEventListener('abort', () => {
+          aborted = true;
+        });
+        return (async function* () {
+          // Emit far more than the cap; the loop must break, not OOM.
+          for (let i = 0; i < MAX_BUFFERED_EVENTS + 1000; i++) {
+            yield { type: 'tool_call_requested' } as unknown as MoxxyEvent;
+          }
+        })();
+      },
+    } as unknown as ClientSession;
+    const res = makeResponse();
+    const { events } = await driveTurn(session, 'hi', {}, res);
+    expect(events.length).toBe(MAX_BUFFERED_EVENTS);
+    expect(aborted).toBe(true);
+  });
+});
+
+describe('handleTurnStream — backpressure + closed-socket safety', () => {
+  it('pauses on a false write() and resumes on drain', async () => {
+    const session = {
+      runTurn: () =>
+        (async function* () {
+          yield { type: 'assistant_chunk', delta: 'a' } as unknown as MoxxyEvent;
+          yield { type: 'assistant_chunk', delta: 'b' } as unknown as MoxxyEvent;
+        })(),
+    } as unknown as ClientSession;
+    const res = makeResponse();
+    res._writeReturns = false; // every write reports a full buffer -> must await 'drain'
+
+    let finished = false;
+    const done = handleTurnStream(
+      makeIncoming({ method: 'POST', url: '/v1/turn/stream', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res,
+      { session, authToken: 'x', logger: silentLogger },
+    ).then(() => {
+      finished = true;
+    });
+
+    // The handler parks awaiting 'drain' after the first write returns false.
+    // Pump 'drain' until it completes — proving the loop actually waited.
+    while (!finished) {
+      await new Promise((r) => setTimeout(r, 1));
+      res._emit('drain');
+    }
+    await done;
+    expect(res._body).toContain('[DONE]');
+    expect(res.writableEnded).toBe(true);
+  });
+
+  it('does not throw when the client disconnected before terminal writes', async () => {
+    const session = {
+      runTurn: (_p: string, opts?: { signal?: AbortSignal }) =>
+        (async function* () {
+          yield { type: 'assistant_chunk', delta: 'a' } as unknown as MoxxyEvent;
+          // Simulate the client hanging up mid-stream: the generator ends here
+          // (after one chunk) while the consumer is still attached.
+          void opts;
+        })(),
+    } as unknown as ClientSession;
+    const res = makeResponse();
+
+    const done = handleTurnStream(
+      makeIncoming({ method: 'POST', url: '/v1/turn/stream', headers: { authorization: 'Bearer x' }, body: JSON.stringify({ prompt: 'hi' }) }),
+      res,
+      { session, authToken: 'x', logger: silentLogger },
+    );
+    // Destroy the response (client gone) — terminal res.end() must be guarded.
+    (res as unknown as { destroyed: boolean }).destroyed = true;
+    (res as unknown as { writableEnded: boolean }).writableEnded = true;
+    res._emit('close');
+    await expect(done).resolves.toBeUndefined();
   });
 });
 

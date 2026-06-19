@@ -84,7 +84,10 @@ export function buildSessionConfigApplier(
       }
     }
 
-    if (next.context?.elision !== last.context?.elision) {
+    // elision/reasoning are object-shaped config values; a re-parsed config
+    // yields fresh references each load, so compare structurally — otherwise we
+    // reassign + report "applied" on every save even when nothing changed.
+    if (!deepEqual(next.context?.elision, last.context?.elision)) {
       session.elisionSettings = next.context?.elision ?? null;
       applied.push('elision');
     }
@@ -94,7 +97,7 @@ export function buildSessionConfigApplier(
       applied.push('lazyTools');
     }
 
-    if (next.context?.reasoning !== last.context?.reasoning) {
+    if (!deepEqual(next.context?.reasoning, last.context?.reasoning)) {
       session.reasoning = next.context?.reasoning;
       applied.push('reasoning');
     }
@@ -122,16 +125,20 @@ export function buildSessionConfigApplier(
       }
     }
 
-    if (!shallowEqual(last.embeddings, next.embeddings)) {
+    // These are nested-record config values; `shallowEqual` would see fresh
+    // per-key object references on every re-parsed config and spuriously report
+    // a pending change each save (training users to ignore the restart nudge).
+    // Compare structurally so we only surface pending on a real difference.
+    if (!deepEqual(last.embeddings, next.embeddings)) {
       pending.push('embeddings.* (restart required to rebuild memory embedder)');
     }
-    if (!shallowEqual(last.channels, next.channels)) {
+    if (!deepEqual(last.channels, next.channels)) {
       pending.push('channels.* (applies on next `moxxy <channel>` invocation)');
     }
-    if (!shallowEqual(last.skills, next.skills)) {
+    if (!deepEqual(last.skills, next.skills)) {
       pending.push('skills.* (restart to rediscover)');
     }
-    if (!shallowEqual(last.permissions, next.permissions)) {
+    if (!deepEqual(last.permissions, next.permissions)) {
       pending.push('permissions.* (restart to reload policy)');
     }
 
@@ -221,20 +228,36 @@ function effectiveEnabled(cfg: MoxxyConfig, name: string): boolean {
 function providerChanged(a: MoxxyConfig, b: MoxxyConfig): boolean {
   if (a.provider?.name !== b.provider?.name) return true;
   if (a.provider?.model !== b.provider?.model) return true;
-  if (!shallowEqual(a.provider?.config, b.provider?.config)) return true;
+  if (!deepEqual(a.provider?.config, b.provider?.config)) return true;
   if (!arraysEqual(a.provider?.fallbacks, b.provider?.fallbacks)) return true;
   return false;
 }
 
-function shallowEqual(a: unknown, b: unknown): boolean {
+/**
+ * Structural equality for the JSON-shaped config values (plain objects, arrays,
+ * primitives, undefined/null). A re-parsed config yields fresh references for
+ * every nested value, so reference identity (and a one-level `shallowEqual`)
+ * always reports nested records as "changed"; this compares by value instead.
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (a === undefined || b === undefined) return false;
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return a === b;
-  const ak = Object.keys(a as Record<string, unknown>);
-  const bk = Object.keys(b as Record<string, unknown>);
+  if (a === null || b === null || a === undefined || b === undefined) return a === b;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+  const aArr = Array.isArray(a);
+  const bArr = Array.isArray(b);
+  if (aArr !== bArr) return false;
+  if (aArr && bArr) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  const ar = a as Record<string, unknown>;
+  const br = b as Record<string, unknown>;
+  const ak = Object.keys(ar);
+  const bk = Object.keys(br);
   if (ak.length !== bk.length) return false;
   for (const k of ak) {
-    if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
+    if (!Object.prototype.hasOwnProperty.call(br, k)) return false;
+    if (!deepEqual(ar[k], br[k])) return false;
   }
   return true;
 }

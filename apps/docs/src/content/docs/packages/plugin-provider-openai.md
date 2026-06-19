@@ -47,4 +47,4 @@ provider: {
 ## See also
 
 - For ChatGPT Pro/Plus OAuth sign-in (no API key needed), use
-  [@moxxy/plugin-provider-openai-codex](./plugin-provider-openai-codex).
+  [@moxxy/plugin-provider-openai-codex](./plugin-provider-openai-codex.md).

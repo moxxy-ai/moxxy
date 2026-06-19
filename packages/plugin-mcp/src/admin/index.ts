@@ -113,19 +113,31 @@ function buildMcpAdminPluginInternal(
         } catch {
           return;
         }
-        for (const server of cfg.servers) {
-          if (server.disabled) continue;
-          let entry: McpStoredServer = server;
-          if (!entry.cachedTools || entry.cachedTools.length === 0) {
+        // Refresh every uncached server's catalog in PARALLEL: each
+        // refreshServerCache now carries its own bounded connect/listTools
+        // timeout, so allSettled bounds boot at the slowest server instead of
+        // the SUM of every server's handshake latency. (Serially awaiting one
+        // dead endpoint after another compounded the wedge.) Cached servers
+        // need no connection and resolve immediately.
+        const active = cfg.servers.filter((s) => !s.disabled);
+        const resolved = await Promise.all(
+          active.map(async (server): Promise<McpStoredServer | null> => {
+            if (server.cachedTools && server.cachedTools.length > 0) return server;
             try {
-              entry = await runtime.refreshServerCache(entry);
+              return await runtime.refreshServerCache(server);
             } catch (err) {
-              log?.warn?.(`mcp: failed to refresh cache for "${entry.name}"`, {
+              log?.warn?.(`mcp: failed to refresh cache for "${server.name}"`, {
                 err: err instanceof Error ? err.message : String(err),
               });
-              continue;
+              return null;
             }
-          }
+          }),
+        );
+        // Attach serially in config order so tool registration order stays
+        // deterministic (the refresh ran concurrently, but attach is cheap and
+        // synchronous — no connection — so this adds no boot latency).
+        for (const entry of resolved) {
+          if (!entry) continue;
           try {
             runtime.attachServerLazy(entry);
           } catch (err) {

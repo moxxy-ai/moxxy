@@ -24,6 +24,21 @@ export function McpTab({
   readonly search?: React.ReactNode;
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
+  // Per-row in-flight set: attach/detach is fire-and-forget against the runner.
+  // Disable the row's Switch until it settles so a slow toggle can't be
+  // re-clicked into conflicting enable/disable calls.
+  const [toggling, setToggling] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleServer = (name: string, enabled: boolean): void => {
+    if (toggling.has(name)) return;
+    setToggling((cur) => new Set(cur).add(name));
+    void onToggle(name, enabled).finally(() => {
+      setToggling((cur) => {
+        const next = new Set(cur);
+        next.delete(name);
+        return next;
+      });
+    });
+  };
   return (
     <Section
       title="MCP servers"
@@ -66,7 +81,8 @@ export function McpTab({
                 <Switch
                   on={srv.connected}
                   label={`${srv.connected ? 'Disable' : 'Enable'} ${srv.name}`}
-                  onClick={() => void onToggle(srv.name, !srv.connected)}
+                  disabled={toggling.has(srv.name)}
+                  onClick={() => toggleServer(srv.name, !srv.connected)}
                 />
               }
             />

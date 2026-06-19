@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MoxxyError } from '@moxxy/sdk';
-import { classifyDeviceTokenResponse } from './device-flow-shared.js';
+import {
+  classifyDeviceTokenResponse,
+  requestDeviceAuthorization,
+} from './device-flow-shared.js';
 
 /** RFC 8628 §3.5 state machine — the throwing branches were previously
  *  untested, so a regression in the error-code mapping would ship silently. */
@@ -86,5 +89,54 @@ describe('classifyDeviceTokenResponse', () => {
       expect(e.code).toBe('AUTH_INVALID');
       expect(e.context?.provider_error).toBe('HTTP 503');
     }
+  });
+});
+
+describe('requestDeviceAuthorization — malformed 2xx body', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const args = {
+    deviceUrl: 'https://idp.example/device',
+    clientId: 'cid',
+    scopes: ['openid'],
+  };
+
+  it('maps a non-JSON 200 body to PROVIDER_UNKNOWN_RESPONSE (not a raw SyntaxError)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON at position 0');
+        },
+        text: async () => '<html>proxy error</html>',
+      })),
+    );
+    let err: unknown;
+    try {
+      await requestDeviceAuthorization(args);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MoxxyError);
+    expect((err as MoxxyError).code).toBe('PROVIDER_UNKNOWN_RESPONSE');
+  });
+
+  it('still rejects with PROVIDER_UNKNOWN_RESPONSE when required fields are absent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ user_code: 'ABC' }), // missing device_code + verification_uri
+        text: async () => '',
+      })),
+    );
+    await expect(requestDeviceAuthorization(args)).rejects.toMatchObject({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+    });
   });
 });

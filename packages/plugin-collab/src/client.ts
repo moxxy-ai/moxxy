@@ -48,17 +48,30 @@ export class CollabHubClient {
     const transport = await connectUnixSocket(socketPath);
     const peer = new JsonRpcPeer(transport);
     const client = new CollabHubClient(peer, agentId);
-    await peer.request<RegisterResult>(CollabHubMethod.Register, {
-      agentId,
-      protocolVersion: COLLAB_HUB_PROTOCOL_VERSION,
-      ...info,
-    });
+    try {
+      await peer.request<RegisterResult>(CollabHubMethod.Register, {
+        agentId,
+        protocolVersion: COLLAB_HUB_PROTOCOL_VERSION,
+        ...info,
+      });
+    } catch (err) {
+      // The hub can now reject register (unknown/duplicate id, protocol
+      // mismatch). Close the just-opened socket so a rejected connect doesn't
+      // leak a half-open link.
+      peer.close();
+      throw err;
+    }
     return client;
   }
 
   onEvent(fn: (event: CollabEvent) => void): () => void {
     this.eventHandlers.add(fn);
     return () => this.eventHandlers.delete(fn);
+  }
+
+  /** True once the underlying link has dropped — callers should reconnect. */
+  get isClosed(): boolean {
+    return this.peer.isClosed;
   }
 
   // messaging

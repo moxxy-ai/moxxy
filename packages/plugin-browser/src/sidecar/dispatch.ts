@@ -15,6 +15,19 @@ import {
   type Req,
 } from './types.js';
 
+/**
+ * Ceiling on screenshot/capture waits inside the sidecar so a page whose render
+ * is wedged fails the op cleanly instead of blocking the serial request queue
+ * indefinitely (the parent has its own per-call timeout as a backstop, but
+ * bounding it here drains the queue head sooner). Generous enough for a slow
+ * full-page screenshot; well under the parent ceiling.
+ */
+const SCREENSHOT_TIMEOUT_MS = 30_000;
+/** Hard ceiling on viewport / screenshot-clip dimensions, matching Chromium's
+ *  max texture/screenshot size — bounds allocation from a malformed surface
+ *  message (e.g. width:1e9). */
+const MAX_DIMENSION = 16_384;
+
 export interface SidecarState {
   handle: PlaywrightHandle | null;
   /**
@@ -85,7 +98,9 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // hostnames. Runs BEFORE ensurePlaywright so a blocked URL never
       // launches (or auto-installs) a browser.
       try {
-        await assertPublicUrl(url, 'goto');
+        // fail-closed: the browser resolves names with Chromium's own resolver,
+        // so a name node:dns can't vet must not pass through un-checked.
+        await assertPublicUrl(url, 'goto', { failClosed: true });
       } catch (err) {
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }
@@ -134,7 +149,7 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
     case 'screenshot': {
       const h = await ensurePlaywright(state, {});
       const { fullPage } = (req.params ?? {}) as { fullPage?: boolean };
-      const buf = await h.page.screenshot({ fullPage: fullPage ?? false });
+      const buf = await h.page.screenshot({ fullPage: fullPage ?? false, timeout: SCREENSHOT_TIMEOUT_MS });
       return { id: req.id, ok: true, result: { mediaType: 'image/png', base64: buf.toString('base64') } };
     }
     case 'frame': {
@@ -145,7 +160,7 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // quality 70 (was 55) + the context's deviceScaleFactor:2 = legible text in
       // the live view. Reports the CSS viewport size (the image is 2× that) so the
       // renderer keeps mapping clicks in CSS coords.
-      const buf = await h.page.screenshot({ type: 'jpeg', quality: 70 });
+      const buf = await h.page.screenshot({ type: 'jpeg', quality: 70, timeout: SCREENSHOT_TIMEOUT_MS });
       const vp = h.page.viewportSize() ?? { width: 1280, height: 720 };
       return {
         id: req.id,
@@ -184,6 +199,11 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       const { width, height } = (req.params ?? {}) as { width: number; height: number };
       if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
         throw badParams('width and height must be positive finite numbers');
+      }
+      // Clamp to Chromium's max so a malformed surface message (width:1e9) can't
+      // trigger a multi-GB allocation / opaque Playwright throw.
+      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        throw badParams(`width and height must be <= ${MAX_DIMENSION}`);
       }
       const h = await ensurePlaywright(state, {});
       await h.page.setViewportSize({ width: Math.round(width), height: Math.round(height) });
@@ -240,8 +260,13 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       if (![x, y, width, height].every((n) => Number.isFinite(n)) || width < 1 || height < 1) {
         throw badParams('x, y, width, height must be finite; width/height positive');
       }
+      // Bound the clip so an enormous (or hostile, viewport-multiplied) region
+      // can't request a multi-GB screenshot allocation.
+      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        throw badParams(`clip width and height must be <= ${MAX_DIMENSION}`);
+      }
       const h = await ensurePlaywright(state, {});
-      const buf = await h.page.screenshot({ type: 'png', clip: { x, y, width, height } });
+      const buf = await h.page.screenshot({ type: 'png', clip: { x, y, width, height }, timeout: SCREENSHOT_TIMEOUT_MS });
       return { id: req.id, ok: true, result: { mediaType: 'image/png', base64: buf.toString('base64') } };
     }
     case 'pick': {

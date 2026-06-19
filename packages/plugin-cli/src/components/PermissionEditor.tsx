@@ -68,12 +68,21 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
           mode.bucket === 'allow'
             ? engine.addAllow({ name })
             : engine.addDeny({ name });
-        void promise.then(() => {
-          refresh(engine);
-          setDirty(true);
-          setMode({ kind: 'message', text: `added ${mode.bucket}: ${name}` });
-          setStatus('saved');
-        });
+        const bucket = mode.bucket;
+        void promise
+          .then(() => {
+            refresh(engine);
+            setDirty(true);
+            setMode({ kind: 'message', text: `added ${bucket}: ${name}` });
+            setStatus('saved');
+          })
+          .catch((err: unknown) => {
+            // A rejected disk write (EACCES/ENOSPC/locked) must NOT read as
+            // "saved" on a security-policy editor — surface it and avoid the
+            // unhandled rejection.
+            setMode({ kind: 'message', text: `FAILED to add ${bucket}: ${errMessage(err)}` });
+            setStatus('save failed');
+          });
         return;
       }
       if (key.backspace || key.delete) {
@@ -92,12 +101,19 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
           setMode({ kind: 'list' });
           return;
         }
-        void engine.removeByName(mode.row.name).then(() => {
-          refresh(engine);
-          setDirty(true);
-          setMode({ kind: 'message', text: `removed: ${mode.row.name}` });
-          setStatus('saved');
-        });
+        const removedName = mode.row.name;
+        void engine
+          .removeByName(removedName)
+          .then(() => {
+            refresh(engine);
+            setDirty(true);
+            setMode({ kind: 'message', text: `removed: ${removedName}` });
+            setStatus('saved');
+          })
+          .catch((err: unknown) => {
+            setMode({ kind: 'message', text: `FAILED to remove ${removedName}: ${errMessage(err)}` });
+            setStatus('save failed');
+          });
         return;
       }
       setMode({ kind: 'list' });
@@ -131,22 +147,34 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
       const row = rows[cursor];
       if (!row || !engine) return;
       const targetKind: 'allow' | 'deny' = row.kind === 'allow' ? 'deny' : 'allow';
+      const rule = { name: row.name, ...(row.reason ? { reason: row.reason } : {}) };
+      const reAdd = (kind: 'allow' | 'deny'): Promise<unknown> =>
+        kind === 'allow' ? engine.addAllow(rule) : engine.addDeny(rule);
       void (async () => {
-        await engine.removeByName(row.name);
-        if (targetKind === 'allow') {
-          await engine.addAllow({
-            name: row.name,
-            ...(row.reason ? { reason: row.reason } : {}),
-          });
-        } else {
-          await engine.addDeny({
-            name: row.name,
-            ...(row.reason ? { reason: row.reason } : {}),
-          });
+        let removed = false;
+        try {
+          await engine.removeByName(row.name);
+          removed = true;
+          await reAdd(targetKind);
+          refresh(engine);
+          setDirty(true);
+          setStatus(`flipped ${row.name} → ${targetKind}`);
+        } catch (err) {
+          // The flip is two writes (remove + re-add). If the re-add fails
+          // after the remove succeeded we'd silently DROP the rule — the
+          // worst outcome being a vanished deny. Best-effort restore the
+          // original so a failed toggle leaves the policy as it was.
+          if (removed) {
+            try {
+              await reAdd(row.kind);
+            } catch {
+              // restore also failed — nothing more we can safely do; the
+              // error is already surfaced below.
+            }
+          }
+          refresh(engine);
+          setStatus(`flip FAILED for ${row.name}: ${errMessage(err)}`);
         }
-        refresh(engine);
-        setDirty(true);
-        setStatus(`flipped ${row.name} → ${targetKind}`);
       })();
       return;
     }
@@ -187,17 +215,23 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
         ) : mode.kind === 'confirm-delete' ? (
           <Text color="yellow">delete `{mode.row.name}` ({mode.row.kind})? [y/N]</Text>
         ) : mode.kind === 'message' ? (
-          <Text color="green">{mode.text}  (press any key)</Text>
+          <Text color={/FAILED/i.test(mode.text) ? 'red' : 'green'}>{mode.text}  (press any key)</Text>
         ) : (
           <Text dimColor>
             ↑/↓ move · space/enter flip · a add allow · D add deny · d delete · q quit
-            {dirty ? <Text color="green">  · {status}</Text> : null}
+            {dirty || /FAILED/i.test(status) ? (
+              <Text color={/FAILED/i.test(status) ? 'red' : 'green'}>{`  · ${status}`}</Text>
+            ) : null}
           </Text>
         )}
       </Box>
     </Box>
   );
 };
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 function toRows(engine: PermissionEngine): Row[] {
   const snap = engine.policySnapshot;

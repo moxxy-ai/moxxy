@@ -39,10 +39,24 @@ const SHIM_SOURCE = String.raw`
 import { stdin, stdout } from 'node:process';
 import { register } from 'node:module';
 
+// Hard cap on the parent->child stdin buffer between newlines. A single
+// line larger than this (a malformed/oversized broker payload) is a
+// protocol violation: drop the line and reset the buffer so the
+// disposable child can't be driven to OOM on framing. Mirrors the
+// parent's own output cap; the child has no heap ceiling of its own
+// unless caps.memMb is set (--max-old-space-size).
+const MAX_LINE_BYTES = 8 * 1024 * 1024;
+
 let buffer = '';
 let nextId = 1;
 const pending = new Map();
 let task = null;
+// Cooperative-cancel signal handed to the handler as ctx.signal. The
+// parent posts { type: 'abort' } on timeout / host-abort (before the
+// SIGTERM -> SIGKILL escalation), giving a well-behaved handler that
+// wired ctx.signal into fetch / long loops a chance to bail out and
+// flush. Mirrors the worker isolator's cooperative-cancel behaviour.
+const abortController = new AbortController();
 
 function send(obj) {
   stdout.write(JSON.stringify(obj) + '\n');
@@ -70,14 +84,20 @@ const broker = {
 stdin.setEncoding('utf8');
 stdin.on('data', (chunk) => {
   buffer += chunk;
+  // Frame with a moving scan offset and slice the carry-over exactly
+  // once per data event, avoiding O(n^2) reslicing on many small lines.
+  let start = 0;
   let nl;
-  while ((nl = buffer.indexOf('\n')) >= 0) {
-    const line = buffer.slice(0, nl);
-    buffer = buffer.slice(nl + 1);
+  while ((nl = buffer.indexOf('\n', start)) >= 0) {
+    const line = buffer.slice(start, nl);
+    start = nl + 1;
     if (!line) continue;
     let msg;
     try { msg = JSON.parse(line); } catch { continue; }
-    if (msg.type === 'task' && !task) {
+    if (msg.type === 'abort') {
+      try { abortController.abort(new DOMException('aborted by isolator', 'AbortError')); }
+      catch { abortController.abort(); }
+    } else if (msg.type === 'task' && !task) {
       task = msg;
       runTask().catch((e) => {
         send({ type: 'result', ok: false, errorName: e && e.name || 'Error', errorMessage: e && e.message || String(e), errorStack: e && e.stack });
@@ -94,7 +114,14 @@ stdin.on('data', (chunk) => {
       }
     }
   }
+  buffer = start > 0 ? buffer.slice(start) : buffer;
+  // An unterminated line past the cap is a framing/flood violation —
+  // drop it rather than buffering unbounded inside the child.
+  if (buffer.length > MAX_LINE_BYTES) buffer = '';
 });
+// Parent may close stdin abruptly (it is dying or escalating to
+// SIGKILL); swallow the resulting EPIPE so it doesn't crash the child.
+stdin.on('error', () => {});
 
 async function runTask() {
   const { moduleUrl, exportName, input, syntheticCtx, loaderUrl } = task;
@@ -113,7 +140,7 @@ async function runTask() {
     turnId: syntheticCtx.turnId,
     callId: syntheticCtx.callId,
     cwd: syntheticCtx.cwd,
-    signal: new AbortController().signal,
+    signal: abortController.signal,
     log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
     logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     fs: broker.fs,
@@ -147,6 +174,21 @@ export interface SubprocessIsolatorOptions {
   /** Default wall-clock budget (ms) when caps.timeMs is omitted. Default 60_000. */
   readonly defaultTimeMs?: number;
   /**
+   * Default soft heap ceiling (MB) passed to the child as
+   * `--max-old-space-size` when `caps.memMb` is omitted. Default 256.
+   * The child is a regular Node process, so this is V8-enforced (the
+   * child crashes on overrun, not the host).
+   */
+  readonly defaultMemMb?: number;
+  /**
+   * Hard cap on the total bytes the parent buffers from the child's
+   * stdout + stderr. Crossing it is treated as a (potentially hostile)
+   * flood: the child is killed and the call rejected so a child that
+   * emits a gigantic line / floods output can't OOM the host (the very
+   * trust boundary this isolator protects). Default 8 MiB.
+   */
+  readonly maxOutputBytes?: number;
+  /**
    * Allowlist of env keys the child inherits from the parent process.
    * Default: a minimal POSIX-friendly set (PATH/HOME/USER/SHELL/LANG/LC_ALL/TERM).
    * Override per tool via `caps.env`.
@@ -168,6 +210,30 @@ export interface SubprocessIsolatorOptions {
 const KILL_GRACE_MS = 2_000;
 
 /**
+ * Default hard cap on parent-buffered child output (stdout + stderr).
+ * Mirrors the broker's own `MAX_BROKER_OUTPUT_BYTES` (8 MiB): the broker
+ * caps the child's output because it must not trust a potentially
+ * hostile child, and the isolator's raw stdio firehose deserves the same
+ * bound. Tunable via `SubprocessIsolatorOptions.maxOutputBytes`.
+ */
+const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Cap on retained stderr. Only the tail is surfaced in the exit error,
+ * so an unbounded stderr flood would buffer needlessly. Keep the most
+ * recent slice (the part likely to carry the failure).
+ */
+const MAX_STDERR_BYTES = 64 * 1024;
+
+/**
+ * Grace window after posting `{ type: 'abort' }` to the child (on
+ * timeout / host-abort) before the SIGTERM -> SIGKILL escalation. Lets a
+ * cooperative handler observe `ctx.signal` and flush; the parent promise
+ * still rejects immediately, so this never delays the caller.
+ */
+const ABORT_GRACE_MS = 150;
+
+/**
  * Subprocess-based Isolator.
  *
  * **What this enforces (in addition to everything `worker` does):**
@@ -175,6 +241,18 @@ const KILL_GRACE_MS = 2_000;
  *   Out-of-memory or crashing handler can't affect the parent's heap.
  * - **Restricted env** — the child sees only env keys in `caps.env`
  *   (or the configured allowlist). Other vars are not inherited.
+ * - **Soft memory ceiling** — `caps.memMb` (falling back to
+ *   `defaultMemMb`, default 256) is passed to the child as
+ *   `--max-old-space-size`, so a runaway handler crashes the disposable
+ *   child rather than exhausting host memory.
+ * - **Bounded output** — the parent caps total buffered child output
+ *   (stdout + stderr, `maxOutputBytes`, default 8 MiB) and the retained
+ *   stderr tail, so a child that floods/emits a gigantic line can't OOM
+ *   the host (the trust boundary).
+ * - **Cooperative cancel** — on timeout / host-abort the parent posts
+ *   `{ type: 'abort' }` (firing the handler's `ctx.signal`) before the
+ *   SIGTERM -> SIGKILL escalation, giving a well-behaved handler a grace
+ *   window to flush.
  *
  * **What it does NOT enforce** (parity with worker for now):
  * - Direct `node:fs` / `node:child_process` imports inside the child
@@ -186,6 +264,8 @@ const KILL_GRACE_MS = 2_000;
  */
 export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): Isolator {
   const defaultTimeMs = opts.defaultTimeMs ?? 60_000;
+  const defaultMemMb = opts.defaultMemMb ?? 256;
+  const maxOutputBytes = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const nodePath = opts.nodePath ?? process.execPath;
 
   return {
@@ -205,72 +285,150 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
       }
 
       const timeMs = caps.timeMs ?? defaultTimeMs;
+      const memMb = caps.memMb ?? defaultMemMb;
       // Curate the child env via the shared @moxxy/plugin-security helper so the
       // allowlist contract is single-sourced (its BROKER_DEFAULT_ENV is the
       // fallback when neither caps.env nor a configured allowlist is set).
       const env = buildBrokerEnv({ env: caps.env ?? opts.defaultEnvAllowlist }, undefined);
 
-      const child = spawn(nodePath, ['--input-type=module', '-e', SHIM_SOURCE], {
+      // Honour the soft memMb capability via V8's heap ceiling so a
+      // runaway handler crashes the disposable child instead of
+      // exhausting host memory. Must precede `-e` (Node ignores
+      // `--max-old-space-size` after the eval entry).
+      const nodeArgs = ['--input-type=module'];
+      if (memMb && Number.isFinite(memMb) && memMb > 0) {
+        nodeArgs.push(`--max-old-space-size=${Math.floor(memMb)}`);
+      }
+      nodeArgs.push('-e', SHIM_SOURCE);
+
+      const child = spawn(nodePath, nodeArgs, {
         cwd: call.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      // EPIPE / write-after-end on a dying child surfaces asynchronously
+      // as a stream 'error'; without a listener Node throws it as an
+      // uncaught exception that would terminate the parent. Expected on a
+      // child that closed stdin / exited mid-write — swallow it (the sync
+      // try/catch around write() handles the synchronous path).
+      child.stdin.on('error', () => {});
 
       return new Promise<unknown>((resolve, reject) => {
         let stderr = '';
         let stdoutBuffer = '';
         let settled = false;
         let exited = false;
+        // True once we've started tearing the child down (kill issued).
+        // While settled-but-not-yet-torndown (the graceful abort grace
+        // window) we keep servicing brokered requests so a cooperative
+        // handler can flush within the caps it already holds —
+        // `handleBrokerRequest` still cap-checks every op, so this grants
+        // no new authority. Mirrors the worker isolator's `terminated`.
+        let torndown = false;
+        // Running byte count across the child's stdout + stderr so a
+        // hostile/buggy child that floods either channel can't drive the
+        // PARENT (the trust boundary) to OOM. Crossing the cap rejects
+        // and kills the child.
+        let outputBytes = 0;
         let killEscalation: ReturnType<typeof setTimeout> | undefined;
         const cleanup = new Set<() => void>();
-        const finish = (action: () => void): void => {
+        const killChild = (): void => {
+          torndown = true;
+          // Only signal a child that actually launched and is still
+          // running. On a spawn 'error' (e.g. bad nodePath / ENOENT) there
+          // is no pid, and a child that already exited during the abort
+          // grace window needs no signal — either way SIGTERM/SIGKILL
+          // would be a needless no-op against a dead/non-existent process.
+          if (exited || child.pid == null) return;
+          child.kill('SIGTERM');
+          // SIGTERM is cooperative: a handler stuck in a synchronous CPU
+          // loop, or one that traps/ignores SIGTERM, would otherwise keep
+          // running unbounded after the budget (note `child.killed` only
+          // records that a signal was *sent*, not that the process
+          // died). Escalate to an unmaskable SIGKILL after a short grace
+          // period if it still hasn't exited. The timer is cleared on the
+          // 'exit' event so a child that honours SIGTERM is never
+          // needlessly SIGKILLed.
+          killEscalation = setTimeout(() => {
+            if (!exited) child.kill('SIGKILL');
+          }, KILL_GRACE_MS);
+          killEscalation.unref?.();
+        };
+        /**
+         * Settle the parent promise and tear the child down. When
+         * `graceful` is set (timeout / host-abort — the handler may still
+         * be running), first post `{ type: 'abort' }` so the in-child
+         * `ctx.signal` fires, giving a cooperative handler a short window
+         * to bail out and flush, THEN escalate to SIGTERM/SIGKILL. The
+         * parent promise still rejects immediately — the grace window only
+         * lets in-flight async work clean up before the kill, never delays
+         * the caller. Mirrors the worker isolator's cooperative cancel.
+         */
+        const finish = (action: () => void, graceful = false): void => {
           if (settled) return;
           settled = true;
           cleanup.forEach((fn) => fn());
           cleanup.clear();
           action();
           if (!exited) {
-            child.kill('SIGTERM');
-            // SIGTERM is cooperative: a handler stuck in a synchronous CPU
-            // loop, or one that traps/ignores SIGTERM, would otherwise keep
-            // running unbounded after the budget (note `child.killed` only
-            // records that a signal was *sent*, not that the process
-            // died). Escalate to an unmaskable SIGKILL after a short grace
-            // period if it still hasn't exited. The timer is cleared on the
-            // 'exit' event so a child that honours SIGTERM is never
-            // needlessly SIGKILLed.
-            killEscalation = setTimeout(() => {
-              if (!exited) child.kill('SIGKILL');
-            }, KILL_GRACE_MS);
-            killEscalation.unref?.();
+            if (graceful && child.pid != null) {
+              try {
+                child.stdin.write('{"type":"abort"}\n');
+              } catch {
+                // Child already closed stdin; fall through to the kill.
+              }
+              const grace = setTimeout(killChild, ABORT_GRACE_MS);
+              grace.unref?.();
+            } else {
+              killChild();
+            }
           }
         };
 
         if (signal.aborted) {
-          finish(() =>
-            reject(new Error(`[security:subprocess] tool '${call.toolName}' aborted`)),
+          finish(
+            () =>
+              reject(new Error(`[security:subprocess] tool '${call.toolName}' aborted`)),
+            true,
           );
           return;
         }
 
         const timer = setTimeout(() => {
-          finish(() =>
-            reject(
-              new Error(
-                `[security:subprocess] tool '${call.toolName}' exceeded ${timeMs}ms budget`,
+          finish(
+            () =>
+              reject(
+                new Error(
+                  `[security:subprocess] tool '${call.toolName}' exceeded ${timeMs}ms budget`,
+                ),
               ),
-            ),
+            true,
           );
         }, timeMs);
         cleanup.add(() => clearTimeout(timer));
 
         const onAbort = (): void => {
-          finish(() =>
-            reject(new Error(`[security:subprocess] tool '${call.toolName}' aborted`)),
+          finish(
+            () =>
+              reject(new Error(`[security:subprocess] tool '${call.toolName}' aborted`)),
+            true,
           );
         };
         signal.addEventListener('abort', onAbort, { once: true });
         cleanup.add(() => signal.removeEventListener('abort', onAbort));
+
+        // Reject + kill if the child's cumulative output crosses the cap.
+        const enforceOutputCap = (): boolean => {
+          if (outputBytes <= maxOutputBytes) return false;
+          finish(() =>
+            reject(
+              new Error(
+                `[security:subprocess] tool '${call.toolName}' output exceeded ${maxOutputBytes} bytes`,
+              ),
+            ),
+          );
+          return true;
+        };
 
         // Send the initial task.
         const task = {
@@ -295,14 +453,18 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         }
 
         const handleMessage = (msg: ChildMessage): void => {
-          if (settled) return;
           if (msg.type === 'broker-request') {
+            // Service brokered ops until the child is actually torn down —
+            // including during the abort grace window so a cooperative
+            // handler can flush. Every op is still cap-checked by
+            // `handleBrokerRequest`, so this grants no new authority.
+            if (torndown) return;
             void handleBrokerRequest(msg, {
               caps,
               cwd: call.cwd,
               signal,
             }).then((response) => {
-              if (!settled) {
+              if (!torndown) {
                 try {
                   child.stdin.write(JSON.stringify(response) + '\n');
                 } catch {
@@ -312,6 +474,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
             });
             return;
           }
+          if (settled) return;
           if (msg.ok) {
             finish(() => resolve(msg.value));
           } else {
@@ -324,11 +487,21 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
 
         child.stdout.setEncoding('utf8');
         child.stdout.on('data', (chunk: string) => {
+          // Keep reading until the child is actually torn down: during the
+          // graceful abort window `settled` is true but a cooperative
+          // handler may still emit broker-requests we must service.
+          if (torndown) return;
+          outputBytes += chunk.length;
+          if (enforceOutputCap()) return;
           stdoutBuffer += chunk;
+          // Frame with a moving scan offset, slicing the carry-over once
+          // per event — avoids O(n^2) reslicing when a child emits many
+          // small NDJSON lines in one chunk.
+          let start = 0;
           let nl: number;
-          while ((nl = stdoutBuffer.indexOf('\n')) >= 0) {
-            const line = stdoutBuffer.slice(0, nl);
-            stdoutBuffer = stdoutBuffer.slice(nl + 1);
+          while ((nl = stdoutBuffer.indexOf('\n', start)) >= 0) {
+            const line = stdoutBuffer.slice(start, nl);
+            start = nl + 1;
             if (!line) continue;
             try {
               const msg = JSON.parse(line) as ChildMessage;
@@ -337,25 +510,44 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
               // Not a protocol line — ignore. The shim doesn't emit
               // arbitrary stdout, but handler-imported modules might.
             }
+            if (torndown) return;
           }
+          stdoutBuffer = start > 0 ? stdoutBuffer.slice(start) : stdoutBuffer;
+          // A single unterminated line larger than the cap is a protocol
+          // violation (no framing newline arriving) — treat it as a flood.
+          if (stdoutBuffer.length > maxOutputBytes) enforceOutputCap();
         });
 
         child.stderr.setEncoding('utf8');
         child.stderr.on('data', (chunk: string) => {
+          if (torndown) return;
+          outputBytes += chunk.length;
+          if (enforceOutputCap()) return;
+          // Only the tail is surfaced in the exit error; retain a bounded
+          // window so an stderr flood can't grow this string unbounded.
           stderr += chunk;
+          if (stderr.length > MAX_STDERR_BYTES) {
+            stderr = stderr.slice(stderr.length - MAX_STDERR_BYTES);
+          }
         });
 
         child.once('error', (e) => {
           finish(() => reject(e instanceof Error ? e : new Error(String(e))));
         });
 
-        child.once('exit', (code) => {
+        child.once('exit', (code, exitSignal) => {
           // The child has been reaped (possibly in response to SIGTERM); no
           // need to escalate to SIGKILL.
           exited = true;
           if (killEscalation) clearTimeout(killEscalation);
           if (!settled) {
-            const msg = stderr.trim() || `subprocess exited with code ${code}`;
+            // Distinguish a memory/OOM kill or signal-termination (code
+            // null) from a clean non-zero exit so operators can diagnose.
+            const how =
+              code != null
+                ? `subprocess exited with code ${code}`
+                : `subprocess terminated by ${exitSignal ?? 'unknown signal'}`;
+            const msg = stderr.trim() || how;
             finish(() =>
               reject(new Error(`[security:subprocess] '${call.toolName}': ${msg}`)),
             );

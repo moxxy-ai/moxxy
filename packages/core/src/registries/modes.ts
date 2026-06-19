@@ -37,7 +37,7 @@ export class ModeRegistry {
       // active behaviour changed under them, or remote clients keep driving the
       // stale def. `activate()` would early-return on the name match, so notify
       // directly.
-      for (const fn of this.changeListeners) fn();
+      this.notifyChange();
     }
   }
 
@@ -75,6 +75,19 @@ export class ModeRegistry {
   private activate(mode: ModeDef): void {
     if (this.active === mode.name) return;
     this.active = mode.name;
-    for (const fn of this.changeListeners) fn();
+    this.notifyChange();
+  }
+
+  /** Fan out to change listeners, isolating each fault so a single throwing
+   *  observer (e.g. the runner's InfoChanged broadcast hitting a dead socket)
+   *  can't abort the rest or unwind into register()/replace()/setActive(). */
+  private notifyChange(): void {
+    for (const fn of this.changeListeners) {
+      try {
+        fn();
+      } catch {
+        // Swallow: an observer fault must not break mode activation.
+      }
+    }
   }
 }

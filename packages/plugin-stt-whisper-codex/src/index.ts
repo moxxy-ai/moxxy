@@ -25,6 +25,8 @@ export interface BuildWhisperCodexPluginOptions {
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
   readonly sessionIdProvider?: () => string;
+  /** Whole-request deadline in ms; defaults to 60s. `<= 0` disables it. */
+  readonly requestTimeoutMs?: number;
 }
 
 export function buildWhisperCodexPlugin(
@@ -60,6 +62,9 @@ export function buildWhisperCodexPlugin(
             ...(baseUrl ? { baseUrl } : {}),
             ...(opts.fetch ? { fetch: opts.fetch } : {}),
             ...(sessionIdProvider ? { sessionIdProvider } : {}),
+            ...(opts.requestTimeoutMs !== undefined
+              ? { requestTimeoutMs: opts.requestTimeoutMs }
+              : {}),
           };
           return new CodexOAuthTranscriber(merged);
         },

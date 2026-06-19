@@ -73,5 +73,5 @@ In addition to the shared registry commands (`/info`, `/clear`, `/new`,
 
 ## See also
 
-- [Telegram channel guide](../guides/telegram-channel) — bot setup, pairing, slash commands.
-- [Running as a service](../guides/running-as-a-service) — launchd / systemd.
+- [Telegram channel guide](../guides/telegram-channel.md) — bot setup, pairing, slash commands.
+- [Running as a service](../guides/running-as-a-service.md) — launchd / systemd.

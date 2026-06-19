@@ -80,6 +80,17 @@ describe('telegram channel subcommands (registered on ChannelDef)', () => {
     expect(parsed).toEqual({ tokenConfigured: true, authorizedChatId: 987654321 });
   });
 
+  it('`status` reports null (not NaN) for a corrupt stored chat id', async () => {
+    await vault.set('telegram_bot_token', '1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi');
+    await vault.set('telegram_authorized_chat_id', 'not-a-number');
+    const code = await telegramDef.subcommands!.status!.run(ctx());
+    expect(code).toBe(0);
+    const parsed = JSON.parse(writeOut.join(''));
+    // A bare Number('not-a-number') would be NaN → serialized to null, masking
+    // the corruption; parseChatId makes the not-paired signal explicit.
+    expect(parsed).toEqual({ tokenConfigured: true, authorizedChatId: null });
+  });
+
   it('`unpair` clears the authorized chat and reports', async () => {
     await vault.set('telegram_authorized_chat_id', '111');
     const code = await telegramDef.subcommands!.unpair!.run(ctx());

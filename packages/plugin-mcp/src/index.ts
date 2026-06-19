@@ -1,6 +1,7 @@
 import { definePlugin, type Plugin } from '@moxxy/sdk';
 import type { McpClientLike, McpPluginOptions, McpServerConfig } from './types.js';
 import { defaultClientFactory } from './client.js';
+import { MCP_CONNECT_TIMEOUT_MS, withTimeout } from './timeout.js';
 import { wrapMcpServerTools } from './wrap.js';
 
 export type {
@@ -50,11 +51,24 @@ export async function createMcpPlugin(opts: CreateMcpPluginOptions): Promise<Plu
   const opened: McpClientLike[] = [];
   const results = await Promise.allSettled(
     opts.servers.map(async (server) => {
-      const client = await factory(server, opts);
+      // Bound the connect handshake so a single wedged server spawn surfaces
+      // as a rejected leg rather than stalling boot until the transport's own
+      // (possibly absent) timeout fires. The leg's client, if it opened before
+      // the timeout, is still tracked in `opened` and closed in the failure
+      // cleanup below.
+      const client = await withTimeout(
+        factory(server, opts),
+        MCP_CONNECT_TIMEOUT_MS,
+        `MCP connect "${server.name}"`,
+      );
       // Record the client the instant it opens, before listTools — so even a
       // listTools failure can't leak its child process / socket.
       opened.push(client);
-      return wrapMcpServerTools({ server, client, toolNamePrefix: opts.toolNamePrefix });
+      return withTimeout(
+        wrapMcpServerTools({ server, client, toolNamePrefix: opts.toolNamePrefix }),
+        MCP_CONNECT_TIMEOUT_MS,
+        `MCP listTools "${server.name}"`,
+      );
     }),
   );
 

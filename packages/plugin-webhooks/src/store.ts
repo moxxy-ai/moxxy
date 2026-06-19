@@ -59,20 +59,44 @@ export type WebhookVerification = z.infer<typeof verificationSchema>;
  * against either `equals` (any-of, string-coerced) or `matches` (regex).
  * Both is OR. No regex flags syntax — keep it predictable.
  */
+/**
+ * The `matches` regex runs against fully untrusted request data on the pre-ACK
+ * hot path. Cap its source length AND reject patterns that don't compile at
+ * trigger-create/load time, so an over-long / malformed regex can never reach
+ * the dispatcher (compileMatcher in filter.ts bounds the rest of the worst
+ * case: cached compilation + a length-bounded value slice).
+ */
+const MAX_MATCH_SOURCE_LEN = 512;
+const matchesSchema = z
+  .string()
+  .max(MAX_MATCH_SOURCE_LEN, `regex must be at most ${MAX_MATCH_SOURCE_LEN} characters`)
+  .refine(
+    (src) => {
+      try {
+        new RegExp(src);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: 'invalid regex in `matches`' },
+  )
+  .optional();
+
 export const filterRuleSchema = z
   .discriminatedUnion('source', [
     z.object({
       source: z.literal('header'),
       name: z.string().min(1),
       equals: z.array(z.string()).optional(),
-      matches: z.string().optional(),
+      matches: matchesSchema,
     }),
     z.object({
       source: z.literal('jsonPath'),
       /** Dot-separated path, e.g. "action" or "pull_request.user.login". */
       path: z.string().min(1),
       equals: z.array(z.string()).optional(),
-      matches: z.string().optional(),
+      matches: matchesSchema,
     }),
   ])
   .refine((r) => !!r.equals || !!r.matches, {
@@ -213,8 +237,6 @@ export class WebhookStore {
     input: Omit<WebhookTrigger, 'id' | 'createdAt' | 'enabled' | 'fireCount'> &
       Partial<Pick<WebhookTrigger, 'enabled'>>,
   ): Promise<WebhookTrigger> {
-    const existing = await this.getByName(input.name);
-    if (existing) throw new Error(`a webhook trigger named "${input.name}" already exists`);
     const entry = webhookTriggerSchema.parse({
       ...input,
       id: ulid(),
@@ -222,7 +244,14 @@ export class WebhookStore {
       enabled: input.enabled ?? true,
       fireCount: 0,
     });
+    // The name-uniqueness check must live INSIDE the mutate critical section:
+    // checking against a snapshot read outside the mutex could let two
+    // concurrent creates of the same name both pass the check and both commit.
+    // mutate() hands us a fresh copy of the current state under the mutex.
     await this.store.mutate((triggers) => {
+      if (triggers.some((t) => t.name === entry.name)) {
+        throw new Error(`a webhook trigger named "${entry.name}" already exists`);
+      }
       triggers.push(entry);
       return triggers;
     });

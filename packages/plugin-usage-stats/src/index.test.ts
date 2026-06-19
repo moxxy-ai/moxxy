@@ -52,6 +52,61 @@ function ctxFor(events: ReadonlyArray<MoxxyEvent>): AppContext {
   return { sessionId: sid, cwd: '/tmp', log: reader(events), env: {} };
 }
 
+/**
+ * A stateful fake that mirrors the real `EventLog`'s clear semantics: holding
+ * events with a base seq, exposing `baseSeq` + `onClear`, and on `clear()`
+ * emptying the events AND resetting `base` to 0 while firing clear listeners —
+ * exactly the `/new` (`Session.reset()`) lifecycle that restarts the seq stream.
+ */
+class FakeLog {
+  private events: MoxxyEvent[];
+  private base: number;
+  private readonly clearListeners = new Set<() => void>();
+  constructor(seed: ReadonlyArray<MoxxyEvent> = []) {
+    this.events = [...seed];
+    this.base = seed.length > 0 ? seed[0]!.seq : 0;
+  }
+  get length() {
+    return this.events.length;
+  }
+  get baseSeq() {
+    return this.base;
+  }
+  at(seq: number) {
+    return this.events[seq - this.base];
+  }
+  slice(from = this.base, to = this.base + this.events.length) {
+    return this.events.slice(Math.max(0, from - this.base), Math.max(0, to - this.base));
+  }
+  ofType(type: string) {
+    return this.events.filter((e) => e.type === type);
+  }
+  byTurn(turnId: unknown) {
+    return this.events.filter((e) => e.turnId === turnId);
+  }
+  toJSON() {
+    return this.events;
+  }
+  onClear(fn: () => void) {
+    this.clearListeners.add(fn);
+    return () => this.clearListeners.delete(fn);
+  }
+  /** Append more live events after `onInit` has captured the boundary. */
+  push(...more: MoxxyEvent[]) {
+    this.events.push(...more);
+  }
+  /** `/new` wipe: empty events, reset base to 0, fire clear listeners. */
+  clear() {
+    this.events = [];
+    this.base = 0;
+    for (const fn of [...this.clearListeners]) fn();
+  }
+}
+
+function ctxForLog(log: FakeLog, sessionId = sid): AppContext {
+  return { sessionId, cwd: '/tmp', log: log as unknown as EventLogReader, env: {} };
+}
+
 let tmpDir: string;
 let statsPath: string;
 
@@ -117,6 +172,53 @@ describe('usage-stats plugin', () => {
     // Only the single live call (30 tokens) — never the 7000 restored tokens.
     expect(file.models['anthropic/opus']!.calls).toBe(1);
     expect(file.models['anthropic/opus']!.inputTokens).toBe(30);
+  });
+
+  it('counts the post-/new (log clear/reset) suffix that restarts at seq 0', async () => {
+    // Regression: `Session.reset()` (the `/new` flow) calls `log.clear()`, which
+    // empties the events AND resets base to 0 — restarting the authoritative seq
+    // stream WITHOUT re-firing onInit. A boundary captured at init (e.g. 102 from
+    // a restored prefix) would then drop every post-/new event (seqs 0,1,2…),
+    // silently losing the whole session's usage. The plugin must re-baseline on
+    // clear and fold the post-wipe suffix.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const log = new FakeLog([resp(100, 'opus', 1000), resp(101, 'opus', 2000)]);
+
+    await plugin.hooks!.onInit!(ctxForLog(log)); // boundary captured at seq 101
+    log.clear(); // /new — events emptied, base reset to 0, onClear fires
+    log.push(resp(0, 'opus', 40), resp(1, 'opus', 60)); // post-/new live events
+
+    await plugin.hooks!.onShutdown!(ctxForLog(log));
+
+    const file = await loadUsageStats(statsPath);
+    // Both post-/new calls counted (100 tokens) — not dropped as <= old boundary.
+    expect(file.models['anthropic/opus']!.calls).toBe(2);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(100);
+  });
+
+  it('isolates the cursor per session so concurrent sessions on one instance never clobber each other', async () => {
+    // One shared plugin instance, two interleaved session lifecycles. A single
+    // scalar cursor would let session B's onInit overwrite session A's boundary;
+    // keying by sessionId keeps both correct.
+    const plugin = buildUsageStatsPlugin({ statsPath });
+    const sidA = asSessionId('A');
+    const sidB = asSessionId('B');
+    const logA = new FakeLog([resp(0, 'opus', 1000)]); // A restored 1 event (seq 0)
+    const logB = new FakeLog([]); // B is a fresh run
+
+    await plugin.hooks!.onInit!(ctxForLog(logA, sidA)); // A boundary = 0
+    await plugin.hooks!.onInit!(ctxForLog(logB, sidB)); // B boundary = null (would clobber A's scalar)
+
+    logA.push(resp(1, 'opus', 5)); // A's single live call
+    logB.push(resp(0, 'opus', 7)); // B's single live call
+
+    await plugin.hooks!.onShutdown!(ctxForLog(logA, sidA));
+    await plugin.hooks!.onShutdown!(ctxForLog(logB, sidB));
+
+    const file = await loadUsageStats(statsPath);
+    // A counts only its live call (5), B counts its only call (7) → 2 calls, 12.
+    expect(file.models['anthropic/opus']!.calls).toBe(2);
+    expect(file.models['anthropic/opus']!.inputTokens).toBe(12);
   });
 
   it('folds the whole log when onShutdown fires without a preceding onInit (cursor defaults to 0)', async () => {

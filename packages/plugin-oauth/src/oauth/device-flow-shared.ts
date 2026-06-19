@@ -47,7 +47,16 @@ export async function requestDeviceAuthorization(args: {
       })
     );
   }
-  const json = (await res.json()) as Record<string, unknown>;
+  // A 200 with a non-JSON/truncated body (proxy/captive-portal error page)
+  // would make res.json() reject with a raw SyntaxError that escapes the
+  // MoxxyError boundary; convert it to a typed PROVIDER_UNKNOWN_RESPONSE.
+  const json = (await res.json().catch(() => {
+    throw new MoxxyError({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+      message: 'device-authorization endpoint returned a non-JSON success body',
+      context: { url: args.deviceUrl },
+    });
+  })) as Record<string, unknown>;
   const deviceCode = typeof json.device_code === 'string' ? json.device_code : null;
   const userCode = typeof json.user_code === 'string' ? json.user_code : null;
   const verificationUri =

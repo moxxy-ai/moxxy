@@ -220,7 +220,16 @@ export async function runExecutorLoop(
   const output = sinkOutput(workflow, ctx.states);
 
   if (ok) {
-    await deps.emit?.('workflow_completed', { name: workflow.name, output: output.slice(0, 280) });
+    // A run whose only remaining steps were all skipped by branch routing can
+    // reach here with NO sink output (every sink step skipped → fallback ''),
+    // which a delivery consumer would silently treat as "nothing to send".
+    // Flag the empty terminal output so the delivery layer can warn rather than
+    // deliver an empty body and call it a success.
+    await deps.emit?.('workflow_completed', {
+      name: workflow.name,
+      output: output.slice(0, 280),
+      ...(output.length === 0 ? { empty: true } : {}),
+    });
     return buildRunResult(ctx, 'completed', true, { output });
   }
 
@@ -252,6 +261,16 @@ export async function runExecutor(
 }
 
 /**
+ * Run ids currently being resumed. A second concurrent resume of the SAME run
+ * (operator double-tap, a retry of a slow request, or two clients over the WS
+ * bridge) must not both `spawner.continue` the same retained child session and
+ * both `store.remove` the checkpoint — that double-spends the subagent and can
+ * double-deliver downstream. The first claim wins; the rest are rejected until
+ * it settles (the `finally` clears the claim).
+ */
+const inFlightResumes = new Set<string>();
+
+/**
  * Resume a paused (`awaitInput`) run: load its checkpoint, replay the operator
  * reply into the retained child session via `spawner.continue`, then drive the
  * rest of the DAG from the restored state.
@@ -261,6 +280,29 @@ export async function resumeWorkflowRun(
   userMessage: string,
   deps: WorkflowRunDeps,
   store: WorkflowRunStore = defaultWorkflowRunStore,
+): Promise<WorkflowRunResult> {
+  if (inFlightResumes.has(runId)) {
+    return {
+      ok: false,
+      status: 'failed',
+      steps: [],
+      output: '',
+      error: `workflow run "${runId}" is already being resumed`,
+    };
+  }
+  inFlightResumes.add(runId);
+  try {
+    return await resumeWorkflowRunInner(runId, userMessage, deps, store);
+  } finally {
+    inFlightResumes.delete(runId);
+  }
+}
+
+async function resumeWorkflowRunInner(
+  runId: string,
+  userMessage: string,
+  deps: WorkflowRunDeps,
+  store: WorkflowRunStore,
 ): Promise<WorkflowRunResult> {
   const checkpoint = await store.load(runId);
   if (!checkpoint) {

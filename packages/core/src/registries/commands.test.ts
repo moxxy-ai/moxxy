@@ -58,6 +58,39 @@ describe('CommandRegistry', () => {
     expect(reg.get('m')).toBeUndefined();
   });
 
+  it('replace() refuses to hijack an alias owned by a DIFFERENT command', () => {
+    const reg = new CommandRegistry();
+    reg.register(fakeCommand('compact', { aliases: ['c'] }));
+    reg.register(fakeCommand('clear'));
+    // Replacing /clear with an alias 'c' already owned by /compact must throw,
+    // not silently steal the alias (register() guards this; replace() now too).
+    expect(() => reg.replace(fakeCommand('clear', { aliases: ['c'] }))).toThrow(
+      /alias already in use/,
+    );
+    // /compact still owns 'c'.
+    expect(reg.get('c')?.name).toBe('compact');
+  });
+
+  it('replace() refuses an alias that collides with another command primary name', () => {
+    const reg = new CommandRegistry();
+    reg.register(fakeCommand('compact'));
+    reg.register(fakeCommand('mode', { aliases: ['m'] }));
+    // Re-defining /mode with an alias equal to another command's PRIMARY name
+    // would make get() ambiguous — reject it.
+    expect(() => reg.replace(fakeCommand('mode', { aliases: ['compact'] }))).toThrow(
+      /already in use/,
+    );
+  });
+
+  it('replace() still allows re-adding the command own primary name as an alias edge case is fine', () => {
+    const reg = new CommandRegistry();
+    reg.register(fakeCommand('mode', { aliases: ['m'] }));
+    // Replacing with the SAME alias set must not throw on the alias it already
+    // owns (cleared-then-readded).
+    expect(() => reg.replace(fakeCommand('mode', { aliases: ['m'], description: 'x' }))).not.toThrow();
+    expect(reg.get('m')?.name).toBe('mode');
+  });
+
   it('listForChannel filters channel-scoped commands', () => {
     const reg = new CommandRegistry();
     reg.register(fakeCommand('everywhere'));

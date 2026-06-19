@@ -31,13 +31,42 @@ export const globTool = defineTool({
       matches.push(entry);
       if (matches.length >= max) break;
     }
-    const withMtime = await Promise.all(
-      matches.map(async (p) => ({ p, mtime: (await fs.stat(p).catch(() => null))?.mtime?.getTime() ?? 0 })),
-    );
-    withMtime.sort((a, b) => b.mtime - a.mtime);
-    return clampString(withMtime.map((x) => x.p).join('\n'), 50_000);
+    // Stat in bounded-concurrency batches rather than firing one syscall per
+    // match at once — on a large match set over a slow/networked fs an
+    // unbounded fan-out exhausts file handles. Entries whose stat fails (e.g.
+    // deleted between walk and stat) are dropped rather than sorted to mtime 0.
+    const withMtime = await mapWithConcurrency(matches, STAT_CONCURRENCY, async (p) => {
+      const mtime = (await fs.stat(p).catch(() => null))?.mtime?.getTime();
+      return mtime === undefined ? null : { p, mtime };
+    });
+    const present = withMtime.filter((x): x is { p: string; mtime: number } => x !== null);
+    present.sort((a, b) => b.mtime - a.mtime);
+    return clampString(present.map((x) => x.p).join('\n'), 50_000);
   },
 });
+
+/** Concurrency limit for the post-walk stat fan-out. */
+const STAT_CONCURRENCY = 32;
+
+/** Run `fn` over `items` with at most `limit` in flight, preserving order. */
+async function mapWithConcurrency<T, R>(
+  items: ReadonlyArray<T>,
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!);
+    }
+  };
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
 
 async function* fsGlob(
   baseDir: string,

@@ -122,4 +122,41 @@ describe('useTurnRunner force-send drain (u79-1)', () => {
     // Queue concatenates into one follow-up turn.
     expect(runs).toEqual(['A', 'B\n\nC']);
   });
+
+  it('splits a huge queued message across turns instead of one oversized prompt', async () => {
+    const runs: string[] = [];
+    const notices: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const session = {
+      runTurn: (text: string) => {
+        runs.push(text);
+        return (async function* () {
+          if (text === 'A') await gate;
+        })();
+      },
+    } as unknown as Parameters<typeof useTurnRunner>[0]['session'];
+
+    const handle = mountFreshHook({
+      session,
+      resolveModel: () => undefined,
+      stream: makeStream(),
+      onNotice: (m: string) => notices.push(m),
+    });
+
+    const turnPromise = handle.runTurnWith('A', []);
+    // Two messages, each well over the 200k char drain ceiling. They must NOT
+    // merge into a single multi-hundred-KB prompt — the first drains now, the
+    // second follows on the next turn.
+    const big = 'x'.repeat(150_000);
+    handle.queueRef.current.push({ text: big, attachments: [] });
+    handle.queueRef.current.push({ text: big, attachments: [] });
+    release();
+    await turnPromise;
+
+    expect(runs).toEqual(['A', big, big]);
+    expect(notices.some((n) => /will follow/.test(n))).toBe(true);
+  });
 });

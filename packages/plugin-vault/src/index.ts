@@ -91,19 +91,30 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
         // and renders as a dim system note in the TUI (see EventLine).
         const note =
           `[vault] Secret "${name}" stored. Reference it as \${vault:${name}} — its value is hidden from you.`;
-        try {
-          const s = ctx.session as VaultCommandSession;
-          await s.log.append({
-            type: 'user_prompt',
-            sessionId: ctx.sessionId,
-            turnId: s.startTurn().turnId,
-            source: 'system',
-            text: note,
-          });
-        } catch {
-          // If the host session doesn't expose log/startTurn (unexpected),
-          // still confirm storage to the user below.
+        const s = ctx.session as Partial<VaultCommandSession>;
+        if (typeof s.log?.append === 'function' && typeof s.startTurn === 'function') {
+          try {
+            await s.log.append({
+              type: 'user_prompt',
+              sessionId: ctx.sessionId,
+              turnId: s.startTurn().turnId,
+              source: 'system',
+              text: note,
+            });
+          } catch (err) {
+            // The session exposes the log API but the append itself failed
+            // (e.g. disk full / log-rotation race). The secret IS stored, so
+            // still confirm to the user below, but surface a warning so a
+            // broken log path is diagnosable rather than a silent partial
+            // failure where the model never learns the reference exists.
+            console.warn(
+              `[vault] stored "${name}" but failed to record its reference note: ` +
+                (err instanceof Error ? err.message : String(err)),
+            );
+          }
         }
+        // If the host session doesn't expose log/startTurn (unexpected),
+        // we skip the note entirely and just confirm storage below.
 
         return {
           kind: 'text',

@@ -15,6 +15,45 @@ export function defaultRunRecordDir(): string {
   return moxxyPath('workflow-runs');
 }
 
+/** Run records older than this (by mtime) are swept by default — 30 days. */
+export const DEFAULT_RUN_RECORD_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Delete `*.jsonl` run-record files older than `maxAgeMs` (by mtime). Every
+ * `runWorkflow` appends one and nothing else removes them, so over months of
+ * scheduled runs they grow without bound and slow `readLastRun`. Mirrors
+ * {@link WorkflowRunStore.sweepStale} for paused checkpoints; call from the same
+ * workflows-boot hook. Best-effort: a missing dir / unreadable entry is skipped,
+ * not thrown. Returns the count removed.
+ */
+export async function sweepStaleRecords(
+  dir = defaultRunRecordDir(),
+  maxAgeMs = DEFAULT_RUN_RECORD_TTL_MS,
+  now = Date.now(),
+): Promise<number> {
+  let removed = 0;
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return 0;
+  }
+  for (const name of entries) {
+    if (!name.endsWith('.jsonl')) continue;
+    const file = path.join(dir, name);
+    try {
+      const st = await fs.stat(file);
+      if (now - st.mtimeMs > maxAgeMs) {
+        await fs.unlink(file);
+        removed += 1;
+      }
+    } catch {
+      // racing unlink / unreadable entry — skip.
+    }
+  }
+  return removed;
+}
+
 export interface RunWorkflowOptions {
   /** Active executor; falls back to the built-in `dag`. */
   readonly executor?: WorkflowExecutorDef | null;

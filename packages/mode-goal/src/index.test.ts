@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineTool, type ProviderEvent } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
 import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
 
 import { goalModePlugin, GOAL_MODE_NAME } from './index.js';
+import { __setRetrySleepForTests } from './goal-loop.js';
+
+/** A scripted provider reply that surfaces a retryable error mid-stream. */
+function retryableErrorReply(message = 'overloaded'): ProviderEvent[] {
+  return [
+    { type: 'message_start', model: 'fake' },
+    { type: 'error', message, retryable: true },
+  ];
+}
 
 describe('goalMode end-to-end', () => {
   it('stops with goal_completed when the model calls goal_complete', async () => {
@@ -296,5 +305,210 @@ describe('goalMode end-to-end', () => {
     expect(
       events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed'),
     ).toBe(false);
+  });
+
+  describe('retryable provider errors (busy-loop guard)', () => {
+    // Make the back-off instant + deterministic so the bounded-retry path runs
+    // without real timers. Restore after every test (the seam is a module
+    // singleton shared process-wide).
+    let restore: (() => void) | undefined;
+    afterEach(() => {
+      restore?.();
+      restore = undefined;
+    });
+
+    it('bails with a fatal error after MAX_CONSECUTIVE_RETRIES instead of busy-looping the provider', async () => {
+      let sleeps = 0;
+      restore = __setRetrySleepForTests(async () => {
+        sleeps += 1;
+      });
+      // The provider is stuck returning retryable errors forever. Without the
+      // cap this would re-hit the provider up to maxIterations (150) times with
+      // zero spacing — exactly the unattended busy-loop the guard prevents.
+      const provider = new FakeProvider({
+        script: Array.from({ length: 50 }, () => retryableErrorReply('rate limited')),
+      });
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+
+      const events = await collectTurn(session, 'do the thing');
+
+      // It gave up with a fatal error mentioning the repeated retryable failure…
+      const fatal = events.find(
+        (e) => e.type === 'error' && e.kind === 'fatal' && e.message.includes('retryable error'),
+      );
+      expect(fatal).toBeDefined();
+      // …and it did NOT consume the whole 150-iteration cap — only the bounded
+      // retry budget of provider calls happened (6), so 6 errors were surfaced
+      // and the loop stopped well before maxIterations.
+      const retryableErrors = events.filter(
+        (e) => e.type === 'error' && e.kind === 'retryable',
+      );
+      expect(retryableErrors.length).toBe(6);
+      // Every retry but the last backed off (abort-aware sleep), so the provider
+      // was never hammered back-to-back.
+      expect(sleeps).toBe(5);
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(
+        false,
+      );
+    });
+
+    it('resets the retry counter after a clean call, recovering from a transient blip', async () => {
+      let sleeps = 0;
+      restore = __setRetrySleepForTests(async () => {
+        sleeps += 1;
+      });
+      // A few retryable blips, then the provider recovers and the model finishes.
+      const provider = new FakeProvider({
+        script: [
+          retryableErrorReply(),
+          retryableErrorReply(),
+          toolUseReply('goal_complete', { summary: 'recovered after a blip' }, 'gc-r'),
+        ],
+      });
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+
+      const events = await collectTurn(session, 'finish despite blips');
+
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(
+        true,
+      );
+      // It backed off on each of the two blips (2 sleeps) and never bailed fatal.
+      expect(sleeps).toBe(2);
+      expect(
+        events.some(
+          (e) => e.type === 'error' && e.kind === 'fatal' && e.message.includes('retryable'),
+        ),
+      ).toBe(false);
+    });
+
+    it('aborts cleanly mid back-off when the signal fires', async () => {
+      const ctrl = new AbortController();
+      // The fake sleep aborts the turn the moment the back-off begins, then
+      // resolves — mirroring a user cancellation while a retry was pending.
+      restore = __setRetrySleepForTests(async (_ms, signal) => {
+        ctrl.abort();
+        expect(signal.aborted).toBe(true);
+      });
+      const provider = new FakeProvider({
+        script: [retryableErrorReply(), toolUseReply('goal_complete', { summary: 'x' }, 'gc-a')],
+      });
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+
+      const events = await collectTurn(session, 'cancel me', { signal: ctrl.signal });
+
+      // The run stopped at an abort (not a fatal) and never completed.
+      expect(events.some((e) => e.type === 'abort' && e.reason.includes('back-off'))).toBe(true);
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(
+        false,
+      );
+    });
+
+    it('treats an un-compactable context overflow marked retryable as fatal (no re-send loop)', async () => {
+      let sleeps = 0;
+      restore = __setRetrySleepForTests(async () => {
+        sleeps += 1;
+      });
+      // A context-overflow error the provider marked retryable. There is nothing
+      // older to compact (the fresh session's tail is the overflow), so a retry
+      // would just re-send the identical over-budget prompt forever. The guard
+      // must bail fatal instead of looping.
+      const provider = new FakeProvider({
+        script: Array.from({ length: 10 }, () => [
+          { type: 'message_start', model: 'fake' },
+          {
+            type: 'error',
+            message: 'prompt is too long: 250000 tokens > 200000 maximum context length',
+            retryable: true,
+          },
+        ] as ProviderEvent[]),
+      });
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+
+      const events = await collectTurn(session, 'overflow');
+
+      // It ended fatal without ever entering the retry back-off path.
+      expect(events.some((e) => e.type === 'error' && e.kind === 'fatal')).toBe(true);
+      expect(sleeps).toBe(0);
+      // The provider was hit at most twice (initial + one reactive-compaction
+      // retry that found nothing to compact), never the 10-deep script.
+      expect(provider.received.length).toBeLessThanOrEqual(2);
+    });
+  });
+
+  it('persists the budget-exhausting call assistant text before stopping', () => {
+    // The model produces real text on the call that blows the budget. That text
+    // must land in the log (source: 'model') so a resume keeps the context —
+    // it was silently dropped before the fix.
+    const hugeUsageWithText: ProviderEvent[] = [
+      { type: 'message_start', model: 'fake' },
+      { type: 'text_delta', delta: 'Here is my final analysis before stopping.' },
+      {
+        type: 'message_end',
+        stopReason: 'end_turn',
+        usage: { inputTokens: 5_000_000, outputTokens: 0 },
+      },
+    ];
+    const provider = new FakeProvider({ script: [hugeUsageWithText] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+
+    return collectTurn(session, 'expensive').then((events) => {
+      // The model's own text was persisted…
+      const modelMsg = events.find(
+        (e) => e.type === 'assistant_message' && e.source === 'model',
+      );
+      if (modelMsg?.type !== 'assistant_message') throw new Error('expected a model assistant_message');
+      expect(modelMsg.content).toContain('final analysis');
+      // …before the budget plugin_event (matching the reasoning ordering rule).
+      const modelIdx = events.indexOf(modelMsg);
+      const exhaustedIdx = events.findIndex(
+        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
+      );
+      expect(exhaustedIdx).toBeGreaterThanOrEqual(0);
+      expect(modelIdx).toBeLessThan(exhaustedIdx);
+    });
+  });
+
+  it('counts cached prompt tokens toward the budget so the runaway guard trips', () => {
+    // Most of the prompt is served from cache (cacheRead) with a tiny live
+    // input. Counting input+output alone would leave totalTokens far under the
+    // 4M budget; including the cache fields trips it on iteration 1.
+    const cachedHeavyUsage: ProviderEvent[] = [
+      { type: 'message_start', model: 'fake' },
+      { type: 'text_delta', delta: 'working...' },
+      {
+        type: 'message_end',
+        stopReason: 'end_turn',
+        usage: {
+          inputTokens: 100,
+          outputTokens: 100,
+          cacheReadTokens: 5_000_000,
+          cacheCreationTokens: 0,
+        },
+      },
+    ];
+    const provider = new FakeProvider({ script: [cachedHeavyUsage] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(goalModePlugin);
+    session.modes.setActive(GOAL_MODE_NAME);
+
+    return collectTurn(session, 'cached and expensive').then((events) => {
+      const exhausted = events.find(
+        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
+      );
+      expect(exhausted).toBeDefined();
+      if (exhausted?.type !== 'plugin_event') throw new Error('expected goal_budget_exhausted');
+      // totalTokens reflects the FULL prompt (input + cacheRead + output).
+      expect((exhausted.payload as { totalTokens: number }).totalTokens).toBe(5_000_200);
+    });
   });
 });

@@ -64,6 +64,19 @@ describe('detectInstall', () => {
     expect(formatCmd(info.cmd)).toBe('yarn global add @moxxy/cli@latest');
   });
 
+  it('does NOT misclassify a global install whose path merely contains packages/cli', () => {
+    // A published copy installed into a monorepo whose own dir is named
+    // `packages/cli-tools` resolves through node_modules/@moxxy/cli and must
+    // still get a real upgrade command, not the workspace "git pull" no-op.
+    const info = detectInstall({
+      fromUrl: at('/work/packages/cli-tools/node_modules/@moxxy/cli/dist/commands/update.js'),
+      userAgent: '',
+      cwd: '/elsewhere',
+    });
+    expect(info.manager).not.toBe('workspace');
+    expect(info.cmd.length).toBeGreaterThan(0);
+  });
+
   it('treats an install under the project node_modules as local (not -g)', () => {
     const info = detectInstall({
       fromUrl: at('/home/me/project/node_modules/@moxxy/cli/dist/commands/update.js'),

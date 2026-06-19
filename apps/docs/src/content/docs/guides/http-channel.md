@@ -125,7 +125,7 @@ moxxy service status http
 moxxy service logs http --lines 100
 ```
 
-See [Running as a service](./running-as-a-service) for launchd / systemd
+See [Running as a service](./running-as-a-service.md) for launchd / systemd
 details.
 
 ## Notes

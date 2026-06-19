@@ -168,6 +168,35 @@ describe('HookDispatcherImpl', () => {
     expect(d.hasEventHooks()).toBe(true);
   });
 
+  it('does not surface an unhandledRejection when a hook rejects AFTER timing out', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => void unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      // Hook stays pending past the (tiny) timeout, THEN rejects. The dispatcher
+      // must have a rejection handler attached to the hook promise so this
+      // late rejection is swallowed rather than crashing the process.
+      const slow = definePlugin({
+        name: 'slow',
+        hooks: {
+          onInit: () =>
+            new Promise<void>((_, reject) => {
+              setTimeout(() => reject(new Error('late boom')), 30);
+            }),
+        },
+      });
+      const d = new HookDispatcherImpl({ logger: silentLogger, hookTimeoutMs: 5 });
+      d.setPlugins([slow]);
+      await d.dispatchInit(appCtx); // resolves on timeout, not on the late reject
+      // Wait long enough for the late rejection to fire and any microtasks to
+      // flush, so a missing handler would have been observed by now.
+      await new Promise((r) => setTimeout(r, 60));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('logs and continues when a hook throws', async () => {
     const failed = vi.fn();
     const bad = definePlugin({

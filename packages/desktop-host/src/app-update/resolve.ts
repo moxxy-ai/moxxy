@@ -494,5 +494,7 @@ export function listStagedVersions(userDataDir: string): string[] {
   }
   return entries
     .filter((name) => isSafeVersion(name) && existsSync(path.join(dir, name, 'manifest.json')))
-    .sort((a, b) => compareSemver(a, b));
+    // compareSemver returns 0 for same-core tags differing only by build/
+    // prerelease suffix; add a tag tie-break so the order is deterministic.
+    .sort((a, b) => compareSemver(a, b) || (a < b ? -1 : a > b ? 1 : 0));
 }

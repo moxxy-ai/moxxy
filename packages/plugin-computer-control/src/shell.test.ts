@@ -1,6 +1,6 @@
 import { MoxxyError } from '@moxxy/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ensureDarwin, procFailureCause, runProcess } from './shell.js';
+import { ensureDarwin, MAX_OUTPUT_BYTES, procFailureCause, runProcess } from './shell.js';
 
 describe('runProcess stdout capture (chunked, O(n) concat-at-close)', () => {
   it('captures the full stdout across many small chunks', async () => {
@@ -30,6 +30,21 @@ describe('runProcess stdout capture (chunked, O(n) concat-at-close)', () => {
       "let s=''; process.stdin.on('data', d => s += d); process.stdin.on('end', () => process.stdout.write(s.toUpperCase()));";
     const res = await runProcess(process.execPath, ['-e', script], { input: 'hello' });
     expect(res.stdout).toBe('HELLO');
+  });
+
+  it('does not crash (EPIPE) when the child exits before stdin is fully written', async () => {
+    // The child exits immediately WITHOUT reading stdin; writing a large
+    // buffer to its closed stdin pipe emits 'error' (EPIPE) on the Writable.
+    // With no 'error' listener that throws as an unhandled rejection that can
+    // take down the parent — the swallow handler must keep us alive.
+    const big = 'x'.repeat(2 * 1024 * 1024);
+    const res = await runProcess(process.execPath, ['-e', 'process.exit(0)'], {
+      input: big,
+      timeoutMs: 30_000,
+    });
+    // We don't assert on stdout here — only that the call settles without an
+    // uncaught EPIPE. The child's own exit code is what matters.
+    expect(res.exitCode).toBe(0);
   });
 });
 
@@ -81,7 +96,35 @@ describe('runProcess exit/stderr/abort/timeout', () => {
     // rather than a confusing bare `exit -1`.
     expect(res.timedOut).toBe(true);
     expect(res.aborted).toBe(false);
+    expect(res.tooLarge).toBe(false);
     expect(procFailureCause(res, 100)).toBe('timed out after 100ms');
+  });
+
+  it('force-kills a child that floods stdout past MAX_OUTPUT_BYTES instead of OOMing', async () => {
+    // A runaway child that writes an unbounded stream. The byte cap must kill
+    // it well before it can accumulate gigabytes in the parent; we cap the
+    // child's own attempt above MAX_OUTPUT_BYTES so the test also terminates
+    // on its own if the cap somehow fails to fire.
+    const target = MAX_OUTPUT_BYTES + 4 * 1024 * 1024;
+    const script = `
+      const chunk = Buffer.alloc(1024 * 1024, 0x61);
+      let sent = 0;
+      const target = ${target};
+      function pump() {
+        while (sent < target) {
+          sent += chunk.length;
+          if (!process.stdout.write(chunk)) { process.stdout.once('drain', pump); return; }
+        }
+      }
+      pump();
+    `;
+    const res = await runProcess(process.execPath, ['-e', script], { timeoutMs: 30_000 });
+    expect(res.tooLarge).toBe(true);
+    // The captured output is bounded — we kept at most a bounded overshoot of
+    // the cap (one in-flight chunk past the threshold), never the full target.
+    expect(Buffer.byteLength(res.stdout, 'utf8')).toBeLessThan(MAX_OUTPUT_BYTES + 8 * 1024 * 1024);
+    expect(res.timedOut).toBe(false);
+    expect(procFailureCause(res, 30_000)).toContain('output exceeded');
   });
 });
 

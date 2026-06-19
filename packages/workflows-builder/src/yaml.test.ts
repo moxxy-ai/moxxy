@@ -118,3 +118,44 @@ describe('yaml codec — parser-only branches (canonical host YAML)', () => {
     expect(parsed.outer).toEqual([['a', 'b']]);
   });
 });
+
+describe('yaml codec — untrusted-input hardening', () => {
+  it('throws a catchable Error (not a RangeError) on pathologically deep nesting', () => {
+    // Build a deeply nested map: a:\n  a:\n    a: ... A naive recursive parser
+    // overflows the JS call stack with an uncatchable RangeError; the depth cap
+    // must convert this into a normal Error the UI can show as a banner.
+    let yaml = '';
+    for (let i = 0; i < 1000; i++) yaml += '  '.repeat(i) + 'a:\n';
+    yaml += '  '.repeat(1000) + 'a: 1\n';
+    expect(() => fromYaml(yaml)).toThrow(/nesting too deep/);
+  });
+
+  it('throws a catchable Error on deeply nested sequences', () => {
+    let yaml = 'x:\n';
+    for (let i = 0; i < 1000; i++) yaml += '  '.repeat(i + 1) + '-\n';
+    yaml += '  '.repeat(1002) + '- a\n';
+    expect(() => fromYaml(yaml)).toThrow(/nesting too deep/);
+  });
+
+  it('rejects an oversized input instead of trying to parse it', () => {
+    const huge = 'k: ' + 'x'.repeat(2_000_001) + '\n';
+    expect(() => fromYaml(huge)).toThrow(/too large/);
+  });
+
+  it('parses a reasonably deep document without throwing', () => {
+    let yaml = '';
+    for (let i = 0; i < 50; i++) yaml += '  '.repeat(i) + 'a:\n';
+    yaml += '  '.repeat(50) + 'a: 1\n';
+    expect(() => fromYaml(yaml)).not.toThrow();
+  });
+
+  it('preserves an integer past 2^53 as a string rather than mangling it', () => {
+    // Number.parseInt would silently round to a different value; keep the raw
+    // string so arbitrary `args` literals survive losslessly.
+    const big = '99999999999999999999';
+    const parsed = fromYaml(`v: ${big}\n`) as { v: unknown };
+    expect(parsed.v).toBe(big);
+    // small safe integers still coerce as before.
+    expect((fromYaml('v: 42\n') as { v: unknown }).v).toBe(42);
+  });
+});

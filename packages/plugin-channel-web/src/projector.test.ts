@@ -154,4 +154,19 @@ describe('EventProjector', () => {
     expect(p.project(ev({ type: 'tool_call_approved', callId: 'c' }))).toEqual([]);
     expect(p.project(ev({ type: 'provider_request' }))).toEqual([]);
   });
+
+  it('stays correct after a long run of aborted present_view calls (pending map bounded)', () => {
+    // Each present_view tool_call without a matching tool_result simulates an
+    // aborted/errored turn — its pending entry would otherwise leak forever.
+    // After many such aborts the projector must remain functional and still
+    // render a fresh, fully-resolved view.
+    const p = new EventProjector();
+    for (let i = 0; i < 500; i++) {
+      expect(p.project(ev({ type: 'tool_call_requested', callId: `abort${i}`, name: 'present_view', input: {} }))).toEqual([]);
+    }
+    p.project(ev({ type: 'tool_call_requested', callId: 'live', name: 'present_view', input: {} }));
+    const frames = p.project(ev({ type: 'tool_result', callId: 'live', ok: true, output: { ast: sampleDoc } }));
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.kind).toBe('view');
+  });
 });

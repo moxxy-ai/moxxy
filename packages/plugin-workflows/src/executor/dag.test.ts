@@ -603,6 +603,69 @@ describe('dag executor', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('rejects a concurrent resume of the same runId (no double-continue / double-remove)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wf-resume-race-'));
+    const store = new WorkflowRunStore(dir);
+    let continueCalls = 0;
+    let removeCalls = 0;
+    const spawnOne = async (spec: SubagentSpec): Promise<SubagentResult> => ({
+      label: spec.label ?? '?',
+      childSessionId: asSessionId('child'),
+      text: `OUT_${spec.label ?? '?'}`,
+      stopReason: 'end_turn',
+    });
+    const slowContinue: SubagentSpawner = {
+      spawn: spawnOne,
+      spawnAll: (list) => Promise.all(list.map(spawnOne)),
+      continue: async (args) => {
+        continueCalls += 1;
+        await new Promise((r) => setTimeout(r, 20)); // hold the claim open
+        return {
+          label: args.label ?? '?',
+          childSessionId: args.childSessionId,
+          text: `FINAL_${args.label ?? '?'}`,
+          stopReason: 'end_turn',
+        };
+      },
+      release: () => {},
+    };
+    // Wrap the store so we can count removals (the second resume must not remove).
+    const countingStore = {
+      load: (id: string) => store.load(id),
+      save: (c: Parameters<WorkflowRunStore['save']>[0]) => store.save(c),
+      remove: async (id: string) => {
+        removeCalls += 1;
+        return store.remove(id);
+      },
+      sweepStale: (...args: Parameters<WorkflowRunStore['sweepStale']>) => store.sweepStale(...args),
+    } as unknown as WorkflowRunStore;
+
+    const h = makeHarness({ runStore: store } as Partial<WorkflowRunDeps>);
+    const paused = await dagExecutor.run(
+      rawWf([
+        { id: 'ask', prompt: 'Ask', awaitInput: true },
+        { id: 'go', needs: ['ask'], prompt: 'Use {{ steps.ask.output }}' },
+      ]),
+      h.deps,
+    );
+    expect(paused.status).toBe('paused');
+
+    const resumeDeps = { ...h.deps, spawner: slowContinue } as WorkflowRunDeps;
+    const [a, b] = await Promise.all([
+      resumeWorkflowRun(paused.runId!, 'one', resumeDeps, countingStore),
+      resumeWorkflowRun(paused.runId!, 'two', resumeDeps, countingStore),
+    ]);
+    // Exactly one resume proceeded; the other was rejected by the in-flight lock.
+    const oks = [a, b].filter((r) => r.ok);
+    const rejected = [a, b].find((r) => !r.ok);
+    expect(oks).toHaveLength(1);
+    expect(rejected?.error).toMatch(/already being resumed/);
+    // The child session was continued exactly once and the checkpoint removed once.
+    expect(continueCalls).toBe(1);
+    expect(removeCalls).toBe(1);
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it('drops prototype-pollution keys from logic-step vars (Finding 6)', async () => {
     const h = makeHarness({
       logicResponses: {

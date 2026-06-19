@@ -27,6 +27,36 @@ describe('DeskStore', () => {
     expect(await s.list()).toEqual([]);
   });
 
+  it('normalizes a dangling activeId (points at a removed desk) to a real desk on load', async () => {
+    // A hand-edited / stale desks.json whose activeId references a desk that no
+    // longer exists must NOT leave getActive()/listSessions silently empty.
+    const desk = {
+      id: 'real-desk',
+      name: 'Real',
+      cwd: '/tmp',
+      color: '#3b82f6',
+      createdAt: 1,
+      sessions: [{ id: 'real-desk', name: 'Session 1', createdAt: 1 }],
+      activeSessionId: 'real-desk',
+    };
+    writeFileSync(
+      storePath,
+      JSON.stringify({ version: 2, activeId: 'ghost-desk', desks: [desk] }),
+    );
+    const s = new DeskStore(storePath);
+    // activeId falls back to the only real desk rather than staying dangling.
+    expect((await s.getActive())?.id).toBe('real-desk');
+    const overview = await s.listSessions();
+    expect(overview.sessions).toHaveLength(1);
+  });
+
+  it('keeps activeId null when the file has no desks', async () => {
+    writeFileSync(storePath, JSON.stringify({ version: 2, activeId: 'ghost', desks: [] }));
+    const s = new DeskStore(storePath);
+    expect(await s.getActive()).toBeNull();
+    expect(await s.list()).toEqual([]);
+  });
+
   it('create() persists and auto-activates the first desk', async () => {
     const s = new DeskStore(storePath);
     const desk = await s.create({ name: 'Personal', cwd: '/tmp' });

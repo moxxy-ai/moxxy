@@ -96,7 +96,7 @@ export async function sigtermIgnorerSpin(input, ctx) {
   // Busy-loop synchronously — the event loop never turns again, so a
   // SIGTERM handler can't run and the process can only be stopped by
   // SIGKILL.
-  // eslint-disable-next-line no-constant-condition
+   
   for (;;) {
     Math.sqrt(Math.random());
   }
@@ -116,6 +116,59 @@ export async function reportEnv(input) {
 // Reads a parent-thread global. Should always come back null in the
 // subprocess child (separate OS process = separate heap).
 export async function readParentGlobal() {
-   
+
   return { seen: globalThis.__MOXXY_PARENT_FLAG__ ?? null };
+}
+
+// Floods stdout with a single, newline-free chunk far larger than the
+// isolator's output cap, with no terminal `result`. Used to prove the
+// parent bounds its own buffering and rejects instead of OOMing.
+export async function floodStdout() {
+  const block = 'x'.repeat(1024 * 1024);
+  // Never emits a newline, so the parent can't frame it as a protocol
+  // line — it must hit the byte cap.
+  for (let i = 0; i < 64; i++) process.stdout.write(block);
+  await new Promise((r) => setTimeout(r, 10_000));
+  return 'should-not-resolve';
+}
+
+// Calls process.exit(non-zero) with NOTHING on stderr. Used to prove the
+// exit handler still produces a diagnostic ("exited with code N") rather
+// than hanging or surfacing an empty message.
+export async function exitNonZeroSilently() {
+  process.exit(7);
+}
+
+// Proves ctx.signal is a LIVE controller (not the old inert one): when
+// the parent's cooperative abort fires, the handler observes it via
+// ctx.signal and writes a marker file through the broker BEFORE the
+// SIGTERM/SIGKILL escalation. The test asserts the marker exists, which
+// can only happen if ctx.signal actually fired. Input: { marker } path.
+export async function flushOnAbort(input, ctx) {
+  if (!ctx.signal || typeof ctx.signal.addEventListener !== 'function') {
+    throw new Error('ctx.signal is not a live AbortSignal');
+  }
+  await new Promise((resolve) => {
+    if (ctx.signal.aborted) {
+      resolve();
+      return;
+    }
+    ctx.signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+  // Cooperative flush within already-held caps (broker re-checks).
+  await ctx.fs.writeFile(input.marker, 'aborted');
+  // Sleep so the parent's rejection wins the race regardless.
+  await new Promise((r) => setTimeout(r, 5_000));
+  return 'flushed';
+}
+
+// Allocates an ever-growing array of large strings to blow past a tight
+// --max-old-space-size ceiling, proving caps.memMb is enforced via V8 in
+// the child (the child crashes; the host is unaffected).
+export async function memoryHog() {
+  const chunks = [];
+  for (;;) {
+    // ~10MB per push; with a small memMb cap V8 aborts the child.
+    chunks.push('y'.repeat(10 * 1024 * 1024));
+  }
 }

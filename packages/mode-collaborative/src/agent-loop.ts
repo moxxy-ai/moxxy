@@ -27,10 +27,19 @@ import {
   type PermissionResolver,
 } from '@moxxy/sdk';
 import { getProcessHubClient, type CollabMessage } from '@moxxy/plugin-collab';
-import { COLLAB_PLUGIN_ID } from './constants.js';
+import { COLLAB_MAX_ITERATIONS_ENV, COLLAB_PLUGIN_ID } from './constants.js';
 
 const COLLAB_DONE_TOOL = 'collab_done';
 const DEFAULT_MAX_ITERATIONS = 60;
+
+/** The per-peer iteration cap the coordinator forwarded via env (config's
+ *  `peerMaxIterations`), if any and valid. */
+function peerMaxIterationsFromEnv(): number | undefined {
+  const raw = process.env[COLLAB_MAX_ITERATIONS_ENV];
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
 const MAX_NOOP_ITERATIONS = 3;
 const PAUSE_POLL_MS = 1000;
 const MAX_REACTIVE_COMPACTIONS = 2;
@@ -68,7 +77,7 @@ export async function* runCollabAgentLoop(
   // 'connected') for the whole turn. Best-effort; the run proceeds regardless.
   if (hub) await hub.setStatus('working').catch(() => undefined);
   const detector = createStuckLoopDetector();
-  const maxIterations = ctx.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  const maxIterations = ctx.maxIterations ?? peerMaxIterationsFromEnv() ?? DEFAULT_MAX_ITERATIONS;
   let noop = 0;
   let reactiveCompactions = 0;
   let lastInboxTs = 0;

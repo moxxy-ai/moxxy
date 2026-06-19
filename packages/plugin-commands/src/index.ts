@@ -31,6 +31,7 @@ interface CompactSessionShape {
   readonly id?: string;
   readonly signal?: AbortSignal;
   readonly log: EventLogReader & {
+    length?: number;
     append(event: EmittedEvent): Promise<MoxxyEvent>;
     asReader?(): EventLogReader;
   };
@@ -48,11 +49,15 @@ const infoCmd: CommandDef = {
       `cwd:       ${s.cwd}`,
       `provider:  ${safe(() => s.providers.getActiveName()) ?? '(none)'}`,
       `mode:      ${safe(() => s.modes.getActive()?.name) ?? '(none)'}`,
-      `tools:     ${s.tools.list().length}`,
-      `skills:    ${s.skills.list().length}`,
-      `agents:    ${s.agents.list().length}`,
-      `plugins:   ${s.pluginHost.list().length}`,
-      `commands:  ${s.commands.list().length}`,
+      // Each registry read is guarded: a flapping/partially-constructed
+      // registry (e.g. a plugin host mid-reload or a RemoteSession over the
+      // WS bridge) must degrade to `?` rather than throw — handlers must
+      // return `{kind:'error'}`, never crash an un-try/catch'd channel.
+      `tools:     ${safe(() => s.tools.list().length) ?? '?'}`,
+      `skills:    ${safe(() => s.skills.list().length) ?? '?'}`,
+      `agents:    ${safe(() => s.agents.list().length) ?? '?'}`,
+      `plugins:   ${safe(() => s.pluginHost.list().length) ?? '?'}`,
+      `commands:  ${safe(() => s.commands.list().length) ?? '?'}`,
     ];
     return { kind: 'text', text: lines.join('\n') };
   },
@@ -134,6 +139,13 @@ export const commandsPlugin: Plugin = definePlugin({
 
 export default commandsPlugin;
 
+/**
+ * Guard a status-surface read that must never crash the command pipeline.
+ * The swallow is deliberate: for `/info`/`/compact` a flapping registry
+ * presents as a benign fallback (`?`/`(none)`/skip) rather than an error —
+ * we trade operator diagnostics for the hard guarantee that a read-only
+ * status command can never throw an un-try/catch'd channel down.
+ */
 function safe<T>(fn: () => T): T | null {
   try {
     return fn();
@@ -150,8 +162,16 @@ async function compactSession(session: unknown) {
   // Distinguish an empty log up front so we can keep the specific
   // message — `runManualCompaction` collapses every no-op (empty log,
   // zero saving, blank summary) into the same `compacted: false`.
-  const events = s.log?.slice?.() ?? [];
-  if (events.length === 0) {
+  // Prefer the cheap `length` over `slice()` (which materializes the whole
+  // array — runManualCompaction slices it again internally); fall back to a
+  // bounded probe only when length is absent, and treat an unknown length as
+  // non-empty so runManualCompaction's own empty guard makes the final call.
+  const knownLength = safe(() => s.log?.length);
+  const isEmpty =
+    typeof knownLength === 'number'
+      ? knownLength === 0
+      : (safe(() => s.log?.slice?.())?.length ?? 1) === 0;
+  if (isEmpty) {
     return { kind: 'text' as const, text: 'nothing to compact: event log is empty' };
   }
 
@@ -163,8 +183,12 @@ async function compactSession(session: unknown) {
   // When no provider is wired (rare; tests), the helper falls back to a
   // MAX_SAFE_INTEGER window — fine, since `/compact` forces past the gate.
   const provider = safe(() => s.providers?.getActive()) ?? undefined;
-  const model = provider?.models[0]?.id;
-  const contextWindow = provider?.models[0]?.contextWindow;
+  // Resolve model/window inside the guard too: a malformed/foreign provider
+  // (e.g. one passed over the WS bridge) whose `.models` is a throwing getter
+  // or a non-array would otherwise throw here, escaping the try/catch below.
+  const firstModel = safe(() => provider?.models?.[0]) ?? undefined;
+  const model = firstModel?.id;
+  const contextWindow = firstModel?.contextWindow;
 
   try {
     // Delegate the whole pipeline (budget build, compact(), no-op guard,

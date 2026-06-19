@@ -88,6 +88,25 @@ channels:
     });
   });
 
+  it('accepts a partial security block missing `enabled` (optional field)', async () => {
+    // A hand-written or config_set-built `security:` block with only `isolator`
+    // must validate; `enabled` defaults to false at the consumer.
+    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), `security:\n  isolator: inproc\n`);
+    const result = await loadConfig({ cwd: tmp, skipUser: true });
+    expect(result.config.security?.isolator).toBe('inproc');
+    expect(result.config.security?.enabled).toBeUndefined();
+  });
+
+  it('accepts a partial embeddings block missing `provider` (optional field)', async () => {
+    await fs.writeFile(
+      path.join(tmp, 'moxxy.config.yaml'),
+      `embeddings:\n  model: text-embedding-3-small\n`,
+    );
+    const result = await loadConfig({ cwd: tmp, skipUser: true });
+    expect(result.config.embeddings?.model).toBe('text-embedding-3-small');
+    expect(result.config.embeddings?.provider).toBeUndefined();
+  });
+
   it('YAML at project level is overridden by .ts at same level (loader precedence)', async () => {
     // Both exist; first match wins per CONFIG_NAMES order. YAML is listed first
     // so it should take precedence over .ts. This codifies the order.

@@ -1,6 +1,7 @@
 import { definePlugin, type Plugin } from '@moxxy/sdk';
 import {
   defaultWebhookConfigFile,
+  isLoopbackHost,
   WebhookConfigStore,
   type WebhookConfig,
   type WebhookConfigStoreOptions,
@@ -183,6 +184,33 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
         const cfg = await config.get();
         const host = opts.listenerOverride?.host ?? cfg.host;
         const port = opts.listenerOverride?.port ?? cfg.port;
+        if (!isLoopbackHost(host)) {
+          // Surface the open-auth triggers if the store is readable, but never
+          // let a warning-path store read abort listener init (the delivery
+          // path already handles an unreadable store on its own).
+          let openAuth: WebhookTrigger[] = [];
+          try {
+            openAuth = (await store.list()).filter(
+              (t) => t.enabled && t.verification.type === 'none',
+            );
+          } catch {
+            /* fall back to the generic warning below */
+          }
+          opts.logger?.warn?.(
+            'webhooks: binding a NON-LOOPBACK host — the unauthenticated POST surface is ' +
+              'reachable from other machines on the network',
+            {
+              host,
+              port,
+              ...(openAuth.length > 0
+                ? {
+                    unauthenticatedTriggers: openAuth.map((t) => t.name),
+                    severity: 'critical: any host on the network can fire these triggers',
+                  }
+                : {}),
+            },
+          );
+        }
         serverInstance = new WebhookServer({
           host,
           port,

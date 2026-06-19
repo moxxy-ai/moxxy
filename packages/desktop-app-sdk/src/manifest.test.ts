@@ -79,4 +79,38 @@ describe('parseAppManifest', () => {
     });
     expect(parsed.success).toBe(false);
   });
+
+  const withAllowedHosts = (hosts: unknown) => ({
+    ...VALID,
+    permissions: ['anonymizer.engine'],
+    install: {
+      version: 'v1',
+      assets: [{ url: 'https://huggingface.co/m/resolve/main/model.onnx', dest: 'model.onnx' }],
+      allowedHosts: hosts,
+    },
+  });
+
+  it('accepts a plain hostname in allowedHosts', () => {
+    const parsed = appManifestSchema.safeParse(withAllowedHosts(['huggingface.co', 'sub.hf.co']));
+    expect(parsed.success).toBe(true);
+  });
+
+  // The installer regex-escapes each allowedHost, so anything that isn't a bare
+  // hostname either matches nothing or is misread as broader than it looks —
+  // reject it at parse time so the auditable egress promise is honest.
+  it.each([
+    ['*', 'wildcard'],
+    ['*.huggingface.co', 'leading-wildcard'],
+    ['https://huggingface.co', 'scheme'],
+    ['huggingface.co:443', 'port'],
+    ['huggingface.co/resolve', 'path'],
+    ['.huggingface.co', 'leading dot'],
+    ['huggingface.co.', 'trailing dot'],
+    ['hugging face.co', 'whitespace'],
+    ['127.0.0.1', 'raw IPv4'],
+    ['', 'empty'],
+  ])('rejects %s allowedHost (%s)', (bad) => {
+    const parsed = appManifestSchema.safeParse(withAllowedHosts([bad]));
+    expect(parsed.success).toBe(false);
+  });
 });

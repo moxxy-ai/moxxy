@@ -12,13 +12,55 @@ export const turnRequestSchema = z.object({
 
 export type TurnRequest = z.infer<typeof turnRequestSchema>;
 
+/**
+ * Counting semaphore gating how many turns run concurrently on the single
+ * shared session. The HTTP server otherwise accepts unlimited parallel
+ * requests, each calling `session.runTurn` on the SAME session — N concurrent
+ * clients would spawn N provider streams (cost/memory/connection blowup) and
+ * interleave one shared conversation history. `tryAcquire` is non-blocking so
+ * excess requests get a fast 429 instead of queueing unbounded.
+ */
+export class TurnLimiter {
+  private inUse = 0;
+  constructor(private readonly max: number) {}
+  tryAcquire(): boolean {
+    if (this.inUse >= this.max) return false;
+    this.inUse += 1;
+    return true;
+  }
+  release(): void {
+    if (this.inUse > 0) this.inUse -= 1;
+  }
+  get active(): number {
+    return this.inUse;
+  }
+}
+
 export interface RouterContext {
   readonly session: Session;
   readonly authToken: string | null;
   readonly logger?: { warn(msg: string, meta?: Record<string, unknown>): void };
+  /** Bounds concurrent in-flight turns on the shared session. Optional so
+   *  existing embedders/tests keep working unbounded; the channel always
+   *  supplies one. */
+  readonly turnLimiter?: TurnLimiter;
 }
 
 export type RouteHandler = (req: IncomingMessage, res: ServerResponse, ctx: RouterContext) => Promise<void>;
+
+/** Shape an internal/server-side error for the wire: log the full detail
+ *  server-side and return a stable, generic message so filesystem paths,
+ *  provider internals, or system-prompt fragments embedded in `err` never leak
+ *  to a (possibly remote) caller. Client-input validation errors (400) are NOT
+ *  routed through this — echoing the caller's own malformed input is safe. */
+function publicError(
+  ctx: RouterContext,
+  logMsg: string,
+  err: unknown,
+): string {
+  ctx.logger?.warn(logMsg, { err: err instanceof Error ? err.message : String(err) });
+  return 'internal error';
+}
 
 /** Match HTTP request to a handler. Returns null if no route matches. */
 export function routeRequest(req: IncomingMessage): RouteHandler | null {
@@ -67,6 +109,13 @@ function reply(res: ServerResponse, status: number, body: unknown): void {
  *  (which `driveTurn` owns). */
 export type TurnRunOptions = Omit<Parameters<Session['runTurn']>[1] & object, 'signal'>;
 
+/** Hard cap on events buffered for a single non-streaming turn. The buffered
+ *  path holds every event in memory and returns them in one JSON blob; a
+ *  runaway/tool-looping turn could otherwise grow this without bound. Once
+ *  exceeded we abort the turn rather than keep allocating. Generous enough that
+ *  no normal turn hits it. */
+export const MAX_BUFFERED_EVENTS = 50_000;
+
 /**
  * Drive a single buffered (non-streaming) turn to completion: drain every
  * event, abort the turn if the client hangs up (so the model stops billing
@@ -89,6 +138,10 @@ export async function driveTurn(
   try {
     for await (const event of session.runTurn(prompt, { ...runOptions, signal: controller.signal })) {
       events.push(event);
+      if (events.length >= MAX_BUFFERED_EVENTS) {
+        controller.abort();
+        break;
+      }
     }
   } finally {
     res.off('close', onClose);
@@ -119,6 +172,11 @@ export async function handleTurn(
     return;
   }
 
+  if (ctx.turnLimiter && !ctx.turnLimiter.tryAcquire()) {
+    reply(res, 429, { error: 'too_many_turns', message: 'concurrent turn limit reached; retry shortly' });
+    return;
+  }
+
   let result: { events: MoxxyEvent[]; assistant: string };
   try {
     result = await driveTurn(
@@ -131,8 +189,10 @@ export async function handleTurn(
       res,
     );
   } catch (err) {
-    reply(res, 500, { error: 'turn_failed', message: err instanceof Error ? err.message : String(err) });
+    reply(res, 500, { error: 'turn_failed', message: publicError(ctx, 'http turn failed', err) });
     return;
+  } finally {
+    ctx.turnLimiter?.release();
   }
 
   reply(res, 200, { events: result.events, assistant: result.assistant });
@@ -205,12 +265,16 @@ export async function handleTurnAudio(
     });
     transcript = result.text.trim();
   } catch (err) {
-    ctx.logger?.warn('http audio transcription failed', { err: err instanceof Error ? err.message : String(err) });
-    reply(res, 502, { error: 'transcription_failed', message: err instanceof Error ? err.message : String(err) });
+    reply(res, 502, { error: 'transcription_failed', message: publicError(ctx, 'http audio transcription failed', err) });
     return;
   }
   if (!transcript) {
     reply(res, 422, { error: 'empty_transcript', message: 'transcriber returned empty text' });
+    return;
+  }
+
+  if (ctx.turnLimiter && !ctx.turnLimiter.tryAcquire()) {
+    reply(res, 429, { error: 'too_many_turns', message: 'concurrent turn limit reached; retry shortly' });
     return;
   }
 
@@ -226,8 +290,10 @@ export async function handleTurnAudio(
       res,
     );
   } catch (err) {
-    reply(res, 500, { error: 'turn_failed', message: err instanceof Error ? err.message : String(err) });
+    reply(res, 500, { error: 'turn_failed', message: publicError(ctx, 'http audio turn failed', err) });
     return;
+  } finally {
+    ctx.turnLimiter?.release();
   }
 
   reply(res, 200, { transcript, events: result.events, assistant: result.assistant });
@@ -252,6 +318,11 @@ export async function handleTurnStream(
     return;
   }
 
+  if (ctx.turnLimiter && !ctx.turnLimiter.tryAcquire()) {
+    reply(res, 429, { error: 'too_many_turns', message: 'concurrent turn limit reached; retry shortly' });
+    return;
+  }
+
   res.writeHead(200, {
     'content-type': 'text/event-stream',
     'cache-control': 'no-cache',
@@ -264,8 +335,23 @@ export async function handleTurnStream(
   const onClose = (): void => controller.abort();
   res.on('close', onClose);
 
-  const writeEvent = (event: MoxxyEvent): void => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  // Respect TCP backpressure: a slow/stalled-but-open consumer would otherwise
+  // let Node's internal write queue grow unbounded (a tool-heavy turn emits
+  // thousands of large events) until OOM. When `write` returns false we pause
+  // until 'drain', escaping early if the turn is aborted (client gone).
+  const safeWrite = async (chunk: string): Promise<void> => {
+    if (res.writableEnded || res.destroyed) return;
+    if (res.write(chunk)) return;
+    if (controller.signal.aborted) return;
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        res.off('drain', done);
+        controller.signal.removeEventListener('abort', done);
+        resolve();
+      };
+      res.once('drain', done);
+      controller.signal.addEventListener('abort', done, { once: true });
+    });
   };
 
   try {
@@ -274,13 +360,20 @@ export async function handleTurnStream(
       ...(body.systemPrompt ? { systemPrompt: body.systemPrompt } : {}),
       signal: controller.signal,
     })) {
-      writeEvent(event);
+      await safeWrite(`data: ${JSON.stringify(event)}\n\n`);
     }
-    res.write('data: [DONE]\n\n');
+    await safeWrite('data: [DONE]\n\n');
   } catch (err) {
-    res.write(`event: error\ndata: ${JSON.stringify({ message: err instanceof Error ? err.message : String(err) })}\n\n`);
+    await safeWrite(
+      `event: error\ndata: ${JSON.stringify({ message: publicError(ctx, 'http stream turn failed', err) })}\n\n`,
+    );
   } finally {
     res.off('close', onClose);
-    res.end();
+    ctx.turnLimiter?.release();
+    // The client may have hung up mid-stream; end() on an already-ended/
+    // destroyed response throws ERR_STREAM_WRITE_AFTER_END.
+    if (!res.writableEnded && !res.destroyed) {
+      try { res.end(); } catch { /* socket already gone */ }
+    }
   }
 }

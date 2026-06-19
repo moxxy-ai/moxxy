@@ -54,4 +54,4 @@ for await (const event of runTurn(session, 'list TS files')) {
 }
 ```
 
-See [Quickstart](./quickstart) for a full setup, or [Architecture](./architecture) for how the pieces fit together.
+See [Quickstart](./quickstart.md) for a full setup, or [Architecture](./architecture.md) for how the pieces fit together.

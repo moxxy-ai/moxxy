@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import {
   appDir,
   appStatus,
+  compileAllowedHosts,
   installApp,
   isAllowedAssetUrl,
   resolveAssetDest,
@@ -272,5 +273,145 @@ describe('download size cap (disk-fill DoS guard)', () => {
     const status = await installApp(spec, root, () => {}, exact, cap);
     expect(status.state).toBe('installed');
     expect(await readFile(path.join(root, 'anonymizer', 'big.bin'), 'utf8')).toBe('GROWS');
+  });
+});
+
+describe('write-stream failure (no hang, no uncaught, cleaned up)', () => {
+  const spec: AppInstallSpec = {
+    id: 'anonymizer',
+    version: 'v1',
+    assets: [{ url: 'https://huggingface.co/a.bin', dest: 'a.bin' }],
+  };
+
+  it('a write error during download fails cleanly and strands no .partial', async () => {
+    // Force the createWriteStream target (`<dest>.partial`) to fail by making it
+    // a DIRECTORY before install — opening it for write emits EISDIR. Without the
+    // error listener + drain/error race this would either hang on `drain` or throw
+    // uncaught in the main process.
+    await mkdir(path.join(root, 'anonymizer'), { recursive: true });
+    await mkdir(path.join(root, 'anonymizer', 'a.bin.partial'), { recursive: true });
+
+    const fetchImpl = fakeFetch({ 'https://huggingface.co/a.bin': 'PAYLOAD' });
+    const status = await installApp(spec, root, () => {}, fetchImpl);
+
+    expect(status.state).toBe('error');
+    // The real asset was never published; status stays not-installed.
+    expect((await appStatus(spec, root)).state).toBe('not-installed');
+    // The clean asset file must not exist (only the pre-created partial dir).
+    await expect(access(path.join(root, 'anonymizer', 'a.bin'))).rejects.toThrow();
+  });
+});
+
+describe('mid-download network failure cleans up the .partial', () => {
+  const spec: AppInstallSpec = {
+    id: 'anonymizer',
+    version: 'v1',
+    assets: [{ url: 'https://huggingface.co/a.bin', dest: 'a.bin' }],
+  };
+
+  it('a reader that rejects mid-stream removes the orphaned partial and reports error', async () => {
+    // A response whose body stream errors after one chunk (dropped connection).
+    const dropping: FetchLike = (async () => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('half'));
+        },
+        pull(controller) {
+          controller.error(new Error('connection reset'));
+        },
+      });
+      return new Response(body, { status: 200 });
+    }) as FetchLike;
+
+    const status = await installApp(spec, root, () => {}, dropping);
+    expect(status.state).toBe('error');
+    // No stranded `.partial` from the failed attempt.
+    await expect(access(path.join(root, 'anonymizer', 'a.bin.partial'))).rejects.toThrow();
+    expect((await appStatus(spec, root)).state).toBe('not-installed');
+  });
+});
+
+describe('per-app egress allow-list (manifest install.allowedHosts)', () => {
+  it('compileAllowedHosts admits exact + subdomain, refuses look-alikes', () => {
+    const hosts = compileAllowedHosts(['models.example.com']);
+    expect(isAllowedAssetUrl('https://models.example.com/x', hosts)).toBe(true);
+    expect(isAllowedAssetUrl('https://cdn.models.example.com/x', hosts)).toBe(true);
+    // A `.` in the host must not act as a wildcard.
+    expect(isAllowedAssetUrl('https://modelsXexample.com/x', hosts)).toBe(false);
+    expect(isAllowedAssetUrl('https://models.example.com.evil.test/x', hosts)).toBe(false);
+    // Still https-only.
+    expect(isAllowedAssetUrl('http://models.example.com/x', hosts)).toBe(false);
+    // The default global list does NOT admit this per-app host.
+    expect(isAllowedAssetUrl('https://models.example.com/x')).toBe(false);
+  });
+
+  it('installApp enforces the spec.allowedHosts list, refusing off-list urls', async () => {
+    const root2 = await mkdtemp(path.join(os.tmpdir(), 'moxxy-apps-test-'));
+    try {
+      // An app whose declared host is example.com but whose asset url is HF — the
+      // global default would allow HF, but the per-app list must NOT.
+      const spec: AppInstallSpec = {
+        id: 'anonymizer',
+        version: 'v1',
+        allowedHosts: ['models.example.com'],
+        assets: [{ url: 'https://huggingface.co/a.bin', dest: 'a.bin' }],
+      };
+      let fetched = false;
+      const spyFetch: FetchLike = (async () => {
+        fetched = true;
+        return new Response('NOPE', { status: 200 });
+      }) as FetchLike;
+      const status = await installApp(spec, root2, () => {}, spyFetch);
+      expect(status.state).toBe('error');
+      expect(status.error).toMatch(/not on an allowed host/);
+      expect(fetched).toBe(false);
+    } finally {
+      await rm(root2, { recursive: true, force: true });
+    }
+  });
+
+  it('installApp admits a url that matches the per-app allowedHosts', async () => {
+    const root2 = await mkdtemp(path.join(os.tmpdir(), 'moxxy-apps-test-'));
+    try {
+      const spec: AppInstallSpec = {
+        id: 'anonymizer',
+        version: 'v1',
+        allowedHosts: ['huggingface.co'],
+        assets: [{ url: 'https://huggingface.co/a.bin', dest: 'a.bin' }],
+      };
+      const fetchImpl = fakeFetch({ 'https://huggingface.co/a.bin': 'OK' });
+      expect((await installApp(spec, root2, () => {}, fetchImpl)).state).toBe('installed');
+    } finally {
+      await rm(root2, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('appDir slug bound (shared SDK APP_ID_RE)', () => {
+  it('rejects an app id longer than the 63-char SDK cap', () => {
+    expect(() => appDir(root, 'a'.repeat(64))).toThrow(/invalid app id/);
+  });
+  it('accepts an id at the 63-char cap', () => {
+    expect(() => appDir(root, 'a'.repeat(63))).not.toThrow();
+  });
+});
+
+describe('content-length header edge cases', () => {
+  const spec: AppInstallSpec = {
+    id: 'anonymizer',
+    version: 'v1',
+    assets: [{ url: 'https://huggingface.co/a.bin', dest: 'a.bin' }],
+  };
+
+  it('an empty content-length header does not truncate to a 0-byte install', async () => {
+    // Empty header must be treated as absent (NaN), not Number('')===0.
+    const emptyHeader: FetchLike = (async () =>
+      new Response('REAL-BODY', {
+        status: 200,
+        headers: { 'content-length': '' },
+      })) as FetchLike;
+    const status = await installApp(spec, root, () => {}, emptyHeader);
+    expect(status.state).toBe('installed');
+    expect(await readFile(path.join(root, 'anonymizer', 'a.bin'), 'utf8')).toBe('REAL-BODY');
   });
 });

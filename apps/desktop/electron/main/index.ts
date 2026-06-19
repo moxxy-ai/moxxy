@@ -391,7 +391,7 @@ async function createWindow(): Promise<void> {
           break;
         }
       }
-      // eslint-disable-next-line no-console
+       
       console.log(
         raw.isEmpty()
           ? `[moxxy] tray: NO icon found, fell back to text label. Tried: ${trayIconCandidates.join(', ')}`
@@ -424,7 +424,7 @@ async function createWindow(): Promise<void> {
       // Surface the failure — silent catch was hiding "icon missing"
       // and "Tray() blew up" alike, leaving the user with no menubar
       // affordance.
-      // eslint-disable-next-line no-console
+       
       console.error('[moxxy] tray init failed:', err);
     }
   }
@@ -629,13 +629,13 @@ app.whenReady().then(async () => {
   // still has 4040 (or the workspace's unix socket) bound.
   const swept = await sweepStaleSockets();
   if (swept.killed.length || swept.removed.length) {
-    // eslint-disable-next-line no-console
+     
     console.log(
       `[moxxy] swept ${swept.removed.length} stale socket(s), killed ${swept.killed.length} orphan pid(s)`,
     );
   }
   for (const err of swept.errors) {
-    // eslint-disable-next-line no-console
+     
     console.warn('[moxxy] sweep:', err);
   }
 

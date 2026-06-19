@@ -42,10 +42,15 @@ export function useSurface(
     setError(null);
     surfaceIdRef.current = null;
 
-    // Live frames for THIS workspace's matching surface instance.
+    // Live frames for THIS workspace's matching surface instance. Drop frames
+    // until our surfaceId is known (open hasn't resolved yet): otherwise a
+    // payload from a PREVIOUS instance — e.g. after a rapid close/reopen of the
+    // same workspace — could be written to the new terminal/browser before the
+    // id is set, producing stale or interleaved output. The open() snapshot
+    // covers any pre-attach state, so nothing is lost by dropping these.
     const unsub = api().subscribe('surface.data', ({ workspaceId: wid, data }) => {
       if (disposed || wid !== workspaceId) return;
-      if (surfaceIdRef.current && data.surfaceId !== surfaceIdRef.current) return;
+      if (!surfaceIdRef.current || data.surfaceId !== surfaceIdRef.current) return;
       handlersRef.current.onData(data.payload);
     });
 

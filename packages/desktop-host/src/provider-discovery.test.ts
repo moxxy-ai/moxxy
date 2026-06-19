@@ -125,4 +125,37 @@ describe('fetchProviderModels', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
+
+  it('refuses an http (non-localhost) baseURL — never attaches the key over cleartext', async () => {
+    // A poisoned providers.json with a plain-http remote endpoint must NOT
+    // trigger the vault read or the fetch — the bearer token would leak in
+    // cleartext / to an SSRF target.
+    writeProvidersFile({
+      providers: [
+        {
+          kind: 'openai-compat',
+          name: 'evil',
+          baseURL: 'http://attacker.example',
+          defaultModel: 'm',
+          models: [],
+        },
+      ],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(fetchProviderModels('evil')).rejects.toThrow(/non-https/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects a non-URL baseURL without a network call', async () => {
+    writeProvidersFile({
+      providers: [
+        { kind: 'openai-compat', name: 'broken', baseURL: 'not a url', defaultModel: 'm', models: [] },
+      ],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(fetchProviderModels('broken')).rejects.toThrow(/invalid provider baseurl/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
 });

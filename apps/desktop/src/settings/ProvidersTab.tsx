@@ -80,6 +80,21 @@ export function ProvidersTab({
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
   const [configuring, setConfiguring] = useState<ProviderRow | null>(null);
+  // Per-row in-flight set: a toggle is fire-and-forget against the runner, so
+  // disable that row's Switch until it settles. Without this a slow/failing
+  // toggle looks inert and the user re-clicks, queuing conflicting calls.
+  const [toggling, setToggling] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleProvider = (name: string, enabled: boolean): void => {
+    if (toggling.has(name)) return;
+    setToggling((cur) => new Set(cur).add(name));
+    void onToggle(name, enabled).finally(() => {
+      setToggling((cur) => {
+        const next = new Set(cur);
+        next.delete(name);
+        return next;
+      });
+    });
+  };
   return (
     <Section
       title="Providers"
@@ -126,8 +141,10 @@ export function ProvidersTab({
                       label={`${p.enabled ? 'Disable' : 'Enable'} ${p.name}`}
                       // The runner refuses to disable the ACTIVE provider —
                       // disable the control too so the row matches reality.
-                      disabled={p.active && p.enabled}
-                      onClick={() => void onToggle(p.name, !p.enabled)}
+                      // Also disable while a toggle is in flight to stop
+                      // re-clicks queuing conflicting enable/disable calls.
+                      disabled={(p.active && p.enabled) || toggling.has(p.name)}
+                      onClick={() => toggleProvider(p.name, !p.enabled)}
                     />
                   </span>
                 }
@@ -202,6 +219,10 @@ function ConfigureProviderModal({
   const [saved, setSaved] = useState<string | null>(null);
 
   const run = async (fn: () => Promise<void>, doneNote: string): Promise<void> => {
+    // Guard against overlapping runs: a native <select> fires onChange for each
+    // intermediate option during an arrow-key sweep, which would otherwise queue
+    // racing setReasoning IPC mutations. Drop calls while one is in flight.
+    if (busy) return;
     setBusy(true);
     setError(null);
     setSaved(null);
@@ -331,6 +352,8 @@ function ConfigureProviderModal({
             <label style={fieldLabelStyle}>Reasoning effort</label>
             <select
               value={reasoning}
+              disabled={busy}
+              aria-busy={busy}
               onChange={(e) => {
                 const next = e.target.value as ReasoningLevel;
                 setReasoning(next);
@@ -388,7 +411,11 @@ const selectStyle: React.CSSProperties = {
 /** Deterministic soft tint per provider name, so each tile is distinct
  *  but on-brand (pastel bg, saturated fg from the same hue). */
 function tintFor(name: string): { bg: string; fg: string } {
+  // Accumulate the full rolling hash (kept in 32-bit range to avoid float
+  // precision loss) and take the modulo ONCE at the end — truncating to
+  // 0..359 inside the loop collapsed entropy and collided distinct names.
   let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return { bg: `hsl(${h} 72% 95%)`, fg: `hsl(${h} 55% 42%)` };
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  const hue = ((h % 360) + 360) % 360;
+  return { bg: `hsl(${hue} 72% 95%)`, fg: `hsl(${hue} 55% 42%)` };
 }

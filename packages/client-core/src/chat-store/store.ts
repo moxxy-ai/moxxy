@@ -174,6 +174,13 @@ class ChatStore {
     this.hiddenTurns.delete(turnId);
   }
 
+  /** Whether a turn id is a background/hidden turn whose events never enter
+   *  the visible transcript. The queue drainer consults this so a background
+   *  generation completing doesn't pop the user's pending queue. */
+  isHidden(turnId: string): boolean {
+    return this.hiddenTurns.has(turnId);
+  }
+
   /** Toggle the manual-compaction lock for a workspace (composer disable). */
   setCompacting(workspaceId: string, value: boolean): void {
     const slot = this.ensure(workspaceId);
@@ -211,7 +218,11 @@ class ChatStore {
     attachments?: ReadonlyArray<{ path: string; name: string }>,
   ): string {
     const slot = this.ensure(workspaceId);
-    const id = `q-${slot.rt.rev}-${slot.queue.length}`;
+    // Monotonic id — deriving it from rev+length collides after a shiftQueue
+    // (length shrinks while rev is unchanged), which would make dropFromQueue
+    // silently drop a colliding twin and collide React keys.
+    slot.queueSeq += 1;
+    const id = `q-${slot.queueSeq}`;
     slot.queue = [
       ...slot.queue,
       attachments && attachments.length > 0 ? { id, prompt, attachments } : { id, prompt },
@@ -284,6 +295,11 @@ class ChatStore {
         this.prependFresh(slot, runner.events);
         slot.oldestCursor = runner.prevCursor;
         slot.hasOlder = runner.prevCursor !== null;
+      } else {
+        // No connected runner yet (collectRunnerInitial → null). Allow a retry on
+        // the next open so the most-recent-window backfill isn't permanently
+        // skipped for a workspace whose runner attaches just after first open.
+        slot.loaded = false;
       }
     } catch {
       slot.loaded = false; // allow a retry on the next open
@@ -368,6 +384,14 @@ class ChatStore {
     // and its terminal row together rather than split per page.
     const raw: MoxxyEvent[] = [];
     let cursor = before;
+    // Count rendered rows INCREMENTALLY (cheap per-page scan) instead of
+    // re-projecting the whole accumulated window each iteration — re-projecting
+    // is O(raw.length), so doing it per page is O(pages² × pageSize) and blocks
+    // the renderer on a long scroll-up. `isRenderedEvent` count is a safe lower
+    // bound on the final projection length (projectRunnerWindow only ever ADDS
+    // synth rows, never drops a rendered event), so crossing `minRendered` here
+    // guarantees the projected window also has at least `minRendered` rows.
+    let renderedCount = 0;
     for (let page = 0; page < MAX_RUNNER_PAGES; page += 1) {
       const result = await loadHistory(workspaceId, cursor, RUNNER_RAW_PAGE);
       if (result === null) {
@@ -377,8 +401,9 @@ class ChatStore {
       // Pages arrive newest-first; prepend each older page ahead of the ones we
       // already have so `raw` stays ascending (oldest-first).
       raw.unshift(...result.events);
+      for (const e of result.events) if (isRenderedEvent(e)) renderedCount += 1;
       cursor = result.prevCursor;
-      if (cursor === null || projectRunnerWindow(raw).length >= minRendered) break;
+      if (cursor === null || renderedCount >= minRendered) break;
     }
     return { events: projectRunnerWindow(raw), prevCursor: cursor };
   }

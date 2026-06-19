@@ -247,6 +247,22 @@ const SEQUENCES: Recorded[] = [
     ],
   },
   {
+    name: 'open live aggregate sealed by a subagent start, then more compact reads',
+    compact: compactMap,
+    events: () => [
+      userPrompt('look around'),
+      toolRequest('r1', 'read', { file_path: '/a.ts' }),
+      toolResult('r1'),
+      // Subagent starts while the live block is still open — must seal it so the
+      // later read below opens a FRESH live block under the agents (in order).
+      subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'verify', agentType: 'Test' }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn', tokensUsed: 100, text: 'ok' }),
+      toolRequest('r2', 'read', { file_path: '/b.ts' }),
+      toolResult('r2'),
+      assistantMessage('done'),
+    ],
+  },
+  {
     name: 'long burst of compact reads (stress)',
     compact: compactMap,
     events: () => {
@@ -336,13 +352,25 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
   });
 
   it('rebuilds when the array shrinks below the high-water mark', () => {
-    const events = SEQUENCES[9]!.events(); // the long mixed sequence
+    const events = SEQUENCES.find((s) => s.name.startsWith('mixed'))!.events();
     const fold = new IncrementalFold(compactMap);
     fold.syncTo(events);
     const shorter = events.slice(0, 3);
     const tree = fold.syncTo(shorter);
     expect(tree).toEqual(pairToolEvents(shorter, compactMap));
     expect(fold.length).toBe(3);
+  });
+
+  it('stays correct when the tail event id is replaced in place', () => {
+    // canExtend matches head+tail ids; a replaced TAIL is detected and the fold
+    // rebuilds, so the tree stays byte-identical to a from-scratch fold.
+    const events = SEQUENCES[0]!.events();
+    const fold = new IncrementalFold();
+    fold.syncTo(events);
+    const swapped = events.slice();
+    swapped[swapped.length - 1] = { ...events[events.length - 1]!, id: asEventId('swapped-tail') };
+    const tree = fold.syncTo(swapped);
+    expect(tree).toEqual(pairToolEvents(swapped));
   });
 });
 

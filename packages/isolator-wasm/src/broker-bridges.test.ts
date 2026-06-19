@@ -91,6 +91,81 @@ describe('wasm broker: broker_fs_read_file', () => {
   });
 });
 
+describe('wasm broker: symlink escape (realpath re-validation)', () => {
+  it('denies a read through an in-scope symlink that points OUT of scope', async () => {
+    // The whole point of the wasm isolator is to be the strongest sandbox. A
+    // purely lexical scope check (the pre-fix behavior) let a symlink that sits
+    // lexically inside `$cwd/**` resolve to /etc/passwd and be read anyway.
+    const scope = await fs.mkdtemp(path.join(os.tmpdir(), 'wasm-scope-'));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'wasm-outside-'));
+    const secret = path.join(outside, 'secret.txt');
+    await fs.writeFile(secret, 'TOP-SECRET');
+    const link = path.join(scope, 'link.txt');
+    try {
+      await fs.symlink(secret, link);
+    } catch {
+      // Some CI filesystems disallow symlink creation; skip rather than fail.
+      await fs.rm(scope, { recursive: true, force: true });
+      await fs.rm(outside, { recursive: true, force: true });
+      return;
+    }
+    try {
+      // cwd is the scope dir; cap allows only `$cwd/**`. The link lexically
+      // sits inside it, but its realpath escapes — must be denied.
+      const { memory, imports, outPtrOut, outLenOut } = setupBridges(
+        { fs: { read: ['$cwd/**'] } },
+        scope,
+      );
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, link);
+      const rc = (imports.broker_fs_read_file as (...args: number[]) => number)(
+        pathPtr,
+        pathLen,
+        outPtrOut,
+        outLenOut,
+      );
+      expect(rc).toBe(1);
+      const message = readResult(memory, outPtrOut, outLenOut);
+      expect(message).toMatch(/via symlink|fs\.read capability/);
+      expect(message).not.toContain('TOP-SECRET');
+    } finally {
+      await fs.rm(scope, { recursive: true, force: true });
+      await fs.rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('still allows a read through an in-scope symlink that resolves IN scope', async () => {
+    const scope = await fs.mkdtemp(path.join(os.tmpdir(), 'wasm-scope-ok-'));
+    const real = path.join(scope, 'real.txt');
+    await fs.writeFile(real, 'in-scope-data');
+    const link = path.join(scope, 'alias.txt');
+    try {
+      await fs.symlink(real, link);
+    } catch {
+      await fs.rm(scope, { recursive: true, force: true });
+      return;
+    }
+    try {
+      const { memory, imports, outPtrOut, outLenOut } = setupBridges(
+        { fs: { read: ['$cwd/**'] } },
+        scope,
+      );
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, link);
+      const rc = (imports.broker_fs_read_file as (...args: number[]) => number)(
+        pathPtr,
+        pathLen,
+        outPtrOut,
+        outLenOut,
+      );
+      expect(rc).toBe(0);
+      expect(readResult(memory, outPtrOut, outLenOut)).toBe('in-scope-data');
+    } finally {
+      await fs.rm(scope, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('wasm broker: broker_fs_write_file', () => {
   it('writes when in scope', async () => {
     const tmp = path.join(os.tmpdir(), `wasm-bridge-write-${Date.now()}.txt`);
@@ -329,6 +404,63 @@ describe('wasm broker: broker_exec', () => {
     expect(rc).toBe(1);
     expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/commands allowlist/);
   });
+
+  it('surfaces a spawn failure (ENOENT) instead of a misleading empty success', () => {
+    // spawnSync swallows ENOENT into res.error with status=null and empty
+    // stdout/stderr. The caller must learn the command failed, not see an
+    // empty success.
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({ subprocess: true });
+    const cmdPtr = 128;
+    const cmdLen = writeStr(memory, cmdPtr, '/definitely/not/a/real/binary-xyz');
+    const argvPtr = 1024;
+    const argvLen = writeStr(memory, argvPtr, JSON.stringify([]));
+    const rc = (imports.broker_exec as (...args: number[]) => number)(
+      cmdPtr,
+      cmdLen,
+      argvPtr,
+      argvLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+    expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/\[broker:exec\]/);
+  });
+
+  it('rejects non-string argv elements rather than coercing to [object Object]', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({ subprocess: true });
+    const cmdPtr = 128;
+    const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');
+    const argvPtr = 1024;
+    const argvLen = writeStr(memory, argvPtr, JSON.stringify(['ok', { evil: 1 }]));
+    const rc = (imports.broker_exec as (...args: number[]) => number)(
+      cmdPtr,
+      cmdLen,
+      argvPtr,
+      argvLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+    expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/argv elements must be strings/);
+  });
+
+  it('rejects an over-long argv array', () => {
+    const { memory, imports, outPtrOut, outLenOut } = setupBridges({ subprocess: true });
+    const cmdPtr = 128;
+    const cmdLen = writeStr(memory, cmdPtr, '/bin/echo');
+    const argvPtr = 1024;
+    const argvLen = writeStr(memory, argvPtr, JSON.stringify(new Array(5000).fill('x')));
+    const rc = (imports.broker_exec as (...args: number[]) => number)(
+      cmdPtr,
+      cmdLen,
+      argvPtr,
+      argvLen,
+      outPtrOut,
+      outLenOut,
+    );
+    expect(rc).toBe(1);
+    expect(readResult(memory, outPtrOut, outLenOut)).toMatch(/argv length .* exceeds/);
+  });
 });
 
 describe('wasm broker: scratch coordination with module allocator', () => {
@@ -374,6 +506,32 @@ describe('wasm broker: scratch coordination with module allocator', () => {
       expect(readResult(memory, outPtrOut, outLenOut)).toBe('coordinated-scratch');
     } finally {
       await fs.unlink(tmp).catch(() => undefined);
+    }
+  });
+});
+
+describe('wasm broker: out-pointer bounds', () => {
+  it('frames an out-of-range broker out-pointer instead of an opaque trap', () => {
+    const tmp = path.join(os.tmpdir(), `wasm-bridge-outptr-${Date.now()}.txt`);
+    writeFileSync(tmp, 'data');
+    try {
+      const { memory, imports } = setupBridges({ fs: { read: [`${os.tmpdir()}/**`] } });
+      const byteLength = memory.buffer.byteLength;
+      const pathPtr = 128;
+      const pathLen = writeStr(memory, pathPtr, tmp);
+      // Point the result-pointer pair past the end of linear memory. A read
+      // succeeds at the syscall, but writing the (ptr,len) pair out of range
+      // must raise a framed [security:wasm] error rather than a bare RangeError.
+      expect(() =>
+        (imports.broker_fs_read_file as (...args: number[]) => number)(
+          pathPtr,
+          pathLen,
+          byteLength + 8,
+          byteLength + 12,
+        ),
+      ).toThrow(/broker out-pointer out of range/);
+    } finally {
+      void fs.unlink(tmp).catch(() => undefined);
     }
   });
 });

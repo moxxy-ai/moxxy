@@ -40,6 +40,15 @@ async function makeVault(): Promise<VaultStore> {
   });
 }
 
+function codeOf(fn: () => unknown): string | undefined {
+  try {
+    fn();
+  } catch (err) {
+    return (err as { code?: string }).code;
+  }
+  return undefined;
+}
+
 async function readBody(req: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(Buffer.from(chunk as Buffer));
@@ -386,6 +395,86 @@ describe('buildWhisperCodexPlugin createClient config merge', () => {
   });
 });
 
+describe('CodexOAuthTranscriber hardening', () => {
+  it('fast-fails on empty audio without loading tokens or hitting the network', async () => {
+    // Empty vault would normally throw the login hint; an empty buffer must
+    // short-circuit before that and never touch a (refused) endpoint.
+    const vault = await makeVault();
+    const fetchSpy = (() => {
+      throw new Error('network must not be touched for empty audio');
+    }) as unknown as typeof fetch;
+    const transcriber = new CodexOAuthTranscriber({
+      vault,
+      baseUrl: 'http://127.0.0.1:9',
+      fetch: fetchSpy,
+    });
+    const result = await transcriber.transcribe(new Uint8Array(0), { mimeType: 'audio/wav' });
+    expect(result).toEqual({ text: '' });
+  });
+
+  it('rejects with NETWORK_TIMEOUT when the upstream accepts the connection but never responds', async () => {
+    const vault = await makeVault();
+    await persistCodexTokens(vault, {
+      access: 'access-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    const liveResponses: ServerResponse[] = [];
+    const server = await startServer((_request, res) => {
+      // Hold the request open forever — exercises the slow-loris / half-open path.
+      liveResponses.push(res);
+    });
+    try {
+      const transcriber = new CodexOAuthTranscriber({
+        vault,
+        baseUrl: server.baseUrl,
+        requestTimeoutMs: 50,
+      });
+      await expect(
+        transcriber.transcribe(new Uint8Array([1, 2, 3, 4]), { mimeType: 'audio/wav' }),
+      )
+        .rejects
+        .toMatchObject({ code: 'NETWORK_TIMEOUT' });
+    } finally {
+      for (const res of liveResponses) res.destroy();
+      await server.close();
+    }
+  });
+
+  it('truncates and sanitizes the body of an unmapped non-2xx status in the error cause', async () => {
+    const vault = await makeVault();
+    await persistCodexTokens(vault, {
+      access: 'access-token',
+      refresh: 'refresh-token',
+      expires: Date.now() + 3_600_000,
+    });
+
+    const secret = 'X'.repeat(50_000);
+    // 402 is not mapped by classifyHttpStatus → falls through to the raw path.
+    const server = await startServer((_request, res) => {
+      res.writeHead(402, { 'content-type': 'text/plain' });
+      res.end(`set-cookie-leak ${secret}`);
+    });
+    try {
+      const transcriber = new CodexOAuthTranscriber({ vault, baseUrl: server.baseUrl });
+      let thrown: unknown;
+      try {
+        await transcriber.transcribe(new Uint8Array([1]), { mimeType: 'audio/wav' });
+      } catch (err) {
+        thrown = err;
+      }
+      expect((thrown as { code?: string }).code).toBe('PROVIDER_BAD_REQUEST');
+      const cause = (thrown as { cause?: { message?: string } }).cause;
+      // The full 50KB body must NOT be embedded verbatim in the cause.
+      expect(cause?.message?.length ?? 0).toBeLessThanOrEqual(500);
+      expect(cause?.message ?? '').not.toContain(secret);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe('Codex transcribe helpers', () => {
   it('builds the ChatGPT and local transcribe URLs', () => {
     expect(buildCodexTranscribeUrl()).toBe('https://chatgpt.com/backend-api/transcribe');
@@ -394,6 +483,20 @@ describe('Codex transcribe helpers', () => {
     expect(buildCodexTranscribeUrl('http://127.0.0.1:4567/backend-api')).toBe(
       'http://127.0.0.1:4567/backend-api/transcribe',
     );
+  });
+
+  it('rejects a malformed base URL with CONFIG_INVALID instead of a raw TypeError', () => {
+    expect(() => buildCodexTranscribeUrl('not a url')).toThrow(/Invalid Codex transcribe base URL/);
+    expect(codeOf(() => buildCodexTranscribeUrl('not a url'))).toBe('CONFIG_INVALID');
+  });
+
+  it('refuses to target a non-chatgpt, non-loopback origin (bearer-token exfil guard)', () => {
+    // A config-controlled host must not receive the live OAuth bearer token.
+    expect(codeOf(() => buildCodexTranscribeUrl('https://evil.example.com'))).toBe('CONFIG_INVALID');
+    // Plain-http chatgpt.com is also refused (must be https).
+    expect(codeOf(() => buildCodexTranscribeUrl('http://chatgpt.com'))).toBe('CONFIG_INVALID');
+    // Loopback over https/http stays allowed for the local/test seam.
+    expect(() => buildCodexTranscribeUrl('http://127.0.0.1:4567')).not.toThrow();
   });
 
   it('wraps pcm16 mono 24khz bytes in a valid wav header', () => {

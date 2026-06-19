@@ -42,12 +42,14 @@ export const permissionsConfigSchema = z.object({
 
 export const securityConfigSchema = z.object({
   /**
-   * Master toggle. When false (the default), `@moxxy/plugin-security`
+   * Master toggle. When omitted or false (the default), `@moxxy/plugin-security`
    * is a no-op even if registered — every tool runs exactly as it does
    * without the plugin. Per-tool `isolation: { ... }` declarations
-   * remain as documentation but are not enforced.
+   * remain as documentation but are not enforced. Optional so a partial
+   * `security:` block (e.g. only `isolator`) validates and config_set can
+   * write one field at a time; consumers default it to false.
    */
-  enabled: z.boolean(),
+  enabled: z.boolean().optional(),
   /**
    * Name of the Isolator implementation to use as default. Phase 1
    * ships `none` (passthrough) and `inproc` (cap validation + timeout).
@@ -78,8 +80,10 @@ export const embeddingsConfigSchema = z.object({
   /**
    * 'tfidf' (default, zero deps) | 'openai' (text-embedding-3-*)
    * | 'transformers' (local, @huggingface/transformers) | 'none' (disable).
+   * Optional so a partial `embeddings:` block (e.g. only `model`) validates and
+   * config_set can write one field at a time; consumers default it to 'tfidf'.
    */
-  provider: z.enum(['tfidf', 'openai', 'transformers', 'none']),
+  provider: z.enum(['tfidf', 'openai', 'transformers', 'none']).optional(),
   model: z.string().optional(),
   dimensions: z.number().int().positive().optional(),
   apiKey: z.string().optional(),

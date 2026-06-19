@@ -126,7 +126,7 @@ export function classifyNetworkError(
 
   const code = extractNodeErrorCode(err);
   const url = ctx.url;
-  const target = url ? new URL(url).host : (ctx.provider ?? 'the upstream service');
+  const target = url ? hostOf(url) : (ctx.provider ?? 'the upstream service');
   const baseContext: Record<string, string> = {};
   if (url) baseContext.url = url;
   if (ctx.provider) baseContext.provider = ctx.provider;
@@ -256,7 +256,7 @@ export function classifyHttpStatus(
   status: number,
   ctx: { readonly url?: string; readonly provider?: string; readonly body?: string } = {},
 ): MoxxyError | null {
-  const target = ctx.provider ?? (ctx.url ? new URL(ctx.url).host : 'the upstream service');
+  const target = ctx.provider ?? (ctx.url ? hostOf(ctx.url) : 'the upstream service');
   const tail = ctx.body ? ` — ${truncate(ctx.body, 200)}` : '';
   const context: Record<string, string | number> = { status };
   if (ctx.url) context.url = ctx.url;
@@ -303,6 +303,21 @@ export function classifyHttpStatus(
     });
   }
   return null;
+}
+
+/**
+ * Extract a URL's host for display. `url` is caller-supplied (provider base
+ * URLs, OAuth token URLs) and may be malformed/relative — `new URL()` would
+ * throw `ERR_INVALID_URL` from inside the error classifier, masking the real
+ * failure the caller is trying to report. Degrade gracefully to the raw string
+ * instead of throwing while classifying an error.
+ */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 function truncate(s: string, max: number): string {

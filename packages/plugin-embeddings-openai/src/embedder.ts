@@ -35,6 +35,19 @@ export class OpenAIEmbedder implements EmbeddingProvider {
   constructor(opts: OpenAIEmbedderOptions = {}) {
     this.model = opts.model ?? 'text-embedding-3-small';
     this.explicitDim = opts.dimensions;
+    // `dimensions` comes from untrusted user config. A non-positive/fractional/garbage
+    // value would build the persistent index with a bogus dimensionality and only 400
+    // at embed() time — after the index is already corrupted. Reject it at construct
+    // time so selectEmbedder's try/catch falls back to TF-IDF instead.
+    if (
+      this.explicitDim !== undefined &&
+      (!Number.isInteger(this.explicitDim) || this.explicitDim < 1)
+    ) {
+      throw new Error(
+        `@moxxy/plugin-embeddings-openai: 'dimensions' (${String(this.explicitDim)}) ` +
+          'must be a positive integer.',
+      );
+    }
     // `dimensions` truncation is only supported by the text-embedding-3-* family.
     // ada-002 rejects the parameter (the API 400s), and forwarding it would also
     // make `dim`/`name` report a size the API will never produce. Drop it + warn
@@ -57,13 +70,26 @@ export class OpenAIEmbedder implements EmbeddingProvider {
           `(${Object.keys(MODEL_DIM).join(', ')}).`,
       );
     }
+    // `batchSize` comes from untrusted user config. A value <= 0 makes embed()'s
+    // chunking loop (`i += this.batchSize`) never advance — an infinite loop that
+    // re-POSTs forever and wedges the recall path. Validate + bound to OpenAI's
+    // 2048-input array limit *before* building the client, so a bad config fails
+    // fast (and routes through selectEmbedder's construct-time fallback to TF-IDF)
+    // regardless of whether an API key is present.
+    const bs = opts.batchSize ?? DEFAULT_BATCH_SIZE;
+    if (!Number.isInteger(bs) || bs < 1 || bs > 2048) {
+      throw new Error(
+        `@moxxy/plugin-embeddings-openai: 'batchSize' (${String(bs)}) must be an ` +
+          'integer between 1 and 2048.',
+      );
+    }
+    this.batchSize = bs;
     this.client =
       opts.client ??
       new OpenAI({
         apiKey: opts.apiKey ?? process.env.OPENAI_API_KEY,
         ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
       });
-    this.batchSize = opts.batchSize ?? DEFAULT_BATCH_SIZE;
   }
 
   /**
@@ -91,8 +117,55 @@ export class OpenAIEmbedder implements EmbeddingProvider {
         input: [...chunk],
         ...(this.explicitDim !== undefined ? { dimensions: this.explicitDim } : {}),
       });
-      // Response data is ordered to match the input array (per OpenAI spec).
-      for (const item of response.data) out.push(item.embedding);
+      // `baseURL` can point at any OpenAI-compatible proxy (Ollama/LocalAI/vLLM),
+      // so the response shape is untrusted. Guard the array, reorder by the
+      // per-item `index` (array order is not a hard guarantee), and assert the
+      // count — a length/ordering mismatch would silently map the wrong vector to
+      // each memory entry or leave `out` short (→ undefined vectors / NaN cosine
+      // downstream). Convert all of that into one loud, catchable error.
+      const data = response.data;
+      if (!Array.isArray(data)) {
+        throw new Error(
+          `@moxxy/plugin-embeddings-openai: malformed embeddings response (data is ` +
+            `not an array) from '${this.model}'.`,
+        );
+      }
+      if (data.length !== chunk.length) {
+        throw new Error(
+          `@moxxy/plugin-embeddings-openai: '${this.model}' returned ${data.length} ` +
+            `embeddings for ${chunk.length} inputs.`,
+        );
+      }
+      const vecs = new Array<ReadonlyArray<number>>(chunk.length);
+      for (const item of data) {
+        if (item === null || typeof item !== 'object') {
+          throw new Error(
+            `@moxxy/plugin-embeddings-openai: '${this.model}' returned a malformed ` +
+              `embedding item.`,
+          );
+        }
+        const idx = item.index;
+        if (!Number.isInteger(idx) || idx < 0 || idx >= chunk.length) {
+          throw new Error(
+            `@moxxy/plugin-embeddings-openai: '${this.model}' returned an embedding ` +
+              `with an out-of-range index (${String(idx)}).`,
+          );
+        }
+        if (!Array.isArray(item.embedding)) {
+          throw new Error(
+            `@moxxy/plugin-embeddings-openai: '${this.model}' returned a non-vector ` +
+              `embedding at index ${idx}.`,
+          );
+        }
+        if (vecs[idx] !== undefined) {
+          throw new Error(
+            `@moxxy/plugin-embeddings-openai: '${this.model}' returned a duplicate ` +
+              `embedding index (${idx}).`,
+          );
+        }
+        vecs[idx] = item.embedding;
+      }
+      for (const v of vecs) out.push(v as number[]);
     }
     return out;
   }

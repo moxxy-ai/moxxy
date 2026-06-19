@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { Icon } from '@moxxy/desktop-ui';
 import { PanelLeftIcon } from './PanelLeftIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
+import { useMenuKeyboard } from './useMenuKeyboard';
 
 /** Top-level main-content views. Chat ↔ Workflows ↔ Collaborate ↔ Apps switch
  *  via the header's `ViewSwitcher`; Settings is reached from the sidebar. */
@@ -207,6 +208,9 @@ function CollapsibleSegmented<T extends string>({
   const menuRootRef = useRef<HTMLDivElement | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [open, setOpen] = useState(false);
+  // Focus into the popover on open + restore focus to the trigger on close,
+  // with arrow-key navigation between items.
+  const menuListRef = useMenuKeyboard<HTMLDivElement>(open);
 
   // Re-evaluate fit on slot/window resize and whenever the items/value change.
   useLayoutEffect(() => {
@@ -344,6 +348,7 @@ function CollapsibleSegmented<T extends string>({
           </button>
           {open && (
             <div
+              ref={menuListRef}
               role="menu"
               aria-label="Navigate"
               style={{

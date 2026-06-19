@@ -464,3 +464,71 @@ describe('downloadAndStage hardening', () => {
     expect(readActiveVersion(tmp)).toBe('0.0.6'); // and activated
   });
 });
+
+describe('downloadAndStage SSRF + OOM hardening', () => {
+  const GH = 'https://github.com/moxxy-ai/moxxy/releases/latest/download/b.json.gz';
+
+  function bundle(): { manifest: AppManifest; bundleGz: Buffer } {
+    return buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from('// main'),
+      },
+    });
+  }
+
+  it('refuses to follow a bundle redirect that leaves the allowlist (SSRF)', async () => {
+    const { manifest } = bundle();
+    // The download host is allowed, but it 302-redirects OFF the allowlist. With
+    // redirect:'follow' the loader would silently fetch from the off-allowlist
+    // host; the manual re-validating follow must reject it.
+    const fetchImpl = (async () =>
+      new Response('', {
+        status: 302,
+        headers: { location: 'https://evil.test/payload.json.gz' },
+      })) as unknown as typeof fetch;
+    await expect(
+      downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY }, { fetchImpl }),
+    ).rejects.toThrow(/allowed origin/i);
+    expect(existsSync(bundleRoot(tmp, '0.0.6'))).toBe(false);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+
+  it('follows an in-allowlist redirect (object-store CDN) and stages normally', async () => {
+    const { manifest, bundleGz } = bundle();
+    const cdn = 'https://objects.githubusercontent.com/x/payload.json.gz';
+    let hops = 0;
+    const fetchImpl = (async (url: string | URL): Promise<Response> => {
+      hops++;
+      if (String(url) === cdn) return new Response(new Uint8Array(bundleGz));
+      // First hop: a 302 to the (allowlisted) CDN host.
+      return new Response('', { status: 302, headers: { location: cdn } });
+    }) as unknown as typeof fetch;
+    const { version } = await downloadAndStage(
+      { userDataDir: tmp, manifest, publicKeyPem: PUBKEY },
+      { fetchImpl },
+    );
+    expect(version).toBe('0.0.6');
+    expect(hops).toBe(2); // original → re-validated CDN hop
+    expect(readActiveVersion(tmp)).toBe('0.0.6');
+  });
+
+  it('rejects a download whose declared content-length exceeds the ceiling (OOM)', async () => {
+    const { manifest } = bundle();
+    // A hostile/buggy response advertises an absurd size — refuse before reading
+    // a single byte into memory.
+    const fetchImpl = (async () =>
+      new Response('ignored', {
+        headers: { 'content-length': String(2 * 1024 * 1024 * 1024) }, // 2 GiB
+      })) as unknown as typeof fetch;
+    await expect(
+      downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY }, { fetchImpl }),
+    ).rejects.toThrow(/maximum allowed size/i);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+});

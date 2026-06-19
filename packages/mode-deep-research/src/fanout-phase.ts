@@ -3,6 +3,7 @@ import type { ModeContext, SubagentResult, SubagentSpec } from '@moxxy/sdk';
 import {
   SUBAGENT_ALLOWED_TOOLS,
   SUBAGENT_MAX_ITERATIONS,
+  SUBAGENT_PRIOR_FINDING_MAX_CHARS,
   SUBAGENT_SYSTEM_PROMPT,
 } from './constants.js';
 
@@ -68,7 +69,23 @@ export async function runFanout(
     label: `subagent-${i + 1}`,
   }));
 
-  const results = await ctx.subagents.spawnAll(specs);
+  let results: ReadonlyArray<SubagentResult>;
+  try {
+    results = await ctx.subagents.spawnAll(specs);
+  } catch (err) {
+    // spawnAll is Promise.all under the hood (run-child.ts) — a single child's
+    // setup work (strategy/model resolution, log appends, tool-registry build)
+    // throwing OUTSIDE its own try/catch rejects the whole batch. Treat that as
+    // every-subagent-errored rather than letting the rejection crash the entire
+    // research turn and discard all prior-round findings. flattenOutcome turns
+    // these into RoundFinding rows the loop carries into synthesis.
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      results: [],
+      errored: queries.map((_, index) => ({ index, message })),
+    };
+  }
+
   const errored: Array<{ index: number; message: string }> = [];
   results.forEach((r, i) => {
     if (r.error) errored.push({ index: i, message: r.error.message });
@@ -91,7 +108,11 @@ function buildSubagentPrompt(
     if (f.error) {
       sections.push(`(errored: ${f.error})`);
     } else {
-      sections.push(f.text || '(empty response)');
+      // Cap each embedded finding: the SAME prior-findings blob is duplicated
+      // into every sibling subagent's prompt every round, so unbounded text
+      // grows multiplicatively and can blow the subagent's context window. The
+      // full untruncated text is preserved only for the single synthesis turn.
+      sections.push(capFindingText(f.text) || '(empty response)');
     }
     sections.push('');
   }
@@ -99,6 +120,12 @@ function buildSubagentPrompt(
   sections.push('');
   sections.push(`Your focused follow-up question:\n${query}`);
   return sections.join('\n');
+}
+
+/** Bound a prior finding's text before it is embedded into a subagent prompt. */
+function capFindingText(text: string): string {
+  if (text.length <= SUBAGENT_PRIOR_FINDING_MAX_CHARS) return text;
+  return `${text.slice(0, SUBAGENT_PRIOR_FINDING_MAX_CHARS)}\n…[truncated]`;
 }
 
 /**

@@ -62,6 +62,9 @@ export function useAppInstall(appId: string): UseAppInstall {
       setStatus(await api().invoke('apps.uninstall', { appId }));
     } catch (e) {
       setStatus({ appId, state: 'error', error: toErrorMessage(e) });
+    } finally {
+      // Clear any stale progress a prior install left behind (mirrors install).
+      setProgress(null);
     }
   }, [appId]);
 

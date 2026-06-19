@@ -83,6 +83,10 @@ export function makeWsApi(opts: WsApiOptions): MoxxyApi {
   client.connect();
 
   return {
+    // INVARIANT: every IPC command takes at most one positional `args` object,
+    // so only args[0] crosses the wire as JSON-RPC `params`. A command with a
+    // second positional parameter would silently lose it here — keep IPC
+    // commands single-arg (or teach the bridge to spread an array param).
     invoke: ((command: string, ...args: unknown[]) =>
       client.request(command, args[0])) as MoxxyApi['invoke'],
     subscribe: ((channel: string, handler: (payload: unknown) => void) =>

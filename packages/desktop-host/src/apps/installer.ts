@@ -32,6 +32,7 @@ import { mkdir, rename, rm, stat, writeFile, readFile, realpath } from 'node:fs/
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
+import { APP_ID_RE } from '@moxxy/desktop-app-sdk';
 import type { AppInstallStatus, AppInstallProgress } from '@moxxy/desktop-ipc-contract';
 
 /** One downloadable file of an app's install bundle. */
@@ -52,11 +53,11 @@ export interface AppInstallSpec {
   /** Opaque version marker recorded in `installed.json`; a mismatch ⇒ stale. */
   readonly version: string;
   readonly assets: readonly AppAsset[];
+  /** Hostnames this app may fetch its assets FROM (exact-or-subdomain match).
+   *  Threads a discovered `manifest.install.allowedHosts` so each app's egress
+   *  is explicit + auditable. Omitted ⇒ the global HF-only default applies. */
+  readonly allowedHosts?: readonly string[];
 }
-
-/** App ids index a filesystem dir + a custom-scheme host segment, so confine
- *  them to a strict slug (no `..`, no separators, no scheme tricks). */
-const APP_ID = /^[a-z][a-z0-9-]*$/;
 
 /** Hosts an asset may be fetched FROM. Mirrors the Tier-2 updater's
  *  `ALLOWED_HOSTS` discipline: an exact-or-subdomain match so `huggingface.co`
@@ -68,6 +69,19 @@ const APP_ID = /^[a-z][a-z0-9-]*$/;
  *  initial url can never reach the network at all. */
 const ALLOWED_ASSET_HOSTS = [/(^|\.)huggingface\.co$/, /(^|\.)hf\.co$/];
 
+/** Compile a list of bare hostnames into exact-or-subdomain matchers, matching
+ *  {@link ALLOWED_ASSET_HOSTS}' discipline (so `huggingface.co` admits its
+ *  subdomains/CDN but `…huggingface.co.evil` is refused). The hostname is
+ *  regex-escaped so a `.` in a host can never act as a wildcard. Used to thread
+ *  a per-app `manifest.install.allowedHosts` into the egress gate so no app
+ *  inherits another's allow-list (and the global default stays HF-only). */
+export function compileAllowedHosts(hosts: readonly string[]): RegExp[] {
+  return hosts.map((h) => {
+    const escaped = h.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|\\.)${escaped}$`);
+  });
+}
+
 /** Hard ceiling on any single downloaded asset. The largest real asset is the
  *  ~109 MB quantised NER model; 512 MB leaves generous headroom while still
  *  bounding a hostile/buggy server that streams an unbounded body (disk-fill
@@ -77,8 +91,17 @@ export const MAX_ASSET_BYTES = 512 * 1024 * 1024;
 /**
  * Whether `url` is a fetch target the installer may reach: `https:` on an
  * allow-listed host. Exported so the gate is unit-testable in isolation.
+ *
+ * `allowedHosts` is the compiled matcher set to test against — defaults to the
+ * global HF-only {@link ALLOWED_ASSET_HOSTS}. The IPC layer threads a discovered
+ * app's `manifest.install.allowedHosts` (via {@link compileAllowedHosts}) so a
+ * per-app egress allow-list is enforced rather than every app inheriting the
+ * global one.
  */
-export function isAllowedAssetUrl(url: string): boolean {
+export function isAllowedAssetUrl(
+  url: string,
+  allowedHosts: readonly RegExp[] = ALLOWED_ASSET_HOSTS,
+): boolean {
   let u: URL;
   try {
     u = new URL(url);
@@ -86,7 +109,7 @@ export function isAllowedAssetUrl(url: string): boolean {
     return false;
   }
   if (u.protocol !== 'https:') return false;
-  return ALLOWED_ASSET_HOSTS.some((re) => re.test(u.hostname));
+  return allowedHosts.some((re) => re.test(u.hostname));
 }
 
 /** Marker file written into an app's dir once every asset is present. */
@@ -107,7 +130,7 @@ export type FetchLike = typeof fetch;
  * Exported so the asset protocol resolves the SAME dir for serving.
  */
 export function appDir(appsRoot: string, appId: string): string {
-  if (!APP_ID.test(appId)) throw new Error(`invalid app id: ${JSON.stringify(appId)}`);
+  if (!APP_ID_RE.test(appId)) throw new Error(`invalid app id: ${JSON.stringify(appId)}`);
   return path.join(appsRoot, appId);
 }
 
@@ -230,6 +253,11 @@ export async function installApp(
   maxAssetBytes: number = MAX_ASSET_BYTES,
 ): Promise<AppInstallStatus> {
   const dir = appDir(appsRoot, spec.id);
+  // Per-app egress allow-list (auditable, not inherited) — falls back to the
+  // global HF-only default when the spec declares none.
+  const allowedHosts = spec.allowedHosts?.length
+    ? compileAllowedHosts(spec.allowedHosts)
+    : ALLOWED_ASSET_HOSTS;
   // Sum of Content-Lengths discovered so far drives an honest total; seed it
   // with any declared `bytes` so the bar isn't 0/0 before the first response.
   let totalBytes = knownTotal(spec);
@@ -239,6 +267,17 @@ export async function installApp(
     extra: { file?: string; error?: string } = {},
   ): void => {
     onProgress({ appId: spec.id, phase, receivedBytes, totalBytes, ...extra });
+  };
+  // Throttle per-byte-chunk progress so a 100MB+ download doesn't flood the IPC
+  // + WS bus with tens of thousands of events. Coalesce to ~10/sec; the
+  // phase-transition emits (downloading-start, verifying, done, error) always
+  // fire so the bar still snaps to each phase.
+  let lastProgressAt = 0;
+  const emitProgress = (file: string): void => {
+    const now = Date.now();
+    if (now - lastProgressAt < 100) return;
+    lastProgressAt = now;
+    emit('downloading', { file });
   };
 
   try {
@@ -263,83 +302,133 @@ export async function installApp(
       // Egress allow-list: only https on an allow-listed host is ever fetched,
       // so a registry typo / injected url can never reach an arbitrary origin
       // (SSRF) or a local file. Checked BEFORE the network call.
-      if (!isAllowedAssetUrl(asset.url)) {
+      if (!isAllowedAssetUrl(asset.url, allowedHosts)) {
         throw new Error(`asset url is not on an allowed host: ${JSON.stringify(asset.url)}`);
       }
 
       await mkdir(path.dirname(abs), { recursive: true });
       await assertRealpathContained(dir, abs);
 
-      emit('downloading', { file: asset.dest });
-      const res = await fetchImpl(asset.url);
-      if (!res.ok || !res.body) {
-        throw new Error(`download failed for ${asset.dest}: HTTP ${res.status}`);
-      }
-      const len = Number(res.headers.get('content-length'));
-      // Reject an over-cap download up front when the server is honest about its
-      // size (the streaming guard below still catches a lying / chunked server).
-      if (Number.isFinite(len) && len > maxAssetBytes) {
-        throw new Error(
-          `asset ${asset.dest} exceeds the ${maxAssetBytes}-byte cap (content-length ${len})`,
-        );
-      }
-      if (Number.isFinite(len) && len > 0) {
-        // Replace this asset's advisory `bytes` contribution with the real one.
-        totalBytes += len - (asset.bytes ?? 0);
-      }
-
       const partial = `${abs}.partial`;
-      const out = createWriteStream(partial);
-      // Tee the stream so progress ticks as bytes land, then close it.
-      const reader = res.body.getReader();
-      let assetBytes = 0;
-      let overCap = false;
+      // Any throw mid-asset (network drop, write error, end() flush error, hash
+      // mismatch) MUST remove the temp file so a failed attempt never strands a
+      // ~100MB orphan; the explicit over-cap/mismatch cleanups below are now
+      // subsumed by this, kept only for the early `continue`-less paths.
       try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) {
-            assetBytes += value.byteLength;
-            // Hard ceiling: a chunked / content-length-lying server can't stream
-            // an unbounded body and fill the disk. Cancel the body and fail; the
-            // (now bounded-at-cap) partial is removed below so the abort leaves
-            // nothing large behind.
-            if (assetBytes > maxAssetBytes) {
-              overCap = true;
-              await reader.cancel().catch(() => {});
-              break;
-            }
-            receivedBytes += value.byteLength;
-            // Backpressure: respect the write stream's drain signal.
-            if (!out.write(Buffer.from(value.buffer, value.byteOffset, value.byteLength))) {
-              await new Promise<void>((r) => out.once('drain', r));
-            }
-            emit('downloading', { file: asset.dest });
-          }
+        emit('downloading', { file: asset.dest });
+        const res = await fetchImpl(asset.url);
+        if (!res.ok || !res.body) {
+          throw new Error(`download failed for ${asset.dest}: HTTP ${res.status}`);
         }
-      } finally {
-        await new Promise<void>((resolve, reject) => {
-          out.end((err?: NodeJS.ErrnoException | null) => (err ? reject(err) : resolve()));
-        });
-      }
-      if (overCap) {
-        await rm(partial, { force: true });
-        throw new Error(`asset ${asset.dest} exceeds the ${maxAssetBytes}-byte cap mid-stream`);
-      }
-
-      if (asset.sha256) {
-        emit('verifying', { file: asset.dest });
-        const got = await sha256File(partial);
-        if (got !== asset.sha256.toLowerCase()) {
-          await rm(partial, { force: true });
+        // Parse Content-Length explicitly: a MISSING header (chunked HF CDN
+        // responses) is NaN (skip the up-front cap; the streaming guard still
+        // applies). An empty-string header is also treated as absent, not 0.
+        const rawLen = res.headers.get('content-length');
+        const len = rawLen == null || rawLen === '' ? NaN : Number(rawLen);
+        // Reject an over-cap download up front when the server is honest about its
+        // size (the streaming guard below still catches a lying / chunked server).
+        if (Number.isFinite(len) && len > maxAssetBytes) {
           throw new Error(
-            `integrity check failed for ${asset.dest}: expected ${asset.sha256}, got ${got}`,
+            `asset ${asset.dest} exceeds the ${maxAssetBytes}-byte cap (content-length ${len})`,
           );
         }
-      }
+        if (Number.isFinite(len) && len > 0) {
+          // Replace this asset's advisory `bytes` contribution with the real one.
+          totalBytes += len - (asset.bytes ?? 0);
+        }
 
-      // Atomic publish: a crash before this leaves only the `.partial`.
-      await rename(partial, abs);
+        const out = createWriteStream(partial);
+        // A writable stream that emits 'error' with no listener throws as an
+        // UNCAUGHT exception (fatal in the Electron main); and a mid-stream error
+        // emits 'error', NOT 'drain', so a bare `out.once('drain')` wait would
+        // hang the loop forever (ENOSPC/EIO/perm-revoke during a long download).
+        // Capture the first write error and surface it on the next iteration /
+        // drain wait so the loop bails deterministically.
+        let writeErr: NodeJS.ErrnoException | null = null;
+        out.on('error', (e: NodeJS.ErrnoException) => {
+          writeErr = writeErr ?? e;
+        });
+        // Tee the stream so progress ticks as bytes land, then close it.
+        const reader = res.body.getReader();
+        let assetBytes = 0;
+        let overCap = false;
+        try {
+          for (;;) {
+            if (writeErr) throw writeErr;
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              assetBytes += value.byteLength;
+              // Hard ceiling: a chunked / content-length-lying server can't stream
+              // an unbounded body and fill the disk. Cancel the body and fail; the
+              // (now bounded-at-cap) partial is removed below so the abort leaves
+              // nothing large behind.
+              if (assetBytes > maxAssetBytes) {
+                overCap = true;
+                await reader.cancel().catch(() => {});
+                break;
+              }
+              receivedBytes += value.byteLength;
+              // Backpressure: respect the write stream's drain signal, but race
+              // it against 'error' so a failing write rejects instead of hanging
+              // forever waiting for a 'drain' that will never come.
+              if (!out.write(Buffer.from(value.buffer, value.byteOffset, value.byteLength))) {
+                await new Promise<void>((resolve, reject) => {
+                  out.once('drain', resolve);
+                  out.once('error', reject);
+                });
+              }
+              emitProgress(asset.dest);
+            }
+          }
+          if (writeErr) throw writeErr;
+        } finally {
+          // Always release the body reader so a thrown error never leaks the
+          // open response/socket.
+          await reader.cancel().catch(() => {});
+          if (writeErr) {
+            // Stream already errored (and is destroyed); don't await `end()` — its
+            // callback may never fire on a destroyed stream and would hang here.
+            out.destroy();
+          } else {
+            // Flush + close, but race the close against a LATE 'error' (an open
+            // failure / flush error that hasn't surfaced yet) so this can never
+            // hang waiting for an `end` callback that won't fire on a stream that
+            // is about to error.
+            await new Promise<void>((resolve, reject) => {
+              out.once('error', reject);
+              out.end((err?: NodeJS.ErrnoException | null) =>
+                err ? reject(err) : resolve(),
+              );
+            }).catch((e) => {
+              writeErr = writeErr ?? (e as NodeJS.ErrnoException);
+            });
+          }
+        }
+        if (writeErr) throw writeErr;
+        if (overCap) {
+          throw new Error(`asset ${asset.dest} exceeds the ${maxAssetBytes}-byte cap mid-stream`);
+        }
+
+        if (asset.sha256) {
+          emit('verifying', { file: asset.dest });
+          const got = await sha256File(partial);
+          if (got !== asset.sha256.toLowerCase()) {
+            throw new Error(
+              `integrity check failed for ${asset.dest}: expected ${asset.sha256}, got ${got}`,
+            );
+          }
+        }
+
+        // Atomic publish: a crash before this leaves only the `.partial`.
+        await rename(partial, abs);
+      } catch (assetErr) {
+        // Remove the orphaned temp file before propagating, regardless of which
+        // mid-asset step failed. force:true so an already-renamed/absent partial
+        // is a no-op.
+        await rm(partial, { force: true }).catch(() => {});
+        throw assetErr;
+      }
     }
 
     const marker: InstalledMarker = {

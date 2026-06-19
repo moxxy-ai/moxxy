@@ -26,7 +26,7 @@ import { registerPlugins } from './setup/register-plugins.js';
 import { activateProvider } from './setup/activate-provider.js';
 import { applyPreferences } from './setup/apply-preferences.js';
 import { attachSessionPersistence } from './setup/persistence.js';
-import type { BootStep, SetupOptions, SetupResult } from './setup/types.js';
+import type { SetupOptions, SetupResult } from './setup/types.js';
 
 export type { BootStep, SetupOptions, SetupResult } from './setup/types.js';
 

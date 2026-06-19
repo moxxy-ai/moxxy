@@ -48,9 +48,29 @@ export const resolveSafe = resolvePath;
  */
 export const IGNORED_DIR_NAMES = new Set(['node_modules', '.git', 'dist', '.turbo']);
 
+/**
+ * Files larger than this are not slurped fully into the heap — a multi-hundred-MB
+ * log, a SQLite db, or a media blob would otherwise OOM the process on a path the
+ * model invokes constantly (Read/Edit/Write/Grep). Result clamping bounds the
+ * OUTPUT, not the per-file working set; this bounds the working set. Shared so
+ * every file-reading built-in caps at the same point.
+ */
+export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Slicing a string on a UTF-16 code-unit boundary can split an astral-plane
+ * char (emoji, some CJK) and leave a lone surrogate that re-encodes to U+FFFD.
+ * Drop a trailing lone high surrogate so the truncated text stays valid.
+ */
+export function dropDanglingSurrogate(s: string): string {
+  const last = s.charCodeAt(s.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) return s.slice(0, -1);
+  return s;
+}
+
 export function clampString(s: string, max: number): string {
   if (s.length <= max) return s;
-  return s.slice(0, max) + `\n... [truncated ${s.length - max} chars]`;
+  return dropDanglingSurrogate(s.slice(0, max)) + `\n... [truncated ${s.length - max} chars]`;
 }
 
 /**

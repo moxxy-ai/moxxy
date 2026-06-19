@@ -293,6 +293,48 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(existsSync(join(dir, 'api.ts'))).toBe(true);
     expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
   });
+
+  it('degrades to a clean collab_failed event when a layer throws (no unhandled rejection)', async () => {
+    const repo = await initRepo();
+    const { ctx, events } = fakeCtx();
+    const boom = 'simulated git failure';
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: () => ({
+        // Throw on the very first spawn (the architect). The old code had only a
+        // finally, so this rejected the generator as an unhandled error; now it
+        // must surface as a graceful collab_failed + assistant message.
+        spawn() {
+          throw new Error(boom);
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    // The iterator must NOT reject — it completes after emitting the failure.
+    await expect(
+      (async () => {
+        for await (const _ of runCollaborative(ctx, deps)) void _;
+      })(),
+    ).resolves.toBeUndefined();
+
+    const subtypes = events
+      .filter((e) => e.type === 'plugin_event')
+      .map((e) => (e as { subtype: string }).subtype);
+    expect(subtypes).toContain('collab_failed');
+    const failed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_failed',
+    ) as { payload: { message: string } };
+    expect(failed.payload.message).toContain(boom);
+    // The run was still archived, with a 'failed' outcome.
+    const runs = listRunRecords();
+    expect(runs.length).toBe(1);
+    expect(runs[0]!.outcome).toBe('failed');
+  });
 });
 
 describe('sleep (poll helper)', () => {

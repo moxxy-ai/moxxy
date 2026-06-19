@@ -31,6 +31,7 @@ export type {
   PluginUnregisteredEvent,
   ModeIterationEvent,
   CompactionEvent,
+  ElisionEvent,
   ProviderRequestEvent,
   ProviderResponseEvent,
   ErrorEvent,

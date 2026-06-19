@@ -69,9 +69,22 @@ export class RecordedProvider implements LLMProvider {
     // record
     if (!this.upstream) throw new Error('record mode requires upstream provider');
     const events: ProviderEvent[] = [];
-    for await (const event of this.upstream.stream(req)) {
-      events.push(event);
-      yield event;
+    try {
+      for await (const event of this.upstream.stream(req)) {
+        events.push(event);
+        yield event;
+      }
+    } catch (err) {
+      // A mid-stream upstream failure must NOT silently discard the partial
+      // recording into a 'no fixture' on the next replay — surface it as a
+      // record-mode failure (the fixture is intentionally not written so a
+      // truncated capture can't masquerade as a complete one).
+      throw new Error(
+        `RecordedProvider: upstream stream failed mid-record after ${events.length} event(s) ` +
+          `(test='${this.testName}', hash=${hash}); fixture NOT written: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
     }
     await this.writeFixture({
       hash,
@@ -91,13 +104,37 @@ export class RecordedProvider implements LLMProvider {
   }
 
   private async readFixture(hash: string): Promise<Fixture | null> {
+    const file = this.fixturePath(hash);
+    let raw: string;
     try {
-      const raw = await fs.readFile(this.fixturePath(hash), 'utf8');
-      return JSON.parse(raw) as Fixture;
+      raw = await fs.readFile(file, 'utf8');
     } catch (err) {
       if (isNodeError(err) && err.code === 'ENOENT') return null;
       throw err;
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      throw new Error(
+        `RecordedProvider: unparseable fixture at ${file} (test='${this.testName}'): ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    // A syntactically valid but wrong-shaped fixture (hand-edited, partially
+    // migrated, or an unrelated JSON file on the path) would otherwise throw a
+    // cryptic 'events is not iterable' deep in stream(); fail with the path.
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !Array.isArray((parsed as Partial<Fixture>).events)
+    ) {
+      throw new Error(
+        `RecordedProvider: malformed fixture at ${file} (test='${this.testName}'): ` +
+          `expected an object with an 'events' array.`,
+      );
+    }
+    return parsed as Fixture;
   }
 
   private async writeFixture(fixture: Fixture): Promise<void> {

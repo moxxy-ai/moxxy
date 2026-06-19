@@ -46,4 +46,23 @@ describe('redact', () => {
     const { text } = redact('Project Bluebird is internal', { customTerms: ['Project Bluebird'] });
     expect(text).toBe('[REDACTED] is internal');
   });
+
+  it('keeps distinct values with a shared label distinct in pseudonym mode', () => {
+    // ipv4 and ipv6 both render as the 'IP' label; two different addresses must
+    // NOT collapse to the same token.
+    const { text } = redact('v4 10.0.0.1 and v6 fe80::1', { mode: 'pseudonym' });
+    expect(text).toBe('v4 IP_1 and v6 IP_2');
+  });
+
+  it('does not blow up quadratically redacting a document full of PII', () => {
+    // 20k IPs is the pathological case for a per-span string-splice loop
+    // (O(numSpans * docLength)); the single-pass join must stay near-linear. The
+    // bound is generous so it never flakes yet still trips a quadratic regression.
+    const ip = '10.0.0.1';
+    const text = Array.from({ length: 20_000 }, () => ip).join(' ');
+    const t0 = Date.now();
+    const { report } = redact(text);
+    expect(report.total).toBe(20_000);
+    expect(Date.now() - t0).toBeLessThan(3_000);
+  });
 });

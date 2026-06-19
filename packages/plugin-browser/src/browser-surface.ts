@@ -40,6 +40,15 @@ interface Frame {
   height: number;
 }
 
+/** Validate a sidecar `frame` reply before emitting it: a partial / altered
+ *  reply must be treated as a failed tick (so FAIL_GRACE eventually surfaces a
+ *  status) rather than streamed to subscribers as `{base64: undefined, …}`. */
+function isFrame(v: unknown): v is Frame {
+  if (!v || typeof v !== 'object') return false;
+  const f = v as Record<string, unknown>;
+  return typeof f.base64 === 'string' && typeof f.mediaType === 'string' && typeof f.url === 'string';
+}
+
 export function buildBrowserSurface(deps?: BrowserSessionDeps) {
   return defineSurface({
     kind: 'browser',
@@ -74,10 +83,11 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
         if (inFlight || needsInstall || installing) return; // don't pile up / retry a known-missing dep
         inFlight = true;
         try {
-          const frame = (await browserSidecarCall('frame', {}, deps)) as Frame;
-          last = frame;
+          const reply = await browserSidecarCall('frame', {}, deps);
+          if (!isFrame(reply)) throw new Error('malformed frame reply from sidecar');
+          last = reply;
           fails = 0;
-          emit({ type: 'frame', base64: frame.base64, mime: frame.mediaType, url: frame.url });
+          emit({ type: 'frame', base64: reply.base64, mime: reply.mediaType, url: reply.url });
         } catch (err) {
           // The `playwright` npm package is simply absent — recoverable. Pause
           // polling and ask the user (the download is ~200MB) rather than spin on
@@ -226,8 +236,18 @@ export function buildBrowserSurface(deps?: BrowserSessionDeps) {
               'capture',
               { x: msg.fx * vw, y: msg.fy * vh, width: msg.fw * vw, height: msg.fh * vh },
               deps,
-            ).catch(() => null)) as { base64: string; mediaType: string } | null;
-            if (shot) emit({ type: 'captured', base64: shot.base64, mediaType: shot.mediaType });
+            ).catch(() => null)) as unknown;
+            // Validate before emitting so a partial/altered reply doesn't hand
+            // the composer a {base64: undefined} attachment.
+            if (
+              shot &&
+              typeof shot === 'object' &&
+              typeof (shot as { base64?: unknown }).base64 === 'string' &&
+              typeof (shot as { mediaType?: unknown }).mediaType === 'string'
+            ) {
+              const s = shot as { base64: string; mediaType: string };
+              emit({ type: 'captured', base64: s.base64, mediaType: s.mediaType });
+            }
           } else if (msg.type === 'zoom' && typeof msg.factor === 'number') {
             await browserSidecarCall('zoom', { factor: msg.factor }, deps).catch(() => undefined);
             bump();

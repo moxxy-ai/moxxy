@@ -17,6 +17,34 @@ describe('email', () => {
   it('ignores a bare @ handle with no domain', () => {
     expect(values('email', 'ping @johnny on chat')).toEqual([]);
   });
+  it('does not catastrophically backtrack on a hostile no-TLD-tail input (ReDoS)', () => {
+    // The old regex backtracked quadratically on 'x@a.a.a.…' and froze the
+    // thread; the bounded-local-part form must reject this in linear time.
+    const hostile = `x@${'a.'.repeat(20_000)}`;
+    const t0 = Date.now();
+    const out = values('email', hostile);
+    const elapsed = Date.now() - t0;
+    expect(out).toEqual([]);
+    // The bounded regex runs in ~tens of ms; the old quadratic form took
+    // ~2.3s on this input. A generous 1.5s ceiling stays a decisive
+    // catastrophic/linear discriminator without flaking under parallel CI load.
+    expect(elapsed).toBeLessThan(1500);
+  });
+  it('stays well under budget at 2x the hostile size (linear, not quadratic)', () => {
+    // A quadratic scan would ~4x in time when the input doubles; a linear one
+    // ~2x. Doubling the hostile run must still finish far under the same budget.
+    const hostile = `x@${'a.'.repeat(40_000)}`;
+    const t0 = Date.now();
+    expect(values('email', hostile)).toEqual([]);
+    // Quadratic would be ~9s at this size; linear stays in the tens of ms.
+    expect(Date.now() - t0).toBeLessThan(1500);
+  });
+  it('still finds an email past the windowed-scan ceiling (chunking recall)', () => {
+    // Inputs over MAX_SCAN_LEN are scanned in overlapping windows; a real match
+    // far past the first window must still be detected (no recall loss).
+    const filler = 'x'.repeat(40_000);
+    expect(values('email', `${filler} a.b@example.com ${filler}`)).toEqual(['a.b@example.com']);
+  });
 });
 
 describe('credit card (Luhn)', () => {
@@ -50,6 +78,13 @@ describe('ipv4', () => {
   it('rejects an out-of-range octet', () => {
     expect(values('ipv4', 'bad 999.1.1.1')).toEqual([]);
   });
+  it('rejects zero-padded (octal-ambiguous) octets', () => {
+    expect(_internals.isIpv4('010.0.0.1')).toBe(false);
+    expect(_internals.isIpv4('00.00.00.00')).toBe(false);
+    expect(values('ipv4', 'addr 010.020.030.040')).toEqual([]);
+    // Canonical addresses with single-zero octets still pass.
+    expect(_internals.isIpv4('10.0.0.1')).toBe(true);
+  });
 });
 
 describe('ipv6', () => {
@@ -61,6 +96,17 @@ describe('ipv6', () => {
   });
   it('does not treat a MAC as IPv6', () => {
     expect(values('ipv6', '01:23:45:67:89:ab')).toEqual([]);
+  });
+  it('recovers the valid address glued to a rejected prefix (no false negative)', () => {
+    // The broad candidate greedily swallows the leading 'zzzz:'; rejecting it and
+    // rewinding must still surface the real 'fe80::1', not drop it or emit garbage.
+    expect(values('ipv6', 'zzzz:fe80::1')).toEqual(['fe80::1']);
+  });
+  it('rejects a bare leading/trailing single colon', () => {
+    expect(_internals.isIpv6(':fe80::1')).toBe(false);
+    expect(_internals.isIpv6('fe80::1:')).toBe(false);
+    expect(_internals.isIpv6('::1')).toBe(true);
+    expect(_internals.isIpv6('fe80::')).toBe(true);
   });
 });
 
@@ -95,5 +141,13 @@ describe('custom terms', () => {
     // Raw (unresolved): 'Jane' also matches inside 'JANE DOE'; dedup is detect()'s job.
     const spans = detectCustom('Jane and JANE DOE met Janet', ['jane doe', 'Jane']);
     expect(spans.map((s) => s.value).sort()).toEqual(['JANE', 'JANE DOE', 'Jane']);
+  });
+  it('uses Unicode-aware boundaries for accented terms (no over-redaction)', () => {
+    // 'José' is a longer word containing the term 'José' only as a prefix here.
+    // ASCII \w sees the trailing accented letter as a boundary and over-matches
+    // 'José' inside 'JoséÁlvarez'; Unicode \p{L} boundaries reject it.
+    expect(detectCustom('Hi JoséÁlvarez', ['José']).map((s) => s.value)).toEqual([]);
+    // The standalone whole word still matches.
+    expect(detectCustom('Hi José there', ['José']).map((s) => s.value)).toEqual(['José']);
   });
 });

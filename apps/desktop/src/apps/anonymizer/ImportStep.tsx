@@ -76,6 +76,7 @@ export function ImportStep({
       {error && (
         <div
           data-testid="anon-import-error"
+          role="alert"
           style={{
             display: 'flex',
             alignItems: 'center',

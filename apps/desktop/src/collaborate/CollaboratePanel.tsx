@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { api, useChat } from '@moxxy/client-core';
 import type { CollabRunSummary } from '@moxxy/desktop-ipc-contract';
 import { pairToolEvents } from '@moxxy/chat-model';
 import type { CollabMsgView, CollabTaskView } from '@moxxy/chat-model';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
+import { useFocusTrap } from '../chat/useFocusTrap';
 import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
 
 function taskChip(status: string): React.CSSProperties {
@@ -47,22 +48,55 @@ export function CollaboratePanel({
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
 
   // Poll the global single-flight lock so Start reflects a collaboration running
-  // in ANY workspace (only one runs at a time).
+  // in ANY workspace (only one runs at a time). Self-scheduling (not setInterval)
+  // so a wedged/disconnected runner backs off (2.5s → cap 30s) instead of firing
+  // every 2.5s forever, and so two consecutive failures degrade the UI to an
+  // "unknown" state (globalActive = null) rather than pinning stale data. The
+  // backoff resets on the first success; polling pauses while the tab is hidden.
   useEffect(() => {
     let alive = true;
-    const poll = (): void => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = 2500;
+    let failures = 0;
+    const BASE_DELAY = 2500;
+    const MAX_DELAY = 30_000;
+
+    const schedule = (): void => {
+      if (!alive) return;
+      timer = setTimeout(run, document.hidden ? MAX_DELAY : delay);
+    };
+    const run = (): void => {
       void api()
         .invoke('collab.active')
         .then((r) => {
-          if (alive) setGlobalActive(r);
+          if (!alive) return;
+          failures = 0;
+          delay = BASE_DELAY;
+          setGlobalActive(r);
         })
-        .catch(() => undefined);
+        .catch(() => {
+          if (!alive) return;
+          failures += 1;
+          // Don't trust stale data through a sustained outage: after two
+          // consecutive failures, drop to "unknown" so the UI degrades visibly.
+          if (failures >= 2) setGlobalActive(null);
+          delay = Math.min(MAX_DELAY, delay * 2);
+        })
+        .finally(schedule);
     };
-    poll();
-    const t = setInterval(poll, 2500);
+
+    run();
+    const onVisible = (): void => {
+      if (!document.hidden && alive) {
+        if (timer) clearTimeout(timer);
+        run();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       alive = false;
-      clearInterval(t);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [workspaceId]);
 
@@ -111,7 +145,11 @@ export function CollaboratePanel({
 
   const loadHistory = async (): Promise<void> => {
     const runs = await api().invoke('collab.history', { limit: 50 }).catch(() => []);
-    setHistory(runs as CollabRunSummary[]);
+    // The payload originates from a JSON run archive on disk; a corrupted /
+    // truncated entry (agents undefined, merge present but merged missing) would
+    // otherwise throw during render and crash the whole Collaborate view. Narrow
+    // each entry defensively so one bad archive degrades to an empty-ish card.
+    setHistory(Array.isArray(runs) ? runs.map(normalizeRun) : []);
   };
 
   const send = async (): Promise<void> => {
@@ -174,8 +212,9 @@ export function CollaboratePanel({
           className="btn-chip"
           style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, fontWeight: 600, color: 'var(--color-red)' }}
           title="Stop the team for good and archive this run"
+          aria-label="End and archive this collaboration"
         >
-          {ending ? 'Ending…' : '■ End & archive'}
+          {ending ? 'Ending…' : <><span aria-hidden>■</span> End &amp; archive</>}
         </button>
       )}
       {collab && !running && !forceStart && !globalActive?.active && (
@@ -184,8 +223,9 @@ export function CollaboratePanel({
           onClick={() => setForceStart(true)}
           className="btn-chip"
           style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, fontWeight: 600 }}
+          aria-label="Start a new collaboration"
         >
-          ＋ New
+          <span aria-hidden>＋</span> New
         </button>
       )}
     </ViewHeader>
@@ -383,8 +423,9 @@ export function CollaboratePanel({
                 onClick={() => void runCmd(paused ? 'collab_resume' : 'collab_pause', '')}
                 className="btn-chip"
                 style={{ fontSize: 12, padding: '4px 10px', borderRadius: 8, fontWeight: 600, color: paused ? 'var(--color-green)' : 'var(--color-amber-text)' }}
+                aria-label={paused ? 'Resume the team' : 'Pause the team'}
               >
-                {paused ? '▶ Resume' : '⏸ Pause'}
+                {paused ? <><span aria-hidden>▶</span> Resume</> : <><span aria-hidden>⏸</span> Pause</>}
               </button>
             )}
           </div>
@@ -412,6 +453,7 @@ export function CollaboratePanel({
                     void send();
                   }
                 }}
+                aria-label={directive ? 'Directive to the whole team' : channel === 'all' ? 'Message the whole team' : `Message @${channel}`}
                 placeholder={directive ? 'Directive to the whole team…' : channel === 'all' ? 'Message the whole team…' : `Message @${channel}…`}
                 style={{
                   flex: 1,
@@ -591,6 +633,7 @@ function StartComposer({
             }
           }}
           autoFocus
+          aria-label="Describe what the team should build"
           placeholder="Describe what the team should build…"
           rows={3}
           style={{
@@ -686,6 +729,50 @@ function whenAgo(ms: number): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
+}
+
+/**
+ * Coerce one archived run into a render-safe shape. The archive lives on disk
+ * and is untrusted at the renderer boundary, so every field a render path
+ * dereferences gets a typed default (arrays default to [], numbers to 0). An
+ * outright non-object entry collapses to a placeholder rather than throwing.
+ */
+export function normalizeRun(raw: unknown): CollabRunSummary {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<CollabRunSummary>;
+  const merge = r.merge && typeof r.merge === 'object' ? r.merge : undefined;
+  return {
+    runId: typeof r.runId === 'string' ? r.runId : `run-${Math.random().toString(36).slice(2)}`,
+    task: typeof r.task === 'string' ? r.task : '(untitled)',
+    startedAtMs: typeof r.startedAtMs === 'number' ? r.startedAtMs : 0,
+    finishedAtMs: typeof r.finishedAtMs === 'number' ? r.finishedAtMs : 0,
+    outcome:
+      r.outcome === 'completed' || r.outcome === 'aborted' || r.outcome === 'failed'
+        ? r.outcome
+        : 'failed',
+    parallel: Boolean(r.parallel),
+    gitRepo: Boolean(r.gitRepo),
+    agents: Array.isArray(r.agents)
+      ? r.agents.map((a) => ({
+          id: typeof a?.id === 'string' ? a.id : 'agent',
+          name: typeof a?.name === 'string' ? a.name : 'Agent',
+          role: typeof a?.role === 'string' ? a.role : '',
+          status: typeof a?.status === 'string' ? a.status : 'unknown',
+          subtask: typeof a?.subtask === 'string' ? a.subtask : '',
+          doneSummary: typeof a?.doneSummary === 'string' ? a.doneSummary : undefined,
+        }))
+      : [],
+    doneCount: typeof r.doneCount === 'number' ? r.doneCount : 0,
+    totalCount: typeof r.totalCount === 'number' ? r.totalCount : 0,
+    messageCount: typeof r.messageCount === 'number' ? r.messageCount : undefined,
+    merge: merge
+      ? {
+          merged: Array.isArray(merge.merged) ? merge.merged.filter((m): m is string => typeof m === 'string') : [],
+          promoted: Boolean(merge.promoted),
+          conflicts: typeof merge.conflicts === 'number' ? merge.conflicts : 0,
+          stagingBranch: typeof merge.stagingBranch === 'string' ? merge.stagingBranch : undefined,
+        }
+      : undefined,
+  };
 }
 
 /** Past-collaborations list, read from the run archive (~/.moxxy/collab/runs). */
@@ -787,8 +874,9 @@ function MessageCard({ m }: { readonly m: CollabMsgView }): JSX.Element {
           className="mono"
           style={{ fontSize: 10, color: 'var(--color-text-dim)', border: '1px solid var(--color-card-border)', borderRadius: 'var(--radius-pill)', padding: '0 6px' }}
           title={m.to === 'all' ? 'broadcast to the whole team' : `direct message to ${m.to}`}
+          aria-label={m.to === 'all' ? 'broadcast to the whole team' : `direct message to ${m.to}`}
         >
-          {m.to === 'all' ? '📣 all' : `→ ${m.to}`}
+          <span aria-hidden>{m.to === 'all' ? '📣 all' : `→ ${m.to}`}</span>
         </span>
         {kind && (
           <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3, color: '#fff', background: kind.color, borderRadius: 'var(--radius-pill)', padding: '1px 6px' }}>
@@ -805,6 +893,17 @@ function MessageCard({ m }: { readonly m: CollabMsgView }): JSX.Element {
 
 /** Modal with a task-board item's full detail: status, owner, deliverable files. */
 function TaskModal({ task, onClose }: { readonly task?: CollabTaskView; readonly onClose: () => void }): JSX.Element | null {
+  const titleId = useId();
+  // Reuse the chat surface's dialog plumbing (focus move-in + Tab trap + Escape
+  // + focus restoration) rather than re-implementing it — same contract AskSheet
+  // and GoalModal use. `onEscape` is a STABLE callback (identity fixed for the
+  // modal's life) reading the latest onClose via a ref, so useFocusTrap's effect
+  // binds once on mount and doesn't re-run / re-focus on every parent re-render.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const onEscape = useRef(() => onCloseRef.current()).current;
+  useFocusTrap({ containerRef: dialogRef, onEscape });
   if (!task) return null;
   return (
     <div
@@ -812,12 +911,16 @@ function TaskModal({ task, onClose }: { readonly task?: CollabTaskView; readonly
       style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'grid', placeItems: 'center', zIndex: 50 }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
         style={{ width: 'min(520px, 90%)', maxHeight: '80%', overflowY: 'auto', background: 'var(--color-app-bg)', border: '1px solid var(--color-card-border)', borderRadius: 14, padding: 18, display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.3)' }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <span style={taskChip(task.status)}>{task.status}</span>
-          <span style={{ flex: 1, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>{task.title}</span>
+          <span id={titleId} style={{ flex: 1, fontSize: 15, fontWeight: 700, color: 'var(--color-text)' }}>{task.title}</span>
           <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 16, lineHeight: 1, padding: '0 6px' }} aria-label="Close">×</button>
         </div>
         {task.owner && (

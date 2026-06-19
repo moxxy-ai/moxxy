@@ -57,6 +57,7 @@ export async function loadConfig(opts: LoadConfigOptions): Promise<LoadedConfig>
   } else {
     const projectPath = await findUpward(opts.cwd, CONFIG_NAMES);
     if (projectPath) {
+      warnIfAncestorExecutableConfig(projectPath, opts.cwd);
       const cfg = await loadOne(projectPath);
       configs.push(cfg);
       sources.push({ scope: 'project', path: projectPath });
@@ -64,6 +65,30 @@ export async function loadConfig(opts: LoadConfigOptions): Promise<LoadedConfig>
   }
 
   return { config: mergeConfigs(...configs), sources };
+}
+
+const EXECUTABLE_CONFIG_EXTS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs']);
+
+function isUnderDir(filePath: string, dir: string): boolean {
+  const rel = path.relative(path.resolve(dir), path.resolve(filePath));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/**
+ * The project-config upward walk resolves and then EXECUTES the first matching
+ * config above cwd. An ancestor (e.g. a shared home/temp parent or an untrusted
+ * outer repo) can therefore plant a config whose code runs with full process
+ * privileges. We keep the documented upward-walk behavior but surface the exact
+ * absolute path on stderr before running an ancestor *executable* config, so the
+ * operator can see what is about to execute. Non-executable YAML and at/under-cwd
+ * configs are silent (no new trust boundary widened).
+ */
+function warnIfAncestorExecutableConfig(filePath: string, cwd: string): void {
+  if (!EXECUTABLE_CONFIG_EXTS.has(path.extname(filePath))) return;
+  if (isUnderDir(filePath, cwd)) return;
+  console.warn(
+    `[moxxy] executing project config from an ancestor directory: ${path.resolve(filePath)}`,
+  );
 }
 
 async function loadOne(filePath: string): Promise<MoxxyConfig> {
@@ -82,8 +107,7 @@ async function loadOne(filePath: string): Promise<MoxxyConfig> {
       if (!jiti) throw new Error(`Cannot load ${filePath}: jiti is required for .ts configs.`);
       mod = jiti(filePath);
     } else {
-      const url = `${pathToFileURL(filePath).href}?v=${Date.now()}`;
-      mod = await import(url);
+      mod = await importJsConfig(filePath);
     }
     raw = extractDefault(mod);
     if (!raw) {
@@ -105,13 +129,24 @@ async function loadOne(filePath: string): Promise<MoxxyConfig> {
 // instance would resolve a SECOND project's `.ts` config relative imports
 // against the FIRST project's dir. Long-lived hosts (desktop/runner) load
 // configs for multiple workspaces in one process, so each cwd needs its own.
+//
+// Each entry carries its own module-resolution + compiled-module store, so an
+// unbounded map would grow one jiti runtime per workspace dir forever. Cap it
+// with a small LRU (re-insert on hit, drop the oldest on overflow) so a
+// long-running host that opens many projects keeps only a bounded working set.
+const MAX_CACHED_JITI = 16;
 const cachedJiti = new Map<string, (id: string) => unknown>();
 
 type JitiFactory = (cwd: string, opts?: unknown) => (id: string) => unknown;
 
 async function getJiti(cwd: string): Promise<((id: string) => unknown) | null> {
   const existing = cachedJiti.get(cwd);
-  if (existing) return existing;
+  if (existing) {
+    // Mark as most-recently-used.
+    cachedJiti.delete(cwd);
+    cachedJiti.set(cwd, existing);
+    return existing;
+  }
   try {
     const mod = await import('jiti');
     const factory =
@@ -120,10 +155,36 @@ async function getJiti(cwd: string): Promise<((id: string) => unknown) | null> {
     if (!factory) return null;
     const instance = factory(cwd, { interopDefault: true });
     cachedJiti.set(cwd, instance);
+    while (cachedJiti.size > MAX_CACHED_JITI) {
+      const oldest = cachedJiti.keys().next().value;
+      if (oldest === undefined) break;
+      cachedJiti.delete(oldest);
+    }
     return instance;
   } catch {
     return null;
   }
+}
+
+// The ESM module registry never evicts an entry once imported and offers no
+// eviction API: every DISTINCT specifier is retained for the process lifetime
+// along with its whole module graph. A naive `?v=${Date.now()}` cache-buster on
+// every load therefore leaks one module per reload in the exact long-lived
+// hosts (desktop/runner) this loader targets. Instead: import each JS config by
+// its plain file URL the FIRST time (one registry entry, GC-stable), and only
+// append a cache-buster when re-loading a path we've already imported — using a
+// monotonic counter so same-millisecond reloads are still guaranteed unique
+// (Date.now()'s 1ms resolution would otherwise return the stale cached module).
+const importedJsConfigs = new Set<string>();
+let importReloadCounter = 0;
+
+async function importJsConfig(filePath: string): Promise<unknown> {
+  const base = pathToFileURL(filePath).href;
+  if (importedJsConfigs.has(base)) {
+    return import(`${base}?v=${Date.now()}-${++importReloadCounter}`);
+  }
+  importedJsConfigs.add(base);
+  return import(base);
 }
 
 function extractDefault(mod: unknown): unknown {

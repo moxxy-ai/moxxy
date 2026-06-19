@@ -55,7 +55,16 @@ export class ActiveBackendRegistry<TDef extends { name: string }, TInstance> {
   replace(def: TDef, instance?: TInstance): void {
     this.defs.set(def.name, def);
     this.instances.delete(def.name);
-    if (instance) this.instances.set(def.name, instance);
+    if (instance) {
+      this.instances.set(def.name, instance);
+    } else if (this.active === def.name && !this.opts.buildOnRead) {
+      // For a non-buildOnRead registry, getActive() reads the cached instance
+      // directly and throws when it's missing. Dropping the active def's cache
+      // (e.g. a hot-reloaded plugin re-registering via replace) would otherwise
+      // strand getActive() until the next setActive. buildOnRead registries
+      // self-heal on read, so they don't need this.
+      this.instances.set(def.name, this.buildInstance(def.name));
+    }
   }
 
   unregister(name: string): void {

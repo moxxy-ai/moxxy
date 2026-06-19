@@ -69,6 +69,14 @@ export class ProviderRegistry {
     return !this.disabled.has(name);
   }
 
+  /**
+   * Activate a provider, building its client on first activation. NOTE: once an
+   * instance is cached, a later `setActive(name, newConfig)` REUSES the cached
+   * instance and DROPS `newConfig` — re-config requires `replace()` first
+   * (which clears the cache), the flow the sole production caller follows.
+   * Reconfiguring by rebuilding here is intentionally avoided so callers don't
+   * silently lose instance identity / in-flight state on a redundant activate.
+   */
   setActive(name: string, config?: Record<string, unknown>): LLMProvider {
     const def = this.defs.get(name);
     if (!def) throw new Error(`Provider not registered: ${name}`);

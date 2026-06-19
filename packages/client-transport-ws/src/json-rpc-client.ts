@@ -52,6 +52,12 @@ const WS_OPEN = 1;
 const RECONNECT_BASE_DELAY_MS = 1500;
 const RECONNECT_MAX_DELAY_MS = 30_000;
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
+/** Hard cap on requests buffered during a degraded (connecting/reconnecting)
+ *  window. The reconnect budget can keep the socket down for minutes; a caller
+ *  that keeps issuing requests (polling UI, retry loop on a flaky mobile link)
+ *  would otherwise grow `outbox`/`pending` without bound — a latent OOM. Once
+ *  the backlog is full, new requests reject immediately instead of queueing. */
+const MAX_BACKLOG = 1000;
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -103,6 +109,12 @@ export class WsRpcClient {
 
   connect(): void {
     if (this.socket || this.closedByUser || this.currentStatus === 'disconnected') return;
+    // Drop any pending reconnect timer so the 'at most one outstanding timer'
+    // invariant holds regardless of which path calls connect().
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
     this.setStatus(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
     const socket = this.protocols?.length
       ? new this.ctor(this.url, [...this.protocols])
@@ -128,11 +140,17 @@ export class WsRpcClient {
     if (this.currentStatus === 'disconnected') {
       return Promise.reject(new Error('transport disconnected'));
     }
+    const open = this.socket !== null && this.socket.readyState === WS_OPEN;
+    // While degraded (socket not open) frames pile into the outbox; bound it so
+    // a caller hammering a down link can't grow the buffer without limit.
+    if (!open && this.outbox.length >= MAX_BACKLOG) {
+      return Promise.reject(new Error('transport backlogged'));
+    }
     const id = this.nextId++;
     return new Promise<unknown>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       const frame = JSON.stringify({ id, method, ...(params !== undefined ? { params } : {}) });
-      if (this.socket && this.socket.readyState === WS_OPEN) this.socket.send(frame);
+      if (open) this.socket!.send(frame);
       else this.outbox.push(frame);
     });
   }
@@ -156,7 +174,18 @@ export class WsRpcClient {
 
   close(): void {
     this.closedByUser = true;
-    if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer !== undefined) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    // Reject in-flight pendings synchronously — don't rely on the socket's
+    // onclose firing (some RN/Hermes stacks never fire it after a manual close,
+    // and a close() on an already-CLOSING/CLOSED socket is a no-op). After
+    // nulling the socket no later path could settle them, so they'd leak.
+    const closed = new Error('transport closed');
+    for (const waiter of this.pending.values()) waiter.reject(closed);
+    this.pending.clear();
+    this.outbox.length = 0;
     this.socket?.close();
     this.socket = null;
     this.setStatus('closed');
@@ -176,8 +205,13 @@ export class WsRpcClient {
       result?: unknown;
       error?: { message: string; data?: unknown };
     };
+    // Only string frames carry our JSON-RPC wire format. A Blob/ArrayBuffer/
+    // Buffer (compression or binary framing negotiated by a misbehaving proxy)
+    // must NOT be coerced with String() — that yields '[object ArrayBuffer]'
+    // and silently swallows what is really a transport mismatch. Drop it.
+    if (typeof data !== 'string') return;
     try {
-      frame = JSON.parse(typeof data === 'string' ? data : String(data));
+      frame = JSON.parse(data);
     } catch {
       return; // drop a malformed frame
     }

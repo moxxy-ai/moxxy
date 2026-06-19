@@ -72,4 +72,32 @@ describe('parseArgv', () => {
       positional: [],
     });
   });
+
+  it('a value flag consumes a dash-leading value instead of dropping it', () => {
+    // `-p "-please summarize"` must keep the prompt, not parse `p` as boolean
+    // and lose the dash-leading text.
+    expect(parseArgv(['-p', '-please summarize'])).toMatchObject({
+      command: 'prompt',
+      flags: { p: '-please summarize' },
+      positional: [],
+    });
+    expect(parseArgv(['tui', '--model', '-o-weird-id'])).toMatchObject({
+      command: 'tui',
+      flags: { model: '-o-weird-id' },
+    });
+  });
+
+  it('a trailing value flag with nothing after it stays boolean (no crash)', () => {
+    expect(parseArgv(['tui', '--model'])).toMatchObject({
+      command: 'tui',
+      flags: { model: true },
+    });
+  });
+
+  it('`--` ends option parsing; the remainder is verbatim positionals', () => {
+    expect(parseArgv(['prompt', '--', '--not-a-flag', '-x'])).toMatchObject({
+      command: 'prompt',
+      positional: ['--not-a-flag', '-x'],
+    });
+  });
 });

@@ -186,10 +186,13 @@ export async function consolidateMemory(
     // Guard: if the LLM picked a name that already exists OUTSIDE this
     // cluster, writing it would silently clobber an unrelated memory. Skip
     // the merge and record the cluster as not-merged rather than destroy
-    // data.
+    // data. `byName` is a snapshot taken before any provider streaming, so it
+    // can be stale by now — re-read the live entry from disk to also catch an
+    // entry created by a concurrent writer since the snapshot.
     const clusterNames = new Set(cluster.members);
+    const liveCollision = !clusterNames.has(parsed.name) && (await store.get(parsed.name)) !== null;
     if (
-      (byName.has(parsed.name) || produced.has(parsed.name)) &&
+      (byName.has(parsed.name) || produced.has(parsed.name) || liveCollision) &&
       !clusterNames.has(parsed.name)
     ) {
       outcomes.push({
@@ -227,6 +230,12 @@ export async function consolidateMemory(
   return { clusters: outcomes, stable: plan.stable };
 }
 
+// Upper bound on the JSON span we'll JSON.parse from a model response. The
+// consolidated entry is tiny (description ≤280, body ≤4000), so a span far
+// past this is a malformed/hostile response, not a real entry — refuse it
+// before handing an unbounded string to JSON.parse.
+const MAX_JSON_SPAN = 64 * 1024;
+
 function extractJson(text: string): unknown {
   // Take the span from the first `{` to the last `}` in the response. Some
   // providers wrap the object in ```json ... ```, which we strip first.
@@ -238,7 +247,11 @@ function extractJson(text: string): unknown {
   // well-formed object span; surface the intended message instead of letting
   // slice() yield garbage that JSON.parse fails on with an opaque error.
   if (start === -1 || end <= start) throw new Error('consolidate: model returned no JSON object');
-  return JSON.parse(candidate.slice(start, end + 1));
+  const span = candidate.slice(start, end + 1);
+  if (span.length > MAX_JSON_SPAN) {
+    throw new Error('consolidate: model JSON object too large to parse');
+  }
+  return JSON.parse(span);
 }
 
 export interface BuildMemoryConsolidateOptions {
@@ -266,7 +279,11 @@ export function buildMemoryConsolidatePlugin(
         ? {
             onBeforeProviderCall: async (req) => {
               if (nudged) return; // one nudge per session
-              const count = (await store.list()).length;
+              // Count only — capStatus() serves the in-memory index-row cache,
+              // so a below-threshold store doesn't re-scan + re-parse every
+              // memory file on every single provider call for the whole session
+              // (store.list() did a full disk read+parse each time).
+              const count = (await store.capStatus()).count;
               if (count <= threshold) return;
               nudged = true;
               const hint =

@@ -66,5 +66,5 @@ the schedule disappears on the next sync.
 
 ## See also
 
-- [Scheduler guide](../guides/scheduler) — adding, removing, daemon modes.
-- [Running as a service](../guides/running-as-a-service) — install as launchd / systemd.
+- [Scheduler guide](../guides/scheduler.md) — adding, removing, daemon modes.
+- [Running as a service](../guides/running-as-a-service.md) — install as launchd / systemd.

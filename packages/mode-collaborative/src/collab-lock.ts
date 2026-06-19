@@ -9,7 +9,7 @@
  * (a crash) the lock is reclaimed automatically on the next attempt.
  */
 
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -61,20 +61,57 @@ export function readActiveCollab(): CollabLockInfo | null {
 }
 
 /** Acquire the global lock, or report the live holder. The same session
- *  re-acquiring (idempotent) is allowed. */
+ *  re-acquiring (idempotent) is allowed.
+ *
+ *  Acquisition is ATOMIC: `openSync(path, 'wx')` exclusively creates the lock
+ *  file, so two runner processes racing from a free state can't both win — the
+ *  loser gets EEXIST. This closes the read-then-write TOCTOU window that let two
+ *  coordinators run full agent fleets against the same repo. A stale lock (dead
+ *  pid, or our own prior session) is reclaimed by unlinking once and retrying. */
 export function tryAcquireCollabLock(args: {
   sessionId: string;
   task: string;
   startedAtMs: number;
 }): { ok: true } | { ok: false; holder: CollabLockInfo } {
-  mkdirSync(dirname(collabLockPath()), { recursive: true });
-  const existing = readActiveCollab();
-  if (existing && existing.sessionId !== args.sessionId) {
-    return { ok: false, holder: existing };
-  }
+  const path = collabLockPath();
+  mkdirSync(dirname(path), { recursive: true });
   const info: CollabLockInfo = { pid: process.pid, ...args };
-  writeFileSync(collabLockPath(), JSON.stringify(info));
-  return { ok: true };
+  const payload = JSON.stringify(info);
+
+  // Bounded retries: each EEXIST either reports a live holder (fail) or reclaims
+  // a stale/own lock and retries. The bound prevents an unbounded spin if two
+  // processes keep clobbering each other's reclaim; on exhaustion we fail closed
+  // (report the holder) rather than proceed without the lock.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const fd = openSync(path, 'wx'); // exclusive create — fails if it already exists
+      try {
+        writeFileSync(fd, payload);
+      } finally {
+        closeSync(fd);
+      }
+      return { ok: true };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      const existing = readRaw();
+      // A live holder from a DIFFERENT session blocks us.
+      if (existing && existing.sessionId !== args.sessionId && isAlive(existing.pid)) {
+        return { ok: false, holder: existing };
+      }
+      // Stale (dead pid) or our own prior session → unlink once and retry the
+      // exclusive create. If a racing reclaimer beats us, the next EEXIST re-reads
+      // the holder.
+      try {
+        unlinkSync(path);
+      } catch {
+        // already removed by a racing reclaimer
+      }
+    }
+  }
+  // Exhausted retries: a live competitor keeps winning. Fail closed.
+  const holder = readActiveCollab() ?? readRaw();
+  if (holder) return { ok: false, holder };
+  return { ok: false, holder: info };
 }
 
 /** Release the lock if (and only if) this session holds it. */

@@ -11,6 +11,11 @@ export interface EscapeMatch {
     | 'delete'
     | 'word-back-delete'
     | 'esc-clear'
+    // 'noop' = "consume `len` bytes but do nothing" — for unrecognized
+    // kitty/CSI/SS3 sequences from fancy terminals. Distinct from
+    // 'esc-clear' (which CLEARS the input via onCancel): overloading
+    // esc-clear here could wipe a half-typed prompt on an unknown key.
+    | 'noop'
     | 'alt-enter'
     | 'shift-tab'
     | 'command-hotkey';
@@ -44,9 +49,9 @@ export function matchEscape(rest: string): EscapeMatch | null {
           return { action: 'command-hotkey', letter, len: kitty[0].length };
         }
       }
-      // Other kitty-encoded keys we don't handle yet — consume so we
-      // don't render them as junk text.
-      return { action: 'esc-clear' as never, len: kitty[0].length };
+      // Other kitty-encoded keys we don't handle yet — consume (noop) so we
+      // don't render them as junk text AND don't clear a half-typed prompt.
+      return { action: 'noop', len: kitty[0].length };
     }
     // 3-byte arrows
     if (rest.length < 3) return null;
@@ -71,11 +76,12 @@ export function matchEscape(rest: string): EscapeMatch | null {
     if (rest.startsWith('\x1b[1;3A') || rest.startsWith('\x1b[1;5A')) return { action: 'up', len: 6 };
     if (rest.startsWith('\x1b[1;3B') || rest.startsWith('\x1b[1;5B'))
       return { action: 'down', len: 6 };
-    // Partial CSI we don't know — consume up to the terminator letter
-    // (final byte is in @–~ range) so we don't get stuck on it.
+    // Partial CSI we don't know — consume (noop) up to the terminator letter
+    // (final byte is in @–~ range) so we don't get stuck on it, and so an
+    // unknown sequence doesn't clear the user's input.
     for (let j = 2; j < rest.length; j += 1) {
       const ch = rest.charCodeAt(j);
-      if (ch >= 0x40 && ch <= 0x7e) return { action: 'esc-clear' as never, len: j + 1 };
+      if (ch >= 0x40 && ch <= 0x7e) return { action: 'noop', len: j + 1 };
     }
     return null; // need more data
   }
@@ -85,7 +91,7 @@ export function matchEscape(rest: string): EscapeMatch | null {
     const c = rest.charAt(2);
     if (c === 'H') return { action: 'home', len: 3 };
     if (c === 'F') return { action: 'end', len: 3 };
-    return { action: 'esc-clear' as never, len: 3 };
+    return { action: 'noop', len: 3 };
   }
   // Meta (Alt) + key: ESC <char>
   if (rest.length < 2) return null;
@@ -97,9 +103,9 @@ export function matchEscape(rest: string): EscapeMatch | null {
   if (next === '\x1b') return { action: 'esc-clear', len: 1 };
   // Standalone ESC = clear input
   if (rest.length === 1) return { action: 'esc-clear', len: 1 };
-  // Unknown Alt+key — eat the prefix only, leave the trailing key for
-  // the next iteration to handle as printable.
-  return { action: 'esc-clear' as never, len: 1 };
+  // Unknown Alt+key — eat the ESC prefix only (noop), leaving the trailing
+  // key for the next iteration to handle as printable. Must NOT clear input.
+  return { action: 'noop', len: 1 };
 }
 
 function hasCtrlModifier(modifiers: number): boolean {

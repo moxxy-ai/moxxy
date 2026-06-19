@@ -16,14 +16,20 @@ import { definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
 export function buildVoiceAdminPlugin(session: Session): Plugin {
   // 'system' (the OS voice) plus every registered synthesizer — the one
   // list both tools speak in terms of (list_voices' result and
-  // set_voice's "unknown name" hint).
+  // set_voice's "unknown name" hint). The synthesizer namespace is
+  // attacker-influenced (any plugin / a self-update-authored backend can
+  // register a name), so de-dupe in case one is literally named 'system' —
+  // otherwise it would be listed twice.
   const voiceNames = (): string[] => [
     'system',
-    ...session.synthesizers.list().map((s) => s.name),
+    ...session.synthesizers
+      .list()
+      .map((s) => s.name)
+      .filter((n) => n !== 'system'),
   ];
   return definePlugin({
     name: '@moxxy/voice-admin',
-    version: '0.0.0',
+    version: '0.0.1',
     tools: [
       defineTool({
         name: 'list_voices',
@@ -51,9 +57,18 @@ export function buildVoiceAdminPlugin(session: Session): Plugin {
             .min(1)
             .describe('Synthesizer name to activate, or "system" for the OS voice.'),
         }),
+        // Auto-allowed because switching the active TTS backend has a low blast
+        // radius: it only flips the registry's active slot. The synthesizer is
+        // not built here (the registry is buildOnRead), so no secret read or
+        // network call happens at set_voice time — the first read-aloud builds
+        // it under the same vault/network gates a registered plugin already has.
         permission: { action: 'allow' },
         handler: ({ synthesizer }) => {
-          if (synthesizer === 'system') {
+          // Treat 'system' as the OS-voice sentinel only when no real
+          // synthesizer claims that name. A backend literally named 'system'
+          // (registrations are attacker-influenced) is otherwise permanently
+          // unreachable; fall through to activate it.
+          if (synthesizer === 'system' && !session.synthesizers.has('system')) {
             session.synthesizers.clearActive();
             return { active: 'system' };
           }

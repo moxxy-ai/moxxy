@@ -78,7 +78,7 @@ moxxy channels telegram pair
 
 Then run the bot foreground (`moxxy telegram`) or as a background
 service (`moxxy service install telegram`). See the
-[Telegram channel guide](./guides/telegram-channel).
+[Telegram channel guide](./guides/telegram-channel.md).
 
 ## 6. Save a memory
 
@@ -107,7 +107,7 @@ allowed-tools: [Bash]
 
 Restart moxxy (or call `reload_skills` mid-session). Next time you say
 "deploy to staging" the agent runs your three steps. The agent can also
-write skills for itself — see [Authoring a skill](./guides/authoring-a-skill).
+write skills for itself — see [Authoring a skill](./guides/authoring-a-skill.md).
 
 ## Where things live
 

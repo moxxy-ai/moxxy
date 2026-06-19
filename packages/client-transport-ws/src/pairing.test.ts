@@ -31,4 +31,36 @@ describe('splitConnectUrl', () => {
   it('connects as-is when the token escape is malformed', () => {
     expect(splitConnectUrl('ws://host:8765/?t=%zz')).toEqual({ url: 'ws://host:8765/?t=%zz' });
   });
+
+  it('strips EVERY t= param so none leaks onto the live WS URL (hostile QR)', () => {
+    // A malformed/hostile payload with two token params must not leave the
+    // second `t=` riding the connect URL handed to makeWsApi.
+    const out = splitConnectUrl('ws://h:1/?t=tok&t=evil');
+    expect(out).toEqual({ url: 'ws://h:1/', token: 'tok' });
+    expect(out.url).not.toContain('t=');
+  });
+
+  it('strips t= even between other params without leaving a dangling separator', () => {
+    expect(splitConnectUrl('ws://h:1/?x=1&t=tok&y=2')).toEqual({
+      url: 'ws://h:1/?x=1&y=2',
+      token: 'tok',
+    });
+    expect(splitConnectUrl('ws://h:1/?x=1&t=tok')).toEqual({
+      url: 'ws://h:1/?x=1',
+      token: 'tok',
+    });
+  });
+
+  it('normalizes a trailing fragment cleanly (no dangling ?#)', () => {
+    const out = splitConnectUrl('ws://h:1/?t=tok#frag');
+    expect(out).toEqual({ url: 'ws://h:1/#frag', token: 'tok' });
+    expect(out.url).not.toContain('?#');
+  });
+
+  it('keeps a query when a fragment follows the stripped token', () => {
+    expect(splitConnectUrl('ws://h:1/?x=1&t=tok#frag')).toEqual({
+      url: 'ws://h:1/?x=1#frag',
+      token: 'tok',
+    });
+  });
 });

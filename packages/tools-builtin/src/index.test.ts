@@ -49,6 +49,14 @@ describe('readTool', () => {
     expect(out).not.toContain('1\ta');
     expect(out).not.toContain('4\td');
   });
+
+  it('refuses to slurp a file beyond the size cap (does not OOM the heap)', async () => {
+    // >10MB file — the working-set cap must reject it before reading into heap.
+    await fs.writeFile(path.join(tmp, 'huge.log'), 'x'.repeat(11 * 1024 * 1024));
+    await expect(readTool.handler({ file_path: 'huge.log' }, baseCtx())).rejects.toThrow(
+      /file too large/i,
+    );
+  });
 });
 
 describe('writeTool', () => {
@@ -94,6 +102,13 @@ describe('editTool', () => {
     await expect(
       editTool.handler({ file_path: 'a.txt', old_string: 'missing', new_string: 'x', replace_all: false }, baseCtx()),
     ).rejects.toThrow(/not found/);
+  });
+
+  it('refuses to edit a file beyond the size cap', async () => {
+    await fs.writeFile(path.join(tmp, 'huge.txt'), 'x'.repeat(11 * 1024 * 1024));
+    await expect(
+      editTool.handler({ file_path: 'huge.txt', old_string: 'x', new_string: 'y', replace_all: false }, baseCtx()),
+    ).rejects.toThrow(/file too large/i);
   });
 });
 
@@ -195,6 +210,50 @@ describe('bashTool', () => {
     expect(result).toMatch(/exit/);
     expect(await waitUntilDead(childPid, 4_000)).toBe(true);
   }, 10_000);
+
+  it('scrubs secret-looking parent env vars before spawning the shell', async () => {
+    // A secret the runner holds in process.env must not reach the child shell;
+    // a benign var must still pass through (usability preserved).
+    process.env.MOX_TEST_SECRET_TOKEN = 'leak-me';
+    process.env.MOX_TEST_BENIGN_VAR = 'keep-me';
+    try {
+      const out = (await bashTool.handler(
+        { command: 'printenv MOX_TEST_SECRET_TOKEN || true; printenv MOX_TEST_BENIGN_VAR || true', timeoutMs: 5000 },
+        baseCtx(),
+      )) as string;
+      expect(out).not.toContain('leak-me');
+      expect(out).toContain('keep-me');
+    } finally {
+      delete process.env.MOX_TEST_SECRET_TOKEN;
+      delete process.env.MOX_TEST_BENIGN_VAR;
+    }
+  });
+
+  it('lets the model re-supply a needed var via the env input', async () => {
+    process.env.MOX_TEST_API_KEY = 'inherited-secret';
+    try {
+      const out = (await bashTool.handler(
+        { command: 'printenv MOX_TEST_API_KEY || true', timeoutMs: 5000, env: { MOX_TEST_API_KEY: 'explicit' } },
+        baseCtx(),
+      )) as string;
+      // The inherited secret value is scrubbed; the explicit overlay wins.
+      expect(out).toContain('explicit');
+      expect(out).not.toContain('inherited-secret');
+    } finally {
+      delete process.env.MOX_TEST_API_KEY;
+    }
+  });
+
+  it('does not corrupt multibyte UTF-8 output (no U+FFFD at chunk boundaries)', async () => {
+    // Emit a run of 4-byte emoji; if the sink decoded per-chunk, a sequence
+    // split across two data events would yield replacement chars.
+    const out = (await bashTool.handler(
+      { command: `node -e "process.stdout.write('🚀'.repeat(20000))"`, timeoutMs: 30_000 },
+      baseCtx(),
+    )) as string;
+    expect(out).not.toContain('�');
+    expect(out).toContain('🚀');
+  }, 30_000);
 
   it('bounds output retention during streaming and reports full truncated size', async () => {
     const total = 2_097_152; // 2 MiB of 'x' — far beyond the 200k clamp

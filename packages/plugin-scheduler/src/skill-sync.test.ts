@@ -101,4 +101,41 @@ describe('syncSkillSchedules', () => {
     const out = await syncSkillSchedules(reg, store);
     expect(out.added).toBe(0);
   });
+
+  it('skips an unparseable string runAt instead of poisoning the batch', async () => {
+    // 'next tuesday' parses to NaN. NaN would be rejected by the entry schema
+    // deep inside the batched write, throwing and aborting the WHOLE sync —
+    // including the valid skill below. The bad skill must be skipped, the good
+    // one created.
+    const reg = fakeRegistry([
+      mkSkill('garbage-runat', { runAt: 'next tuesday' }),
+      mkSkill('good', { cron: '0 9 * * *' }),
+    ]);
+    const out = await syncSkillSchedules(reg, store);
+    expect(out.added).toBe(1);
+    const stored = await store.list();
+    expect(stored.map((s) => s.skillName)).toEqual(['good']);
+  });
+
+  it('skips a skill with a non-IANA timeZone instead of aborting the batch', async () => {
+    const reg = fakeRegistry([
+      mkSkill('bad-zone', { cron: '0 9 * * *', timeZone: 'Mars/Phobos' }),
+      mkSkill('good', { cron: '0 9 * * *' }),
+    ]);
+    const out = await syncSkillSchedules(reg, store);
+    expect(out.added).toBe(1);
+    const stored = await store.list();
+    expect(stored.map((s) => s.skillName)).toEqual(['good']);
+  });
+
+  it('skips a skill supplying BOTH cron and runAt', async () => {
+    const reg = fakeRegistry([
+      mkSkill('both', { cron: '0 9 * * *', runAt: Date.now() + 1000 }),
+      mkSkill('good', { cron: '0 9 * * *' }),
+    ]);
+    const out = await syncSkillSchedules(reg, store);
+    expect(out.added).toBe(1);
+    const stored = await store.list();
+    expect(stored.map((s) => s.skillName)).toEqual(['good']);
+  });
 });

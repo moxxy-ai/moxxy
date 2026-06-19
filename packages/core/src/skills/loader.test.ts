@@ -99,4 +99,22 @@ describe('discoverSkills', () => {
     });
     expect(skills).toEqual([]);
   });
+
+  it('bounds directory recursion depth (deep tree does not crash, deepest skill skipped)', async () => {
+    const root = path.join(tmp, 'project');
+    // A shallow skill (loaded) and a very deeply-nested one (beyond the depth cap).
+    await writeSkill(root, 'shallow');
+    let deep = root;
+    for (let i = 0; i < 20; i++) deep = path.join(deep, `lvl${i}`);
+    await writeSkill(deep, 'too-deep');
+
+    const skills = await discoverSkills({
+      projectDir: root,
+      userDir: path.join(tmp, 'noop'),
+      logger: silentLogger,
+    });
+    const names = skills.map((s) => s.frontmatter.name);
+    expect(names).toContain('shallow');
+    expect(names).not.toContain('too-deep');
+  });
 });

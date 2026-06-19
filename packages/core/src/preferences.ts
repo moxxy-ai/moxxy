@@ -1,8 +1,6 @@
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { createMutex, migrateModeName } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 
 /**
  * User-level runtime preferences persisted at ~/.moxxy/preferences.json.
@@ -28,7 +26,10 @@ export interface MoxxyPreferences {
 }
 
 export function preferencesPath(): string {
-  return path.join(os.homedir(), '.moxxy', 'preferences.json');
+  // Route through `moxxyPath` so a `$MOXXY_HOME` override relocates preferences
+  // alongside the rest of the data dir (config.yaml, vault, providers.json, …).
+  // Identical to `~/.moxxy/preferences.json` when MOXXY_HOME is unset.
+  return moxxyPath('preferences.json');
 }
 
 /**

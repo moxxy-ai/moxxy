@@ -94,4 +94,41 @@ describe('FakeProvider', () => {
     const n = await p.countTokens(req());
     expect(n).toBeGreaterThan(0);
   });
+
+  it('countTokens tolerates circular / BigInt content blocks instead of throwing', async () => {
+    const p = new FakeProvider();
+    const circular: Record<string, unknown> = { type: 'tool_result', big: 1n };
+    circular.self = circular; // both a circular ref and a BigInt — JSON.stringify would throw
+    const n = await p.countTokens({
+      model: 'fake-model',
+      system: 'sys',
+      messages: [{ role: 'user' as const, content: [circular as never] }],
+    });
+    expect(n).toBeGreaterThanOrEqual(0);
+  });
+
+  it('yields a clean abort error when the request is already aborted', async () => {
+    const p = new FakeProvider({ script: [textReply('should-not-stream')] });
+    const ac = new AbortController();
+    ac.abort();
+    const events = [];
+    for await (const e of p.stream({ ...req(), signal: ac.signal })) events.push(e);
+    expect(events).toEqual([{ type: 'error', message: 'aborted', retryable: false }]);
+    // The script cursor must NOT advance on an aborted request, so the scripted
+    // reply is still available for the next (non-aborted) call.
+    let out = '';
+    for await (const e of p.stream(req())) if (e.type === 'text_delta') out += e.delta;
+    expect(out).toBe('should-not-stream');
+  });
+
+  it('stops with an abort error when the signal fires mid-stream', async () => {
+    const ac = new AbortController();
+    const p = new FakeProvider({
+      script: [streamingTextReply(['a', 'b', 'c'])],
+      onRequest: () => ac.abort(), // aborts before any event is yielded
+    });
+    const types: string[] = [];
+    for await (const e of p.stream({ ...req(), signal: ac.signal })) types.push(e.type);
+    expect(types).toEqual(['error']);
+  });
 });

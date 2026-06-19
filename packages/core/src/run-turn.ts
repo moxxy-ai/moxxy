@@ -1,4 +1,4 @@
-import type { EmittedEvent, ModeContext, MoxxyEvent, RunTurnOptions } from '@moxxy/sdk';
+import type { EmittedEvent, LLMProvider, ModeContext, MoxxyEvent, RunTurnOptions } from '@moxxy/sdk';
 import type { SessionRuntime } from './session-runtime.js';
 import { createSubagentSpawner } from './subagents.js';
 
@@ -20,16 +20,11 @@ export async function* runTurn(
   // Use a caller-supplied turnId when present (the runner mints it up front so
   // it can return the id before the turn runs); otherwise mint one here.
   const turnId = opts.turnId ?? session.startTurn().turnId;
-  const provider = session.providers.getActive();
-  const model = opts.model ?? provider.models[0]?.id ?? 'default';
-  // Record the resolution so out-of-band spawns (workflow triggers) can
-  // inherit the conversation's current model. Last-writer-wins when turns
-  // run concurrently — see the field's doc in SessionRuntime.
-  session.lastResolvedModel = model;
 
   const queue: MoxxyEvent[] = [];
   const waiters: Array<() => void> = [];
   let done = false;
+  let completed = false;
   let strategyError: unknown = null;
   // A mode can ask (via ctx.requestModeSwitch) to hand off to another mode
   // once this turn finishes — applied after the strategy drains, below.
@@ -42,6 +37,12 @@ export async function* runTurn(
     wake();
   });
 
+  // Generator-scoped controller so an early consumer return/throw (HTTP client
+  // disconnect, channel teardown) can abort the in-flight strategy instead of
+  // leaving it to run the whole agentic loop to completion in the background
+  // (burning tokens, holding resources) while the abandoned `finally` blocks on
+  // `strategyPromise`.
+  const turnController = new AbortController();
   let strategyPromise: Promise<void> | null = null;
 
   try {
@@ -56,12 +57,46 @@ export async function* runTurn(
         : {}),
     });
 
+    // Resolve provider + model AFTER the prompt is recorded so a
+    // missing/misconfigured provider doesn't silently discard the user's
+    // prompt or orphan the turnId. On failure, append a structured error event
+    // (channels see a normal failed turn) and rethrow.
+    let provider: LLMProvider;
+    let model: string;
+    try {
+      provider = session.providers.getActive();
+      const resolvedModel = opts.model ?? provider.models[0]?.id;
+      if (!resolvedModel) {
+        throw new Error(
+          `Active provider '${provider.name}' has no models configured`,
+        );
+      }
+      model = resolvedModel;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await session.log.append({
+        type: 'error',
+        sessionId: session.id,
+        turnId,
+        source: 'system',
+        kind: 'fatal',
+        message,
+      });
+      throw err;
+    }
+    // Record the resolution so out-of-band spawns (workflow triggers) can
+    // inherit the conversation's current model. Last-writer-wins when turns
+    // run concurrently — see the field's doc in SessionRuntime.
+    session.lastResolvedModel = model;
+
     const strategy = session.modes.getActive();
-    // Combine the session's signal with the per-turn one (if provided)
-    // so either firing cancels the turn.
-    const effectiveSignal = opts.signal
-      ? AbortSignal.any([session.signal, opts.signal])
-      : session.signal;
+    // Combine the session's signal, the per-turn one (if provided), and the
+    // generator-scoped abandonment signal so any of them firing cancels the turn.
+    const effectiveSignal = AbortSignal.any(
+      opts.signal
+        ? [session.signal, opts.signal, turnController.signal]
+        : [session.signal, turnController.signal],
+    );
     // The session's working dir + environment, mirrored onto the ModeContext
     // so the shared tool dispatcher can hand onToolCall hooks the real cwd/env
     // (path-based policy hooks gate on these) instead of empty placeholders.
@@ -105,16 +140,21 @@ export async function* runTurn(
     const turnStartCtx = { ...appCtx, turnId, iteration: 0 };
 
     strategyPromise = (async () => {
+      let started = false;
       try {
         await session.dispatcher.dispatchTurnStart(turnStartCtx);
+        started = true;
         for await (const _ of strategy.run(ctx)) {
           // Events are surfaced via the log subscription above.
           void _;
         }
-        await session.dispatcher.dispatchTurnEnd(turnStartCtx);
       } catch (err) {
         strategyError = err;
       } finally {
+        // turnEnd must pair with turnStart even when the strategy throws/aborts,
+        // so plugins that allocate turn-scoped state in onTurnStart (spans,
+        // timers, token meters) always get the matching teardown.
+        if (started) await session.dispatcher.dispatchTurnEnd(turnStartCtx);
         done = true;
         wake();
       }
@@ -125,8 +165,14 @@ export async function* runTurn(
       if (done) break;
       await new Promise<void>((resolve) => waiters.push(resolve));
     }
+    completed = true;
   } finally {
     unsubscribe();
+    // If the consumer abandoned iteration early (broke out of the `for await`,
+    // an outer error), `completed` is still false: abort the strategy so it
+    // unwinds promptly instead of running the full loop in the background while
+    // this `finally` blocks on `strategyPromise`.
+    if (!completed) turnController.abort('runTurn iteration abandoned');
     if (strategyPromise) await strategyPromise;
     // Apply a mode hand-off the strategy requested, now that the turn has
     // fully drained. Only on clean completion (a thrown/aborted turn keeps

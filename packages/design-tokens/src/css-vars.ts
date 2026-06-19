@@ -5,56 +5,94 @@
  * shipped now but not yet consumed by the desktop (styles.css stays the source
  * of truth) — the parity test guards the mapping so a later switch is safe.
  *
+ * TODO(design-tokens): cut apps/desktop over to {@link generateThemeCss} and
+ * delete the duplicated `:root` / `[data-theme="dark"]` literals in styles.css.
+ * Until then these generators are intentional, parity-tested scaffolding.
+ *
  * Theming: {@link generateThemeCss} additionally emits a
  * `[data-theme="dark"]` block from {@link darkTokens}. The desktop's
  * `useTheme()` controller toggles `data-theme="dark"` on `<html>`; anything
  * reading the variables below re-themes for free.
+ *
+ * DRY: the `[cssVarName, value]` pairs are DERIVED from the token object by a
+ * generic flatten (camelCase leaf path → kebab `--color-…`) so a new token in
+ * `index.ts` flows to CSS automatically. The handful of names that don't follow
+ * the convention live in {@link VAR_NAME_OVERRIDES}; the forward-parity test
+ * asserts every leaf is covered.
  */
 
 import { tokens, darkTokens, type ThemeTokens } from './index.js';
 
-/** Build `[cssVarName, value]` pairs for one palette, in the desktop's
- *  declaration order. Numbers (radii) are emitted with a `px` unit;
- *  everything else is verbatim. */
+/** A flattened leaf of the token object: its dotted path plus the resolved value. */
+interface TokenLeaf {
+  /** Dotted path within the token object, e.g. `color.cardBorderStrong`. */
+  readonly path: string;
+  /** Leaf value, already stringified (radii carry a `px` unit). */
+  readonly value: string;
+}
+
+/** CSS-var names that don't follow the default `--<section>-<kebab-leaf>`
+ *  convention. Keyed by the leaf's dotted token path. Keeping these explicit
+ *  (rather than special-casing inside the flatten) keeps the mapping declarative
+ *  and lets the parity test prove the override table stays exhaustive. */
+const VAR_NAME_OVERRIDES: Readonly<Record<string, string>> = {
+  'shadow.card': '--color-card-shadow',
+  'gradient.user': '--grad-user',
+  'gradient.cta': '--grad-cta',
+  'gradient.accent': '--grad-accent',
+};
+
+/** `camelCase` → `kebab-case` for a single path segment. */
+function kebab(segment: string): string {
+  return segment.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+}
+
+/** Map a leaf's dotted path to its CSS custom-property name, honoring the
+ *  override table for the non-conventional names. */
+function cssVarName(path: string): string {
+  const override = VAR_NAME_OVERRIDES[path];
+  if (override) return override;
+  const segments = path.split('.');
+  return `--${segments.map(kebab).join('-')}`;
+}
+
+/** Recursively flatten a token palette to ordered {@link TokenLeaf}s. Numbers
+ *  (radii) are emitted with a `px` unit; strings are verbatim. Anything that is
+ *  neither a string nor a finite number is rejected loudly — a malformed token
+ *  (object where a leaf is expected, `NaN`, `null`) must fail at generation time
+ *  rather than silently emit `[object Object]` / `NaNpx` into CSS.
+ *
+ *  Exported (internal) so the guard is directly regression-tested; not part of
+ *  the package's documented surface. */
+export function flattenTokens(node: unknown, prefix = ''): TokenLeaf[] {
+  const out: TokenLeaf[] = [];
+  if (node === null || typeof node !== 'object') {
+    // A primitive at the top level is not a valid palette.
+    throw new TypeError(`design-tokens: expected an object palette, got ${typeof node}`);
+  }
+  for (const [key, raw] of Object.entries(node as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (typeof raw === 'string') {
+      out.push({ path, value: raw });
+    } else if (typeof raw === 'number') {
+      if (!Number.isFinite(raw)) {
+        throw new TypeError(`design-tokens: token "${path}" is a non-finite number`);
+      }
+      out.push({ path, value: `${raw}px` });
+    } else if (raw !== null && typeof raw === 'object') {
+      out.push(...flattenTokens(raw, path));
+    } else {
+      throw new TypeError(
+        `design-tokens: token "${path}" has unsupported type ${raw === null ? 'null' : typeof raw}`,
+      );
+    }
+  }
+  return out;
+}
+
+/** Build `[cssVarName, value]` pairs for one palette, in token-declaration order. */
 function varPairs(t: ThemeTokens): ReadonlyArray<readonly [string, string]> {
-  return [
-    ['--color-app-bg', t.color.appBg],
-    ['--color-main-bg', t.color.mainBg],
-    ['--color-surface', t.color.surface],
-    ['--color-input-soft', t.color.inputSoft],
-    ['--color-card-bg', t.color.cardBg],
-    ['--color-card-border', t.color.cardBorder],
-    ['--color-card-border-strong', t.color.cardBorderStrong],
-    ['--color-card-shadow', t.shadow.card],
-    ['--color-text', t.color.text],
-    ['--color-text-muted', t.color.textMuted],
-    ['--color-text-dim', t.color.textDim],
-    ['--color-sidebar-bg', t.color.sidebarBg],
-    ['--color-sidebar-bg-hover', t.color.sidebarBgHover],
-    ['--color-sidebar-bg-active', t.color.sidebarBgActive],
-    ['--color-sidebar-text', t.color.sidebarText],
-    ['--color-sidebar-text-dim', t.color.sidebarTextDim],
-    ['--color-sidebar-border', t.color.sidebarBorder],
-    ['--color-primary', t.color.primary],
-    ['--color-primary-strong', t.color.primaryStrong],
-    ['--color-primary-soft', t.color.primarySoft],
-    ['--color-send', t.color.send],
-    ['--color-accent', t.color.accent],
-    ['--color-accent-strong', t.color.accentStrong],
-    ['--color-purple', t.color.purple],
-    ['--color-green', t.color.green],
-    ['--color-amber', t.color.amber],
-    ['--color-pink', t.color.pink],
-    ['--color-red', t.color.red],
-    ['--grad-user', t.gradient.user],
-    ['--grad-cta', t.gradient.cta],
-    ['--grad-accent', t.gradient.accent],
-    ['--font-sans', t.font.sans],
-    ['--font-mono', t.font.mono],
-    ['--radius-block', `${t.radius.block}px`],
-    ['--radius-card', `${t.radius.card}px`],
-    ['--radius-pill', `${t.radius.pill}px`],
-  ];
+  return flattenTokens(t).map(({ path, value }) => [cssVarName(path), value] as const);
 }
 
 /** `[cssVarName, value]` pairs for the LIGHT (default) palette. */

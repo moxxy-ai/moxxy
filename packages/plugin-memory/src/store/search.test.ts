@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { rankByKeywords } from './search.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { EmbeddingProvider, Mutex } from '@moxxy/sdk';
+import { createMutex } from '@moxxy/sdk';
+import { rankByKeywords, recallVector } from './search.js';
+import { EmbeddingIndex } from '../embedding-cache.js';
 import type { MemoryEntry, MemoryType } from './types.js';
 
 function entry(
@@ -68,5 +74,45 @@ describe('rankByKeywords', () => {
     const e = entry('a', 'desc', 'body', { tags: ['kubernetes', 'infra'] });
     const ranked = rankByKeywords([e], 'kubernetes', 5);
     expect(ranked).toHaveLength(1);
+  });
+});
+
+describe('recallVector dimension-drift hardening', () => {
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-search-'));
+  });
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('skips a cached entry whose vector dim no longer matches the query (no silently-wrong score)', async () => {
+    const mutex: Mutex = createMutex();
+    // Pre-seed the persistent cache with a dim-3 vector for `stale`.
+    const seed = new EmbeddingIndex(tmp, 'drift');
+    const stale = entry('stale', 'stale desc', 'stale body');
+    const corpusText = ['stale', 'stale desc', '', 'stale body'].join('\n');
+    seed.set('stale', corpusText, [1, 0, 0]);
+    await seed.flush();
+
+    // An embedder that now returns dim-2 vectors (model/dim drift). The cached
+    // `stale` entry is dim-3; the fresh query is dim-2.
+    const driftEmbedder: EmbeddingProvider = {
+      name: 'drift',
+      dim: 2,
+      async embed(texts) {
+        return texts.map(() => [1, 0]);
+      },
+    };
+    const index = new EmbeddingIndex(tmp, 'drift'); // no dim → cache not invalidated on dim
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ranked = await recallVector([stale], 'q', 5, driftEmbedder, index, mutex);
+      // The mismatched-dim entry is dropped, not ranked on a truncated basis.
+      expect(ranked).toHaveLength(0);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

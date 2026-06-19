@@ -44,6 +44,10 @@ export async function audioToPcm16(blob: Blob): Promise<Uint8Array> {
 
   // Resample to 24 kHz mono via OfflineAudioContext.
   const targetLength = Math.ceil(decoded.duration * TARGET_SAMPLE_RATE);
+  // A decodable-but-empty clip (sub-sample blip / truncated container) yields a
+  // 0-frame target; OfflineAudioContext(1, 0, …) throws RangeError. The capture
+  // path maps an empty PCM result to a clean "no speech" message, so bail early.
+  if (targetLength <= 0 || decoded.length === 0) return new Uint8Array(0);
   const offline = new OfflineAudioContext(1, targetLength, TARGET_SAMPLE_RATE);
   const src = offline.createBufferSource();
   src.buffer = decoded;
@@ -77,14 +81,15 @@ export function pcm16Peak(bytes: Uint8Array): number {
   return peak / 0x8000;
 }
 
-/** Base64-encode a Uint8Array without spilling the whole string into a single
- *  `String.fromCharCode(...)` call (which blows the V8 stack past ~120 KB).
- *  Chunks the conversion so multi-second clips work. */
+/** Base64-encode a Uint8Array. Builds the binary string with a tight per-byte
+ *  loop (no argument spread) so it can't hit the engine-specific
+ *  `String.fromCharCode(...)` spread limit — historically lower in
+ *  JavaScriptCore, the very older-WebKit target `getAudioContextCtor` caters to —
+ *  on the multi-second clips this path repeatedly handles. */
 export function uint8ArrayToBase64(bytes: Uint8Array): string {
-  const CHUNK = 0x8000;
   let binary = '';
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i] as number);
   }
   return btoa(binary);
 }

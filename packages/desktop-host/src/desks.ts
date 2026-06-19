@@ -63,13 +63,19 @@ export class DeskStore {
       // Light-touch validation: bad shape → start fresh rather than
       // throw and stall onboarding.
       if (!Array.isArray(parsed.desks)) return emptyDoc();
+      // normalizeSessions is the v1→v2 migration (and the repair path
+      // for a hand-edited file): every desk comes out with >= 1 valid
+      // session and an activeSessionId that points at one of them.
+      const desks = parsed.desks.filter(isValidDesk).map(normalizeSessions);
       return {
         version: 2,
-        activeId: parsed.activeId ?? null,
-        // normalizeSessions is the v1→v2 migration (and the repair path
-        // for a hand-edited file): every desk comes out with >= 1 valid
-        // session and an activeSessionId that points at one of them.
-        desks: parsed.desks.filter(isValidDesk).map(normalizeSessions),
+        // A stale/hand-edited activeId can dangle at a removed (or never
+        // existent) desk; resolveDesk()/listSessions would then quietly return
+        // an empty overview and the value would persist across saves. Normalize
+        // it to a real desk: keep it when it points at one, else fall back to
+        // the first desk (or null when there are none).
+        activeId: normalizeActiveId(parsed.activeId ?? null, desks),
+        desks,
       };
     } catch {
       return emptyDoc();
@@ -272,6 +278,13 @@ function nextSessionName(sessions: ReadonlyArray<DeskSession>): string {
 
 function emptyDoc(): DeskDoc {
   return { version: 2, activeId: null, desks: [] };
+}
+
+/** Coerce a persisted activeId to a real desk: keep it when it matches one,
+ *  else default to the first desk (or null when there are none). */
+function normalizeActiveId(activeId: string | null, desks: ReadonlyArray<Desk>): string | null {
+  if (activeId && desks.some((d) => d.id === activeId)) return activeId;
+  return desks[0]?.id ?? null;
 }
 
 function isValidDesk(value: unknown): value is Desk {

@@ -170,7 +170,10 @@ describe('WebhookServer', () => {
     await waitUntil(() => fired.length >= 1);
     expect(fired).toHaveLength(1);
     expect(fired[0]!.outcome.ok).toBe(true);
-    expect(fired[0]!.outcome.text).toContain('ran with prompt: New event: issues');
+    // The header value is fenced as untrusted, so the operator text + the value
+    // appear, just not as one verbatim run.
+    expect(fired[0]!.outcome.text).toContain('ran with prompt: New event:');
+    expect(fired[0]!.outcome.text).toContain('issues');
   });
 
   it('rejects a bad HMAC with 401 and does not fire', async () => {

@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineTool } from '@moxxy/sdk';
+import { defineTool, type SubagentResult, type SubagentSpawner, type ToolContext } from '@moxxy/sdk';
 import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { collectTurn } from '@moxxy/core';
 import { buildDispatchAgentTool } from './dispatch-agent.js';
 
 const dispatchAgentTool = buildDispatchAgentTool({ getAgent: () => undefined });
+
+type DispatchResults = { results: ReadonlyArray<Record<string, unknown>> };
+
+/** Minimal ToolContext carrying only the spawner the handler reads. */
+function ctxWith(spawner: SubagentSpawner): ToolContext {
+  return { subagents: spawner } as unknown as ToolContext;
+}
 
 describe('subagents — basic spawning', () => {
   it('spawns a child that runs a tool and returns its text', async () => {
@@ -225,5 +232,91 @@ describe('subagents — model override validation', () => {
       events.find((e) => e.type === 'plugin_event' && e.subtype === 'subagent_warning'),
     ).toBeUndefined();
     expect(provider.received[1]?.model).toBe('cheap-model');
+  });
+});
+
+describe('subagents — fan-out failure containment', () => {
+  it('degrades a spawnAll rejection to per-child error results instead of crashing the tool', async () => {
+    // The core spawner uses Promise.all; a single child's setup throw rejects
+    // the whole batch and discards siblings. The tool must not propagate that
+    // raw rejection to the loop — it should hand back one error per spec.
+    const spawner: SubagentSpawner = {
+      spawn: async (): Promise<SubagentResult> => {
+        throw new Error('should not be called');
+      },
+      spawnAll: async () => {
+        throw new Error('provider lookup failed');
+      },
+    };
+
+    const out = (await dispatchAgentTool.handler(
+      {
+        agents: [
+          { prompt: 'task one', label: 'one' },
+          { prompt: 'task two', label: 'two' },
+        ],
+      },
+      ctxWith(spawner),
+    )) as DispatchResults;
+
+    expect(out.results).toHaveLength(2);
+    expect(out.results.map((r) => r.label)).toEqual(['one', 'two']);
+    for (const r of out.results) {
+      expect(r.error).toBe('provider lookup failed');
+      expect(r.stopReason).toBe('error');
+      expect(r.text).toBe('');
+    }
+  });
+
+  it('still returns successful results in input order on the happy path', async () => {
+    const spawner: SubagentSpawner = {
+      spawn: async (): Promise<SubagentResult> => {
+        throw new Error('unused');
+      },
+      spawnAll: async (specs) =>
+        specs.map(
+          (s, i): SubagentResult => ({
+            label: s.label ?? `k${i}`,
+            childSessionId: `sess-${i}` as SubagentResult['childSessionId'],
+            text: `done ${i}`,
+            stopReason: 'end_turn',
+          }),
+        ),
+    };
+
+    const out = (await dispatchAgentTool.handler(
+      { agents: [{ prompt: 'a', label: 'x' }, { prompt: 'b', label: 'y' }] },
+      ctxWith(spawner),
+    )) as DispatchResults;
+
+    expect(out.results.map((r) => r.label)).toEqual(['x', 'y']);
+    expect(out.results.every((r) => r.error === undefined)).toBe(true);
+  });
+});
+
+describe('subagents — input bounds', () => {
+  const tool = buildDispatchAgentTool({ getAgent: () => undefined });
+
+  it('rejects an over-long prompt at the schema boundary (before any child is spawned)', () => {
+    // The bound is enforced by the loop's input validation; assert the cap
+    // exists so a regression that drops it is caught here.
+    const schema = tool.inputSchema;
+    const huge = 'x'.repeat(20_001);
+    expect(schema.safeParse({ agents: [{ prompt: huge }] }).success).toBe(false);
+    // A bounded prompt still parses.
+    expect(schema.safeParse({ agents: [{ prompt: 'short' }] }).success).toBe(true);
+  });
+
+  it('rejects an over-long systemPrompt at the schema boundary', () => {
+    const sys = 'y'.repeat(8_001);
+    expect(
+      tool.inputSchema.safeParse({ agents: [{ prompt: 'ok', systemPrompt: sys }] }).success,
+    ).toBe(false);
+  });
+
+  it('rejects more than 8 agents in one batch', () => {
+    const agents = Array.from({ length: 9 }, (_, i) => ({ prompt: `t${i}` }));
+    const parsed = tool.inputSchema.safeParse({ agents });
+    expect(parsed.success).toBe(false);
   });
 });

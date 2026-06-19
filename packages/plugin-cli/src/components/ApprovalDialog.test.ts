@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { jkScrolls } from './ApprovalDialog.js';
+import { jkScrolls, sanitizeEntry } from './ApprovalDialog.js';
 
 const MAX = 20; // mirrors MAX_BODY_LINES
+
+describe('ApprovalDialog sanitizeEntry (multi-line paste must not corrupt the single-line reply)', () => {
+  it('collapses embedded newlines / CR to spaces', () => {
+    expect(sanitizeEntry('line one\nline two')).toBe('line one line two');
+    expect(sanitizeEntry('a\r\nb')).toBe('a b');
+    expect(sanitizeEntry('a\rb')).toBe('a b');
+  });
+
+  it('result never contains a raw newline or carriage return', () => {
+    const out = sanitizeEntry('don\'t write\nso many\r\ndocs\n');
+    expect(out).not.toMatch(/[\r\n]/);
+  });
+
+  it('strips the other control bytes (tab/backspace/del) as before', () => {
+    expect(sanitizeEntry('a\tb\x08\x7fc')).toBe('abc');
+  });
+
+  it('leaves ordinary single-line input untouched', () => {
+    expect(sanitizeEntry('approve please')).toBe('approve please');
+  });
+});
 
 describe('ApprovalDialog jkScrolls (u74-3: j/k must not shadow an option hotkey)', () => {
   it('scrolls on j/k when the body overflows and no option claims the letter', () => {

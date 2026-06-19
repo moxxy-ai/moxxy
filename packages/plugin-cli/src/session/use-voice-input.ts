@@ -68,6 +68,19 @@ export function useVoiceInput(opts: UseVoiceInputOptions): VoiceInputState {
     };
   }, [checkCaptureAvailable]);
 
+  // Unmount safety: if the TUI tears down (Ctrl+C exit, /new, process
+  // teardown) mid-recording, stop the live recorder so the spawned ffmpeg
+  // child is signalled to quit (and SIGKILLed by stopProcess's timer) and the
+  // unbounded PCM buffer it's accumulating is released. Without this the child
+  // keeps the microphone open and grows its in-memory capture forever.
+  useEffect(() => {
+    return () => {
+      const recording = recordingRef.current;
+      recordingRef.current = null;
+      void recording?.stop().catch(() => {});
+    };
+  }, []);
+
   const toggleVoiceInput = useCallback(() => {
     void (async () => {
       if (phaseRef.current === 'transcribing') {

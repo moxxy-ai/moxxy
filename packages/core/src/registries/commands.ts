@@ -39,6 +39,17 @@ export class CommandRegistry {
     }
     this.commands.set(cmd.name, cmd);
     for (const alias of cmd.aliases ?? []) {
+      // Mirror register()'s guards so replace() can't silently hijack an alias
+      // owned by a different command, or shadow another command's primary name.
+      // (The prior def's own aliases were already cleared above, so re-adding
+      // them is fine.)
+      const owner = this.aliases.get(alias);
+      if (owner && owner !== cmd.name) {
+        throw new Error(`Command alias already in use: /${alias}`);
+      }
+      if (this.commands.has(alias) && alias !== cmd.name) {
+        throw new Error(`Command alias already in use as a command name: /${alias}`);
+      }
       this.aliases.set(alias, cmd.name);
     }
   }

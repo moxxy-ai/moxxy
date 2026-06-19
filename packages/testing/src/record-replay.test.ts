@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { LLMProvider } from '@moxxy/sdk';
 import { FakeProvider, textReply } from './fake-provider.js';
 import { RecordedProvider, fixtureMode } from './record-replay.js';
 import { hashRequest } from './hash.js';
@@ -42,6 +43,53 @@ describe('RecordedProvider', () => {
     await expect(async () => {
       for await (const _ of r.stream(req())) void _;
     }).rejects.toThrow(/no fixture/);
+  });
+
+  it('replay rejects a malformed (wrong-shape) fixture with a path-tagged error', async () => {
+    const r = req();
+    const hash = hashRequest(r);
+    const file = path.join(dir, `bad.${hash}.json`);
+    // Valid JSON, but no `events` array — would otherwise blow up as
+    // 'events is not iterable' deep inside the generator.
+    await fs.writeFile(file, JSON.stringify({ hash, request: r, recordedAt: 'x' }));
+    const replayer = new RecordedProvider({ mode: 'replay', fixtureDir: dir, testName: 'bad' });
+    await expect(async () => {
+      for await (const _ of replayer.stream(r)) void _;
+    }).rejects.toThrow(/malformed fixture/);
+  });
+
+  it('replay rejects an unparseable fixture with a path-tagged error', async () => {
+    const r = req();
+    const hash = hashRequest(r);
+    await fs.writeFile(path.join(dir, `corrupt.${hash}.json`), '{ not valid json');
+    const replayer = new RecordedProvider({ mode: 'replay', fixtureDir: dir, testName: 'corrupt' });
+    await expect(async () => {
+      for await (const _ of replayer.stream(r)) void _;
+    }).rejects.toThrow(/unparseable fixture/);
+  });
+
+  it('record mode surfaces a mid-stream upstream failure and writes no fixture', async () => {
+    const exploding: LLMProvider = {
+      name: 'boom',
+      models: [],
+      async *stream() {
+        throw new Error('network drop');
+      },
+      async countTokens() {
+        return 0;
+      },
+    };
+    const recorder = new RecordedProvider({
+      mode: 'record',
+      upstream: exploding,
+      fixtureDir: dir,
+      testName: 'aborted-record',
+    });
+    await expect(async () => {
+      for await (const _ of recorder.stream(req())) void _;
+    }).rejects.toThrow(/failed mid-record/);
+    // A truncated capture must NOT masquerade as a complete fixture.
+    expect(await fs.readdir(dir)).toHaveLength(0);
   });
 
   it('passthrough forwards upstream without writing', async () => {

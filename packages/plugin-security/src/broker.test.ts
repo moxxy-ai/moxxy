@@ -265,6 +265,50 @@ describe('broker: exec', () => {
     if (!res.ok) expect(res.errorMessage).toMatch(/commands allowlist/);
   });
 
+  // MEDIUM (audit): argv must be a string[]; a bare string would be spread
+  // into single-char args by spawn. Reject with a clear error.
+  it('rejects a non-array argv', async () => {
+    const res = await handleBrokerRequest(
+      req('exec', ['/bin/echo', 'abc']),
+      { caps: { subprocess: true }, cwd: '/tmp', signal: new AbortController().signal },
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errorMessage).toMatch(/expected \(argv: string\[\]\)/);
+  });
+
+  it('rejects an argv with a non-string element', async () => {
+    const res = await handleBrokerRequest(
+      req('exec', ['/bin/echo', ['ok', 42]]),
+      { caps: { subprocess: true }, cwd: '/tmp', signal: new AbortController().signal },
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errorMessage).toMatch(/expected \(argv: string\[\]\)/);
+  });
+
+  it('rejects a non-object opts', async () => {
+    const res = await handleBrokerRequest(
+      req('exec', ['/bin/echo', ['ok'], 'not-an-object']),
+      { caps: { subprocess: true }, cwd: '/tmp', signal: new AbortController().signal },
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errorMessage).toMatch(/expected \(opts: object\)/);
+  });
+
+  // MEDIUM (audit): a caller-supplied cwd outside the declared fs.read scope
+  // would let an allowlisted command read data outside its declared scope.
+  it('rejects an opts.cwd outside the declared fs.read scope', async () => {
+    const res = await handleBrokerRequest(
+      req('exec', ['/bin/echo', ['x'], { cwd: '/etc' }]),
+      {
+        caps: { subprocess: true, fs: { read: ['$cwd/**'] } },
+        cwd: '/tmp',
+        signal: new AbortController().signal,
+      },
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errorMessage).toMatch(/cwd .* is outside the tool's declared fs\.read/);
+  });
+
   // u105-3 regression: brokerExec must cap buffered output, not OOM the host.
   it('rejects when subprocess output exceeds the byte cap', async () => {
     // `yes` floods stdout forever; the broker should kill it once the cap is
@@ -405,6 +449,68 @@ describe('broker: fetch redirect re-validation (u105-1)', () => {
   });
 });
 
+// ---------- HIGH (audit): cross-host redirect header stripping ----------
+
+describe('broker: fetch strips credentials across cross-host redirect', () => {
+  let hostA: http.Server;
+  let hostB: http.Server;
+  let portA = 0;
+  let portB = 0;
+  let bReceivedAuth: string | undefined;
+  let bReceivedCookie: string | undefined;
+
+  beforeAll(async () => {
+    // Host B records whatever headers it receives.
+    hostB = http.createServer((reqMsg, res) => {
+      bReceivedAuth = reqMsg.headers['authorization'];
+      bReceivedCookie = reqMsg.headers['cookie'];
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('host-b-landing');
+    });
+    await new Promise<void>((resolve) => hostB.listen(0, '127.0.0.1', resolve));
+    portB = (hostB.address() as AddressInfo).port;
+
+    // Host A 302-redirects to host B (a DIFFERENT origin: different port).
+    hostA = http.createServer((_reqMsg, res) => {
+      res.writeHead(302, { location: `http://127.0.0.1:${portB}/landing` });
+      res.end();
+    });
+    await new Promise<void>((resolve) => hostA.listen(0, '127.0.0.1', resolve));
+    portA = (hostA.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => hostA.close(() => resolve()));
+    await new Promise<void>((resolve) => hostB.close(() => resolve()));
+  });
+
+  it('does NOT forward Authorization/Cookie to a different-origin redirect target', async () => {
+    bReceivedAuth = undefined;
+    bReceivedCookie = undefined;
+    const res = await handleBrokerRequest(
+      req('fetch', [
+        `http://127.0.0.1:${portA}/start`,
+        { headers: { authorization: 'Bearer SECRET-A', cookie: 'sid=abc' } },
+      ]),
+      {
+        // Both ports share host 127.0.0.1, so both are allowlisted by host —
+        // the origin (port) differs, which is what must trigger the strip.
+        caps: { net: { mode: 'allowlist', hosts: ['127.0.0.1'] } },
+        cwd: '/work',
+        signal: new AbortController().signal,
+      },
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const v = res.value as { body: string };
+      expect(v.body).toBe('host-b-landing');
+    }
+    // The credentials set for origin A must NOT have reached origin B.
+    expect(bReceivedAuth).toBeUndefined();
+    expect(bReceivedCookie).toBeUndefined();
+  });
+});
+
 // ---------- u105-3: oversized fetch body ----------
 
 describe('broker: fetch body cap (u105-3)', () => {
@@ -513,5 +619,41 @@ describe('broker: fs symlink escape (u105-4)', () => {
     );
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.value).toBe('in-scope-data');
+  });
+
+  // MEDIUM (audit): a SINGLE-FILE (wildcard-free) cap whose file is a symlink
+  // must not, via the realpath re-check, widen to siblings under the parent.
+  // Old code took dirname(literal) as the scope root, so `read:['<scope>/link']`
+  // where link -> <scope>/sibling validated against the whole '<scope>' dir.
+  it('blocks a single-file cap whose file symlinks to a sibling', async () => {
+    await fs.writeFile(path.join(scope, 'sibling-secret.txt'), 'SIBLING-SECRET');
+    const link = path.join(scope, 'single-link');
+    await fs.symlink(path.join(scope, 'sibling-secret.txt'), link);
+    const res = await handleBrokerRequest(
+      // Cap declares ONLY this exact path — no wildcard.
+      req('fs.readFile', [link]),
+      {
+        caps: { fs: { read: [link] } },
+        cwd: scope,
+        signal: new AbortController().signal,
+      },
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.errorMessage).toMatch(/resolves \(via symlink\) to/);
+  });
+
+  it('still allows a single-file cap on a real (non-symlink) file', async () => {
+    const file = path.join(scope, 'plain.txt');
+    await fs.writeFile(file, 'plain-data');
+    const res = await handleBrokerRequest(
+      req('fs.readFile', [file]),
+      {
+        caps: { fs: { read: [file] } },
+        cwd: scope,
+        signal: new AbortController().signal,
+      },
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value).toBe('plain-data');
   });
 });

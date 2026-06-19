@@ -142,6 +142,39 @@ describe('wrapMcpServerTools', () => {
     controller.abort();
     await expect(tools[0]!.handler({ url: 'x' }, ctx)).rejects.toThrow(/aborted/);
   });
+
+  it('rejects a missing required field WITHOUT calling the server', async () => {
+    const client = makeFakeClient();
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    // `fetch` declares required: ['url']; emit it missing.
+    const result = await tools[0]!.handler({}, baseCtx());
+    expect(result).toMatch(/invalid arguments.*missing required field "url"/);
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('rejects a wrong primitive type WITHOUT calling the server', async () => {
+    const client = makeFakeClient();
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    const result = await tools[0]!.handler({ url: 123 }, baseCtx());
+    expect(result).toMatch(/field "url" must be of type string/);
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('forwards a well-formed call that satisfies the declared schema', async () => {
+    const client = makeFakeClient();
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    const result = await tools[0]!.handler({ url: 'https://ok' }, baseCtx());
+    expect(result).toBe('called fetch');
+    expect(client.calls).toEqual([{ name: 'fetch', arguments: { url: 'https://ok' } }]);
+  });
+
+  it('does not reject when the server declares no usable schema', async () => {
+    const client = makeFakeClient();
+    const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
+    // `shell` (tools[1]) declares only { type: 'object' } — anything passes.
+    const result = await tools[1]!.handler({ anything: ['goes'] }, baseCtx());
+    expect(result).toBe('called shell');
+  });
 });
 
 describe('runMcpCallWithFallback (timeout + settle-once)', () => {

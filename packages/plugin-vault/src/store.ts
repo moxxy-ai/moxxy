@@ -24,6 +24,11 @@ interface VaultFile {
 
 const CANARY_PLAINTEXT = 'moxxy:vault:v1';
 
+// Upper bound on filesystem mtime granularity (HFS+/old ext are ~1-2s). Within
+// this window of "now" an unchanged (mtime,size) fingerprint can't be trusted
+// to mean "no other writer", so syncFromDisk re-reads instead of fast-pathing.
+const MTIME_GRANULARITY_MS = 2000;
+
 /**
  * Thrown when the supplied passphrase doesn't match the stored vault.
  * Surfaced to the user with a recovery hint instead of the raw AES-GCM
@@ -100,7 +105,7 @@ export class VaultStore {
     }
     if (raw === null) {
       const salt = generateSalt();
-      this.masterKey = await this.keySource.obtain(salt);
+      this.masterKey = await this.obtainOwnedKey(salt);
       this.file = {
         version: 1,
         kdf: 'scrypt',
@@ -111,18 +116,30 @@ export class VaultStore {
       await this.persist();
       return;
     }
-    const parsed = JSON.parse(raw) as VaultFile;
+    let parsedRaw: unknown;
+    try {
+      parsedRaw = JSON.parse(raw);
+    } catch {
+      throw this.corruptError('Vault file is not valid JSON');
+    }
+    if (!isPlainObject(parsedRaw)) {
+      throw this.corruptError('Vault file is not a JSON object');
+    }
+    const parsed = parsedRaw as Partial<VaultFile>;
     if (parsed.version !== 1 || parsed.kdf !== 'scrypt') {
       throw new MoxxyError({
         code: 'VAULT_CORRUPT',
-        message: `Unsupported vault file: version=${parsed.version} kdf=${parsed.kdf}`,
+        message: `Unsupported vault file: version=${String(parsed.version)} kdf=${String(parsed.kdf)}`,
         hint: `This vault was written by an incompatible version. Back up and remove ${this.filePath} to re-initialize.`,
         context: { filePath: this.filePath },
       });
     }
+    if (!validateVaultFile(parsed)) {
+      throw this.corruptError('Vault file is malformed (bad salt/entries/canary shape)');
+    }
     this.file = parsed;
     const salt = Buffer.from(parsed.salt, 'base64');
-    this.masterKey = await this.keySource.obtain(salt);
+    this.masterKey = await this.obtainOwnedKey(salt);
     this.verifyPassphrase();
     // Backfill the canary on the first successful open of a legacy vault.
     if (!this.file.canary) {
@@ -133,6 +150,24 @@ export class VaultStore {
         // Best-effort — failing to backfill doesn't break the open.
       }
     }
+  }
+
+  /**
+   * Obtain the master key and return a copy the store solely owns. Key sources
+   * may hand back a buffer they (or the caller) keep a reference to — copying
+   * lets `close()` zero our buffer without corrupting that shared one.
+   */
+  private async obtainOwnedKey(salt: Buffer): Promise<Buffer> {
+    return Buffer.from(await this.keySource.obtain(salt));
+  }
+
+  private corruptError(message: string): MoxxyError {
+    return new MoxxyError({
+      code: 'VAULT_CORRUPT',
+      message,
+      hint: `Back up and remove ${this.filePath} to re-initialize the vault.`,
+      context: { filePath: this.filePath },
+    });
   }
 
   /**
@@ -184,17 +219,37 @@ export class VaultStore {
       if (isEnoent(err)) return; // deleted out from under us — keep memory
       throw err;
     }
-    if (this.lastSynced && st.mtimeMs === this.lastSynced.mtimeMs && st.size === this.lastSynced.size) {
+    // Fast path: skip the read+merge only when the stat fingerprint is
+    // unchanged AND it has aged past the filesystem's mtime granularity. On
+    // coarse-mtime filesystems (HFS+, older ext) two writes inside the same
+    // ~1-2s tick that also produce an identical byte length share a
+    // (mtime,size) fingerprint, so a recent match might hide a sibling write.
+    // The merge is idempotent and cheap, so when in doubt we re-read.
+    if (
+      this.lastSynced &&
+      st.mtimeMs === this.lastSynced.mtimeMs &&
+      st.size === this.lastSynced.size &&
+      Date.now() - st.mtimeMs > MTIME_GRANULARITY_MS
+    ) {
       return;
     }
-    let parsed: VaultFile;
+    let parsedRaw: unknown;
     try {
-      parsed = JSON.parse(await fs.readFile(this.filePath, 'utf8')) as VaultFile;
+      parsedRaw = JSON.parse(await fs.readFile(this.filePath, 'utf8'));
     } catch {
       return;
     }
-    if (parsed.version !== 1 || parsed.kdf !== 'scrypt' || parsed.salt !== this.file.salt) return;
-    this.file = { ...this.file, entries: mergeEntries(this.file.entries, parsed.entries ?? {}) };
+    if (!isPlainObject(parsedRaw)) return;
+    const parsed = parsedRaw as Partial<VaultFile>;
+    if (
+      parsed.version !== 1 ||
+      parsed.kdf !== 'scrypt' ||
+      parsed.salt !== this.file.salt ||
+      !validateVaultFile(parsed)
+    ) {
+      return;
+    }
+    this.file = { ...this.file, entries: mergeEntries(this.file.entries, parsed.entries) };
     // Fingerprint from BEFORE the read: if a write landed in between, the
     // next sync simply re-reads — never the other way around.
     this.lastSynced = { mtimeMs: st.mtimeMs, size: st.size };
@@ -208,12 +263,13 @@ export class VaultStore {
   private async persist(): Promise<void> {
     if (!this.file) return;
     await writeFileAtomic(this.filePath, JSON.stringify(this.file, null, 2), { mode: 0o600 });
-    try {
-      const st = await fs.stat(this.filePath);
-      this.lastSynced = { mtimeMs: st.mtimeMs, size: st.size };
-    } catch {
-      this.lastSynced = null;
-    }
+    // Force the next syncFromDisk() to re-read rather than recording a stat
+    // here: between our rename and a post-write fs.stat another process may
+    // have renamed ITS version in, so the fingerprint we'd capture could be
+    // a foreign file's — which would then make us skip reading the very
+    // update we're out of sync with. Dropping the fingerprint costs one
+    // extra (idempotent, merge-only) read on the next access.
+    this.lastSynced = null;
   }
 
   async set(name: string, value: string, tags?: ReadonlyArray<string>): Promise<void> {
@@ -242,17 +298,24 @@ export class VaultStore {
 
   async get(name: string): Promise<string | null> {
     await this.open();
-    await this.mutex.run(() => this.syncFromDisk());
-    if (!this.file || !this.masterKey) throw new Error('vault not open');
-    const entry = this.file.entries[name];
-    if (!entry) return null;
-    return decrypt(entry, this.masterKey);
+    // Read the entry inside the same mutex turn as syncFromDisk so a
+    // concurrent set()/delete() (which replaces this.file wholesale) can't
+    // swap the snapshot out between the sync and the decrypt.
+    return this.mutex.run(async () => {
+      await this.syncFromDisk();
+      if (!this.file || !this.masterKey) throw new Error('vault not open');
+      const entry = this.file.entries[name];
+      if (!entry) return null;
+      return decrypt(entry, this.masterKey);
+    });
   }
 
   async has(name: string): Promise<boolean> {
     await this.open();
-    await this.mutex.run(() => this.syncFromDisk());
-    return Boolean(this.file?.entries[name]);
+    return this.mutex.run(async () => {
+      await this.syncFromDisk();
+      return Boolean(this.file?.entries[name]);
+    });
   }
 
   async delete(name: string): Promise<boolean> {
@@ -271,14 +334,34 @@ export class VaultStore {
 
   async list(): Promise<ReadonlyArray<VaultEntryInfo>> {
     await this.open();
-    await this.mutex.run(() => this.syncFromDisk());
-    if (!this.file) return [];
-    return Object.entries(this.file.entries).map(([name, e]) => ({
-      name,
-      createdAt: e.createdAt,
-      updatedAt: e.updatedAt,
-      tags: e.tags,
-    }));
+    return this.mutex.run(async () => {
+      await this.syncFromDisk();
+      if (!this.file) return [];
+      return Object.entries(this.file.entries).map(([name, e]) => ({
+        name,
+        createdAt: e.createdAt,
+        updatedAt: e.updatedAt,
+        tags: e.tags,
+      }));
+    });
+  }
+
+  /**
+   * Wipe the in-memory master key and cached file so the AES key is no longer
+   * recoverable from a heap/core dump or swap after the store is done. The
+   * store can be reopened — `open()` re-derives the key. Returned plaintext
+   * strings from `get()` cannot be wiped (JS strings are immutable); only the
+   * long-lived key Buffer is zeroed here.
+   */
+  close(): void {
+    this.masterKey?.fill(0);
+    this.masterKey = null;
+    this.file = null;
+    this.lastSynced = null;
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
   }
 }
 
@@ -305,6 +388,39 @@ function mergeEntries(
 
 function isEnoent(err: unknown): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isEncryptedBlob(v: unknown): v is EncryptedBlob {
+  return (
+    isPlainObject(v) &&
+    typeof v.iv === 'string' &&
+    typeof v.tag === 'string' &&
+    typeof v.data === 'string'
+  );
+}
+
+/**
+ * Structural validation of a parsed vault file beyond the version/kdf gate:
+ * `salt` is a string, `entries` is a plain object whose every value is a
+ * well-formed encrypted blob (with createdAt/updatedAt strings), and `canary`
+ * (when present) is a blob. Guards against partial writes / manual edits that
+ * are valid JSON but would otherwise throw a raw TypeError in
+ * verifyPassphrase()/list() instead of a friendly VAULT_CORRUPT error.
+ */
+function validateVaultFile(parsed: Partial<VaultFile>): parsed is VaultFile {
+  if (typeof parsed.salt !== 'string') return false;
+  if (!isPlainObject(parsed.entries)) return false;
+  for (const entry of Object.values(parsed.entries)) {
+    if (!isEncryptedBlob(entry)) return false;
+    const e = entry as Partial<VaultEntry>;
+    if (typeof e.createdAt !== 'string' || typeof e.updatedAt !== 'string') return false;
+  }
+  if (parsed.canary !== undefined && !isEncryptedBlob(parsed.canary)) return false;
+  return true;
 }
 
 function firstEntry(entries: Record<string, VaultEntry>): VaultEntry | undefined {

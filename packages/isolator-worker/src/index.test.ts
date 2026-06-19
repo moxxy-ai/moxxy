@@ -94,6 +94,64 @@ describe('workerIsolator', () => {
     ).rejects.toThrow(/intentional failure/);
   });
 
+  // A malformed cap declaration must fail loudly rather than silently
+  // disabling the headline memory / wall-clock guarantees.
+  it('rejects a non-finite timeMs cap instead of collapsing the timer', async () => {
+    const iso = createWorkerIsolator();
+    await expect(
+      iso.run(
+        call(),
+        async () => 'unused',
+        { timeMs: Number.NaN },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/non-finite cap/);
+  });
+
+  it('rejects a non-finite memMb cap instead of building an invalid worker', async () => {
+    const iso = createWorkerIsolator();
+    await expect(
+      iso.run(
+        call(),
+        async () => 'unused',
+        { memMb: Number.POSITIVE_INFINITY },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/non-finite cap/);
+  });
+
+  // A negative / zero / fractional cap is clamped to a floor rather than
+  // throwing an opaque V8 error or silently meaning "unlimited"; the
+  // happy path must still complete.
+  it('clamps an out-of-range memMb to the 16MB floor and still runs', async () => {
+    const iso = createWorkerIsolator();
+    const out = await iso.run(
+      call(),
+      async () => 'unused',
+      { memMb: 0, timeMs: 5000 },
+      new AbortController().signal,
+    );
+    expect(out).toEqual({ input: { foo: 'bar' }, sessionId: 's1', cwd: '/work' });
+  });
+
+  // A worker that exits cleanly (code 0) without ever posting a terminal
+  // `result` is a protocol violation; the parent must reject promptly
+  // instead of stalling the caller until the wall-clock budget fires.
+  it('rejects fast when the worker exits without producing a result', async () => {
+    const iso = createWorkerIsolator();
+    const started = Date.now();
+    await expect(
+      iso.run(
+        call({ moduleRef: { url: fixtureUrl, export: 'cleanExitHandler' }, input: {} }),
+        async () => 'unused',
+        { timeMs: 10_000 },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/exited .* before producing a result/);
+    // Must not have waited out the 10s budget.
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
   // The boundary test. We set a global in the main thread, then ask
   // the worker to read it. The worker must NOT see it — that's the
   // entire justification for the 'worker' strength claim. If this

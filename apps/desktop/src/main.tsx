@@ -26,8 +26,17 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 // stay allowed for the dev (Vite) origin + the file:// fallback path. Pair this
 // with the SAME origins added to the Clerk dashboard's allowed origins /
 // redirect URLs (the server-side check — see docs/desktop-clerk-loopback-subdomain.md).
-const REDIRECT_ORIGINS =
-  /^(https:\/\/desktop\.moxxy\.ai|http:\/\/(127\.0\.0\.1|localhost)):(51789|51790|51791|51792)$/;
+//
+// These ports MUST stay in lockstep with the main process's LOOPBACK_PORTS
+// (electron/main/index.ts) — they are the same serving origin. Building the
+// regex from a named array (rather than baking the magic numbers into a regex
+// literal) keeps the link visible; a mismatch here silently strands OAuth on
+// the hosted portal. TODO(cross-package): hoist LOOPBACK_PORTS into a shared
+// constants module both sides import so this can't drift at all.
+const LOOPBACK_PORTS = [51789, 51790, 51791, 51792] as const;
+const REDIRECT_ORIGINS = new RegExp(
+  `^(https://desktop\\.moxxy\\.ai|http://(127\\.0\\.0\\.1|localhost)):(?:${LOOPBACK_PORTS.join('|')})$`,
+);
 
 // Reactive view of the app theme. `useTheme()` (mounted once in App, inside
 // the provider) owns the `data-theme` attribute on <html> — observing that

@@ -133,6 +133,32 @@ export async function streamChildEventToParent(
   }
 }
 
+/** Max chars of a forwarded child tool output/error mirrored onto the parent log. */
+const MAX_FORWARD_CHARS = 16 * 1024;
+
+/**
+ * Bound an arbitrary child tool result before mirroring it onto the parent log.
+ * Strings are truncated with an elision marker; other values pass through when
+ * their serialized length is small and are replaced with a marker when not (we
+ * avoid re-parsing — the full payload still lives in the child log).
+ */
+function truncateForward(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return value.length > MAX_FORWARD_CHARS
+      ? `${value.slice(0, MAX_FORWARD_CHARS)}… [${value.length - MAX_FORWARD_CHARS} more chars elided]`
+      : value;
+  }
+  if (value === null || value === undefined || typeof value !== 'object') return value;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return '[unserializable subagent output elided]';
+  }
+  if (serialized.length <= MAX_FORWARD_CHARS) return value;
+  return `${serialized.slice(0, MAX_FORWARD_CHARS)}… [${serialized.length - MAX_FORWARD_CHARS} more chars elided]`;
+}
+
 function mapChildEvent(
   label: string,
   childSessionId: SessionId,
@@ -154,8 +180,12 @@ function mapChildEvent(
     case 'tool_result':
       payload.callId = String(childEvt.callId);
       payload.ok = childEvt.ok;
-      if (childEvt.ok) payload.output = childEvt.output;
-      else payload.error = childEvt.error;
+      // Child tool outputs are `unknown` and unbounded (a child Read/Bash can
+      // return multi-MB blobs). Forwarding them verbatim copies the full payload
+      // into the in-memory parent log too — doubling memory/persistence cost and
+      // multiplying it under deep nesting. The TUI only needs a preview, so cap it.
+      if (childEvt.ok) payload.output = truncateForward(childEvt.output);
+      else payload.error = truncateForward(childEvt.error);
       return { subtype: 'subagent_tool_result', payload };
     case 'error':
       payload.kind = childEvt.kind;

@@ -31,4 +31,4 @@ session.modes.setActive('default');
 
 ## See also
 
-- [Modes guide](../guides/modes) — comparison with `goal` and `research`.
+- [Modes guide](../guides/modes.md) — comparison with `goal` and `research`.

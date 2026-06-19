@@ -59,6 +59,10 @@ export interface Slot {
   autoApprove: boolean;
   lastSeenRev: number;
   queue: ReadonlyArray<QueuedTurn>;
+  /** Monotonic per-slot counter for queued-turn ids. NOT derived from
+   *  `queue.length`/`rev` (both can repeat after a shift), so ids never
+   *  collide — `dropFromQueue` and React keys stay unambiguous. */
+  queueSeq: number;
   /** Runner `seq` cursor for the next-older page, or null at the start of
    *  history. */
   oldestCursor: number | null;
@@ -104,6 +108,7 @@ export function createSlot(): Slot {
     autoApprove: false,
     lastSeenRev: 0,
     queue: EMPTY_QUEUE,
+    queueSeq: 0,
     oldestCursor: null,
     hasOlder: false,
     loaded: false,

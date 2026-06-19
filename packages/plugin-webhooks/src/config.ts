@@ -27,6 +27,19 @@ export const webhookConfigSchema = z.object({
 
 export type WebhookConfig = z.infer<typeof webhookConfigSchema>;
 
+/**
+ * True when `host` only binds the local machine. Anything else (`0.0.0.0`,
+ * `::`, a LAN/public IP, a hostname) exposes the unauthenticated POST surface
+ * to other hosts — callers warn loudly on a non-loopback bind, especially when
+ * a trigger uses verification:'none'.
+ */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  if (h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '[::1]') return true;
+  // The whole 127.0.0.0/8 block is loopback.
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+
 const fileSchema = z.object({
   version: z.literal(1),
   config: webhookConfigSchema,

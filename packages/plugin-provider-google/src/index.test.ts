@@ -20,16 +20,23 @@ describe('@moxxy/plugin-provider-google', () => {
     expect(client.models).toEqual(geminiModels);
   });
 
-  it('exposes an apiKey auth descriptor', () => {
-    expect(googleProviderDef.auth).toMatchObject({ kind: 'apiKey' });
+  it('exposes an apiKey auth descriptor pinned to the canonical GOOGLE_API_KEY env var', () => {
+    expect(googleProviderDef.auth).toMatchObject({ kind: 'apiKey', envVar: 'GOOGLE_API_KEY' });
   });
 
-  it('every Gemini model the header calls multimodal carries supportsImages + supportsDocuments', () => {
-    // The header states the 2.5/3 families are natively multimodal and accept
-    // native PDF input; the desktop gates raw-PDF shipping on supportsDocuments.
+  it('every Gemini model advertises supportsImages (image_url data URLs are honored by the compat endpoint)', () => {
     for (const m of geminiModels) {
       expect(m.supportsImages, `${m.id} supportsImages`).toBe(true);
-      expect(m.supportsDocuments, `${m.id} supportsDocuments`).toBe(true);
+    }
+  });
+
+  it('no Gemini model over-claims supportsDocuments (the OpenAI-compat endpoint rejects the file part)', () => {
+    // Worst case if this regresses: the desktop ships raw PDF bytes as an
+    // OpenAI `file`/`file_data` part the Gemini compat endpoint does not honor,
+    // so the document is dropped/400s with no fallback. Keeping the flag unset
+    // preserves the safe extracted-text path.
+    for (const m of geminiModels) {
+      expect(m.supportsDocuments, `${m.id} supportsDocuments`).toBeFalsy();
     }
   });
 

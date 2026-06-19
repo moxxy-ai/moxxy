@@ -160,6 +160,7 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     coordinatorSessionId: String(ctx.sessionId),
     parentTask: task,
     ...(cfg.defaultModel ? { defaultModel: cfg.defaultModel } : {}),
+    peerMaxIterations: cfg.peerMaxIterations,
     signal: ctx.signal,
   };
   supervisor = (deps.createSupervisor ?? ((o) => new PeerSupervisor(o)))(supervisorOpts, hub);
@@ -246,6 +247,12 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
       }
       await waitForAgents(hub, supervisor, roster.map((r) => r.id), ctx.signal, cfg.wallClockMs);
       yield* surfaceFailures(ctx, hub, supervisor, roster.map((r) => r.id));
+      // Stop every peer process (await its real exit) BEFORE integrate commits/
+      // merges its worktree. waitForAgents can return on wall-clock/abort while a
+      // peer is still genuinely writing; without this, integrate() would snapshot
+      // a worktree a live child is concurrently mutating. stop() is a no-op for
+      // already-exited (done/crashed) children, so the happy path is unchanged.
+      await Promise.all(roster.map((r) => supervisor!.stop(r.id)));
       for (const r of roster) if (statusOf(hub, r.id) === 'done') doneIds.push(r.id);
     } else {
       // Sequential fallback (no git): one agent at a time, in the shared workspace.
@@ -279,6 +286,7 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
         worktrees,
         board: hub.state.boardItems(),
         mergePolicy: cfg.mergePolicy,
+        verifyGate: cfg.verifyGate,
       });
       mergeForArchive = {
         merged: result.merged,
@@ -310,6 +318,18 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     );
     completed = true;
     yield await ctx.emit(plugin(ctx, 'collab_completed', { done: doneIds, total: roster.length }));
+  } catch (err) {
+    // A git-layer throw (worktree add on a leftover path, checkout, base resolve,
+    // disk full mid-integrate) would otherwise reject the async generator as an
+    // unhandled error — the user sees a raw crash and the turn ends abnormally.
+    // Degrade gracefully: surface a clean failure event + message, then let the
+    // finally tear everything down (and archive the run as 'failed'). `completed`
+    // stays false so the archive outcome is correct.
+    const message = err instanceof Error ? err.message : String(err);
+    yield await ctx.emit(plugin(ctx, 'collab_failed', { message }));
+    yield await ctx.emit(
+      assistant(ctx, `The collaboration could not finish — ${message}. Any partial work was left on its branch; cleaning up.`),
+    );
   } finally {
     if (supervisor) await supervisor.shutdownAll('collaboration complete');
     // Archive the run (durable history) BEFORE tearing the hub down — the record
@@ -374,12 +394,17 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
       await removeWorktree(cwd, wt).catch(() => undefined);
     }
     // Drop the transient socket dir; the durable run record is archived
-    // elsewhere (see the archive step), not here.
+    // elsewhere (see the archive step), not here. A recursive delete can partially
+    // fail (EBUSY/ENOTEMPTY) if a peer hasn't fully released a unix socket fd;
+    // log it under MOXXY_DEBUG instead of swallowing so a genuinely-failing
+    // cleanup (permissions) is diagnosable and orphan dirs don't vanish silently.
     try {
       rmSync(collabRunDir(runId), { recursive: true, force: true });
       rmSync(worktreeRoot(runId), { recursive: true, force: true });
-    } catch {
-      // best-effort
+    } catch (err) {
+      if (process.env.MOXXY_DEBUG) {
+        process.stderr.write(`[collab] run-dir cleanup failed for ${runId}: ${(err as Error).message}\n`);
+      }
     }
     // Prune any worktree metadata left dangling by a hard-deleted dir (e.g. an
     // integrate staging worktree that never reached its own removeWorktree).

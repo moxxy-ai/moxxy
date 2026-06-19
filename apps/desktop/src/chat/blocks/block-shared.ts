@@ -17,13 +17,28 @@ export const preStyle: React.CSSProperties = {
   overflow: 'auto',
 };
 
+/** Hard cap on the rendered tool-body string. A hostile/large tool result
+ *  (multi-MB file dumps, base64, deeply-nested JSON) would otherwise be fully
+ *  materialised into a DOM text node on every expand. We stringify, then clamp
+ *  to this many characters with a suffix telling the user how much was dropped. */
+const MAX_PRETTY_CHARS = 100_000;
+
+function clamp(text: string): string {
+  if (text.length <= MAX_PRETTY_CHARS) return text;
+  const dropped = text.length - MAX_PRETTY_CHARS;
+  return `${text.slice(0, MAX_PRETTY_CHARS)}\n… ${dropped.toLocaleString()} more chars truncated`;
+}
+
 /** Pretty 2-space JSON for the expanded tool body (distinct from
- *  chat-model's single-line `stringify`, which feeds summaries). */
+ *  chat-model's single-line `stringify`, which feeds summaries). Bounded so a
+ *  huge tool payload can't blow up the DOM / retained allocation. */
 export function pretty(value: unknown): string {
-  if (typeof value === 'string') return value;
+  if (typeof value === 'string') return clamp(value);
   try {
-    return JSON.stringify(value, null, 2);
+    // JSON.stringify of a very large/deeply-nested object can be slow or throw
+    // RangeError; the catch falls back to String(value), which we also clamp.
+    return clamp(JSON.stringify(value, null, 2) ?? String(value));
   } catch {
-    return String(value);
+    return clamp(String(value));
   }
 }

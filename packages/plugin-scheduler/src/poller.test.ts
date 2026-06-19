@@ -192,6 +192,87 @@ describe('SchedulerPoller integration', () => {
     expect(fired).toBe(1);
   });
 
+  it('does NOT re-fire a one-shot whose disable-write keeps throwing (u-refire)', async () => {
+    await store.create({ name: 'once', prompt: 'fire', runAt: Date.now() - 1000 });
+
+    // list() returns the still-enabled due row (the disable patch never lands
+    // because update() always throws). Without the in-memory firedKeys guard
+    // the prompt's real side effects would re-run on every tick.
+    const throwingStore = Object.assign(Object.create(Object.getPrototypeOf(store) as object), store, {
+      list: () => store.list(),
+      update: async () => {
+        throw new Error('store update failed');
+      },
+    }) as ScheduleStore;
+
+    const calls: string[] = [];
+    const poller = new SchedulerPoller({
+      store: throwingStore,
+      runner: {
+        runPrompt: async ({ prompt }) => {
+          calls.push(prompt);
+          return { text: 'done' };
+        },
+      },
+      inbox: { dir: inboxDir },
+    });
+
+    await poller.tickOnce();
+    await poller.tickOnce();
+    await poller.tickOnce();
+    // Fired exactly once despite three ticks and a persistently-failing write.
+    expect(calls).toEqual(['fire']);
+  });
+
+  it('one bad-timeZone row never aborts evaluation of the rows after it (u-tz)', async () => {
+    // Synthesize a store snapshot with a malformed (non-IANA) timeZone on the
+    // FIRST row and a genuinely-due row after it. A throw from the first row's
+    // isDue would, pre-fix, unwind the for-loop and the second row would never
+    // fire. Bypass the store schema (which now rejects such a zone) to model a
+    // legacy/hand-edited row.
+    const now = Date.now();
+    const badRow = {
+      id: 'bad',
+      name: 'bad',
+      prompt: 'never',
+      cron: '* * * * *',
+      timeZone: 'Mars/Phobos',
+      enabled: true,
+      source: 'manual' as const,
+      createdAt: now - 120_000,
+    };
+    const goodRow = {
+      id: 'good',
+      name: 'good',
+      prompt: 'wake up',
+      cron: '* * * * *',
+      enabled: true,
+      source: 'manual' as const,
+      createdAt: now - 120_000,
+    };
+    const fakeStore = Object.assign(Object.create(Object.getPrototypeOf(store) as object), store, {
+      list: async () => [badRow, goodRow],
+      update: async () => null,
+    }) as ScheduleStore;
+
+    const calls: string[] = [];
+    const poller = new SchedulerPoller({
+      store: fakeStore,
+      runner: {
+        runPrompt: async ({ prompt }) => {
+          calls.push(prompt);
+          return { text: 'ok' };
+        },
+      },
+      inbox: { dir: inboxDir },
+    });
+    const fired = await poller.tickOnce();
+    // The bad row is never due (its zone is unusable → null next-fire); the
+    // good row after it still fires.
+    expect(fired).toBe(1);
+    expect(calls).toEqual(['wake up']);
+  });
+
   it('one-shot fires once then disables itself', async () => {
     await store.create({
       name: 'once',

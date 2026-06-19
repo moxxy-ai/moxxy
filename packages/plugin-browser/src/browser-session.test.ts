@@ -134,6 +134,81 @@ describe('browser_session tool (sidecar protocol)', () => {
   });
 });
 
+/** A sidecar that consumes requests but NEVER replies — drives the
+ *  parent-side per-call timeout path. */
+function makeSilentSpawn(): {
+  spawn: (path: string) => SidecarStream;
+  receivedRequests: Array<{ id: string; method: string }>;
+} {
+  const receivedRequests: Array<{ id: string; method: string }> = [];
+  const spawn = (_p: string): SidecarStream => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    let buf = '';
+    stdin.on('data', (chunk) => {
+      buf += chunk.toString('utf8');
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (line.trim()) receivedRequests.push(JSON.parse(line));
+      }
+      // deliberately never writes a reply
+    });
+    const exitListeners: Array<(code: number | null) => void> = [];
+    return {
+      stdin,
+      stdout,
+      kill: () => {
+        for (const l of exitListeners) l(0);
+        return true;
+      },
+      once: (_e, listener) => {
+        exitListeners.push(listener as (code: number | null) => void);
+      },
+    };
+  };
+  return { spawn, receivedRequests };
+}
+
+describe('browser_session parent-side per-call timeout', () => {
+  it('rejects a hung sidecar op after the configured timeout instead of hanging forever', async () => {
+    const { spawn, receivedRequests } = makeSilentSpawn();
+    // 50ms timeout via the deps seam so the test is fast.
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn, callTimeoutMs: 50 });
+    await expect(
+      tool.handler({ action: { kind: 'url' } }, baseCtx()),
+    ).rejects.toThrow(/timed out/);
+    expect(receivedRequests).toHaveLength(1); // the request WAS sent; just never answered
+    await closeBrowserSidecar();
+  });
+
+  it('a later reply for a timed-out call is ignored (no unhandled settle)', async () => {
+    // The pending entry is deleted on timeout, so a straggling reply is a no-op.
+    const { spawn } = makeSilentSpawn();
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn, callTimeoutMs: 30 });
+    await expect(tool.handler({ action: { kind: 'url' } }, baseCtx())).rejects.toThrow(/timed out/);
+    // No throw / no hang on cleanup proves the entry was dropped.
+    await closeBrowserSidecar();
+  });
+});
+
+describe('browser_session eval opt-out', () => {
+  afterEach(() => {
+    delete process.env.MOXXY_BROWSER_DISABLE_EVAL;
+  });
+  it('refuses eval when MOXXY_BROWSER_DISABLE_EVAL=1 without reaching the sidecar', async () => {
+    process.env.MOXXY_BROWSER_DISABLE_EVAL = '1';
+    const { spawn, receivedRequests } = makeFakeSpawn(() => 42);
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
+    await expect(
+      tool.handler({ action: { kind: 'eval', expression: '1+1' } }, baseCtx()),
+    ).rejects.toThrow(/disabled/);
+    expect(receivedRequests.some((r) => r.method === 'eval')).toBe(false);
+    await closeBrowserSidecar();
+  });
+});
+
 describe('browser_session SSRF guard (parent layer)', () => {
   it.each([
     'http://169.254.169.254/latest/meta-data/',

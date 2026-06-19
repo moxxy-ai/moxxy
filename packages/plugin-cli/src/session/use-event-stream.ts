@@ -1,6 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { MoxxyEvent, ClientSession as Session } from '@moxxy/sdk';
 
+/**
+ * High-water cap on the in-renderer event window. `events` is the live render
+ * source for the chat; older history is in the persisted log/scrollback, so a
+ * very long session doesn't need every event retained in memory. tool_result
+ * events can carry large payloads, so an uncapped array climbs steadily over
+ * hundreds of turns. We keep the most recent slice and drop the oldest once
+ * the cap is exceeded — large enough that ordinary tool/result pairing within
+ * a turn is never split across the boundary.
+ */
+const MAX_RENDERED_EVENTS = 5_000;
+
 export interface EventStreamHandle {
   events: ReadonlyArray<MoxxyEvent>;
   setEvents: React.Dispatch<React.SetStateAction<ReadonlyArray<MoxxyEvent>>>;
@@ -86,7 +97,15 @@ export function useEventStream(session: Session): EventStreamHandle {
         scheduleReasoningFlush();
         return;
       }
-      setEvents((prev) => [...prev, event]);
+      setEvents((prev) => {
+        const next = [...prev, event];
+        // Bound the in-memory window: drop the oldest events once past the
+        // high-water mark so a long-running session doesn't retain the full
+        // conversation (incl. large tool_result payloads) in renderer memory.
+        return next.length > MAX_RENDERED_EVENTS
+          ? next.slice(next.length - MAX_RENDERED_EVENTS)
+          : next;
+      });
       if (event.type === 'assistant_message' || event.type === 'reasoning_message') {
         // Cancel any pending flush — the message is in `events` now,
         // so leaving the streaming delta visible would double-render.

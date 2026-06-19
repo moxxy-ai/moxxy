@@ -3,6 +3,7 @@ import { collectTurn } from '@moxxy/core';
 import { FakeProvider, createFakeSession, textReply } from '@moxxy/testing';
 import type {
   LLMProvider,
+  ModeContext,
   ProviderEvent,
   ProviderRequest,
   SubagentResult,
@@ -19,6 +20,8 @@ import {
   parseQueries,
   type RoundFinding,
 } from './index.js';
+import { runFanout } from './fanout-phase.js';
+import { SUBAGENT_PRIOR_FINDING_MAX_CHARS } from './constants.js';
 
 describe('parseQueries', () => {
   it('extracts numbered queries after the QUERIES: header', () => {
@@ -61,6 +64,20 @@ describe('parseFollowups', () => {
   it('returns empty when format is missing', () => {
     expect(parseFollowups('I am done, no follow-ups.')).toEqual([]);
   });
+
+  it('does not let a parenthetical near the header swallow a real list', () => {
+    // Regression: the "(none)" sentinel must be anchored to a full line so a
+    // header-adjacent parenthetical does not discard genuine follow-ups.
+    expect(
+      parseFollowups(
+        'FOLLOWUPS:\n(none of the prior sources covered cost)\n1. find cost data\n2. verify pricing',
+      ),
+    ).toEqual(['find cost data', 'verify pricing']);
+  });
+
+  it('still honors a bare FOLLOWUPS: (none) line', () => {
+    expect(parseFollowups('FOLLOWUPS:\n(none)')).toEqual([]);
+  });
 });
 
 describe('buildFanoutDigest', () => {
@@ -96,6 +113,55 @@ describe('buildSynthesisInput', () => {
   });
 });
 
+describe('runFanout (resilience + bounded prompts)', () => {
+  function ctxWithSpawner(spawnAll: SubagentSpawner['spawnAll']): ModeContext {
+    const subagents: SubagentSpawner = {
+      async spawn() {
+        return fakeResult('unused');
+      },
+      spawnAll,
+    };
+    return { subagents } as unknown as ModeContext;
+  }
+
+  it('isolates a spawnAll rejection into per-query error entries instead of crashing', async () => {
+    // Worst case: a single child's setup work throws and rejects the whole
+    // Promise.all batch. runFanout must NOT propagate — it returns synthetic
+    // error entries so the loop can still carry findings into synthesis.
+    const ctx = ctxWithSpawner(async () => {
+      throw new Error('child setup blew up');
+    });
+
+    const outcome = await runFanout(ctx, ['q1', 'q2', 'q3']);
+    expect(outcome.results).toEqual([]);
+    expect(outcome.errored).toEqual([
+      { index: 0, message: 'child setup blew up' },
+      { index: 1, message: 'child setup blew up' },
+      { index: 2, message: 'child setup blew up' },
+    ]);
+  });
+
+  it('bounds each prior finding embedded into follow-up subagent prompts', async () => {
+    const captured: string[] = [];
+    const ctx = ctxWithSpawner(async (specs) => {
+      for (const s of specs) captured.push(s.prompt);
+      return specs.map(() => fakeResult('ok'));
+    });
+
+    const huge = 'x'.repeat(SUBAGENT_PRIOR_FINDING_MAX_CHARS * 4);
+    const prior: RoundFinding[] = [{ round: 1, question: 'Q1', text: huge }];
+
+    await runFanout(ctx, ['follow-up query'], prior);
+
+    expect(captured).toHaveLength(1);
+    const prompt = captured[0]!;
+    expect(prompt).toContain('[truncated]');
+    // The full 4x-cap blob must not have been embedded verbatim.
+    expect(prompt).not.toContain(huge);
+    expect(prompt.length).toBeLessThan(huge.length);
+  });
+});
+
 describe('deepResearchMode end-to-end (headless)', () => {
   it('emits a fatal error when ctx.subagents is unavailable', async () => {
     const provider = new FakeProvider({ script: [textReply('does not matter')] });
@@ -115,6 +181,149 @@ describe('deepResearchMode end-to-end (headless)', () => {
     expect(fatal).toBeDefined();
     if (fatal?.type !== 'error') throw new Error();
     expect(fatal.message).toMatch(/subagents/i);
+  });
+
+  it('survives a throwing spawnAll and still reaches synthesis instead of crashing', async () => {
+    // Worst case: the round-1 fan-out rejects entirely. The turn must not crash;
+    // it must record every query as errored and still synthesize.
+    const provider = new FakeProvider({
+      script: [
+        textReply('QUERIES:\n1. First angle?\n2. Second angle?'),
+        textReply('FOLLOWUPS: (none)'),
+        textReply(
+          '## Executive summary\n- bullet\n\n## Key findings\nfinding\n\n## Sources\n(none)\n\n## Open questions\n- none',
+        ),
+      ],
+    });
+
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(deepResearchModePlugin);
+    session.modes.setActive(RESEARCH_MODE_NAME);
+
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME)!;
+    const throwingSpawner: SubagentSpawner = {
+      async spawn() {
+        return fakeResult('unused');
+      },
+      async spawnAll() {
+        throw new Error('child setup blew up');
+      },
+    };
+    session.modes.replace({
+      name: realMode.name,
+      run: (ctx) => realMode.run({ ...ctx, subagents: throwingSpawner }),
+    });
+    session.modes.setActive(realMode.name);
+
+    const events = await collectTurn(session, 'investigate but fan-out fails');
+
+    // No fatal error escaped the loop, and the round still "completed" with all errored.
+    const fatal = events.find((e) => e.type === 'error' && e.kind === 'fatal');
+    expect(fatal).toBeUndefined();
+    const round1Done = events.find(
+      (e) =>
+        e.type === 'plugin_event' &&
+        e.subtype === 'deep_research_fanout_completed' &&
+        (e.payload as { round: number }).round === 1,
+    );
+    expect(round1Done).toBeDefined();
+    if (round1Done?.type !== 'plugin_event') throw new Error();
+    expect((round1Done.payload as { errored: number }).errored).toBe(2);
+    const synthDone = events.find(
+      (e) => e.type === 'plugin_event' && e.subtype === 'deep_research_synthesis_completed',
+    );
+    expect(synthDone).toBeDefined();
+  });
+
+  it('redrafts an oversized query plan when an approval resolver is present', async () => {
+    // Worst case: planner over-produces. With an approval gate + redraft budget,
+    // the loop must auto-redraft (narrow-scope feedback) rather than fatally abort.
+    const provider = new FakeProvider({
+      script: [
+        // First plan: 7 queries — over MAX_SUBAGENTS (6).
+        textReply(
+          'QUERIES:\n1. a?\n2. b?\n3. c?\n4. d?\n5. e?\n6. f?\n7. g?',
+        ),
+        // Redraft: a sane 2-query plan.
+        textReply('QUERIES:\n1. First angle?\n2. Second angle?'),
+        textReply('FOLLOWUPS: (none)'),
+        textReply(
+          '## Executive summary\n- bullet\n\n## Key findings\nfinding\n\n## Sources\n(none)\n\n## Open questions\n- none',
+        ),
+      ],
+    });
+
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(deepResearchModePlugin);
+    session.modes.setActive(RESEARCH_MODE_NAME);
+
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME)!;
+    const approval = { name: 'fake', confirm: async () => ({ optionId: 'approve' }) };
+    const okSpawner: SubagentSpawner = {
+      async spawn() {
+        return fakeResult('unused');
+      },
+      async spawnAll(specs) {
+        return specs.map((_, i) =>
+          fakeResult(`FINDINGS: angle ${i + 1}.\n\nSOURCES:\n[1] X — http://x`),
+        );
+      },
+    };
+    session.modes.replace({
+      name: realMode.name,
+      run: (ctx) =>
+        realMode.run({ ...ctx, subagents: okSpawner, approval } as typeof ctx),
+    });
+    session.modes.setActive(realMode.name);
+
+    const events = await collectTurn(session, 'be exhaustive about something');
+
+    // The oversized plan must NOT have produced a fatal abort.
+    const fatal = events.find((e) => e.type === 'error' && e.kind === 'fatal');
+    expect(fatal).toBeUndefined();
+    // A second drafted-queries event proves the redraft happened.
+    const drafts = events.filter(
+      (e) => e.type === 'plugin_event' && e.subtype === 'deep_research_queries_drafted',
+    );
+    expect(drafts.length).toBeGreaterThanOrEqual(2);
+    const synthDone = events.find(
+      (e) => e.type === 'plugin_event' && e.subtype === 'deep_research_synthesis_completed',
+    );
+    expect(synthDone).toBeDefined();
+  });
+
+  it('emits a fatal error when the log has no user prompt to anchor on', async () => {
+    const provider = new FakeProvider({ script: [textReply('QUERIES:\n1. x?')] });
+    const session = createFakeSession({ provider });
+    session.pluginHost.registerStatic(deepResearchModePlugin);
+    session.modes.setActive(RESEARCH_MODE_NAME);
+
+    const realMode = session.modes.list().find((m) => m.name === RESEARCH_MODE_NAME)!;
+    const okSpawner: SubagentSpawner = {
+      async spawn() {
+        return fakeResult('unused');
+      },
+      async spawnAll(specs) {
+        return specs.map(() => fakeResult('FINDINGS: x'));
+      },
+    };
+    // Override ctx.log to report no user_prompt events — the empty-log worst case.
+    session.modes.replace({
+      name: realMode.name,
+      run: (ctx) =>
+        realMode.run({
+          ...ctx,
+          subagents: okSpawner,
+          log: { ...ctx.log, slice: () => [] },
+        } as typeof ctx),
+    });
+    session.modes.setActive(realMode.name);
+
+    const events = await collectTurn(session, 'this prompt is ignored by the patched log');
+    const fatal = events.find((e) => e.type === 'error' && e.kind === 'fatal');
+    expect(fatal).toBeDefined();
+    if (fatal?.type !== 'error') throw new Error();
+    expect(fatal.message).toMatch(/no user prompt/i);
   });
 
   it('runs gather → followup-plan(none) → synthesis when model says no follow-ups', async () => {

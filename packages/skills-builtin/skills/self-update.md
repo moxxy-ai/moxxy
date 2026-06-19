@@ -14,6 +14,9 @@ triggers:
   - "change your code"
   - "you should be able to"
   - "can you learn to"
+# allowed-tools intentionally omitted: this skill drives a broad, evolving set of
+# privileged tools (self_update_*, install_plugin, Write, Edit, bash) — an omitted
+# allowed-tools means "all tools", on purpose. Don't add a list that would go stale.
 ---
 
 # Self-update — author or repair a capability, safely

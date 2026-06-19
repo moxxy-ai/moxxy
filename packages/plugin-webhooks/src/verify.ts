@@ -102,7 +102,13 @@ export function verifyDelivery(input: VerificationInput): VerificationResult {
     return { ok: false, reason: 'signature mismatch' };
   }
 
-  // Plain HMAC over the raw body.
+  // Plain HMAC over the raw body (GitHub-style). NOTE: this scheme has NO
+  // replay protection — a captured valid delivery whose signature matches is
+  // accepted forever (across restarts), re-firing the agent turn each time.
+  // The only mitigation here is best-effort, in-memory dedupe, which engages
+  // ONLY when the trigger configures `idempotencyHeader`. Operators using a
+  // plain-HMAC trigger should set an idempotency header (e.g. the provider's
+  // delivery-id header) so retries/replays of the same delivery are dropped.
   const computed = createHmac(v.algorithm, v.secret).update(input.body).digest('hex');
   const expected = v.prefix ? `${v.prefix}${computed}` : computed;
   if (safeEqHex(header, expected)) return { ok: true };

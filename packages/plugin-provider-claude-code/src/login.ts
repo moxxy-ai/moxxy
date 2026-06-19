@@ -104,7 +104,9 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
     // Non-fatal — the user can open the URL surfaced above by hand.
   }
 
-  const entered = (await ctx.prompt(CODE_PROMPT)).trim();
+  // The authorization code is a single-use, exchangeable credential — mask it
+  // so it doesn't echo into scrollback / screen-share, matching the token paste.
+  const entered = (await ctx.prompt(CODE_PROMPT, { mask: true })).trim();
   if (!entered) {
     throw new MoxxyError({
       code: 'AUTH_DENIED',
@@ -112,7 +114,10 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
       context: { provider: CLAUDE_CODE_PROVIDER_ID },
     });
   }
-  // Anthropic returns `code#state`; verify the state to defeat CSRF.
+  // Anthropic returns `code#state`, but often shows just the bare code, so the
+  // state check below is best-effort: it only fires when a state was pasted.
+  // The real CSRF/code-injection defense is PKCE — the `code_verifier` binds
+  // the code to this client session, so a foreign code fails the exchange.
   const hash = entered.indexOf('#');
   const code = hash >= 0 ? entered.slice(0, hash) : entered;
   const returnedState = hash >= 0 ? entered.slice(hash + 1) : '';
@@ -127,9 +132,12 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
   const { tokenSet, accountEmail } = await exchangeClaudeCode(code, returnedState || state, verifier);
   await persistClaudeTokens(ctx.vault, tokenSet, accountEmail);
   ctx.write(`\nSigned in to Claude${accountEmail ? ` as ${accountEmail}` : ''}.\n`);
+  // Omit `expiresAt` when the credential never expires (setup-token paste, or a
+  // token response without `expires_in`). Surfacing `0` would read as "epoch =
+  // already expired" to the CLI status renderer, which only checks `!== undefined`.
   return {
     ...(accountEmail ? { accountId: accountEmail } : {}),
-    expiresAt: tokenSet.expiresAt ?? 0,
+    ...(tokenSet.expiresAt !== undefined ? { expiresAt: tokenSet.expiresAt } : {}),
   };
 }
 
@@ -146,7 +154,9 @@ export async function claudeStatus(ctx: ProviderAuthContext): Promise<ProviderOA
   if (!stored) return null;
   return {
     accountId: stored.extras.account_email ?? null,
-    expiresAt: stored.tokenSet.expiresAt ?? 0,
+    // Omit when absent — a stored setup-token has no expiry, and `0` would be
+    // mis-rendered as "expired" (the CLI only treats `!== undefined` as set).
+    ...(stored.tokenSet.expiresAt !== undefined ? { expiresAt: stored.tokenSet.expiresAt } : {}),
     vaultKey: `oauth/${CLAUDE_CODE_PROVIDER_ID}/*`,
   };
 }
@@ -345,7 +355,22 @@ async function postClaudeToken(body: Record<string, string>): Promise<ClaudeExch
     }
 
     if (res.ok) {
-      const json = (await res.json()) as Record<string, unknown>;
+      // A captive portal / proxy / misbehaving edge can return 200 with an HTML
+      // or empty body, or a JSON primitive/array. Treat any of these as a
+      // transient and retry rather than letting a raw SyntaxError escape the
+      // retry/classify path.
+      let parsed: unknown;
+      try {
+        parsed = await res.json();
+      } catch {
+        transient = 'HTTP 200 with non-JSON body';
+        continue;
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        transient = 'HTTP 200 with malformed token response';
+        continue;
+      }
+      const json = parsed as Record<string, unknown>;
       return { tokenSet: parseTokenResponse(json), ...extractAccountEmail(json) };
     }
 

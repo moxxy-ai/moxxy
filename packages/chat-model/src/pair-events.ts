@@ -297,8 +297,15 @@ function handleCollabEvent(
       break;
     case 'collab_completed':
       block.completedAtMs = atMs;
-      block.doneCount = Array.isArray(p.done) ? p.done.length : typeof p.done === 'number' ? p.done : null;
-      block.totalCount = typeof p.total === 'number' ? p.total : null;
+      // Prefer the runner-stamped counts; when absent or malformed (object /
+      // string from a buggy/old coordinator), derive from the folded roster so
+      // the summary line shows a real fraction instead of `null/null`.
+      block.doneCount = Array.isArray(p.done)
+        ? p.done.length
+        : typeof p.done === 'number'
+          ? p.done
+          : block.agents.filter((a) => a.status === 'done').length;
+      block.totalCount = typeof p.total === 'number' ? p.total : block.agents.length;
       break;
     default:
       // collab_merge and any future subtypes: no folded view needed
@@ -459,6 +466,12 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     // happens to reuse a callId from having its tool_result silently dropped.
     s.suppressedCallIds.clear();
     s.subagentGroup.current = null;
+    // Subagents run to completion within the turn that dispatched them, so the
+    // lookup map is a within-turn concern like callTargets. Clearing it bounds
+    // the map to one turn and drops a late completion bearing a stale/colliding
+    // childSessionId from an earlier turn (it would otherwise mutate the old
+    // block). The blocks themselves stay reachable from `root`.
+    s.subagents.clear();
     s.collab.current = null;
     s.root.push({ kind: 'event', id: e.id, event: e });
     return;
@@ -581,12 +594,18 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
   // doesn't drown the main chat. The SubagentSpawner emits them as
   // plugin_event with pluginId='@moxxy/subagents'.
   if (e.type === 'plugin_event' && e.pluginId === SUBAGENT_PLUGIN_ID) {
+    // Seal any open live aggregate first: a subagent/collab block pushes to
+    // `root`, so a still-open live block above it would keep accreting later
+    // compact calls and render chronologically out of order (above the agents
+    // it actually followed). The verbose-tool path does the same.
+    closeOpenLive();
     handleSubagentEvent(e, s.subagents, s.root, s.subagentGroup);
     return;
   }
   // Collaborative-run events fold into one team-level block (roster, bus,
   // board, contracts, control, outcome) instead of N generic event rows.
   if (e.type === 'plugin_event' && e.pluginId === COLLAB_PLUGIN_ID) {
+    closeOpenLive();
     handleCollabEvent(e, s.collab, s.root);
     return;
   }
@@ -699,7 +718,13 @@ export class IncrementalFold {
   /** True when `events` is the already-folded prefix plus zero or more new
    *  tail events — i.e. a pure append. Requires the head id to still match
    *  (no prepend) and the event at `prefixLength-1` to be the last one we
-   *  folded (no in-place rewrite or replacement of the prefix). */
+   *  folded (no in-place rewrite or replacement of the prefix).
+   *
+   *  This is intentionally O(1): a full interior scan would reintroduce the
+   *  O(n²)/turn cost this class exists to kill. It therefore relies on the
+   *  load-bearing upstream invariant that a settled event id is never rewritten
+   *  in place (only its tool outcome, which the fold owns). `incremental-fold`
+   *  pins that contract with a test. */
   private canExtend(events: ReadonlyArray<MoxxyEvent>): boolean {
     if (this.prefixLength === 0) return true; // empty fold extends to anything
     if (events.length < this.prefixLength) return false; // shrank → rebuild
@@ -746,12 +771,15 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     return a.request === b.request && a.outcome === b.outcome;
   }
   if (a.kind === 'subagent' && b.kind === 'subagent') {
-    // Subagent updates: tool count, tokens, completion timestamp, preview, error.
+    // Subagent updates: tool count, tokens, completion timestamp, preview,
+    // error, stop reason. `stopReason` is rendered independently, so compare it
+    // directly rather than relying on its coupling with `completedAtMs`.
     return (
       a.completedAtMs === b.completedAtMs &&
       a.toolCallCount === b.toolCallCount &&
       a.tokensUsed === b.tokensUsed &&
       a.finalPreview === b.finalPreview &&
+      a.stopReason === b.stopReason &&
       a.error === b.error
     );
   }
@@ -773,6 +801,10 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
   }
   if (a.kind === 'collab' && b.kind === 'collab') {
     // Cheap change signals — be conservative (re-render on any team change).
+    // The status/version joins fold in the rendered content fields
+    // (title/detail/owner/subtask) too, so in-place edits that keep array
+    // lengths and statuses constant (collab_board_update / contract_changed
+    // mutating an existing item) still force a repaint.
     return (
       a.completedAtMs === b.completedAtMs &&
       a.fallbackReason === b.fallbackReason &&
@@ -783,10 +815,12 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
       a.conflicts.length === b.conflicts.length &&
       a.control?.paused === b.control?.paused &&
       a.control?.directive === b.control?.directive &&
-      a.agents.map((x) => x.status).join(',') === b.agents.map((x) => x.status).join(',') &&
-      a.tasks.map((x) => x.status).join(',') === b.tasks.map((x) => x.status).join(',') &&
-      a.contracts.map((x) => `${x.status}${x.version}`).join(',') ===
-        b.contracts.map((x) => `${x.status}${x.version}`).join(',')
+      a.agents.map((x) => `${x.status}|${x.subtask ?? ''}`).join(',') ===
+        b.agents.map((x) => `${x.status}|${x.subtask ?? ''}`).join(',') &&
+      a.tasks.map((x) => `${x.status}|${x.title}|${x.detail ?? ''}|${x.owner ?? ''}`).join(',') ===
+        b.tasks.map((x) => `${x.status}|${x.title}|${x.detail ?? ''}|${x.owner ?? ''}`).join(',') &&
+      a.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',') ===
+        b.contracts.map((x) => `${x.status}|${x.version}|${x.title}|${x.owner}`).join(',')
     );
   }
   if (a.kind === 'live-tools' && b.kind === 'live-tools') {

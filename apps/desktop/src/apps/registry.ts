@@ -8,8 +8,10 @@ export interface DesktopAppProps {
   /** Hand a payload to the user's active session (review-in-composer): prefills
    *  the chat composer + switches to chat for the user to review and send.
    *  Present ONLY when the app declared `canSendToSession` — apps that didn't
-   *  opt in never receive it, so the capability can't be used by accident. */
-  readonly sendToSession?: (payload: SendToSessionPayload) => void;
+   *  opt in never receive it, so the capability can't be used by accident.
+   *  Returns `false` when there is no active session (nothing was staged) so the
+   *  app can surface that instead of failing silently. */
+  readonly sendToSession?: (payload: SendToSessionPayload) => boolean;
 }
 
 /**

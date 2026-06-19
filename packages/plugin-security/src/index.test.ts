@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ToolDef, ToolContext } from '@moxxy/sdk';
+import type { ToolCallContext, ToolDef, ToolContext } from '@moxxy/sdk';
 import {
   buildSecurityPlugin,
   wrapWithIsolator,
@@ -224,6 +224,111 @@ describe('wrapDeclaredTools idempotency (u105-2)', () => {
     // Single isolation layer → exactly one "exceeded budget" rejection. A
     // double-wrap would nest two timers/promises.
     await expect(wrapped.handler({}, fakeCtx())).rejects.toThrow(/exceeded 20ms budget/);
+  });
+});
+
+// Build a ToolCallContext for invoking the onToolCall hook directly.
+const fakeToolCallCtx = (
+  name: string,
+  input: unknown,
+  cwd = '/work',
+): ToolCallContext => ({
+  sessionId: 's1' as ToolCallContext['sessionId'],
+  turnId: 't1' as ToolCallContext['turnId'],
+  iteration: 0,
+  cwd,
+  log: {
+    length: 0,
+    at: () => undefined,
+    slice: () => [],
+    ofType: () => [],
+    byTurn: () => [],
+    toJSON: () => [],
+  },
+  env: {},
+  call: { callId: 'c1' as ToolCallContext['call']['callId'], name, input },
+});
+
+// HIGH (audit): tools registered AFTER onInit (MCP attach mid-session, hot
+// reload, dynamic registration) are never wrapped by wrapDeclaredTools, so
+// onToolCall must be the authoritative cap enforcement point for them.
+describe('onToolCall enforces caps on tools registered after onInit', () => {
+  const runInit = async (handle: ReturnType<typeof buildSecurityPlugin>): Promise<void> => {
+    await handle.plugin.hooks?.onInit?.({
+      sessionId: 's1' as ToolContext['sessionId'],
+      cwd: '/work',
+      log: {
+        length: 0,
+        at: () => undefined,
+        slice: () => [],
+        ofType: () => [],
+        byTurn: () => [],
+        toJSON: () => [],
+      },
+      env: {},
+    });
+  };
+
+  it('denies an out-of-scope fs path for a tool added post-init (unwrapped)', async () => {
+    const reg = new FakeToolRegistry();
+    const handle = buildSecurityPlugin({
+      config: { enabled: true, isolator: 'inproc' },
+      toolRegistry: reg,
+    });
+    await runInit(handle); // registry empty at onInit time
+
+    // Tool appears AFTER onInit — never went through wrapDeclaredTools.
+    reg.add(fakeTool({ name: 'late', isolation: { capabilities: { fs: { read: ['$cwd/**'] } } } }));
+    const v = await handle.plugin.hooks?.onToolCall?.(
+      fakeToolCallCtx('late', { file: '/etc/passwd' }),
+    );
+    expect(v).toEqual({ action: 'deny', reason: expect.stringMatching(/outside the tool's declared fs/) });
+  });
+
+  it('allows an in-scope fs path for a post-init tool', async () => {
+    const reg = new FakeToolRegistry();
+    const handle = buildSecurityPlugin({
+      config: { enabled: true, isolator: 'inproc' },
+      toolRegistry: reg,
+    });
+    await runInit(handle);
+    reg.add(fakeTool({ name: 'late', isolation: { capabilities: { fs: { read: ['$cwd/**'] } } } }));
+    const v = await handle.plugin.hooks?.onToolCall?.(
+      fakeToolCallCtx('late', { file: '/work/ok.ts' }),
+    );
+    expect(v).toBeUndefined();
+  });
+
+  it('strict mode denies an out-of-scope path under an UNRECOGNIZED key', async () => {
+    const reg = new FakeToolRegistry();
+    const handle = buildSecurityPlugin({
+      config: { enabled: true, isolator: 'inproc', strict: true },
+      toolRegistry: reg,
+    });
+    await runInit(handle);
+    reg.add(fakeTool({ name: 'late', isolation: { capabilities: { fs: { read: ['$cwd/**'] } } } }));
+    // `manifest` is not a PATH_WORD; without strict it would be allowed.
+    const v = await handle.plugin.hooks?.onToolCall?.(
+      fakeToolCallCtx('late', { manifest: '/etc/shadow' }),
+    );
+    expect(v).toEqual({ action: 'deny', reason: expect.stringMatching(/outside the tool's declared fs/) });
+  });
+
+  it('does NOT cap-check a tool that WAS wrapped at onInit (avoids double enforcement)', async () => {
+    const reg = new FakeToolRegistry().add(
+      fakeTool({ name: 'early', isolation: { capabilities: { fs: { read: ['$cwd/**'] } } } }),
+    );
+    const handle = buildSecurityPlugin({
+      config: { enabled: true, isolator: 'inproc' },
+      toolRegistry: reg,
+    });
+    await runInit(handle); // 'early' gets wrapped here
+    // The wrapped handler enforces caps; onToolCall must defer (return undefined)
+    // so we don't deny based on a stale/looser read of the same input.
+    const v = await handle.plugin.hooks?.onToolCall?.(
+      fakeToolCallCtx('early', { file: '/etc/passwd' }),
+    );
+    expect(v).toBeUndefined();
   });
 });
 

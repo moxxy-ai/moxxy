@@ -22,11 +22,16 @@ function plistPath(spec: Pick<ServiceSpec, 'id'>): string {
 }
 
 function escapeXml(value: string): string {
+  // Escape all five XML metacharacters (incl. the single quote) so the helper
+  // is safe in attribute contexts too, not just element content — values like
+  // `serve --except <list>` are user-influenced and the contract shouldn't be
+  // "only ever used between tags".
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 export function renderPlist(spec: ServiceSpec, ctx: InstallContext): string {

@@ -82,8 +82,18 @@ function ensureExitHook(): void {
     liveChildren.clear();
   };
   process.once('exit', killAll);
-  process.once('SIGINT', killAll);
-  process.once('SIGTERM', killAll);
+  // Registering a SIGINT/SIGTERM listener suppresses Node's default
+  // terminate-on-signal behavior, so an entrypoint that spawns a tunnel but
+  // installs no exit handler of its own would swallow the first Ctrl-C and hang
+  // with the process still alive. Re-raise the signal after cleanup so the
+  // default termination still fires. `process.once` removes the listener before
+  // it runs, so re-raising hits Node's default disposition (terminate).
+  const onSignal = (sig: 'SIGINT' | 'SIGTERM') => (): void => {
+    killAll();
+    process.kill(process.pid, sig);
+  };
+  process.once('SIGINT', onSignal('SIGINT'));
+  process.once('SIGTERM', onSignal('SIGTERM'));
 }
 
 /** Track a spawned child; returns an `untrack()` that also kills it cleanly. */

@@ -24,6 +24,7 @@ export const httpChannelDef = defineChannel({
       host: typeof opts.host === 'string' ? opts.host : undefined,
       authToken: typeof opts.authToken === 'string' ? opts.authToken : process.env.MOXXY_HTTP_TOKEN,
       allowedTools: Array.isArray(opts.allowedTools) ? (opts.allowedTools as string[]) : undefined,
+      maxConcurrentTurns: typeof opts.maxConcurrentTurns === 'number' ? opts.maxConcurrentTurns : undefined,
       logger: deps.logger as never,
     });
   },

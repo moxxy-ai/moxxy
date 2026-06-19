@@ -62,6 +62,22 @@ describe('resolveProviderApiKey', () => {
     ).rejects.toThrow(/No API key found for provider/);
   });
 
+  it('forced interactive with no promptFn on a non-TTY throws instead of hanging', async () => {
+    // A daemon/piped caller that forces interactive:true but supplies no
+    // promptFn must NOT wedge readline.question on a closed stdin — it should
+    // fall through to AUTH_NO_CREDENTIALS. (stdin.isTTY is falsy under vitest.)
+    const restore = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
+    try {
+      await expect(
+        resolveProviderApiKey('anthropic', vault, { interactive: true }),
+      ).rejects.toThrow(/No API key found for provider/);
+    } finally {
+      if (restore) Object.defineProperty(process.stdin, 'isTTY', restore);
+      else delete (process.stdin as { isTTY?: unknown }).isTTY;
+    }
+  });
+
   it('throws on empty prompt response', async () => {
     await expect(
       resolveProviderApiKey('anthropic', vault, {

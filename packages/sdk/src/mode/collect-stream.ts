@@ -19,6 +19,24 @@ export interface CollectedToolUse {
   readonly input: unknown;
 }
 
+/** Sum two usage frames so multi-`message_end` responses don't undercount. */
+function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  const cacheRead =
+    a.cacheReadTokens !== undefined || b.cacheReadTokens !== undefined
+      ? (a.cacheReadTokens ?? 0) + (b.cacheReadTokens ?? 0)
+      : undefined;
+  const cacheCreation =
+    a.cacheCreationTokens !== undefined || b.cacheCreationTokens !== undefined
+      ? (a.cacheCreationTokens ?? 0) + (b.cacheCreationTokens ?? 0)
+      : undefined;
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
+    ...(cacheCreation !== undefined ? { cacheCreationTokens: cacheCreation } : {}),
+  };
+}
+
 export interface StreamResult {
   readonly text: string;
   readonly toolUses: ReadonlyArray<CollectedToolUse>;
@@ -123,9 +141,12 @@ export async function collectProviderStream(
   };
   const transformed = await ctx.hooks.dispatchBeforeProviderCall(req, {
     sessionId: ctx.sessionId,
-    cwd: '',
+    // Thread the session's real cwd/env (mirrored on ModeContext) so path-based
+    // policy/security `onBeforeProviderCall` hooks see the true per-session
+    // values rather than blank placeholders — matching the dispatchToolCall path.
+    cwd: ctx.cwd,
     log: ctx.log,
-    env: {},
+    env: ctx.env,
     turnId: ctx.turnId,
     iteration: opts.iteration ?? 0,
   });
@@ -181,7 +202,11 @@ export async function collectProviderStream(
         }
         case 'message_end': {
           stopReason = event.stopReason;
-          if (event.usage) usage = event.usage;
+          // Accumulate across frames: a provider that splits a response into
+          // multiple message segments (or emits an interim then a final usage)
+          // must not have its token counts clobbered to only the last frame —
+          // that would undercount input/output/cache tokens for billing.
+          if (event.usage) usage = usage ? addUsage(usage, event.usage) : event.usage;
           break;
         }
         case 'error': {
@@ -214,10 +239,15 @@ export async function collectProviderStream(
       }
     }
   } catch (err) {
-    error = {
-      message: err instanceof Error ? err.message : String(err),
-      retryable: false,
-    };
+    // A stream-level `error` event is the more authoritative classification —
+    // don't let a subsequent iterator throw downgrade its `retryable: true` to
+    // false (which would stop the turn loop from retrying a transient failure).
+    if (!error) {
+      error = {
+        message: err instanceof Error ? err.message : String(err),
+        retryable: false,
+      };
+    }
   }
 
   const finalToolUses: CollectedToolUse[] = [];

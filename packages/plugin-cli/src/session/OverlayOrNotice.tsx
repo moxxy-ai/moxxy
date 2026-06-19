@@ -7,7 +7,7 @@ import { ToolsPanel } from '../components/ToolsPanel.js';
 import { AgentsPanel } from '../components/AgentsPanel.js';
 import { UsagePanel } from '../components/UsagePanel.js';
 import { WorkflowsPanel } from '../components/WorkflowsPanel.js';
-import { Colors } from '../theme.js';
+import { Colors, noColor } from '../theme.js';
 import { deriveMcpServers } from './helpers.js';
 import type { Overlay } from './types.js';
 
@@ -83,20 +83,25 @@ function classifyVoiceNotice(notice: string): VoiceNoticeStyle | null {
   if (!notice.startsWith('voice:')) return null;
   const body = notice.slice('voice:'.length).trim();
   const lower = body.toLowerCase();
+  // Each phase carries a distinct label + glyph so the state is legible
+  // without relying on the accent hue alone (color-vision deficiency,
+  // monochrome terminals, NO_COLOR). The error pill gets a ✗ marker so it is
+  // not confused with the success/empty VOICE pill, which differ from it only
+  // by accent color otherwise.
   if (lower.startsWith('recording')) {
     return { label: ' ● REC ', accent: Colors.danger, textColor: 'black', body };
   }
   if (lower.startsWith('transcribing')) {
-    return { label: ' TRANSCRIBING ', accent: Colors.busy, textColor: 'black', body };
+    return { label: ' … TRANSCRIBING ', accent: Colors.busy, textColor: 'black', body };
   }
   if (lower.startsWith('transcript inserted')) {
-    return { label: ' VOICE ', accent: Colors.active, textColor: 'black', body };
+    return { label: ' ✓ VOICE ', accent: Colors.active, textColor: 'black', body };
   }
   if (lower.includes('empty transcript')) {
-    return { label: ' VOICE ', accent: Colors.busy, textColor: 'black', body };
+    return { label: ' ∅ VOICE ', accent: Colors.busy, textColor: 'black', body };
   }
   // Errors, readiness gripes, missing-ffmpeg, etc.
-  return { label: ' VOICE ', accent: Colors.danger, textColor: 'black', body };
+  return { label: ' ✗ VOICE ', accent: Colors.danger, textColor: 'black', body };
 }
 
 export const SystemNotice: React.FC<{ notice: string }> = ({ notice }) => {
@@ -104,13 +109,20 @@ export const SystemNotice: React.FC<{ notice: string }> = ({ notice }) => {
   if (voice) {
     const lines = voice.body.split('\n');
     const [first, ...rest] = lines;
+    // NO_COLOR: drop the reverse-video pill (which is invisible without
+    // color) for a bracketed text label so the phase marker stays legible.
+    const plain = noColor();
     return (
       <Box marginTop={1} marginBottom={1} flexDirection="column">
         <Box>
-          <Text backgroundColor={voice.accent} color={voice.textColor} bold>
-            {voice.label}
-          </Text>
-          <Text color={voice.accent} bold>{` ${first ?? ''}`}</Text>
+          {plain ? (
+            <Text bold>{`[${voice.label.trim()}]`}</Text>
+          ) : (
+            <Text backgroundColor={voice.accent} color={voice.textColor} bold>
+              {voice.label}
+            </Text>
+          )}
+          <Text {...(plain ? { bold: true } : { color: voice.accent, bold: true })}>{` ${first ?? ''}`}</Text>
         </Box>
         {rest.map((line, i) => (
           <Text key={i} dimColor>

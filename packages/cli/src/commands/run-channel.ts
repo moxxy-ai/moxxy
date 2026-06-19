@@ -144,11 +144,21 @@ export async function runChannelSubcommand(
     startChannel: (extra) => {
       // Coerce extra opts into the ParsedArgv.flags shape (string | boolean).
       // ChannelSubcommand.startChannel accepts arbitrary unknown values for
-      // forward compatibility; we serialize them as the CLI would.
+      // forward compatibility, but these flow back into a fresh channel boot
+      // where they may be parsed as ports/tokens. Only forward values that are
+      // already a flag-shaped scalar (string/boolean) or a finite number;
+      // silently String()-coercing an object/array would inject
+      // `[object Object]` / comma-joined garbage at a trust-relevant boundary,
+      // so DROP those (with a visible warning) rather than passing nonsense on.
       const extraFlags: Record<string, string | boolean> = {};
       for (const [k, v] of Object.entries(extra ?? {})) {
         if (typeof v === 'string' || typeof v === 'boolean') extraFlags[k] = v;
-        else if (v !== undefined && v !== null) extraFlags[k] = String(v);
+        else if (typeof v === 'number' && Number.isFinite(v)) extraFlags[k] = String(v);
+        else if (v !== undefined && v !== null) {
+          session.logger.warn?.(
+            `channel "${def.name}": dropping non-scalar start option "${k}" (${typeof v}) — only string/boolean/number flags are forwarded`,
+          );
+        }
       }
       const merged: ParsedArgv = {
         command: argv.command,

@@ -45,6 +45,19 @@ describe('renderPlist (launchd)', () => {
     // No raw unescaped metacharacter leaked into the arg payload.
     expect(out).not.toContain('a&b<c>d"e');
   });
+
+  it("also escapes single quotes (&apos;) so the helper is safe in attribute contexts", () => {
+    const spec: ServiceSpec = {
+      id: 'q',
+      description: 'd',
+      execArgs: ["--name=o'brien"],
+      env: { K: "it's" },
+    };
+    const out = renderPlist(spec, ctx);
+    expect(out).toContain('<string>--name=o&apos;brien</string>');
+    expect(out).toContain('<string>it&apos;s</string>');
+    expect(out).not.toContain("o'brien");
+  });
 });
 
 describe('renderUnit (systemd)', () => {

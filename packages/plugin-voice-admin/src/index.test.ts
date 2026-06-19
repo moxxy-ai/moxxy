@@ -17,6 +17,18 @@ function tools(session: Session) {
 
 const ctx = { sessionId: 's', turnId: 't' } as never;
 
+/** Minimal registrable synthesizer def (create() is never invoked here — the
+ *  registry is buildOnRead, so set_voice only flips the active slot). */
+function fakeSynth(name: string) {
+  return {
+    name,
+    create: () => ({
+      name,
+      synthesize: async () => ({ audio: new Uint8Array(), mimeType: 'audio/mpeg' }),
+    }),
+  };
+}
+
 describe('voice-admin plugin', () => {
   it('registers list_voices and set_voice', () => {
     const session = new Session({ cwd: process.cwd(), logger: silentLogger });
@@ -46,5 +58,34 @@ describe('voice-admin plugin', () => {
     const { setVoice } = tools(session);
     // The handler is synchronous, so it throws synchronously.
     expect(() => setVoice.handler({ synthesizer: 'nope' }, ctx)).toThrow(/No synthesizer named "nope"/);
+  });
+
+  it('set_voice activates a registered synthesizer and list_voices reflects it', async () => {
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger });
+    session.synthesizers.register(fakeSynth('elevenlabs'));
+    const { setVoice, listVoices } = tools(session);
+
+    const result = (await setVoice.handler({ synthesizer: 'elevenlabs' }, ctx)) as { active: string };
+    expect(result.active).toBe('elevenlabs');
+    expect(session.synthesizers.getActiveName()).toBe('elevenlabs');
+
+    const listed = (await listVoices.handler({}, ctx)) as { active: string; available: string[] };
+    expect(listed.active).toBe('elevenlabs');
+    expect(listed.available).toContain('elevenlabs');
+  });
+
+  it('a synthesizer literally named "system" is reachable and not double-listed', async () => {
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger });
+    session.synthesizers.register(fakeSynth('system'));
+    const { setVoice, listVoices } = tools(session);
+
+    // "system" no longer always clears — it activates the real backend.
+    const result = (await setVoice.handler({ synthesizer: 'system' }, ctx)) as { active: string };
+    expect(result.active).toBe('system');
+    expect(session.synthesizers.getActiveName()).toBe('system');
+
+    // ...and it appears exactly once in the listing (sentinel de-duped).
+    const listed = (await listVoices.handler({}, ctx)) as { active: string; available: string[] };
+    expect(listed.available.filter((n) => n === 'system')).toHaveLength(1);
   });
 });

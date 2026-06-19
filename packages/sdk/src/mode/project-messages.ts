@@ -13,6 +13,28 @@ import {
 } from '../elision-state.js';
 import { isToolDisplayResult } from '../tool-display.js';
 
+/**
+ * Stringify an arbitrary tool output for the model-facing tool_result text.
+ * `tool_result.output` is `unknown` and comes straight from whatever a tool
+ * returned, so it can be circular or contain a BigInt — either of which makes
+ * `JSON.stringify` THROW. Because projection runs on every request over the
+ * append-only log, an unguarded throw here permanently wedges the session
+ * (every subsequent re-projection re-throws). Mirrors the try/catch guard the
+ * sibling sizing paths (`safeJsonLen`, `toolResultBytes`) already use.
+ */
+function safeStringifyOutput(output: unknown): string {
+  if (typeof output === 'string') return output;
+  try {
+    return JSON.stringify(output ?? '');
+  } catch {
+    try {
+      return String(output ?? '');
+    } catch {
+      return '[unserializable tool output]';
+    }
+  }
+}
+
 /** Appended to the system prompt while elision is active (see projection). */
 export const ELISION_SYSTEM_NOTE =
   'Context note: to stay within budget, older turns may appear as stubs like ' +
@@ -449,7 +471,7 @@ export function projectMessages(
           // `forModel` summary — the structured `display` is for channels.
           text = e.output.forModel;
         } else {
-          text = typeof e.output === 'string' ? e.output : JSON.stringify(e.output ?? '');
+          text = safeStringifyOutput(e.output);
         }
         messages.push({
           role: 'tool_result',
