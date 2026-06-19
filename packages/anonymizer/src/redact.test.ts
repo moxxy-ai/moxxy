@@ -74,6 +74,10 @@ describe('redact', () => {
     const t0 = Date.now();
     const { report } = redact(text);
     expect(report.total).toBe(20_000);
-    expect(Date.now() - t0).toBeLessThan(3_000);
+    // Single-pass redaction is tens-to-hundreds of ms; the quadratic splice this
+    // guards against is tens of seconds on 20k spans. The bound is deliberately
+    // generous (slow shared CI runner + residual parallel-test contention) so it
+    // never flakes yet still trips a true O(n²) regression.
+    expect(Date.now() - t0).toBeLessThan(8_000);
   });
 });
