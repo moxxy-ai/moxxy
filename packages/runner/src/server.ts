@@ -60,6 +60,15 @@ import {
   type HandlerContext,
 } from './handlers/index.js';
 
+/**
+ * Upper bound on how long the runner waits for a server->client request
+ * (permission.check / approval.confirm) before falling through to deny/default.
+ * Generous because the human at the client is the one answering — but bounded so
+ * a connected-but-unresponsive client can't stall the turn (and the tool gate)
+ * indefinitely. The turn's own abort signal also rejects the request early.
+ */
+const CLIENT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+
 /** One attached client and what it has opted into answering. */
 interface ConnectedClient {
   readonly peer: JsonRpcPeer;
@@ -279,9 +288,19 @@ export class RunnerServer {
     // synchronous, so no live event can interleave before it finishes - every
     // later event arrives exactly once via broadcast.
     const replay = params.replay ?? 'full';
-    const total = this.session.log.length;
+    // Compute the replay start as a SEQ, not an array index. EventLog.slice is
+    // seq-addressed (it subtracts `baseSeq`), and the client rebases its mirror
+    // to this exact `fromSeq`. Index === seq only holds while the authoritative
+    // log's base is 0; deriving from `baseSeq` keeps it correct if the runner
+    // ever serves a tail-seeded log (base > 0).
+    const baseSeq = this.session.log.baseSeq;
+    const endSeq = baseSeq + this.session.log.length;
     const start =
-      replay === 'full' ? 0 : replay === 'none' ? total : Math.max(0, total - replay.tail);
+      replay === 'full'
+        ? baseSeq
+        : replay === 'none'
+          ? endSeq
+          : Math.max(baseSeq, endSeq - replay.tail);
     client.peer.notify(RunnerNotification.ReplayStart, { fromSeq: start });
     for (const event of this.session.log.slice(start)) {
       client.peer.notify(RunnerNotification.Event, { event });
@@ -334,25 +353,39 @@ export class RunnerServer {
       } finally {
         this.turnControllers.delete(turnId);
         client.turns.delete(turnId);
-        // LOG COMPLETENESS: a turn can stream assistant text (assistant_chunk
-        // events) yet never SEAL it with an assistant_message — e.g. the
-        // provider errors or the turn aborts mid-stream after some text landed.
-        // The renderer used to paper over this by SYNTHESIZING the missing
-        // assistant_message on turn-complete, so that reply existed in NO runner
-        // log. Persist a REAL one here (before turn.complete) so the runner log
-        // is the complete authoritative history — and it streams to every mirror
-        // as a normal event. No-op on the normal sealed path. Awaited so the
-        // event is on the wire/disk before clients learn the turn finished.
-        await this.sealUnsealedStreamedText(turnId);
-        this.broadcast(RunnerNotification.TurnComplete, {
-          turnId,
-          ...(error ? { error } : {}),
-        });
-        // A turn may have run registry-mutating tools (provider_add, mcp_add,
-        // workflow_create, skill writes, …). Push the fresh snapshot so
-        // attached clients (the desktop Settings panel) re-render without an
-        // app restart. Once per turn — cheap relative to the turn itself.
-        this.broadcastInfo();
+        // The whole post-turn body runs in a guard: this turn is driven by a
+        // DETACHED promise (`void this.scope.run`), so anything that throws
+        // synchronously here — e.g. session.getInfo() inside broadcastInfo()
+        // throwing on a half-torn-down session — would reject the detached
+        // promise as an UNHANDLED rejection (process-crashing under Node's
+        // default policy), after the controllers map was already cleaned. The
+        // turn.complete is recoverable; a crash isn't. Log and move on.
+        try {
+          // LOG COMPLETENESS: a turn can stream assistant text (assistant_chunk
+          // events) yet never SEAL it with an assistant_message — e.g. the
+          // provider errors or the turn aborts mid-stream after some text landed.
+          // The renderer used to paper over this by SYNTHESIZING the missing
+          // assistant_message on turn-complete, so that reply existed in NO runner
+          // log. Persist a REAL one here (before turn.complete) so the runner log
+          // is the complete authoritative history — and it streams to every mirror
+          // as a normal event. No-op on the normal sealed path. Awaited so the
+          // event is on the wire/disk before clients learn the turn finished.
+          await this.sealUnsealedStreamedText(turnId);
+          this.broadcast(RunnerNotification.TurnComplete, {
+            turnId,
+            ...(error ? { error } : {}),
+          });
+          // A turn may have run registry-mutating tools (provider_add, mcp_add,
+          // workflow_create, skill writes, …). Push the fresh snapshot so
+          // attached clients (the desktop Settings panel) re-render without an
+          // app restart. Once per turn — cheap relative to the turn itself.
+          this.broadcastInfo();
+        } catch (postErr) {
+          this.session.logger.error('runner: post-turn finalization failed', {
+            turnId,
+            error: postErr instanceof Error ? postErr.message : String(postErr),
+          });
+        }
       }
     });
 
@@ -502,11 +535,14 @@ export class RunnerServer {
     const scope = this.scope.getStore();
     if (scope && scope.client.handlesPermission && !scope.client.peer.isClosed) {
       try {
-        return await scope.client.peer.request<PermissionDecision>(RunnerMethod.PermissionCheck, {
-          turnId: scope.turnId,
-          call,
-          ctx,
-        });
+        return await scope.client.peer.request<PermissionDecision>(
+          RunnerMethod.PermissionCheck,
+          { turnId: scope.turnId, call, ctx },
+          // A client can stay socket-connected yet never answer (hung renderer
+          // that doesn't drop the link); the turn's signal + a bounded timeout
+          // make this fall through to deny instead of stalling the turn forever.
+          { signal: this.turnControllers.get(scope.turnId)?.controller.signal, timeoutMs: CLIENT_REQUEST_TIMEOUT_MS },
+        );
       } catch {
         return { mode: 'deny', reason: 'permission client unavailable' };
       }
@@ -519,10 +555,11 @@ export class RunnerServer {
     if (scope) {
       if (scope.client.handlesApproval && !scope.client.peer.isClosed) {
         try {
-          return await scope.client.peer.request<ApprovalDecision>(RunnerMethod.ApprovalConfirm, {
-            turnId: scope.turnId,
-            request,
-          });
+          return await scope.client.peer.request<ApprovalDecision>(
+            RunnerMethod.ApprovalConfirm,
+            { turnId: scope.turnId, request },
+            { signal: this.turnControllers.get(scope.turnId)?.controller.signal, timeoutMs: CLIENT_REQUEST_TIMEOUT_MS },
+          );
         } catch {
           return defaultApproval(request);
         }

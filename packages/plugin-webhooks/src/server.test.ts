@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { RateLimiter } from './rate-limit.js';
 import { WebhookDispatcher, type WebhookFireOutcome } from './runner.js';
 import { WebhookServer } from './server.js';
 import { WebhookStore, type WebhookTrigger } from './store.js';
@@ -170,7 +171,10 @@ describe('WebhookServer', () => {
     await waitUntil(() => fired.length >= 1);
     expect(fired).toHaveLength(1);
     expect(fired[0]!.outcome.ok).toBe(true);
-    expect(fired[0]!.outcome.text).toContain('ran with prompt: New event: issues');
+    // The header value is fenced as untrusted, so the operator text + the value
+    // appear, just not as one verbatim run.
+    expect(fired[0]!.outcome.text).toContain('ran with prompt: New event:');
+    expect(fired[0]!.outcome.text).toContain('issues');
   });
 
   it('rejects a bad HMAC with 401 and does not fire', async () => {
@@ -214,5 +218,59 @@ describe('WebhookServer', () => {
     expect(res.status).toBe(401);
     await new Promise((r) => setTimeout(r, 20));
     expect(fired).toHaveLength(0);
+  });
+
+  it('sheds a flood with 429 BEFORE verify/parse work, and never fires', async () => {
+    // verification:'none' so the only thing that can stop a fire is the rate
+    // limiter — this proves the 429 is decided before the verify/parse path.
+    const created = await store.create({
+      name: 'flooded',
+      prompt: 'x',
+      allowedTools: [],
+      verification: { type: 'none' },
+    });
+
+    let verifyParseCalls = 0;
+    await server.stop();
+    server = new WebhookServer({
+      host: '127.0.0.1',
+      port: 0,
+      store,
+      dispatcher: new WebhookDispatcher({
+        store,
+        runner: {
+          runPrompt: async () => {
+            verifyParseCalls++;
+            return { text: 'fired' };
+          },
+        },
+        inbox: { dir: path.join(dir, 'inbox') },
+        onFired: (trigger, outcome) => fired.push({ trigger, outcome }),
+      }),
+      // Capacity 1, frozen clock → the first request consumes the only token and
+      // every subsequent one in the same instant is shed.
+      rateLimiter: new RateLimiter({ ratePerSec: 1, burst: 1, now: () => 0 }),
+    });
+    await server.start();
+    const address = (server as unknown as { server: { address(): { port: number } } })
+      .server.address();
+    port = address.port;
+
+    const hit = () =>
+      fetch(`http://127.0.0.1:${port}/webhook/${created.id}`, { method: 'POST', body: '{}' });
+
+    const first = await hit();
+    expect(first.status).toBe(202);
+    // Burst of follow-ups all rejected with 429.
+    const rest = await Promise.all([hit(), hit(), hit(), hit()]);
+    for (const r of rest) {
+      expect(r.status).toBe(429);
+      expect(r.headers.get('retry-after')).toBe('1');
+    }
+    // Only the admitted request ever reached the dispatcher.
+    await waitUntil(() => fired.length >= 1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fired).toHaveLength(1);
+    expect(verifyParseCalls).toBe(1);
   });
 });

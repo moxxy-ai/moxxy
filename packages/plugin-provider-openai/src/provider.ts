@@ -30,7 +30,23 @@ export interface OpenAIProviderConfig {
    * instead of missing on the OpenAI list.
    */
   readonly models?: ReadonlyArray<ModelDescriptor>;
+  /**
+   * Per-request timeout (ms) for the default client. The OpenAI SDK default is
+   * 10 minutes — far too long for an agentic turn, where a stalled
+   * OpenAI-compatible backend (a local vLLM/Ollama box that accepts the
+   * connection but never streams) would block the whole turn. Default a couple
+   * of minutes; hosts can tune. Ignored when `client` is injected.
+   */
+  readonly timeoutMs?: number;
+  /**
+   * Max automatic retries for the default client (SDK default is 2). Ignored
+   * when `client` is injected.
+   */
+  readonly maxRetries?: number;
 }
+
+/** Default per-request timeout for streamed agentic turns (2 minutes). */
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
  * Model catalog as of OpenAI's 2026 API surface. The 5.x family supersedes
@@ -80,6 +96,22 @@ interface PendingToolCall {
   emittedStart: boolean;
 }
 
+/**
+ * Coarse per-block token charge for non-text content (image/document/audio) in
+ * the `countTokens` estimate. The real cost is tile/page-based and unknowable
+ * without the provider's tokenizer; a small constant keeps the budget heuristic
+ * from either ignoring attachments entirely or ballooning on the base64 blob.
+ */
+const RICH_BLOCK_TOKEN_ESTIMATE = 256;
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 export class OpenAIProvider implements LLMProvider {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
@@ -94,6 +126,9 @@ export class OpenAIProvider implements LLMProvider {
       new OpenAI({
         apiKey: config.apiKey ?? process.env.OPENAI_API_KEY,
         ...(config.baseURL ? { baseURL: config.baseURL } : {}),
+        // Bound the worst case of a connection that opens but never streams.
+        timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        ...(config.maxRetries !== undefined ? { maxRetries: config.maxRetries } : {}),
       });
     this.defaultModel = config.defaultModel ?? 'gpt-5.4-mini';
   }
@@ -234,7 +269,12 @@ export class OpenAIProvider implements LLMProvider {
                 emittedStart: false,
               };
               pending.set(idx, entry);
-            } else if (tcDelta.id) {
+            } else if (tcDelta.id && !entry.emittedStart) {
+              // Adopt a late-arriving id ONLY before tool_use_start fires.
+              // Once start is emitted, the id is the dispatcher's correlation
+              // key for the matching _delta/_end events; mutating it here (a
+              // non-conforming backend that re-echoes a different id mid-call)
+              // would orphan the start and drop the tool result silently.
               entry.id = tcDelta.id;
             }
             if (tcDelta.function?.name && !entry.name) entry.name = tcDelta.function.name;
@@ -267,17 +307,51 @@ export class OpenAIProvider implements LLMProvider {
 
     // Flush tool_use_end events with parsed arguments.
     for (const entry of pending.values()) {
+      // A non-conforming OpenAI-compatible backend (DeepSeek/z.ai/vLLM/Ollama)
+      // can stream function.arguments for an index without ever sending
+      // function.name. Such an entry never emitted a tool_use_start, so it was
+      // being dropped silently — the turn looked like it did nothing. Surface
+      // the failure instead of swallowing the call.
+      if (!entry.emittedStart) {
+        if (entry.name) {
+          // Named but never started (no name delta after the entry was created
+          // with a name on construction yet emittedStart stayed false) — emit
+          // the start now so the call is not lost.
+          entry.emittedStart = true;
+          yield { type: 'tool_use_start', id: entry.id, name: entry.name };
+        } else if (entry.argsBuffer) {
+          stopReason = 'error';
+          yield {
+            type: 'error',
+            message: `provider streamed tool arguments with no function name for ${entry.id}`,
+            retryable: false,
+          };
+          continue;
+        } else {
+          // Empty, nameless, never-started: nothing to surface.
+          continue;
+        }
+      }
       let parsed: unknown = {};
       if (entry.argsBuffer) {
         try {
           parsed = JSON.parse(entry.argsBuffer);
         } catch {
-          parsed = { _rawPartial: entry.argsBuffer };
+          // A truncated/malformed tool-input stream (content-filter cut, a
+          // non-conforming backend) is a real failure, not a valid call with
+          // junk args. Surface it as an error and mark the turn `error`
+          // (parity with the Anthropic provider) instead of feeding an opaque
+          // { _rawPartial } object into the tool as if it were valid input.
+          stopReason = 'error';
+          yield {
+            type: 'error',
+            message: `tool_use input JSON was malformed/truncated for ${entry.id}`,
+            retryable: false,
+          };
+          continue;
         }
       }
-      if (entry.emittedStart) {
-        yield { type: 'tool_use_end', id: entry.id, input: parsed };
-      }
+      yield { type: 'tool_use_end', id: entry.id, input: parsed };
     }
 
     yield {
@@ -296,11 +370,33 @@ export class OpenAIProvider implements LLMProvider {
 
   async countTokens(req: Pick<ProviderRequest, 'model' | 'messages' | 'system' | 'tools'>): Promise<number> {
     // OpenAI doesn't expose a free token counter; fall back to a coarse estimate.
-    const blob =
-      (req.system ?? '') +
-      req.messages.map((m) => m.content.map((c) => ('text' in c ? c.text : JSON.stringify(c))).join('')).join('') +
-      (req.tools ?? []).map((t) => t.name + t.description).join('');
-    return estimateTextTokens(blob);
+    // Only TEXT content is stringified — for image/document/audio blocks the
+    // `data` field is a multi-MB base64 blob, and JSON.stringify-ing it here
+    // would materialize the whole payload into a transient string on the hot
+    // pre-flight budget path AND wildly over-estimate (4 base64 chars != 1
+    // token; binary blocks bill by tiles/pages, not characters). Charge a small
+    // fixed constant per rich block instead.
+    let textBlob = req.system ?? '';
+    let richBlockTokens = 0;
+    for (const m of req.messages) {
+      for (const c of m.content) {
+        if (c.type === 'text') {
+          textBlob += c.text;
+        } else if (c.type === 'tool_result') {
+          textBlob += c.content;
+        } else if (c.type === 'tool_use') {
+          // Tool-call inputs are small structured objects; stringify is cheap.
+          textBlob += c.name + safeStringify(c.input);
+        } else if (c.type === 'reasoning') {
+          textBlob += c.text;
+        } else {
+          // image / document / audio: opaque base64 — never stringify the data.
+          richBlockTokens += RICH_BLOCK_TOKEN_ESTIMATE;
+        }
+      }
+    }
+    textBlob += (req.tools ?? []).map((t) => t.name + t.description).join('');
+    return estimateTextTokens(textBlob) + richBlockTokens;
   }
 }
 
@@ -332,6 +428,10 @@ interface OpenAIStreamChunk {
 
 function mapStopReason(s: string): StopReason {
   if (s === 'tool_calls') return 'tool_use';
+  // Legacy single-function finish reason still emitted by older Azure /
+  // OpenAI-compatible deployments for the deprecated function-calling shape;
+  // it means a tool call is pending, not a clean completion.
+  if (s === 'function_call') return 'tool_use';
   if (s === 'length') return 'max_tokens';
   if (s === 'stop') return 'end_turn';
   if (s === 'content_filter') return 'error';

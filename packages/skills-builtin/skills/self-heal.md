@@ -18,6 +18,9 @@ triggers:
   - "self-heal"
   - "self heal"
   - "repair"
+# allowed-tools intentionally omitted: this skill drives a broad, evolving set of
+# privileged tools (Read, Grep, Glob, bash, Edit, Write, install_plugin, mcp_*,
+# synthesize_skill) — an omitted allowed-tools means "all tools", on purpose.
 ---
 
 # Self-heal — diagnose then propose ONE fix

@@ -43,6 +43,25 @@ export const MANAGED_NODE_VERSION = 'v22.12.0';
 
 const DIST_BASE = 'https://nodejs.org/dist';
 
+/** Idle/connect timeout for a download or SHASUMS fetch. A stalled
+ *  nodejs.org connection (TCP black-hole, half-open after a network drop)
+ *  must surface an error rather than hang the onboarding step forever. */
+const HTTP_TIMEOUT_MS = 30_000;
+
+/** Hosts we will follow a redirect to. The archive AND its SHASUMS both flow
+ *  through {@link httpStream}; if a redirect could point anywhere, an on-path
+ *  attacker could swing BOTH to a host serving a matching (archive, checksum)
+ *  pair and defeat the integrity check — TLS-to-nodejs.org is the only trust
+ *  anchor and an unpinned redirect erases it. Keep this list tight. */
+const ALLOWED_DOWNLOAD_HOSTS: ReadonlySet<string> = new Set(['nodejs.org']);
+
+/** True only for nodejs.org (and its subdomains). Exported for the integrity
+ *  test — a redirect off this host would defeat the SHASUMS check. */
+export function isAllowedDownloadHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return ALLOWED_DOWNLOAD_HOSTS.has(h) || [...ALLOWED_DOWNLOAD_HOSTS].some((a) => h.endsWith(`.${a}`));
+}
+
 export interface ManagedNodeArchive {
   /** The archive's top-level directory, also the extracted folder name. */
   readonly dirName: string;
@@ -200,14 +219,29 @@ function emit(window: BrowserWindow, line: string): void {
   wsEventBus.broadcast('onboarding.install.progress', line);
 }
 
-/** GET a URL following redirects, invoking `onData`/`onEnd` on the body. */
+/** GET a URL following redirects, invoking `onData`/`onEnd` on the body.
+ *  Redirects are pinned to {@link ALLOWED_DOWNLOAD_HOSTS} and every request
+ *  carries an idle timeout so a black-holed connection can't hang forever. */
 function httpStream(
   url: string,
   onResponse: (res: import('node:http').IncomingMessage) => void,
   onError: (err: Error) => void,
   redirectsLeft = 5,
 ): void {
-  httpsGet(url, (res) => {
+  // Reject an off-host URL before we even open the socket (covers the initial
+  // call and every redirect target).
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname;
+  } catch {
+    onError(new Error(`Invalid download URL: ${url}`));
+    return;
+  }
+  if (!isAllowedDownloadHost(hostname)) {
+    onError(new Error(`Refusing to download from untrusted host "${hostname}".`));
+    return;
+  }
+  const req = httpsGet(url, (res) => {
     const status = res.statusCode ?? 0;
     if (status >= 300 && status < 400 && res.headers.location) {
       if (redirectsLeft <= 0) {
@@ -215,7 +249,14 @@ function httpStream(
         res.resume();
         return;
       }
-      const next = new URL(res.headers.location, url).toString();
+      let next: string;
+      try {
+        next = new URL(res.headers.location, url).toString();
+      } catch {
+        onError(new Error(`Invalid redirect location for ${url}`));
+        res.resume();
+        return;
+      }
       res.resume();
       httpStream(next, onResponse, onError, redirectsLeft - 1);
       return;
@@ -226,7 +267,11 @@ function httpStream(
       return;
     }
     onResponse(res);
-  }).on('error', onError);
+  });
+  req.on('error', onError);
+  req.setTimeout(HTTP_TIMEOUT_MS, () => {
+    req.destroy(new Error(`Download timed out after ${HTTP_TIMEOUT_MS} ms for ${url}`));
+  });
 }
 
 /** Download `url` to `dest`, reporting integer percent (or null if the server
@@ -244,6 +289,16 @@ function download(
         let received = 0;
         let lastPct = -1;
         const file = createWriteStream(dest);
+        // A source error after `res.pipe(file)` does NOT auto-close the write
+        // stream — destroy it so we don't leak the fd / leave a half-written
+        // file locked. `fail` is idempotent.
+        let settled = false;
+        const fail = (err: Error): void => {
+          if (settled) return;
+          settled = true;
+          file.destroy();
+          reject(err);
+        };
         res.on('data', (chunk: Buffer) => {
           received += chunk.length;
           if (total > 0) {
@@ -255,9 +310,16 @@ function download(
           }
         });
         res.pipe(file);
-        file.on('finish', () => file.close((err) => (err ? reject(err) : resolve())));
-        file.on('error', reject);
-        res.on('error', reject);
+        file.on('finish', () =>
+          file.close((err) => {
+            if (settled) return;
+            settled = true;
+            if (err) reject(err);
+            else resolve();
+          }),
+        );
+        file.on('error', fail);
+        res.on('error', fail);
       },
       reject,
     );
@@ -310,6 +372,17 @@ async function verifyChecksum(
   }
 }
 
+/**
+ * Escape a string for a PowerShell SINGLE-quoted literal by doubling every
+ * apostrophe — the only metacharacter inside `'...'`. Without this, a path
+ * containing `'` (e.g. a Windows account name like O'Brien, or any future
+ * caller-supplied component) terminates the quote and lets the remainder parse
+ * as PowerShell, running in the app's security context during onboarding.
+ */
+export function psSingleQuote(s: string): string {
+  return s.replace(/'/g, "''");
+}
+
 /** Extract a Node archive into `root`. tar handles both .tar.gz (macOS) and
  *  .tar.xz (Linux) with auto-detection; Windows uses PowerShell Expand-Archive
  *  for the .zip. */
@@ -319,7 +392,8 @@ function extract(archivePath: string, root: string): Promise<void> {
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      `Expand-Archive -LiteralPath '${archivePath}' -DestinationPath '${root}' -Force`,
+      `Expand-Archive -LiteralPath '${psSingleQuote(archivePath)}' ` +
+        `-DestinationPath '${psSingleQuote(root)}' -Force`,
     ]);
   }
   // `-xf` (no explicit -z/-J) lets bsdtar (macOS) and GNU tar (Linux) detect

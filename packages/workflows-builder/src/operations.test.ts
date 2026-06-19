@@ -155,17 +155,19 @@ describe('loop node body + exit model', () => {
 
   it('keeps exactly one deterministic loop exit even when a second exit is authored', () => {
     let s = loopFixture();
+    s = addStep(s, { kind: 'prompt', id: 'tail' }); // a second non-ancestor exit candidate
     s = setLoopBody(s, 'loop', ['improve']);
-    // Wire an exit, then try to author a SECOND non-body needs:[loop] via
-    // connectNeeds. Previously this produced two non-body needs:[loop] nodes,
-    // one rendered as loop-exit and the other as a plain needs arrow, with the
-    // choice depending on node array order. The exit must stay single + the one
-    // explicitly chosen last.
+    // Wire an exit, then re-point it to a SECOND non-body, non-ancestor node via
+    // connectNeeds. Previously two non-body needs:[loop] nodes could coexist —
+    // one rendered as loop-exit, the other as a plain needs arrow, the choice
+    // depending on node array order. The exit must stay single + the one
+    // explicitly chosen last. ('seed' would be a cycle and is refused — see the
+    // cycle-guard test below.)
     s = setLoopExit(s, 'loop', 'finish');
-    s = connectNeeds(s, 'loop', 'seed'); // routed through setLoopExit → re-points
+    s = connectNeeds(s, 'loop', 'tail'); // routed through setLoopExit → re-points
     expect(s.edges.filter((e) => e.kind === 'loop-exit')).toHaveLength(1);
-    expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'loop-exit', from: 'loop', to: 'seed' }));
-    expect(loopExitTarget(s.nodes.find((n) => n.id === 'loop')!, s.nodes)).toBe('seed');
+    expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'loop-exit', from: 'loop', to: 'tail' }));
+    expect(loopExitTarget(s.nodes.find((n) => n.id === 'loop')!, s.nodes)).toBe('tail');
     // the prior exit ('finish') lost its loop dependency entirely — so it can no
     // longer be mistaken for a second exit.
     expect(s.nodes.find((n) => n.id === 'finish')!.needs).not.toContain('loop');
@@ -173,9 +175,48 @@ describe('loop node body + exit model', () => {
     const dependsOnLoop = s.nodes.filter(
       (n) => n.id !== 'improve' && n.needs.includes('loop'),
     );
-    expect(dependsOnLoop.map((n) => n.id)).toEqual(['seed']);
+    expect(dependsOnLoop.map((n) => n.id)).toEqual(['tail']);
     // body membership untouched.
     expect(s.nodes.find((n) => n.id === 'improve')!.needs).toEqual(['loop']);
+  });
+
+  it('refuses a loop-exit edge that would close a cycle', () => {
+    // seed → loop (loop needs seed). Pointing the loop's exit back at seed would
+    // make seed need loop → cycle. connectNeeds routes loop edges through
+    // setLoopExit, which must apply the same cycle guard as the plain path.
+    let s = loopFixture();
+    expect(wouldCreateCycle(s, 'loop', 'seed')).toBe(true);
+    const before = s;
+    s = setLoopExit(s, 'loop', 'seed');
+    expect(s).toBe(before); // no-op, cycle refused
+    expect(s.nodes.find((n) => n.id === 'seed')!.needs).not.toContain('loop');
+    expect(s.edges.some((e) => e.kind === 'loop-exit')).toBe(false);
+  });
+
+  it('connectNeeds into a loop also refuses the cyclic exit', () => {
+    let s = loopFixture();
+    const before = s;
+    s = connectNeeds(s, 'loop', 'seed'); // loop → seed exit, but seed → loop already
+    expect(s).toBe(before);
+  });
+
+  it('setLoopBody refuses to put an ancestor of the loop into the body (no cycle)', () => {
+    // loop already needs `seed` (wired via `after`). Putting `seed` into the body
+    // would give seed `needs: [loop]` while loop still needs seed → an
+    // unschedulable cycle seed↔loop. setLoopBody must drop such ancestors the same
+    // way setLoopExit/connectNeeds guard their own needs edges, so this in-canvas
+    // path can't author an invalid DAG the server would only reject after save.
+    let s = loopFixture();
+    expect(wouldCreateCycle(s, 'loop', 'seed')).toBe(true);
+    s = setLoopBody(s, 'loop', ['seed', 'improve']);
+    // seed (the ancestor) is excluded; the legitimate member is kept.
+    expect(s.nodes.find((n) => n.id === 'loop')!.loop!.body).toEqual(['improve']);
+    // seed did NOT gain needs:[loop] — the cycle was refused, not authored.
+    expect(s.nodes.find((n) => n.id === 'seed')!.needs).not.toContain('loop');
+    expect(s.nodes.find((n) => n.id === 'improve')!.needs).toContain('loop');
+    // and no body member both depends on and is depended-on-by the loop.
+    const loop = s.nodes.find((n) => n.id === 'loop')!;
+    expect(loop.needs).toEqual(['seed']); // loop still plainly downstream of seed
   });
 
   it('setLoopConfig clamps maxIterations to 1..50', () => {
@@ -226,6 +267,25 @@ describe('updateNode / updateMeta / move / rename', () => {
     expect(s.nodes.map((n) => n.id)).toContain('fresh');
     expect(s.nodes.find((n) => n.id === 'c')!.then).toEqual(['fresh']);
     expect(s.nodes.find((n) => n.id === 'fresh')!.needs).toEqual(['c']);
+  });
+
+  it('renameNode rejects a schema-invalid id (spaces/punctuation) as a no-op', () => {
+    // The inspector wires this from a free-text field; a value addStep would
+    // slugify must not be accepted verbatim into node + edge ids.
+    let s = addStep(emptyState(), { kind: 'prompt', id: 'a' });
+    const before = s;
+    s = renameNode(s, 'a', 'my step!');
+    expect(s).toBe(before); // refused
+    expect(s.nodes.map((n) => n.id)).toEqual(['a']);
+  });
+
+  it('updateNode clones the args patch so it does not alias caller state', () => {
+    let s = addStep(emptyState(), { kind: 'tool', id: 't' });
+    const args = { count: 1 };
+    s = updateNode(s, 't', { args });
+    // Mutating the caller's object must not retroactively edit the snapshot.
+    args.count = 999;
+    expect(s.nodes.find((n) => n.id === 't')!.args).toEqual({ count: 1 });
   });
 });
 

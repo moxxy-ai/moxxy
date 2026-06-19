@@ -111,6 +111,53 @@ describe('EmbeddingIndex', () => {
     expect(readSpy.mock.calls.length).toBe(1);
     readSpy.mockRestore();
   });
+
+  it('degrades a corrupt (unparseable) cache file to a cold cache instead of throwing', async () => {
+    await fs.writeFile(path.join(tmp, '.embeddings.json'), '{ this is not valid json ', 'utf8');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const idx = new EmbeddingIndex(tmp, 'test');
+    try {
+      await expect(idx.load()).resolves.toBeUndefined(); // never throws
+      expect(idx.lookup('anything', 'body')).toBeNull(); // cold cache
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('degrades a structurally-valid-but-shapeless cache file (no entries) to a cold cache', async () => {
+    // {version,embedder} with no `entries` previously threw a TypeError at
+    // Object.entries(undefined), permanently breaking every recall.
+    await fs.writeFile(
+      path.join(tmp, '.embeddings.json'),
+      JSON.stringify({ version: 1, embedder: 'test' }),
+      'utf8',
+    );
+    const idx = new EmbeddingIndex(tmp, 'test');
+    await expect(idx.load()).resolves.toBeUndefined();
+    expect(idx.lookup('foo', 'body')).toBeNull();
+  });
+
+  it('skips malformed entries but keeps the well-formed ones', async () => {
+    await fs.writeFile(
+      path.join(tmp, '.embeddings.json'),
+      JSON.stringify({
+        version: 1,
+        embedder: 'test',
+        entries: {
+          good: { hash: EmbeddingIndex.hash('body'), vector: [1, 2, 3] },
+          bad: { hash: 42, vector: 'not-an-array' },
+          alsoBad: { vector: [1, 2] }, // missing hash
+        },
+      }),
+      'utf8',
+    );
+    const idx = new EmbeddingIndex(tmp, 'test');
+    await idx.load();
+    expect(idx.lookup('good', 'body')).toEqual([1, 2, 3]);
+    expect(idx.lookup('bad', 'body')).toBeNull();
+    expect(idx.lookup('alsoBad', 'body')).toBeNull();
+  });
 });
 
 describe('MemoryStore vector recall with persistent index', () => {

@@ -72,7 +72,11 @@ export function verifyDelivery(input: VerificationInput): VerificationResult {
 
   if (v.scheme === 'stripe') {
     // Stripe-Signature: `t=1492774577,v1=5257a8...,v0=...`
-    const parts: Record<string, string[]> = {};
+    // Null-prototype map so an attacker-supplied key like `__proto__` or
+    // `constructor` is treated as an ordinary entry (and `parts[k] ??= []`
+    // never resolves to an inherited Object.prototype member that would throw
+    // on `.push`). Hostile header keys degrade to a plain mismatch, not a crash.
+    const parts: Record<string, string[]> = Object.create(null);
     for (const piece of header.split(',')) {
       const eq = piece.indexOf('=');
       if (eq < 0) continue;
@@ -102,7 +106,13 @@ export function verifyDelivery(input: VerificationInput): VerificationResult {
     return { ok: false, reason: 'signature mismatch' };
   }
 
-  // Plain HMAC over the raw body.
+  // Plain HMAC over the raw body (GitHub-style). NOTE: this scheme has NO
+  // replay protection — a captured valid delivery whose signature matches is
+  // accepted forever (across restarts), re-firing the agent turn each time.
+  // The only mitigation here is best-effort, in-memory dedupe, which engages
+  // ONLY when the trigger configures `idempotencyHeader`. Operators using a
+  // plain-HMAC trigger should set an idempotency header (e.g. the provider's
+  // delivery-id header) so retries/replays of the same delivery are dropped.
   const computed = createHmac(v.algorithm, v.secret).update(input.body).digest('hex');
   const expected = v.prefix ? `${v.prefix}${computed}` : computed;
   if (safeEqHex(header, expected)) return { ok: true };

@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { Button, Icon, IconButton, TextInput } from '@moxxy/desktop-ui';
+import { Button, ConfirmModal, Icon, IconButton, TextInput } from '@moxxy/desktop-ui';
 import { Section, Tile, Badge, EmptyState } from './settings-primitives';
 
 export function VaultTab({
@@ -22,6 +22,10 @@ export function VaultTab({
   readonly onRemove: (name: string) => Promise<void>;
 }): JSX.Element {
   const [adding, setAdding] = useState(false);
+  // Deleting a stored secret is irreversible and other providers/MCP servers
+  // may depend on it — gate it behind a confirm like skill deletion, not a
+  // single misclickable trash icon.
+  const [deletePending, setDeletePending] = useState<string | null>(null);
   return (
     <Section
       title="Vault"
@@ -56,9 +60,23 @@ export function VaultTab({
           }}
         >
           {vault.map((v) => (
-            <VaultKeyCard key={v.name} name={v.name} onRemove={() => void onRemove(v.name)} />
+            <VaultKeyCard key={v.name} name={v.name} onRemove={() => setDeletePending(v.name)} />
           ))}
         </div>
+      )}
+      {deletePending !== null && (
+        <ConfirmModal
+          title="Delete key?"
+          message={`Delete “${deletePending}”? This permanently removes the stored secret — providers or MCP servers that rely on it will stop working.`}
+          confirmLabel="Delete"
+          destructive
+          onCancel={() => setDeletePending(null)}
+          onConfirm={() => {
+            const name = deletePending;
+            setDeletePending(null);
+            void onRemove(name);
+          }}
+        />
       )}
     </Section>
   );
@@ -93,6 +111,10 @@ function AddKeyForm({
       await onSubmit(trimmed, value);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      // Reset even on success: the parent normally unmounts this form, but a
+      // redundant reset is harmless if unmounted and prevents a stuck
+      // "Saving…" if the parent ever keeps the form mounted.
       setBusy(false);
     }
   };

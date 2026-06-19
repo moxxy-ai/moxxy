@@ -1,11 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { projectUserPrompt, resolvedCallIdSet } from './project-messages.js';
+import { projectMessagesFromLog, projectUserPrompt, resolvedCallIdSet } from './project-messages.js';
 import { computeElisionState } from '../elision-state.js';
 import { asEventId, asSessionId, asTurnId } from '../ids.js';
-import type { MoxxyEvent, UserPromptEvent } from '../events.js';
+import type { EventLogReader } from '../log.js';
+import type { MoxxyEvent, MoxxyEventOfType, MoxxyEventType, UserPromptEvent } from '../events.js';
+import type { TurnId } from '../ids.js';
 
 const sid = asSessionId('s1');
 const t1 = asTurnId('t1');
+
+function reader(events: ReadonlyArray<MoxxyEvent>): EventLogReader {
+  return {
+    length: events.length,
+    at: (seq) => events[seq],
+    slice: (from = 0, to = events.length) => events.slice(from, to),
+    ofType: <T extends MoxxyEventType>(type: T): ReadonlyArray<MoxxyEventOfType<T>> =>
+      events.filter((e): e is MoxxyEventOfType<T> => e.type === type),
+    byTurn: (turnId: TurnId) => events.filter((e) => e.turnId === turnId),
+    toJSON: () => events,
+  };
+}
 
 // No-elision state — computeElisionState returns the empty/inactive state when
 // the log has no elision events, which is the only state these pure sub-steps
@@ -117,5 +131,53 @@ describe('resolvedCallIdSet', () => {
     expect(set.size).toBe(0);
     set.add('later');
     expect(set.has('later')).toBe(true);
+  });
+});
+
+describe('projectMessagesFromLog tool_result stringify hardening', () => {
+  function logWith(output: unknown): MoxxyEvent[] {
+    return [
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'go' }),
+      event(1, {
+        type: 'tool_call_requested',
+        turnId: t1,
+        source: 'model',
+        callId: 'c1',
+        name: 'weird',
+        input: {},
+      }),
+      event(2, { type: 'tool_result', turnId: t1, source: 'tool', callId: 'c1', ok: true, output }),
+    ];
+  }
+
+  function toolResultText(events: MoxxyEvent[]): string {
+    const msgs = projectMessagesFromLog({ log: reader(events) });
+    const tr = msgs.find((m) => m.role === 'tool_result');
+    const block = tr?.content[0];
+    return block && block.type === 'tool_result' ? (block.content as string) : '';
+  }
+
+  it('does not throw on a circular tool_result output (would permanently wedge the turn)', () => {
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+    const events = logWith(circular);
+    expect(() => projectMessagesFromLog({ log: reader(events) })).not.toThrow();
+    // Re-projecting the same append-only log must also never throw.
+    expect(() => projectMessagesFromLog({ log: reader(events) })).not.toThrow();
+    expect(typeof toolResultText(events)).toBe('string');
+  });
+
+  it('does not throw on a BigInt-bearing tool_result output', () => {
+    const events = logWith({ n: 10n });
+    expect(() => projectMessagesFromLog({ log: reader(events) })).not.toThrow();
+    expect(typeof toolResultText(events)).toBe('string');
+  });
+
+  it('still serializes a plain object output as JSON', () => {
+    expect(toolResultText(logWith({ ok: true }))).toBe('{"ok":true}');
+  });
+
+  it('passes a string output through verbatim', () => {
+    expect(toolResultText(logWith('plain text'))).toBe('plain text');
   });
 });

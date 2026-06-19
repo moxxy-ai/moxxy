@@ -13,6 +13,10 @@ export const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
 
 export const ARCHITECT_AGENT_ID = 'architect';
 
+/** Env var carrying the per-peer iteration cap from the coordinator to a spawned
+ *  agent (so `config.peerMaxIterations` actually bounds the peer loop). */
+export const COLLAB_MAX_ITERATIONS_ENV = 'MOXXY_COLLAB_MAX_ITERATIONS';
+
 /** Scaffold the architect writes into the base repo (committed before forking). */
 export const COLLAB_SCAFFOLD_DIR = '.moxxy-collab';
 export const CONTRACTS_FILENAME = 'CONTRACTS.md';
@@ -27,10 +31,16 @@ export const BRIEF_FILENAME = 'BRIEF.md';
  *  the brief summary omits. */
 export const CONVERSATION_FILENAME = 'CONVERSATION.md';
 
-/** A short, filesystem-safe run id from the session + turn ids. */
+/** A short, filesystem-safe, COLLISION-RESISTANT run id. The session+turn tails
+ *  alone collide when two ids share their trailing 6 alnum chars, reusing the
+ *  same socket/worktree paths across distinct runs (a stale colliding dir then
+ *  breaks integrate()'s `__staging__` worktree add with "already exists"). A short
+ *  time+random suffix makes distinct runs never share on-disk paths. Kept short —
+ *  macOS caps unix-socket paths at ~104 chars. */
 export function collabRunId(sessionId: string, turnId: string): string {
   const tail = (s: string): string => s.replace(/[^a-zA-Z0-9]/g, '').slice(-6) || 'x';
-  return `${tail(sessionId)}-${tail(turnId)}`;
+  const suffix = (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(-8);
+  return `${tail(sessionId)}-${tail(turnId)}-${suffix}`;
 }
 
 /** Per-run directory holding the hub + peer sockets. */

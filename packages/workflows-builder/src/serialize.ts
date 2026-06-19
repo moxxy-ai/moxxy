@@ -27,16 +27,27 @@ import { fromYaml, toYaml } from './yaml.js';
 
 type ActionField = 'skill' | 'prompt' | 'tool' | 'workflow' | 'bridge' | 'condition' | 'switch' | 'loop';
 
-const ACTION_KIND_FIELD: Record<StepKind, ActionField> = {
-  skill: 'skill',
-  prompt: 'prompt',
-  tool: 'tool',
-  workflow: 'workflow',
-  bridge: 'bridge',
-  condition: 'condition',
-  switch: 'switch',
-  loop: 'loop',
-};
+/**
+ * Single source of truth for the step kinds + their action field. `detectKind`
+ * scans these in order (first matching action field wins), `ACTION_KIND_FIELD`
+ * is derived from it, and `defaultNode`/types stay in sync via the `StepKind`
+ * union — so a ninth kind is added in exactly one place here.
+ */
+const KIND_FIELDS: ReadonlyArray<readonly [StepKind, ActionField]> = [
+  ['skill', 'skill'],
+  ['prompt', 'prompt'],
+  ['tool', 'tool'],
+  ['workflow', 'workflow'],
+  ['bridge', 'bridge'],
+  ['condition', 'condition'],
+  ['switch', 'switch'],
+  ['loop', 'loop'],
+];
+
+const ACTION_KIND_FIELD: Record<StepKind, ActionField> = Object.fromEntries(KIND_FIELDS) as Record<
+  StepKind,
+  ActionField
+>;
 
 const DEFAULT_VIEWPORT: BuilderViewport = { x: 0, y: 0, zoom: 1 };
 
@@ -153,13 +164,25 @@ export function hydrateYaml(yaml: string): BuilderState {
 
 /** Fill in schema defaults the canvas relies on when reading loose YAML. */
 function normalizeWorkflow(raw: Partial<Workflow>): Workflow {
-  const steps = (raw.steps ?? []).map((s) => {
+  // `steps` arrives from a possibly hand-authored / invalid draft, so coerce
+  // defensively: a non-array `steps:` (typo'd as a scalar/map) becomes empty,
+  // and every entry must be a plain object with a non-empty string `id` — a
+  // string/number list item or an id-less entry would otherwise yield nodes
+  // with `id: undefined` that silently corrupt edge derivation.
+  const rawSteps = Array.isArray(raw.steps) ? raw.steps : [];
+  const steps = rawSteps.map((s, idx) => {
+    if (!s || typeof s !== 'object' || Array.isArray(s)) {
+      throw new Error(`workflow step ${idx} is not an object`);
+    }
     const step = s as Partial<WorkflowStep>;
+    if (typeof step.id !== 'string' || step.id.length === 0) {
+      throw new Error(`workflow step ${idx} has no valid id`);
+    }
     return {
       ...step,
-      needs: step.needs ?? [],
+      needs: Array.isArray(step.needs) ? step.needs.filter((d) => typeof d === 'string') : [],
       onError: step.onError ?? 'fail',
-      retries: step.retries ?? 0,
+      retries: typeof step.retries === 'number' ? step.retries : 0,
     } as WorkflowStep;
   });
   return {
@@ -178,39 +201,63 @@ function normalizeWorkflow(raw: Partial<Workflow>): Workflow {
 
 function stepToNode(step: WorkflowStep, x: number, y: number): BuilderNode {
   const kind = detectKind(step);
-  const loop: BuilderLoop | undefined = step.loop
+  // A draft on disk may carry a malformed `loop`/branch shape (e.g. `then`
+  // parsed to a string, `cases` to an array). Only copy each field when it has
+  // the expected shape so a typo yields an empty/defaulted node instead of a
+  // string spread into indexed chars that corrupts the canvas.
+  const rawLoop: unknown = step.loop;
+  const loop: BuilderLoop | undefined = isPlainRecord(rawLoop)
     ? {
-        body: [...step.loop.body],
-        condition: step.loop.condition,
-        maxIterations: step.loop.maxIterations,
+        body: toStringArray(rawLoop.body),
+        condition: typeof rawLoop.condition === 'string' ? rawLoop.condition : '',
+        maxIterations: typeof rawLoop.maxIterations === 'number' ? rawLoop.maxIterations : 10,
       }
     : undefined;
+  const action = kind === 'loop' ? '' : asActionString(step[ACTION_KIND_FIELD[kind]]);
   return {
     id: step.id,
     kind,
     x,
     y,
-    action: kind === 'loop' ? '' : (step[ACTION_KIND_FIELD[kind]] as string) ?? '',
-    needs: [...step.needs],
+    action,
+    needs: toStringArray(step.needs),
     onError: step.onError,
     retries: step.retries,
-    ...(step.label ? { label: step.label } : {}),
-    ...(step.input ? { input: step.input } : {}),
-    ...(step.args ? { args: { ...step.args } } : {}),
-    ...(step.then ? { then: [...step.then] } : {}),
-    ...(step.else ? { else: [...step.else] } : {}),
-    ...(step.cases ? { cases: mapValues(step.cases, (v) => [...v]) } : {}),
-    ...(step.default ? { default: [...step.default] } : {}),
+    ...(typeof step.label === 'string' && step.label ? { label: step.label } : {}),
+    ...(typeof step.input === 'string' && step.input ? { input: step.input } : {}),
+    ...(isPlainRecord(step.args) ? { args: { ...step.args } } : {}),
+    ...(Array.isArray(step.then) ? { then: toStringArray(step.then) } : {}),
+    ...(Array.isArray(step.else) ? { else: toStringArray(step.else) } : {}),
+    ...(isPlainRecord(step.cases) ? { cases: normalizeCases(step.cases) } : {}),
+    ...(Array.isArray(step.default) ? { default: toStringArray(step.default) } : {}),
     ...(loop ? { loop } : {}),
-    ...(step.when ? { when: step.when } : {}),
+    ...(typeof step.when === 'string' && step.when ? { when: step.when } : {}),
     ...(step.format ? { format: step.format } : {}),
     ...(step.awaitInput ? { awaitInput: step.awaitInput } : {}),
   };
 }
 
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function toStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
+function asActionString(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
+
+/** Coerce a parsed `cases` record into a map of string-arrays, dropping junk. */
+function normalizeCases(raw: Record<string, unknown>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(raw)) out[k] = toStringArray(v);
+  return out;
+}
+
 function detectKind(step: WorkflowStep): StepKind {
-  const kinds: StepKind[] = ['skill', 'prompt', 'tool', 'workflow', 'bridge', 'condition', 'switch', 'loop'];
-  for (const k of kinds) if (step[ACTION_KIND_FIELD[k]] != null) return k;
+  for (const [kind, field] of KIND_FIELDS) if (step[field] != null) return kind;
   return 'prompt';
 }
 
@@ -305,18 +352,40 @@ export function autoLayout(steps: ReadonlyArray<WorkflowStep>): Array<{ x: numbe
   const byId = new Map(steps.map((s) => [s.id, s]));
   const depth = new Map<string, number>();
 
-  const resolve = (id: string, seen: Set<string>): number => {
-    if (depth.has(id)) return depth.get(id)!;
-    if (seen.has(id)) return 0; // cycle guard — server validation will reject it
-    seen.add(id);
-    const step = byId.get(id);
-    const needs = step?.needs ?? [];
-    const d = needs.length === 0 ? 0 : Math.max(...needs.map((n) => resolve(n, seen) + 1));
-    depth.set(id, d);
-    seen.delete(id);
-    return d;
+  // Iterative longest-path over `needs` with an explicit work stack so a very
+  // long linear chain in a hand-authored draft can't overflow the call stack
+  // (the recursive form blew one frame per edge). `onStack` is the cycle guard:
+  // a back-edge contributes depth 0, matching the old behaviour. Server
+  // validation still rejects cycles; we just lay out gracefully first.
+  const resolve = (start: string): void => {
+    if (depth.has(start)) return;
+    const stack: string[] = [start];
+    const onStack = new Set<string>([start]);
+    while (stack.length > 0) {
+      const id = stack[stack.length - 1]!;
+      const needs = byId.get(id)?.needs ?? [];
+      let pending: string | null = null;
+      for (const n of needs) {
+        if (!byId.has(n) || onStack.has(n) || depth.has(n)) continue;
+        pending = n;
+        break;
+      }
+      if (pending) {
+        stack.push(pending);
+        onStack.add(pending);
+        continue;
+      }
+      let d = 0;
+      for (const n of needs) {
+        if (!byId.has(n) || onStack.has(n)) continue; // unknown / back-edge → 0
+        d = Math.max(d, (depth.get(n) ?? 0) + 1);
+      }
+      depth.set(id, d);
+      onStack.delete(id);
+      stack.pop();
+    }
   };
-  for (const id of ids) resolve(id, new Set());
+  for (const id of ids) resolve(id);
 
   const rowByCol = new Map<number, number>();
   return steps.map((s) => {

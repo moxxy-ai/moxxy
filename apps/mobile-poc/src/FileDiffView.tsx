@@ -23,32 +23,83 @@ import {
 
 const mono = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
 
+/** Cap rendered diff rows on the client: the runner's `truncated` flag is
+ *  advisory and a malformed/uncapped payload could otherwise mount thousands
+ *  of native views at once. Excess rows collapse to a one-line notice. */
+const MAX_ROWS = 400;
+
+/** Coerce a possibly-malformed remote count to a safe non-negative integer. */
+function safeCount(n: unknown): number {
+  return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+/** Build diff rows defensively: the `display` crosses a trust boundary and the
+ *  SDK's `isFileDiffDisplay` only checks `kind` + `Array.isArray(hunks)`, not
+ *  hunk/line shape. A hunk missing a `lines` array would make `toDiffRows`
+ *  throw `undefined is not iterable` and (with no error boundary) blank the
+ *  whole chat. Return an empty list on any shape error instead. */
+function safeDiffRows(display: FileDiffDisplay): DiffRow[] {
+  if (!Array.isArray(display.hunks)) return [];
+  try {
+    return toDiffRows(display);
+  } catch {
+    return [];
+  }
+}
+
 export function FileDiffView({ display }: { display: FileDiffDisplay }): React.JSX.Element {
-  const rows = toDiffRows(display);
+  const allRows = safeDiffRows(display);
+  const rows = allRows.length > MAX_ROWS ? allRows.slice(0, MAX_ROWS) : allRows;
+  const hiddenRows = allRows.length - rows.length;
+  const path = String(display.path ?? '');
+  const added = safeCount(display.added);
+  const removed = safeCount(display.removed);
+  // Feed the summary/verb helpers a sanitized payload so malformed counts
+  // (NaN/undefined from the remote) can't render "Added NaN lines".
+  const safeDisplay: FileDiffDisplay = { ...display, path, added, removed };
 
   return (
-    <View style={styles.card}>
+    <View
+      style={styles.card}
+      // Not a single a11y element: the header + per-row labels below let a
+      // screen reader navigate the diff line-by-line instead of collapsing it
+      // into one opaque announcement. (A label here would be ignored anyway.)
+      accessible={false}
+    >
       <View style={styles.header}>
         <Text style={styles.headerTitle} numberOfLines={1}>
-          {fileDiffVerb(display)} · {display.path}
+          {fileDiffVerb(safeDisplay)} · {path}
         </Text>
         <Text style={styles.headerCounts}>
-          <Text style={styles.add}>+{display.added}</Text>{' '}
-          <Text style={styles.del}>−{display.removed}</Text>
+          <Text style={styles.add}>+{added}</Text>{' '}
+          <Text style={styles.del}>−{removed}</Text>
         </Text>
       </View>
-      <Text style={styles.summary}>{fileDiffSummary(display)}</Text>
+      <Text style={styles.summary}>{fileDiffSummary(safeDisplay)}</Text>
 
       {/* Horizontal scroll keeps long lines from wrapping/clipping. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View>
           {rows.map((row, i) => (
-            <DiffRowView key={i} row={row} />
+            <DiffRowView key={rowKey(row, i)} row={row} />
           ))}
         </View>
       </ScrollView>
+      {hiddenRows > 0 ? (
+        <Text style={styles.summary} accessibilityRole="text">
+          …and {hiddenRows} more {hiddenRows === 1 ? 'line' : 'lines'} (diff capped)
+        </Text>
+      ) : null}
     </View>
   );
+}
+
+/** Stable-ish key: prefer the line's own number so reconciliation survives
+ *  reorder; fall back to index for gap markers. */
+function rowKey(row: DiffRow, i: number): string {
+  if (row.kind === 'gap') return `gap-${i}`;
+  const no = diffGutterNo(row);
+  return no !== undefined ? `${row.kind}-${no}` : `${row.kind}-${i}`;
 }
 
 function DiffRowView({ row }: { row: DiffRow }): React.JSX.Element {
@@ -66,12 +117,19 @@ function DiffRowView({ row }: { row: DiffRow }): React.JSX.Element {
     row.kind === 'add' ? styles.addText : row.kind === 'del' ? styles.delText : styles.contextText;
   const marker = row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' ';
   const no = diffGutterNo(row);
+  // Announce the change kind so the red/green color is not the only signal.
+  const kindWord = row.kind === 'add' ? 'added' : row.kind === 'del' ? 'removed' : 'unchanged';
 
   return (
-    <View style={[styles.row, rowStyle]}>
+    <View
+      style={[styles.row, rowStyle]}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`${kindWord} line${no !== undefined ? ` ${no}` : ''}: ${String(row.text ?? '')}`}
+    >
       <Text style={styles.gutter}>{no ?? ''}</Text>
       <Text style={[styles.marker, textStyle]}>{marker}</Text>
-      <Text style={[styles.lineText, textStyle]}>{row.text}</Text>
+      <Text style={[styles.lineText, textStyle]}>{String(row.text ?? '')}</Text>
     </View>
   );
 }
@@ -94,7 +152,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: '#f2f2f5', fontSize: 13, fontWeight: '600', flexShrink: 1 },
   headerCounts: { fontSize: 12, fontFamily: mono },
-  summary: { color: '#6f6f7c', fontSize: 11, paddingHorizontal: 12, paddingBottom: 8 },
+  // Raised from #6f6f7c to clear WCAG AA contrast on the #15151b card.
+  summary: { color: '#9a9aa6', fontSize: 11, paddingHorizontal: 12, paddingBottom: 8 },
 
   row: { flexDirection: 'row', alignItems: 'flex-start', paddingRight: 12 },
   contextRow: { backgroundColor: 'transparent' },

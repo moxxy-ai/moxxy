@@ -34,4 +34,24 @@ describe('sidecar request queue resilience', () => {
     // Request 1's error reply lands too (its catch-path re-wrote it).
     expect(ids).toContain('a');
   });
+
+  it('echoes the real id on a missing-method error so the parent can settle the call', async () => {
+    const writes: Reply[] = [];
+    const out = (reply: Reply): void => void writes.push(reply);
+    // id round-trips, only `method` is missing — the reply MUST carry the real
+    // id (not 'unknown') so the parent's pending map matches and the caller is
+    // rejected instead of left waiting for its timeout.
+    await enqueueLine(JSON.stringify({ id: 'real-id' }), out);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.id).toBe('real-id');
+    expect(writes[0]!.ok).toBe(false);
+  });
+
+  it('falls back to "unknown" for wholly unparseable input', async () => {
+    const writes: Reply[] = [];
+    const out = (reply: Reply): void => void writes.push(reply);
+    await enqueueLine('{not json', out);
+    expect(writes[0]!.id).toBe('unknown');
+    expect(writes[0]!.ok).toBe(false);
+  });
 });

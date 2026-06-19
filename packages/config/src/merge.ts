@@ -15,9 +15,17 @@ export function mergeConfigs(...configs: ReadonlyArray<MoxxyConfig | undefined>)
   return out;
 }
 
+// Keys that, when assigned via `target[key] = ...`, hit a prototype setter
+// instead of creating an own data property — silently dropping the data AND
+// replacing the merged object's prototype. A parsed config (JSON default-export
+// or some YAML inputs) can carry an own enumerable `__proto__`/`constructor`/
+// `prototype` key, so skip them defensively. Legitimate configs never use them.
+const FORBIDDEN_MERGE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function mergeInto(target: Record<string, unknown>, source: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(source)) {
     if (value === undefined) continue;
+    if (FORBIDDEN_MERGE_KEYS.has(key)) continue;
     const existing = target[key];
     if (Array.isArray(value)) {
       target[key] = Array.isArray(existing) ? [...existing, ...value] : [...value];

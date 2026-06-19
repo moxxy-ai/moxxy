@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
-import { clampString } from './util.js';
+import { clampString, dropDanglingSurrogate } from './util.js';
 
 /** Max chars of combined output returned to the model (post-exit clamp). */
 const OUTPUT_LIMIT = 200_000;
@@ -16,6 +17,25 @@ const OUTPUT_LIMIT = 200_000;
 const STREAM_RETAIN_CAP = OUTPUT_LIMIT + 4_096;
 /** How long after SIGTERM before the whole process group gets SIGKILL. */
 const SIGKILL_GRACE_MS = 2_000;
+
+/**
+ * Env vars that look like credentials. The inproc isolator can't enforce the
+ * declared env allow-list, so the spawned shell would otherwise inherit every
+ * secret the runner holds in `process.env` (API keys, vault material, CI
+ * tokens) — a `printenv` then exfiltrates them. Scrub anything that looks like
+ * a secret before spawning. The model can still set a needed var explicitly via
+ * the `env` input (overlaid after scrubbing), so usability is preserved.
+ */
+const SECRET_ENV_RE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|CREDENTIAL|MOXXY_VAULT)/i;
+
+function scrubbedEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(base)) {
+    if (SECRET_ENV_RE.test(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
 
 /**
  * Signal the child's whole process group, not just the shell. The shell is
@@ -51,20 +71,37 @@ function killTree(child: ChildProcess, signal: NodeJS.Signals): void {
 /**
  * Bounded output accumulator: retains up to `cap` chars and counts (drains)
  * the rest, so total truncated size can still be reported accurately.
+ *
+ * Decodes through a `StringDecoder` so a multibyte UTF-8 sequence (emoji, CJK,
+ * accented chars) split across two `data` chunks at an arbitrary byte boundary
+ * is held back and joined, rather than each fragment decoding to U+FFFD. Call
+ * `end()` once the stream closes to flush any trailing partial bytes.
  */
-function boundedSink(cap: number): { push: (b: Buffer) => void; readonly text: string; readonly dropped: number } {
+function boundedSink(cap: number): {
+  push: (b: Buffer) => void;
+  end: () => void;
+  readonly text: string;
+  readonly dropped: number;
+} {
+  const decoder = new StringDecoder('utf8');
   let text = '';
   let dropped = 0;
+  const absorb = (s: string): void => {
+    if (s.length === 0) return;
+    const room = cap - text.length;
+    if (room >= s.length) {
+      text += s;
+    } else {
+      if (room > 0) text += dropDanglingSurrogate(s.slice(0, room));
+      dropped += s.length - Math.max(room, 0);
+    }
+  };
   return {
     push(b: Buffer): void {
-      const s = b.toString('utf8');
-      const room = cap - text.length;
-      if (room >= s.length) {
-        text += s;
-      } else {
-        if (room > 0) text += s.slice(0, room);
-        dropped += s.length - Math.max(room, 0);
-      }
+      absorb(decoder.write(b));
+    },
+    end(): void {
+      absorb(decoder.end());
     },
     get text() {
       return text;
@@ -111,9 +148,13 @@ export const bashTool = defineTool({
       throw new MoxxyError({ code: 'ABORTED', message: `Bash aborted before start: ${command}` });
     }
     return await new Promise<string>((resolve, reject) => {
+      // Start from a secret-scrubbed copy of the parent env, then overlay any
+      // model-supplied vars (which are trusted to the same degree as `command`
+      // and may legitimately re-supply a needed credential).
+      const childEnv = { ...scrubbedEnv(process.env), ...(env ?? {}) };
       const child = spawn('/bin/sh', ['-lc', command], {
         cwd: cwd ?? ctx.cwd,
-        env: env ? { ...process.env, ...env } : process.env,
+        env: childEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
         // Own process group on POSIX so timeout/abort can kill the whole
         // tree via a negative-pid signal. `detached` only detaches the
@@ -165,6 +206,9 @@ export const bashTool = defineTool({
         clearTimeout(timer);
         if (killTimer !== undefined) clearTimeout(killTimer);
         ctx.signal.removeEventListener('abort', onAbort);
+        // Flush any trailing partial multibyte sequence held by the decoder.
+        out.end();
+        err.end();
         const combined =
           (out.text ? `[stdout]\n${out.text.trimEnd()}\n` : '') +
           (err.text ? `[stderr]\n${err.text.trimEnd()}\n` : '') +
@@ -175,8 +219,9 @@ export const bashTool = defineTool({
         } else {
           // Same head + marker shape as clampString, with the marker counting
           // the drained chars too — identical to clamping the full output.
+          // Drop a trailing lone surrogate so the head can't end mid-pair.
           resolve(
-            combined.slice(0, OUTPUT_LIMIT) +
+            dropDanglingSurrogate(combined.slice(0, OUTPUT_LIMIT)) +
               `\n... [truncated ${combined.length + dropped - OUTPUT_LIMIT} chars]`,
           );
         }

@@ -60,16 +60,31 @@ function embedderConfig(cfg: EmbeddingsConfig | undefined): Record<string, unkno
   };
 }
 
+/** How to lazily import a bundled first-party embedder's def on demand. */
+export interface BuiltinEmbedderSource {
+  /** npm package that exports the embedder def. */
+  readonly pkg: string;
+  /** Named export on that package carrying the {@link EmbedderDef}. */
+  readonly exportName: string;
+}
+
+/**
+ * The bundled first-party embedders the CLI lazy-registers on demand (so their
+ * heavy runtimes load only when selected). A registry seam, not an inline
+ * branch: adding a bundled embedder is one entry here; everything else arrives
+ * via the normal plugin-discovery path and never touches this table.
+ */
+export const BUILTIN_EMBEDDER_SOURCES: Readonly<Record<string, BuiltinEmbedderSource>> = {
+  openai: { pkg: '@moxxy/plugin-embeddings-openai', exportName: 'openaiEmbedderDef' },
+  transformers: { pkg: '@moxxy/plugin-embeddings-transformers', exportName: 'transformersEmbedderDef' },
+};
+
 /**
  * Lazy-register a bundled first-party embedder's def. No-op for names that
  * aren't first-party (those must arrive via a discovered plugin).
  */
 async function registerBuiltinEmbedder(session: Session, name: string, logger: WarnLogger): Promise<void> {
-  const sources: Record<string, { pkg: string; exportName: string }> = {
-    openai: { pkg: '@moxxy/plugin-embeddings-openai', exportName: 'openaiEmbedderDef' },
-    transformers: { pkg: '@moxxy/plugin-embeddings-transformers', exportName: 'transformersEmbedderDef' },
-  };
-  const src = sources[name];
+  const src = BUILTIN_EMBEDDER_SOURCES[name];
   if (!src) return;
   try {
     const mod = (await import(src.pkg)) as Record<string, unknown>;

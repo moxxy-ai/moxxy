@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { SectionHeader } from './SectionHeader';
+import { useMenuKeyboard } from '../useMenuKeyboard';
 
 /**
  * The whole workspace rail as one tree: every workspace is a collapsible
@@ -72,26 +73,41 @@ export function WorkspaceTree({
     id: string;
     draft: string;
   } | null>(null);
+  // Guards the Enter→commit + the resulting blur→commit from BOTH resolving:
+  // Enter commits, then focus leaves the unmounting input and fires onBlur a
+  // second time. setEditing(null) is async, so this synchronous latch makes the
+  // second call a clean no-op even if React hasn't flushed the state clear yet
+  // (and stops it resolving `prev` against a row a focus shift may have changed
+  // under it). Cleared when a fresh edit begins.
+  const committingRef = useRef(false);
 
   const commitRename = (): void => {
-    if (!editing) return;
+    if (!editing || committingRef.current) return;
+    committingRef.current = true;
     const name = editing.draft.trim();
     const prev =
       editing.kind === 'workspace'
         ? desks.find((d) => d.id === editing.id)?.name
         : desks.flatMap((d) => d.sessions).find((s) => s.id === editing.id)?.name;
     setEditing(null);
-    if (!name || name === prev) return;
-    if (editing.kind === 'workspace') onRenameWorkspace(editing.id, name);
-    else onRenameSession(editing.id, name);
+    if (name && name !== prev) {
+      if (editing.kind === 'workspace') onRenameWorkspace(editing.id, name);
+      else onRenameSession(editing.id, name);
+    }
   };
 
   const renameProps = (kind: 'workspace' | 'session', id: string, name: string) => ({
     editing: editing?.kind === kind && editing.id === id ? editing.draft : null,
-    onStartRename: () => setEditing({ kind, id, draft: name }),
+    onStartRename: () => {
+      committingRef.current = false; // release the latch for the new edit
+      setEditing({ kind, id, draft: name });
+    },
     onDraft: (draft: string) => setEditing({ kind, id, draft }),
     onCommitRename: commitRename,
-    onCancelRename: () => setEditing(null),
+    onCancelRename: () => {
+      committingRef.current = false;
+      setEditing(null);
+    },
   });
 
   return (
@@ -222,7 +238,24 @@ function FolderRow({
     <div
       data-testid={`desk-row-${desk.id}`}
       data-collapsed={collapsed}
+      // The row body is the primary action (toggle collapse). Make it a real
+      // keyboard-activatable control: a focusable button-role that fires on
+      // Enter/Space, so the tree is navigable without a pointer. While the
+      // inline rename input owns focus the row is inert (editing !== null).
+      role={editing === null ? 'button' : undefined}
+      tabIndex={editing === null ? 0 : undefined}
+      aria-label={editing === null ? `${collapsed ? 'expand' : 'collapse'} workspace ${desk.name}` : undefined}
       onClick={editing === null ? onToggle : undefined}
+      onKeyDown={
+        editing === null
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onToggle();
+              }
+            }
+          : undefined
+      }
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
       onFocusCapture={() => setHot(true)}
@@ -250,8 +283,12 @@ function FolderRow({
       <button
         type="button"
         data-testid={`desk-toggle-${desk.id}`}
-        aria-label={`${collapsed ? 'expand' : 'collapse'} workspace ${desk.name}`}
-        aria-expanded={!collapsed}
+        // The row itself is now the accessible toggle (role=button + key
+        // handler), so the chevron is a redundant visual affordance for mouse
+        // users — keep it clickable but out of the tab order and hidden from
+        // assistive tech to avoid a duplicate tab stop / double announcement.
+        tabIndex={-1}
+        aria-hidden
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
@@ -384,7 +421,24 @@ function SessionRow({
       <div
         data-testid={`session-row-${s.id}`}
         data-active={active}
+        // The session row is the routing unit; make it keyboard-selectable
+        // (Enter/Space) and focusable so screen-reader / keyboard users can
+        // pick a session, not just pointer users. Inert while renaming.
+        role={editing === null ? 'button' : undefined}
+        tabIndex={editing === null ? 0 : undefined}
+        aria-label={editing === null ? `open session ${s.name}` : undefined}
+        aria-current={active ? 'true' : undefined}
         onClick={onSelect}
+        onKeyDown={
+          editing === null
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelect();
+                }
+              }
+            : undefined
+        }
         onMouseEnter={() => setHot(true)}
         onMouseLeave={() => setHot(false)}
         onFocusCapture={() => setHot(true)}
@@ -548,6 +602,9 @@ function RowMenu({
   readonly deleteLabel: 'Delete' | 'Remove';
 }): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
+  // Focus the first item on open + restore focus to the trigger on close, with
+  // ArrowUp/Down/Home/End/Tab handling inside the popover.
+  const menuRef = useMenuKeyboard<HTMLDivElement>(open);
 
   useEffect(() => {
     if (!open) return;
@@ -606,6 +663,7 @@ function RowMenu({
       </button>
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label={`${kind} actions ${name}`}
           // A click inside the popover must not bubble to the row (which

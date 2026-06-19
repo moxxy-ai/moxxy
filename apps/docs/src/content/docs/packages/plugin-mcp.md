@@ -28,7 +28,7 @@ session.pluginHost.registerStatic(plugin);
 
 In a normal moxxy install you don't construct this yourself — the CLI's
 setup reads `~/.moxxy/mcp.json` and builds it for you. See the
-[MCP servers guide](../guides/mcp-servers).
+[MCP servers guide](../guides/mcp-servers.md).
 
 ## Admin
 

@@ -58,6 +58,49 @@ export function defaultSessionsDir(): string {
 }
 
 /**
+ * Session ids are ULIDs internally, but `restoreEvents`/`readEventPage`/
+ * `deleteSession` are public APIs reachable from the runner/desktop IPC and the
+ * CLI. Reject anything outside the ULID-safe charset before path-joining so a
+ * `../`-laden or absolute-ish id can't read or `fs.rm` files outside the
+ * sessions dir (deleteSession uses `force:true`, so a traversal delete would
+ * otherwise silently succeed). Defense-in-depth at the trust boundary.
+ */
+const SAFE_SESSION_ID = /^[A-Za-z0-9_-]+$/;
+
+function assertSafeSessionId(sessionId: string): void {
+  if (!SAFE_SESSION_ID.test(sessionId)) {
+    throw new Error(`Invalid session id: ${JSON.stringify(sessionId)}`);
+  }
+}
+
+/** Max concurrent fs operations in `readIndex` — bounds open file handles so a
+ *  user with thousands of sessions can't hit EMFILE on the list/resume path. */
+const READ_INDEX_CONCURRENCY = 32;
+
+/**
+ * Map `fn` over `items` with at most `limit` calls in flight at once, preserving
+ * input order in the returned array. A small dependency-free concurrency limiter
+ * (the framework avoids extra deps for this).
+ */
+async function mapWithConcurrency<T, R>(
+  items: ReadonlyArray<T>,
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/**
  * Attaches a listener that streams every appended event to disk and
  * keeps the index in sync. Returns an `unsubscribe` callback the
  * caller should run on shutdown.
@@ -76,6 +119,15 @@ export class SessionPersistence {
    * can flush.
    */
   private writeQueue: Mutex = createMutex();
+  /**
+   * Single-flight guard for the sidecar (`writeIndex`) write. The debounced
+   * timer and an explicit `flush()` can both call `writeIndex()` concurrently;
+   * without serialization two `writeFileAtomic`s would race on `metaPath` and
+   * the on-disk result would be last-rename-wins between two `this.meta`
+   * snapshots non-deterministically. Chaining them makes the latest meta win
+   * deterministically and drops the redundant work.
+   */
+  private indexWriteChain: Promise<void> = Promise.resolve();
   /**
    * Memoized one-time setup: `mkdir -p` the sessions dir and create the empty
    * `.jsonl` (so resume lists the session before any event). Awaited by both
@@ -201,7 +253,7 @@ export class SessionPersistence {
       lastActivity: new Date().toISOString(),
       firstPrompt:
         this.meta.firstPrompt ??
-        (event.type === 'user_prompt' ? event.text.slice(0, 80) : null),
+        (event.type === 'user_prompt' ? firstPromptLabel(event.text) : null),
     };
     this.scheduleIndexWrite();
     const line = JSON.stringify(event) + '\n';
@@ -285,7 +337,20 @@ export class SessionPersistence {
     this.indexTimer = timer;
   }
 
-  private async writeIndex(): Promise<void> {
+  /**
+   * Serialize the sidecar write through `indexWriteChain` so a debounced write
+   * and a concurrent `flush()` never race on `metaPath`; resolves once THIS
+   * call's write (or a later one that supersedes it) has settled.
+   */
+  private writeIndex(): Promise<void> {
+    const next = this.indexWriteChain.then(() => this.doWriteIndex());
+    // Keep the chain unbroken even if a write rejects (doWriteIndex already
+    // swallows, but guard the chain itself defensively).
+    this.indexWriteChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private async doWriteIndex(): Promise<void> {
     try {
       // Once closed (the final detach/flush write), don't re-create the dir or
       // log file: setup already made them, and resurrecting a directory a
@@ -352,31 +417,29 @@ export async function readIndex(dir = defaultSessionsDir()): Promise<SessionMeta
   } catch {
     dirents = [];
   }
-  await Promise.all(
-    dirents
-      .filter((d) => d.isFile() && d.name.endsWith('.meta.json'))
-      .map(async (d) => {
-        try {
-          const raw = await fs.readFile(path.join(dir, d.name), 'utf8');
-          const parsed = JSON.parse(raw) as unknown;
-          if (isSessionMeta(parsed)) byId.set(parsed.id, parsed);
-        } catch {
-          // skip a malformed/half-written sidecar
-        }
-      }),
-  );
+  // Cap fan-out: a user with thousands of sidecars in ~/.moxxy/sessions would
+  // otherwise open thousands of file handles at once (EMFILE) on every resume/
+  // list. Process in bounded batches instead.
+  const sidecarFiles = dirents.filter((d) => d.isFile() && d.name.endsWith('.meta.json'));
+  await mapWithConcurrency(sidecarFiles, READ_INDEX_CONCURRENCY, async (d) => {
+    try {
+      const raw = await fs.readFile(path.join(dir, d.name), 'utf8');
+      const parsed = JSON.parse(raw) as unknown;
+      if (isSessionMeta(parsed)) byId.set(parsed.id, parsed);
+    } catch {
+      // skip a malformed/half-written sidecar
+    }
+  });
 
   const metas = [...byId.values()];
-  const checks = await Promise.all(
-    metas.map(async (meta) => {
-      try {
-        await fs.access(path.join(dir, `${meta.id}.jsonl`));
-        return true;
-      } catch {
-        return false;
-      }
-    }),
-  );
+  const checks = await mapWithConcurrency(metas, READ_INDEX_CONCURRENCY, async (meta) => {
+    try {
+      await fs.access(path.join(dir, `${meta.id}.jsonl`));
+      return true;
+    } catch {
+      return false;
+    }
+  });
   return metas
     .filter((_, index) => checks[index])
     .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
@@ -411,6 +474,7 @@ export async function restoreEvents(
   dir = defaultSessionsDir(),
   logger: Logger = createLogger(),
 ): Promise<MoxxyEvent[]> {
+  assertSafeSessionId(sessionId);
   const logPath = path.join(dir, `${sessionId}.jsonl`);
   let raw: string;
   try {
@@ -448,8 +512,25 @@ export async function restoreEvents(
       restoredEvents: events.length,
     });
     try {
-      const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
-      await writeFileAtomic(logPath, repaired);
+      // Conflict guard: only rewrite if the on-disk content still matches what
+      // we read. Another process (a desktop runner already attached + a CLI
+      // `resume` of the SAME id) may have appended/repaired between our read and
+      // this write; its appends are a newer snapshot than our re-sequenced one,
+      // and a blind `writeFileAtomic` would clobber them (silent history loss).
+      // The single-writer assumption the rest of persistence relies on does not
+      // hold across processes, so re-read and compare before the destructive
+      // rewrite. Restore still succeeds either way — the in-memory log is
+      // already repaired; only the next clean resume would re-run the repair.
+      const current = await fs.readFile(logPath, 'utf8').catch(() => null);
+      if (current !== raw) {
+        logger.warn('skipped repaired-log rewrite — file changed under us (another process attached?)', {
+          sessionId,
+          path: logPath,
+        });
+      } else {
+        const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
+        await writeFileAtomic(logPath, repaired);
+      }
     } catch (err) {
       // Restore still succeeds — the in-memory log is repaired; only the
       // next resume would re-run this same repair.
@@ -512,6 +593,7 @@ export async function readEventPage(
   opts: { before: number | null; limit: number },
   dir = defaultSessionsDir(),
 ): Promise<EventPage> {
+  assertSafeSessionId(sessionId);
   const logPath = path.join(dir, `${sessionId}.jsonl`);
   let raw: string;
   try {
@@ -552,16 +634,26 @@ export function pageEvents(
   limit: number,
 ): EventPage {
   const cap = Math.max(0, Math.floor(limit));
+  // `pageEvents` is an exported public API (runner + disk paths call it), so it
+  // must self-defend rather than trust every caller to pre-validate. A
+  // non-finite `before` (NaN/Infinity from a corrupt cursor) would otherwise
+  // make every `seq < before` comparison false, collapse the page to empty, and
+  // hand back `prevCursor: before` — a NaN that JSON-serializes to `null`,
+  // silently wedging the client's backward walk. Coerce any non-integer cursor
+  // to the newest page (`null`) so a bad cursor degrades to "start over from the
+  // top" instead of a poisoned cursor.
+  const safeBefore =
+    before === null || !Number.isInteger(before) ? null : before;
   if (cap === 0 || events.length === 0) {
-    return { events: [], prevCursor: events.length === 0 ? null : before };
+    return { events: [], prevCursor: events.length === 0 ? null : safeBefore };
   }
   // Exclusive upper bound by `seq`: the first index whose event is NOT older
   // than `before`. `before == null` (newest page) keeps the whole array.
   let end = events.length;
-  if (before !== null) {
+  if (safeBefore !== null) {
     end = 0;
     for (let i = 0; i < events.length; i += 1) {
-      if (events[i]!.seq < before) end = i + 1;
+      if (events[i]!.seq < safeBefore) end = i + 1;
       else break;
     }
   }
@@ -581,6 +673,7 @@ export async function deleteSession(
   sessionId: string,
   dir = defaultSessionsDir(),
 ): Promise<void> {
+  assertSafeSessionId(sessionId);
   await fs.rm(path.join(dir, `${sessionId}.jsonl`), { force: true });
   await fs.rm(metaPath(dir, sessionId), { force: true });
 }
@@ -588,6 +681,21 @@ export async function deleteSession(
 /** Per-session metadata sidecar path. */
 function metaPath(dir: string, id: string): string {
   return path.join(dir, `${id}.meta.json`);
+}
+
+/**
+ * First 80 chars of a prompt for the picker label, sliced on code-point (not
+ * UTF-16 code-unit) boundaries so the cut never splits a surrogate pair (emoji,
+ * astral CJK) into a lone half-character that renders as a broken glyph.
+ *
+ * `text` is typed `string`, but this runs inside the log listener chain — a
+ * throw here would latch the misleading "persistence degraded" warning. Coerce
+ * a non-string (a hand-built `EmittedEvent`, a future schema variant) instead of
+ * letting `[...text]` throw on `undefined`/`null`.
+ */
+function firstPromptLabel(text: string): string {
+  const s = typeof text === 'string' ? text : String(text ?? '');
+  return [...s].slice(0, 80).join('');
 }
 
 async function writeJsonAtomic(target: string, value: unknown): Promise<void> {

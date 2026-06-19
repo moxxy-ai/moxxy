@@ -56,22 +56,47 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
   // of leaving an orphaned duplicate.
   const loadedNameRef = useRef<string | null>(null);
 
+  // Monotonic load/validate epoch. Bumped on every `load()` so an in-flight
+  // `getRun` (or a debounced `validateDraft`) that resolves AFTER a newer load
+  // can't clobber the canvas with stale YAML / stale node errors. Without it,
+  // two concurrent loads on one mounted instance race — whichever IPC lands last
+  // wins, even if it was requested first — and a validation that started against
+  // workflow A can paint A's errors onto B's freshly-loaded nodes.
+  const loadEpochRef = useRef(0);
+  // Guards async post-await writes after the hook unmounts (no setState on a
+  // dead tree, no dispatch into a torn-down reducer).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const runValidation = useCallback(async (): Promise<boolean> => {
     const snapshot = stateRef.current;
+    const epoch = loadEpochRef.current;
     setValidating(true);
     try {
       const { yaml } = serialize(snapshot);
       const result = await api().invoke('workflows.validateDraft', { yaml });
+      // A load() that swapped the canvas while this validation was in flight
+      // makes the result stale — applying it would paint the old workflow's
+      // errors onto the new nodes. Bail (still resolving the validity for the
+      // caller, but no state writes against the stale epoch).
+      if (!mountedRef.current || loadEpochRef.current !== epoch) return result.ok;
       dispatch({ type: 'apply-validation', errors: mapErrorsToNodes(result.errors, snapshot) });
       setValid(result.ok);
       setError(null);
       return result.ok;
     } catch (e) {
-      setError(toErrorMessage(e));
-      setValid(null);
+      if (mountedRef.current && loadEpochRef.current === epoch) {
+        setError(toErrorMessage(e));
+        setValid(null);
+      }
       return false;
     } finally {
-      setValidating(false);
+      if (mountedRef.current && loadEpochRef.current === epoch) setValidating(false);
     }
   }, []);
 
@@ -91,6 +116,9 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
   }, [state.nodes, state.edges, state.meta, runValidation]);
 
   const load = useCallback(async (name: string | null) => {
+    // Open a new epoch: any in-flight load/validation from a prior call is now
+    // stale and must not write back. The latest load() always wins.
+    const epoch = (loadEpochRef.current += 1);
     setError(null);
     setValid(null);
     loadedNameRef.current = null;
@@ -100,6 +128,9 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
     }
     try {
       const detail = await api().invoke('workflows.getRun', { name });
+      // A newer load() (or unmount) superseded this one mid-flight — drop the
+      // result so a slow getRun for an earlier name can't overwrite the canvas.
+      if (!mountedRef.current || loadEpochRef.current !== epoch) return;
       if (!detail) {
         setError(`workflow "${name}" was not found`);
         return;
@@ -107,7 +138,7 @@ export function useWorkflowBuilder(): UseWorkflowBuilder {
       loadedNameRef.current = detail.name;
       dispatch({ type: 'load', state: hydrateYaml(detail.yaml) });
     } catch (e) {
-      setError(toErrorMessage(e));
+      if (mountedRef.current && loadEpochRef.current === epoch) setError(toErrorMessage(e));
     }
   }, []);
 

@@ -176,3 +176,222 @@ describe('runTurn threads real cwd/env into onToolCall hooks', () => {
     expect(captured.envFoo).toBe(process.env.PATH);
   });
 });
+
+describe('runTurn worst-case hardening', () => {
+  it('aborting iteration early aborts the strategy promptly (no full background run)', async () => {
+    let observedAbort = false;
+    // A mode that loops indefinitely until its signal aborts. If the consumer's
+    // early `break` did NOT abort the turn, this would run forever and the
+    // generator's `finally` would hang awaiting it.
+    const foreverMode = defineMode({
+      name: 'forever',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        for (let i = 0; ; i++) {
+          if (ctx.signal.aborted) {
+            observedAbort = true;
+            return;
+          }
+          await ctx.emit({
+            type: 'assistant_message',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'assistant',
+            text: `tick-${i}`,
+          });
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      },
+    });
+
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'forever-plugin',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [foreverMode],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('forever');
+
+    // Break out after the first event — the generator must abort the strategy
+    // in its finally and return promptly (this await would never resolve if the
+    // turn ran to its non-existent completion in the background).
+    for await (const event of runTurn(session, 'go')) {
+      if (event.type === 'assistant_message') break;
+    }
+
+    expect(observedAbort).toBe(true);
+    expect(session.signal.aborted).toBe(false); // session-level signal untouched
+  });
+
+  it('an abandoned turn does NOT apply a mode switch it requested before being abandoned', async () => {
+    // A mode that immediately requests a hand-off, then loops until aborted and
+    // returns CLEANLY (no throw) on `signal.aborted` — so strategyError stays
+    // null. If the post-turn switch were gated only on `!strategyError`, an
+    // abandoned (consumer-broke-early) turn would silently flip the session into
+    // 'other' behind the user's back. It must stay on the original mode.
+    const requestThenLoop = defineMode({
+      name: 'requester',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        ctx.requestModeSwitch('other');
+        for (let i = 0; ; i++) {
+          if (ctx.signal.aborted) return; // clean return on abandonment
+          await ctx.emit({
+            type: 'assistant_message',
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            source: 'assistant',
+            text: `tick-${i}`,
+          });
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      },
+    });
+
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'switch-on-abandon',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [requestThenLoop, defineMode({ name: 'other', run: async function* () {} })],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('requester');
+
+    // Abandon after the first event — the strategy aborts and returns cleanly.
+    for await (const event of runTurn(session, 'go')) {
+      if (event.type === 'assistant_message') break;
+    }
+
+    // The requested switch must be DROPPED because the turn was abandoned.
+    expect(session.modes.getActive().name).toBe('requester');
+  });
+
+  it('a completed turn still applies a requested mode switch', async () => {
+    // The positive case: a mode that requests a switch and completes normally
+    // hands off as before — the abandonment gate must not regress this.
+    const requestThenDone = defineMode({
+      name: 'handoff',
+      run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+        ctx.requestModeSwitch('target');
+      },
+    });
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'switch-on-complete',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [requestThenDone, defineMode({ name: 'target', run: async function* () {} })],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('handoff');
+
+    await collectTurn(session, 'go');
+    expect(session.modes.getActive().name).toBe('target');
+  });
+
+  it('fires turnEnd even when the strategy throws (paired with turnStart)', async () => {
+    const calls: string[] = [];
+    const throwingMode = defineMode({
+      name: 'throws',
+      run: async function* (): AsyncIterable<MoxxyEvent> {
+        throw new Error('strategy boom');
+      },
+    });
+
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'lifecycle-probe',
+        version: '0.0.0',
+        providers: [makeNoopProvider()],
+        modes: [throwingMode],
+        hooks: {
+          onTurnStart: () => {
+            calls.push('start');
+          },
+          onTurnEnd: () => {
+            calls.push('end');
+          },
+        },
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('throws');
+
+    let threw = false;
+    try {
+      await collectTurn(session, 'go');
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+    // turnEnd must pair with turnStart even on the error path — no leaked
+    // turn-scoped plugin state.
+    expect(calls).toEqual(['start', 'end']);
+  });
+
+  it('a missing active provider records the prompt + a structured error, then rejects', async () => {
+    const session = new Session({ cwd: '/tmp', silent: true });
+    // No provider registered/active — getActive() throws.
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'mode-only',
+        version: '0.0.0',
+        modes: [makeMarkerLoop('marker', 1)],
+      }),
+    );
+    session.modes.setActive('marker');
+
+    let threw = false;
+    try {
+      await collectTurn(session, 'remember me');
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+
+    // The user prompt is preserved (not silently discarded) and a structured
+    // error event was logged so channels see a normal failed turn.
+    const events = session.log.slice();
+    const prompt = events.find((e) => e.type === 'user_prompt');
+    expect((prompt as { text?: string } | undefined)?.text).toBe('remember me');
+    const error = events.find((e) => e.type === 'error');
+    expect(error).toBeDefined();
+    expect((error as { kind?: string }).kind).toBe('fatal');
+  });
+
+  it('a provider advertising no models fails fast (no opaque "default" model id)', async () => {
+    const emptyModelsProvider = defineProvider({
+      name: 'empty',
+      models: [],
+      createClient: () => ({
+        name: 'empty',
+        models: [],
+        stream: async function* () {},
+        countTokens: async () => 0,
+      }),
+    });
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'empty-models',
+        version: '0.0.0',
+        providers: [emptyModelsProvider],
+        modes: [makeMarkerLoop('marker', 1)],
+      }),
+    );
+    session.providers.setActive('empty');
+    session.modes.setActive('marker');
+
+    await expect(collectTurn(session, 'go')).rejects.toThrow(/no models configured/i);
+    // lastResolvedModel never gets the bogus sentinel.
+    expect(session.lastResolvedModel).toBeNull();
+  });
+});

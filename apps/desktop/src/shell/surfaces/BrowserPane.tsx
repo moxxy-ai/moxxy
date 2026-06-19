@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import { Button, Icon, IconButton } from '@moxxy/desktop-ui';
 import { emitInsertPath } from '../WorkspaceFiles';
+import { useReducedMotion } from '../useReducedMotion';
 import { useSurface } from './useSurface';
 
 interface BrowserFrame {
@@ -38,8 +39,10 @@ const NAMED_KEYS = new Set([
   'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
 ]);
 
-/** Brand spinner (matches ChatLoading) for the launching/installing states. */
-function Spinner({ size = 22 }: { readonly size?: number }): JSX.Element {
+/** Brand spinner (matches ChatLoading) for the launching/installing states.
+ *  Under prefers-reduced-motion the continuous spin is replaced by a static
+ *  ring so it doesn't drive vestibular motion. */
+function Spinner({ size = 22, reduced = false }: { readonly size?: number; readonly reduced?: boolean }): JSX.Element {
   return (
     <span
       aria-hidden
@@ -49,7 +52,7 @@ function Spinner({ size = 22 }: { readonly size?: number }): JSX.Element {
         borderRadius: '50%',
         border: '2.5px solid var(--color-card-border)',
         borderTopColor: 'var(--color-primary)',
-        animation: 'moxxy-spin 0.8s linear infinite',
+        animation: reduced ? undefined : 'moxxy-spin 0.8s linear infinite',
       }}
     />
   );
@@ -74,10 +77,17 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
   const [capturing, setCapturing] = useState(false);
   const [drag, setDrag] = useState<DragRect | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const reducedMotion = useReducedMotion();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const lastMoveRef = useRef(0);
   const zoomRef = useRef(1); // latest zoom, read by keyboard handlers (no stale closure)
+  // Coalesced wheel scrolling: accumulate deltas and flush one IPC per frame so
+  // a precision trackpad (dozens-to-hundreds of events/sec) can't flood the
+  // channel / Playwright dispatch.
+  const wheelAccumRef = useRef(0);
+  const wheelRafRef = useRef(0);
+  const noticeTimerRef = useRef(0);
 
   const apply = (payload: unknown): void => {
     const p = payload as BrowserFrame;
@@ -168,7 +178,35 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
 
   const flashNotice = (text: string): void => {
     setNotice(text);
-    window.setTimeout(() => setNotice((cur) => (cur === text ? null : cur)), 4000);
+    // Clear any prior pending timer so a rapid second notice doesn't leave an
+    // orphaned timeout, and store the handle so unmount can cancel it (no
+    // setState-after-unmount). The unmount cleanup lives in the effect below.
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => {
+      noticeTimerRef.current = 0;
+      setNotice((cur) => (cur === text ? null : cur));
+    }, 4000);
+  };
+
+  // Cancel a pending notice timer (and any queued wheel flush) on unmount.
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+      if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current);
+    },
+    [],
+  );
+
+  // Accumulate wheel deltas; flush a single { type: 'scroll', dy } per frame.
+  const onWheel = (e: React.WheelEvent): void => {
+    wheelAccumRef.current += e.deltaY;
+    if (wheelRafRef.current) return;
+    wheelRafRef.current = requestAnimationFrame(() => {
+      wheelRafRef.current = 0;
+      const dy = wheelAccumRef.current;
+      wheelAccumRef.current = 0;
+      if (dy !== 0) surface.input({ type: 'scroll', dy });
+    });
   };
 
   // The captured region (a sharp PNG) is saved to a temp file and dropped into
@@ -231,10 +269,19 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
         return;
       }
     }
-    if (e.key === 'Escape' && capturing) {
+    if (e.key === 'Escape') {
+      // Escape is the keyboard ESCAPE HATCH. Tab (and arrows/etc.) are forwarded
+      // to the page so they drive in-page navigation — which means a keyboard
+      // user who tabs INTO this view can't tab back out (WCAG 2.1.2 "no keyboard
+      // trap"). Escape blurs the host so focus returns to the surrounding UI;
+      // in capture mode it first cancels the in-progress capture.
       e.preventDefault();
-      setCapturing(false);
-      setDrag(null);
+      if (capturing) {
+        setCapturing(false);
+        setDrag(null);
+        return;
+      }
+      hostRef.current?.blur();
       return;
     }
     const printable = e.key.length === 1;
@@ -385,6 +432,12 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
       <div
         ref={hostRef}
         tabIndex={0}
+        // `application` tells assistive tech to pass keystrokes through to this
+        // interactive surface (the keys are proxied to the live page) rather
+        // than intercepting them for browse-mode navigation. The label names
+        // the region and advertises the Escape hatch out of the keyboard trap.
+        role="application"
+        aria-label="Browser view — interactive. Press Escape to leave."
         onMouseDown={(e) => {
           if (capturing) {
             const p = relPos(e);
@@ -435,7 +488,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
           const n = norm(e);
           if (n) surface.input({ type: 'dblclick', ...n });
         }}
-        onWheel={(e) => surface.input({ type: 'scroll', dy: e.deltaY })}
+        onWheel={onWheel}
         onKeyDown={onKeyDown}
         style={{
           flex: 1,
@@ -519,7 +572,7 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
               </>
             ) : (
               <>
-                <Spinner />
+                <Spinner reduced={reducedMotion} />
                 <div style={{ fontSize: 13, color: 'var(--color-text)' }}>
                   {installing ? 'Installing browser engine…' : surface.ready ? 'Loading…' : 'Starting browser…'}
                 </div>
@@ -537,10 +590,12 @@ export function BrowserPane({ workspaceId }: { readonly workspaceId: string | nu
                       <div
                         style={{
                           height: '100%',
-                          width: '40%',
+                          // Under reduced motion the shimmer becomes a static
+                          // filled bar (no continuous travelling animation).
+                          width: reducedMotion ? '100%' : '40%',
                           borderRadius: 999,
                           background: 'var(--color-primary)',
-                          animation: 'moxxy-shimmer 1.1s linear infinite',
+                          animation: reducedMotion ? undefined : 'moxxy-shimmer 1.1s linear infinite',
                         }}
                       />
                     </div>

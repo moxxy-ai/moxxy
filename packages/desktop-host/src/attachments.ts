@@ -23,7 +23,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { UserPromptAttachment } from '@moxxy/sdk';
@@ -107,16 +107,24 @@ function rtfToText(buf: Buffer): string | null {
   // (a metadata/destination group nests inside an already-suppressed one too).
   const skipStack: boolean[] = [];
   const suppressed = (): boolean => skipStack.some(Boolean);
+  // Sticky regexes anchored at `lastIndex` against the FULL string — no
+  // `rtf.slice(i)` tail-copy per control word (that made this O(n^2) on a
+  // control-word-dense RTF). `/y` matches only at the set position, so it's
+  // the equivalent of the original `^…` against a fresh tail slice.
+  const groupDest = /\\\*?\\([a-z]+)/iy;
+  const starDest = /\\\*/y;
+  const controlWord = /\\([a-z]+)(-?\d+)? ?/iy;
 
   for (let i = 0; i < rtf.length; i++) {
     const ch = rtf[i]!;
     if (ch === '{') {
       // Open a group. Decide if it's a skip group by peeking the destination
       // control word that (optionally after `\*`) starts it.
-      const after = rtf.slice(i + 1, i + 40);
-      const dest = /^\\\*?\\([a-z]+)/i.exec(after);
-      const isStar = /^\\\*/.test(after);
-      const skip = (dest && RTF_SKIP_GROUPS.has(dest[1]!.toLowerCase())) || isStar;
+      groupDest.lastIndex = i + 1;
+      const dest = groupDest.exec(rtf);
+      starDest.lastIndex = i + 1;
+      const isStar = starDest.test(rtf);
+      const skip = (dest !== null && RTF_SKIP_GROUPS.has(dest[1]!.toLowerCase())) || isStar;
       skipStack.push(Boolean(skip));
       continue;
     }
@@ -138,7 +146,8 @@ function rtfToText(buf: Buffer): string | null {
       // single optional space delimiter. `\par`/`\line`/`\tab` → whitespace;
       // any other control word is a word boundary (emit a space so e.g.
       // `Smith\b0 from` doesn't become `Smithfrom`).
-      const m = /^\\([a-z]+)(-?\d+)? ?/i.exec(rtf.slice(i));
+      controlWord.lastIndex = i;
+      const m = controlWord.exec(rtf); // /y → matches only when anchored at `i`
       if (m) {
         const word = m[1]!.toLowerCase();
         if (!suppressed()) {
@@ -188,8 +197,15 @@ function legacyDocToText(buf: Buffer): string | null {
   };
   for (let i = 0; i < buf.length; i++) {
     const b = buf[i]!;
+    // Treat tab/newline/CR and printable ASCII (0x20–0x7e) + Latin-1 high range
+    // (0xa0–0xfe) as text. The C1 control range (0x80–0x9f) is excluded so
+    // stray control bytes don't get mapped into the recovered prose.
     const printable =
-      b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b !== 0x7f && b <= 0xfe);
+      b === 0x09 ||
+      b === 0x0a ||
+      b === 0x0d ||
+      (b >= 0x20 && b < 0x7f) ||
+      (b >= 0xa0 && b <= 0xfe);
     if (printable) {
       cur += String.fromCharCode(b);
     } else {
@@ -306,6 +322,26 @@ export async function parseFileToText(absPath: string): Promise<string | null> {
   return parseBufferToText(buf, path.basename(absPath));
 }
 
+/** Hard ceiling on reading a picked file fully into memory. A renderer-chosen
+ *  multi-GB log/video must NOT be slurped whole (then base64'd at ~1.33x) into
+ *  the main process before any per-type cap applies. Sits comfortably above the
+ *  32 MB native-PDF cap so a moderately-oversized PDF still text-extracts as
+ *  before; only pathologically large files take the bounded head-read path. */
+const MAX_READ_WHOLE_BYTES = 64 * 1024 * 1024; // 64 MB
+
+/** Read at most `max` bytes from the head of a file via a bounded handle, so an
+ *  oversized file never fully loads into memory. Mirrors workspace-fs's readHead. */
+async function readHead(absPath: string, max: number): Promise<Buffer> {
+  const handle = await open(absPath, 'r');
+  try {
+    const buf = Buffer.alloc(max);
+    const { bytesRead } = await handle.read(buf, 0, max, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
 export async function buildAttachments(
   files: ReadonlyArray<{ path: string; name: string }>,
 ): Promise<UserPromptAttachment[]> {
@@ -313,8 +349,33 @@ export async function buildAttachments(
   for (const f of files) {
     const ext = path.extname(f.path).toLowerCase();
     try {
-      const buf = await readFile(f.path);
+      // Size-gate BEFORE reading the whole file: a huge picked file (a
+      // multi-GB log/video) must not be fully loaded — then base64'd at ~1.33x
+      // — into the main process before any per-type cap can apply. Stat first
+      // and route oversized text/code to the bounded head-excerpt fallback.
+      const size = (await stat(f.path)).size;
       const mediaType = IMAGE_MEDIA_TYPES[ext];
+
+      if (size > MAX_READ_WHOLE_BYTES) {
+        if (mediaType) {
+          console.warn(`[attachments] skipping ${f.name}: image exceeds ${MAX_IMAGE_BYTES} bytes`);
+          continue;
+        }
+        // Peek the head only. If it's binary (PDF/Office/legacy doc) we can't
+        // extract from a partial buffer without loading the whole thing, so
+        // skip with a warning; readable text gets a head excerpt + read-on-demand.
+        const head = await readHead(f.path, HEAD_EXCERPT_BYTES);
+        if (isPdf(head, ext) || OFFICE_EXTENSIONS.has(ext) || isLegacyDoc(head, ext) || head.includes(0)) {
+          console.warn(
+            `[attachments] skipping ${f.name}: ${size} bytes exceeds the ${MAX_READ_WHOLE_BYTES}-byte read cap`,
+          );
+          continue;
+        }
+        out.push(await largeFileFallback(head.toString('utf8'), f.name, f.path, size));
+        continue;
+      }
+
+      const buf = await readFile(f.path);
 
       // 1. Image → base64 the model can see.
       if (mediaType) {
@@ -390,6 +451,9 @@ async function largeFileFallback(
   fullText: string,
   name: string,
   sourcePath: string | null,
+  /** True total size in bytes when `fullText` is only a head excerpt (the file
+   *  was too large to read whole); defaults to fullText's own length. */
+  totalBytes: number = fullText.length,
 ): Promise<UserPromptAttachment> {
   let readablePath = sourcePath;
   if (!readablePath) {
@@ -400,8 +464,8 @@ async function largeFileFallback(
     await writeFile(readablePath, fullText, 'utf8');
   }
   const head = fullText.slice(0, HEAD_EXCERPT_BYTES);
-  const kb = Math.max(1, Math.round(fullText.length / 1024));
-  const approxTokens = Math.round(fullText.length / 4);
+  const kb = Math.max(1, Math.round(totalBytes / 1024));
+  const approxTokens = Math.round(totalBytes / 4);
   const note =
     `\n\n[Preview only — "${name}" is large (~${kb} KB, ~${approxTokens} tokens); ` +
     `the text above is just the beginning. The full text is saved at:\n  ${readablePath}\n` +

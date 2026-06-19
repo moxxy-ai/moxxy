@@ -127,11 +127,21 @@ export async function readStoredCreds(
     // Missing setup-meta means a partial store — refresh impossible. Treat as absent.
     return null;
   }
+  // A stored `expires_at` that doesn't parse to a finite number (corrupt vault
+  // write, a hand-edited value, a partial flush) is poison: carried through as
+  // NaN it makes `isExpired` return false (NaN comparisons are always false),
+  // so the token would read as ETERNALLY fresh and never refresh — the user
+  // silently keeps presenting a possibly-dead token. Drop the unparseable value
+  // and let `expiresAt` go undefined; `isExpired` then defends the
+  // no-known-expiry case explicitly (see below).
+  const expiresAtParsed = expiresStr !== null ? Number.parseInt(expiresStr, 10) : null;
+  const expiresAt =
+    expiresAtParsed !== null && Number.isFinite(expiresAtParsed) ? expiresAtParsed : undefined;
   return {
     tokenSet: {
       accessToken: access,
       ...(refresh !== null ? { refreshToken: refresh } : {}),
-      ...(expiresStr !== null ? { expiresAt: Number.parseInt(expiresStr, 10) } : {}),
+      ...(expiresAt !== undefined ? { expiresAt } : {}),
       ...(scope !== null ? { scope } : {}),
       tokenType,
       ...(idToken !== null ? { idToken } : {}),
@@ -165,9 +175,20 @@ export async function clearStoredCreds(vault: OAuthVault, provider: string): Pro
   return removed;
 }
 
-/** True when the access token has expired (or is within `skewMs` of doing so). */
+/**
+ * True when the access token has expired (or is within `skewMs` of doing so).
+ *
+ * A token with no `expiresAt` is treated as non-expiring (some providers issue
+ * tokens without `expires_in`). A non-FINITE `expiresAt` (NaN/Infinity — corrupt
+ * data, an out-of-range parse) is treated as EXPIRED, never as fresh: a bare
+ * `>=` against NaN is always false, which would otherwise mark a token eternally
+ * valid and suppress every refresh. Forcing the expired branch degrades to a
+ * refresh (or a clear AUTH_EXPIRED if no refresh_token) instead of silently
+ * serving a token whose real expiry is unknown.
+ */
 export function isExpired(tokens: TokenSet, skewMs = 60_000): boolean {
   if (tokens.expiresAt === undefined) return false;
+  if (!Number.isFinite(tokens.expiresAt)) return true;
   return Date.now() + skewMs >= tokens.expiresAt;
 }
 

@@ -169,4 +169,14 @@ describe('prompt reducer — reset / set / paste', () => {
     s = reducer(s, { type: 'paste-end', overrideText: 'Z' });
     expect(s).toMatchObject({ buffer: 'XZY', cursor: 2, pasteBuffer: '' });
   });
+
+  it('paste-end with empty overrideText inserts nothing and clears inPaste', () => {
+    // This is the mechanism PromptInput uses to DRAIN a paste that was
+    // stranded by `disabled` flipping mid-paste: the end marker must clear
+    // `inPaste` (so later keystrokes are not swallowed) without inserting the
+    // dropped-during-turn payload.
+    let s = mk({ buffer: 'XY', cursor: 1, inPaste: true, pasteBuffer: 'lots of pasted text' });
+    s = reducer(s, { type: 'paste-end', overrideText: '' });
+    expect(s).toMatchObject({ buffer: 'XY', cursor: 1, inPaste: false, pasteBuffer: '' });
+  });
 });

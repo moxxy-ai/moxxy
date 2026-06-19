@@ -4,9 +4,11 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
 import { asSkillId } from '@moxxy/sdk';
+import { FiringLock } from './firing-lock.js';
 import { isDue, nextCronFire, SchedulerPoller } from './poller.js';
 import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
+import { buildSchedulerTools } from './tools.js';
 
 function fakeRegistry(skills: ReadonlyArray<Skill>): SkillRegistry {
   const map = new Map(skills.map((s) => [s.frontmatter.name, s] as const));
@@ -190,6 +192,133 @@ describe('SchedulerPoller integration', () => {
     });
     const fired = await poller.tickOnce();
     expect(fired).toBe(1);
+  });
+
+  it('does NOT re-fire a one-shot whose disable-write keeps throwing (u-refire)', async () => {
+    await store.create({ name: 'once', prompt: 'fire', runAt: Date.now() - 1000 });
+
+    // list() returns the still-enabled due row (the disable patch never lands
+    // because update() always throws). Without the in-memory firedKeys guard
+    // the prompt's real side effects would re-run on every tick.
+    const throwingStore = Object.assign(Object.create(Object.getPrototypeOf(store) as object), store, {
+      list: () => store.list(),
+      update: async () => {
+        throw new Error('store update failed');
+      },
+    }) as ScheduleStore;
+
+    const calls: string[] = [];
+    const poller = new SchedulerPoller({
+      store: throwingStore,
+      runner: {
+        runPrompt: async ({ prompt }) => {
+          calls.push(prompt);
+          return { text: 'done' };
+        },
+      },
+      inbox: { dir: inboxDir },
+    });
+
+    await poller.tickOnce();
+    await poller.tickOnce();
+    await poller.tickOnce();
+    // Fired exactly once despite three ticks and a persistently-failing write.
+    expect(calls).toEqual(['fire']);
+  });
+
+  it('one bad-timeZone row never aborts evaluation of the rows after it (u-tz)', async () => {
+    // Synthesize a store snapshot with a malformed (non-IANA) timeZone on the
+    // FIRST row and a genuinely-due row after it. A throw from the first row's
+    // isDue would, pre-fix, unwind the for-loop and the second row would never
+    // fire. Bypass the store schema (which now rejects such a zone) to model a
+    // legacy/hand-edited row.
+    const now = Date.now();
+    const badRow = {
+      id: 'bad',
+      name: 'bad',
+      prompt: 'never',
+      cron: '* * * * *',
+      timeZone: 'Mars/Phobos',
+      enabled: true,
+      source: 'manual' as const,
+      createdAt: now - 120_000,
+    };
+    const goodRow = {
+      id: 'good',
+      name: 'good',
+      prompt: 'wake up',
+      cron: '* * * * *',
+      enabled: true,
+      source: 'manual' as const,
+      createdAt: now - 120_000,
+    };
+    const fakeStore = Object.assign(Object.create(Object.getPrototypeOf(store) as object), store, {
+      list: async () => [badRow, goodRow],
+      update: async () => null,
+    }) as ScheduleStore;
+
+    const calls: string[] = [];
+    const poller = new SchedulerPoller({
+      store: fakeStore,
+      runner: {
+        runPrompt: async ({ prompt }) => {
+          calls.push(prompt);
+          return { text: 'ok' };
+        },
+      },
+      inbox: { dir: inboxDir },
+    });
+    const fired = await poller.tickOnce();
+    // The bad row is never due (its zone is unusable → null next-fire); the
+    // good row after it still fires.
+    expect(fired).toBe(1);
+    expect(calls).toEqual(['wake up']);
+  });
+
+  it('shared FiringLock serializes schedule_run_now against a concurrent poller tick (no double-fire)', async () => {
+    // A due cron entry. Wire ONE FiringLock into both the poller and the
+    // schedule_run_now tool exactly as buildSchedulerPlugin does, then fire the
+    // manual tool and a background tick for the SAME entry concurrently. The
+    // prompt must run serially (never two at once) so they cannot double-fire
+    // and race store.update.
+    await store.create({ name: 'minute', prompt: 'wake up', cron: '* * * * *' });
+    const entries = await store.list();
+    const id = entries[0]!.id;
+    await store.update(id, { lastRunAt: Date.now() - 120_000 });
+
+    let active = 0;
+    let maxActive = 0;
+    let runs = 0;
+    const runner = {
+      runPrompt: async ({ prompt }: { prompt: string }) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        runs += 1;
+        await new Promise((r) => setTimeout(r, 20));
+        active -= 1;
+        return { text: `did: ${prompt}` };
+      },
+    };
+
+    const firingLock = new FiringLock();
+    const poller = new SchedulerPoller({ store, runner, inbox: { dir: inboxDir }, firingLock });
+    const tools = buildSchedulerTools({ store, runner, inbox: { dir: inboxDir }, firingLock });
+    const runNow = tools.find((t) => t.name === 'schedule_run_now')!;
+
+    // Fire both for the same entry at the same time.
+    await Promise.all([
+      poller.tickOnce(),
+      runNow.handler({ id }, {} as never),
+    ]);
+
+    // The lock guarantees the prompt never ran concurrently for the same id.
+    expect(maxActive).toBe(1);
+    // Both paths still fired (manual run is unconditional; the tick saw it due),
+    // but strictly serialized — and the store ends in a consistent state.
+    expect(runs).toBeGreaterThanOrEqual(1);
+    const after = await store.list();
+    expect(after[0]!.lastResult).toBe('ok');
+    expect(after[0]!.lastRunAt).toBeDefined();
   });
 
   it('one-shot fires once then disables itself', async () => {

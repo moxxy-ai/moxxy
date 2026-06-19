@@ -20,6 +20,15 @@ export interface DraftWorkflowOptions {
 
 const DEFAULT_MAX_TOKENS = 4096;
 
+/**
+ * Hard byte ceiling on the accumulated draft, independent of the token budget.
+ * A misbehaving/streaming provider that ignores `maxTokens` would otherwise grow
+ * `accumulated` without bound and feed an unbounded buffer to the lazy
+ * `[\s\S]*?` fence regex (catastrophic backtracking with no closing fence).
+ * 256 KB is far above any real workflow YAML.
+ */
+const MAX_DRAFT_BYTES = 256 * 1024;
+
 export function buildSystemPrompt(opts: DraftWorkflowOptions): string {
   const skills = formatCatalog(
     opts.availableSkills,
@@ -243,7 +252,16 @@ export async function draftWorkflow(
     maxTokens: budget,
     signal,
   })) {
-    if (event.type === 'text_delta') accumulated += event.delta;
+    if (event.type === 'text_delta') {
+      accumulated += event.delta;
+      // Bound the buffer regardless of the token budget — a provider that
+      // ignores `maxTokens` must not grow this without limit.
+      if (accumulated.length >= MAX_DRAFT_BYTES) {
+        accumulated = accumulated.slice(0, MAX_DRAFT_BYTES);
+        truncated = true;
+        break;
+      }
+    }
     if (event.type === 'message_end') truncated = event.stopReason === 'max_tokens';
     if (event.type === 'error') throw new Error(`workflow_create: provider error: ${event.message}`);
   }

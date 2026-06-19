@@ -331,6 +331,59 @@ describe('WebChannel', () => {
     expect((await fetch(`${base}/nope`)).status).toBe(404);
   });
 
+  it('emits defense-in-depth security headers on the index response', async () => {
+    // The headers are unconditional on the index path: they ride the 200 with
+    // the bundle present and the 500 when it's missing (the case under vitest,
+    // which runs from src/ with no built dist/public), so a missing bundle never
+    // serves a page without the clickjacking / referrer-token protections.
+    const { base, token } = await startOn(fakeSession().session);
+    const res = await fetch(`${base}/?t=${token}`);
+    const csp = res.headers.get('content-security-policy') ?? '';
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+  });
+
+  it('bounds the replay set: an unbounded stream of unnamed views collapses to one', async () => {
+    // A pathological agent that presents many UNNAMED views must not leak one
+    // ViewDoc per render, and a late joiner must not receive the whole history.
+    const { session, emit } = fakeSession();
+    const { wsBase, token } = await startOn(session);
+    for (let i = 0; i < 200; i++) {
+      emit({ type: 'tool_call_requested', callId: `u${i}`, name: 'present_view', input: {} });
+      emit({ type: 'tool_result', callId: `u${i}`, ok: true, output: { ast: sampleDoc } });
+    }
+    const { ws, frames, waitFor } = await connect(wsBase, token);
+    await waitFor('view');
+    // Give replay a beat to flush, then assert the late joiner saw exactly ONE
+    // replayed view, not 200.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(frames.filter((f) => f.kind === 'view')).toHaveLength(1);
+    ws.close();
+  });
+
+  it('bounds the replay set across many distinct NAMED views (LRU-capped)', async () => {
+    const { session, emit } = fakeSession();
+    const { wsBase, token } = await startOn(session);
+    for (let i = 0; i < 100; i++) {
+      emit({ type: 'tool_call_requested', callId: `n${i}`, name: 'present_view', input: {} });
+      emit({
+        type: 'tool_result',
+        callId: `n${i}`,
+        ok: true,
+        output: { ast: { root: { kind: 'element', tag: 'view', props: { name: `screen${i}` }, children: [] } } },
+      });
+    }
+    const { ws, frames, waitFor } = await connect(wsBase, token);
+    await waitFor('view');
+    await new Promise((r) => setTimeout(r, 50));
+    // 100 distinct named screens were built, but replay is capped at 32.
+    expect(frames.filter((f) => f.kind === 'view').length).toBeLessThanOrEqual(32);
+    ws.close();
+  });
+
   it('clears the published surface on stop', async () => {
     let published: { url: string; nextViewId: () => string } | null = { url: 'stale', nextViewId: () => 'x' };
     channel = new WebChannel({

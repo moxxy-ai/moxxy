@@ -25,6 +25,8 @@ import type { SurfaceRegistryImpl } from '../registries/surfaces.js';
  * existing resource and gets its {@link SurfaceInstance.snapshot}.
  */
 export class SurfaceHostImpl implements SurfaceHost {
+  /** Upper bound on a single instance.close() before we give up waiting on it. */
+  private static readonly CLOSE_TIMEOUT_MS = 5000;
   /** Open instances, keyed by kind (one shared instance per kind). */
   private readonly instances = new Map<SurfaceKind, SurfaceInstance>();
   /** Per-instance unsubscribe from its onData, dropped on close. */
@@ -44,6 +46,8 @@ export class SurfaceHostImpl implements SurfaceHost {
    * snapshot, but keystrokes/navigation silently vanish).
    */
   private readonly refs = new Map<SurfaceKind, number>();
+  /** Set once closeAll() runs: rejects/ tears down any open() that races teardown. */
+  private disposed = false;
 
   constructor(
     private readonly registry: SurfaceRegistryImpl,
@@ -77,6 +81,7 @@ export class SurfaceHostImpl implements SurfaceHost {
   }
 
   async open(kind: SurfaceKind): Promise<OpenSurfaceResult> {
+    if (this.disposed) throw new Error('SurfaceHost has been closed');
     const existing = this.instances.get(kind);
     if (existing) {
       this.retain(kind);
@@ -95,6 +100,12 @@ export class SurfaceHostImpl implements SurfaceHost {
 
     const promise = (async (): Promise<OpenSurfaceResult> => {
       const instance = await def.open(this.ctx);
+      // If teardown raced this create, never install the live resource — close
+      // it immediately so we don't leak a PTY/page/child process post-shutdown.
+      if (this.disposed) {
+        await this.safeClose(instance);
+        throw new Error('SurfaceHost has been closed');
+      }
       this.instances.set(kind, instance);
       this.refs.set(kind, 1);
       // Re-emit this instance's frames as multiplexed SurfaceDataMessages.
@@ -138,13 +149,33 @@ export class SurfaceHostImpl implements SurfaceHost {
     this.unsubs.get(surfaceId)?.();
     this.unsubs.delete(surfaceId);
     this.instances.delete(kind);
+    await this.safeClose(instance, surfaceId);
+  }
+
+  /**
+   * Tear an instance down without ever blocking forever: a wedged PTY/browser
+   * whose close() neither resolves nor rejects must not stall session shutdown.
+   * Races close() against a timeout and swallows (logs) any rejection.
+   */
+  private async safeClose(instance: SurfaceInstance, surfaceId = instance.id): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await instance.close();
+      await Promise.race([
+        Promise.resolve(instance.close()),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            this.logger?.warn?.('SurfaceHost: close timed out', { surfaceId });
+            resolve();
+          }, SurfaceHostImpl.CLOSE_TIMEOUT_MS);
+        }),
+      ]);
     } catch (err) {
       this.logger?.warn?.('SurfaceHost: close failed', {
         surfaceId,
         err: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -168,9 +199,15 @@ export class SurfaceHostImpl implements SurfaceHost {
 
   async closeAll(): Promise<void> {
     // Session shutdown: tear every instance down regardless of viewer refs.
+    this.disposed = true;
+    // Drain in-flight opens first. With `disposed` set, each racing open closes
+    // its freshly-created instance itself and rejects, so nothing new lands in
+    // `instances` after this await — no leaked PTY/page/child process.
+    await Promise.allSettled([...this.opening.values()]);
     for (const kind of [...this.instances.keys()]) this.refs.set(kind, 1);
+    // Run closes concurrently so one wedged instance can't block the others.
     const ids = [...this.unsubs.keys()];
-    for (const id of ids) await this.close(id);
+    await Promise.allSettled(ids.map((id) => this.close(id)));
   }
 
   private byId(surfaceId: string): SurfaceInstance | undefined {

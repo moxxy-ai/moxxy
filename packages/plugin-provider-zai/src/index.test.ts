@@ -46,6 +46,17 @@ describe('@moxxy/plugin-provider-zai', () => {
     expect(typeof plan.stream).toBe('function');
   });
 
+  it('refuses to construct without a key (no env-fallback credential exfiltration to api.z.ai)', () => {
+    // baseURL is pinned to api.z.ai for both modes; if createClient forwarded
+    // an absent key, the underlying providers fall back to
+    // ANTHROPIC_API_KEY / OPENAI_API_KEY and ship the user's real credential to
+    // the third-party host. The guard must throw instead.
+    for (const empty of [{}, { apiKey: undefined }, { apiKey: '' }, { apiKey: 123 }] as Record<string, unknown>[]) {
+      expect(() => zaiProviderDef.createClient(empty)).toThrow(/api key/i);
+      expect(() => zaiCodingPlanProviderDef.createClient(empty)).toThrow(/api key/i);
+    }
+  });
+
   it('exposes apiKey auth descriptors for both modes', () => {
     expect(zaiProviderDef.auth).toMatchObject({ kind: 'apiKey' });
     expect(zaiCodingPlanProviderDef.auth).toMatchObject({ kind: 'apiKey' });

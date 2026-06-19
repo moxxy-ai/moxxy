@@ -107,6 +107,42 @@ describe('HttpChannel', () => {
     await handle.stop();
   });
 
+  it('refuses to bind a non-loopback host with no authToken', async () => {
+    const channel = new HttpChannel({ port: 0, host: '0.0.0.0', allowedTools: ['noop'] });
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger, permissionResolver: autoAllowResolver });
+    await expect(channel.start({ session } as never)).rejects.toThrow(/non-loopback/);
+    expect(channel.boundPort).toBe(0);
+  });
+
+  it('allows a non-loopback bind once an authToken is set', async () => {
+    const channel = new HttpChannel({ port: 0, host: '0.0.0.0', authToken: 'tok', allowedTools: ['noop'], logger: { info: () => {}, warn: () => {} } });
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger, permissionResolver: autoAllowResolver });
+    const handle = await channel.start({ session } as never);
+    expect(channel.boundPort).toBeGreaterThan(0);
+    await handle.stop();
+  });
+
+  it('a post-listen server error does not escalate to an unhandledRejection when running is unobserved', async () => {
+    const channel = new HttpChannel({ port: 0, authToken: 'test', allowedTools: ['noop'], logger: { info: () => {}, warn: () => {} } });
+    const session = new Session({ cwd: process.cwd(), logger: silentLogger, permissionResolver: autoAllowResolver });
+    const handle = await channel.start({ session } as never);
+
+    let unhandled: unknown;
+    const onUnhandled = (reason: unknown): void => { unhandled = reason; };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const server = (channel as unknown as { server: Server }).server;
+      // Intentionally do NOT await handle.running (fire-and-forget caller).
+      server.emit('error', new Error('boom'));
+      // Let the microtask/macrotask queue flush so any unhandled rejection fires.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).toBeUndefined();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      await handle.stop();
+    }
+  });
+
   it('rejects a double start, and allows a fresh start after stop (u70-5)', async () => {
     const channel = new HttpChannel({ port: 0, authToken: 'test', allowedTools: ['noop'], logger: { info: () => {}, warn: () => {} } });
     const session = new Session({ cwd: process.cwd(), logger: silentLogger, permissionResolver: autoAllowResolver });

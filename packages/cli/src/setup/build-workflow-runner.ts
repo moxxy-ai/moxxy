@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import { createSubagentSpawner, type Session } from '@moxxy/core';
@@ -144,7 +145,19 @@ export function buildWorkflowRunner(args: {
     // inbox), so letting it race a concurrent runNow of the same workflow would
     // run two executions at once — doubling side effects and inbox deliveries.
     const name = checkpoint?.workflow?.name;
-    if (name && inFlight.has(name)) {
+    // A checkpoint with no identifiable workflow name (missing/corrupted/legacy)
+    // can't be guarded by the in-flight set, so a resume would silently race a
+    // concurrent runNow. Refuse rather than proceed unguarded.
+    if (!name) {
+      return {
+        ok: false,
+        status: 'failed',
+        steps: [],
+        output: '',
+        error: `no resumable run "${runId}"`,
+      };
+    }
+    if (inFlight.has(name)) {
       return {
         ok: false,
         status: 'failed',
@@ -153,7 +166,7 @@ export function buildWorkflowRunner(args: {
         error: `workflow "${name}" is already running`,
       };
     }
-    if (name) inFlight.add(name);
+    inFlight.add(name);
     try {
       const turnId = session.startTurn().turnId;
       const spawner = createSubagentSpawner({
@@ -197,10 +210,11 @@ export function buildWorkflowRunner(args: {
         return result;
       }
       // Resolve the workflow name from the checkpoint for inbox delivery metadata.
-      if (checkpoint?.workflow) await deliverToInbox(checkpoint.workflow, result, logger);
+      // `checkpoint.workflow` is guaranteed by the `!name` guard above.
+      await deliverToInbox(checkpoint!.workflow, result, logger);
       return result;
     } finally {
-      if (name) inFlight.delete(name);
+      inFlight.delete(name);
     }
   }
 
@@ -236,7 +250,12 @@ export async function deliverToInbox(
     const dir = moxxyPath('inbox');
     await fsp.mkdir(dir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const file = path.join(dir, `${stamp}-${workflow.name}.md`);
+    // Append a short random suffix so two completions of the SAME workflow in
+    // one millisecond (rapid afterWorkflow re-fires, a resume racing a runNow)
+    // can't produce the identical path and silently overwrite each other's
+    // deliverable — mirroring the engine's run-record naming (engine.ts).
+    const suffix = randomBytes(4).toString('hex');
+    const file = path.join(dir, `${stamp}-${workflow.name}-${suffix}.md`);
     const header = [
       '---',
       `workflow: ${workflow.name}`,

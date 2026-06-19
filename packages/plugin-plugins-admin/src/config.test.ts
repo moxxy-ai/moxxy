@@ -75,8 +75,48 @@ describe('plugins-admin config', () => {
     expect(disabled).toContain('@moxxy/plugin-b');
   });
 
-  it('throws on a structurally invalid config', async () => {
-    writeFileSync(configPath, 'mode: 42\n'); // mode must be a string
-    await expect(loadDisabledPackageNames({ configPath })).rejects.toThrow(/invalid moxxy/);
+  // A typo or unrelated invalid key elsewhere in the hand-edited config must
+  // NOT strand the plugin gate: the read path degrades to "no disabled
+  // plugins" and toggling still works (validating only the plugins subtree).
+  it('does not throw on an unrelated invalid key; the plugins gate still loads', async () => {
+    writeFileSync(configPath, 'mode: 42\nplugins:\n  "@moxxy/plugin-a":\n    enabled: false\n');
+    const disabled = await loadDisabledPackageNames({ configPath });
+    expect(disabled).toContain('@moxxy/plugin-a');
+  });
+
+  // Unparseable YAML degrades to empty rather than crashing the toggle path,
+  // and the bad file is left in place (not overwritten on read).
+  it('treats unparseable YAML as no disabled plugins (degrade to empty)', async () => {
+    // Genuinely unparseable: an unterminated flow sequence (no closing `]`).
+    const before = 'plugins: [1, 2\n';
+    writeFileSync(configPath, before);
+    const disabled = await loadDisabledPackageNames({ configPath });
+    expect(disabled.size).toBe(0);
+  });
+
+  // Toggling must not destroy user comments or drop config keys this package
+  // doesn't model (the YAML is edited in place, not round-tripped through zod).
+  it('preserves comments and unmodelled keys when toggling', async () => {
+    writeFileSync(
+      configPath,
+      '# keep me\nprovider:\n  name: anthropic # inline\nexperimentalFutureKey: 42\n',
+    );
+    await setPluginEnabled('@moxxy/plugin-a', false, { configPath });
+    const raw = readFileSync(configPath, 'utf8');
+    expect(raw).toContain('# keep me');
+    expect(raw).toContain('# inline');
+    expect(raw).toContain('experimentalFutureKey: 42');
+    expect(await loadDisabledPackageNames({ configPath })).toContain('@moxxy/plugin-a');
+  });
+
+  // A single malformed plugin row must not hide the disabled flag of siblings.
+  it('drops only a malformed plugin row, keeping valid siblings', async () => {
+    writeFileSync(
+      configPath,
+      'plugins:\n  "@moxxy/good":\n    enabled: false\n  "@moxxy/bad":\n    enabled: not-a-bool\n',
+    );
+    const disabled = await loadDisabledPackageNames({ configPath });
+    expect(disabled).toContain('@moxxy/good');
+    expect(disabled).not.toContain('@moxxy/bad');
   });
 });

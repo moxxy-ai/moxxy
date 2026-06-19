@@ -27,6 +27,21 @@ export interface OpenAIToolDef {
   };
 }
 
+/**
+ * Serialize a tool-call `input` to the JSON string OpenAI expects in
+ * `function.arguments`. A circular or otherwise non-serializable object (a
+ * hostile/corrupt in-memory replay) would make a bare `JSON.stringify` throw
+ * and crash translation of the WHOLE request. Degrade that one argument to
+ * `{}` instead of taking down the turn.
+ */
+function safeStringifyArgs(input: unknown): string {
+  try {
+    return JSON.stringify(input ?? {}) ?? '{}';
+  } catch {
+    return '{}';
+  }
+}
+
 export function toOpenAIMessages(messages: ReadonlyArray<ProviderMessage>): OpenAIChatMessage[] {
   const out: OpenAIChatMessage[] = [];
   for (const msg of messages) {
@@ -81,12 +96,22 @@ export function toOpenAIMessages(messages: ReadonlyArray<ProviderMessage>): Open
         (c): c is { type: 'tool_use'; id: string; name: string; input: unknown } =>
           c.type === 'tool_use',
       );
-      const message: OpenAIChatMessage = { role: 'assistant', content: text || null };
-      if (toolUses.length > 0) {
+      const hasToolUses = toolUses.length > 0;
+      // OpenAI accepts `content: null` on an assistant turn ONLY when it carries
+      // `tool_calls`. An assistant message that projected to neither text nor a
+      // tool call (e.g. a turn whose only block is a reasoning block, which we
+      // don't replay to OpenAI) would otherwise emit `{ content: null }` with no
+      // tool_calls — a hard 400. Degrade to an empty-string content so the turn
+      // is well-formed instead of crashing the whole request.
+      const message: OpenAIChatMessage = {
+        role: 'assistant',
+        content: text || (hasToolUses ? null : ''),
+      };
+      if (hasToolUses) {
         message.tool_calls = toolUses.map((u) => ({
           id: u.id,
           type: 'function' as const,
-          function: { name: u.name, arguments: JSON.stringify(u.input ?? {}) },
+          function: { name: u.name, arguments: safeStringifyArgs(u.input) },
         }));
       }
       out.push(message);

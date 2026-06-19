@@ -81,4 +81,14 @@ describe('zodToJsonSchema', () => {
     expect(out).toHaveProperty('type', 'object');
     expect(out).toHaveProperty('properties');
   });
+
+  it('bounds recursion on a deeply nested schema instead of overflowing the stack', () => {
+    // Build a pathologically deep array nesting; the converter must degrade to
+    // the permissive {} past its depth cap rather than blow the call stack.
+    let schema: z.ZodTypeAny = z.string();
+    for (let i = 0; i < 500; i++) schema = z.array(schema);
+    expect(() => zodToJsonSchema(schema)).not.toThrow();
+    const out = zodToJsonSchema(schema);
+    expect(out).toBeDefined();
+  });
 });

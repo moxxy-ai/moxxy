@@ -117,6 +117,18 @@ describe('classifyNetworkError', () => {
   it('returns null for non-network errors so other handlers can take over', () => {
     expect(classifyNetworkError(new Error('something else'))).toBeNull();
   });
+
+  it('does not throw on a malformed/relative ctx.url — degrades to the raw string', () => {
+    // A bad base URL must not make `new URL()` throw from inside the classifier
+    // and mask the real network error.
+    expect(() =>
+      classifyNetworkError(nodeFetchError('ECONNREFUSED'), { url: 'not a url' }),
+    ).not.toThrow();
+    const out = classifyNetworkError(nodeFetchError('ECONNREFUSED'), { url: '/relative/path' });
+    expect(out!.code).toBe('NETWORK_UNREACHABLE');
+    expect(out!.message).toContain('/relative/path');
+    expect(out!.context).toEqual({ url: '/relative/path' });
+  });
 });
 
 describe('classifyHttpStatus', () => {
@@ -147,6 +159,13 @@ describe('classifyHttpStatus', () => {
   it('returns null for unmapped statuses (404, 418)', () => {
     expect(classifyHttpStatus(404)).toBeNull();
     expect(classifyHttpStatus(418)).toBeNull();
+  });
+
+  it('does not throw on a malformed ctx.url — degrades to the raw string', () => {
+    expect(() => classifyHttpStatus(401, { url: 'not a url' })).not.toThrow();
+    const out = classifyHttpStatus(401, { url: 'not a url' });
+    expect(out!.code).toBe('AUTH_INVALID');
+    expect(out!.message).toContain('not a url');
   });
 });
 

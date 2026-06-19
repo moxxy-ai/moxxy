@@ -37,7 +37,12 @@ export function detectGoalTerminal(
       return {
         kind: 'complete',
         summary: typeof input.summary === 'string' ? input.summary : 'Goal completed.',
-        evidence: Array.isArray(input.evidence) ? (input.evidence as string[]) : [],
+        // `input` is the RAW provider-emitted tool input (pre-zod), so the model
+        // can put anything in `evidence`. Keep only the string elements rather
+        // than asserting the type with an unchecked cast.
+        evidence: Array.isArray(input.evidence)
+          ? input.evidence.filter((x): x is string => typeof x === 'string')
+          : [],
       };
     }
     return {

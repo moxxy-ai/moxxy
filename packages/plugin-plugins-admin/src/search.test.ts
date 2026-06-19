@@ -51,4 +51,54 @@ describe('searchInstallablePlugins', () => {
     const results = await searchInstallablePlugins('zzz-no-catalog-match', { fetchImpl: notOk });
     expect(results).toEqual([]);
   });
+
+  it('forwards an AbortSignal to fetch and aborts a hung request', async () => {
+    let seenSignal: AbortSignal | undefined;
+    const hangThenAbort: FetchLike = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        seenSignal = init?.signal;
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+    const ac = new AbortController();
+    const p = searchInstallablePlugins('zzz-no-catalog-match', {
+      fetchImpl: hangThenAbort,
+      signal: ac.signal,
+    });
+    ac.abort();
+    // Abort is non-fatal — degrades to the (empty) catalog matches, no throw.
+    await expect(p).resolves.toEqual([]);
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('skips only the malformed registry entry, keeping the valid sibling', async () => {
+    const hostile: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        objects: [
+          { package: { name: '@acme/good', description: 'ok', version: '1.0.0' } },
+          // description as a number and version as an object — must be skipped,
+          // not coerced into the result handed back to the model, and must not
+          // strand the valid sibling above.
+          { package: { name: '@acme/bad', description: 42, version: { x: 1 } } },
+        ],
+      }),
+    });
+    const results = await searchInstallablePlugins('zzz-no-catalog-match', { fetchImpl: hostile });
+    expect(results.map((r) => r.name)).toEqual(['@acme/good']);
+  });
+
+  it('never returns more than `size` npm hits even if the mirror over-delivers', async () => {
+    const flood: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        objects: Array.from({ length: 50 }, (_, i) => ({
+          package: { name: `@acme/flood-${i}`, description: 'x', version: '1.0.0' },
+        })),
+      }),
+    });
+    const results = await searchInstallablePlugins('zzz-no-catalog-match', { fetchImpl: flood, size: 5 });
+    expect(results.length).toBe(5);
+  });
 });

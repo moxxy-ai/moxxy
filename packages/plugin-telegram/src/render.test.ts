@@ -243,4 +243,25 @@ describe('splitForTelegram', () => {
       for (const part of parts) expect(isBalancedHtml(part)).toBe(true);
     }
   });
+
+  it('stays linear and correct on a large tag-dense diff fence', () => {
+    // Worst case for the old O(n^2) prefix re-scan: a long fenced block with no
+    // newline-free run. The single-pass boundary index must keep this fast and
+    // still produce balanced, reconstructable parts.
+    const body = ('x'.repeat(40) + '\n').repeat(2000); // ~82KB, tag-dense via fence
+    const html = '<pre><code class="language-diff">' + body + '</code></pre>';
+    const start = Date.now();
+    const parts = splitForTelegram(html, 4000);
+    const elapsed = Date.now() - start;
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) {
+      expect(part.length).toBeLessThanOrEqual(4000 + 64); // soft cap + reopen/close margin
+      expect(isBalancedHtml(part)).toBe(true);
+    }
+    // The fence body survives once the reopened/closed wrapper tags are stripped.
+    const recombined = parts.join('').replace(/<\/?(pre|code)[^>]*>/g, '');
+    expect(recombined).toContain('x'.repeat(40));
+    // Generous bound — the old quadratic path blew well past this on 82KB.
+    expect(elapsed).toBeLessThan(2000);
+  });
 });

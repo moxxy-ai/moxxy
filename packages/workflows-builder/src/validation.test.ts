@@ -43,6 +43,16 @@ describe('mapErrorsToNodes', () => {
     const mapped = mapErrorsToNodes(['steps: step "unknown_one" needs unknown step "x"'], s);
     expect(mapped[WORKFLOW_ERROR_KEY]).toHaveLength(1);
   });
+
+  it('pins the exact host message formats the parser depends on (fails loudly if the contract drifts)', () => {
+    // Attribution is regex-coupled to the host's English strings. These two
+    // shapes MUST keep attributing to a node — if the server rewords them,
+    // every issue would silently fall into the workflow bucket and nodes would
+    // stop being highlighted with no failure signal. This test is the tripwire.
+    const s = fixture();
+    expect(mapErrorsToNodes(['steps: step "a" is invalid'], s).a).toBeDefined();
+    expect(mapErrorsToNodes(['steps: duplicate step id "a"'], s).a).toBeDefined();
+  });
 });
 
 describe('validate bridge', () => {

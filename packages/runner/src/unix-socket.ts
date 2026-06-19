@@ -17,18 +17,57 @@ const stderrLogger: SocketLogger = {
 };
 
 /**
+ * Largest a single un-terminated frame may grow to before the peer is treated
+ * as hostile/buggy and dropped. A peer that streams bytes WITHOUT a newline
+ * would otherwise grow `this.buffer` without bound until the runner OOMs — and
+ * the runner explicitly accepts multi-client attach over the same-user socket.
+ * Mirrors the WebSocket transport's `maxPayload` (64 MB) cap, which comfortably
+ * clears the largest legitimate frame (base64 attachment / audio payloads).
+ */
+const DEFAULT_MAX_INBOUND_FRAME_BYTES = 64 * 1024 * 1024;
+/**
+ * Outbound send-buffer ceiling for a slow/stalled reader. `socket.write`
+ * buffers unboundedly in process memory for a peer that stops reading (a paused
+ * tab, a dead-but-not-closed socket); `RunnerServer.broadcast` fans every event
+ * — including high-rate assistant_chunk deltas — to every attached client, so
+ * one stalled client could OOM the runner everyone else depends on. Once the
+ * kernel/userland buffer for a socket stays above this for the grace window we
+ * destroy that one client. Mirrors the ws transport's SlowReaderGuard (4 MB).
+ */
+const DEFAULT_MAX_OUTBOUND_BUFFER_BYTES = 4 * 1024 * 1024;
+/** How long the outbound buffer may stay over the limit before we drop the
+ *  client. A window so one legitimately large in-flight frame to a healthy
+ *  reader doesn't trip the guard. */
+const DEFAULT_OUTBOUND_STALL_GRACE_MS = 10_000;
+/** Hard ceiling above which a slow reader is dropped immediately, regardless of
+ *  grace — bounds a peer that perpetually rides just over the soft limit
+ *  (resetting the grace clock on each transient drain). */
+const OUTBOUND_HARD_MULTIPLIER = 4;
+
+/**
  * NDJSON framing over a single `net.Socket`: one JSON value per line. Safe
  * because `JSON.stringify` never emits a raw newline, so `\n` is an
  * unambiguous frame delimiter. Sockets are set to UTF-8 so base64 attachment
  * payloads ride through as text intact.
+ *
+ * Both directions are bounded against a misbehaving same-user peer: the inbound
+ * buffer caps a never-terminated frame (OOM via newline-less stream) and the
+ * outbound side honours `socket.write` backpressure so a stalled reader can't
+ * make the writer buffer the whole event stream in memory.
  */
 class NdjsonTransport implements Transport {
   private buffer = '';
   private frameHandler: ((frame: unknown) => void) | undefined;
   private closeHandler: ((err?: Error) => void) | undefined;
   private closedEmitted = false;
+  private outboundStalledSinceMs: number | null = null;
 
-  constructor(private readonly socket: net.Socket) {
+  constructor(
+    private readonly socket: net.Socket,
+    private readonly maxInboundFrameBytes = DEFAULT_MAX_INBOUND_FRAME_BYTES,
+    private readonly maxOutboundBufferBytes = DEFAULT_MAX_OUTBOUND_BUFFER_BYTES,
+    private readonly outboundStallGraceMs = DEFAULT_OUTBOUND_STALL_GRACE_MS,
+  ) {
     socket.setEncoding('utf8');
     socket.on('data', (chunk: string) => this.onData(chunk));
     socket.on('close', () => this.emitClose());
@@ -59,6 +98,17 @@ class NdjsonTransport implements Transport {
       newline = this.buffer.indexOf('\n', start);
     }
     this.buffer = start > 0 ? this.buffer.slice(start) : this.buffer;
+    // A peer that keeps streaming bytes with NO newline grows `this.buffer`
+    // unbounded. Once the unterminated remainder exceeds the cap, treat it as a
+    // protocol violation and tear the link down — bounding the inbound memory.
+    if (this.buffer.length > this.maxInboundFrameBytes) {
+      this.buffer = '';
+      const err = new Error(
+        `inbound frame exceeds max size (${this.maxInboundFrameBytes} bytes) with no newline`,
+      );
+      this.socket.destroy(err);
+      this.emitClose(err);
+    }
   }
 
   private emitClose(err?: Error): void {
@@ -69,7 +119,39 @@ class NdjsonTransport implements Transport {
 
   send(frame: unknown): void {
     if (this.socket.destroyed) return;
+    // Honour backpressure: a reader that stalls makes `socket.write` queue every
+    // outbound byte in process memory. If the queued backlog stays over the soft
+    // limit past the grace window (or blows the hard ceiling at once), drop this
+    // one client instead of letting it back-pressure the whole runner.
+    if (this.evictIfStalled()) return;
     this.socket.write(`${JSON.stringify(frame)}\n`);
+  }
+
+  /** Returns true and destroys the socket when the outbound backlog has stayed
+   *  over the limit too long. Draining below the limit resets the grace clock. */
+  private evictIfStalled(): boolean {
+    const buffered = this.socket.writableLength;
+    if (buffered > this.maxOutboundBufferBytes * OUTBOUND_HARD_MULTIPLIER) {
+      return this.dropSlowReader(buffered);
+    }
+    if (buffered <= this.maxOutboundBufferBytes) {
+      this.outboundStalledSinceMs = null;
+      return false;
+    }
+    const now = Date.now();
+    if (this.outboundStalledSinceMs === null) {
+      this.outboundStalledSinceMs = now;
+      return false;
+    }
+    if (now - this.outboundStalledSinceMs < this.outboundStallGraceMs) return false;
+    return this.dropSlowReader(buffered);
+  }
+
+  private dropSlowReader(buffered: number): boolean {
+    const err = new Error(`slow reader: ${buffered} bytes unsent past grace window`);
+    this.socket.destroy(err);
+    this.emitClose(err);
+    return true;
   }
 
   onFrame(handler: (frame: unknown) => void): void {
@@ -94,9 +176,24 @@ class NdjsonTransport implements Transport {
  * in use and we surface `EADDRINUSE`. Named pipes self-clean, so this only
  * runs on non-Windows.
  */
+/**
+ * Per-connection bounds against a misbehaving same-user peer. Defaults mirror
+ * the WebSocket transport's caps. Surfaced as an option so they can be tuned
+ * (and exercised in tests with small thresholds).
+ */
+export interface TransportLimits {
+  /** Largest un-terminated inbound frame before the link is torn down. */
+  readonly maxInboundFrameBytes?: number;
+  /** Outbound send-buffer soft limit for a slow reader. */
+  readonly maxOutboundBufferBytes?: number;
+  /** How long the outbound buffer may stay over the soft limit before eviction. */
+  readonly outboundStallGraceMs?: number;
+}
+
 export async function createUnixSocketServer(
   socketPath: string,
   logger: SocketLogger = stderrLogger,
+  limits: TransportLimits = {},
 ): Promise<TransportServer> {
   if (process.platform !== 'win32') {
     await reclaimStaleSocket(socketPath);
@@ -128,7 +225,12 @@ export async function createUnixSocketServer(
   // accepted socket in its own JsonRpcPeer.
   let connectionHandler: ((t: Transport) => void) | undefined;
   const server = net.createServer((socket) => {
-    const transport = new NdjsonTransport(socket);
+    const transport = new NdjsonTransport(
+      socket,
+      limits.maxInboundFrameBytes,
+      limits.maxOutboundBufferBytes,
+      limits.outboundStallGraceMs,
+    );
     connectionHandler?.(transport);
   });
 
@@ -270,11 +372,16 @@ async function reclaimStaleSocket(socketPath: string): Promise<void> {
   // Reuse the canonical liveness probe (isRunnerUp) so the "is something
   // answering this address" definition lives in exactly one place.
   const alive = await isRunnerUp(socketPath);
-  if (!alive) {
-    try {
-      fs.unlinkSync(socketPath);
-    } catch {
-      // racing another reclaimer - fine
-    }
+  if (alive) return;
+  // Re-probe IMMEDIATELY before unlinking: between the first probe and here,
+  // another runner could have bound the same path, and unlinking a now-LIVE
+  // socket would strand it. A second "not alive" verdict narrows the TOCTOU
+  // window; if it just went live, leave it and let our own listen() surface
+  // EADDRINUSE instead of clobbering a healthy socket.
+  if (await isRunnerUp(socketPath)) return;
+  try {
+    fs.unlinkSync(socketPath);
+  } catch {
+    // racing another reclaimer - fine
   }
 }

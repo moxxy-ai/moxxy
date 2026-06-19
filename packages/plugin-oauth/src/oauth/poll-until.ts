@@ -81,11 +81,20 @@ function abortedError(label: string): MoxxyError {
 function sleep(ms: number, signal: AbortSignal | undefined, label: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(abortedError(label));
-    const t = setTimeout(resolve, ms);
+    // `{ once: true }` only auto-removes a listener that actually FIRES; on the
+    // timer-resolved path it would linger. pollUntil calls sleep() once per
+    // poll cycle against the SAME long-lived signal, so an unremoved listener
+    // accumulates one-per-iteration (~120 over a 10-min device flow), tripping
+    // MaxListenersExceededWarning and retaining each closure. Remove on BOTH
+    // exits so it's exactly one add / one remove per sleep.
     const onAbort = (): void => {
       clearTimeout(t);
       reject(abortedError(label));
     };
+    const t = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }

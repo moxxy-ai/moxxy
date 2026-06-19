@@ -17,12 +17,21 @@ const ZAI_DEFAULT_MODEL = 'glm-4.6';
  * {@link defineOpenAICompatProvider} with the vendor slug + base URL + GLM
  * catalog forced on (so usage stats, provider events and error context
  * attribute to `zai`, not `openai`).
+ *
+ * `resolveApiKey` refuses an absent/empty key rather than letting
+ * {@link OpenAIProvider} fall back to `process.env.OPENAI_API_KEY` — the
+ * baseURL is pinned to api.z.ai, so that fallback would silently ship the
+ * user's OpenAI credential to a third-party host on a misconfigured provider.
  */
 export const zaiProviderDef = defineOpenAICompatProvider({
   name: 'zai',
   baseURL: ZAI_OPENAI_BASE_URL,
   defaultModel: ZAI_DEFAULT_MODEL,
   models: glmModels,
+  resolveApiKey: (cfg) => {
+    if (!cfg.apiKey) throw new Error('zai requires an API key (set the zai provider apiKey or ZAI_API_KEY)');
+    return cfg.apiKey;
+  },
   auth: {
     kind: 'apiKey',
     hint: 'z.ai API key (pay-as-you-go) from https://z.ai/manage-apikey/apikey-list',
@@ -42,6 +51,11 @@ export const zaiCodingPlanProviderDef = defineProvider({
   models: [...glmModels],
   createClient: (config) => {
     const cfg = pickOpenAICompatConfig(config);
+    // Refuse to construct without a key: AnthropicProvider falls back to
+    // process.env.ANTHROPIC_API_KEY when apiKey is absent, while baseURL is
+    // pinned to z.ai's Anthropic endpoint — forwarding an empty key would
+    // silently exfiltrate the user's real Anthropic credential to api.z.ai.
+    if (!cfg.apiKey) throw new Error('zai-coding-plan requires an API key (set the zai-coding-plan provider apiKey)');
     return new AnthropicProvider({
       apiKey: cfg.apiKey,
       name: 'zai-coding-plan',

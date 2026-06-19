@@ -52,23 +52,36 @@ export class EmbeddingIndex {
     // sync for our own writes), so re-reading + re-parsing the whole file on
     // every recall is pure overhead — the in-memory Map is already authoritative.
     if (this.loaded) return;
+    let raw: string;
     try {
-      const raw = await fs.readFile(this.filePath, 'utf8');
-      const parsed = JSON.parse(raw) as IndexFile;
-      this.loaded = true;
-      if (parsed.version !== INDEX_VERSION) return; // unknown format, ignore
-      if (parsed.embedder !== this.embedderName) return; // embedder changed, invalidate
-      // Dim mismatch (incl. an old file written before dim was tracked) → the
-      // vectors are a different dimensionality; invalidate rather than mix them.
-      if (this.dim !== undefined && parsed.dim !== this.dim) return;
-      for (const [name, entry] of Object.entries(parsed.entries)) {
-        this.cache.set(name, entry);
-      }
+      raw = await fs.readFile(this.filePath, 'utf8');
     } catch (err) {
       if (!isEnoent(err)) throw err;
       // No file on disk yet — still treat as loaded so subsequent recalls don't
       // re-stat. This process is the single writer; flush() creates the file.
       this.loaded = true;
+      return;
+    }
+    // The cache is a pure optimization: a corrupt/garbled/half-synced file
+    // (truncated JSON, manual edit, partial cloud-drive sync, schema drift) must
+    // degrade to a COLD cache, never permanently break every recall. Parse and
+    // shape-check defensively; on any failure, log and start empty.
+    this.loaded = true;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.warn(`[plugin-memory] ignoring corrupt embedding cache (${this.filePath}): ${String(err)}`);
+      return;
+    }
+    if (!isValidIndexFile(parsed)) return; // malformed shape → cold cache
+    if (parsed.version !== INDEX_VERSION) return; // unknown format, ignore
+    if (parsed.embedder !== this.embedderName) return; // embedder changed, invalidate
+    // Dim mismatch (incl. an old file written before dim was tracked) → the
+    // vectors are a different dimensionality; invalidate rather than mix them.
+    if (this.dim !== undefined && parsed.dim !== this.dim) return;
+    for (const [name, entry] of Object.entries(parsed.entries)) {
+      if (isValidIndexEntry(entry)) this.cache.set(name, entry);
     }
   }
 
@@ -122,4 +135,22 @@ export class EmbeddingIndex {
 
 function isEnoent(err: unknown): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+/** Structural guard so a valid-JSON-but-wrong-shape file (e.g. a missing
+ *  `entries`) degrades to a cold cache instead of throwing in load(). */
+function isValidIndexFile(value: unknown): value is IndexFile {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.entries === 'object' && v.entries !== null;
+}
+
+function isValidIndexEntry(value: unknown): value is IndexEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const e = value as Record<string, unknown>;
+  return (
+    typeof e.hash === 'string' &&
+    Array.isArray(e.vector) &&
+    e.vector.every((n) => typeof n === 'number')
+  );
 }

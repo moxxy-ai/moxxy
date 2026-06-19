@@ -124,6 +124,11 @@ function splitTop(expr: string, connective: 'and' | 'or'): string[] {
       buf += w;
     }
   }
+  // An odd number of quotes leaves `depth` stuck at 1: every `and`/`or` after
+  // the unterminated literal is silently swallowed into one un-parseable atom.
+  // Reject it instead of mis-splitting into an atom that may evaluate to a
+  // surprising boolean.
+  if (depth !== 0) throw new ConditionSyntaxError(`unterminated quote in condition: "${expr}"`);
   parts.push(buf);
   return parts.map((p) => p.trim()).filter((p) => p.length > 0);
 }

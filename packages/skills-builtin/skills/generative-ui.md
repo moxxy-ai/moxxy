@@ -1,6 +1,6 @@
 ---
 name: generative-ui
-description: Generate an interactive, navigable UI (a "generative UI" / "dynamic UI" / "agentic UI") for the user — rendered in their browser, backed by real data from your tools. Only when the user explicitly asks for a generative/dynamic/agentic UI.
+description: Generate an interactive, navigable UI (generative/dynamic/agentic UI) in the user's browser, backed by real data from your tools. Only when the user explicitly asks for one.
 triggers: ["generative ui", "dynamic ui", "agentic ui", "generative interface", "dynamic interface", "agentic interface", "interactive ui for", "generative app", "agentic app"]
 allowed-tools: [present_view, web_fetch, browser_session]
 ---

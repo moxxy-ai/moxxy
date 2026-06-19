@@ -61,6 +61,15 @@ describe('evalCondition', () => {
   it('throws on malformed syntax', () => {
     expect(() => evalCondition('nonsense here', scope)).toThrow();
   });
+
+  it('rejects an unterminated quote instead of mis-splitting the tail', () => {
+    // An odd number of quotes used to leave the parser stuck "inside" a string,
+    // silently swallowing the trailing `and`/`or` into one un-parseable atom.
+    expect(() => evalCondition('{{ inputs.region }} contains "a and b', scope)).toThrow(/unterminated quote/);
+    expect(() =>
+      evalCondition('{{ inputs.region }} == "US and {{ steps.fetch.output }} contains "AAPL"', scope),
+    ).toThrow(/unterminated quote/);
+  });
 });
 
 describe('validateCondition', () => {
@@ -68,5 +77,6 @@ describe('validateCondition', () => {
     expect(validateCondition('{{ steps.x.output }} is empty')).toBeNull();
     expect(validateCondition('blah blah')).toMatch(/unrecognized/);
     expect(validateCondition('')).toMatch(/empty condition/);
+    expect(validateCondition('{{ inputs.x }} contains "oops')).toMatch(/unterminated quote/);
   });
 });

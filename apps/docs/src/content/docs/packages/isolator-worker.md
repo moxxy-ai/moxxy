@@ -114,4 +114,4 @@ defeat the strength claim.
 
 - [`.claude/agents/isolator-author.md`](https://github.com/moxxy-ai/moxxy/blob/main/.claude/agents/isolator-author.md) — author guide for new isolators
 - [Security & isolation guide](/guides/security/) — user-facing overview
-- [`@moxxy/plugin-security`](./plugin-security/) — the host plugin
+- [`@moxxy/plugin-security`](./plugin-security.md) — the host plugin

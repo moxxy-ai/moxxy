@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CompactorDef, ModeDef, ProviderDef } from '@moxxy/sdk';
+import { silentLogger } from '../logger.js';
 import { ProviderRegistry } from './providers.js';
 import { ModeRegistry } from './modes.js';
 import { CompactorRegistry } from './compactors.js';
@@ -113,5 +114,36 @@ describe('Registry consistency (PR3-1)', () => {
     expect(r.byName('foo')).toBeUndefined();
     expect(r.byName('bar')?.body).toBe('two');
     expect(r.list()).toHaveLength(1);
+  });
+
+  it('SkillRegistryImpl: warns (not silent) when two distinct skills share a frontmatter name', () => {
+    const warn = vi.fn();
+    const r = new SkillRegistryImpl({ logger: { ...silentLogger, warn } });
+    const a = {
+      id: 'project/a' as never,
+      path: '/a.md',
+      scope: 'project' as const,
+      frontmatter: { name: 'dupe', description: 'd' },
+      body: 'a',
+    };
+    const b = { ...a, id: 'project/b' as never, path: '/b.md', body: 'b' };
+    r.register(a);
+    r.register(b); // same frontmatter.name, different id → must warn
+    expect(warn).toHaveBeenCalledTimes(1);
+    // Last-wins by name is preserved, but no longer silent.
+    expect(r.byName('dupe')?.id).toBe('project/b');
+    // Both are still reachable by id.
+    expect(r.list()).toHaveLength(2);
+  });
+
+  it('SkillRegistryImpl: replaceAll warns on a frontmatter-name collision within the batch', () => {
+    const warn = vi.fn();
+    const r = new SkillRegistryImpl({ logger: { ...silentLogger, warn } });
+    r.replaceAll([
+      { id: 'p/a' as never, path: '/a.md', scope: 'project' as const, frontmatter: { name: 'n', description: 'd' }, body: 'a' },
+      { id: 'p/b' as never, path: '/b.md', scope: 'project' as const, frontmatter: { name: 'n', description: 'd' }, body: 'b' },
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(r.byName('n')?.id).toBe('p/b');
   });
 });

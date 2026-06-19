@@ -1,6 +1,10 @@
 import { MoxxyError } from '@moxxy/sdk';
 import { describe, expect, it, vi } from 'vitest';
-import { parseTokenResponse, refreshAccessToken } from './token-exchange.js';
+import {
+  exchangeCodeForToken,
+  parseTokenResponse,
+  refreshAccessToken,
+} from './token-exchange.js';
 
 describe('parseTokenResponse', () => {
   it('throws PROVIDER_UNKNOWN_RESPONSE when access_token is missing', () => {
@@ -111,5 +115,110 @@ describe('refreshAccessToken', () => {
     expect(body).toContain('grant_type=refresh_token');
     expect(body).toContain('refresh_token=old-rt');
     expect(body).toContain('client_id=cid');
+  });
+
+  it('maps a non-JSON 200 success body to PROVIDER_UNKNOWN_RESPONSE (not a raw SyntaxError)', async () => {
+    // A captive portal / proxy can answer HTTP 200 with HTML; an unguarded
+    // res.json() would reject with a native SyntaxError that escapes the
+    // MoxxyError boundary (isAuthRejection can't classify it).
+    const nonJson: typeof fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON at position 0');
+        },
+        text: async () => '<html>captive portal</html>',
+      })) as unknown as typeof fetch;
+    let err: unknown;
+    try {
+      await refreshAccessToken(baseInput, nonJson);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MoxxyError);
+    expect((err as MoxxyError).code).toBe('PROVIDER_UNKNOWN_RESPONSE');
+  });
+});
+
+describe('exchangeCodeForToken — error-body handling', () => {
+  const baseInput = {
+    tokenUrl: 'https://idp.example/token',
+    code: 'auth-code',
+    redirectUri: 'http://localhost:8765/callback',
+    clientId: 'cid',
+    codeVerifier: 'verifier',
+  };
+
+  function fakeRes(opts: {
+    ok: boolean;
+    status: number;
+    json?: () => Promise<unknown>;
+    text?: () => Promise<string>;
+  }): typeof fetch {
+    return (async () =>
+      ({
+        ok: opts.ok,
+        status: opts.status,
+        json: opts.json ?? (async () => ({})),
+        text: opts.text ?? (async () => ''),
+      })) as unknown as typeof fetch;
+  }
+
+  it('maps a non-JSON 200 success body to PROVIDER_UNKNOWN_RESPONSE', async () => {
+    let err: unknown;
+    try {
+      await exchangeCodeForToken(
+        baseInput,
+        fakeRes({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError('boom');
+          },
+        }),
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MoxxyError);
+    expect((err as MoxxyError).code).toBe('PROVIDER_UNKNOWN_RESPONSE');
+  });
+
+  it('does NOT reflect an opaque/HTML error body into the human message (only structured fields)', async () => {
+    // status 402 is not mapped by classifyHttpStatus → hits the fallback.
+    let err: unknown;
+    try {
+      await exchangeCodeForToken(
+        baseInput,
+        fakeRes({ ok: false, status: 402, text: async () => '<html><script>evil()</script></html>' }),
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MoxxyError);
+    const e = err as MoxxyError;
+    // Opaque body never reaches the user-facing message…
+    expect(e.message).not.toContain('<html>');
+    expect(e.message).not.toContain('evil');
+    // …but the bounded raw body is retained in context for diagnostics.
+    expect(String(e.context?.body)).toContain('<html>');
+  });
+
+  it('surfaces the structured error_description in the message on an unmapped status', async () => {
+    let err: unknown;
+    try {
+      await exchangeCodeForToken(
+        baseInput,
+        fakeRes({
+          ok: false,
+          status: 418,
+          text: async () => JSON.stringify({ error: 'teapot', error_description: 'short and steep' }),
+        }),
+      );
+    } catch (e) {
+      err = e;
+    }
+    expect((err as MoxxyError).message).toContain('short and steep');
   });
 });

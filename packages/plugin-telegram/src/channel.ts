@@ -149,11 +149,23 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
 
     this.bot.command('start', (ctx) => this.pairing.handleStartCommand(ctx));
     this.bot.on('callback_query:data', (ctx) => this.dispatchCallback(ctx));
-    this.bot.on('message:text', (ctx) => this.handleText(ctx));
+    // grammy's built-in long-poller (Bot.handleUpdates) awaits each update
+    // handler before fetching the next getUpdates batch — so awaiting a
+    // whole user turn here would PARK the poll loop for the turn's lifetime.
+    // A mid-turn permission prompt waits for a `callback_query` click that
+    // grammy could never deliver while parked (deadlock), and `/cancel`
+    // would sit undelivered until the turn ends. We dispatch text/voice
+    // turns in the background (fire-and-track) so the poll loop stays free
+    // to deliver callback_query / permission clicks / `/cancel` mid-turn.
+    // Single-flight is preserved because runUserTurn sets `busy` true
+    // synchronously and the text/voice handlers reject overlapping turns.
+    this.bot.on('message:text', (ctx) => this.dispatchInBackground(this.handleText(ctx), 'text'));
     // Voice notes (press-and-hold) and uploaded audio files. Both go
     // through the same transcribe-then-runUserTurn pipeline; the
     // handler picks the right one off `ctx.message`.
-    this.bot.on(['message:voice', 'message:audio'], (ctx) => this.handleVoice(ctx, token));
+    this.bot.on(['message:voice', 'message:audio'], (ctx) =>
+      this.dispatchInBackground(this.handleVoice(ctx, token), 'voice'),
+    );
     // Surface the shared registry commands in Telegram's bot-command
     // menu so users see /info, /clear, /new, /exit, /help next to the
     // Telegram-local /model, /loop, /yolo, /tools, /skills, /cancel.
@@ -173,6 +185,13 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     this.handle = {
       running,
       stop: async (reason = 'shutdown') => {
+        // Abort the in-flight turn FIRST so the model loop stops generating
+        // tokens / executing side-effecting tools the moment the operator
+        // asks to shut down — otherwise (shared/remote Session) spend and
+        // tool calls continue to completion and only their output is discarded.
+        if (this.turnController && !this.turnController.signal.aborted) {
+          this.turnController.abort(reason);
+        }
         this.permissionResolver.abortAll(reason);
         this.approvalResolver.abortAll(reason);
         this.logUnsub?.();
@@ -259,8 +278,30 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     );
   }
 
+  /**
+   * Run a handler promise detached from the grammy poll loop. grammy awaits the
+   * value a middleware returns before fetching the next update batch; returning
+   * void here (instead of the handler promise) lets the loop keep delivering
+   * callback_query / `/cancel` while a turn runs. Errors are logged here because
+   * `bot.catch` only sees rejections of the AWAITED middleware chain.
+   */
+  private dispatchInBackground(work: Promise<void>, kind: string): void {
+    void work.catch((err) => {
+      this.opts.logger?.warn('telegram handler failed', { kind, err: String(err) });
+    });
+  }
+
   private async runUserTurn(ctx: Context, chatId: number, text: string): Promise<void> {
     if (!this.session) throw new Error('TelegramChannel.start() must be called first');
+    // Atomic single-flight guard: set busy synchronously BEFORE any await so a
+    // second turn dispatched concurrently (the poll loop is no longer parked on
+    // us) can't slip past the busy check in the text/voice handlers. If we are
+    // already busy, refuse rather than corrupt the single-instance per-turn
+    // state (framePump / currentChatId / turnController).
+    if (this.busy) {
+      await ctx.reply('I am still working on the previous prompt. Send /cancel to abort it.');
+      return;
+    }
     this.busy = true;
     this.currentChatId = chatId;
     this.lastChatId = chatId;

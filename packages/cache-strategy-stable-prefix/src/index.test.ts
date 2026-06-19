@@ -92,4 +92,80 @@ describe('stable-prefix cache strategy', () => {
     ];
     expect(strategy.plan(withNudge, ctx())).toContainEqual({ target: { messageIndex: 4 } });
   });
+
+  it('never places a stable-prefix breakpoint on a system message', () => {
+    // index 0 is the system prompt; the Anthropic translator silently drops a
+    // cache_control on it, so the strategy must not emit one there.
+    const hints = strategy.plan(msgs, ctx({ stablePrefixMessageIndex: 0 }));
+    expect(hints).not.toContainEqual({ target: { messageIndex: 0 } });
+    const msgHints = hints.filter((h) => typeof h.target === 'object');
+    expect(msgHints).toEqual([{ target: { messageIndex: 3 } }]); // tail only
+  });
+
+  it('ignores a negative stablePrefixMessageIndex', () => {
+    const hints = strategy.plan(msgs, ctx({ stablePrefixMessageIndex: -1 }));
+    const msgHints = hints.filter((h) => typeof h.target === 'object');
+    expect(msgHints).toEqual([{ target: { messageIndex: 3 } }]); // tail only
+  });
+
+  it('ignores a non-integer stablePrefixMessageIndex (the translator drops it)', () => {
+    // A fractional index passes the >= 0 / < tail range checks but points at no
+    // real message position; the Anthropic translator matches hints against
+    // integer indices, so { messageIndex: 1.5 } would be silently dropped —
+    // the strategy must never emit it.
+    for (const bad of [1.5, 0.1, 2.999]) {
+      const hints = strategy.plan(msgs, ctx({ stablePrefixMessageIndex: bad }));
+      const msgHints = hints.filter((h) => typeof h.target === 'object');
+      expect(msgHints).toEqual([{ target: { messageIndex: 3 } }]); // tail only
+    }
+  });
+
+  it('ignores a non-finite stablePrefixMessageIndex (NaN / Infinity)', () => {
+    for (const bad of [Number.NaN, Infinity, -Infinity]) {
+      const hints = strategy.plan(msgs, ctx({ stablePrefixMessageIndex: bad }));
+      const msgHints = hints.filter((h) => typeof h.target === 'object');
+      expect(msgHints).toEqual([{ target: { messageIndex: 3 } }]); // tail only
+    }
+  });
+
+  it('emits only tools/system when the volatile tail exceeds the message count', () => {
+    const hints = strategy.plan(msgs, ctx({ volatileTailMessageCount: 99 }));
+    expect(hints).toEqual([{ target: 'tools' }, { target: 'system' }]);
+  });
+
+  it('falls back to the true tail when given a malformed (NaN/float) volatile count', () => {
+    // NaN must degrade to caching the true tail, not to dropping the breakpoint.
+    expect(strategy.plan(msgs, ctx({ volatileTailMessageCount: Number.NaN }))).toContainEqual({
+      target: { messageIndex: 3 },
+    });
+    // A float is truncated toward zero (1.9 → 1 volatile message excluded).
+    expect(strategy.plan(msgs, ctx({ volatileTailMessageCount: 1.9 }))).toContainEqual({
+      target: { messageIndex: 2 },
+    });
+  });
+
+  it('stays deterministic under malformed inputs', () => {
+    const malformed = ctx({ stablePrefixMessageIndex: 1.5, volatileTailMessageCount: Number.NaN });
+    expect(strategy.plan(msgs, malformed)).toEqual(strategy.plan(msgs, malformed));
+  });
+
+  it('never exceeds Anthropic 4-breakpoint limit across the input matrix', () => {
+    const matrix: Array<Partial<CacheStrategyContext>> = [
+      {},
+      { stablePrefixMessageIndex: 1 },
+      { stablePrefixMessageIndex: 3 },
+      { stablePrefixMessageIndex: 0 },
+      { stablePrefixMessageIndex: -1 },
+      { stablePrefixMessageIndex: 1.5 },
+      { stablePrefixMessageIndex: Number.NaN },
+      { stablePrefixMessageIndex: Infinity },
+      { volatileTailMessageCount: 1 },
+      { volatileTailMessageCount: 99 },
+      { volatileTailMessageCount: Number.NaN },
+      { stablePrefixMessageIndex: 1, volatileTailMessageCount: 1 },
+    ];
+    for (const over of matrix) {
+      expect(strategy.plan(msgs, ctx(over)).length).toBeLessThanOrEqual(4);
+    }
+  });
 });

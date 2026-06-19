@@ -5,6 +5,7 @@ import { formatElapsed } from '@moxxy/chat-model';
 import { Colors } from '../theme.js';
 import { Modal, type ModalTab } from './Modal.js';
 import { useScrollableList } from './useScrollableList.js';
+import { isSecretKey, REDACTED_PLACEHOLDER } from './redact.js';
 
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
 const WINDOW = 16;
@@ -50,13 +51,19 @@ export const AgentsPanel: React.FC<AgentsPanelProps> = ({
   availableKinds = [],
   onClose,
 }) => {
-  const agents = collectAgents(events);
+  const agents = React.useMemo(() => collectAgents(events), [events]);
   // Build a flat, interleaved timeline (one row per activity event).
-  const rows: { agent: AgentRecord; row: ActivityRow }[] = [];
-  for (const agent of agents) {
-    for (const row of agent.activity) rows.push({ agent, row });
-  }
-  rows.sort((a, b) => a.row.atMs - b.row.atMs);
+  // Memoized on `agents` so the O(activityRows) flatten + O(n log n) sort
+  // runs once per event change, not on every live re-render (streaming
+  // delta / mcp poll / spinner frame) — matches ToolsPanel/SkillsPanel.
+  const rows = React.useMemo(() => {
+    const out: { agent: AgentRecord; row: ActivityRow }[] = [];
+    for (const agent of agents) {
+      for (const row of agent.activity) out.push({ agent, row });
+    }
+    out.sort((a, b) => a.row.atMs - b.row.atMs);
+    return out;
+  }, [agents]);
 
   const [activeTab, setActiveTab] = React.useState<TabId>(agents.length > 0 ? 'active' : 'available');
 
@@ -280,7 +287,18 @@ function summarizeArgs(input: unknown): string {
   try {
     const entries = Object.entries(input as Record<string, unknown>);
     if (entries.length === 0) return '';
-    return truncate(oneLine(entries.map(([k, v]) => `${k}=${stringifyValue(v)}`).join(', ')), 60);
+    // Redact secret-named field VALUES (api keys / tokens / passwords) so the
+    // subagent activity panel can't echo secret material to the scrollback —
+    // the same hazard the permission prompt guards against. A length cap is
+    // not redaction.
+    return truncate(
+      oneLine(
+        entries
+          .map(([k, v]) => `${k}=${isSecretKey(k) ? REDACTED_PLACEHOLDER : stringifyValue(v)}`)
+          .join(', '),
+      ),
+      60,
+    );
   } catch {
     return '[…]';
   }

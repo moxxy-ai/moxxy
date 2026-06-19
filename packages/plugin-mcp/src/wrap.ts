@@ -115,6 +115,13 @@ function wrapOneMcpTool(
     permission: { action: 'prompt' },
     handler: async (input, ctx) => {
       if (ctx.signal.aborted) throw new Error('aborted');
+      // The runtime Zod schema is a permissive record (so OpenAI accepts it),
+      // so whatever the model emits would otherwise reach the server verbatim.
+      // Fail fast with a readable message on an obviously-malformed call
+      // (missing required field / wrong primitive type) instead of forwarding
+      // garbage that may crash or hang the server (hitting the 5-min timeout).
+      const violation = validateAgainstSchema(input, descriptor.inputSchema);
+      if (violation) return `[error] invalid arguments for ${descriptor.name}: ${violation}`;
       // For the lazy path this pays the network/spawn cost only on first call
       // (the factory caches its connection); for the eager path it resolves
       // immediately to the already-open client.
@@ -162,4 +169,68 @@ function renderResource(resource: unknown): string {
     if (meta.length > 0) return `[resource:${meta.join(' ')}]`;
   }
   return `[resource]`;
+}
+
+/**
+ * Minimal, dependency-free guard for the model's tool input against the
+ * server's declared JSON Schema. We deliberately do NOT pull in a full
+ * JSON-Schema validator (ajv) — this only enforces the two cheap invariants
+ * that catch the common malformed-call cases: (1) every `required` property is
+ * present, and (2) any declared top-level primitive `type` matches. Anything
+ * the server's schema doesn't constrain (nested shapes, formats, enums) is
+ * left to the server, so a usable schema can't reject a structurally-valid
+ * call. Returns a human-readable reason on the first violation, or null.
+ */
+function validateAgainstSchema(input: unknown, schema: unknown): string | null {
+  if (!schema || typeof schema !== 'object') return null;
+  const s = schema as { type?: unknown; properties?: unknown; required?: unknown };
+  // Only validate object schemas — the model always emits an object here.
+  if (s.type !== undefined && s.type !== 'object') return null;
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    return 'expected an object';
+  }
+  const obj = input as Record<string, unknown>;
+  if (Array.isArray(s.required)) {
+    for (const key of s.required) {
+      if (typeof key === 'string' && !(key in obj)) {
+        return `missing required field "${key}"`;
+      }
+    }
+  }
+  if (s.properties && typeof s.properties === 'object') {
+    const props = s.properties as Record<string, unknown>;
+    for (const [key, value] of Object.entries(obj)) {
+      const propSchema = props[key];
+      if (!propSchema || typeof propSchema !== 'object') continue;
+      const expected = (propSchema as { type?: unknown }).type;
+      if (typeof expected !== 'string') continue;
+      if (!matchesPrimitiveType(value, expected)) {
+        return `field "${key}" must be of type ${expected}`;
+      }
+    }
+  }
+  return null;
+}
+
+/** True when `value` satisfies a JSON-Schema primitive `type` keyword. */
+function matchesPrimitiveType(value: unknown, type: string): boolean {
+  switch (type) {
+    case 'string':
+      return typeof value === 'string';
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value);
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'object':
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    case 'array':
+      return Array.isArray(value);
+    case 'null':
+      return value === null;
+    default:
+      // Unknown/unsupported type keyword — don't reject (server decides).
+      return true;
+  }
 }

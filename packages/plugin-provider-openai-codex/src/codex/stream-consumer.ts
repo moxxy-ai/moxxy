@@ -10,10 +10,20 @@ export function toErrorEvent(err: unknown): ProviderEvent {
   };
 }
 
+// Hard cap on the unparsed reassembly buffer. A misbehaving/MITM'd endpoint (or
+// a wedged proxy emitting a continuous body with no blank-line frame separator)
+// would otherwise grow `buffer` without bound until OOM, since it's only ever
+// truncated when a separator is found. 8 MiB is far larger than any legitimate
+// single SSE frame; exceeding it with no separator is treated as a hostile stream.
+const MAX_SSE_BUFFER_BYTES = 8 * 1024 * 1024;
+
 export async function* consumeResponsesSse(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal | undefined,
   emitReasoning = false,
+  // Called on every successful body read so the caller can reset an idle
+  // watchdog (a stalled stream that stops sending bytes must not hang forever).
+  onActivity?: () => void,
 ): AsyncIterable<ProviderEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder('utf-8');
@@ -42,7 +52,21 @@ export async function* consumeResponsesSse(
         }
         const { done, value } = await reader.read();
         if (done) break;
+        onActivity?.();
         buffer += decoder.decode(value, { stream: true });
+
+        // Bound the unparsed buffer: if it grows past the cap without yielding a
+        // single complete frame, the peer is feeding us an unframed/oversized
+        // body. Bail rather than accumulate to OOM. (The `finally` cancels the
+        // reader so the socket is released.)
+        if (buffer.length > MAX_SSE_BUFFER_BYTES) {
+          yield {
+            type: 'error',
+            message: 'Codex stream frame exceeded size limit',
+            retryable: false,
+          };
+          return;
+        }
 
         // SSE frames are separated by blank lines. Some servers emit \r\n\r\n;
         // match either form at the separator and line boundaries rather than
@@ -93,8 +117,13 @@ export async function* consumeResponsesSse(
       return;
     }
 
-    // The error frame already surfaced the failure; nothing more to emit.
-    if (errored) return;
+    // The error frame already surfaced the failure; nothing more to emit. Drop
+    // any pending function calls so a later code path can't flush a phantom
+    // tool_use on top of a failed turn — the error supersedes them.
+    if (errored) {
+      pending.clear();
+      return;
+    }
 
     // Flush any tool_call_end events that didn't have a matching .done frame
     // (defensive — the server normally sends function_call.done, but a

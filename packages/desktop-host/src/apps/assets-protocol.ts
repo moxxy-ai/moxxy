@@ -25,11 +25,13 @@
  */
 
 import { createReadStream } from 'node:fs';
-import { realpathSync, statSync } from 'node:fs';
+import { closeSync, constants as fsConstants, fstatSync, openSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import { protocol } from 'electron';
+
+import { APP_ID_RE } from '@moxxy/desktop-app-sdk';
 
 import { appDir } from './installer.js';
 
@@ -57,8 +59,6 @@ function mimeFor(filePath: string): string {
       return 'application/octet-stream';
   }
 }
-
-const APP_ID = /^[a-z][a-z0-9-]*$/;
 
 /**
  * Resolve a `moxxy-app://` request URL to a concrete, contained absolute file
@@ -88,7 +88,7 @@ export function resolveAssetRequest(appsRoot: string, requestUrl: string): strin
   const segments = pathname.replace(/^\/+/, '').split('/');
   const appId = segments.shift();
   const rest = segments.join('/');
-  if (!appId || !APP_ID.test(appId) || rest.length === 0) return null;
+  if (!appId || !APP_ID_RE.test(appId) || rest.length === 0) return null;
 
   let dir: string;
   try {
@@ -136,18 +136,47 @@ export function installAppAssetProtocol(appsRoot: string): void {
     const abs = resolveAssetRequest(appsRoot, request.url);
     if (!abs) return new Response(null, { status: 404 });
 
+    // Close the TOCTOU window between resolveAssetRequest's realpath check and
+    // serving: open ONCE, fstat + stream from that same descriptor so a symlink
+    // swapped in after resolution can't redirect the bytes we ship. O_NOFOLLOW
+    // (POSIX) also refuses a final-component symlink swapped in after the check.
+    const openFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
+    let fd: number;
+    try {
+      fd = openSync(abs, openFlags);
+    } catch {
+      return new Response(null, { status: 404 });
+    }
     let size: number;
     try {
-      size = statSync(abs).size;
+      const st = fstatSync(fd);
+      if (!st.isFile()) {
+        closeSync(fd);
+        return new Response(null, { status: 404 });
+      }
+      size = st.size;
     } catch {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
       return new Response(null, { status: 404 });
     }
     const headers = {
       'content-type': mimeFor(abs),
       'content-length': String(size),
     };
-    if (request.method === 'HEAD') return new Response(null, { status: 200, headers });
-    return new Response(Readable.toWeb(createReadStream(abs)) as ReadableStream, {
+    if (request.method === 'HEAD') {
+      try {
+        closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+      return new Response(null, { status: 200, headers });
+    }
+    // createReadStream owns the fd (autoClose default) — it closes on end/error.
+    return new Response(Readable.toWeb(createReadStream('', { fd })) as ReadableStream, {
       status: 200,
       headers,
     });

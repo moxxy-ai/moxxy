@@ -1,4 +1,5 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scrypt, scryptSync } from 'node:crypto';
+import { promisify } from 'node:util';
 
 export interface EncryptedBlob {
   readonly iv: string;
@@ -12,8 +13,37 @@ const SCRYPT_N = 16384;
 const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 
+const SCRYPT_OPTS = {
+  N: SCRYPT_N,
+  r: SCRYPT_R,
+  p: SCRYPT_P,
+  // scrypt's internal buffer is ~128 * N * r bytes (~16 MiB here). Node's
+  // default maxmem (32 MiB) is enough today, but pin it explicitly so a future
+  // parameter bump can't silently start throwing "memory limit exceeded".
+  maxmem: 64 * 1024 * 1024,
+} as const;
+
 export function deriveKey(passphrase: string, salt: Buffer): Buffer {
-  return scryptSync(passphrase, salt, KEY_BYTES, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
+  return scryptSync(passphrase, salt, KEY_BYTES, SCRYPT_OPTS);
+}
+
+const scryptAsync = promisify(scrypt) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+  options: typeof SCRYPT_OPTS,
+) => Promise<Buffer>;
+
+/**
+ * Off-thread KDF. scrypt (N=16384) is a CPU-bound stall of ~tens of ms;
+ * `scryptSync` blocks the single-threaded runner event loop for that whole
+ * window, while this runs on libuv's threadpool and yields. Functionally
+ * identical to {@link deriveKey} (same params, same output). Used on the
+ * runtime key-resolution hot paths; the sync variant stays for callers that
+ * derive a key eagerly to construct a static key source.
+ */
+export function deriveKeyAsync(passphrase: string, salt: Buffer): Promise<Buffer> {
+  return scryptAsync(passphrase, salt, KEY_BYTES, SCRYPT_OPTS);
 }
 
 export function generateSalt(): Buffer {

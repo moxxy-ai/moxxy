@@ -259,7 +259,12 @@ interface CappedBody {
 async function readCapped(res: FetchResult, cap: number): Promise<CappedBody> {
   if (!res.body) return { text: '', truncated: false };
   const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
+  // Streaming UTF-8 decode: a multi-byte sequence straddling a chunk boundary —
+  // or the hard byte cut at `cap` — is buffered across `decode({stream:true})`
+  // calls instead of being sliced mid-codepoint into a replacement char. Avoids
+  // the Buffer.concat re-copy too.
+  const decoder = new TextDecoder('utf-8');
+  let text = '';
   let total = 0;
   let truncated = false;
   try {
@@ -267,20 +272,20 @@ async function readCapped(res: FetchResult, cap: number): Promise<CappedBody> {
       const { done, value } = await reader.read();
       if (done) break;
       if (total + value.byteLength > cap) {
-        chunks.push(value.subarray(0, cap - total));
+        text += decoder.decode(value.subarray(0, cap - total), { stream: true });
         total = cap;
         truncated = true;
         break;
       }
-      chunks.push(value);
+      text += decoder.decode(value, { stream: true });
       total += value.byteLength;
     }
+    text += decoder.decode(); // flush any buffered partial sequence
   } finally {
     try { reader.releaseLock(); } catch { /* ignore */ }
     try { await res.body.cancel(); } catch { /* ignore */ }
   }
-  const buf = Buffer.concat(chunks.map((u) => Buffer.from(u.buffer, u.byteOffset, u.byteLength)));
-  return { text: buf.toString('utf8'), truncated };
+  return { text, truncated };
 }
 
 function formatHeadResult(res: FetchResult): string {

@@ -1,5 +1,5 @@
 import { defineTool, z, type ToolContext, type ToolDef } from '@moxxy/sdk';
-import { readCoreJournal, restoreOverlay, writeCoreJournal } from '../core-update.js';
+import { gcCoreTxns, readCoreJournal, restoreOverlay, writeCoreJournal } from '../core-update.js';
 import { emitSafe } from '../deps.js';
 import { resolveCore, snapshotDir, type CoreToolDeps } from './shared.js';
 
@@ -20,6 +20,10 @@ export function coreRollbackTool(cd: CoreToolDeps): ToolDef {
       journal.state = 'rolled_back';
       await writeCoreJournal(deps.moxxyDir, journal);
       await emitSafe(deps, ctx, 'core_rollback', { txnId: input.coreTxnId, reason: input.reason ?? null });
+      // Reclaim disk now: this txn is terminal, and its (large) dist snapshot is
+      // no longer needed. Prune older terminal core txns too. Best-effort — keep
+      // the freshly-rolled-back one + recent history. Mirrors maxTxnRetained.
+      await gcCoreTxns(deps.moxxyDir, deps.maxTxnRetained ?? 5).catch(() => undefined);
       return { ok: true, restored: journal.packages, restartRequired: true };
     },
   });

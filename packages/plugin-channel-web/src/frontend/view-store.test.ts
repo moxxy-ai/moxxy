@@ -56,4 +56,49 @@ describe('view-store', () => {
     const s = applyView(initialNav, frame('v1', 'search'));
     expect(navigateTo(s, 'search')).toBe(s);
   });
+
+  it('bounds the cache: an unbounded stream of unnamed views does not grow forever', () => {
+    // Worst case: a long session presents 500 distinct UNNAMED views (each a new
+    // viewId, never coalesced). The browser must not leak one ViewDoc per render.
+    let s = initialNav;
+    for (let i = 0; i < 500; i++) s = applyView(s, frame(`v${i}`));
+    expect(Object.keys(s.cache).length).toBeLessThanOrEqual(64);
+    expect(s.order.length).toBeLessThanOrEqual(64);
+    // The current (newest) view is always still present and navigable.
+    expect(currentEntry(s)?.viewId).toBe('v499');
+  });
+
+  it('bounds history under pressure yet every Back target stays in cache (no dangling)', () => {
+    // Flood with unnamed views (each pushes a fresh history frame). History is
+    // FIFO-trimmed, but the INVARIANT must hold: every key still on the history
+    // stack has a live cache entry, so Back can never dereference a missing doc.
+    let s = initialNav;
+    for (let i = 0; i < 500; i++) s = applyView(s, frame(`x${i}`));
+    expect(s.history.length).toBeLessThanOrEqual(50);
+    let back = s;
+    while (canGoBack(back)) {
+      back = goBack(back);
+      expect(currentEntry(back)).not.toBeNull(); // never a dangling history key
+    }
+  });
+
+  it('preserves recent Back targets — a screen visited just before the flood is still reachable', () => {
+    // 'recent' is pushed, then a modest run of unnamed views within the history
+    // cap: it must remain on the stack AND in cache (recency is what's retained).
+    let s = applyView(initialNav, frame('r', 'recent'));
+    for (let i = 0; i < 10; i++) s = applyView(s, frame(`y${i}`));
+    expect(s.cache['recent']).toBeDefined();
+    let back = s;
+    while (canGoBack(back)) back = goBack(back);
+    expect(currentEntry(back)?.key).toBe('recent');
+  });
+
+  it('keeps the cache map and order array consistent after eviction', () => {
+    let s = initialNav;
+    for (let i = 0; i < 200; i++) s = applyView(s, frame(`v${i}`));
+    // order and cache must be the SAME key set (no dangling refs either way).
+    expect(new Set(s.order)).toEqual(new Set(Object.keys(s.cache)));
+    // and every history key must be cached (Back integrity).
+    for (const key of s.history) expect(s.cache[key]).toBeDefined();
+  });
 });

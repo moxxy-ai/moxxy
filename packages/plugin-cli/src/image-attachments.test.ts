@@ -1,5 +1,5 @@
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -14,6 +14,23 @@ describe('detectPastedImagePath', () => {
     expect(result?.absPath).toBe('/Users/me/screenshot.png');
     expect(result?.mediaType).toBe('image/png');
     expect(result?.name).toBe('screenshot.png');
+  });
+
+  it('expands ~/ via os.homedir() into an absolute path (never a bare relative path)', () => {
+    const prevHome = process.env.HOME;
+    try {
+      // Even with HOME unset, os.homedir() still resolves on the test host, so
+      // the expansion is absolute and never silently joins onto '' (which
+      // would later read an unintended file under process.cwd()).
+      delete process.env.HOME;
+      const result = detectPastedImagePath('~/pics/shot.png');
+      expect(result).not.toBeNull();
+      expect(path.isAbsolute(result!.absPath)).toBe(true);
+      expect(result!.absPath).toBe(path.join(homedir(), 'pics/shot.png'));
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+    }
   });
 
   it('unescapes backslash-escaped spaces (drag-drop)', () => {

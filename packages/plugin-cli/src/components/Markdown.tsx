@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { parseBlocks, type Block } from '@moxxy/chat-model/markdown';
 import { InlineText } from './markdown/inline.js';
@@ -26,7 +26,10 @@ export interface MarkdownProps {
 }
 
 export const Markdown: React.FC<MarkdownProps> = ({ content, firstBlockTight }) => {
-  const blocks = parseBlocks(content);
+  // Memoize the parse so a re-render driven by something other than `content`
+  // (or a non-memoized caller) doesn't re-parse the whole markdown string —
+  // non-trivial for long replies with tables/code.
+  const blocks = useMemo(() => parseBlocks(content), [content]);
   return (
     <Box flexDirection="column">
       {blocks.map((b, i) => (

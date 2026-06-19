@@ -68,6 +68,18 @@ export function buildProviderAuthContext(
 // previous login would otherwise poison it (a closed-stdin trap that makes
 // every future prompt return '' = cancellation).
 
+/**
+ * The readline interface currently attached to a given input stream. A second
+ * login in the same process (e.g. the production GUI-host path that defaults to
+ * `process.stdin`) would otherwise create a SECOND interface over the same
+ * stream — both listening for `'line'`, interleaving/stealing each other's
+ * input and leaking the first's listener for the process lifetime. We close the
+ * prior interface before creating a new one for the same stream. Each
+ * `buildProviderAuthContext` call still gets its own fresh queue/waiters/ended
+ * state (the closure below), so this does not reintroduce cross-login poisoning.
+ */
+const activeReaders = new WeakMap<NodeJS.ReadableStream, Interface>();
+
 function makeStdinLinePrompt(
   input: NodeJS.ReadableStream,
 ): (question: string, opts?: { readonly mask?: boolean }) => Promise<string> {
@@ -78,7 +90,11 @@ function makeStdinLinePrompt(
 
   const ensureLineReader = (): void => {
     if (lineReader) return;
+    // Tear down any reader a prior login left attached to this same stream so
+    // two interfaces never compete for the same input lines.
+    activeReaders.get(input)?.close();
     lineReader = createInterface({ input });
+    activeReaders.set(input, lineReader);
     lineReader.on('line', (line) => {
       const waiter = lineWaiters.shift();
       if (waiter) waiter(line);
@@ -88,6 +104,7 @@ function makeStdinLinePrompt(
     // pending + future reads as empty (treated as a cancellation by callers).
     lineReader.on('close', () => {
       stdinEnded = true;
+      if (activeReaders.get(input) === lineReader) activeReaders.delete(input);
       for (const w of lineWaiters.splice(0)) w('');
     });
   };

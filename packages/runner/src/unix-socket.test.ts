@@ -163,6 +163,46 @@ describe('unix-socket transport (NDJSON framing)', () => {
     raw.destroy();
   });
 
+  it('tears down a connection that streams bytes with no newline past the inbound cap', async () => {
+    const socketPath = tmpSocket();
+    // Tiny inbound cap so the test stays cheap; production defaults to 64 MB.
+    const server = await createUnixSocketServer(socketPath, undefined, {
+      maxInboundFrameBytes: 1024,
+    });
+    servers.push(server);
+    const serverSide = new Promise<Transport>((resolve) => server.onConnection(resolve));
+    const raw = net.connect(socketPath);
+    await new Promise<void>((resolve) => raw.once('connect', () => resolve()));
+    const srv = await serverSide;
+
+    const closed = new Promise<Error | undefined>((resolve) => srv.onClose((e) => resolve(e)));
+    // Never send a newline: a bounded transport must NOT buffer this unbounded.
+    raw.write('x'.repeat(4096));
+    const err = await closed;
+    expect(err).toBeInstanceOf(Error);
+    expect(err?.message).toMatch(/exceeds max size/i);
+    raw.destroy();
+  });
+
+  it('does not tear down a connection for a large but newline-terminated frame', async () => {
+    const socketPath = tmpSocket();
+    const server = await createUnixSocketServer(socketPath, undefined, {
+      maxInboundFrameBytes: 1_000_000,
+    });
+    servers.push(server);
+    const serverSide = new Promise<Transport>((resolve) => server.onConnection(resolve));
+    const raw = net.connect(socketPath);
+    await new Promise<void>((resolve) => raw.once('connect', () => resolve()));
+    const srv = await serverSide;
+
+    const got = nextFrame(srv);
+    // A genuinely large (but framed) payload under the cap must round-trip.
+    const payload = JSON.stringify({ big: 'y'.repeat(500_000) });
+    raw.write(`${payload}\n`);
+    expect(await got).toEqual({ big: 'y'.repeat(500_000) });
+    raw.destroy();
+  });
+
   it('reclaims a stale socket file left by a crashed runner', async () => {
     const socketPath = tmpSocket();
     // Simulate a leftover file with nothing listening.

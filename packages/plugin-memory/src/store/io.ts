@@ -32,6 +32,15 @@ export function isEnoent(err: unknown): boolean {
   return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
+/**
+ * Cap on simultaneously-open file descriptors when reading a memory dir. The
+ * soft cap on entry count is warn-only, so a long-lived dir can hold thousands
+ * of files; an unbounded `Promise.all(readFile)` over all of them would open
+ * thousands of fds at once and can hit the OS limit (EMFILE) — failing every
+ * list/recall. Batching keeps the common case fast but bounds fd pressure.
+ */
+const READ_CONCURRENCY = 32;
+
 export async function listEntries(
   dir: string,
   filterType?: MemoryType,
@@ -46,25 +55,45 @@ export async function listEntries(
   // recall() and rows() both call this on the hot path; with up to
   // DEFAULT_MAX_MEMORIES (500) entries, reading+parsing each file serially is
   // 500 strictly-ordered disk round-trips. The reads are independent, so fan
-  // them out concurrently and preserve dirent order in the result.
+  // them out concurrently (bounded by READ_CONCURRENCY) and preserve dirent
+  // order in the result.
   const candidates = names.filter(
     (d) => d.isFile() && d.name.endsWith('.md') && d.name !== 'MEMORY.md',
   );
-  const parsed = await Promise.all(
-    candidates.map(async (dirent) => {
-      const filePath = path.join(dir, dirent.name);
-      const raw = await fs.readFile(filePath, 'utf8');
-      const md = parseMdFile(raw);
-      const result = memoryFrontmatterSchema.safeParse(md.frontmatter);
-      if (!result.success) return null;
-      if (filterType && result.data.type !== filterType) return null;
-      return {
-        frontmatter: result.data,
-        body: md.body.trim(),
-        path: filePath,
-      } satisfies MemoryEntry;
-    }),
-  );
+  const readOne = async (dirent: import('node:fs').Dirent): Promise<MemoryEntry | null> => {
+    const filePath = path.join(dir, dirent.name);
+    let raw: string;
+    try {
+      raw = await fs.readFile(filePath, 'utf8');
+    } catch (err) {
+      // One unreadable file (deleted between readdir and readFile, transient
+      // permission error) must not fail the whole list. Drop it, surface
+      // non-ENOENT causes for diagnosis.
+      if (!isEnoent(err)) {
+        console.warn(`[plugin-memory] skipping unreadable memory file ${filePath}: ${String(err)}`);
+      }
+      return null;
+    }
+    const md = parseMdFile(raw);
+    const result = memoryFrontmatterSchema.safeParse(md.frontmatter);
+    if (!result.success) {
+      // A malformed entry silently vanishing from recall/index is a data-loss
+      // surprise; leave a breadcrumb so it's diagnosable.
+      console.warn(`[plugin-memory] ignoring memory file with invalid frontmatter: ${filePath}`);
+      return null;
+    }
+    if (filterType && result.data.type !== filterType) return null;
+    return {
+      frontmatter: result.data,
+      body: md.body.trim(),
+      path: filePath,
+    } satisfies MemoryEntry;
+  };
+  const parsed: Array<MemoryEntry | null> = [];
+  for (let i = 0; i < candidates.length; i += READ_CONCURRENCY) {
+    const batch = candidates.slice(i, i + READ_CONCURRENCY);
+    parsed.push(...(await Promise.all(batch.map(readOne))));
+  }
   return parsed.filter((e): e is MemoryEntry => e !== null);
 }
 

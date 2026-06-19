@@ -18,6 +18,13 @@ export interface LatestBlock {
 
 // ---- Snapshot reading ----------------------------------------------------
 
+// Memo of the last-returned block per workspace. `useSyncExternalStore` calls
+// getSnapshot multiple times per commit and compares by reference, so this MUST
+// return a stable reference while the visible line is unchanged. It's a memo
+// (recomputable, never authoritative), and bounded by a small LRU so a long
+// session across many workspaces can't grow it without bound — Map preserves
+// insertion order, so re-inserting the most-recently-read key keeps it newest.
+const LATEST_BLOCK_CACHE_MAX = 64;
 const latestBlockCache = new Map<string, { key: string; block: LatestBlock }>();
 
 function readLatestBlock(workspaceId: string | null): LatestBlock | null {
@@ -31,8 +38,22 @@ function readLatestBlock(workspaceId: string | null): LatestBlock | null {
   }
   const key = `${candidate.who}:${candidate.text.length}:${candidate.text.slice(0, 64)}`;
   const cached = latestBlockCache.get(workspaceId);
-  if (cached?.key === key) return cached.block;
+  if (cached?.key === key) {
+    // Touch for LRU recency while preserving the stable reference.
+    if (latestBlockCache.size > 1) {
+      latestBlockCache.delete(workspaceId);
+      latestBlockCache.set(workspaceId, cached);
+    }
+    return cached.block;
+  }
   latestBlockCache.set(workspaceId, { key, block: candidate });
+  // Evict the least-recently-used entries (front of insertion order) once over
+  // the cap. The just-written key is newest, so it's never the victim.
+  while (latestBlockCache.size > LATEST_BLOCK_CACHE_MAX) {
+    const oldest = latestBlockCache.keys().next().value;
+    if (oldest === undefined) break;
+    latestBlockCache.delete(oldest);
+  }
   return candidate;
 }
 

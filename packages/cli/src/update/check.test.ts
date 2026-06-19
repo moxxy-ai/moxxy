@@ -18,13 +18,34 @@ function stubFetch(version: string | null, status = 200): typeof fetch {
 }
 
 describe('compareSemver', () => {
-  it('orders by major.minor.patch and ignores prerelease', () => {
+  it('orders by major.minor.patch', () => {
     expect(compareSemver('0.5.5', '0.5.3')).toBe(1);
     expect(compareSemver('0.5.3', '0.5.5')).toBe(-1);
     expect(compareSemver('1.0.0', '1.0.0')).toBe(0);
-    expect(compareSemver('0.5.5-beta.1', '0.5.5')).toBe(0);
+  });
+
+  it('sorts a prerelease BELOW its release on a tuple tie (SemVer §11)', () => {
+    // A beta user must be told the stable shipped, not "already latest".
+    expect(compareSemver('0.5.5', '0.5.5-beta.1')).toBe(1);
+    expect(compareSemver('0.5.5-beta.1', '0.5.5')).toBe(-1);
+    expect(compareSemver('0.5.5-beta.1', '0.5.5-beta.1')).toBe(0);
+  });
+
+  it('the release tuple still dominates the prerelease tag', () => {
+    // A newer release wins even when it is itself a prerelease.
+    expect(compareSemver('0.5.6-beta.1', '0.5.5')).toBe(1);
+    expect(compareSemver('0.5.4', '0.5.5-beta.1')).toBe(-1);
+  });
+
+  it('an update IS offered when stable supersedes the running beta', () => {
+    expect(shapeUpdate('0.5.5', '0.5.5-beta.1')).toBe(true);
   });
 });
+
+/** updateAvailable as computed by checkForCliUpdate, for a known latest. */
+function shapeUpdate(latest: string, current: string): boolean {
+  return compareSemver(latest, current) > 0;
+}
 
 describe('checkForCliUpdate', () => {
   it('reports an available update when latest > current', async () => {

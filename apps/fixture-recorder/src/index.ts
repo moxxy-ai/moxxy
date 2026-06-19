@@ -20,6 +20,7 @@
  *   that fixture deterministically — zero tokens spent.
  */
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   Session,
   collectTurn,
@@ -31,6 +32,7 @@ import { AnthropicProvider, anthropicModels } from '@moxxy/plugin-provider-anthr
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { RecordedProvider } from '@moxxy/testing';
+import type { LLMProvider } from '@moxxy/sdk';
 import { definePlugin, defineProvider } from '@moxxy/sdk';
 
 interface Flags {
@@ -61,12 +63,44 @@ env:
   ANTHROPIC_API_KEY             required for the recorder
 `;
 
-export async function record(flags: Flags): Promise<{ fixtureFiles: string[]; events: number }> {
-  const upstream = new AnthropicProvider({});
+export interface RecordOptions {
+  /**
+   * Upstream provider the recorder wraps. Defaults to the real (paid) Anthropic
+   * provider; injectable so a deterministic fake can drive a full record() with
+   * no network — exercises the orchestration without spending tokens.
+   */
+  readonly upstream?: LLMProvider;
+}
+
+export async function record(
+  flags: Flags,
+  opts: RecordOptions = {},
+): Promise<{ fixtureFiles: string[]; events: number }> {
+  const out = path.resolve(flags.out);
+
+  // Fail fast on an unknown model before constructing a billable Session: a typo
+  // (`--model claude-sonet-4-6`) would otherwise only be rejected by Anthropic
+  // after a network round-trip, having already started a paid session.
+  if (flags.model !== undefined && !anthropicModels.some((m) => m.id === flags.model)) {
+    throw new Error(
+      `unknown model: ${flags.model} (known: ${anthropicModels.map((m) => m.id).join(', ')})`,
+    );
+  }
+
+  // Recorded fixtures embed verbatim request/response content (system + user
+  // prompt, tool schemas, and any cwd content tools read) and are intended to be
+  // committed — do not record against secrets.
+  process.stderr.write(
+    'warning: fixtures embed verbatim request/response content (prompt, tool schemas, ' +
+      'and any cwd files allowed tools read); do not record against secrets — they are ' +
+      'persisted into the committed fixture.\n',
+  );
+
+  const upstream = opts.upstream ?? new AnthropicProvider({});
   const recorder = new RecordedProvider({
     mode: 'record',
     upstream,
-    fixtureDir: path.resolve(flags.out),
+    fixtureDir: out,
     testName: flags.name,
   });
 
@@ -94,16 +128,38 @@ export async function record(flags: Flags): Promise<{ fixtureFiles: string[]; ev
   session.pluginHost.registerStatic(builtinToolsPlugin);
   session.pluginHost.registerStatic(defaultModePlugin);
 
-  const events = await collectTurn(session, flags.prompt, {
-    model: flags.model,
-    ...(flags.maxIterations ? { maxIterations: flags.maxIterations } : {}),
-  });
+  // Ctrl-C / SIGTERM mid-record aborts the in-flight upstream stream cleanly
+  // instead of relying on a hard process kill that abandons the open paid HTTP
+  // stream. Handlers are removed in finally so record() leaks no listeners.
+  const ac = new AbortController();
+  const onSignal = (): void => ac.abort();
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
 
-  const { promises: fs } = await import('node:fs');
-  const fixtures = (await fs.readdir(path.resolve(flags.out))).filter(
-    (f) => f.startsWith(`${flags.name}.`) && f.endsWith('.json'),
-  );
-  return { fixtureFiles: fixtures.map((f) => path.resolve(flags.out, f)), events: events.length };
+  let events: ReadonlyArray<unknown>;
+  try {
+    events = await collectTurn(session, flags.prompt, {
+      model: flags.model,
+      signal: ac.signal,
+      ...(flags.maxIterations ? { maxIterations: flags.maxIterations } : {}),
+    });
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    // Run plugin onShutdown hooks so any timers/handles the builtin tools or
+    // mode opened are released — otherwise they leak (across a test suite, or
+    // until the CLI process exits).
+    await session.close().catch(() => {});
+  }
+
+  // The recorder itself tracks the EXACT absolute paths it wrote this run, so we
+  // report those directly rather than diffing a directory listing. A directory
+  // mtime-diff is fragile under coarse FS mtime resolution (a fixture rewritten
+  // in the same clock tick reads as "unchanged" and is silently dropped from the
+  // report) and under clock skew; the recorder's set has neither failure mode and
+  // can never include a stale fixture orphaned by a prior --name-sharing run.
+  const fixtureFiles = [...recorder.writtenFixtures].sort();
+  return { fixtureFiles, events: events.length };
 }
 
 export function parseFlags(argv: ReadonlyArray<string>): Flags | { help: true } {
@@ -182,7 +238,12 @@ async function main(): Promise<number> {
   return 0;
 }
 
-const isEntrypoint = import.meta.url === `file://${process.argv[1]}`;
+// Compare percent-encoded file URLs: a hand-built `file://${argv[1]}` is NOT
+// encoded, so an install path with a space/reserved char (common on macOS) made
+// this false and `main()` silently never ran. pathToFileURL matches Node's own
+// `import.meta.url` encoding.
+const isEntrypoint =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntrypoint) {
   main().then(
     (code) => process.exit(code),

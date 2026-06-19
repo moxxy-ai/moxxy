@@ -126,6 +126,65 @@ describe('synthesizeSkill', () => {
     expect(b.path).not.toBe(a.path);
     expect(b.path).toMatch(/-2\.md$/);
   });
+
+  it('does not overwrite a same-slug file already on disk (atomic wx create)', async () => {
+    const provider = new InlineProvider([draftReply()]);
+    const session = newSessionWithProvider(provider);
+    const skillsDir = path.join(tmp, 'skills');
+    await fs.mkdir(skillsDir, { recursive: true });
+    // Pre-existing skill file with the slug that this synthesis will produce.
+    const squatted = path.join(skillsDir, 'refactor-component.md');
+    await fs.writeFile(squatted, 'PRE-EXISTING — MUST NOT BE TRUNCATED');
+
+    const result = await synthesizeSkill(session, 'split component up', 'user', {
+      userDir: skillsDir,
+      auditPath: path.join(tmp, 'audit.jsonl'),
+    });
+
+    // The pre-existing file is untouched and the new skill landed on a bumped name.
+    expect(await fs.readFile(squatted, 'utf8')).toBe('PRE-EXISTING — MUST NOT BE TRUNCATED');
+    expect(result.path).toMatch(/-2\.md$/);
+  });
+
+  it('still returns the created skill when the audit append fails (audit is best-effort)', async () => {
+    const provider = new InlineProvider([draftReply()]);
+    const session = newSessionWithProvider(provider);
+    // Make the audit path unwritable by planting a FILE where its parent dir
+    // must be — appendAudit's mkdir(dirname) then throws ENOTDIR/EEXIST.
+    const blocker = path.join(tmp, 'blocker');
+    await fs.writeFile(blocker, 'i am a file, not a directory');
+    const auditPath = path.join(blocker, 'created.jsonl');
+
+    const result = await synthesizeSkill(session, 'split component up', 'user', {
+      userDir: path.join(tmp, 'skills'),
+      auditPath,
+    });
+
+    // The skill is the product — it was written, registered, and returned despite
+    // the telemetry write failing.
+    expect(result.skill.frontmatter.name).toBe('refactor-component');
+    expect(await fs.readFile(result.path, 'utf8')).toContain('refactor-component');
+    expect(session.skills.byName('refactor-component')).toBeDefined();
+  });
+
+  it('caps the audit JSONL at MAX_AUDIT_LINES', async () => {
+    const auditPath = path.join(tmp, 'audit.jsonl');
+    // Seed the audit with way more than the cap.
+    const seed = Array.from({ length: 2100 }, (_, i) => JSON.stringify({ n: i })).join('\n') + '\n';
+    await fs.writeFile(auditPath, seed);
+
+    const provider = new InlineProvider([draftReply()]);
+    const session = newSessionWithProvider(provider);
+    await synthesizeSkill(session, 'split component up', 'user', {
+      userDir: path.join(tmp, 'skills'),
+      auditPath,
+    });
+
+    const lines = (await fs.readFile(auditPath, 'utf8')).split('\n').filter((l) => l.length > 0);
+    expect(lines.length).toBeLessThanOrEqual(2000);
+    // The most-recent line is the one we just appended (the skill slug).
+    expect(lines[lines.length - 1]).toContain('refactor-component');
+  });
 });
 
 describe('buildSynthesizeSkillPlugin', () => {

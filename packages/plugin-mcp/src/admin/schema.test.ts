@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MoxxyError } from '@moxxy/sdk';
-import { type AddServerInput, validateAddServerInput } from './schema.js';
+import { addServerInput, type AddServerInput, validateAddServerInput } from './schema.js';
 
 const input = (over: Partial<AddServerInput>): AddServerInput =>
   ({ kind: 'stdio', name: 'demo', command: 'noop', autoSkill: true, ...over }) as AddServerInput;
@@ -47,5 +47,24 @@ describe('validateAddServerInput', () => {
     }
     expect((err as MoxxyError).code).toBe('CONFIG_INVALID');
     expect((err as Error).message).toMatch(/kind="sse"/);
+  });
+});
+
+describe('addServerInput url scheme allow-list (SSRF surface)', () => {
+  const base = { kind: 'http' as const, name: 'remote' };
+
+  it('accepts http and https urls', () => {
+    expect(addServerInput.safeParse({ ...base, url: 'https://mcp.example.com' }).success).toBe(true);
+    expect(addServerInput.safeParse({ ...base, url: 'http://localhost:3000/mcp' }).success).toBe(true);
+  });
+
+  it.each([
+    'file:///etc/passwd',
+    'gopher://internal/',
+    'ws://mcp.example.com',
+    'ftp://host/x',
+  ])('rejects non-http(s) scheme %s', (url) => {
+    const parsed = addServerInput.safeParse({ ...base, url });
+    expect(parsed.success).toBe(false);
   });
 });

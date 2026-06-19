@@ -68,13 +68,25 @@ function defaultNode(id: string, kind: StepKind, x: number, y: number): BuilderN
   return base;
 }
 
+/**
+ * Coerce an arbitrary string into a schema-valid step id (lowercase, only
+ * `[a-z0-9_-]`, trimmed, ≤60 chars). The single source of truth for what counts
+ * as a valid id so `uniqueId` and `renameNode` can't drift apart and smuggle
+ * forbidden characters past one path but not the other.
+ */
+export function slugifyId(base: string): string {
+  return (
+    base
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60) || 'step'
+  );
+}
+
 /** Generate a unique slug-like id from a desired base. */
 export function uniqueId(state: BuilderState, base: string): string {
-  const slug = base
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 60) || 'step';
+  const slug = slugifyId(base);
   const taken = new Set(state.nodes.map((n) => n.id));
   if (!taken.has(slug)) return slug;
   let i = 2;
@@ -259,7 +271,17 @@ export function setLoopBody(
 ): BuilderState {
   const loopNode = state.nodes.find((n) => n.id === loopId);
   if (!loopNode || loopNode.kind !== 'loop') return state;
-  const cleaned = dedupe(body).filter((id) => id !== loopId && state.nodes.some((n) => n.id === id));
+  // A body member gets `needs: [loop]`. If the loop already (transitively)
+  // depends on that member, that edge closes a cycle the engine can never
+  // schedule — exactly the invariant connectNeeds/setLoopExit guard against.
+  // Drop such ancestors from the body so this path can't author an invalid DAG
+  // either (the member stays a plain upstream of the loop instead).
+  const cleaned = dedupe(body).filter(
+    (id) =>
+      id !== loopId &&
+      state.nodes.some((n) => n.id === id) &&
+      !wouldCreateCycle(state, loopId, id),
+  );
   const bodySet = new Set(cleaned);
   const prevBody = new Set(loopNode.loop?.body ?? []);
   const nodes = state.nodes.map((n) => {
@@ -291,6 +313,12 @@ export function setLoopExit(state: BuilderState, loopId: string, targetId: strin
   if (targetId && (targetId === loopId || (loopNode.loop?.body ?? []).includes(targetId))) {
     return state; // a body step can't also be the exit
   }
+  // Wiring `target.needs += loop` closes a cycle if the loop already
+  // (transitively) depends on `target`. connectNeeds short-circuits to here for
+  // loop nodes BEFORE its own cycle guard runs, so without this the canvas could
+  // author an unschedulable DAG via a loop-exit edge. Mirror the plain-needs
+  // guard so the loop-exit path is consistent.
+  if (targetId && wouldCreateCycle(state, loopId, targetId)) return state;
   // Scrub EVERY non-body `needs:[loop]` edge before wiring the new target.
   // `loopExitTarget` only reports the FIRST such node by array order, so if a
   // second non-body step also carried `needs:[loop]` (e.g. authored via
@@ -350,7 +378,10 @@ function applyPatch(node: BuilderNode, patch: NodeFieldPatch): BuilderNode {
   if (patch.label !== undefined) next.label = patch.label || undefined;
   if (patch.action !== undefined) next.action = patch.action;
   if (patch.input !== undefined) next.input = patch.input || undefined;
-  if (patch.args !== undefined) next.args = patch.args;
+  // Clone so the new immutable node never aliases the caller's object — a later
+  // in-place mutation of `patch.args` must not retroactively edit this snapshot
+  // (breaks undo/replay + React referential equality). Matches hydrate's clone.
+  if (patch.args !== undefined) next.args = { ...patch.args };
   if (patch.when !== undefined) next.when = patch.when || undefined;
   if (patch.onError !== undefined) next.onError = patch.onError;
   if (patch.retries !== undefined) next.retries = clampRetries(patch.retries);
@@ -367,7 +398,10 @@ export function updateMeta(state: BuilderState, patch: Partial<BuilderState['met
 /** Rename a node id, rewriting every reference (needs/branch/loop body). */
 export function renameNode(state: BuilderState, from: string, to: string): BuilderState {
   if (from === to) return state;
-  if (!to || state.nodes.some((n) => n.id === to)) return state;
+  // Reject ids the schema's step-id rule forbids — the inspector wires this
+  // straight from a free-text field, so a value like `my step!` must not be
+  // accepted verbatim into node + edge ids the way addStep guards against.
+  if (!to || slugifyId(to) !== to || state.nodes.some((n) => n.id === to)) return state;
   const nodes = state.nodes.map((n) => {
     const renamed = n.id === from ? { ...n, id: to } : { ...n };
     renamed.needs = renamed.needs.map((d) => (d === from ? to : d));

@@ -152,4 +152,16 @@ describe('recall tool', () => {
     expect(out).toMatch(/more chars — call recall again without summarize/);
     expect(out.length).toBeLessThan(big.length);
   });
+
+  it('does not split a surrogate pair at the summary truncation boundary', () => {
+    // SUMMARY_CHARS is 1500. Pad with 1499 single-unit chars so the cut falls
+    // exactly between the two code units of a 🚀 (surrogate pair) at index 1500.
+    const content = 'a'.repeat(1_499) + '🚀'.repeat(200);
+    const events = [ev(0, { type: 'assistant_message', turnId: t1, source: 'model', content })];
+    const out = recallTool.handler({ seq: 0, summarize: true }, ctx(events)) as string;
+    const head = out.split('\n')[0]!;
+    const lastCode = head.charCodeAt(head.length - 1);
+    // The truncated head must not end on a lone high surrogate (D800–DBFF).
+    expect(lastCode >= 0xd800 && lastCode <= 0xdbff).toBe(false);
+  });
 });

@@ -77,6 +77,51 @@ describe('EventLog', () => {
     ).resolves.toBeDefined();
   });
 
+  it('does not hang the append when a listener never resolves (bounded watchdog)', async () => {
+    vi.useFakeTimers();
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      const log = new EventLog();
+      // A listener that never settles must not block append forever.
+      log.subscribe(() => new Promise<void>(() => {}));
+      const fast = vi.fn();
+      log.subscribe(fast);
+
+      const pending = log.append({
+        type: 'user_prompt',
+        sessionId: sid,
+        turnId: tid,
+        source: 'user',
+        text: 'x',
+      });
+
+      // Drive the watchdog past its window; the hung listener is abandoned and
+      // the fan-out continues to the next (fast) listener.
+      await vi.advanceTimersByTimeAsync(31_000);
+      await expect(pending).resolves.toBeDefined();
+      expect(fast).toHaveBeenCalledTimes(1);
+      expect(stderr).toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the watchdog timer for a fast async listener (no leaked timers)', async () => {
+    vi.useFakeTimers();
+    try {
+      const log = new EventLog();
+      const fast = vi.fn(async () => {});
+      log.subscribe(fast);
+      await log.append({ type: 'user_prompt', sessionId: sid, turnId: tid, source: 'user', text: 'x' });
+      expect(fast).toHaveBeenCalledTimes(1);
+      // A fast listener settles immediately; no watchdog timer should remain.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('seeds preserve existing events but new appends start at length()', async () => {
     const seedLog = new EventLog();
     const e1 = await seedLog.append({

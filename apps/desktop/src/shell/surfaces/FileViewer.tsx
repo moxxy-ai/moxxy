@@ -60,13 +60,22 @@ export function FileViewer({
   // A fresh selection starts gated again.
   useEffect(() => setForce(false), [path, mode]);
 
-  // Maintain a revocable object URL whenever the body is a PDF.
+  // Maintain a revocable object URL whenever the body is a PDF. A malformed /
+  // non-base64 payload makes atob throw a DOMException — catch it and fall back
+  // to the regular error state instead of letting it escape the effect.
   useEffect(() => {
     if (!body || !('kind' in body) || body.kind !== 'pdf') {
       setPdfUrl(null);
       return;
     }
-    const u = URL.createObjectURL(base64ToBlob(body.base64, 'application/pdf'));
+    let u: string;
+    try {
+      u = URL.createObjectURL(base64ToBlob(body.base64, 'application/pdf'));
+    } catch {
+      setPdfUrl(null);
+      setError('Could not open this PDF — the file appears to be corrupt.');
+      return;
+    }
     setPdfUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [body]);

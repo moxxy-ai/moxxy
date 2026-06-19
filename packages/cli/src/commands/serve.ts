@@ -454,10 +454,17 @@ async function runUntilSignal(
   const shutdown = async (signal: string): Promise<void> => {
     if (stopRequested) return;
     stopRequested = true;
+    // A clean operator-initiated stop (SIGINT/SIGTERM) exits 0. A channel
+    // crashing or exiting on its own is a FAILURE — exit non-zero so an
+    // on-failure supervisor (systemd Restart=on-failure / launchd KeepAlive)
+    // restarts the runner instead of treating it as a clean stop and leaving
+    // it down. (start-registered-channel.ts already exits non-zero on runner
+    // loss for the same reason; keep serve consistent.)
+    const exitCode = signal === 'CHANNEL_CRASH' || signal === 'CHANNEL_EXIT' ? 1 : 0;
     // Guarantee the process exits even if a stop()/close() hangs — otherwise it
     // lingers holding the port. The child-cleanup `exit` hook then SIGKILLs any
     // tunnel subprocess, so nothing is left running.
-    const force = setTimeout(() => process.exit(0), 4000);
+    const force = setTimeout(() => process.exit(exitCode), 4000);
     force.unref?.();
     process.stderr.write(`\nstopping (${signal})…\n`);
     // Close the socket first so attached clients see the disconnect and stop
@@ -473,7 +480,7 @@ async function runUntilSignal(
     // session.close() dispatches every plugin's onShutdown — scheduler
     // poller, webhooks listener, vault flush, etc.
     await setup.session.close(signal).catch(() => undefined);
-    process.exit(0);
+    process.exit(exitCode);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

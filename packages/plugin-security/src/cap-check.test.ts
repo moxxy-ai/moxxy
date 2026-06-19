@@ -6,6 +6,7 @@ import {
   maskEnv,
   pathInScope,
   urlInScope,
+  expandHomeAndCwd,
 } from './cap-check.js';
 
 describe('checkFsCap', () => {
@@ -123,6 +124,70 @@ describe('checkFsCap', () => {
       { description: 'see /usr/bin/foo for details' },
       { read: ['$cwd/**'] },
       '/work',
+    );
+    expect(r.ok).toBe(true);
+  });
+});
+
+// MEDIUM (audit): strict mode closes the false-NEGATIVE gap where a path/url
+// carried by an unrecognized key name slips through unchecked.
+describe('checkFsCap strict mode (unrecognized carriers)', () => {
+  it('default mode IGNORES an absolute path under an unrecognized key', () => {
+    const r = checkFsCap({ manifest: '/etc/passwd' }, { read: ['$cwd/**'] }, '/work');
+    expect(r.ok).toBe(true); // documented best-effort: key not in PATH_WORDS
+  });
+
+  it('strict mode DENIES an out-of-scope path under an unrecognized key', () => {
+    const r = checkFsCap(
+      { manifest: '/etc/passwd' },
+      { read: ['$cwd/**'] },
+      '/work',
+      { strict: true },
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('strict mode ALLOWS an in-scope path under an unrecognized key', () => {
+    const r = checkFsCap(
+      { manifest: '/work/x.json' },
+      { read: ['$cwd/**'] },
+      '/work',
+      { strict: true },
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('strict mode still does NOT flag an absolute path embedded in prose', () => {
+    const r = checkFsCap(
+      { note: 'see /usr/bin/foo for details' },
+      { read: ['$cwd/**'] },
+      '/work',
+      { strict: true },
+    );
+    expect(r.ok).toBe(true); // whitespace => not a single-token path
+  });
+});
+
+describe('checkNetCap strict mode (unrecognized carriers)', () => {
+  it('default mode IGNORES a URL under an unrecognized key', () => {
+    const r = checkNetCap({ callback: 'https://evil.com/x' }, { mode: 'allowlist', hosts: ['api.example.com'] });
+    expect(r.ok).toBe(true);
+  });
+
+  it('strict mode DENIES an out-of-allowlist URL under an unrecognized key', () => {
+    const r = checkNetCap(
+      { callback: 'https://evil.com/x' },
+      { mode: 'allowlist', hosts: ['api.example.com'] },
+      { strict: true },
+    );
+    expect(r.ok).toBe(false);
+  });
+
+  it('strict mode does NOT flag a URL embedded in prose', () => {
+    const r = checkNetCap(
+      { note: 'fetch https://evil.com later' },
+      { mode: 'allowlist', hosts: ['api.example.com'] },
+      { strict: true },
     );
     expect(r.ok).toBe(true);
   });
@@ -252,5 +317,36 @@ describe('urlInScope (hostMatches edges)', () => {
 
   it('denies when cap is undefined', () => {
     expect(urlInScope('https://example.com', undefined)).toBe(false);
+  });
+});
+
+// LOW (audit): `$cwd` / `~` are TOKENS, not raw string prefixes — a malformed
+// declaration must not silently widen the cap to a sibling dir or filesystem root.
+describe('expandHomeAndCwd ($cwd / ~ token handling)', () => {
+  it('expands the $cwd token (alone and with a sub-path)', () => {
+    expect(expandHomeAndCwd('$cwd', '/work')).toBe('/work');
+    expect(expandHomeAndCwd('$cwd/**', '/work')).toBe('/work/**');
+    expect(expandHomeAndCwd('$cwd/sub/f.txt', '/work')).toBe('/work/sub/f.txt');
+  });
+
+  it('does NOT treat $cwd-prefixed-without-separator as the cwd token', () => {
+    // `$cwdsecret` must not become `/worksecret` (a sibling of cwd); it stays a
+    // relative literal and resolves UNDER cwd, never escaping it.
+    const r = expandHomeAndCwd('$cwdsecret', '/work');
+    expect(r.startsWith('/work')).toBe(true);
+    expect(r).not.toBe('/worksecret');
+  });
+
+  it('throws on a ~/ pattern when no home dir is resolvable', () => {
+    const home = process.env.HOME;
+    const userprofile = process.env.USERPROFILE;
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+    try {
+      expect(() => expandHomeAndCwd('~/secrets/**', '/work')).toThrow(/HOME nor USERPROFILE/);
+    } finally {
+      if (home !== undefined) process.env.HOME = home;
+      if (userprofile !== undefined) process.env.USERPROFILE = userprofile;
+    }
   });
 });

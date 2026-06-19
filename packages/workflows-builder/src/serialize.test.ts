@@ -141,6 +141,62 @@ describe('auto-layout when ui.layout is absent', () => {
   });
 });
 
+describe('hydrateYaml hardening — malformed / hand-authored drafts', () => {
+  it('coerces a non-array `steps:` to an empty canvas (no TypeError crash)', () => {
+    // `steps` typo'd as a map — the old `(raw.steps ?? []).map` threw an opaque
+    // "raw.steps.map is not a function". Now it degrades to an empty step list.
+    const yaml = 'name: bad\nsteps:\n  id: a\n';
+    let re!: ReturnType<typeof hydrateYaml>;
+    expect(() => {
+      re = hydrateYaml(yaml);
+    }).not.toThrow();
+    expect(re.nodes).toEqual([]);
+  });
+
+  it('rejects a non-object step entry (a bare string list item)', () => {
+    const yaml = 'name: bad\nsteps:\n  - just-a-string\n';
+    expect(() => hydrateYaml(yaml)).toThrow(/not an object/);
+  });
+
+  it('rejects a step with no valid id instead of producing id: undefined', () => {
+    const yaml = 'name: bad\nsteps:\n  - prompt: hi\n    needs: []\n';
+    expect(() => hydrateYaml(yaml)).toThrow(/no valid id/);
+  });
+
+  it('coerces malformed branch/loop shapes to safe empties instead of spreading chars', () => {
+    // `then` parsed as a scalar string and `cases`/`needs` as wrong shapes must
+    // NOT become a char-spread array; hydrate must yield a clean, usable node.
+    const wf = {
+      name: 'w',
+      description: '',
+      version: 1,
+      enabled: true,
+      inputs: {},
+      concurrency: 4,
+      steps: [
+        { id: 'c', condition: 'q?', then: 'oops', else: ['ok'], needs: ['x', 7], onError: 'fail', retries: 0 },
+      ],
+    } as unknown as import('@moxxy/sdk').Workflow;
+    const re = hydrate(wf);
+    const node = re.nodes.find((n) => n.id === 'c')!;
+    // `then` was not an array → dropped, not spread into ['o','o','p','s'].
+    expect(node.then).toBeUndefined();
+    expect(node.else).toEqual(['ok']);
+    // non-string needs entries filtered out, no NaN/number ids leak in.
+    expect(node.needs).toEqual(['x']);
+  });
+
+  it('does not overflow the stack on a very long linear needs chain', () => {
+    const steps = Array.from({ length: 5000 }, (_, i) =>
+      step(`s${i}`, i === 0 ? [] : [`s${i - 1}`]),
+    );
+    expect(() => autoLayout(steps)).not.toThrow();
+    const positions = autoLayout(steps);
+    // depth strictly increases along the chain.
+    expect(positions[0]!.x).toBeLessThan(positions[4999]!.x);
+  });
+});
+
 describe('yaml codec edge cases', () => {
   it('round-trips empty lists, numbers, booleans, and quoted strings', () => {
     const value = {

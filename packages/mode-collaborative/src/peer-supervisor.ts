@@ -9,10 +9,15 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { COLLAB_ENV } from '@moxxy/plugin-collab';
 import type { RosterEntry } from '@moxxy/plugin-collab';
-import { peerSocketPath } from './constants.js';
+import { COLLAB_MAX_ITERATIONS_ENV, peerSocketPath } from './constants.js';
 
 const FORCE_KILL_GRACE_MS = 4000;
 const STDERR_RING = 40;
+// Trim the stderr ring only once it grows to this watermark (then back to
+// STDERR_RING) so a chatty/crash-looping child doesn't pay an O(n) array shift
+// on every chunk; the buffer is only ever read as `.slice(-6)`, so retaining up
+// to 2x the cap between trims is harmless.
+const STDERR_RING_HIGH = STDERR_RING * 2;
 
 export interface PeerSupervisorOptions {
   readonly runId: string;
@@ -20,6 +25,12 @@ export interface PeerSupervisorOptions {
   readonly coordinatorSessionId: string;
   readonly parentTask: string;
   readonly defaultModel?: string;
+  /** Per-peer iteration cap, forwarded to the spawned agent loop via env. */
+  readonly peerMaxIterations?: number;
+  /** Explicit CLI entrypoint to re-invoke as `moxxy agent`. Defaults to
+   *  `process.argv[1]`; injectable for hosts that don't set it (packaged/Electron)
+   *  or for tests. */
+  readonly cliEntry?: string;
   readonly signal: AbortSignal;
 }
 
@@ -57,8 +68,21 @@ interface PeerProc {
 export class PeerSupervisor implements Supervisor {
   private readonly peers = new Map<string, PeerProc>();
   private shuttingDown = false;
+  private readonly cliEntry: string;
 
   constructor(private readonly opts: PeerSupervisorOptions) {
+    // Resolve the CLI entry to re-invoke as `moxxy agent` ONCE, up front. Falling
+    // back to `process.argv[1] ?? ''` would silently spawn `node '' agent` (boots
+    // nothing / the wrong thing) under a host that omits argv[1] — every peer then
+    // "fails" with an opaque diagnostic and the run produces nothing. Fail loudly
+    // here instead, where the cause is clear.
+    const entry = opts.cliEntry ?? process.argv[1];
+    if (!entry || !entry.trim()) {
+      throw new Error(
+        'PeerSupervisor: cannot locate the moxxy CLI entrypoint to spawn peers (process.argv[1] is empty); pass cliEntry explicitly',
+      );
+    }
+    this.cliEntry = entry;
     opts.signal.addEventListener('abort', () => void this.shutdownAll('coordinator aborted'), {
       once: true,
     });
@@ -81,10 +105,11 @@ export class PeerSupervisor implements Supervisor {
     };
     const model = args.entry.model ?? this.opts.defaultModel;
     if (model) env.MOXXY_MODEL = model;
+    if (this.opts.peerMaxIterations) env[COLLAB_MAX_ITERATIONS_ENV] = String(this.opts.peerMaxIterations);
 
     // Re-invoke this same CLI entrypoint as `moxxy agent`. `detached: false`
     // ties the child to the coordinator's process group so it can't outlive us.
-    const child = spawn(process.execPath, [process.argv[1] ?? '', 'agent'], {
+    const child = spawn(process.execPath, [this.cliEntry, 'agent'], {
       cwd: args.cwd,
       env,
       stdio: ['ignore', 'ignore', 'pipe'],
@@ -98,7 +123,7 @@ export class PeerSupervisor implements Supervisor {
       for (const line of chunk.split('\n')) {
         if (line.trim()) proc.stderr.push(line);
       }
-      if (proc.stderr.length > STDERR_RING) proc.stderr.splice(0, proc.stderr.length - STDERR_RING);
+      if (proc.stderr.length > STDERR_RING_HIGH) proc.stderr.splice(0, proc.stderr.length - STDERR_RING);
     });
     child.on('exit', () => {
       proc.exited = true;

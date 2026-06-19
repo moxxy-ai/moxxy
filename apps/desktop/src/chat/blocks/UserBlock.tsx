@@ -1,5 +1,32 @@
+import { useEffect, useState } from 'react';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { Icon } from '@moxxy/desktop-ui';
+
+/** Decode a base64 attachment payload into a Blob object URL so the renderer
+ *  holds a single off-DOM Blob instead of a multi-MB `data:` string baked into
+ *  an attribute (re-parsed on every mount). Returns null until ready / on
+ *  decode failure (caller falls back to nothing rather than a broken img). */
+function useImageObjectUrl(content: string, mediaType: string): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let revoked = false;
+    let objectUrl: string | null = null;
+    try {
+      const binary = atob(content);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      objectUrl = URL.createObjectURL(new Blob([bytes], { type: mediaType }));
+      if (!revoked) setUrl(objectUrl);
+    } catch {
+      setUrl(null);
+    }
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [content, mediaType]);
+  return url;
+}
 
 /** Rough byte size of an attachment's payload, for the chip label. Base64
  *  (image/document) decodes to ~3/4 its length; inline text is its own length. */
@@ -16,10 +43,12 @@ function humanSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function ImageThumb({ att }: { readonly att: UserPromptAttachment }): JSX.Element {
+function ImageThumb({ att }: { readonly att: UserPromptAttachment }): JSX.Element | null {
+  const src = useImageObjectUrl(att.content, att.mediaType ?? 'image/png');
+  if (!src) return null;
   return (
     <img
-      src={`data:${att.mediaType ?? 'image/png'};base64,${att.content}`}
+      src={src}
       alt={att.name ?? 'attached image'}
       title={att.name}
       style={{
@@ -114,8 +143,14 @@ export function UserBlock({
         <div
           style={{
             padding: '12px 16px',
-            background: 'var(--grad-user)',
+            // Solid contrast-safe base UNDER the gradient: if the lightest
+            // gradient stop resolves too pale in a given theme, the dark base
+            // (and the text-shadow below) keep the white prompt text legible.
+            backgroundColor: 'var(--color-primary-strong)',
+            backgroundImage: 'var(--grad-user)',
             color: '#fff',
+            // Guarantees the white text stays readable over the lightest stop.
+            textShadow: '0 1px 2px rgba(15, 23, 42, 0.45)',
             borderRadius: '16px 16px 4px 16px',
             whiteSpace: 'pre-wrap',
             lineHeight: 1.55,

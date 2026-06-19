@@ -14,6 +14,7 @@ import {
   __setClaudeFetch,
   __setClaudeOpenBrowser,
   __setClaudeSleep,
+  __setClaudeTimeoutMs,
 } from './login.js';
 
 interface FakeVault extends OAuthVault {
@@ -70,13 +71,34 @@ afterAll(async () => {
 beforeEach(() => {
   __setClaudeOpenBrowser(async () => {});
   __setClaudeSleep(async () => {}); // don't actually back off under test
+  __setClaudeTimeoutMs(50); // bound the hung-connection tests; default is 30s
   __setClaudeFetch(async () => {
     throw new Error('unexpected fetch — a test forgot to stub __setClaudeFetch');
   });
 });
 
+/**
+ * A fetch that respects the `AbortSignal` exactly like the real one: it never
+ * resolves on its own, so it only settles when the per-attempt deadline aborts
+ * it (mirroring a half-open socket / black-holing proxy).
+ */
+function hangingFetch(): typeof fetch {
+  return ((_url, init) =>
+    new Promise((_resolve, reject) => {
+      const signal = (init as { signal?: AbortSignal } | undefined)?.signal;
+      if (signal?.aborted) {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      signal?.addEventListener('abort', () => {
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+      });
+    })) as typeof fetch;
+}
+
 afterAll(() => {
   __setClaudeFetch(fetch);
+  __setClaudeTimeoutMs(30_000);
 });
 
 describe('claudeLogin', () => {
@@ -164,6 +186,108 @@ describe('claudeLogin', () => {
     const vault = makeVault();
     // The internally-generated state will never equal "WRONG", so this must throw.
     await expect(claudeLogin(makeCtx(vault, ['', 'THECODE#WRONGSTATE']))).rejects.toThrow(/state/i);
+  });
+
+  it('omits expiresAt entirely for a pasted setup-token (no false "expired")', async () => {
+    const vault = makeVault();
+    const res = await claudeLogin(makeCtx(vault, ['sk-ant-oat-PASTED']));
+    // Absent expiry must be omitted, not collapsed to 0 (which reads as expired).
+    expect('expiresAt' in res).toBe(false);
+  });
+
+  it('omits expiresAt when the token response has no expires_in', async () => {
+    const vault = makeVault();
+    __setClaudeFetch(async () =>
+      jsonResponse({ access_token: 'access-noexp', refresh_token: 'r', token_type: 'Bearer' }),
+    );
+    const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
+    expect(res.accountId).toBeUndefined();
+    expect('expiresAt' in res).toBe(false);
+  });
+
+  it('treats a 200 with a non-JSON body as transient and retries', async () => {
+    const vault = makeVault();
+    let calls = 0;
+    __setClaudeFetch(async () => {
+      calls++;
+      if (calls < 2) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON');
+          },
+          text: async () => '<html>captive portal</html>',
+        } as unknown as Response;
+      }
+      return jsonResponse({ access_token: 'recovered', token_type: 'Bearer', expires_in: 3600 });
+    });
+
+    const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
+    expect(calls).toBe(2); // bad 200 retried, second attempt wins
+    expect(vault.store.get('oauth/claude-code/access_token')).toBe('recovered');
+    expect(res.expiresAt).toBeGreaterThan(0);
+  });
+
+  it('surfaces a transient-retry hint when every 200 body is non-JSON', async () => {
+    const vault = makeVault();
+    let calls = 0;
+    __setClaudeFetch(async () => {
+      calls++;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        },
+        text: async () => '',
+      } as unknown as Response;
+    });
+    await expect(claudeLogin(makeCtx(vault, ['', 'AUTHCODE']))).rejects.toThrow(/after 3 attempts/);
+    expect(calls).toBe(3);
+  });
+
+  it('treats a 200 JSON primitive/array body as transient and retries', async () => {
+    const vault = makeVault();
+    let calls = 0;
+    __setClaudeFetch(async () => {
+      calls++;
+      if (calls < 2) return jsonResponse([] as unknown, 200); // array, not an object
+      return jsonResponse({ access_token: 'after-array', token_type: 'Bearer', expires_in: 3600 });
+    });
+    const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
+    expect(calls).toBe(2);
+    expect(res.expiresAt).toBeGreaterThan(0);
+  });
+
+  it('aborts a hung connection on the per-attempt deadline and retries', async () => {
+    const vault = makeVault();
+    const hang = hangingFetch();
+    let calls = 0;
+    __setClaudeFetch(async (url, init) => {
+      calls++;
+      // First attempt: a half-open socket that never responds — must be aborted
+      // by the deadline (not hang forever), reclassified as a transient, retried.
+      if (calls < 2) return hang(url, init);
+      return jsonResponse({ access_token: 'after-timeout', token_type: 'Bearer', expires_in: 3600 });
+    });
+
+    const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
+    expect(calls).toBe(2);
+    expect(vault.store.get('oauth/claude-code/access_token')).toBe('after-timeout');
+    expect(res.expiresAt).toBeGreaterThan(0);
+  });
+
+  it('surfaces the transient-retry hint when every attempt hangs past the deadline', async () => {
+    const vault = makeVault();
+    const hang = hangingFetch();
+    let calls = 0;
+    __setClaudeFetch((url, init) => {
+      calls++;
+      return hang(url, init);
+    });
+    await expect(claudeLogin(makeCtx(vault, ['', 'AUTHCODE']))).rejects.toThrow(/after 3 attempts/);
+    expect(calls).toBe(3);
   });
 
   it('refuses without a TTY prompt', async () => {
@@ -303,5 +427,15 @@ describe('token lifecycle', () => {
     expect(status).toMatchObject({ accountId: 'me@example.com' });
     expect(await claudeLogout(ctx)).toBe(true);
     expect(await claudeStatus(ctx)).toBeNull();
+  });
+
+  it('claudeStatus omits expiresAt for a stored setup-token (no false "expired")', async () => {
+    const vault = makeVault();
+    const ctx = makeCtx(vault, []);
+    // A pasted setup-token has no expiry — status must not surface 0/epoch.
+    await storeTokenSet(vault, 'claude-code', { accessToken: 'a', tokenType: 'Bearer' }, META);
+    const status = await claudeStatus(ctx);
+    expect(status).not.toBeNull();
+    expect('expiresAt' in (status as object)).toBe(false);
   });
 });

@@ -17,6 +17,18 @@ describe('email', () => {
   it('ignores a bare @ handle with no domain', () => {
     expect(values('email', 'ping @johnny on chat')).toEqual([]);
   });
+  it('does not catastrophically backtrack on a hostile no-TLD-tail input (ReDoS)', () => {
+    // `x@a.a.a.…` with no valid TLD tail made the unbounded email regex backtrack
+    // quadratically and freeze the renderer thread. Every quantifier is now
+    // bounded (local ≤64, labels ≤63, ≤32 sub-labels), so this stays linear.
+    const hostile = `x@${'a.'.repeat(20_000)}`;
+    const t0 = Date.now();
+    expect(values('email', hostile)).toEqual([]);
+    // Bounded form runs in ~tens of ms; the unbounded form took multiple seconds.
+    // A generous 1.5s ceiling discriminates catastrophic vs linear without flaking
+    // under parallel CI load.
+    expect(Date.now() - t0).toBeLessThan(1500);
+  });
 });
 
 describe('credit card (Luhn)', () => {

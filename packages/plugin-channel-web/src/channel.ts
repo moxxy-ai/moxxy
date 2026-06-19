@@ -23,6 +23,18 @@ import { actionPrompt, clientFrameSchema, type ClientFrame, type ServerFrame } f
 const MAX_FRAME_BYTES = 256 * 1024;
 /** Invalid-frame warnings are rate-limited to one per this window. */
 const DROP_WARN_INTERVAL_MS = 10_000;
+/**
+ * Cap on distinct NAMED screens kept for replay. Named views replace in place
+ * (bounded by an app's screen count) but we still LRU-evict so a pathological
+ * agent that mints unbounded distinct names can't grow the map without limit.
+ */
+const MAX_REPLAY_VIEWS = 32;
+/**
+ * Replay-map slot shared by every UNNAMED view (latest wins). The leading
+ * newline guarantees no collision with an agent-chosen `<view name>` (view
+ * names can't contain control chars), so a real named screen never lands here.
+ */
+const UNNAMED_VIEW_KEY = '\n__current__';
 
 function isAddrInUse(err: unknown): boolean {
   return (
@@ -122,8 +134,12 @@ export async function freeTcpPortIfMoxxy(
   // is inherently racy) the TOCTOU on the identity gate.
   let attempted = false;
   for (const { pid } of holders) {
-    if (!looksLikeMoxxy(await deps.pidCommand(pid))) continue;
+    const command = await deps.pidCommand(pid);
+    if (!looksLikeMoxxy(command)) continue;
     try {
+      // Log the exact command we judged moxxy-owned before signalling, so a
+      // mis-fire on a substring-collision process is auditable after the fact.
+      logger?.warn?.('freeing port: SIGTERM to apparent stale moxxy process', { pid, command });
       deps.kill(pid, 'SIGTERM');
       attempted = true;
     } catch {
@@ -139,8 +155,10 @@ export async function freeTcpPortIfMoxxy(
     } catch {
       continue; /* dead — nothing to escalate */
     }
-    if (!looksLikeMoxxy(await deps.pidCommand(pid))) continue;
+    const command = await deps.pidCommand(pid);
+    if (!looksLikeMoxxy(command)) continue;
     try {
+      logger?.warn?.('freeing port: SIGKILL to apparent stale moxxy process', { pid, command });
       deps.kill(pid, 'SIGKILL');
     } catch {
       /* dead */
@@ -199,7 +217,12 @@ export class WebChannel implements Channel<WebStartOpts> {
   private server: Server | null = null;
   private wss: WebSocketServer | null = null;
   private readonly clients = new Set<WebSocket>();
-  /** Built screens, keyed by name||viewId, replayed to a newly-connected browser. */
+  /**
+   * Built screens replayed to a newly-connected browser, keyed by logical
+   * `name`. UNNAMED views all share {@link UNNAMED_VIEW_KEY} (latest wins), so
+   * an agent that presents many unnamed views over a long session can't leak
+   * one ViewDoc per render. Named views LRU-evict at {@link MAX_REPLAY_VIEWS}.
+   */
   private readonly views = new Map<string, ServerFrame>();
   private unsubscribe: (() => void) | null = null;
   private session: ClientSession | null = null;
@@ -249,8 +272,9 @@ export class WebChannel implements Channel<WebStartOpts> {
       for (const frame of projector.project(event)) {
         // Remember each screen so a browser that connects AFTER the agent built
         // the app (the normal flow: build in TUI/Telegram → open the link) still
-        // sees it. Keyed by name||viewId so a re-render replaces in place.
-        if (frame.kind === 'view') this.views.set(frame.name ?? frame.viewId, frame);
+        // sees it. Named screens replace in place; unnamed ones coalesce into a
+        // single latest-wins slot so the replay set stays bounded.
+        if (frame.kind === 'view') this.rememberView(frame);
         this.broadcast(frame);
       }
     });
@@ -445,14 +469,57 @@ export class WebChannel implements Channel<WebStartOpts> {
     res.end('not found');
   }
 
+  /**
+   * Defense-in-depth headers for the internet-exposed surface (served over
+   * public tunnels). CSP contains any future renderer regression: scripts may
+   * only load from this origin (`'self'`) — no inline scripts — while the inline
+   * `<style>` block needs `style-src 'unsafe-inline'`; `connect-src` permits the
+   * same-origin WebSocket. `frame-ancestors 'none'` + `X-Frame-Options: DENY`
+   * stop the tokenized page from being framed (clickjacking); `Referrer-Policy:
+   * no-referrer` keeps the `?t` token out of the Referer header on agent-authored
+   * outbound links.
+   */
+  private securityHeaders(): Record<string, string> {
+    return {
+      'content-security-policy':
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: https:; connect-src 'self' ws: wss:; " +
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      'referrer-policy': 'no-referrer',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+    };
+  }
+
   private async serveFile(res: ServerResponse, name: string, contentType: string): Promise<void> {
     try {
       const buf = await readFile(path.join(PUBLIC_DIR, name));
-      res.writeHead(200, { 'content-type': contentType });
+      res.writeHead(200, { 'content-type': contentType, ...this.securityHeaders() });
       res.end(buf);
     } catch {
-      res.writeHead(500, { 'content-type': 'text/plain' });
+      // Defense-in-depth headers are unconditional — they apply to the error
+      // response too, so a missing/unreadable bundle never serves a page
+      // without the clickjacking / referrer-token protections.
+      res.writeHead(500, { 'content-type': 'text/plain', ...this.securityHeaders() });
       res.end('web surface bundle missing — run `pnpm --filter @moxxy/plugin-channel-web build`');
+    }
+  }
+
+  /**
+   * Record a view frame for replay with a bounded footprint. Named views key
+   * by their name (re-render replaces in place) under an LRU bounded at
+   * {@link MAX_REPLAY_VIEWS}; unnamed views all collapse into a single
+   * latest-wins slot so an unbounded stream of unnamed renders can't leak.
+   */
+  private rememberView(frame: Extract<ServerFrame, { kind: 'view' }>): void {
+    const key = frame.name ?? UNNAMED_VIEW_KEY;
+    // Re-insert at the tail to refresh LRU recency on re-render.
+    this.views.delete(key);
+    this.views.set(key, frame);
+    while (this.views.size > MAX_REPLAY_VIEWS) {
+      const oldest = this.views.keys().next().value;
+      if (oldest === undefined) break;
+      this.views.delete(oldest);
     }
   }
 

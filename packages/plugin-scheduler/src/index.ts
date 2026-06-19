@@ -1,5 +1,6 @@
 import { definePlugin, type Plugin, type SkillRegistry } from '@moxxy/sdk';
-import { isValidCron, nextFireTime, parseCron } from './cron.js';
+import { isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
+import { FiringLock } from './firing-lock.js';
 import { SchedulerPoller, isDue } from './poller.js';
 import { defaultInboxDir, runSchedule, type InboxOptions, type SchedulePromptResult, type SchedulePromptRunner } from './runner.js';
 import { syncSkillSchedules } from './skill-sync.js';
@@ -15,11 +16,13 @@ import {
 import { buildSchedulerTools, type SchedulerToolDeps } from './tools.js';
 
 export {
+  FiringLock,
   SchedulerPoller,
   ScheduleStore,
   buildSchedulerTools,
   isDue,
   isValidCron,
+  isValidTimeZone,
   nextFireTime,
   parseCron,
   defaultInboxDir,
@@ -77,10 +80,15 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
   readonly store: ScheduleStore;
   readonly poller: SchedulerPoller;
 } {
-  const store = opts.store ?? new ScheduleStore();
+  const store = opts.store ?? new ScheduleStore({ ...(opts.logger ? { logger: opts.logger } : {}) });
+  // Single per-entry firing mutex shared between the background poller and the
+  // `schedule_run_now` tool so a manual run and a background tick can never
+  // double-fire (and race store.update on) the same schedule.
+  const firingLock = new FiringLock();
   const poller = new SchedulerPoller({
     store,
     runner: opts.runner,
+    firingLock,
     ...(opts.skills ? { skills: opts.skills } : {}),
     ...(opts.intervalMs !== undefined ? { intervalMs: opts.intervalMs } : {}),
     ...(opts.inbox ? { inbox: opts.inbox } : {}),
@@ -91,6 +99,7 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
   const tools = buildSchedulerTools({
     store,
     runner: opts.runner,
+    firingLock,
     ...(opts.inbox ? { inbox: opts.inbox } : {}),
   });
 

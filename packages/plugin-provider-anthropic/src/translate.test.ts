@@ -98,6 +98,58 @@ describe('toAnthropicMessages', () => {
     ]);
     expect(messages[0]!.content[0]!.cache_control).toBeUndefined();
   });
+
+  it('joins all text blocks of a multi-block system message (does not drop the rest)', () => {
+    const { system } = toAnthropicMessages([
+      {
+        role: 'system',
+        content: [
+          { type: 'text', text: 'first' },
+          { type: 'text', text: 'second' },
+        ],
+      },
+    ]);
+    expect(system).toBe('first\n\nsecond');
+  });
+
+  it('degrades an unsupported image media type to a text placeholder rather than forwarding bytes', () => {
+    const { messages } = toAnthropicMessages([
+      {
+        role: 'user',
+        content: [{ type: 'image', mediaType: 'image/tiff', data: 'AAAA' }],
+      },
+    ]);
+    const block = messages[0]!.content[0]!;
+    expect(block.type).toBe('text');
+    expect((block as { text: string }).text).toContain('image/tiff');
+  });
+
+  it('degrades an unsupported document media type to a text placeholder', () => {
+    const { messages } = toAnthropicMessages([
+      {
+        role: 'user',
+        content: [{ type: 'document', mediaType: 'application/zip', data: 'AAAA' }],
+      },
+    ]);
+    const block = messages[0]!.content[0]!;
+    expect(block.type).toBe('text');
+    expect((block as { text: string }).text).toContain('application/zip');
+  });
+
+  it('drops an unsigned/unredacted reasoning block instead of leaking it as assistant text', () => {
+    const { messages } = toAnthropicMessages([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: 'secret chain of thought' },
+          { type: 'text', text: 'answer' },
+        ],
+      },
+    ]);
+    // The reasoning block is dropped; only the visible answer survives.
+    expect(messages[0]!.content).toHaveLength(1);
+    expect(messages[0]!.content[0]).toMatchObject({ type: 'text', text: 'answer' });
+  });
 });
 
 describe('toAnthropicTools', () => {

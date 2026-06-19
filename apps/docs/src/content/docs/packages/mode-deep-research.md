@@ -36,5 +36,5 @@ Switch interactively with `/mode research`.
 
 ## See also
 
-- [Modes guide](../guides/modes) — comparison + switching.
-- [Sub-agents](../guides/subagents) — `dispatch_agent({ mode: 'research' })`.
+- [Modes guide](../guides/modes.md) — comparison + switching.
+- [Sub-agents](../guides/subagents.md) — `dispatch_agent({ mode: 'research' })`.

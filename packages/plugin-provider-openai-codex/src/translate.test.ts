@@ -22,6 +22,23 @@ describe('toResponsesInput', () => {
     });
   });
 
+  it('preserves a user message whose only blocks are untranslatable instead of dropping it', () => {
+    // A user message carrying solely block types contentBlocksToInputText doesn't
+    // emit (e.g. audio) must not silently vanish from the request — keep the turn
+    // with an empty input_text so conversational context isn't lost.
+    const input = toResponsesInput([
+      { role: 'user', content: [{ type: 'audio', mediaType: 'audio/wav', data: 'AAAA' }] },
+    ]);
+    expect(input).toEqual([
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '' }] },
+    ]);
+  });
+
+  it('still drops a user message with no blocks at all', () => {
+    const input = toResponsesInput([{ role: 'user', content: [] }]);
+    expect(input).toEqual([]);
+  });
+
   it('translates a document block to an input_file with data URL + filename', () => {
     const input = toResponsesInput([
       {

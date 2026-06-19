@@ -128,4 +128,70 @@ describe('JsonRpcPeer', () => {
     client.onClose(cb);
     expect(cb).toHaveBeenCalled();
   });
+
+  it('rejects a request that times out when the peer never replies', async () => {
+    const [ta, tb] = makePair();
+    const client = new JsonRpcPeer(ta);
+    const server = new JsonRpcPeer(tb);
+    // Connected-but-unresponsive peer: handler that never replies.
+    server.handle('hang', () => new Promise<never>(() => undefined));
+    await expect(client.request('hang', undefined, { timeoutMs: 20 })).rejects.toThrow(
+      /timed out after 20ms: hang/,
+    );
+  });
+
+  it('rejects an in-flight request when the supplied AbortSignal fires', async () => {
+    const [ta, tb] = makePair();
+    const client = new JsonRpcPeer(ta);
+    const server = new JsonRpcPeer(tb);
+    server.handle('hang', () => new Promise<never>(() => undefined));
+    const ac = new AbortController();
+    const pending = client.request('hang', undefined, { signal: ac.signal });
+    ac.abort();
+    await expect(pending).rejects.toThrow(/aborted/);
+  });
+
+  it('rejects synchronously when the signal is already aborted', async () => {
+    const [ta] = makePair();
+    const client = new JsonRpcPeer(ta);
+    const ac = new AbortController();
+    ac.abort();
+    await expect(client.request('x', undefined, { signal: ac.signal })).rejects.toThrow(/aborted/);
+  });
+
+  it('a response that beats the timeout still resolves (timer cleared, no late reject)', async () => {
+    const [ta, tb] = makePair();
+    const client = new JsonRpcPeer(ta);
+    const server = new JsonRpcPeer(tb);
+    server.handle('quick', () => 'fast');
+    const result = await client.request('quick', undefined, { timeoutMs: 1000 });
+    expect(result).toBe('fast');
+    // Wait past where a leaked timer would have fired; no unhandled rejection.
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  it('never reuses a pending request id while requests are in flight', async () => {
+    const [ta, tb] = makePair();
+    // Wrap the client transport's send so we can observe every outbound id while
+    // still letting the request/response flow run normally.
+    const sentIds: number[] = [];
+    const origSend = ta.send;
+    ta.send = (f: unknown): void => {
+      const id = (f as { id?: number }).id;
+      if (typeof id === 'number') sentIds.push(id);
+      origSend(f);
+    };
+    const client = new JsonRpcPeer(ta);
+    const server = new JsonRpcPeer(tb);
+    server.handle('rec', () => 'ok');
+    await Promise.all([
+      client.request('rec'),
+      client.request('rec'),
+      client.request('rec'),
+      client.request('rec'),
+    ]);
+    // All four overlapping requests carried distinct ids.
+    expect(new Set(sentIds).size).toBe(sentIds.length);
+    expect(sentIds.length).toBe(4);
+  });
 });

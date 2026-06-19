@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -10,13 +10,18 @@ import { loadPreferences, preferencesPath, savePreferences } from './preferences
 let tmpHome: string;
 let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
+let savedMoxxyHome: string | undefined;
 
 beforeEach(async () => {
   tmpHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-prefs-'));
   savedHome = process.env.HOME;
   savedUserProfile = process.env.USERPROFILE;
+  savedMoxxyHome = process.env.MOXXY_HOME;
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
+  // The default-home tests below assert the `~/.moxxy` fallback, so MOXXY_HOME
+  // must be unset for them (it would otherwise win).
+  delete process.env.MOXXY_HOME;
   await fs.mkdir(path.join(tmpHome, '.moxxy'), { recursive: true });
 });
 
@@ -25,6 +30,8 @@ afterEach(async () => {
   else process.env.HOME = savedHome;
   if (savedUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = savedUserProfile;
+  if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = savedMoxxyHome;
   await fs.rm(tmpHome, { recursive: true, force: true });
 });
 
@@ -34,6 +41,28 @@ const readRaw = async (): Promise<unknown> =>
 describe('preferences store', () => {
   it('resolves the path under the (overridden) home dir', () => {
     expect(preferencesPath()).toBe(path.join(tmpHome, '.moxxy', 'preferences.json'));
+  });
+
+  it('honors $MOXXY_HOME so preferences follow the relocated data dir', async () => {
+    const altHome = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-prefs-alt-'));
+    const prevMoxxyHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = altHome;
+    try {
+      // Path now lives directly under MOXXY_HOME, NOT under ~/.moxxy.
+      expect(preferencesPath()).toBe(path.join(altHome, 'preferences.json'));
+      await savePreferences({ model: 'relocated' });
+      // Written to the relocated dir, not the homedir fallback.
+      const raw = await fs.readFile(path.join(altHome, 'preferences.json'), 'utf8');
+      expect(JSON.parse(raw).model).toBe('relocated');
+      // The homedir fallback location must remain empty.
+      await expect(
+        fs.readFile(path.join(tmpHome, '.moxxy', 'preferences.json'), 'utf8'),
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      if (prevMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = prevMoxxyHome;
+      await fs.rm(altHome, { recursive: true, force: true });
+    }
   });
 
   it('returns an empty object when the file is missing', async () => {
@@ -88,6 +117,28 @@ describe('preferences store', () => {
     const loaded = await loadPreferences();
     expect(loaded.model).toBe('a');
     expect(loaded.mode).toBe('goal');
+  });
+
+  it('swallows a write failure: logs to stderr but never throws (best-effort contract)', async () => {
+    // savePreferences is documented best-effort — a persist failure must NOT
+    // bubble out and break the slash-command / shutdown that triggered it. Force
+    // an unwritable target by pointing MOXXY_HOME *under a regular file*, so the
+    // atomic writer's `mkdir(dirname)` fails with ENOTDIR.
+    const blocker = path.join(tmpHome, 'not-a-dir');
+    await fs.writeFile(blocker, 'x', 'utf8');
+    const prevMoxxyHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = path.join(blocker, 'nested'); // dirname is a file → mkdir fails
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      // Must resolve, not reject — the pick still took effect in-session.
+      await expect(savePreferences({ model: 'm' })).resolves.toBeUndefined();
+      // The failure is surfaced (not silently swallowed) on stderr.
+      expect(stderr).toHaveBeenCalled();
+    } finally {
+      stderr.mockRestore();
+      if (prevMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = prevMoxxyHome;
+    }
   });
 
   it('keeps ALL distinct keys present under many overlapping writers', async () => {

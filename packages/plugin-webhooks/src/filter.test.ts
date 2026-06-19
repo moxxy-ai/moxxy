@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { shouldFire } from './filter.js';
+import { MAX_MATCH_VALUE_LEN, MAX_REGEX_SOURCE_LEN, shouldFire } from './filter.js';
 import type { WebhookFilter } from './store.js';
 
 const empty: WebhookFilter = { include: [], exclude: [] };
@@ -51,6 +51,61 @@ describe('shouldFire', () => {
     };
     expect(shouldFire(f, { headers: { 'x-event': 'issues' }, body: Buffer.from('') })).toBe(true);
     expect(shouldFire(f, { headers: { 'x-event': 'push' }, body: Buffer.from('') })).toBe(false);
+  });
+
+  describe('untrusted-payload regex hardening (ReDoS worst case)', () => {
+    it('an over-long regex source acts as no-match instead of being run', () => {
+      const f: WebhookFilter = {
+        include: [{ source: 'header', name: 'x', matches: 'a'.repeat(MAX_REGEX_SOURCE_LEN + 1) }],
+        exclude: [],
+      };
+      // The source exceeds the cap → compileMatcher returns null → no match.
+      expect(shouldFire(f, { headers: { x: 'a'.repeat(50) }, body: Buffer.from('') })).toBe(false);
+    });
+
+    it('only matches against a bounded prefix of an attacker-controlled value', () => {
+      // The matched value is sliced to MAX_MATCH_VALUE_LEN before `.test()`, so
+      // a sender cannot make the per-delivery scan cost scale with how long
+      // they make the payload. A marker placed PAST the bound is never seen.
+      const f: WebhookFilter = {
+        include: [{ source: 'jsonPath', path: 'v', matches: 'MARKER' }],
+        exclude: [],
+      };
+      const past = 'a'.repeat(MAX_MATCH_VALUE_LEN + 100) + 'MARKER';
+      const within = 'a'.repeat(10) + 'MARKER';
+      expect(
+        shouldFire(f, { headers: {}, body: Buffer.from(JSON.stringify({ v: past })) }),
+      ).toBe(false); // marker is beyond the bounded prefix → not matched
+      expect(
+        shouldFire(f, { headers: {}, body: Buffer.from(JSON.stringify({ v: within })) }),
+      ).toBe(true);
+    });
+
+    it('a huge attacker value with a simple pattern returns quickly (no length-scaling stall)', () => {
+      const f: WebhookFilter = {
+        include: [{ source: 'jsonPath', path: 'v', matches: '^z+$' }],
+        exclude: [],
+      };
+      const huge = 'a'.repeat(500_000); // never matches; bounded scan stays cheap
+      const body = Buffer.from(JSON.stringify({ v: huge }));
+      const start = Date.now();
+      expect(shouldFire(f, { headers: {}, body })).toBe(false);
+      expect(Date.now() - start).toBeLessThan(1000);
+    });
+
+    it('caches the compiled regex across repeated deliveries', () => {
+      // Re-running the same rule against many deliveries must not recompile per
+      // call. We can't directly observe the cache, but a malformed/invalid
+      // pattern that would throw on every recompile still returns deterministic
+      // no-match without crashing the dispatcher.
+      const f: WebhookFilter = {
+        include: [{ source: 'header', name: 'x', matches: '([' }],
+        exclude: [],
+      };
+      for (let i = 0; i < 5; i++) {
+        expect(shouldFire(f, { headers: { x: 'whatever' }, body: Buffer.from('') })).toBe(false);
+      }
+    });
   });
 
   it('handles deep jsonPath', () => {

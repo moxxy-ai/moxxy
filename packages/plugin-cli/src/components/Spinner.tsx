@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Text } from 'ink';
+import { MOTION_ENABLED } from './motion.js';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -20,6 +21,7 @@ export interface SpinnerProps {
 export const Spinner: React.FC<SpinnerProps> = ({ label, color = 'cyan', intervalMs = 80 }) => {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
+    if (!MOTION_ENABLED) return; // pin a static frame for reduced-motion / non-TTY
     const t = setInterval(() => setFrame((f) => (f + 1) % FRAMES.length), intervalMs);
     return () => clearInterval(t);
   }, [intervalMs]);

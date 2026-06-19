@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useViewSocket } from './socket';
+import { stripTokenFromUrl, useViewSocket } from './socket';
 import { renderNode } from './render';
 import { ChatPanel } from './chat';
 
@@ -30,7 +30,13 @@ function App(): JSX.Element {
           )}
           moxxy
         </span>
-        <span className={connected ? 'status ok' : 'status'}>{connected ? '● live' : '○ connecting…'}</span>
+        <span
+          className={connected ? 'status ok' : 'status'}
+          role="status"
+          aria-live="polite"
+        >
+          {connected ? '● live' : '○ connecting…'}
+        </span>
       </header>
       <main>
         {view ? (
@@ -39,20 +45,43 @@ function App(): JSX.Element {
           <div className="empty">{status ? status.text : 'No view yet — ask the agent to build you an app.'}</div>
         )}
         {view && status && (
-          <div className={status.error ? 'turn-status err' : 'turn-status'}>{status.error ? `⚠ ${status.text}` : status.text}</div>
+          <div
+            className={status.error ? 'turn-status err' : 'turn-status'}
+            role="status"
+            aria-live="polite"
+          >
+            {status.error ? `⚠ ${status.text}` : status.text}
+          </div>
         )}
       </main>
       {chatOpen ? (
         <ChatPanel messages={messages} status={status} onSend={sendPrompt} onClose={() => setChatOpen(false)} />
       ) : (
-        <button className="chat-fab" onClick={() => setChatOpen(true)} aria-label="Chat with the agent">
+        <button
+          className="chat-fab"
+          onClick={() => setChatOpen(true)}
+          aria-label={unread ? 'Chat with the agent — new message' : 'Chat with the agent'}
+        >
           <span aria-hidden>💬</span>
-          {unread && <span className="chat-dot" />}
+          {/* The dot is a non-text colour cue; the unread state itself is also
+              carried in aria-label above (colour is never the sole signal) and
+              announced via the off-screen live region below. */}
+          {unread && <span className="chat-dot" aria-hidden="true" />}
         </button>
       )}
+      {/* Off-screen live region: announces that the agent replied while the chat
+          panel is closed, so a screen-reader user isn't left silent (the red FAB
+          dot is purely visual). */}
+      <div className="visually-hidden" role="status" aria-live="polite">
+        {unread ? 'The agent sent a new message. Open chat to read it.' : ''}
+      </div>
     </div>
   );
 }
+
+// Drop the bearer token from the visible URL after socket.ts has captured it
+// (socket is imported above, so its module-level capture has already run).
+stripTokenFromUrl();
 
 const root = document.getElementById('root');
 if (root) createRoot(root).render(<App />);

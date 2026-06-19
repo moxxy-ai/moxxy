@@ -1,5 +1,6 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { isValidCron } from './cron.js';
+import { isValidCron, isValidTimeZone } from './cron.js';
+import type { FiringLock } from './firing-lock.js';
 import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
@@ -19,6 +20,11 @@ const cronOrTimestamp = z
   })
   .refine((v) => !!v.cron || v.runAt !== undefined, {
     message: 'provide either `cron` or `runAt`',
+  })
+  // Documented contract: exactly one of cron/runAt. Supplying both is
+  // rejected (otherwise the runAt is silently ignored in favor of the cron).
+  .refine((v) => !(v.cron && v.runAt !== undefined), {
+    message: 'provide either `cron` or `runAt`, not both',
   });
 
 function describeEntry(entry: ScheduleEntry): Record<string, unknown> {
@@ -58,6 +64,13 @@ export interface SchedulerToolDeps {
   readonly store: ScheduleStore;
   readonly runner: SchedulePromptRunner;
   readonly inbox?: InboxOptions;
+  /**
+   * Optional per-entry firing mutex shared with the background poller. When
+   * set, `schedule_run_now` fires under `firingLock.run(id, …)` so a manual run
+   * and a concurrent background tick can't double-fire the same schedule or
+   * race on its `store.update`. Wired by `buildSchedulerPlugin`.
+   */
+  readonly firingLock?: FiringLock;
 }
 
 export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<ToolDef> {
@@ -90,6 +103,11 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           typeof input.runAt === 'string' ? Date.parse(input.runAt) : input.runAt;
         if (input.cron && !isValidCron(input.cron)) {
           throw new Error(`invalid cron expression "${input.cron}"`);
+        }
+        if (input.timeZone !== undefined && !isValidTimeZone(input.timeZone)) {
+          throw new Error(
+            `invalid timeZone "${input.timeZone}" (must be an IANA zone or "local")`,
+          );
         }
         const created = await store.create({
           name: input.name,
@@ -171,7 +189,11 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       handler: async ({ id }) => {
         const entry = await store.get(id);
         if (!entry) throw new Error(`no schedule with id "${id}"`);
-        const outcome = await runSchedule(entry, runner, store, deps.inbox);
+        // Fire under the shared per-id lock (when wired) so a manual run can't
+        // race a concurrent background tick firing the same entry.
+        const outcome = await (deps.firingLock
+          ? deps.firingLock.run(id, () => runSchedule(entry, runner, store, deps.inbox))
+          : runSchedule(entry, runner, store, deps.inbox));
         return {
           ok: outcome.ok,
           inboxPath: outcome.inboxPath ?? null,

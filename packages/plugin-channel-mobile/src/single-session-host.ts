@@ -31,7 +31,25 @@ import { IpcError } from '@moxxy/desktop-ipc-contract/dispatch';
 export interface MobileHostOptions {
   /** Workspace id exposed to the client. Defaults to the session id. */
   readonly workspaceId?: string;
+  /**
+   * Bound on how long a parked permission/approval ask waits for a response
+   * before it self-denies. A network client can receive an `ask.request` and
+   * never answer (app suspended, backgrounded, connection lost without a clean
+   * socket close); without a bound the awaiting runner turn hangs forever and
+   * the resolver is retained until channel teardown. Default 5 minutes; `0`
+   * disables the timeout (the legacy unbounded behavior).
+   */
+  readonly askTimeoutMs?: number;
+  /** Optional error sink for detached/background failures that have nowhere
+   *  else to surface (e.g. a completion broadcast throwing on a bad peer). */
+  readonly logErr?: (err: unknown) => void;
 }
+
+/** Default per-ask grace before an unanswered permission/approval ask self-denies. */
+const DEFAULT_ASK_TIMEOUT_MS = 5 * 60_000;
+/** Hard cap on concurrently parked asks — a misbehaving/abusive client cannot
+ *  pin unbounded resolver closures by triggering checks faster than it answers. */
+const MAX_PENDING_ASKS = 256;
 
 export class MobileSessionHost {
   /** The interactive permission resolver — exposed so the channel can install it
@@ -78,8 +96,13 @@ export class MobileSessionHost {
   };
 
   private readonly workspaceId: string;
+  private readonly askTimeoutMs: number;
+  private readonly logErr: ((err: unknown) => void) | undefined;
   private readonly turns = new Map<string, AbortController>();
-  private readonly pendingAsks = new Map<string, (r: AskResponse) => void>();
+  private readonly pendingAsks = new Map<
+    string,
+    { resolve: (r: AskResponse) => void; timer: ReturnType<typeof setTimeout> | null }
+  >();
   private askCounter = 0;
   private autoApprove = false;
   private disposed = false;
@@ -91,6 +114,8 @@ export class MobileSessionHost {
     opts: MobileHostOptions = {},
   ) {
     this.workspaceId = opts.workspaceId ?? session.id;
+    this.askTimeoutMs = opts.askTimeoutMs ?? DEFAULT_ASK_TIMEOUT_MS;
+    this.logErr = opts.logErr;
   }
 
   /** Register the `IpcCommands` subset the mobile client drives. */
@@ -206,7 +231,16 @@ export class MobileSessionHost {
   wire(): void {
     const ws = this.workspaceId;
     const off = this.session.log.subscribe((event) => {
-      this.bus.broadcast('runner.event', { workspaceId: ws, event });
+      // This callback runs synchronously inside the session's event-emit loop.
+      // `broadcast` → `notify` → `JSON.stringify` throws on a non-serializable
+      // event (BigInt / circular ref reachable from a tool result or provider
+      // event); letting that throw unwind here would break delivery to the
+      // session's other subscribers. Log-and-drop the offending frame instead.
+      try {
+        this.bus.broadcast('runner.event', { workspaceId: ws, event });
+      } catch (err) {
+        this.logErr?.(err);
+      }
     });
     this.disposers.push(off);
 
@@ -228,12 +262,35 @@ export class MobileSessionHost {
         /* ignore */
       }
     }
+    this.abortAndDrain();
+    this.session.setApprovalResolver(null);
+  }
+
+  /**
+   * The only paired client dropped (network loss, app killed/backgrounded).
+   * Untrusted/unreliable clients are the EXPECTED case for a network channel, so
+   * a disconnect must not strand the host: abort every in-flight turn and deny +
+   * clear every parked ask, mirroring the dispose path. Unlike `dispose()` this
+   * keeps the host wired so a reconnecting client resumes against a clean slate
+   * (it never saw the old turnIds, so it could neither abort nor reattach them).
+   * Idempotent and a no-op after dispose.
+   */
+  onAllClientsDisconnected(): void {
+    if (this.disposed) return;
+    this.abortAndDrain();
+  }
+
+  /** Abort all in-flight turns and deny + clear all parked asks (clearing their
+   *  timeout timers). Shared by `dispose()` and `onAllClientsDisconnected()`. */
+  private abortAndDrain(): void {
     for (const controller of this.turns.values()) controller.abort();
     this.turns.clear();
     // Deny parked asks so the runner never hangs on an unanswerable prompt.
-    for (const resolve of this.pendingAsks.values()) resolve({ mode: 'deny' });
+    for (const { resolve, timer } of this.pendingAsks.values()) {
+      if (timer) clearTimeout(timer);
+      resolve({ mode: 'deny' });
+    }
     this.pendingAsks.clear();
-    this.session.setApprovalResolver(null);
   }
 
   // ---- internals ----------------------------------------------------------
@@ -287,7 +344,12 @@ export class MobileSessionHost {
         this.turns.delete(turnId);
         this.bus.broadcast('runner.turn.complete', { workspaceId: this.workspaceId, turnId, error });
       }
-    })();
+    })().catch((err) => {
+      // The detached drain has no awaiter; a throw from the finally-broadcast
+      // (e.g. a peer whose notify/serialize path throws) would otherwise become
+      // an unhandled rejection on the host. Surface it instead of crashing.
+      this.logErr?.(err);
+    });
     return { turnId };
   }
 
@@ -297,17 +359,32 @@ export class MobileSessionHost {
     // otherwise broadcast to a closed bus and park a resolver that nothing
     // ever drains — hanging the awaiting check forever. Deny immediately.
     if (this.disposed) return Promise.resolve({ mode: 'deny' });
+    // Bound concurrently parked asks so a misbehaving client that triggers
+    // checks faster than it answers can't pin unbounded resolver closures.
+    if (this.pendingAsks.size >= MAX_PENDING_ASKS) return Promise.resolve({ mode: 'deny' });
     const requestId = `ask-${++this.askCounter}`;
     return new Promise<AskResponse>((resolve) => {
-      this.pendingAsks.set(requestId, resolve);
+      // A client can receive an ask and never answer (suspended, backgrounded,
+      // connection lost without a clean close). Without a bound the awaiting
+      // runner turn hangs forever; self-deny after the grace and drop the entry.
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      if (this.askTimeoutMs > 0) {
+        timer = setTimeout(() => {
+          if (this.pendingAsks.delete(requestId)) resolve({ mode: 'deny' });
+        }, this.askTimeoutMs);
+        // Don't let a parked ask keep the process alive.
+        if (typeof timer === 'object' && typeof timer.unref === 'function') timer.unref();
+      }
+      this.pendingAsks.set(requestId, { resolve, timer });
       this.bus.broadcast('ask.request', { ...req, requestId } as AskRequest);
     });
   }
 
   private answerAsk(requestId: string, response: AskResponse): void {
-    const resolve = this.pendingAsks.get(requestId);
-    if (!resolve) return;
+    const entry = this.pendingAsks.get(requestId);
+    if (!entry) return;
     this.pendingAsks.delete(requestId);
-    resolve(response);
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.resolve(response);
   }
 }

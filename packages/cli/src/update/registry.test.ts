@@ -43,6 +43,29 @@ describe('fetchLatest', () => {
     await expect(fetchLatest('@moxxy/cli', { fetchImpl })).resolves.toBeNull();
   });
 
+  it('encodes the package name so a hostile pkg cannot escape the registry path', async () => {
+    let seenUrl = '';
+    const fetchImpl = vi.fn(async (url: string) => {
+      seenUrl = url;
+      return { ok: true, status: 200, json: async () => ({ version: '1.0.0' }) };
+    }) as unknown as typeof fetch;
+    await fetchLatest('@moxxy/cli', { fetchImpl });
+    expect(seenUrl).toBe('https://registry.npmjs.org/%40moxxy%2Fcli/latest');
+
+    // A name containing traversal / a host segment must stay inside the path:
+    // encodeURIComponent escapes the separators (`/` → %2F, npm's own scoped-
+    // package encoding) and the query (`?` → %3F), so the hostile name becomes a
+    // single inert path segment. Bare dots are harmless — what must NOT survive
+    // is an unescaped `../` traversal or a raw `?` query injection.
+    await fetchLatest('../../evil?x=1', { fetchImpl });
+    expect(seenUrl).toBe('https://registry.npmjs.org/..%2F..%2Fevil%3Fx%3D1/latest');
+    expect(seenUrl.startsWith('https://registry.npmjs.org/')).toBe(true);
+    expect(seenUrl.endsWith('/latest')).toBe(true);
+    expect(seenUrl).not.toContain('../');
+    expect(seenUrl).not.toContain('?x=1');
+    expect(seenUrl).toContain('%2F');
+  });
+
   it('aborts and resolves null when the request outlives the timeout', async () => {
     let abortSeen = false;
     // A fetch that never resolves on its own — it only settles when the

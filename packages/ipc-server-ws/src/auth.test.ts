@@ -70,4 +70,14 @@ describe('checkWsOrigin', () => {
     expect(checkWsOrigin(req({ origin: 'HTTP://LOCALHOST:5173' }), allowed)).toBe(true);
     expect(checkWsOrigin(req({ origin: 'http://evil.example' }), allowed)).toBe(false);
   });
+
+  it('rejects (does not throw on) a non-string Origin (duplicate header → array)', () => {
+    // A hostile client sending two `Origin` headers can surface as a string[];
+    // it can never match a single allow-listed origin and must reject rather
+    // than throw `.toLowerCase is not a function` inside the upgrade handler.
+    const arrayOrigin = { headers: { origin: ['http://a.example', 'http://b.example'] } };
+    const req2 = arrayOrigin as unknown as IncomingMessage;
+    expect(() => checkWsOrigin(req2, ['http://a.example'])).not.toThrow();
+    expect(checkWsOrigin(req2, ['http://a.example'])).toBe(false);
+  });
 });

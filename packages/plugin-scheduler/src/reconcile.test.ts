@@ -107,6 +107,38 @@ describe('syncSkillSchedules — single batched write', () => {
     expect(rows.find((r) => r.name === 'manual')).toBeDefined();
   });
 
+  it('collapses duplicate skill rows for the same skillName down to one', async () => {
+    // Seed two source='skill' rows sharing a skillName (simulating a crash
+    // between writes / a hand edit). Both would otherwise fire forever.
+    await store.create({
+      name: 'briefing',
+      prompt: 'first',
+      cron: '0 9 * * *',
+      source: 'skill',
+      skillName: 'briefing',
+    });
+    await store.create({
+      name: 'briefing-dup',
+      prompt: 'stale-duplicate',
+      cron: '0 9 * * *',
+      source: 'skill',
+      skillName: 'briefing',
+    });
+    store.invalidate();
+    expect((await store.list()).filter((r) => r.skillName === 'briefing')).toHaveLength(2);
+
+    // A sync that still WANTS the briefing skill must converge to exactly one
+    // row for it (the stale duplicate is removed, not left orphaned).
+    const out = await syncSkillSchedules(
+      fakeRegistry([mkSkill('briefing', { cron: '0 9 * * *' }, 'first')]),
+      store,
+    );
+    expect(out.removed).toBe(1);
+    store.invalidate();
+    const rows = (await store.list()).filter((r) => r.skillName === 'briefing');
+    expect(rows).toHaveLength(1);
+  });
+
   it('a no-op sync writes nothing (no rows changed)', async () => {
     await syncSkillSchedules(fakeRegistry([mkSkill('a', { cron: '0 9 * * *' })]), store);
     store.invalidate();

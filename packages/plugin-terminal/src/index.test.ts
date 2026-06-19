@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { terminalPlugin } from './index.js';
-import { buildTerminalSurface, getSharedTerminal } from './terminal.js';
+import { buildTerminalSurface, closeAllTerminals, getSharedTerminal } from './terminal.js';
 import type { TerminalProcess } from './pty.js';
 
 describe('plugin-terminal', () => {
@@ -49,6 +49,41 @@ describe('plugin-terminal', () => {
     expect(a).toBe(b);
     expect(spawns).toBe(1);
     expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  // MEDIUM: a create in flight when closeAllTerminals runs must NOT strand a
+  // live shell — the create continuation kills it instead of storing an orphan.
+  it('kills a shell whose create resolves after closeAllTerminals', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let killed = false;
+    const create = async (): Promise<TerminalProcess> => {
+      await gate; // hold the create open across the shutdown
+      return {
+        backend: 'pipe',
+        ptyError: null,
+        onData: () => () => {},
+        onExit: () => () => {},
+        scrollback: () => '',
+        write: () => {},
+        resize: () => {},
+        kill: () => {
+          killed = true;
+        },
+        alive: true,
+      };
+    };
+
+    const cwd = `/tmp/shutdown-${Math.random()}`;
+    const p = getSharedTerminal(cwd, create); // create is now in flight
+    closeAllTerminals(); // shutdown lands before the create resolves
+    release(); // create finally resolves
+    const proc = await p;
+
+    expect(killed).toBe(true);
+    expect(proc.kill).toBeDefined();
   });
 
   // u112-5: the surface's viewer fan-out must isolate a throwing viewer so it

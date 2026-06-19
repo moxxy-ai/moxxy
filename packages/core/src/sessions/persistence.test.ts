@@ -4,7 +4,14 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventLog } from '../events/log.js';
 import type { Logger } from '../logger.js';
-import { SessionPersistence, readIndex, restoreEvents, type SessionMeta } from './persistence.js';
+import {
+  SessionPersistence,
+  deleteSession,
+  readEventPage,
+  readIndex,
+  restoreEvents,
+  type SessionMeta,
+} from './persistence.js';
 
 interface CapturedLine {
   readonly level: 'debug' | 'info' | 'warn' | 'error';
@@ -224,6 +231,91 @@ describe('SessionPersistence', () => {
     const second = await restoreEvents(id, dir, again.logger);
     expect(second.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
     expect(again.lines).toHaveLength(0);
+  });
+
+  it('rejects a path-traversal session id before touching the filesystem', async () => {
+    const dir = await makeTempDir();
+    // A secret file OUTSIDE the sessions dir that a traversal id would target.
+    const secretName = `traversal-target-${Date.now()}.jsonl`;
+    const secret = path.join(dir, '..', secretName);
+    await fs.writeFile(secret, 'do not delete me', 'utf8');
+    try {
+      await expect(restoreEvents('../etc/passwd', dir)).rejects.toThrow(/invalid session id/i);
+      await expect(readEventPage('a/../../b', { before: null, limit: 5 }, dir)).rejects.toThrow(
+        /invalid session id/i,
+      );
+      // deleteSession uses force:true — a traversal delete would otherwise
+      // silently succeed. The id resolving to our secret must be rejected so
+      // the file stays intact.
+      const evil = `..${path.sep}${secretName.replace(/\.jsonl$/, '')}`;
+      await expect(deleteSession(evil, dir)).rejects.toThrow(/invalid session id/i);
+      await expect(fs.readFile(secret, 'utf8')).resolves.toBe('do not delete me');
+    } finally {
+      await fs.rm(secret, { force: true });
+    }
+  });
+
+  it('firstPrompt label is sliced on code-point boundaries (no split surrogate pair)', async () => {
+    const dir = await makeTempDir();
+    const id = '01SURROGATE0000000000000AA';
+    const log = new EventLog();
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const detach = persistence.attach(log);
+    // 80 emoji (each a surrogate pair) + a trailing char. A naive
+    // `slice(0, 80)` on UTF-16 code units would cut emoji #41 in half, leaving a
+    // lone surrogate at the boundary.
+    const text = '😀'.repeat(90) + 'x';
+    await log.append({
+      type: 'user_prompt',
+      sessionId: id as never,
+      turnId: 't1' as never,
+      source: 'user',
+      text,
+    });
+    await persistence.flush();
+    const [row] = await readIndex(dir);
+    const label = row!.firstPrompt!;
+    // Exactly 80 code points, all whole emoji — the cut never split a surrogate
+    // pair. A naive slice(0, 80) would yield 80 UTF-16 units = 40 emoji and the
+    // label would round-trip fine, but the worst case (cut INSIDE a pair) is
+    // what we guard: rebuild from code points must reproduce the label exactly.
+    expect([...label]).toHaveLength(80);
+    expect([...label].every((cp) => cp === '😀')).toBe(true);
+    // No lone (unpaired) surrogate survives a JSON round-trip as itself.
+    expect(JSON.parse(JSON.stringify(label))).toBe(label);
+
+    detach();
+  });
+
+  it('a user_prompt with a non-string text does not crash the persistence listener', async () => {
+    const dir = await makeTempDir();
+    const id = '01BADTEXT00000000000000000';
+    const { logger } = captureLogger();
+    const log = new EventLog();
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir, logger });
+    const detach = persistence.attach(log);
+
+    // A hostile / hand-built event whose `text` is not a string. `firstPromptLabel`
+    // runs `[...text]` inside the log listener chain — without the coercion this
+    // throws, latching the misleading "persistence degraded" warning and dropping
+    // the row. It must instead degrade gracefully (label coerced, write succeeds).
+    await log.append({
+      type: 'user_prompt',
+      sessionId: id as never,
+      turnId: 't1' as never,
+      source: 'user',
+      text: null as unknown as string,
+    });
+    await persistence.flush();
+    await persistence.settleWrites();
+
+    // The disk write was not poisoned by the bad label.
+    expect(persistence.degraded).toBe(false);
+    const [row] = await readIndex(dir);
+    expect(row?.id).toBe(id);
+    expect(typeof row?.firstPrompt).toBe('string');
+
+    detach();
   });
 
   it('two concurrent sessions both survive (no shared-index clobber)', async () => {

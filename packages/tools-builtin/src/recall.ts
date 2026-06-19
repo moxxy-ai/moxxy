@@ -1,4 +1,5 @@
 import { MoxxyError, asTurnId, defineTool, z, type MoxxyEvent } from '@moxxy/sdk';
+import { dropDanglingSurrogate } from './util.js';
 
 const MAX_FULL_CHARS = 200_000;
 const SUMMARY_CHARS = 1_500;
@@ -34,37 +35,32 @@ export const recallTool = defineTool({
     capabilities: { net: { mode: 'none' }, timeMs: 5_000 },
   },
   handler: ({ callId, seq, turnId, summarize }, ctx) => {
-    const events = ctx.log.slice();
-
     // Idempotency belt (anti-thrash): if this exact target was recalled in the
     // recent window, its result is already in context — return a pointer rather
     // than re-injecting the bytes and risking a recall loop. Window by position
     // (the last RECENT events) rather than `seq >= length - RECENT`, which
-    // conflates a count with a seq and skews once seq ≠ arrayIndex.
+    // conflates a count with a seq and skews once seq ≠ arrayIndex. Scan only
+    // the recent slice rather than copying the whole log per call.
     const RECENT = 40;
-    const recentSeqs = new Set(events.slice(-RECENT).map((e) => e.seq));
-    const prior = events.find(
-      (e) =>
-        e.type === 'tool_call_requested' &&
-        e.name === 'recall' &&
-        e.callId !== ctx.callId &&
-        recentSeqs.has(e.seq) &&
-        recallTargetMatches(e.input, { callId, seq, turnId }),
-    );
+    const prior = ctx.log
+      .slice(-RECENT)
+      .find(
+        (e) =>
+          e.type === 'tool_call_requested' &&
+          e.name === 'recall' &&
+          e.callId !== ctx.callId &&
+          recallTargetMatches(e.input, { callId, seq, turnId }),
+      );
     if (prior) {
       return `[already recalled just above — not re-injecting to save context; scroll up for the full content]`;
     }
 
     if (callId) {
-      const result = events.find(
-        (e): e is Extract<MoxxyEvent, { type: 'tool_result' }> =>
-          e.type === 'tool_result' && e.callId === callId,
-      );
+      // Scan only the relevant event subsets via the reader's typed accessors
+      // rather than copying and linearly scanning the entire log.
+      const result = ctx.log.ofType('tool_result').find((e) => e.callId === callId);
       if (result) return present(renderToolResult(result), summarize);
-      const req = events.find(
-        (e): e is Extract<MoxxyEvent, { type: 'tool_call_requested' }> =>
-          e.type === 'tool_call_requested' && e.callId === callId,
-      );
+      const req = ctx.log.ofType('tool_call_requested').find((e) => e.callId === callId);
       if (req) return present(`${req.name}(${safeJson(req.input)})`, summarize);
       throw new MoxxyError({ code: 'TOOL_ERROR', message: `recall: no event found for callId "${callId}".` });
     }
@@ -133,9 +129,11 @@ function renderEvent(e: MoxxyEvent): string {
 
 function present(text: string, summarize?: boolean): string {
   if (summarize && text.length > SUMMARY_CHARS) {
-    return `${text.slice(0, SUMMARY_CHARS)}\n… (${text.length - SUMMARY_CHARS} more chars — call recall again without summarize for the full text)`;
+    return `${dropDanglingSurrogate(text.slice(0, SUMMARY_CHARS))}\n… (${text.length - SUMMARY_CHARS} more chars — call recall again without summarize for the full text)`;
   }
-  return text.length > MAX_FULL_CHARS ? `${text.slice(0, MAX_FULL_CHARS)}\n… (truncated)` : text;
+  return text.length > MAX_FULL_CHARS
+    ? `${dropDanglingSurrogate(text.slice(0, MAX_FULL_CHARS))}\n… (truncated)`
+    : text;
 }
 
 function safeJson(v: unknown, indent?: number): string {

@@ -25,6 +25,14 @@ export function splitConnectUrl(scanned: string): { url: string; token?: string 
   } catch {
     return { url: scanned }; // malformed escape — connect as-is
   }
-  const url = scanned.replace(/([?&])t=[^&#]*&?/, '$1').replace(/[?&]$/, '');
+  // Strip EVERY `t=` param (a hostile/malformed QR can carry more than one —
+  // any surviving `t=` would leak onto the live WS URL we hand to makeWsApi),
+  // then normalize the leftover separators so no dangling `?`/`&`/`?#` rides
+  // out (RN/Hermes' WebSocket can choke on those artifacts).
+  const url = scanned
+    .replace(/([?&])t=[^&#]*/g, '$1')
+    .replace(/&{2,}/g, '&')
+    .replace(/([?&])&/g, '$1')
+    .replace(/[?&](?=#|$)/, '');
   return { url, token };
 }

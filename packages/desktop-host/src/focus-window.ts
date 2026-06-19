@@ -189,12 +189,24 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   // module side-effects with the main app. Prefer the loopback origin (so
   // it shares the same secure-context origin as the main window); fall back
   // to file:// only when no loopback server is running.
-  if (opts.devUrl) {
-    await win.loadURL(`${opts.devUrl}/focus.html`);
-  } else if (opts.loopbackBase) {
-    await win.loadURL(`${opts.loopbackBase}/focus.html`);
-  } else {
-    await win.loadFile(opts.focusHtml);
+  //
+  // A load can reject (dev server down, loopback server down, missing
+  // focus.html). If we left `focusWindow` pointing at the created-but-unloaded
+  // window, isFocusOpen() would report true and the next toggle would close()
+  // a blank widget instead of re-summoning it. Tear it down on failure so the
+  // widget can be cleanly re-opened.
+  try {
+    if (opts.devUrl) {
+      await win.loadURL(`${opts.devUrl}/focus.html`);
+    } else if (opts.loopbackBase) {
+      await win.loadURL(`${opts.loopbackBase}/focus.html`);
+    } else {
+      await win.loadFile(opts.focusHtml);
+    }
+  } catch (e) {
+    if (focusWindow === win) focusWindow = null;
+    if (!win.isDestroyed()) win.destroy();
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }
 

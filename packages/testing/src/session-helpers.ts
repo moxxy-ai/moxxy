@@ -8,6 +8,14 @@ export interface FakeSessionOptions {
   readonly plugins?: ReadonlyArray<Plugin>;
 }
 
+/**
+ * Build a Session wired to a fake provider for tests. The returned Session owns
+ * surfaces and any plugins passed in `opts.plugins`, whose `onShutdown` hooks
+ * dispose real resources (timers/handles/pending work). Callers MUST
+ * `await session.close()` in teardown (e.g. `afterEach`) — otherwise those
+ * resources leak across the suite, including when a test throws before its own
+ * cleanup.
+ */
 export function createFakeSession(opts: FakeSessionOptions): Session {
   const session = new Session({
     cwd: opts.cwd ?? process.cwd(),

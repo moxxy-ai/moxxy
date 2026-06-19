@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { rankByKeywords } from './search.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { EmbeddingProvider, Mutex } from '@moxxy/sdk';
+import { createMutex } from '@moxxy/sdk';
+import { rankByKeywords, recallVector } from './search.js';
+import { EmbeddingIndex } from '../embedding-cache.js';
 import type { MemoryEntry, MemoryType } from './types.js';
 
 function entry(
@@ -68,5 +74,112 @@ describe('rankByKeywords', () => {
     const e = entry('a', 'desc', 'body', { tags: ['kubernetes', 'infra'] });
     const ranked = rankByKeywords([e], 'kubernetes', 5);
     expect(ranked).toHaveLength(1);
+  });
+});
+
+describe('recallVector dimension-drift hardening', () => {
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-search-'));
+  });
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('degrades (no crash) when a misbehaving embedder under-returns vectors — no-cache path', async () => {
+    const mutex: Mutex = createMutex();
+    // Asked for corpus.length + 1 vectors, returns only one — the query vector
+    // is absent. Must NOT throw a TypeError on `vec.length`/`query.length`.
+    const liar: EmbeddingProvider = {
+      name: 'liar',
+      dim: 2,
+      async embed() {
+        return [[1, 0]];
+      },
+    };
+    const all = [entry('a', 'da', 'ba'), entry('b', 'db', 'bb')];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ranked = await recallVector(all, 'q', 5, liar, null, mutex);
+      expect(Array.isArray(ranked)).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('returns empty (no crash) when the embedder returns no vectors at all', async () => {
+    const mutex: Mutex = createMutex();
+    const empty: EmbeddingProvider = {
+      name: 'empty',
+      dim: 2,
+      async embed() {
+        return [];
+      },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ranked = await recallVector([entry('a', 'd', 'b')], 'q', 5, empty, null, mutex);
+      expect(ranked).toEqual([]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not poison the persistent cache with an undefined vector when the embedder under-returns', async () => {
+    const mutex: Mutex = createMutex();
+    const liar: EmbeddingProvider = {
+      name: 'liar',
+      dim: 2,
+      async embed() {
+        return [[1, 0]]; // misses=2 + query=1 requested; only 1 returned
+      },
+    };
+    const index = new EmbeddingIndex(tmp, 'liar', 2);
+    const all = [entry('a', 'da', 'ba'), entry('b', 'db', 'bb')];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await recallVector(all, 'q', 5, liar, index, mutex);
+    } finally {
+      warn.mockRestore();
+    }
+    // Whatever landed on disk must be well-formed: every cached vector is a real
+    // numeric array, never `null`/`undefined` (a poisoned cache breaks all recall).
+    const raw = await fs
+      .readFile(path.join(tmp, '.embeddings.json'), 'utf8')
+      .catch(() => '{"entries":{}}');
+    const parsed = JSON.parse(raw) as { entries?: Record<string, { vector?: unknown }> };
+    for (const e of Object.values(parsed.entries ?? {})) {
+      expect(Array.isArray(e.vector)).toBe(true);
+    }
+  });
+
+  it('skips a cached entry whose vector dim no longer matches the query (no silently-wrong score)', async () => {
+    const mutex: Mutex = createMutex();
+    // Pre-seed the persistent cache with a dim-3 vector for `stale`.
+    const seed = new EmbeddingIndex(tmp, 'drift');
+    const stale = entry('stale', 'stale desc', 'stale body');
+    const corpusText = ['stale', 'stale desc', '', 'stale body'].join('\n');
+    seed.set('stale', corpusText, [1, 0, 0]);
+    await seed.flush();
+
+    // An embedder that now returns dim-2 vectors (model/dim drift). The cached
+    // `stale` entry is dim-3; the fresh query is dim-2.
+    const driftEmbedder: EmbeddingProvider = {
+      name: 'drift',
+      dim: 2,
+      async embed(texts) {
+        return texts.map(() => [1, 0]);
+      },
+    };
+    const index = new EmbeddingIndex(tmp, 'drift'); // no dim → cache not invalidated on dim
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ranked = await recallVector([stale], 'q', 5, driftEmbedder, index, mutex);
+      // The mismatched-dim entry is dropped, not ranked on a truncated basis.
+      expect(ranked).toHaveLength(0);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

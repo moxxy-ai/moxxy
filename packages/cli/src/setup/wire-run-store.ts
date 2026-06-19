@@ -2,8 +2,8 @@ import { type FSWatcher, watch as fsWatch } from 'node:fs';
 import * as path from 'node:path';
 import { type Session } from '@moxxy/core';
 import type { MoxxyEvent, Workflow } from '@moxxy/sdk';
-import type { ScheduleStore } from '@moxxy/plugin-scheduler';
-import { WorkflowStore } from '@moxxy/plugin-workflows';
+import { type ScheduleStore, isValidCron, isValidTimeZone } from '@moxxy/plugin-scheduler';
+import type { WorkflowStore } from '@moxxy/plugin-workflows';
 import type { MiniLogger, WorkflowRunner } from './build-workflow-runner.js';
 
 /**
@@ -194,26 +194,58 @@ export function wireWorkflowTriggers(args: {
   // they sit on a trigger cycle (recomputed on every syncSchedules).
   const cyclicTriggers = new Set<string>();
   const warnedCycles = new Set<string>();
+  // Pending fileChanged debounce timers, hoisted to the wiring scope (NOT
+  // re-created per startFileWatchers call). Keyed by `${workflow}::${glob}` so
+  // two globs of one workflow don't clobber each other's pending timer (which
+  // would mislabel the `fileChanged:<glob>` trigger). Cancelled on both rebuild
+  // and stop() so a change that landed <600ms before teardown can't fire
+  // runner.runNow after its watcher closed / after the subsystem stopped.
+  const debounced = new Map<string, NodeJS.Timeout>();
+
+  function cancelPendingDebounces(): void {
+    for (const t of debounced.values()) clearTimeout(t);
+    debounced.clear();
+  }
 
   async function startFileWatchers(): Promise<void> {
     for (const w of watchers.splice(0)) w.close();
-    const debounced = new Map<string, NodeJS.Timeout>();
+    cancelPendingDebounces();
     for (const { workflow } of await store.list()) {
       if (!workflow.enabled || !workflow.on?.fileChanged) continue;
       for (const glob of [workflow.on.fileChanged].flat()) {
         const base = globBaseDir(glob, session.cwd);
+        const key = `${workflow.name}::${glob}`;
+        const onChange = (): void => {
+          const prev = debounced.get(key);
+          if (prev) clearTimeout(prev);
+          const t = setTimeout(() => {
+            debounced.delete(key);
+            void runner.runNow({ name: workflow.name, trigger: `fileChanged:${glob}` }).catch(() => {});
+          }, 600);
+          t.unref?.();
+          debounced.set(key, t);
+        };
         try {
-          const watcher = fsWatch(base, { recursive: true }, () => {
-            const prev = debounced.get(workflow.name);
-            if (prev) clearTimeout(prev);
-            const t = setTimeout(() => {
-              void runner.runNow({ name: workflow.name, trigger: `fileChanged:${glob}` }).catch(() => {});
-            }, 600);
-            t.unref?.();
-            debounced.set(workflow.name, t);
-          });
-          watchers.push(watcher);
+          watchers.push(fsWatch(base, { recursive: true }, onChange));
         } catch (err) {
+          // `recursive: true` is unsupported on Linux before Node 20
+          // (ERR_FEATURE_UNAVAILABLE_ON_PLATFORM). Fall back to a non-recursive
+          // watch on the base dir so top-level changes still fire the trigger,
+          // and warn clearly that nested changes won't on this host.
+          const code = (err as NodeJS.ErrnoException | undefined)?.code;
+          if (code === 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM') {
+            try {
+              watchers.push(fsWatch(base, { recursive: false }, onChange));
+              logger?.warn?.(
+                'workflows: recursive fileChanged watch unavailable on this platform (needs Node >=20 on Linux); ' +
+                  'watching the base directory non-recursively — nested-path changes will not fire',
+                { workflow: workflow.name, base, glob },
+              );
+              continue;
+            } catch {
+              // fall through to the generic warning below
+            }
+          }
           logger?.warn?.('workflows: cannot watch path', {
             workflow: workflow.name,
             base,
@@ -235,31 +267,76 @@ export function wireWorkflowTriggers(args: {
       ...(logger ? { logger } : {}),
     });
     for (const { workflow } of all) {
-      const sched = workflow.enabled ? workflow.on?.schedule : undefined;
-      if (sched && (sched.cron || sched.runAt)) {
-        const runAt = typeof sched.runAt === 'string' ? Date.parse(sched.runAt) : sched.runAt;
-        await scheduleStore.syncWorkflowSchedule(workflow.name, {
-          id: '',
-          name: `wf-${workflow.name}`.slice(0, 120),
-          // The scheduled turn runs this prompt; the model calls workflow_run,
-          // whose engine drives the DAG. Scheduler writes the result to inbox.
-          prompt: `Run the "${workflow.name}" workflow now using the workflow_run tool, then briefly report what each step did.`,
-          ...(sched.cron ? { cron: sched.cron } : {}),
-          ...(runAt ? { runAt } : {}),
-          ...(sched.timeZone ? { timeZone: sched.timeZone } : {}),
-          enabled: true,
-          createdAt: 0,
-          source: 'workflow',
-          workflowName: workflow.name,
-        });
-      } else {
-        await scheduleStore.syncWorkflowSchedule(workflow.name, null);
-      }
-      // fileChanged / webhook triggers are recognized but auto-firing for them
-      // is wired separately (fileChanged below; webhook is a follow-up).
-      if (workflow.enabled && workflow.on?.webhook) {
-        logger?.warn?.('workflows: webhook triggers are not auto-fired yet; run on demand', {
+      // One malformed schedule must not abort the sync of every other
+      // workflow: the schema accepts `runAt` as an arbitrary string and `cron`
+      // as any string, so garbage ('tomorrow', a bad cron) reaches here. Guard
+      // per-workflow and skip the bad one rather than throwing out of the loop.
+      try {
+        const sched = workflow.enabled ? workflow.on?.schedule : undefined;
+        // Normalize/validate before handing to the scheduler. A string runAt is
+        // parsed to an epoch; a non-finite result (Date.parse → NaN) is dropped.
+        // A cron string is rejected unless it parses, so syncWorkflowSchedule
+        // never receives an entry with neither a valid cron nor a finite runAt
+        // (which scheduleEntrySchema.parse would throw on, poisoning the loop).
+        const parsedRunAt =
+          typeof sched?.runAt === 'string' ? Date.parse(sched.runAt) : sched?.runAt;
+        const runAt = typeof parsedRunAt === 'number' && Number.isFinite(parsedRunAt) ? parsedRunAt : undefined;
+        const cron = sched?.cron && isValidCron(sched.cron) ? sched.cron : undefined;
+        // A non-IANA timeZone string reaches here unvalidated (the internal
+        // workflow→scheduler bridge skips the authoring-boundary check). If it
+        // survived to the scheduler, `nextFireTime` returns null for a bad zone
+        // — the entry would NEVER be due, a silent non-firing schedule. Drop the
+        // bad zone (cron falls back to system-local) and warn so the user can
+        // fix it, rather than the workflow mysteriously never running.
+        const timeZone =
+          sched?.timeZone && isValidTimeZone(sched.timeZone) ? sched.timeZone : undefined;
+        if (sched && sched.cron && !cron) {
+          logger?.warn?.('workflows: ignoring invalid cron expression', {
+            workflow: workflow.name,
+            cron: sched.cron,
+          });
+        }
+        if (sched && sched.runAt !== undefined && runAt === undefined) {
+          logger?.warn?.('workflows: ignoring unparseable schedule.runAt', {
+            workflow: workflow.name,
+            runAt: sched.runAt,
+          });
+        }
+        if (sched && sched.timeZone && !timeZone) {
+          logger?.warn?.('workflows: ignoring invalid schedule.timeZone (using system local)', {
+            workflow: workflow.name,
+            timeZone: sched.timeZone,
+          });
+        }
+        if (sched && (cron || runAt !== undefined)) {
+          await scheduleStore.syncWorkflowSchedule(workflow.name, {
+            id: '',
+            name: `wf-${workflow.name}`.slice(0, 120),
+            // The scheduled turn runs this prompt; the model calls workflow_run,
+            // whose engine drives the DAG. Scheduler writes the result to inbox.
+            prompt: `Run the "${workflow.name}" workflow now using the workflow_run tool, then briefly report what each step did.`,
+            ...(cron ? { cron } : {}),
+            ...(runAt !== undefined ? { runAt } : {}),
+            ...(timeZone ? { timeZone } : {}),
+            enabled: true,
+            createdAt: 0,
+            source: 'workflow',
+            workflowName: workflow.name,
+          });
+        } else {
+          await scheduleStore.syncWorkflowSchedule(workflow.name, null);
+        }
+        // fileChanged / webhook triggers are recognized but auto-firing for them
+        // is wired separately (fileChanged below; webhook is a follow-up).
+        if (workflow.enabled && workflow.on?.webhook) {
+          logger?.warn?.('workflows: webhook triggers are not auto-fired yet; run on demand', {
+            workflow: workflow.name,
+          });
+        }
+      } catch (err) {
+        logger?.warn?.('workflows: failed to sync schedule for workflow; skipping', {
           workflow: workflow.name,
+          err: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -306,6 +383,7 @@ export function wireWorkflowTriggers(args: {
     stop: () => {
       unsubscribe();
       for (const w of watchers.splice(0)) w.close();
+      cancelPendingDebounces();
     },
   };
 }

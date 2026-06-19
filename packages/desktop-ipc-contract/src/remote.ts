@@ -46,6 +46,14 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'session.abortTurn',
   'session.setMode',
   'session.newSession',
+  // ASSUMPTION (breadth-of-surface): this single entry fans out to the ENTIRE
+  // registered slash-command set — a paired phone can invoke any command by
+  // name (the schema only shape-bounds name+args). The contract can't enumerate
+  // which commands are safe, so remote-reachable slash commands MUST be
+  // side-effect-free at the conversation level; a mutating command (a /vault-,
+  // /mode-, or plugin-provided state mutator) reachable from a phone needs a
+  // per-command capability gate at the registry layer (see needsFollowup), not
+  // just this allow-list entry.
   'session.runCommand',
   // Multi-session conversations: list/create/switch/rename are conversation-
   // scoped — the same trust class as `session.newSession` (already allowed),

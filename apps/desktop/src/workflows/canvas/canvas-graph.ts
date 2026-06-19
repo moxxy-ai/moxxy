@@ -130,18 +130,49 @@ export function topologySignature(nodes: ReadonlyArray<BuilderNode>): string {
 export function topoOrder(nodes: ReadonlyArray<BuilderNode>): Map<string, number> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const depth = new Map<string, number>();
-  const resolve = (id: string, seen: Set<string>): number => {
-    const cached = depth.get(id);
-    if (cached != null) return cached;
-    if (seen.has(id)) return 0; // cycle guard
-    seen.add(id);
-    const needs = byId.get(id)?.needs ?? [];
-    const d = needs.length === 0 ? 0 : Math.max(...needs.map((n) => (byId.has(n) ? resolve(n, seen) + 1 : 0)));
-    seen.delete(id);
-    depth.set(id, d);
-    return d;
+  // Explicit-stack longest-path so a multi-thousand-node chain loaded from YAML
+  // (the connect guard only blocks cycles for canvas-authored edges) can't
+  // overflow the call stack. A node is visited twice: first to push its
+  // unresolved `needs` (marked on `onStack` for the cycle guard), then to fold
+  // their resolved depths. Semantics match the prior recursion exactly —
+  // cycle back-edge → 0, dangling/absent need → 0, depth = max(need depth)+1.
+  const resolve = (root: string): void => {
+    if (depth.has(root)) return;
+    const onStack = new Set<string>();
+    const stack: Array<{ id: string; expanded: boolean }> = [{ id: root, expanded: false }];
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1]!;
+      const { id } = frame;
+      if (depth.has(id)) {
+        stack.pop();
+        onStack.delete(id);
+        continue;
+      }
+      const needs = byId.get(id)?.needs ?? [];
+      if (!frame.expanded) {
+        frame.expanded = true;
+        onStack.add(id);
+        for (const n of needs) {
+          if (byId.has(n) && !depth.has(n) && !onStack.has(n)) {
+            stack.push({ id: n, expanded: false });
+          }
+        }
+        continue;
+      }
+      // All resolvable needs are now in `depth`; fold their depths.
+      let d = 0;
+      for (const n of needs) {
+        if (!byId.has(n)) continue; // dangling need → contributes 0
+        if (onStack.has(n)) continue; // cycle back-edge → contributes 0
+        const nd = depth.get(n);
+        if (nd != null && nd + 1 > d) d = nd + 1;
+      }
+      depth.set(id, d);
+      onStack.delete(id);
+      stack.pop();
+    }
   };
-  for (const n of nodes) resolve(n.id, new Set());
+  for (const n of nodes) resolve(n.id);
   // Rank by (depth, insertion index) then assign 1..N.
   const ranked = [...nodes]
     .map((n, idx) => ({ id: n.id, depth: depth.get(n.id) ?? 0, idx }))

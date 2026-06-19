@@ -469,6 +469,37 @@ describe('dag executor', () => {
     expect(events).toContain('workflow_completed');
   });
 
+  it('flags workflow_completed with empty:true when the run produced no terminal output (Finding 8)', async () => {
+    // A run that completes cleanly but whose sole sink yields empty output (e.g.
+    // a logic step that returns an empty `text`) must NOT be silently treated as
+    // a clean delivery of nothing — the completion event carries `empty:true` so
+    // the delivery layer can warn instead of delivering a blank body.
+    const events: Array<{ subtype: string; payload: unknown }> = [];
+    const h = makeHarness({
+      emit: (subtype, payload) => void events.push({ subtype, payload }),
+      logicResponses: { gen: '{"text":""}' },
+    } as Partial<WorkflowRunDeps>);
+    const result = await dagExecutor.run(
+      wf({ name: 'empty-sink', description: 'x', steps: [{ id: 'gen', bridge: 'produce nothing' }] }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.output).toBe('');
+    const completed = events.find((e) => e.subtype === 'workflow_completed');
+    expect(completed?.payload).toMatchObject({ name: 'empty-sink', empty: true });
+  });
+
+  it('does NOT flag empty when the run produced terminal output', async () => {
+    const events: Array<{ subtype: string; payload: unknown }> = [];
+    const h = makeHarness({ emit: (subtype, payload) => void events.push({ subtype, payload }) });
+    await dagExecutor.run(
+      wf({ name: 'has-output', description: 'x', steps: [{ id: 'a', prompt: 'go' }] }),
+      h.deps,
+    );
+    const completed = events.find((e) => e.subtype === 'workflow_completed');
+    expect((completed?.payload as { empty?: boolean })?.empty).toBeUndefined();
+  });
+
   it('pauses on awaitInput and resumes after operator reply', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'wf-pause-'));
     const store = new WorkflowRunStore(dir);
@@ -600,6 +631,69 @@ describe('dag executor', () => {
     const resumed = await resumeWorkflowRun(paused.runId!, 'go ahead', h.deps, store);
     expect(resumed.ok).toBe(true);
     expect(h.toolCalls.find((c) => c.name === 'notify')?.input).toEqual({ to: 'ops@example.com' });
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('rejects a concurrent resume of the same runId (no double-continue / double-remove)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wf-resume-race-'));
+    const store = new WorkflowRunStore(dir);
+    let continueCalls = 0;
+    let removeCalls = 0;
+    const spawnOne = async (spec: SubagentSpec): Promise<SubagentResult> => ({
+      label: spec.label ?? '?',
+      childSessionId: asSessionId('child'),
+      text: `OUT_${spec.label ?? '?'}`,
+      stopReason: 'end_turn',
+    });
+    const slowContinue: SubagentSpawner = {
+      spawn: spawnOne,
+      spawnAll: (list) => Promise.all(list.map(spawnOne)),
+      continue: async (args) => {
+        continueCalls += 1;
+        await new Promise((r) => setTimeout(r, 20)); // hold the claim open
+        return {
+          label: args.label ?? '?',
+          childSessionId: args.childSessionId,
+          text: `FINAL_${args.label ?? '?'}`,
+          stopReason: 'end_turn',
+        };
+      },
+      release: () => {},
+    };
+    // Wrap the store so we can count removals (the second resume must not remove).
+    const countingStore = {
+      load: (id: string) => store.load(id),
+      save: (c: Parameters<WorkflowRunStore['save']>[0]) => store.save(c),
+      remove: async (id: string) => {
+        removeCalls += 1;
+        return store.remove(id);
+      },
+      sweepStale: (...args: Parameters<WorkflowRunStore['sweepStale']>) => store.sweepStale(...args),
+    } as unknown as WorkflowRunStore;
+
+    const h = makeHarness({ runStore: store } as Partial<WorkflowRunDeps>);
+    const paused = await dagExecutor.run(
+      rawWf([
+        { id: 'ask', prompt: 'Ask', awaitInput: true },
+        { id: 'go', needs: ['ask'], prompt: 'Use {{ steps.ask.output }}' },
+      ]),
+      h.deps,
+    );
+    expect(paused.status).toBe('paused');
+
+    const resumeDeps = { ...h.deps, spawner: slowContinue } as WorkflowRunDeps;
+    const [a, b] = await Promise.all([
+      resumeWorkflowRun(paused.runId!, 'one', resumeDeps, countingStore),
+      resumeWorkflowRun(paused.runId!, 'two', resumeDeps, countingStore),
+    ]);
+    // Exactly one resume proceeded; the other was rejected by the in-flight lock.
+    const oks = [a, b].filter((r) => r.ok);
+    const rejected = [a, b].find((r) => !r.ok);
+    expect(oks).toHaveLength(1);
+    expect(rejected?.error).toMatch(/already being resumed/);
+    // The child session was continued exactly once and the checkpoint removed once.
+    expect(continueCalls).toBe(1);
+    expect(removeCalls).toBe(1);
     await rm(dir, { recursive: true, force: true });
   });
 

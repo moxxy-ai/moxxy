@@ -205,6 +205,9 @@ export function parseInputChunk(chunk: string, ctx: ParseCtx): string {
       } else if (action === 'command-hotkey' && matched.letter) {
         ctx.commandHotkeys?.[matched.letter]?.();
       }
+      // action === 'noop' falls through here: consume `len` bytes (below)
+      // and dispatch nothing — used for unrecognized terminal sequences so
+      // they neither render as junk NOR clear a half-typed prompt.
       i += len;
       continue;
     }

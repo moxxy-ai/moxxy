@@ -46,6 +46,14 @@ export interface MobileChannelOptions {
   readonly token?: string;
   /** Reachability: `localhost` (LAN only), or a `cloudflared`/`ngrok` public tunnel. */
   readonly tunnel?: TunnelChoice;
+  /**
+   * Accept the legacy `?t=<token>` URL credential (default `true` for back-compat
+   * with older installed app builds; current apps authenticate via the
+   * `Sec-WebSocket-Protocol` bearer). Set `false` — or `MOXXY_MOBILE_QUERY_TOKEN=0`
+   * — to close the URL-token path, which leaks the bearer into tunnel/proxy logs
+   * and shoulder-surfed/QR'd URLs. The env var, when set, overrides this option.
+   */
+  readonly allowQueryToken?: boolean;
   readonly logger?: {
     info?(msg: string, meta?: Record<string, unknown>): void;
     warn?(msg: string, meta?: Record<string, unknown>): void;
@@ -53,6 +61,15 @@ export interface MobileChannelOptions {
 }
 
 const DEFAULT_PORT = 8765;
+
+/** Resolve whether the legacy `?t=` URL credential path stays open. Env wins
+ *  (`MOXXY_MOBILE_QUERY_TOKEN=0|false|off` closes it), then the option, then the
+ *  back-compat default `true`. */
+function resolveAllowQueryToken(opt: boolean | undefined): boolean {
+  const env = process.env.MOXXY_MOBILE_QUERY_TOKEN?.trim().toLowerCase();
+  if (env != null && env !== '') return !(env === '0' || env === 'false' || env === 'off' || env === 'no');
+  return opt ?? true;
+}
 
 export class MobileChannel implements Channel<MobileStartOpts> {
   readonly name = 'mobile';
@@ -62,16 +79,25 @@ export class MobileChannel implements Channel<MobileStartOpts> {
   private readonly bindHost: string;
   private token: string;
   private readonly tunnelChoice: TunnelChoice;
+  private readonly allowQueryToken: boolean;
+  /** True when the token came from `MOXXY_MOBILE_TOKEN` / config (not the
+   *  rotatable persisted secret). Rotating then has no durable effect because
+   *  `resolveMobileToken` keeps returning the pinned source on the next start. */
+  private readonly tokenPinned: boolean;
   private readonly logger: MobileChannelOptions['logger'];
   private host: MobileSessionHost | null = null;
   private server: Awaited<ReturnType<typeof startWsBridge>> | null = null;
   private tunnel: TunnelHandle | null = null;
+  private disconnectSweep: ReturnType<typeof setInterval> | null = null;
 
   constructor(opts: MobileChannelOptions = {}) {
     this.port = opts.port ?? DEFAULT_PORT;
     this.bindHost = resolveBindHost(opts.bindHost);
     this.token = resolveMobileToken(opts.token);
+    this.tokenPinned =
+      !!(process.env.MOXXY_MOBILE_TOKEN ?? '').trim() || !!opts.token?.trim();
     this.tunnelChoice = normalizeTunnelChoice(opts.tunnel);
+    this.allowQueryToken = resolveAllowQueryToken(opts.allowQueryToken);
     this.logger = opts.logger;
     // The field `moxxy serve --all` reads to coordinate the session resolver.
     // Delegate to the live host (installed in start()); deny before any client.
@@ -93,6 +119,17 @@ export class MobileChannel implements Channel<MobileStartOpts> {
    * precedence at resolve time and must be rotated at their source.
    */
   rotateToken(): string {
+    // A pinned (env/config) token can't be rotated here: `rotateMobileToken`
+    // only rewrites the persisted file, but `resolveMobileToken` returns the
+    // pinned source on the next start — so rotating would diverge `this.token`
+    // from what a restart resolves and silently revoke nothing durable. Refuse
+    // and tell the caller to rotate at the source instead of faking success.
+    if (this.tokenPinned) {
+      this.logger?.warn?.(
+        'mobile token is pinned via MOXXY_MOBILE_TOKEN / config — rotate it at the source; the persisted secret is not used',
+      );
+      return this.token;
+    }
     this.token = rotateMobileToken();
     this.server?.rotateAuthToken(this.token);
     return this.token;
@@ -106,7 +143,9 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     // full host IPC handler set is on the bus) would only over-restrict it.
     // `allowedCommands: null` keeps that curated subset authoritative here.
     const bus = new WebSocketCommandBus({ allowedCommands: null });
-    const host = new MobileSessionHost(bus, startOpts.session);
+    const host = new MobileSessionHost(bus, startOpts.session, {
+      logErr: (err) => this.logger?.warn?.('mobile host background error', { err: String(err) }),
+    });
     this.host = host;
     host.register(); // populate the method map BEFORE accepting connections
     host.wire(); // stream events + install the ask resolvers
@@ -128,14 +167,49 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       host: this.bindHost,
       authToken: this.token,
       allowedOrigins: localOrigins,
-      // Back-compat ONLY: the QR this channel prints embeds the token as `?t=`
+      // Back-compat: the QR this channel prints embeds the token as `?t=`
       // (pairing payload); current apps strip it and authenticate via the
       // Sec-WebSocket-Protocol bearer entry, but older installed builds still
-      // connect with the token in the WS URL.
-      allowQueryToken: true,
+      // connect with the token in the WS URL. Default-on for those installs;
+      // closeable via the option / MOXXY_MOBILE_QUERY_TOKEN to stop leaking the
+      // bearer into tunnel/proxy logs once apps no longer need it.
+      allowQueryToken: this.allowQueryToken,
     });
     this.server = server;
     this.logger?.info?.('mobile channel listening', { address: server.address });
+
+    // A network client is the EXPECTED-to-drop case (network loss, app killed
+    // or backgrounded). The bridge exposes no per-disconnect event the host can
+    // subscribe to (each transport's single onClose is already owned by its
+    // JsonRpcPeer), so poll the connected-client count and, on the transition
+    // back to zero AFTER at least one client connected, abort in-flight turns +
+    // drain parked asks so an abandoned turn/ask can't strand the runner. The
+    // timer is unref'd (never holds the process open) and cleared on teardown.
+    //
+    // The RISING edge is driven by `onConnection`, NOT the poll: a fast-crashing
+    // client (the hostile case — connect, fire a turn, die within one poll
+    // window) would read clientCount()===0 on both surrounding polls, so a
+    // poll-only `sawClient` flag would never see the connect and never drain the
+    // stranded turn/ask. `onConnection` marks `sawClient` synchronously the
+    // instant a client attaches, so the next falling-edge poll still drains it.
+    // `onConnection` is additive (the bridge already registered bus.attach), so
+    // this doesn't disturb connection routing.
+    let sawClient = false;
+    server.onConnection(() => {
+      sawClient = true;
+    });
+    this.disconnectSweep = setInterval(() => {
+      const n = server.clientCount();
+      if (n > 0) {
+        sawClient = true;
+        return;
+      }
+      if (sawClient) {
+        sawClient = false;
+        host.onAllClientsDisconnected();
+      }
+    }, 1000);
+    if (typeof this.disconnectSweep?.unref === 'function') this.disconnectSweep.unref();
 
     // Optionally expose the bridge beyond the LAN via the user's chosen tunnel.
     let tunnelUrl: string | null = null;
@@ -180,6 +254,10 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       // ask resolvers (host.dispose), close anything we managed to open, and
       // null the fields back out so this channel owns nothing.
       host.dispose();
+      if (this.disconnectSweep) {
+        clearInterval(this.disconnectSweep);
+        this.disconnectSweep = null;
+      }
       if (this.tunnel) {
         await this.tunnel.close().catch(() => undefined);
         this.tunnel = null;
@@ -199,6 +277,10 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       running,
       stop: async () => {
         host.dispose();
+        if (this.disconnectSweep) {
+          clearInterval(this.disconnectSweep);
+          this.disconnectSweep = null;
+        }
         if (this.tunnel) {
           await this.tunnel.close().catch(() => undefined);
           this.tunnel = null;

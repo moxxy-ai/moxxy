@@ -1,5 +1,7 @@
+import net from 'node:net';
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
+import type { Transport } from '@moxxy/runner';
 import { encodeWsBearerProtocol, MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk/server';
 import {
   createWebSocketTransportServer,
@@ -46,6 +48,34 @@ function connect(
 }
 
 const bearerHeaders = { authorization: `Bearer ${TOKEN}` };
+
+function parseWsAddress(address: string): { host: string; port: number } {
+  const u = new URL(address);
+  return { host: u.hostname, port: Number(u.port) };
+}
+
+/**
+ * Open a raw TCP socket, write a valid (authenticated) WebSocket upgrade
+ * request, then destroy the socket immediately — provoking the post-auth
+ * handshake-abort path where `ws` reserved a slot but never emits 'connection'.
+ */
+function sendUpgradeThenDrop(host: string, port: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const socket = net.connect(port, host, () => {
+      const req =
+        `GET / HTTP/1.1\r\n` +
+        `Host: ${host}:${port}\r\n` +
+        `Upgrade: websocket\r\n` +
+        `Connection: Upgrade\r\n` +
+        `Sec-WebSocket-Version: 13\r\n` +
+        `Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n` +
+        `Authorization: Bearer ${TOKEN}\r\n\r\n`;
+      socket.write(req, () => socket.destroy());
+    });
+    socket.on('error', () => {});
+    socket.on('close', () => resolve());
+  });
+}
 
 describe('createWebSocketTransportServer', () => {
   it('reports the ACTUAL bound port when asked for an ephemeral one', async () => {
@@ -132,6 +162,28 @@ describe('createWebSocketTransportServer', () => {
     expect(server.clientCount()).toBe(N);
   });
 
+  it('does not strand the connection cap when authenticated handshakes abort mid-upgrade', async () => {
+    // Regression: verifyClient reserved a slot but the only release was the
+    // 'connection' event. An upgrade that passed auth and then aborted before
+    // completeUpgrade (peer FIN'd, server mid-close) never emitted 'connection',
+    // so each aborted handshake permanently consumed a cap slot until restart.
+    const maxConnections = 2;
+    const server = await startServer({ maxConnections });
+    const { host, port } = parseWsAddress(server.address);
+
+    // Fire many authenticated upgrades that drop their socket the instant the
+    // request is on the wire — racing completeUpgrade's readable/writable gate.
+    for (let i = 0; i < maxConnections * 8; i++) {
+      await sendUpgradeThenDrop(host, port);
+    }
+    // Let any in-flight handshakes settle.
+    await new Promise((r) => setTimeout(r, 100));
+
+    // The cap must not be bricked: a legitimate client still connects. Under the
+    // old code, post-auth aborts permanently consumed slots and this rejected.
+    await expect(connect(server.address, { headers: bearerHeaders })).resolves.toBeDefined();
+  });
+
   it('frees a slot when a capped connection closes', async () => {
     const server = await startServer({ maxConnections: 1 });
     const first = await connect(server.address, { headers: bearerHeaders });
@@ -163,6 +215,52 @@ describe('createWebSocketTransportServer', () => {
       connect(server.address, { headers: { authorization: 'Bearer rotated-token' } }),
     ).resolves.toBeDefined();
   });
+
+  it('evicts a stalled slow reader from the periodic sweep AFTER sends stop', async () => {
+    // Regression: the per-send guard only re-evaluated eviction on the next
+    // send, so a peer that stalled with a large backlog and then went idle (no
+    // further broadcasts to it) pinned its multi-megabyte buffer for the
+    // connection's lifetime. The independent sweep must terminate it WITHOUT any
+    // further send re-triggering the check.
+    //
+    // To isolate the sweep as the evictor (not the per-send check), keep the
+    // backlog in the soft-limit→hard-ceiling band: the synchronous blast below
+    // builds ~tens of MB, so a 32 MB soft limit (128 MB hard ceiling) is
+    // exceeded (arming the grace clock) but never hits the immediate hard
+    // ceiling. The 200 sends finish in milliseconds — far inside the 800 ms
+    // grace — so NO send can trip the grace deadline. Only the later sweep can.
+    let accepted: Transport | undefined;
+    const server = await startServer({
+      maxBufferedBytes: 32 * 1024 * 1024,
+      bufferStallGraceMs: 800,
+    });
+    server.onConnection((t) => {
+      accepted = t;
+    });
+
+    const client = await connect(server.address, { headers: bearerHeaders });
+    // Stop the client from draining its socket so the server-side backlog grows
+    // and stays high (the OS receive window + send buffer fill and don't move).
+    // NOTE: a paused client never processes the eventual close frame, so we
+    // assert eviction from the SERVER side (clientCount), not the client's
+    // 'close' event — that is exactly the idle path the sweep must cover.
+    (client as unknown as { _socket: net.Socket })._socket.pause();
+
+    expect(accepted).toBeDefined();
+    const big = 'x'.repeat(256 * 1024);
+    for (let i = 0; i < 200; i++) accepted!.send({ big });
+    // Still admitted right after the blast — the per-send check did NOT evict
+    // (backlog is under the hard ceiling and grace has not elapsed).
+    expect(server.clientCount()).toBe(1);
+
+    // The sweep interval is floored at 1000 ms; by ~1000 ms the 800 ms grace has
+    // elapsed and the sweep — with no further send — must terminate the socket.
+    const deadline = Date.now() + 4000;
+    while (server.clientCount() > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(server.clientCount()).toBe(0);
+  });
 });
 
 describe('SlowReaderGuard', () => {
@@ -175,16 +273,39 @@ describe('SlowReaderGuard', () => {
 
   it('grants a grace window on the first over-limit observation', () => {
     const guard = new SlowReaderGuard(100, 1000);
-    expect(guard.check(5000, 0)).toBe('ok'); // stall clock starts
-    expect(guard.check(5000, 999)).toBe('ok'); // still within grace
-    expect(guard.check(5000, 1000)).toBe('terminate'); // grace elapsed, still stalled
+    // 300 is over the soft limit (100) but under the hard ceiling (4x = 400),
+    // so the grace path — not the immediate hard-ceiling eviction — applies.
+    expect(guard.check(300, 0)).toBe('ok'); // stall clock starts
+    expect(guard.check(300, 999)).toBe('ok'); // still within grace
+    expect(guard.check(300, 1000)).toBe('terminate'); // grace elapsed, still stalled
   });
 
   it('resets the stall clock once the reader drains below the limit', () => {
     const guard = new SlowReaderGuard(100, 1000);
-    expect(guard.check(5000, 0)).toBe('ok');
+    // Over the soft limit (100) but within the hard ceiling (400) — exercises
+    // the grace/stall path rather than the immediate hard-ceiling eviction.
+    expect(guard.check(300, 0)).toBe('ok');
     expect(guard.check(10, 500)).toBe('ok'); // drained — clock resets
-    expect(guard.check(5000, 1500)).toBe('ok'); // new stall, new clock
-    expect(guard.check(5000, 2600)).toBe('terminate');
+    expect(guard.check(300, 1500)).toBe('ok'); // new stall, new clock
+    expect(guard.check(300, 2600)).toBe('terminate');
+  });
+
+  it('evicts immediately past the hard ceiling, ignoring the grace window', () => {
+    // hard ceiling = limit * 4 = 400. A backlog above it must terminate on the
+    // FIRST observation so a peer that perpetually rides ~limit (resetting the
+    // grace clock each transient drain) cannot pin memory indefinitely.
+    const guard = new SlowReaderGuard(100, 1_000_000);
+    expect(guard.check(401, 0)).toBe('terminate');
+  });
+
+  it('a peer riding just over the soft limit is still bounded by the hard ceiling', () => {
+    const guard = new SlowReaderGuard(100, 1000);
+    // Alternate over/under the SOFT limit forever — the grace clock keeps
+    // resetting, so the soft path never fires. The hard ceiling still does.
+    for (let t = 0; t < 100_000; t += 100) {
+      expect(guard.check(150, t)).toBe('ok'); // over soft, resets grace next drain
+      expect(guard.check(10, t + 50)).toBe('ok'); // drained — soft clock reset
+    }
+    expect(guard.check(500, 100_000)).toBe('terminate'); // > 4x limit
   });
 });

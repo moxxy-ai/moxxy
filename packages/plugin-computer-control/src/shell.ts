@@ -3,6 +3,20 @@ import { MoxxyError } from '@moxxy/sdk';
 
 export const IS_DARWIN = process.platform === 'darwin';
 
+/**
+ * Hard ceiling on combined stdout+stderr a child may emit before it is
+ * force-killed. The wall-clock timeout caps duration but not throughput —
+ * a runaway or hostile child (e.g. `pbpaste` on a gigabyte clipboard, or an
+ * `osascript` snippet that streams unbounded output) can accumulate hundreds
+ * of MB well inside the timeout and OOM the host. 16 MB is far above any
+ * legitimate tool output here (the screenshot path caps its own encoded file
+ * separately) while still bounding worst-case memory.
+ */
+export const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
+
+/** Grace period after SIGTERM before escalating to SIGKILL. */
+const SIGKILL_GRACE_MS = 2_500;
+
 export interface ProcResult {
   readonly exitCode: number;
   readonly stdout: string;
@@ -16,6 +30,12 @@ export interface ProcResult {
   readonly timedOut: boolean;
   /** True when the child was force-killed because `opts.signal` aborted. */
   readonly aborted: boolean;
+  /**
+   * True when the child was force-killed because its combined stdout+stderr
+   * exceeded `MAX_OUTPUT_BYTES`. The captured output is whatever had been
+   * read up to the cap.
+   */
+  readonly tooLarge: boolean;
 }
 
 /**
@@ -24,6 +44,7 @@ export interface ProcResult {
  * cause rather than a bare `exit -1`. Returns '' for a normal exit.
  */
 export function procFailureCause(proc: ProcResult, timeoutMs?: number): string {
+  if (proc.tooLarge) return `output exceeded ${MAX_OUTPUT_BYTES} bytes (killed)`;
   if (proc.timedOut) {
     return timeoutMs ? `timed out after ${timeoutMs}ms` : 'timed out';
   }
@@ -52,24 +73,63 @@ export function runProcess(
   } = {},
 ): Promise<ProcResult> {
   return new Promise((resolve, reject) => {
+    // An ALREADY-aborted signal never emits 'abort' to a listener added after
+    // the fact (DOM semantics), so without this short-circuit a cancelled turn
+    // would still spawn the child and run it to completion — defeating the
+    // abort contract. Resolve immediately as an aborted no-op without spawning.
+    if (opts.signal?.aborted) {
+      resolve({
+        exitCode: -1,
+        stdout: '',
+        stderr: '',
+        timedOut: false,
+        aborted: true,
+        tooLarge: false,
+      });
+      return;
+    }
     const child = spawn(cmd, [...args], { stdio: ['pipe', 'pipe', 'pipe'] });
-    // Collect stdout chunks and concat ONCE at close — re-concatenating the
-    // whole accumulated buffer on every 'data' event is O(n^2) and churns the
-    // GC.
+    // Collect BOTH stdout and stderr as chunks and concat ONCE at close.
+    // Re-concatenating the whole accumulated buffer on every 'data' event is
+    // O(n^2) and churns the GC; decoding each chunk with `.toString('utf8')`
+    // in isolation also corrupts any multibyte sequence (e.g. an osascript
+    // error containing a non-ASCII app name) that straddles a chunk boundary.
     const stdoutChunks: Buffer[] = [];
-    let stderr = '';
+    const stderrChunks: Buffer[] = [];
+    let outputBytes = 0;
     let settled = false;
     let timedOut = false;
     let aborted = false;
+    let tooLarge = false;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const onAbort = (): void => {
-      if (settled) return;
-      aborted = true;
+    // Force the child to die: SIGTERM first, then escalate to SIGKILL after a
+    // grace period for a child that traps/ignores SIGTERM (a wedged GUI helper
+    // or an osascript stuck behind an Accessibility prompt). Without the
+    // escalation the tool's timeout/abort isn't actually enforced — the parent
+    // hangs until the child closes on its own, which may be never.
+    const forceKill = (): void => {
       try {
         child.kill('SIGTERM');
       } catch {
         /* ignore */
       }
+      if (killTimer) return;
+      killTimer = setTimeout(() => {
+        if (settled) return;
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* ignore */
+        }
+      }, SIGKILL_GRACE_MS);
+      killTimer.unref?.();
+    };
+
+    const onAbort = (): void => {
+      if (settled) return;
+      aborted = true;
+      forceKill();
     };
     opts.signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -77,38 +137,59 @@ export function runProcess(
       ? setTimeout(() => {
           if (settled) return;
           timedOut = true;
-          try {
-            child.kill('SIGTERM');
-          } catch {
-            /* ignore */
-          }
+          forceKill();
         }, opts.timeoutMs)
       : null;
 
     child.stdout.on('data', (chunk: Buffer) => {
-      stdoutChunks.push(chunk);
+      outputBytes += chunk.length;
+      // Once over the cap we stop retaining further chunks (the child is being
+      // killed) so a flood between the cap-trip and SIGTERM landing can't keep
+      // growing memory; we still account the bytes to keep `outputBytes` honest.
+      if (!tooLarge) stdoutChunks.push(chunk);
+      if (!tooLarge && outputBytes > MAX_OUTPUT_BYTES) {
+        tooLarge = true;
+        forceKill();
+      }
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
+      outputBytes += chunk.length;
+      if (!tooLarge) stderrChunks.push(chunk);
+      if (!tooLarge && outputBytes > MAX_OUTPUT_BYTES) {
+        tooLarge = true;
+        forceKill();
+      }
     });
+    // A child that exits/closes stdin before our write completes makes the
+    // stdin Writable emit 'error' (EPIPE/ECONNRESET). With no listener that
+    // throws and surfaces as an unhandled rejection that can take down the
+    // parent — swallow it; the child 'error'/'close' path reports the real
+    // failure. Same defensiveness on stdout/stderr for symmetry.
+    child.stdin.on('error', () => {});
+    child.stdout.on('error', () => {});
+    child.stderr.on('error', () => {});
+    const cleanup = (): void => {
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      opts.signal?.removeEventListener('abort', onAbort);
+    };
     child.once('error', (err) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
+      cleanup();
       reject(err);
     });
     child.once('close', (code) => {
       if (settled) return;
       settled = true;
-      if (timer) clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
+      cleanup();
       resolve({
         exitCode: code ?? -1,
         stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr,
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
         timedOut,
         aborted,
+        tooLarge,
       });
     });
 

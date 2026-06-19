@@ -104,10 +104,19 @@ export function useCanvasCamera(
       setView({ x: 0, y: 0, zoom: 1 });
       return;
     }
-    const minX = Math.min(...nodes.map((n) => n.x));
-    const minY = Math.min(...nodes.map((n) => n.y));
-    const maxX = Math.max(...nodes.map((n) => n.x + NODE_W));
-    const maxY = Math.max(...nodes.map((n) => n.y + NODE_H));
+    // Single reduce instead of four `Math.min(...nodes.map(…))` spreads: a very
+    // large loaded DAG would blow the argument-count limit (RangeError) on the
+    // spread, and this avoids the 4 intermediate array allocations too.
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + NODE_W > maxX) maxX = n.x + NODE_W;
+      if (n.y + NODE_H > maxY) maxY = n.y + NODE_H;
+    }
     const z = clampZoom(
       Math.min(
         (rect.width - FIT_PAD * 2) / Math.max(1, maxX - minX),
@@ -126,20 +135,29 @@ export function useCanvasCamera(
   // ctrl/cmd+wheel (macOS pinch arrives as ctrl+wheel) ZOOMS at the cursor.
   // Native non-passive listener — React's root wheel listener is passive, so
   // a synthetic onWheel can't preventDefault (and the page would scroll).
+  //
+  // The handler reads the latest view + zoom/pan handlers through refs so the
+  // listener binds ONCE (deps: surfaceRef only). Re-registering it on every
+  // `view` change (as a continuous trackpad scroll produces dozens of times a
+  // second) churned add/removeEventListener and could drop a wheel event that
+  // fired in the gap between removal and re-add.
+  const wheelDeps = useRef({ view, applyZoom, setView });
+  wheelDeps.current = { view, applyZoom, setView };
   useEffect(() => {
     const el = surfaceRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent): void => {
       e.preventDefault();
+      const { view: v, applyZoom: zoom, setView: set } = wheelDeps.current;
       if (e.ctrlKey || e.metaKey) {
-        applyZoom(view.zoom * Math.exp(-e.deltaY * 0.0018), { x: e.clientX, y: e.clientY });
+        zoom(v.zoom * Math.exp(-e.deltaY * 0.0018), { x: e.clientX, y: e.clientY });
       } else {
-        setView({ x: view.x - e.deltaX, y: view.y - e.deltaY, zoom: view.zoom });
+        set({ x: v.x - e.deltaX, y: v.y - e.deltaY, zoom: v.zoom });
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [surfaceRef, applyZoom, setView, view]);
+  }, [surfaceRef]);
 
   const beginPan = useCallback((e: { clientX: number; clientY: number }) => {
     pan.current = { lx: e.clientX, ly: e.clientY, dist: 0, moved: false };

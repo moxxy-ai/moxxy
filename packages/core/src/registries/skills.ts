@@ -1,8 +1,28 @@
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
+import type { Logger } from '../logger.js';
 
 export class SkillRegistryImpl implements SkillRegistry {
   private readonly byId = new Map<string, Skill>();
   private readonly byNameIdx = new Map<string, Skill>();
+  private readonly logger?: Logger;
+
+  constructor(opts: { logger?: Logger } = {}) {
+    this.logger = opts.logger;
+  }
+
+  /** Warn (don't silently last-wins) when two distinct skills fight over one
+   *  frontmatter.name — otherwise byName() is non-deterministic by load order
+   *  and the first skill becomes unreachable by name. */
+  private warnNameCollision(name: string, incomingId: string): void {
+    const existing = this.byNameIdx.get(name);
+    if (existing && existing.id !== incomingId) {
+      this.logger?.warn('SkillRegistry: two skills share a frontmatter name; last one wins by name', {
+        name,
+        existingId: existing.id,
+        incomingId,
+      });
+    }
+  }
 
   list(): ReadonlyArray<Skill> {
     return [...this.byId.values()];
@@ -34,6 +54,7 @@ export class SkillRegistryImpl implements SkillRegistry {
     if (this.byId.has(skill.id)) {
       throw new Error(`Skill already registered: ${skill.id}`);
     }
+    this.warnNameCollision(skill.frontmatter.name, skill.id);
     this.byId.set(skill.id, skill);
     this.byNameIdx.set(skill.frontmatter.name, skill);
   }
@@ -74,6 +95,13 @@ export class SkillRegistryImpl implements SkillRegistry {
     const nextByName = new Map<string, Skill>();
     for (const s of skills) {
       nextById.set(s.id, s);
+      const priorForName = nextByName.get(s.frontmatter.name);
+      if (priorForName && priorForName.id !== s.id) {
+        this.logger?.warn(
+          'SkillRegistry: two skills share a frontmatter name; last one wins by name',
+          { name: s.frontmatter.name, existingId: priorForName.id, incomingId: s.id },
+        );
+      }
       nextByName.set(s.frontmatter.name, s);
     }
     // Synchronous swap: callers between these lines still see the OLD

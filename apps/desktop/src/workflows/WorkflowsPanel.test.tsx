@@ -169,6 +169,59 @@ describe('WorkflowsPanel — list mode', () => {
     fireEvent.click(await screen.findByTestId('new-workflow'));
     expect(await screen.findByTestId('workflow-canvas')).toBeInTheDocument();
   });
+
+  it('switching the edit target re-keys the builder so a slow earlier load cannot win', async () => {
+    // A's getRun resolves LATE (after we've switched to B). Without a fresh
+    // builder per target, A's late load would hydrate B's canvas.
+    const aYaml = ['name: wf-a', 'steps:', '  - id: from_a', '    prompt: A'].join('\n');
+    const bYaml = ['name: wf-b', 'steps:', '  - id: from_b', '    prompt: B'].join('\n');
+    let resolveA: ((v: unknown) => void) | null = null;
+    __setApiOverride({
+      invoke: ((cmd: string, args: unknown) => {
+        if (cmd === 'workflows.list') {
+          return Promise.resolve([
+            { ...sample, name: 'wf-a' },
+            { ...sample, name: 'wf-b' },
+          ]);
+        }
+        if (cmd === 'workflows.getRun') {
+          const name = (args as { name: string }).name;
+          if (name === 'wf-a') return new Promise((res) => (resolveA = res));
+          return Promise.resolve({ name: 'wf-b', yaml: bYaml });
+        }
+        if (cmd === 'workflows.validateDraft') return Promise.resolve({ ok: true, errors: [] });
+        if (cmd === 'session.info') return Promise.resolve(null);
+        return Promise.resolve(undefined);
+      }) as never,
+      subscribe: (() => () => {}) as never,
+    } as MoxxyApi);
+
+    render(<WorkflowsPanel />);
+    await screen.findByTestId('workflow-row-wf-a');
+    // Edit A (load stalls), Back, then Edit B (loads immediately).
+    fireEvent.click(screen.getByTestId('edit-workflow-wf-a'));
+    await screen.findByTestId('workflow-canvas');
+    fireEvent.click(screen.getByTestId('builder-back'));
+    fireEvent.click(await screen.findByTestId('edit-workflow-wf-b'));
+    await screen.findByTestId('wf-node-from_b');
+    // Now let A's load resolve LATE — it must not clobber B's canvas.
+    await act(async () => {
+      resolveA?.({ name: 'wf-a', yaml: aYaml });
+    });
+    await waitFor(() => expect(screen.getByTestId('wf-node-from_b')).toBeInTheDocument());
+    expect(screen.queryByTestId('wf-node-from_a')).not.toBeInTheDocument();
+  });
+
+  it('row action buttons carry per-workflow accessible names + a toggle pressed-state', async () => {
+    installApi({ list: [sample] });
+    render(<WorkflowsPanel />);
+    await screen.findByTestId('workflow-row-daily-summary');
+    expect(screen.getByRole('button', { name: 'Edit daily-summary' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run daily-summary' })).toBeInTheDocument();
+    // Enabled workflow → "Disable …" label + aria-pressed=true.
+    const toggle = screen.getByRole('button', { name: 'Disable daily-summary' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  });
 });
 
 describe('WorkflowsPanel — generate with AI', () => {
@@ -557,6 +610,55 @@ describe('WorkflowsPanel — canvas drag-to-connect', () => {
     fireEvent.keyDown(action, { key: 'Backspace' });
     fireEvent.keyDown(action, { key: 'Delete' });
     expect(screen.getByTestId('wf-node-prompt')).toBeInTheDocument();
+  });
+
+  it('a node card is a focusable button: Enter selects, arrows nudge (keyboard-operable)', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt')); // auto-selects → deselect first
+    const card = await screen.findByTestId('wf-node-prompt');
+    expect(card.getAttribute('role')).toBe('button');
+    expect(card.getAttribute('tabindex')).toBe('0');
+    expect(card.getAttribute('aria-label')).toMatch(/prompt step/i);
+    // Deselect, then Enter on the focused card re-selects it (inspector returns).
+    fireEvent.click(screen.getByTestId('workflow-canvas'));
+    expect(screen.queryByTestId('field-action')).not.toBeInTheDocument();
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(await screen.findByTestId('field-action')).toBeInTheDocument();
+    // Arrow nudges the node's world position (started at 40,40).
+    fireEvent.keyDown(card, { key: 'ArrowRight' });
+    expect((card as HTMLElement).style.left).toBe('48px'); // +8 (NUDGE_STEP)
+    fireEvent.keyDown(card, { key: 'ArrowDown', shiftKey: true });
+    expect((card as HTMLElement).style.top).toBe('80px'); // +40 (large step)
+  });
+
+  it('an edge can be removed with the keyboard (focusable ✕, Enter activates)', async () => {
+    await twoNodes();
+    dragConnect('wf-handle-prompt-needs-right', 240, 84, 460, 320); // wire A→B
+    await screen.findByTestId('wf-edge-needs:prompt->prompt_2');
+    const remove = screen.getByTestId('wf-edge-remove-needs:prompt->prompt_2');
+    expect(remove.getAttribute('role')).toBe('button');
+    expect(remove.getAttribute('tabindex')).toBe('0');
+    expect(remove.getAttribute('aria-label')).toMatch(/remove .*connection/i);
+    fireEvent.keyDown(remove, { key: 'Enter' });
+    await waitFor(() =>
+      expect(screen.queryByTestId('wf-edge-needs:prompt->prompt_2')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('the insert menu is a keyboard menu (role=menu, items role=menuitem, Escape closes)', async () => {
+    await openWith();
+    fireEvent.click(screen.getByTestId('palette-add-prompt'));
+    await screen.findByTestId('wf-node-prompt');
+    dragConnect('wf-handle-prompt-needs-right', 240, 84, 500, 300);
+    const menu = await screen.findByTestId('insert-node-menu');
+    expect(menu.getAttribute('role')).toBe('menu');
+    const items = within(menu).getAllByRole('menuitem');
+    expect(items.length).toBeGreaterThan(0);
+    // Arrow navigation moves the active (tab-order) item.
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    // Escape (menu-scoped) closes it.
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    expect(screen.queryByTestId('insert-node-menu')).not.toBeInTheDocument();
   });
 });
 

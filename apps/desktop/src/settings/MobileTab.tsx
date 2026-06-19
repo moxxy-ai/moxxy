@@ -13,16 +13,21 @@
  * invalidating the old QR and kicking every connected device.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { useMobileGateway } from '@moxxy/client-core';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { Section, Switch } from './settings-primitives';
 
 /** Render a connect URL as a scannable QR (SVG). Pure-JS via the `qrcode`
- *  package's `toString` — no canvas, builds cleanly in the renderer. */
+ *  package's `toString` — no canvas, builds cleanly in the renderer. The SVG
+ *  is wrapped in an <img> data URL rather than injected via
+ *  dangerouslySetInnerHTML: an <img>-referenced SVG runs in the browser's
+ *  restricted mode (no scripts, no external fetches), so even a compromised
+ *  `qrcode` package cannot inject executable markup into the privileged
+ *  renderer DOM. */
 function QrCode({ value }: { readonly value: string }): JSX.Element {
-  const [svg, setSvg] = useState<string | null>(null);
+  const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -30,7 +35,7 @@ function QrCode({ value }: { readonly value: string }): JSX.Element {
     setFailed(false);
     QRCode.toString(value, { type: 'svg', margin: 1, width: 220 })
       .then((markup) => {
-        if (alive) setSvg(markup);
+        if (alive) setSrc(`data:image/svg+xml;utf8,${encodeURIComponent(markup)}`);
       })
       .catch(() => {
         if (alive) setFailed(true);
@@ -50,7 +55,6 @@ function QrCode({ value }: { readonly value: string }): JSX.Element {
   return (
     <div
       data-testid="mobile-qr"
-      aria-label="Pairing QR code"
       style={{
         width: 220,
         height: 220,
@@ -64,26 +68,59 @@ function QrCode({ value }: { readonly value: string }): JSX.Element {
         alignItems: 'center',
         justifyContent: 'center',
       }}
-      // The SVG is generated locally from a string we built — not user/network
-      // content — so it carries no injection risk.
-      dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
-    />
+    >
+      {src && (
+        <img
+          src={src}
+          alt="Pairing QR code"
+          width={200}
+          height={200}
+          style={{ display: 'block' }}
+        />
+      )}
+    </div>
   );
 }
 
 export function MobileTab(): JSX.Element {
   const { status, loading, busy, error, setEnabled, rotateToken } = useMobileGateway();
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  // Reset timers cleared on unmount so a closed panel can't setState after
+  // teardown (and the timers are released).
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const failedTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(
+    () => () => {
+      clearTimeout(copiedTimer.current);
+      clearTimeout(failedTimer.current);
+    },
+    [],
+  );
 
   const copyUrl = (): void => {
     if (!status.connectUrl) return;
-    void navigator.clipboard
-      .writeText(status.connectUrl)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => undefined);
+    setCopyFailed(false);
+    const ok = (): void => {
+      setCopied(true);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+    };
+    const fail = (): void => {
+      setCopyFailed(true);
+      clearTimeout(failedTimer.current);
+      failedTimer.current = setTimeout(() => setCopyFailed(false), 4000);
+    };
+    // The Clipboard API can reject in a packaged renderer (permission / focus /
+    // insecure-context). Surface the failure instead of swallowing it, so the
+    // user knows to select the URL manually rather than paste a stale value.
+    try {
+      const p = navigator.clipboard?.writeText(status.connectUrl);
+      if (p && typeof p.then === 'function') p.then(ok, fail);
+      else ok();
+    } catch {
+      fail();
+    }
   };
 
   return (
@@ -124,17 +161,29 @@ export function MobileTab(): JSX.Element {
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
               Enable mobile gateway
             </div>
-            <div style={{ marginTop: 2, fontSize: 12, color: 'var(--color-text-dim)' }}>
+            {/* Announce status transitions (starting/listening/off) to screen
+                readers — the LAN bridge can take a moment to start. */}
+            <div
+              role="status"
+              aria-live="polite"
+              style={{ marginTop: 2, fontSize: 12, color: 'var(--color-text-dim)' }}
+            >
               {loading
                 ? 'Checking…'
-                : status.enabled
-                  ? `Listening on ${status.host}:${status.port}`
-                  : 'Off — your phone cannot connect.'}
+                : busy
+                  ? status.enabled
+                    ? 'Stopping…'
+                    : 'Starting…'
+                  : status.enabled
+                    ? `Listening on ${status.host}:${status.port}`
+                    : 'Off — your phone cannot connect.'}
             </div>
           </div>
           <Switch
             on={status.enabled}
             label={`${status.enabled ? 'Disable' : 'Enable'} mobile gateway`}
+            disabled={busy}
+            busy={busy}
             onClick={() => {
               if (!busy) void setEnabled(!status.enabled);
             }}
@@ -213,6 +262,15 @@ export function MobileTab(): JSX.Element {
                   {copied ? 'Copied' : 'Copy'}
                 </Button>
               </div>
+              {copyFailed && (
+                <span
+                  role="status"
+                  data-testid="mobile-copy-failed"
+                  style={{ fontSize: 11.5, color: 'var(--color-red)' }}
+                >
+                  Copy failed — select the URL above and copy it manually.
+                </span>
+              )}
             </div>
 
             <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -228,6 +286,7 @@ export function MobileTab(): JSX.Element {
                 variant="secondary"
                 data-testid="mobile-regenerate"
                 disabled={busy}
+                aria-busy={busy || undefined}
                 onClick={() => {
                   if (!busy) void rotateToken();
                 }}

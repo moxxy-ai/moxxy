@@ -249,6 +249,60 @@ describe('AnthropicProvider OAuth token refresh', () => {
     const errors = out.filter((e): e is Extract<ProviderEvent, { type: 'error' }> => e.type === 'error');
     expect(errors).toHaveLength(1);
     expect(errors[0]!.message).toContain('proactive refresh failed');
+    // A failed proactive refresh emits NO message_start — the turn never opens,
+    // so consumers pairing message_start/message_end see nothing dangling.
+    expect(out.some((e) => e.type === 'message_start')).toBe(false);
+  });
+
+  it('does NOT refresh-and-replay a 401 surfaced AFTER content already streamed (no duplicate output)', async () => {
+    // First attempt streams a text delta, THEN throws a 401 mid-stream (token
+    // revoked during generation). Replaying would duplicate the text + emit a
+    // second message_end; the provider must instead surface the error once.
+    const fake = fakeClient((attempt) => {
+      if (attempt === 1) {
+        return [
+          { type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } },
+          { type: 'content_block_delta', delta: { type: 'text_delta', text: 'partial' } },
+          { __throw: unauthorizedError() } as unknown,
+        ];
+      }
+      return DONE_EVENTS;
+    });
+    // Make the fake throw when it reaches a `__throw` sentinel mid-iteration.
+    const msgs = fake.client.messages as unknown as { stream: () => AsyncIterable<unknown> };
+    const inner = msgs.stream.bind(msgs);
+    msgs.stream = () => {
+      const it = inner();
+      return (async function* () {
+        for await (const e of it) {
+          if (e && typeof e === 'object' && '__throw' in e) {
+            throw (e as { __throw: unknown }).__throw;
+          }
+          yield e;
+        }
+      })();
+    };
+
+    let refreshCalls = 0;
+    const p = new AnthropicProvider({
+      oauthToken: 'tok-old',
+      oauthExpiresAt: Date.now() + 3_600_000, // fresh -> the mid-stream 401 drives this path
+      oauthRefresh: async () => {
+        refreshCalls += 1;
+        return { token: 'tok-new' };
+      },
+      client: fake.client,
+    });
+    pinClient(p, fake.client);
+
+    const out = await drain(p.stream(baseReq));
+
+    // No replay: the 401 arrived after output, so we surface the error instead.
+    expect(refreshCalls).toBe(0);
+    // The partial text was streamed exactly once (not duplicated by a replay).
+    expect(out.filter((e) => e.type === 'text_delta')).toHaveLength(1);
+    expect(out.filter((e) => e.type === 'message_start')).toHaveLength(1);
+    expect(out.filter((e) => e.type === 'error')).toHaveLength(1);
   });
 
   it('countTokens proactively refreshes a near-expiry token before counting', async () => {

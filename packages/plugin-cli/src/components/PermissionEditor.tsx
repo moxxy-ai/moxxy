@@ -68,12 +68,21 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
           mode.bucket === 'allow'
             ? engine.addAllow({ name })
             : engine.addDeny({ name });
-        void promise.then(() => {
-          refresh(engine);
-          setDirty(true);
-          setMode({ kind: 'message', text: `added ${mode.bucket}: ${name}` });
-          setStatus('saved');
-        });
+        const bucket = mode.bucket;
+        void promise
+          .then(() => {
+            refresh(engine);
+            setDirty(true);
+            setMode({ kind: 'message', text: `added ${bucket}: ${name}` });
+            setStatus('saved');
+          })
+          .catch((err: unknown) => {
+            // A rejected disk write (EACCES/ENOSPC/locked) must NOT read as
+            // "saved" on a security-policy editor — surface it and avoid the
+            // unhandled rejection.
+            setMode({ kind: 'message', text: `FAILED to add ${bucket}: ${errMessage(err)}` });
+            setStatus('save failed');
+          });
         return;
       }
       if (key.backspace || key.delete) {
@@ -92,12 +101,19 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
           setMode({ kind: 'list' });
           return;
         }
-        void engine.removeByName(mode.row.name).then(() => {
-          refresh(engine);
-          setDirty(true);
-          setMode({ kind: 'message', text: `removed: ${mode.row.name}` });
-          setStatus('saved');
-        });
+        const removedName = mode.row.name;
+        void engine
+          .removeByName(removedName)
+          .then(() => {
+            refresh(engine);
+            setDirty(true);
+            setMode({ kind: 'message', text: `removed: ${removedName}` });
+            setStatus('saved');
+          })
+          .catch((err: unknown) => {
+            setMode({ kind: 'message', text: `FAILED to remove ${removedName}: ${errMessage(err)}` });
+            setStatus('save failed');
+          });
         return;
       }
       setMode({ kind: 'list' });
@@ -131,23 +147,23 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
       const row = rows[cursor];
       if (!row || !engine) return;
       const targetKind: 'allow' | 'deny' = row.kind === 'allow' ? 'deny' : 'allow';
-      void (async () => {
-        await engine.removeByName(row.name);
-        if (targetKind === 'allow') {
-          await engine.addAllow({
-            name: row.name,
-            ...(row.reason ? { reason: row.reason } : {}),
-          });
-        } else {
-          await engine.addDeny({
-            name: row.name,
-            ...(row.reason ? { reason: row.reason } : {}),
-          });
-        }
+      const rule = { name: row.name, ...(row.reason ? { reason: row.reason } : {}) };
+      const reAdd = (kind: 'allow' | 'deny'): Promise<unknown> =>
+        kind === 'allow' ? engine.addAllow(rule) : engine.addDeny(rule);
+      void flipRule({
+        remove: () => engine.removeByName(row.name),
+        reAdd,
+        from: row.kind,
+        to: targetKind,
+      }).then((result) => {
         refresh(engine);
-        setDirty(true);
-        setStatus(`flipped ${row.name} → ${targetKind}`);
-      })();
+        if (result.ok) {
+          setDirty(true);
+          setStatus(`flipped ${row.name} → ${targetKind}`);
+        } else {
+          setStatus(`flip FAILED for ${row.name}: ${errMessage(result.error)}`);
+        }
+      });
       return;
     }
     if (input === 'q' || (key.ctrl && input === 'c')) {
@@ -187,17 +203,58 @@ export const PermissionEditor: React.FC<PermissionEditorProps> = ({ policyPath }
         ) : mode.kind === 'confirm-delete' ? (
           <Text color="yellow">delete `{mode.row.name}` ({mode.row.kind})? [y/N]</Text>
         ) : mode.kind === 'message' ? (
-          <Text color="green">{mode.text}  (press any key)</Text>
+          <Text color={/FAILED/i.test(mode.text) ? 'red' : 'green'}>{mode.text}  (press any key)</Text>
         ) : (
           <Text dimColor>
             ↑/↓ move · space/enter flip · a add allow · D add deny · d delete · q quit
-            {dirty ? <Text color="green">  · {status}</Text> : null}
+            {dirty || /FAILED/i.test(status) ? (
+              <Text color={/FAILED/i.test(status) ? 'red' : 'green'}>{`  · ${status}`}</Text>
+            ) : null}
           </Text>
         )}
       </Box>
     </Box>
   );
 };
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export type FlipResult = { ok: true } | { ok: false; error: unknown };
+
+/**
+ * Atomically flip a permission rule from `from` to `to`. The flip is two disk
+ * writes (remove + re-add); if the re-add fails AFTER the remove succeeded we'd
+ * silently DROP the rule — the worst outcome being a vanished DENY rule on a
+ * security-policy editor. This best-effort restores the original kind so a
+ * failed toggle leaves the policy exactly as it was. Never throws — the caller
+ * surfaces the error via the returned result. Exported for unit tests.
+ */
+export async function flipRule(ops: {
+  readonly remove: () => Promise<unknown>;
+  readonly reAdd: (kind: 'allow' | 'deny') => Promise<unknown>;
+  readonly from: 'allow' | 'deny';
+  readonly to: 'allow' | 'deny';
+}): Promise<FlipResult> {
+  let removed = false;
+  try {
+    await ops.remove();
+    removed = true;
+    await ops.reAdd(ops.to);
+    return { ok: true };
+  } catch (error) {
+    if (removed) {
+      try {
+        await ops.reAdd(ops.from);
+      } catch {
+        // Restore also failed — nothing more we can safely do; the original
+        // error is still surfaced to the caller.
+      }
+    }
+    return { ok: false, error };
+  }
+}
 
 function toRows(engine: PermissionEngine): Row[] {
   const snap = engine.policySnapshot;

@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { defineTool, z } from '@moxxy/sdk';
-import { clampString, globToRegExp, IGNORED_DIR_NAMES, resolvePath } from './util.js';
+import { clampString, globToRegExp, IGNORED_DIR_NAMES, MAX_WALK_DEPTH, resolvePath } from './util.js';
 
 export const globTool = defineTool({
   name: 'Glob',
@@ -31,13 +31,42 @@ export const globTool = defineTool({
       matches.push(entry);
       if (matches.length >= max) break;
     }
-    const withMtime = await Promise.all(
-      matches.map(async (p) => ({ p, mtime: (await fs.stat(p).catch(() => null))?.mtime?.getTime() ?? 0 })),
-    );
-    withMtime.sort((a, b) => b.mtime - a.mtime);
-    return clampString(withMtime.map((x) => x.p).join('\n'), 50_000);
+    // Stat in bounded-concurrency batches rather than firing one syscall per
+    // match at once — on a large match set over a slow/networked fs an
+    // unbounded fan-out exhausts file handles. Entries whose stat fails (e.g.
+    // deleted between walk and stat) are dropped rather than sorted to mtime 0.
+    const withMtime = await mapWithConcurrency(matches, STAT_CONCURRENCY, async (p) => {
+      const mtime = (await fs.stat(p).catch(() => null))?.mtime?.getTime();
+      return mtime === undefined ? null : { p, mtime };
+    });
+    const present = withMtime.filter((x): x is { p: string; mtime: number } => x !== null);
+    present.sort((a, b) => b.mtime - a.mtime);
+    return clampString(present.map((x) => x.p).join('\n'), 50_000);
   },
 });
+
+/** Concurrency limit for the post-walk stat fan-out. */
+const STAT_CONCURRENCY = 32;
+
+/** Run `fn` over `items` with at most `limit` in flight, preserving order. */
+async function mapWithConcurrency<T, R>(
+  items: ReadonlyArray<T>,
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!);
+    }
+  };
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
 
 async function* fsGlob(
   baseDir: string,
@@ -48,7 +77,7 @@ async function* fsGlob(
   // Track resolved dir paths we've already descended into so a self- or
   // cross-symlink cycle doesn't loop forever.
   const visited = new Set<string>();
-  yield* walk(baseDir, regex, baseDir, signal, visited);
+  yield* walk(baseDir, regex, baseDir, signal, visited, 0);
 }
 
 async function* walk(
@@ -57,8 +86,13 @@ async function* walk(
   cursor: string,
   signal: AbortSignal,
   visited: Set<string>,
+  depth: number,
 ): AsyncIterable<string> {
   if (signal.aborted) return;
+  // Bound recursion depth: a pathologically deep real tree (the `visited` set
+  // only stops *symlink cycles*, not genuine depth) would otherwise overflow
+  // the call stack with an uncatchable RangeError. Mirrors Grep's ceiling.
+  if (depth >= MAX_WALK_DEPTH) return;
   // Resolve via realpath so two different symlinks pointing at the same
   // directory collapse to a single visited entry. If realpath fails (broken
   // link), skip this branch entirely.
@@ -96,7 +130,7 @@ async function* walk(
       }
     }
     if (isDir) {
-      yield* walk(root, regex, full, signal, visited);
+      yield* walk(root, regex, full, signal, visited, depth + 1);
     }
     if (isFile) {
       const relative = path.relative(root, full);

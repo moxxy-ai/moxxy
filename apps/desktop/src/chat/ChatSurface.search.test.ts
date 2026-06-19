@@ -56,4 +56,26 @@ describe('ChatSurface search helpers — byte-identical to the inline predicate'
     expect(spy.mock.calls.length).toBe(callsAfterBuild);
     spy.mockRestore();
   });
+
+  // Defensive: if a caller ever passes an index that is shorter than (or
+  // otherwise misaligned with) `events`, the missing rows must degrade to
+  // "no match" rather than throwing a TypeError on `undefined.some`.
+  it('degrades a short/misaligned index to no-match instead of throwing', () => {
+    const shortIndex = buildSearchIndex(log).slice(0, 2); // drop tail rows
+    let result: ReadonlyArray<MoxxyEvent> = [];
+    expect(() => {
+      result = filterEventsBySearch(log, shortIndex, 'needle');
+    }).not.toThrow();
+    // The indexed user_prompt/assistant rows have no 'needle'; the dropped
+    // rows can't match → empty result, no crash.
+    expect(result).toEqual([]);
+  });
+
+  it('an empty index never throws and matches nothing', () => {
+    expect(filterEventsBySearch(log, [], 'write')).toEqual([]);
+    expect(() => filterEventsBySearch(log, [], '')).not.toThrow();
+    // An empty query against an empty index still degrades to no-match (every
+    // row's haystack is the `[]` fallback), not the whole log.
+    expect(filterEventsBySearch(log, [], '')).toEqual([]);
+  });
 });

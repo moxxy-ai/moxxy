@@ -36,20 +36,28 @@ function defaultCacheFile(): string {
 }
 
 /**
- * Numeric major.minor.patch compare, ignoring any prerelease/build suffix.
- * Returns >0 if `a` is newer than `b`. (A local copy so the CLI doesn't take a
- * dependency on `@moxxy/desktop-host` just for this.)
+ * Numeric major.minor.patch compare. Returns >0 if `a` is newer than `b`.
+ * Per SemVer §11, when the release tuple ties, a version WITH a prerelease tag
+ * (e.g. `0.5.5-beta.1`) sorts BELOW the same release without one (`0.5.5`), so a
+ * beta user is correctly told the stable shipped. (A local copy so the CLI
+ * doesn't take a dependency on `@moxxy/desktop-host` just for this.)
  */
 export function compareSemver(a: string, b: string): number {
-  const parse = (s: string): number[] =>
-    (s.split('-')[0] ?? '').split('.').map((n) => Number.parseInt(n, 10) || 0);
-  const pa = parse(a);
-  const pb = parse(b);
+  const split = (s: string): { tuple: number[]; pre: boolean } => {
+    const [release = '', ...rest] = s.split('-');
+    return {
+      tuple: release.split('.').map((n) => Number.parseInt(n, 10) || 0),
+      pre: rest.length > 0 && rest.join('-').length > 0,
+    };
+  };
+  const pa = split(a);
+  const pb = split(b);
   for (let i = 0; i < 3; i += 1) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    const d = (pa.tuple[i] ?? 0) - (pb.tuple[i] ?? 0);
     if (d !== 0) return d < 0 ? -1 : 1;
   }
-  return 0;
+  if (pa.pre === pb.pre) return 0;
+  return pa.pre ? -1 : 1; // prerelease < release on a tuple tie
 }
 
 function readCache(file: string): CacheShape | null {

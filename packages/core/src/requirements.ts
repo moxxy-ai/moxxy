@@ -141,7 +141,13 @@ export class RequirementRegistry {
       return issue(requirement, 'missing', `Required ${label(requirement.kind)} is not registered: ${requirement.name}`);
     }
 
-    if (requirement.version && target.version !== requirement.version) {
+    // `version` is only resolvable for the `plugin` kind (the sole kind whose
+    // `targetInfo` populates a version — see {@link targetInfo}). The SDK type
+    // permits `version` on every kind, so without this gate a `version` on any
+    // non-plugin kind would compare against an always-undefined `target.version`
+    // and report a permanent, spurious `version_mismatch` (target shown as
+    // `(unknown)`) even though the target is present and active.
+    if (requirement.kind === 'plugin' && requirement.version && target.version !== requirement.version) {
       return issue(
         requirement,
         'version_mismatch',

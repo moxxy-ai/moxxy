@@ -1,7 +1,8 @@
 import { MoxxyError } from '@moxxy/sdk';
 import type { McpClientLike, McpServerConfig, McpToolDescriptor } from '../types.js';
 import { defaultClientFactory } from '../client.js';
-import { wrapMcpServerTools, wrapMcpServerToolsLazy } from '../wrap.js';
+import { MCP_CONNECT_TIMEOUT_MS, withTimeout } from '../timeout.js';
+import { wrapMcpServerToolsLazy } from '../wrap.js';
 import { mutateMcpConfig } from './config-io.js';
 import { resolveServerSecrets, type McpSecretResolver } from './secrets.js';
 import type {
@@ -49,10 +50,39 @@ export function createMcpRuntime(
    * them into mcp.json for lazy boots next time.
    */
   const attachServer: McpRuntime['attachServer'] = async (server) => {
-    const client = await connect(server);
-    const list = await client.listTools();
+    // Bound the connect + listTools handshake. `mcp_add_server` and
+    // `enableAndAttach` drive this path at the model's request; a wedged
+    // server spawn (or a connected-but-mute endpoint that never answers
+    // listTools) would otherwise hang the tool call indefinitely — a
+    // permanent pending dot with no recovery short of killing moxxy. On
+    // timeout we reject AND close any client that opened, so a slow-to-spawn
+    // stdio child / socket can't leak after we've given up on it.
+    const client = await withTimeout(
+      connect(server),
+      MCP_CONNECT_TIMEOUT_MS,
+      `MCP connect "${server.name}"`,
+    );
+    let list: { tools: ReadonlyArray<McpToolDescriptor> };
+    try {
+      list = await withTimeout(
+        client.listTools(),
+        MCP_CONNECT_TIMEOUT_MS,
+        `MCP listTools "${server.name}"`,
+      );
+    } catch (err) {
+      await client.close().catch(() => {});
+      throw err;
+    }
     const descriptors = list.tools;
-    const wrapped = await wrapMcpServerTools({ server, client });
+    // List ONCE and feed the descriptors into the lazy wrapper over the
+    // already-open client — wrapMcpServerTools would call listTools a second
+    // time, paying a redundant round-trip and risking descriptor/tool drift
+    // for servers whose tool list is non-deterministic between calls.
+    const wrapped = wrapMcpServerToolsLazy({
+      server,
+      descriptors,
+      getClient: () => Promise.resolve(client),
+    });
     if (!registry) {
       await client.close();
       return { toolNames: wrapped.map((t) => t.name), descriptors };
@@ -95,14 +125,27 @@ export function createMcpRuntime(
     const getOrConnect = async (): Promise<McpClientLike> => {
       if (!connectPromise) {
         connectPromise = (async () => {
-          const client = await connect(server);
+          // Bound the first-call connect so a wedged transport can't hang the
+          // triggering tool call forever (the per-call timeout in wrap.ts only
+          // covers callTool, not this connect handshake).
+          const client = await withTimeout(
+            connect(server),
+            MCP_CONNECT_TIMEOUT_MS,
+            `MCP connect "${server.name}"`,
+          );
           // Stash the live client on the runtime entry so shutdown can
           // close it. The entry was created with a sentinel; replace it.
           const runtime = runtimes.get(server.name);
           if (runtime) {
             runtimes.set(server.name, { client, toolNames: runtime.toolNames });
+            return client;
           }
-          return client;
+          // detachServer ran while this connect was in flight: the runtime
+          // entry (and its shutdown close path) is gone. Close the freshly
+          // opened client here so its stdio child / socket isn't orphaned,
+          // and fail the call rather than handing back a leaked handle.
+          await client.close().catch(() => {});
+          throw new Error(`MCP server "${server.name}" detached during connect`);
         })().catch((err) => {
           // Reset so a future call can retry instead of being stuck on
           // a rejected promise.
@@ -147,9 +190,23 @@ export function createMcpRuntime(
    * caller's subsequent `attachServerLazy` call.
    */
   const refreshServerCache: McpRuntime['refreshServerCache'] = async (server) => {
-    const client = await connect(server);
+    // Bound the connect handshake: a dead endpoint or a stdio child that
+    // spawns but never completes the MCP handshake would otherwise hang here,
+    // and at boot core awaits onInit serially — one stale entry would make
+    // moxxy unstartable. On timeout we reject (the onInit catch logs+skips it).
+    const client = await withTimeout(
+      connect(server),
+      MCP_CONNECT_TIMEOUT_MS,
+      `MCP connect "${server.name}"`,
+    );
     try {
-      const list = await client.listTools();
+      // Bound listTools too — a connected-but-unresponsive server can stall
+      // discovery just as badly as a dead connect.
+      const list = await withTimeout(
+        client.listTools(),
+        MCP_CONNECT_TIMEOUT_MS,
+        `MCP listTools "${server.name}"`,
+      );
       const refreshed: McpStoredServer = { ...server, cachedTools: list.tools };
       // Persist the refreshed cache so subsequent boots can lazy-attach
       // without reconnecting. Read-modify-write under the shared config

@@ -184,6 +184,7 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     coordinatorSessionId: String(ctx.sessionId),
     parentTask: task,
     ...(cfg.defaultModel ? { defaultModel: cfg.defaultModel } : {}),
+    peerMaxIterations: cfg.peerMaxIterations,
     signal: ctx.signal,
   };
   supervisor = (deps.createSupervisor ?? ((o) => new PeerSupervisor(o)))(supervisorOpts, hub);
@@ -327,6 +328,12 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
       }
       await waitForAgents(hub, supervisor, roster.map((r) => r.id), ctx.signal, cfg.wallClockMs);
       yield* surfaceFailures(ctx, hub, supervisor, roster.map((r) => r.id));
+      // Stop every peer process (await its real exit) BEFORE integrate commits/
+      // merges its worktree. waitForAgents can return on wall-clock/abort while a
+      // peer is still genuinely writing; without this, integrate() would snapshot
+      // a worktree a live child is concurrently mutating. stop() is a no-op for
+      // already-exited (done/crashed) children, so the happy path is unchanged.
+      await Promise.all(roster.map((r) => supervisor!.stop(r.id)));
       for (const r of roster) if (statusOf(hub, r.id) === 'done') doneIds.push(r.id);
     } else {
       // Explicit sequential mode: one agent at a time, in the shared workspace.
@@ -361,6 +368,7 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
         worktrees,
         board: hub.state.boardItems(),
         mergePolicy: cfg.mergePolicy,
+        verifyGate: cfg.verifyGate,
       });
       mergeForArchive = {
         merged: result.merged,
@@ -399,6 +407,18 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     );
     completed = true;
     yield await ctx.emit(plugin(ctx, 'collab_completed', { done: doneIds, total: roster.length }));
+  } catch (err) {
+    // A git-layer throw (worktree add on a leftover path, checkout, base resolve,
+    // disk full mid-integrate) would otherwise reject the async generator as an
+    // unhandled error — the user sees a raw crash and the turn ends abnormally.
+    // Degrade gracefully: surface a clean failure event + message, then let the
+    // finally tear everything down (and archive the run as 'failed'). `completed`
+    // stays false so the archive outcome is correct.
+    const message = err instanceof Error ? err.message : String(err);
+    yield await ctx.emit(plugin(ctx, 'collab_failed', { message }));
+    yield await ctx.emit(
+      assistant(ctx, `The collaboration could not finish — ${message}. Any partial work was left on its branch; cleaning up.`),
+    );
   } finally {
     if (supervisor) await supervisor.shutdownAll('collaboration complete');
     // Archive the run (durable history) BEFORE tearing the hub down — the record
@@ -463,12 +483,17 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
       await removeWorktree(cwd, wt).catch(() => undefined);
     }
     // Drop the transient socket dir; the durable run record is archived
-    // elsewhere (see the archive step), not here.
+    // elsewhere (see the archive step), not here. A recursive delete can partially
+    // fail (EBUSY/ENOTEMPTY) if a peer hasn't fully released a unix socket fd;
+    // log it under MOXXY_DEBUG instead of swallowing so a genuinely-failing
+    // cleanup (permissions) is diagnosable and orphan dirs don't vanish silently.
     try {
       rmSync(collabRunDir(runId), { recursive: true, force: true });
       rmSync(worktreeRoot(runId), { recursive: true, force: true });
-    } catch {
-      // best-effort
+    } catch (err) {
+      if (process.env.MOXXY_DEBUG) {
+        process.stderr.write(`[collab] run-dir cleanup failed for ${runId}: ${(err as Error).message}\n`);
+      }
     }
     // Prune any worktree metadata left dangling by a hard-deleted dir (e.g. an
     // integrate staging worktree that never reached its own removeWorktree).
@@ -500,15 +525,19 @@ function readRoster(path: string, maxAgents: number): RosterEntry[] {
       const id = slug(r.id);
       if (!id || seen.has(id) || id === ARCHITECT_AGENT_ID) continue;
       seen.add(id);
+      const ownedPaths = cleanOwnedPaths(r.ownedPaths);
       out.push({
         id,
-        name: typeof r.name === 'string' ? r.name : id,
+        // `name` and `subtask` are LLM-authored free text. `subtask` is carried in
+        // a spawned peer's env (COLLAB_ENV.Subtask) — an unbounded value bloats the
+        // child's environment — so strip NULs and cap both.
+        name: cleanText(r.name, 80) || id,
         // Carry the architect's proposed role (pm/designer/developer/qa/writer/…)
         // so the team is cross-functional, not a pool of identical implementers.
         role: cleanRole(r.role),
-        subtask: r.subtask,
-        ...(Array.isArray(r.ownedPaths) ? { ownedPaths: r.ownedPaths.filter((p) => typeof p === 'string') } : {}),
-        ...(typeof r.model === 'string' ? { model: r.model } : {}),
+        subtask: cleanText(r.subtask, 2000),
+        ...(ownedPaths.length ? { ownedPaths } : {}),
+        ...(typeof r.model === 'string' ? { model: cleanText(r.model, 100) } : {}),
         ...(typeof r.charter === 'string' && r.charter.trim() ? { charter: cleanCharter(r.charter) } : {}),
       });
       if (out.length >= maxAgents) break;
@@ -548,6 +577,39 @@ function cleanRole(raw: unknown): string {
   const r = raw.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
   if (!r || r === ARCHITECT_AGENT_ID) return 'implementer';
   return r;
+}
+
+/** Bound a piece of LLM-authored free text: strip NULs (they can't legally appear
+ *  in an env var and corrupt downstream parsing), trim, and length-cap. Non-strings
+ *  → ''. */
+function cleanText(raw: unknown, max: number): string {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(/\u0000/g, '').trim().slice(0, max);
+}
+
+/** Max owned-path claims kept per roster entry, and the per-path length cap. The
+ *  architect is told to claim the narrowest set, but the roster is untrusted LLM
+ *  output — a runaway list of thousands of claims would bloat the board AND make
+ *  the O(claims) ownership scan pathological — so bound both count and length. */
+const MAX_OWNED_PATHS = 64;
+const MAX_OWNED_PATH_LEN = 512;
+
+/** Normalise a roster entry's `ownedPaths`: keep only non-empty strings, strip
+ *  NULs, length-cap each path, dedupe, and cap the count. These feed the file-lock
+ *  board + the integrate ownership map, both untrusted-input surfaces. */
+function cleanOwnedPaths(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of raw) {
+    if (typeof p !== 'string') continue;
+    const cleaned = p.replace(/\u0000/g, '').trim().slice(0, MAX_OWNED_PATH_LEN);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+    if (out.length >= MAX_OWNED_PATHS) break;
+  }
+  return out;
 }
 
 /** Sanitise an architect-authored charter: strip NULs and cap length (it's

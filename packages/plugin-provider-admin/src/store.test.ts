@@ -75,4 +75,41 @@ describe('providers.json store', () => {
     const cfg = await readProvidersConfig(cfgPath);
     expect(cfg.providers).toEqual([]);
   });
+
+  it('rethrows a genuine IO error instead of collapsing it to an empty catalog', async () => {
+    // A read failure that is NOT "file missing" (here: the path resolves to a
+    // DIRECTORY → EISDIR) must surface as a real error, not silently become an
+    // empty catalog the next write would then CLOBBER.
+    const dirAsFile = path.join(tmpDir, 'a-directory');
+    await fs.mkdir(dirAsFile);
+    await expect(readProvidersConfig(dirAsFile)).rejects.toBeTruthy();
+  });
+
+  it('defaults supportsTools/supportsStreaming on a legacy on-disk model', async () => {
+    // A hand-edited / legacy entry with only {id, contextWindow} must round-trip
+    // into a complete ModelDescriptor (required booleans defaulted true), not
+    // reach buildProviderDef with `undefined` flags.
+    await fs.writeFile(
+      cfgPath,
+      JSON.stringify({
+        providers: [
+          {
+            kind: 'openai-compat',
+            name: 'legacy',
+            baseURL: 'https://api.legacy.com/v1',
+            defaultModel: 'm',
+            models: [{ id: 'm', contextWindow: 1000 }],
+          },
+        ],
+      }),
+      'utf8',
+    );
+    const cfg = await readProvidersConfig(cfgPath);
+    expect(cfg.providers[0]!.models[0]).toMatchObject({
+      id: 'm',
+      contextWindow: 1000,
+      supportsTools: true,
+      supportsStreaming: true,
+    });
+  });
 });

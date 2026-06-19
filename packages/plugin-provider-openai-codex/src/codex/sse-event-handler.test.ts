@@ -30,3 +30,56 @@ describe('handleSseEvent — reasoning summary', () => {
     ]);
   });
 });
+
+describe('handleSseEvent — hostile-stream bounds', () => {
+  it('caps a single tool call argument accumulation across many delta frames', () => {
+    const pending = new Map<string, PendingFunctionCall>();
+    // Seed a function call.
+    handleSseEvent(
+      {
+        type: 'response.output_item.added',
+        item: { type: 'function_call', id: 'fc1', call_id: 'call_1', name: 'echo' },
+      },
+      pending,
+      false,
+    );
+    // A hostile stream sends 2 MiB per delta frame; each frame is individually
+    // small enough to pass the consumer's frame buffer but accumulates across
+    // frames. The handler must surface a terminal error before unbounded growth.
+    const bigDelta = 'a'.repeat(2 * 1024 * 1024);
+    let result;
+    for (let i = 0; i < 20; i++) {
+      result = handleSseEvent(
+        { type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: bigDelta },
+        pending,
+        false,
+      );
+      if (result.terminal) break;
+    }
+    expect(result?.terminal).toBe(true);
+    expect(result?.events?.[0]).toMatchObject({ type: 'error', retryable: false });
+    // It bailed well before 20 * 2 MiB = 40 MiB accumulated (cap is 16 MiB).
+    expect(pending.get('fc1')!.args.length).toBeLessThanOrEqual(16 * 1024 * 1024);
+  });
+
+  it('caps the number of concurrently-pending tool calls', () => {
+    const pending = new Map<string, PendingFunctionCall>();
+    let result;
+    // A hostile stream seeds unbounded distinct function-call ids, never .done-ing
+    // any. The Map must not grow without limit.
+    for (let i = 0; i < 2000; i++) {
+      result = handleSseEvent(
+        {
+          type: 'response.output_item.added',
+          item: { type: 'function_call', id: `fc_${i}`, call_id: `call_${i}`, name: 'echo' },
+        },
+        pending,
+        false,
+      );
+      if (result.terminal) break;
+    }
+    expect(result?.terminal).toBe(true);
+    expect(result?.events?.[0]).toMatchObject({ type: 'error', retryable: false });
+    expect(pending.size).toBeLessThanOrEqual(1024);
+  });
+});

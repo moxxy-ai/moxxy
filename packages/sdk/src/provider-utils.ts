@@ -72,7 +72,16 @@ export function toFriendlyError(
  * (`shape`, `type`) which aren't part of zod's public typed surface but are
  * stable enough across versions to rely on for this best-effort path.
  */
-export function zodToJsonSchema(schema: unknown): unknown {
+/**
+ * Max recursion depth for {@link zodToJsonSchema}. A legitimately deep finite
+ * schema (or a pathological/adversarial tool definition) recurses one frame per
+ * level; past this cap we degrade to the permissive `{}` schema instead of
+ * blowing the call stack and taking down provider request construction.
+ */
+const MAX_SCHEMA_DEPTH = 32;
+
+export function zodToJsonSchema(schema: unknown, depth = 0): unknown {
+  if (depth > MAX_SCHEMA_DEPTH) return {};
   const s = schema as { _def?: { typeName?: string }; toJSON?: () => unknown };
   // Only honor a pre-serialized schema's `toJSON` for NON-zod objects (a plain
   // JSON-schema object passed through). A real zod schema (has `_def`) MUST go
@@ -89,7 +98,7 @@ export function zodToJsonSchema(schema: unknown): unknown {
   // Codex's /responses validator reject ("object schema missing properties").
   if (typeName === 'ZodEffects') {
     const inner = (def as unknown as { schema: unknown }).schema;
-    return zodToJsonSchema(inner);
+    return zodToJsonSchema(inner, depth + 1);
   }
   // ZodOptional / ZodNullable / ZodDefault / ZodBranded / ZodReadonly all
   // wrap an inner schema we want to unwrap for JSON-schema purposes.
@@ -101,7 +110,7 @@ export function zodToJsonSchema(schema: unknown): unknown {
     typeName === 'ZodReadonly'
   ) {
     const inner = (def as unknown as { innerType: unknown }).innerType;
-    return zodToJsonSchema(inner);
+    return zodToJsonSchema(inner, depth + 1);
   }
   // `.and(other)` produces a ZodIntersection. The standard JSON-schema
   // representation is `allOf`, but strict validators (Codex again) want
@@ -110,8 +119,8 @@ export function zodToJsonSchema(schema: unknown): unknown {
   // and required lists into one object. Fall back to `allOf` otherwise.
   if (typeName === 'ZodIntersection') {
     const intersection = def as unknown as { left: unknown; right: unknown };
-    const left = zodToJsonSchema(intersection.left) as Record<string, unknown>;
-    const right = zodToJsonSchema(intersection.right) as Record<string, unknown>;
+    const left = zodToJsonSchema(intersection.left, depth + 1) as Record<string, unknown>;
+    const right = zodToJsonSchema(intersection.right, depth + 1) as Record<string, unknown>;
     if (
       left &&
       right &&
@@ -139,7 +148,7 @@ export function zodToJsonSchema(schema: unknown): unknown {
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
     for (const [key, value] of Object.entries(shape)) {
-      properties[key] = zodToJsonSchema(value);
+      properties[key] = zodToJsonSchema(value, depth + 1);
       const isOptional = (value as { isOptional?: () => boolean }).isOptional?.();
       if (!isOptional) required.push(key);
     }
@@ -166,11 +175,11 @@ export function zodToJsonSchema(schema: unknown): unknown {
   }
   if (typeName === 'ZodUnion' || typeName === 'ZodDiscriminatedUnion') {
     const options = (def as unknown as { options: ReadonlyArray<unknown> }).options;
-    return { anyOf: options.map((o) => zodToJsonSchema(o)) };
+    return { anyOf: options.map((o) => zodToJsonSchema(o, depth + 1)) };
   }
   if (typeName === 'ZodArray') {
     // ZodArray._def.type is the element schema.
-    const items = zodToJsonSchema((def as unknown as { type: unknown }).type);
+    const items = zodToJsonSchema((def as unknown as { type: unknown }).type, depth + 1);
     return { type: 'array', items };
   }
   if (typeName === 'ZodRecord') {
@@ -178,18 +187,18 @@ export function zodToJsonSchema(schema: unknown): unknown {
     // one schema. Carry the value schema through `additionalProperties` rather
     // than discarding it to the permissive fallback below.
     const valueType = (def as unknown as { valueType: unknown }).valueType;
-    return { type: 'object', additionalProperties: zodToJsonSchema(valueType) };
+    return { type: 'object', additionalProperties: zodToJsonSchema(valueType, depth + 1) };
   }
   if (typeName === 'ZodTuple') {
     // ZodTuple._def.items is the ordered element schemas; `rest` (if set) is the
     // variadic tail. Emit a fixed-position `items` array + an `additionalItems`
     // schema for the rest, mirroring JSON-schema's positional-tuple form.
     const tupleDef = def as unknown as { items: ReadonlyArray<unknown>; rest?: unknown };
-    const items = tupleDef.items.map((i) => zodToJsonSchema(i));
+    const items = tupleDef.items.map((i) => zodToJsonSchema(i, depth + 1));
     return {
       type: 'array',
       items,
-      ...(tupleDef.rest != null ? { additionalItems: zodToJsonSchema(tupleDef.rest) } : {}),
+      ...(tupleDef.rest != null ? { additionalItems: zodToJsonSchema(tupleDef.rest, depth + 1) } : {}),
     };
   }
   if (typeName === 'ZodAny' || typeName === 'ZodUnknown') {

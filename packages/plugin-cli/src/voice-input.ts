@@ -4,6 +4,14 @@ import { getInstallHint, type RequirementCheck, type RequirementIssue } from '@m
 
 export const VOICE_CAPTURE_RUNTIME = 'voice:capture:ffmpeg';
 
+/**
+ * Hard ceiling on a single capture's buffered PCM. At 24kHz mono s16le
+ * (~48KB/s) this is ~10 minutes of audio — well past any sane voice prompt.
+ * Past this we stop appending bytes and signal ffmpeg to quit so an abandoned
+ * (or runaway) recording can't grow its in-memory buffer without bound.
+ */
+const MAX_CAPTURE_BYTES = 30 * 1024 * 1024;
+
 export interface ActiveVoiceRecording {
   stop(): Promise<Buffer>;
 }
@@ -19,6 +27,10 @@ export interface StartVoiceRecordingOptions {
   readonly audioDevice?: string;
   readonly stopTimeoutMs?: number;
   readonly spawnImpl?: typeof spawn;
+  /** Hard ceiling on buffered PCM bytes for a single capture. Defaults to
+   *  {@link MAX_CAPTURE_BYTES}. Past it, buffering stops and ffmpeg is asked to
+   *  quit so an abandoned/runaway recording can't grow memory without bound. */
+  readonly maxCaptureBytes?: number;
 }
 
 export interface VoiceCaptureAvailabilityOptions {
@@ -61,9 +73,27 @@ export async function startVoiceRecording(
   }) as ChildProcessWithoutNullStreams;
   const chunks: Buffer[] = [];
   const stderrChunks: Buffer[] = [];
+  const maxCaptureBytes = opts.maxCaptureBytes ?? MAX_CAPTURE_BYTES;
+  let capturedBytes = 0;
+  let capCutoff = false;
   let closeState: { readonly code: number | null; readonly signal: NodeJS.Signals | null } | null = null;
 
-  child.stdout.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+  child.stdout.on('data', (chunk: Buffer) => {
+    if (capCutoff) return;
+    if (capturedBytes + chunk.byteLength > maxCaptureBytes) {
+      // Past the ceiling: stop buffering and tell ffmpeg to quit so an
+      // abandoned/runaway recording can't grow memory without bound. The
+      // bytes captured so far are kept and returned on stop().
+      capCutoff = true;
+      if (!child.killed && child.stdin.writable) {
+        child.stdin.write('q');
+        child.stdin.end();
+      }
+      return;
+    }
+    capturedBytes += chunk.byteLength;
+    chunks.push(Buffer.from(chunk));
+  });
   child.stderr.on('data', (chunk: Buffer) => {
     stderrChunks.push(Buffer.from(chunk));
     while (Buffer.concat(stderrChunks).byteLength > 16_384) stderrChunks.shift();

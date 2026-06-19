@@ -135,9 +135,11 @@ function normalizeInlineTables(src: string): string {
 
 function isTableSeparator(line: string): boolean {
   const trimmed = line.trim();
+  // The `|` guard keeps a bare `---` rule from matching as a one-column
+  // separator; the trailing group is `*` so a single-column `|---|` is valid.
   if (!trimmed.includes('|') || !trimmed.includes('-')) return false;
   // Reject lines that contain non-pipe/dash/colon/space content.
-  return /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?$/.test(trimmed);
+  return /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(trimmed);
 }
 
 function stripOuterPipes(s: string): string {

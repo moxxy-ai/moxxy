@@ -124,6 +124,23 @@ export function verifyManifestSignature(m: AppManifest, publicKeyPem: string): b
 
 const HEX64 = /^[0-9a-f]{64}$/i;
 
+/** Upper bound on `files` entries accepted at parse time. A real bundle has a
+ *  few hundred files; this caps a malformed/hostile (but signed) map so it fails
+ *  fast with a clear "malformed" rather than ballooning memory or only tripping
+ *  `safeRelPath` deep in extraction. */
+const MAX_FILE_ENTRIES = 10_000;
+
+/** Reject a `files` key that the stager's `safeRelPath` would later reject —
+ *  absolute, backslash-bearing, or containing a `..` traversal segment — so an
+ *  unsafe path fails at parse, not mid-extraction. Inlined (not imported from
+ *  `resolve.ts`) to keep this module dependency-free for the immutable bootstrap.
+ *  This is a conservative SUPERSET of safe paths; `safeRelPath` is still the
+ *  authoritative gate at extraction/verify time. */
+function isPlausiblePath(rel: string): boolean {
+  if (!rel || rel.startsWith('/') || rel.includes('\\')) return false;
+  return !rel.split('/').some((seg) => seg === '..');
+}
+
 /** Parse + shape-check a manifest JSON string. Returns null on anything off so
  *  a corrupt/hostile manifest is treated as "no update", not a crash. */
 export function parseManifest(json: string): AppManifest | null {
@@ -148,13 +165,16 @@ export function parseManifest(json: string): AppManifest | null {
     signature: m.signature,
     bundleUrl: m.bundleUrl,
   };
-  // Optional per-file map: every entry must be path → 64-hex. Kept VERBATIM
-  // (no re-casing/re-ordering) — the signature covers these exact strings.
+  // Optional per-file map: every entry must be a safe path → 64-hex, bounded in
+  // count. Kept VERBATIM (no re-casing/re-ordering) — the signature covers these
+  // exact strings.
   if (m.files !== undefined) {
     if (!m.files || typeof m.files !== 'object' || Array.isArray(m.files)) return null;
+    const entries = Object.entries(m.files as Record<string, unknown>);
+    if (entries.length > MAX_FILE_ENTRIES) return null;
     const files: Record<string, string> = {};
-    for (const [rel, hash] of Object.entries(m.files as Record<string, unknown>)) {
-      if (!rel || typeof hash !== 'string' || !HEX64.test(hash)) return null;
+    for (const [rel, hash] of entries) {
+      if (!isPlausiblePath(rel) || typeof hash !== 'string' || !HEX64.test(hash)) return null;
       files[rel] = hash;
     }
     out.files = files;

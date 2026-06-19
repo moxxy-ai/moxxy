@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -21,6 +21,44 @@ const fakeProvider = (jsonReply: string): LLMProvider => ({
   async *stream(): AsyncIterable<ProviderEvent> {
     yield { type: 'message_start', model: 'fake' };
     yield { type: 'text_delta', delta: jsonReply };
+    yield { type: 'message_end', stopReason: 'end_turn' };
+  },
+  async countTokens() {
+    return 0;
+  },
+});
+
+// A provider whose stream hangs forever after the first delta (or from the
+// start) UNLESS the request signal aborts — models the worst case: a stalled
+// network where no further event ever arrives.
+const hangingProvider = (): LLMProvider => ({
+  name: 'hang',
+  models: [{ id: 'hang', contextWindow: 1000, maxOutputTokens: 1000, supportsTools: false, supportsStreaming: true }],
+  async *stream(req): AsyncIterable<ProviderEvent> {
+    yield { type: 'message_start', model: 'hang' };
+    // Block until the caller's abort signal fires; never yields message_end.
+    await new Promise<void>((resolve, reject) => {
+      const sig = req.signal;
+      if (!sig) return; // no signal → would hang forever (the bug we guard against)
+      if (sig.aborted) return reject(new DOMException('aborted', 'AbortError'));
+      sig.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+    });
+  },
+  async countTokens() {
+    return 0;
+  },
+});
+
+// A provider that IGNORES req.signal entirely and simply never yields again —
+// the truly hostile case. consolidateMemory must still bound it via the
+// iterator-step race, not wait on the generator's next() forever.
+const deafProvider = (): LLMProvider => ({
+  name: 'deaf',
+  models: [{ id: 'deaf', contextWindow: 1000, maxOutputTokens: 1000, supportsTools: false, supportsStreaming: true }],
+  async *stream(): AsyncIterable<ProviderEvent> {
+    yield { type: 'message_start', model: 'deaf' };
+    // Hang forever, ignoring any abort signal.
+    await new Promise<void>(() => {});
     yield { type: 'message_end', stopReason: 'end_turn' };
   },
   async countTokens() {
@@ -184,6 +222,62 @@ describe('consolidateMemory', () => {
     const foo = remaining.find((e) => e.frontmatter.name === 'foo');
     expect(foo?.body).toBe('FIRST-MERGE-BODY');
   });
+
+  it('aborts a hung provider stream via timeoutMs and degrades (cluster not merged, no hang)', async () => {
+    const store = new MemoryStore({ dir: tmp, embedder: null });
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a', tags: ['t'] });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b', tags: ['t'] });
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // A provider that never finishes its stream. Without the timeout this
+      // would hang the test forever; with timeoutMs it must resolve, mark the
+      // cluster not-merged, and leave both originals intact.
+      const outcome = await consolidateMemory(store, hangingProvider(), { timeoutMs: 50 });
+      expect(outcome.clusters[0]?.into).toBeNull();
+      const remaining = await store.list();
+      expect(remaining.map((e) => e.frontmatter.name).sort()).toEqual(['a', 'b']);
+    } finally {
+      warn.mockRestore();
+    }
+  }, 5000);
+
+  it('bounds a provider that IGNORES the abort signal (never yields) — degrades, no hang', async () => {
+    const store = new MemoryStore({ dir: tmp, embedder: null });
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a', tags: ['t'] });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b', tags: ['t'] });
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const outcome = await consolidateMemory(store, deafProvider(), { timeoutMs: 50 });
+      expect(outcome.clusters[0]?.into).toBeNull();
+      const remaining = await store.list();
+      expect(remaining.map((e) => e.frontmatter.name).sort()).toEqual(['a', 'b']);
+    } finally {
+      warn.mockRestore();
+    }
+  }, 5000);
+
+  it('honors a caller AbortSignal already aborted before the stream starts', async () => {
+    const store = new MemoryStore({ dir: tmp, embedder: null });
+    await store.save({ name: 'a', type: 'fact', description: 'A', body: 'a', tags: ['t'] });
+    await store.save({ name: 'b', type: 'fact', description: 'B', body: 'b', tags: ['t'] });
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ac = new AbortController();
+      ac.abort();
+      const outcome = await consolidateMemory(store, hangingProvider(), {
+        signal: ac.signal,
+        timeoutMs: 0,
+      });
+      expect(outcome.clusters[0]?.into).toBeNull();
+      const remaining = await store.list();
+      expect(remaining.map((e) => e.frontmatter.name).sort()).toEqual(['a', 'b']);
+    } finally {
+      warn.mockRestore();
+    }
+  }, 5000);
 
   it('refuses to overwrite an unrelated memory when the LLM picks a colliding name', async () => {
     // Setup: a + b cluster on tag 'api'; an unrelated entry 'c' exists.

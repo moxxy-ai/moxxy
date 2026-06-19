@@ -62,6 +62,51 @@ describe('WebhookStore', () => {
     ).rejects.toThrow(/already exists/);
   });
 
+  it('rejects a concurrent duplicate-name create (uniqueness is enforced under the write mutex)', async () => {
+    // Two creates of the same name fired without awaiting between them: the
+    // name check lives inside the mutex-held mutate, so exactly one commits.
+    const results = await Promise.allSettled([
+      store.create({ name: 'racey', prompt: 'a', allowedTools: [], verification: { type: 'none' } }),
+      store.create({ name: 'racey', prompt: 'b', allowedTools: [], verification: { type: 'none' } }),
+    ]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      message: expect.stringMatching(/already exists/),
+    });
+    const all = await store.list();
+    expect(all.filter((t) => t.name === 'racey')).toHaveLength(1);
+  });
+
+  it('rejects a filter rule whose regex source exceeds the length cap', async () => {
+    await expect(
+      store.create({
+        name: 'redos-guard',
+        prompt: 'x',
+        allowedTools: [],
+        verification: { type: 'none' },
+        filters: {
+          include: [{ source: 'header', name: 'x', matches: 'a'.repeat(2000) }],
+          exclude: [],
+        },
+      }),
+    ).rejects.toThrow(/at most 512 characters/);
+  });
+
+  it('rejects a filter rule whose regex does not compile', async () => {
+    await expect(
+      store.create({
+        name: 'bad-regex',
+        prompt: 'x',
+        allowedTools: [],
+        verification: { type: 'none' },
+        filters: { include: [{ source: 'header', name: 'x', matches: '([' }], exclude: [] },
+      }),
+    ).rejects.toThrow(/invalid regex/);
+  });
+
   it('records a fire and increments fireCount', async () => {
     const created = await store.create({
       name: 'rec',

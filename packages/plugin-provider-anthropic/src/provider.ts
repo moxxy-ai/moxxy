@@ -10,7 +10,8 @@ import type {
 
 type MessageStreamParams = Anthropic.Messages.MessageStreamParams;
 type MessageCountTokensParams = Anthropic.Messages.MessageCountTokensParams;
-import { estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
+import { toFriendlyError } from '@moxxy/sdk';
+import type { AnthropicContentBlock } from './translate.js';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 
 export interface AnthropicProviderConfig {
@@ -97,6 +98,11 @@ export class AnthropicProvider implements LLMProvider {
   };
   private oauthToken?: string;
   private oauthExpiresAt?: number;
+  // Single in-flight refresh shared by concurrent callers (parallel streams /
+  // countTokens near expiry) so the refresh endpoint is hit once and the
+  // client is swapped once — a second refresh can rotate/invalidate the token
+  // and poison state on providers that rotate refresh tokens.
+  private refreshing?: Promise<void>;
 
   constructor(config: AnthropicProviderConfig = {}) {
     this.name = config.name ?? 'anthropic';
@@ -147,13 +153,24 @@ export class AnthropicProvider implements LLMProvider {
     await this.refreshOauthNow();
   }
 
-  /** Force a token refresh and rebuild the client with the new bearer. */
+  /**
+   * Force a token refresh and rebuild the client with the new bearer.
+   * Coalesces concurrent calls onto a single in-flight refresh so the endpoint
+   * is hit once and the client is swapped once.
+   */
   private async refreshOauthNow(): Promise<void> {
-    if (!this.oauth?.refresh) throw new Error('no refresh callback');
-    const next = await this.oauth.refresh();
-    this.oauthToken = next.token;
-    this.oauthExpiresAt = next.expiresAt;
-    this.client = this.makeOauthClient(next.token);
+    if (this.refreshing) return this.refreshing;
+    const refresh = this.oauth?.refresh;
+    if (!refresh) throw new Error('no refresh callback');
+    this.refreshing = (async () => {
+      const next = await refresh();
+      this.oauthToken = next.token;
+      this.oauthExpiresAt = next.expiresAt;
+      this.client = this.makeOauthClient(next.token);
+    })().finally(() => {
+      this.refreshing = undefined;
+    });
+    return this.refreshing;
   }
 
   /**
@@ -217,10 +234,11 @@ export class AnthropicProvider implements LLMProvider {
     const systemParam = this.buildSystemParam(system, cacheSystem, req.system);
     const model = req.model || this.defaultModel;
 
-    yield { type: 'message_start', model };
-
     // In OAuth mode refresh the bearer proactively when it's near expiry, so
     // we don't fire a request on a token we already knew was about to die.
+    // Done BEFORE emitting message_start so a turn that never reaches the API
+    // (proactive refresh throws) doesn't leave a dangling open message for
+    // consumers that pair message_start/message_end.
     if (this.oauth) {
       try {
         await this.ensureFreshOauth();
@@ -230,6 +248,20 @@ export class AnthropicProvider implements LLMProvider {
       }
     }
 
+    yield { type: 'message_start', model };
+
+    // Default + clamp max_tokens to the active model's output ceiling. We hold
+    // the catalog, so default to the descriptor's `maxOutputTokens` (4096 when
+    // unknown) and never forward a caller-supplied value above the ceiling —
+    // an over-ceiling request 400s server-side after the whole body is built.
+    const ceiling = this.models.find((m) => m.id === model)?.maxOutputTokens;
+    const maxTokens =
+      req.maxTokens !== undefined
+        ? ceiling !== undefined
+          ? Math.min(req.maxTokens, ceiling)
+          : req.maxTokens
+        : (ceiling ?? 4096);
+
     // NARROW cast: `messages`/`tools`/`systemParam` are our hand-rolled
     // Anthropic shapes (e.g. `media_type: string`) which the SDK narrows to
     // literal unions it can't see we never violate. The body is otherwise
@@ -237,7 +269,7 @@ export class AnthropicProvider implements LLMProvider {
     // `temperature` are checked at compile time.
     const requestBody: MessageStreamParams = {
       model,
-      max_tokens: req.maxTokens ?? 4096,
+      max_tokens: maxTokens,
       system: systemParam as MessageStreamParams['system'],
       messages: messages as MessageStreamParams['messages'],
       tools: tools as MessageStreamParams['tools'],
@@ -260,12 +292,18 @@ export class AnthropicProvider implements LLMProvider {
       if (effort) body.output_config = { effort };
     }
 
-    // A 401 always arrives before any SSE body, so in OAuth mode we can force
-    // a single refresh and replay the request with no risk of duplicate output.
+    // A genuine auth 401 arrives before any SSE body, so in OAuth mode we can
+    // force a single refresh and replay the request. But `isUnauthorized()`
+    // also matches a 401 surfaced MID-stream (token revoked during a long
+    // generation, proxy 401 on a chunk); replaying after content already
+    // streamed would duplicate text/tool calls into the same turn. Track
+    // whether the first attempt produced any output and only replay when it
+    // produced none.
+    const progress = { produced: false };
     try {
-      yield* this.streamOnce(requestBody, req.signal);
+      yield* this.streamOnce(requestBody, req.signal, progress);
     } catch (err) {
-      if (this.oauth?.refresh && isUnauthorized(err)) {
+      if (this.oauth?.refresh && isUnauthorized(err) && !progress.produced) {
         try {
           await this.refreshOauthNow();
           yield* this.streamOnce(requestBody, req.signal);
@@ -288,6 +326,11 @@ export class AnthropicProvider implements LLMProvider {
   private async *streamOnce(
     requestBody: MessageStreamParams,
     signal: AbortSignal | undefined,
+    // Set to `true` the moment this attempt yields any content event (anything
+    // past message_start). `stream()` reads it to decide whether a 401 is safe
+    // to refresh-and-replay (replaying after output already streamed would
+    // duplicate text/tool calls). Optional so the replay attempt can omit it.
+    progress?: { produced: boolean },
   ): AsyncIterable<ProviderEvent> {
     const stream = this.client.messages.stream(
       requestBody,
@@ -316,6 +359,10 @@ export class AnthropicProvider implements LLMProvider {
     // the excess-property check) against a narrower declared type.
     let usage: TokenUsage | undefined;
 
+    // Set once the stream is fully drained on the happy path; gates the
+    // finally-block teardown so we only force-abort on an early exit
+    // (abort/throw/consumer abandonment), never on a clean completion.
+    let drained = false;
     try {
       for await (const event of stream as AsyncIterable<AnthropicStreamEvent>) {
         if (signal?.aborted) {
@@ -343,6 +390,7 @@ export class AnthropicProvider implements LLMProvider {
             break;
           }
           case 'content_block_start': {
+            if (progress) progress.produced = true;
             const block = event.content_block;
             if (block && block.type === 'tool_use') {
               pendingToolUses.set(block.id, { name: block.name, partial: '' });
@@ -361,6 +409,7 @@ export class AnthropicProvider implements LLMProvider {
             break;
           }
           case 'content_block_delta': {
+            if (progress) progress.produced = true;
             const delta = event.delta;
             if (!delta) break;
             if (delta.type === 'text_delta' && typeof delta.text === 'string') {
@@ -370,7 +419,7 @@ export class AnthropicProvider implements LLMProvider {
             } else if (delta.type === 'signature_delta' && typeof delta.signature === 'string') {
               pendingThinkingSig += delta.signature;
             } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
-              const id = idOfBlock(event, blockIndexToId);
+              const id = idOfBlock(event, blockIndexToId, pendingToolUses);
               if (id) {
                 const t = pendingToolUses.get(id);
                 if (t) {
@@ -382,40 +431,65 @@ export class AnthropicProvider implements LLMProvider {
             break;
           }
           case 'content_block_stop': {
+            if (progress) progress.produced = true;
             if (typeof event.index === 'number' && thinkingBlockIndices.has(event.index)) {
               thinkingBlockIndices.delete(event.index);
               if (pendingThinkingSig) yield { type: 'reasoning_signature', signature: pendingThinkingSig };
               pendingThinkingSig = '';
               break;
             }
-            const id = idOfBlock(event, blockIndexToId);
+            const id = idOfBlock(event, blockIndexToId, pendingToolUses);
             if (id) {
               const t = pendingToolUses.get(id);
               if (t) {
-                let parsed: unknown = {};
+                let parsed: unknown;
                 try {
                   parsed = t.partial ? JSON.parse(t.partial) : {};
                 } catch {
-                  parsed = { _rawPartial: t.partial };
+                  // A truncated/malformed tool-input stream is a real failure, not
+                  // a valid call with junk args. Surface it as an error (the loop
+                  // treats a stream-level error as authoritative) and mark the turn
+                  // `error`, instead of feeding `{ _rawPartial }` into the tool —
+                  // which erased all signal that the model's call was garbage.
+                  pendingToolUses.delete(id);
+                  pruneBlockIndex(blockIndexToId, event.index, id);
+                  stopReason = 'error';
+                  yield {
+                    type: 'error',
+                    message: `tool_use input JSON was malformed/truncated for ${id}`,
+                    retryable: false,
+                  };
+                  break;
                 }
                 yield { type: 'tool_use_end', id, input: parsed };
                 pendingToolUses.delete(id);
-                if (typeof event.index === 'number') blockIndexToId.delete(event.index);
+                pruneBlockIndex(blockIndexToId, event.index, id);
               }
             }
             break;
           }
           case 'message_delta': {
-            if (event.delta?.stop_reason) {
+            // STICKY error: once a malformed/truncated tool-input stream marked
+            // the turn `error` at content_block_stop, a trailing message_delta
+            // (which a truncated tool-use turn still reports as `tool_use`) must
+            // NOT clobber it back to a clean completion — that would re-run the
+            // junk tool. Usage numbers below still merge as usual.
+            if (event.delta?.stop_reason && stopReason !== 'error') {
               stopReason = mapStopReason(event.delta.stop_reason);
             }
             if (event.usage) {
-              // Preserve cache fields captured at message_start — the delta
-              // usage only carries the final output_tokens count.
+              // Prefer delta-reported input/cache numbers when present (some
+              // streaming modes report or correct them here), but fall back to
+              // the message_start values otherwise — mirroring the defensive
+              // `?? previous` pattern used for outputTokens.
+              const du = event.usage;
+              const cacheRead = du.cache_read_input_tokens ?? usage?.cacheReadTokens;
+              const cacheCreation = du.cache_creation_input_tokens ?? usage?.cacheCreationTokens;
               usage = {
-                ...usage,
-                inputTokens: usage?.inputTokens ?? 0,
-                outputTokens: event.usage.output_tokens ?? usage?.outputTokens ?? 0,
+                inputTokens: du.input_tokens ?? usage?.inputTokens ?? 0,
+                outputTokens: du.output_tokens ?? usage?.outputTokens ?? 0,
+                ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
+                ...(cacheCreation !== undefined ? { cacheCreationTokens: cacheCreation } : {}),
               };
             }
             break;
@@ -424,6 +498,7 @@ export class AnthropicProvider implements LLMProvider {
             break;
         }
       }
+      drained = true;
     } catch (err) {
       // A cancel surfaces as a thrown AbortError mid-await — report it as the
       // clean terminal 'aborted' event. Every other error propagates so
@@ -433,6 +508,21 @@ export class AnthropicProvider implements LLMProvider {
         return;
       }
       throw err;
+    } finally {
+      // Guarantee socket teardown independent of whether the AbortSignal
+      // propagated into the SDK. On any early exit (abort, throw, or the
+      // consumer abandoning the generator — at which point the JS runtime
+      // runs this finally) explicitly abort the SDK stream so a half-open
+      // HTTP connection can't linger under repeated rapid cancellation.
+      if (!drained) {
+        const s = stream as unknown as { abort?: () => void; controller?: { abort?: () => void } };
+        try {
+          s.abort?.();
+          s.controller?.abort?.();
+        } catch {
+          // Best-effort cleanup — a fake/partial stream may expose neither.
+        }
+      }
     }
 
     yield { type: 'message_end', stopReason, usage };
@@ -465,12 +555,50 @@ export class AnthropicProvider implements LLMProvider {
       });
       return result.input_tokens;
     } catch {
-      const blob =
-        (systemForCount ?? '') +
-        messages.map((m) => JSON.stringify(m.content)).join('') +
-        JSON.stringify(tools ?? []);
-      return estimateTextTokens(blob);
+      // Estimate WITHOUT serializing megabytes of base64 into one mega-string:
+      // a media block's bytes have nothing to do with its token cost, and
+      // stringifying them both spikes memory on a large multimodal history and
+      // wildly inflates the estimate. Sum char-lengths of textual content and
+      // charge each media block a small fixed allowance instead.
+      let chars = systemForCount?.length ?? 0;
+      for (const m of messages) {
+        for (const block of m.content) {
+          chars += estimateBlockChars(block);
+        }
+      }
+      chars += JSON.stringify(tools ?? []).length;
+      // Mirror estimateTextTokens (≈4 chars/token) on the accumulated length
+      // without ever materializing the concatenated string.
+      return Math.ceil(chars / 4);
     }
+  }
+}
+
+/** Rough per-image/-document token allowance for the offline estimate fallback. */
+const MEDIA_BLOCK_TOKENS = 1500;
+
+/**
+ * Char-length contribution of one Anthropic content block for the offline
+ * token estimate. Skips the base64 `data` of image/document blocks (charging a
+ * fixed token allowance, scaled back to chars) so a multi-MB blob never gets
+ * stringified just to be divided by 4.
+ */
+function estimateBlockChars(block: AnthropicContentBlock): number {
+  switch (block.type) {
+    case 'text':
+      return block.text.length;
+    case 'tool_use':
+      return block.name.length + JSON.stringify(block.input ?? {}).length;
+    case 'tool_result':
+      return block.content.length;
+    case 'thinking':
+      return block.thinking.length + block.signature.length;
+    case 'redacted_thinking':
+      return block.data.length;
+    case 'image':
+    case 'document':
+      // Charge a fixed allowance instead of the base64 byte length.
+      return MEDIA_BLOCK_TOKENS * 4;
   }
 }
 
@@ -508,23 +636,57 @@ interface AnthropicStreamEvent {
     signature?: string;
     stop_reason?: string;
   };
-  usage?: { output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 function idOfBlock(
   event: AnthropicStreamEvent,
   blockIndexToId: Map<number, string>,
+  pendingToolUses?: ReadonlyMap<string, unknown>,
 ): string | null {
   if (typeof event.index === 'number') {
     return blockIndexToId.get(event.index) ?? null;
   }
   // Fallback when `index` is missing (older SDKs / hand-rolled fakes): only
-  // unambiguous when exactly one tool_use is pending; otherwise refuse to
-  // guess and let the delta drop rather than misroute it.
+  // unambiguous when exactly one tool_use is pending. `pruneBlockIndex` deletes
+  // a finished block's entry on content_block_stop even in an index-less stream,
+  // so a stale entry can't linger to falsely satisfy size===1 for a later block;
+  // we still require the id to be PENDING as a belt-and-suspenders guard.
   if (blockIndexToId.size === 1) {
-    for (const id of blockIndexToId.values()) return id;
+    for (const id of blockIndexToId.values()) {
+      if (!pendingToolUses || pendingToolUses.has(id)) return id;
+    }
   }
   return null;
+}
+
+/**
+ * Remove a finished tool block's index→id mapping. Prefers the numeric index
+ * (real Anthropic streams), but falls back to deleting by VALUE (`id`) so an
+ * index-less stream doesn't leave a stale entry lingering — which would break
+ * the size===1 fallback for the next serial tool block (its deltas would route
+ * nowhere). Index-less streams therefore stay correct for strictly-serial tools.
+ */
+function pruneBlockIndex(
+  blockIndexToId: Map<number, string>,
+  index: number | undefined,
+  id: string,
+): void {
+  if (typeof index === 'number') {
+    blockIndexToId.delete(index);
+    return;
+  }
+  for (const [k, v] of blockIndexToId) {
+    if (v === id) {
+      blockIndexToId.delete(k);
+      return;
+    }
+  }
 }
 
 function mapStopReason(s: string): StopReason {

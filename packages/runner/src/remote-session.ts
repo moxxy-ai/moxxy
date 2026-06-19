@@ -706,27 +706,104 @@ async function killProcessOnPort(port: number): Promise<void> {
 async function isMoxxyProcess(pid: number): Promise<boolean> {
   if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) return false;
   const command = await pidCommand(pid);
-  return command.length > 0 && /moxxy/i.test(command);
+  return command.length > 0 && isMoxxyCommandLine(command);
+}
+
+/**
+ * Decide whether a `ps -o command=` line names a moxxy DAEMON — not merely any
+ * process whose argv happens to contain "moxxy" somewhere. A loose substring
+ * (`/moxxy/i` over the whole line) would SIGKILL an unrelated same-user process
+ * that just references a moxxy path: an editor open on `~/moxxy/foo`, a `grep
+ * moxxy`, a shell that `cd`'d into `~/moxxy`. We only want the executable's own
+ * identity, so we look at the FIRST token's basename: the moxxy CLI sets
+ * `process.title` to `moxxy …` (so the line starts with `moxxy`), and a binary
+ * launched directly is `…/moxxy` / `…/moxxy-serve`. An arg three tokens in that
+ * mentions moxxy never matches.
+ */
+export function isMoxxyCommandLine(command: string): boolean {
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
+  // The first whitespace-delimited token is the executable (or process.title's
+  // leading word). Its basename (after the last path separator) is the identity.
+  const first = trimmed.split(/\s+/)[0] ?? '';
+  const base = first.split(/[\\/]/).pop() ?? first;
+  // Match `moxxy`, `moxxy-serve`, `moxxy.js`, etc. — the binary's own name (or
+  // the leading word of the CLI's `process.title`) — but never an arbitrary
+  // token that merely embeds "moxxy" (e.g. `bigmoxxy`, `moxxyish`).
+  return /^moxxy([-_.]|$)/i.test(base);
+}
+
+/**
+ * Hard ceiling on how long a single recovery sub-command (`ps` / `lsof`) may run
+ * before we give up on it. `lsof` is a notorious HANGER — a stale NFS mount, a
+ * wedged FUSE filesystem, or a process stuck in uninterruptible sleep makes it
+ * block indefinitely; `ps` can do the same on a pathological process table.
+ * Without this bound a hung sub-command leaves its Promise unsettled FOREVER,
+ * which strands `killAndUnlinkRunner` (it `await`s each step sequentially) and
+ * thus the whole reconnect/recovery path that depends on it. Recovery is
+ * best-effort cleanup, so timing out and moving on (treating the probe as "no
+ * result") is strictly better than wedging the caller.
+ */
+const RECOVERY_SUBCOMMAND_TIMEOUT_MS = 5_000;
+
+/**
+ * Run a process-hunting sub-command and return its trimmed stdout. ALWAYS
+ * settles — within {@link RECOVERY_SUBCOMMAND_TIMEOUT_MS} at the latest — and
+ * never leaves a child handle dangling:
+ *  - a spawn error / missing binary resolves `''`,
+ *  - a clean exit resolves the captured stdout,
+ *  - a hang past the timeout SIGKILLs the child and resolves `''`.
+ * Exported for tests (the timeout path is the worst case we must not regress).
+ */
+export function spawnText(
+  command: string,
+  args: ReadonlyArray<string>,
+  timeoutMs: number = RECOVERY_SUBCOMMAND_TIMEOUT_MS,
+): Promise<string> {
+  return import('node:child_process').then(
+    ({ spawn }) =>
+      new Promise<string>((resolve) => {
+        let out = '';
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        // Settle exactly once and tear down the timer so a late event after a
+        // timeout (or a timeout after a clean exit) can't double-resolve or leak.
+        const done = (value: string): void => {
+          if (settled) return;
+          settled = true;
+          if (timer !== undefined) clearTimeout(timer);
+          resolve(value);
+        };
+        let child: ReturnType<typeof spawn>;
+        try {
+          child = spawn(command, [...args], { stdio: ['ignore', 'pipe', 'ignore'] });
+        } catch {
+          done('');
+          return;
+        }
+        timer = setTimeout(() => {
+          // The child is wedged (e.g. lsof on a stale mount): kill it so we don't
+          // leak the handle, then give up on this probe.
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* already gone */
+          }
+          done('');
+        }, timeoutMs);
+        if (typeof timer === 'object' && typeof timer.unref === 'function') timer.unref();
+        child.stdout?.on('data', (b: Buffer) => {
+          out += b.toString();
+        });
+        child.on('error', () => done(''));
+        child.on('close', () => done(out.trim()));
+      }),
+  );
 }
 
 /** A PID's command line via `ps`. Empty when the process is gone / unknowable. */
 async function pidCommand(pid: number): Promise<string> {
-  const { spawn } = await import('node:child_process');
-  return await new Promise<string>((resolve) => {
-    let out = '';
-    try {
-      const child = spawn('ps', ['-p', String(pid), '-o', 'command='], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      child.stdout.on('data', (b) => {
-        out += b.toString();
-      });
-      child.on('error', () => resolve(''));
-      child.on('close', () => resolve(out.trim()));
-    } catch {
-      resolve('');
-    }
-  });
+  return await spawnText('ps', ['-p', String(pid), '-o', 'command=']);
 }
 
 /** SIGTERM, grace, SIGKILL. Skips self. Swallows EPERM / ESRCH. */
@@ -761,24 +838,11 @@ async function pidsListeningOnPort(port: number): Promise<ReadonlyArray<number>>
 }
 
 /** Run lsof with the given args and return the PIDs it prints (one per
- *  line). Returns empty on error / missing binary. */
+ *  line). Returns empty on error / missing binary / timeout. */
 async function runLsof(args: ReadonlyArray<string>): Promise<ReadonlyArray<number>> {
-  const { spawn } = await import('node:child_process');
-  return await new Promise<ReadonlyArray<number>>((resolve) => {
-    let out = '';
-    try {
-      const child = spawn('lsof', [...args], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      child.stdout.on('data', (b) => {
-        out += b.toString();
-      });
-      child.on('error', () => resolve([]));
-      child.on('close', () => resolve(parsePids(out)));
-    } catch {
-      resolve([]);
-    }
-  });
+  // `lsof` can block indefinitely on a stale mount; `spawnText` bounds it so a
+  // hang resolves `''` (→ no PIDs) instead of wedging the recovery sequence.
+  return parsePids(await spawnText('lsof', args));
 }
 
 function parsePids(out: string): ReadonlyArray<number> {

@@ -31,8 +31,25 @@ export async function validateKey(key: string, deps: ValidateKeyDeps = {}): Prom
     await client.models.list();
     return { ok: true };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    // The raw SDK/network message is untrusted, unbounded text — for a vendor
+    // baseURL it surfaces that endpoint's error body straight into the setup
+    // UI/logs. Strip URLs and cap the length before returning.
+    return { ok: false, message: sanitizeErrorMessage(err) };
   }
+}
+
+const MAX_MESSAGE_LENGTH = 200;
+
+function sanitizeErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const stripped = raw
+    .replace(/https?:\/\/\S+/gi, '[url]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!stripped) return 'key validation failed';
+  return stripped.length > MAX_MESSAGE_LENGTH
+    ? `${stripped.slice(0, MAX_MESSAGE_LENGTH)}…`
+    : stripped;
 }
 
 function defaultMaker(apiKey: string, baseURL?: string): { models: { list: () => Promise<unknown> } } {

@@ -137,7 +137,7 @@ async function runList(argv: ParsedArgv): Promise<number> {
       process.stdout.write(`${' '.repeat(nameCol + 2)}${colors.dim('└ ' + availability.reason)}\n`);
     }
     process.stdout.write(`${' '.repeat(nameCol + 2)}${colors.dim(def.description)}\n`);
-    if (def.subcommands) {
+    if (def.subcommands && Object.keys(def.subcommands).length > 0) {
       const subNameCol = Math.max(
         ...Object.keys(def.subcommands).map((s) => `${def.name} ${s}`.length),
       );

@@ -4,13 +4,18 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  countCorruptCoreTxns,
+  coreTxnDir,
   detectCoreInstall,
   detectNewDeps,
+  finalizeStagedCoreUpdate,
   findRepoPkgDir,
+  gcCoreTxns,
   listCoreTxns,
   overlayPackages,
   provisionWorkspace,
   readCoreJournal,
+  reconcileOverlay,
   repoDir,
   restoreOverlay,
   run,
@@ -74,6 +79,62 @@ describe('safeRepoPath', () => {
     expect(() => safeRepoPath('/repo', '../etc/passwd')).toThrow(/escapes/);
     expect(safeRepoPath('/repo', 'packages/core/src/a.ts')).toBe(path.resolve('/repo', 'packages/core/src/a.ts'));
   });
+
+  it('refuses a path that traverses a symlink out of the repo', async () => {
+    const repo = await tmp();
+    const outside = await tmp();
+    await fs.writeFile(path.join(outside, 'secret'), 'top secret\n', 'utf8');
+    // A symlinked subdir inside the repo pointing at an external directory.
+    await fs.symlink(outside, path.join(repo, 'escape'), 'dir');
+    // Textually `escape/secret` stays inside the repo, but it dereferences out.
+    expect(() => safeRepoPath(repo, 'escape/secret')).toThrow(/symlink/);
+  });
+
+  it('allows a normal file inside a provisioned repo', async () => {
+    const repo = await tmp();
+    await fs.mkdir(path.join(repo, 'packages', 'core', 'src'), { recursive: true });
+    const p = safeRepoPath(repo, 'packages/core/src/a.ts');
+    expect(p.endsWith(path.join('packages', 'core', 'src', 'a.ts'))).toBe(true);
+  });
+
+  it('accepts an ABSOLUTE in-repo path even when the repo root traverses a symlink', async () => {
+    // Regression: when the repo root resolves through a symlink (the norm on
+    // macOS, where the tmp dir lives under /var→/private/var, and anywhere
+    // $HOME/.moxxy is symlinked), a legitimate absolute path *inside* the repo
+    // must not be misread as escaping. The realpath re-check must anchor the
+    // already-validated in-repo segments onto realRoot, not re-resolve the raw
+    // (possibly absolute) input against it.
+    const base = await tmp();
+    const realTarget = path.join(base, 'real-repo');
+    await fs.mkdir(path.join(realTarget, 'packages', 'core', 'src'), { recursive: true });
+    // A symlink to the repo root: the raw path differs from its realpath on
+    // every platform, deterministically exercising the symlinked-root case.
+    const repo = path.join(base, 'repo-link');
+    await fs.symlink(realTarget, repo, 'dir');
+    const real = await fs.realpath(repo);
+    expect(repo === real).toBe(false);
+
+    const abs = path.join(repo, 'packages', 'core', 'src', 'a.ts');
+    const p = safeRepoPath(repo, abs);
+    expect(p).toBe(path.join(real, 'packages', 'core', 'src', 'a.ts'));
+  });
+
+  it('still rejects an absolute path OUTSIDE the repo', () => {
+    expect(() => safeRepoPath('/repo', '/etc/passwd')).toThrow(/escapes/);
+  });
+});
+
+describe('run output cap', () => {
+  it('bounds retained output to the trailing window (no unbounded buffer)', async () => {
+    // Emit ~4MB; the retained tail must stay at/under the 512KB cap.
+    const node = process.execPath;
+    const script = "const c='x'.repeat(1024)+'\\n';for(let i=0;i<4096;i++)process.stdout.write(c);";
+    const res = await run(node, ['-e', script], process.cwd(), 30_000);
+    expect(res.code).toBe(0);
+    expect(res.output.length).toBeLessThanOrEqual(512 * 1024);
+    // It kept the most recent bytes, not the first.
+    expect(res.output.endsWith('x'.repeat(10) + '\n') || res.output.endsWith('x\n')).toBe(true);
+  }, 30_000);
 });
 
 describe('overlay / restore', () => {
@@ -106,6 +167,135 @@ describe('overlay / restore', () => {
       snapshotDir: path.join(await tmp(), 'snap'),
     });
     expect(res.ok).toBe(false);
+  });
+
+  it('clears the pending intent marker after a clean multi-package overlay', async () => {
+    const repo = await tmp();
+    await fakeRepo(repo);
+    const install = await fakeInstall(await tmp());
+    const snap = path.join(await tmp(), 'snap');
+    const res = await overlayPackages({ repo, install, pkgNames: ['@moxxy/core', '@moxxy/cli'], snapshotDir: snap });
+    expect(res.ok).toBe(true);
+    // pending.json is removed once applied.json lands; reconcile is a no-op.
+    await expect(fs.access(path.join(snap, 'pending.json'))).rejects.toBeTruthy();
+    expect((await reconcileOverlay({ install, pkgNames: ['@moxxy/core', '@moxxy/cli'], snapshotDir: snap })).reconciled).toBe(false);
+  });
+
+  it('reconcileOverlay restores from snapshot when an overlay was interrupted mid-swap', async () => {
+    const repo = await tmp();
+    await fakeRepo(repo);
+    const install = await fakeInstall(await tmp());
+    const snap = path.join(await tmp(), 'snap');
+
+    // Simulate a crash AFTER snapshotting + writing the intent but BEFORE applied.json:
+    // @moxxy/core's live dist already swapped to NEW, @moxxy/cli still OLD.
+    await fs.mkdir(path.join(snap, 'core'), { recursive: true });
+    await fs.writeFile(path.join(snap, 'core', 'index.js'), '// OLD core\n', 'utf8'); // rollback snapshot
+    await fs.writeFile(path.join(install.scopeDir, 'core', 'dist', 'index.js'), '// NEW @moxxy/core\n', 'utf8'); // already swapped
+    await fs.writeFile(path.join(snap, 'pending.json'), JSON.stringify({ packages: ['@moxxy/core'] }), 'utf8');
+
+    const res = await reconcileOverlay({ install, pkgNames: ['@moxxy/core'], snapshotDir: snap });
+    expect(res.reconciled).toBe(true);
+    // Live dist is back to the pre-overlay snapshot — no mixed core.
+    expect(await fs.readFile(path.join(install.scopeDir, 'core', 'dist', 'index.js'), 'utf8')).toBe('// OLD core\n');
+    await expect(fs.access(path.join(snap, 'pending.json'))).rejects.toBeTruthy();
+  });
+});
+
+describe('finalizeStagedCoreUpdate (overlay validation)', () => {
+  it('rolls back instead of committing when the overlay never recorded a full apply', async () => {
+    const moxxy = await tmp();
+    const install = await fakeInstall(await tmp());
+    const txnId = 'core-incomplete';
+    await writeCoreJournal(moxxy, {
+      txnId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      packages: ['@moxxy/core'],
+      version: '1.0.0',
+      gitHead: 'abc',
+      repoDir: '/repo',
+      state: 'staged_restart',
+      attempts: [],
+    });
+    // Snapshot exists with a rollback dist, but NO applied.json → inconsistent.
+    const snap = path.join(coreTxnDir(moxxy, txnId), 'snapshot');
+    await fs.mkdir(path.join(snap, 'core'), { recursive: true });
+    await fs.writeFile(path.join(snap, 'core', 'index.js'), '// OLD core\n', 'utf8');
+
+    const committed = await finalizeStagedCoreUpdate(moxxy, install);
+    expect(committed).toEqual([]); // not committed
+    expect((await readCoreJournal(moxxy, txnId)).state).toBe('rolled_back');
+    // Live dist restored from the snapshot.
+    expect(await fs.readFile(path.join(install.scopeDir, 'core', 'dist', 'index.js'), 'utf8')).toBe('// OLD core\n');
+  });
+
+  it('commits when applied.json records the full package set', async () => {
+    const moxxy = await tmp();
+    const install = await fakeInstall(await tmp());
+    const txnId = 'core-clean';
+    await writeCoreJournal(moxxy, {
+      txnId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      packages: ['@moxxy/core'],
+      version: '1.0.0',
+      gitHead: 'abc',
+      repoDir: '/repo',
+      state: 'staged_restart',
+      attempts: [],
+    });
+    const snap = path.join(coreTxnDir(moxxy, txnId), 'snapshot');
+    await fs.mkdir(snap, { recursive: true });
+    await fs.writeFile(path.join(snap, 'applied.json'), JSON.stringify({ packages: ['@moxxy/core'] }), 'utf8');
+
+    const committed = await finalizeStagedCoreUpdate(moxxy, install);
+    expect(committed).toEqual([txnId]);
+    expect((await readCoreJournal(moxxy, txnId)).state).toBe('committed');
+  });
+
+  it('without install it stays best-effort and commits any staged txn', async () => {
+    const moxxy = await tmp();
+    const txnId = 'core-besteffort';
+    await writeCoreJournal(moxxy, {
+      txnId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      packages: ['@moxxy/core'],
+      version: '1.0.0',
+      repoDir: '/repo',
+      state: 'staged_restart',
+      attempts: [],
+    });
+    expect(await finalizeStagedCoreUpdate(moxxy)).toEqual([txnId]);
+    expect((await readCoreJournal(moxxy, txnId)).state).toBe('committed');
+  });
+});
+
+describe('countCorruptCoreTxns', () => {
+  it('counts a present-but-unparseable journal and ignores a missing one', async () => {
+    const moxxy = await tmp();
+    // A valid txn.
+    await writeCoreJournal(moxxy, {
+      txnId: 'ok',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      packages: ['@moxxy/core'],
+      version: '1.0.0',
+      repoDir: '/repo',
+      state: 'provisioned',
+      attempts: [],
+    });
+    // A corrupt journal.
+    const badDir = coreTxnDir(moxxy, 'bad');
+    await fs.mkdir(badDir, { recursive: true });
+    await fs.writeFile(path.join(badDir, 'journal.json'), '{ not json', 'utf8');
+    // A dir with no journal yet (half-created begin) — must NOT count.
+    await fs.mkdir(coreTxnDir(moxxy, 'half'), { recursive: true });
+
+    expect(await countCorruptCoreTxns(moxxy)).toBe(1);
+    // listCoreTxns silently drops the corrupt one (the guard's blind spot).
+    expect((await listCoreTxns(moxxy)).map((j) => j.txnId)).toEqual(['ok']);
   });
 });
 
@@ -238,6 +428,21 @@ describe('provisionWorkspace HEAD pin', () => {
     expect(res.message).toContain('source mismatch');
   });
 
+  it('rejects an abbreviated/unresolvable gitHead rather than prefix-matching a different commit', async () => {
+    const { dir: src } = await gitFixture();
+    const moxxy = await tmp();
+    await seedClone(moxxy, src);
+    const install: CoreInstallInfo = {
+      version: '1.0.0',
+      gitHead: 'abc1234', // short, not a full 40-hex sha → must not satisfy the exact pin
+      repoUrl: src,
+      scopeDir: path.join(moxxy, 'node_modules', '@moxxy'),
+    };
+    const res = await provisionWorkspace({ moxxyDir: moxxy, install, repoUrlOverride: src });
+    expect(res.ok).toBe(false);
+    expect(res.message).toContain('source mismatch');
+  });
+
   it('fails fast with no gitHead to pin to', async () => {
     const moxxy = await tmp();
     const install: CoreInstallInfo = {
@@ -280,5 +485,58 @@ describe('core journal', () => {
     await writeCoreJournal(moxxy, j);
     expect((await readCoreJournal(moxxy, 'core-1')).state).toBe('provisioned');
     expect((await listCoreTxns(moxxy)).length).toBe(1);
+  });
+});
+
+describe('gcCoreTxns', () => {
+  /** Write a core journal with a given id/state and a snapshot file. */
+  async function seedTxn(moxxy: string, id: string, state: CoreJournal['state']): Promise<void> {
+    await writeCoreJournal(moxxy, {
+      txnId: id,
+      createdAt: new Date(2026, 0, parseInt(id.replace(/\D/g, ''), 10) || 1).toISOString(),
+      updatedAt: new Date().toISOString(),
+      packages: ['@moxxy/core'],
+      version: '1.0.0',
+      repoDir: '/repo',
+      state,
+      attempts: [],
+    });
+    // A dist snapshot — the thing GC must reclaim.
+    const snap = path.join(coreTxnDir(moxxy, id), 'snapshot', 'core');
+    await fs.mkdir(snap, { recursive: true });
+    await fs.writeFile(path.join(snap, 'index.js'), '// snapshot\n', 'utf8');
+  }
+
+  it('prunes old terminal txns (snapshot dirs) but keeps non-terminal ones', async () => {
+    const moxxy = await tmp();
+    await seedTxn(moxxy, 'core-1', 'committed');
+    await seedTxn(moxxy, 'core-2', 'rolled_back');
+    await seedTxn(moxxy, 'core-3', 'committed');
+    // A non-terminal txn whose snapshot finalize/rollback may still need.
+    await seedTxn(moxxy, 'core-9', 'staged_restart');
+
+    await gcCoreTxns(moxxy, 1);
+
+    const remaining = (await listCoreTxns(moxxy)).map((j) => j.txnId).sort();
+    // keep=1 terminal (the newest, core-3) + the non-terminal staged one survives.
+    expect(remaining).toEqual(['core-3', 'core-9']);
+    // The pruned txn's snapshot is gone from disk.
+    await expect(fs.access(coreTxnDir(moxxy, 'core-1'))).rejects.toBeTruthy();
+    await expect(fs.access(coreTxnDir(moxxy, 'core-9'))).resolves.toBeUndefined();
+  });
+
+  it('finalizeStagedCoreUpdate prunes terminal history after committing', async () => {
+    const moxxy = await tmp();
+    // Two already-committed (terminal) txns + one staged that will commit now.
+    await seedTxn(moxxy, 'core-1', 'committed');
+    await seedTxn(moxxy, 'core-2', 'committed');
+    await seedTxn(moxxy, 'core-3', 'staged_restart');
+
+    // keepTerminal=1 → after committing core-3, only the newest terminal survives.
+    await finalizeStagedCoreUpdate(moxxy, null, 1);
+
+    const ids = (await listCoreTxns(moxxy)).map((j) => j.txnId);
+    expect(ids).toContain('core-3'); // just committed, newest
+    expect(ids.length).toBe(1);
   });
 });

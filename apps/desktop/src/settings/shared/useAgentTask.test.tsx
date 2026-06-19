@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it, afterEach, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { __setApiOverride, chatStore } from '@moxxy/client-core';
 import { useAgentTask } from './useAgentTask';
 
@@ -68,7 +68,13 @@ const complete = (turnId: string, error: string | null): unknown => ({
   error,
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Unmount the hook WHILE the fake transport is still installed: the cleanup
+  // effect aborts an unsettled hidden turn via api().invoke(), which would throw
+  // "transport not configured" if the override were cleared first. Yield a
+  // microtask so that async cleanup runs before we drop the override.
+  cleanup();
+  await Promise.resolve();
   __setApiOverride(null);
   vi.restoreAllMocks();
 });
@@ -139,8 +145,8 @@ describe('useAgentTask', () => {
     expect(result.current.error).toBe('provider exploded');
   });
 
-  it('unmount unhides the in-flight turn (cleanup)', async () => {
-    installFakeApi();
+  it('unmount unhides AND aborts the in-flight turn so it stops burning tokens', async () => {
+    const spy = installFakeApi();
     const unhide = vi.spyOn(chatStore, 'unhideTurn');
     const { result, unmount } = renderHook(() => useAgentTask('ws-test'));
 
@@ -150,6 +156,51 @@ describe('useAgentTask', () => {
     expect(unhide).not.toHaveBeenCalled();
     unmount();
     expect(unhide).toHaveBeenCalledWith('t-1');
+    // The hidden turn is still streaming server-side; closing the modal must
+    // abort it, not leave it consuming model tokens.
+    const abort = spy.invokes.find((i) => i.channel === 'session.abortTurn');
+    expect(abort).toBeTruthy();
+    expect((abort!.args as { turnId: string }).turnId).toBe('t-1');
+  });
+
+  it('does NOT abort a turn that already completed', async () => {
+    const spy = installFakeApi();
+    const { result, unmount } = renderHook(() => useAgentTask('ws-test'));
+
+    await act(async () => {
+      await result.current.start('PROMPT');
+    });
+    act(() => {
+      spy.emit('runner.turn.complete', complete('t-1', null));
+    });
+    expect(result.current.phase).toBe('done');
+    unmount();
+    expect(spy.invokes.find((i) => i.channel === 'session.abortTurn')).toBeUndefined();
+  });
+
+  it('flips to error and aborts when the runner never reports completion', async () => {
+    vi.useFakeTimers();
+    try {
+      const spy = installFakeApi();
+      const { result } = renderHook(() => useAgentTask('ws-test'));
+
+      await act(async () => {
+        await result.current.start('PROMPT');
+      });
+      expect(result.current.phase).toBe('streaming');
+
+      // No complete event ever arrives — the watchdog must fire.
+      act(() => {
+        vi.advanceTimersByTime(120_000);
+      });
+      expect(result.current.phase).toBe('error');
+      expect(result.current.error).toMatch(/timed out/i);
+      const abort = spy.invokes.find((i) => i.channel === 'session.abortTurn');
+      expect(abort).toBeTruthy();
+      expect((abort!.args as { turnId: string }).turnId).toBe('t-1');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('is a no-op without an active workspace', async () => {

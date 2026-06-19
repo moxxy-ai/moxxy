@@ -23,6 +23,11 @@ export async function* dispatchToolCall(
   t: CollectedToolUse,
   iteration: number,
 ): AsyncGenerator<MoxxyEvent, void, unknown> {
+  // Set once the tool body resolves, so the outer catch can tell a genuine
+  // pre-execute failure (hook/permission/emit-before-run threw) apart from a
+  // post-run failure (the tool ran — possibly with side effects — but emitting
+  // its success result threw). The two warrant different log wording.
+  let executed = false;
   try {
     const verdict = await ctx.hooks.dispatchToolCall({
       sessionId: ctx.sessionId,
@@ -70,6 +75,7 @@ export async function* dispatchToolCall(
         log: ctx.log,
         ...(ctx.subagents ? { subagents: ctx.subagents } : {}),
       });
+      executed = true;
       yield await ctx.emit({
         type: 'tool_result',
         sessionId: ctx.sessionId,
@@ -94,9 +100,13 @@ export async function* dispatchToolCall(
     }
   } catch (err) {
     // Defensive: a hook handler, permission resolver, or the emit itself threw
-    // before we could produce a tool_result. Synthesize a failed result so the
-    // event log stays well-formed (no orphan tool_call_requested).
+    // before (or after) we could produce a tool_result. Synthesize a failed
+    // result so the event log stays well-formed (no orphan tool_call_requested).
+    // When `executed` is set the tool actually ran (possibly with side effects)
+    // and only the success-result emit failed — don't mislabel that as a
+    // pre-execute failure.
     const message = err instanceof Error ? err.message : String(err);
+    const prefix = executed ? 'tool ran but result emit failed' : 'pre-execute failure';
     yield await ctx.emit({
       type: 'tool_result',
       sessionId: ctx.sessionId,
@@ -104,7 +114,7 @@ export async function* dispatchToolCall(
       source: 'tool',
       callId: asToolCallId(t.id),
       ok: false,
-      error: { kind: 'threw', message: `pre-execute failure: ${message}` },
+      error: { kind: 'threw', message: `${prefix}: ${message}` },
     });
   }
 }

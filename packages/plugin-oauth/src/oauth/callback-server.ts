@@ -24,11 +24,23 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
       settled = true;
       // Single cleanup chokepoint: clear the timeout AND detach the abort
       // listener on every exit (success/timeout/abort/error), so neither a
-      // dangling timer nor a lingering signal listener is left behind.
+      // dangling timer nor a lingering signal listener is left behind. Guard
+      // each close()/fn() so a Server.close() that throws ERR_SERVER_NOT_RUNNING
+      // (server pushed before its listen completed) can never strand the
+      // remaining servers or skip the resolve/reject.
       clearTimeout(timer);
       opts.signal?.removeEventListener('abort', onAbort);
-      for (const s of servers) s.close();
-      fn();
+      try {
+        for (const s of servers) {
+          try {
+            s.close();
+          } catch {
+            /* not yet listening — nothing to close */
+          }
+        }
+      } finally {
+        fn();
+      }
     };
 
     const timer = setTimeout(() => {
@@ -56,6 +68,22 @@ export function waitForCallback(opts: WaitForCallbackOpts): Promise<string> {
       );
     };
     opts.signal?.addEventListener('abort', onAbort, { once: true });
+
+    // A signal that was ALREADY aborted before entry never fires `abort`, so
+    // the listener above won't run — without this guard we'd bind two HTTP
+    // servers and block for the full timeout, ignoring the cancel. (pollUntil
+    // guards the same case.) settle() detaches the listener and skips binding.
+    if (opts.signal?.aborted) {
+      settle(() =>
+        reject(
+          new MoxxyError({
+            code: 'NETWORK_ABORTED',
+            message: 'OAuth flow was aborted.',
+          }),
+        ),
+      );
+      return;
+    }
 
     const handleRequest = (req: IncomingMessage, res: ServerResponse): void => {
       const url = new URL(req.url ?? '/', `http://localhost:${opts.port}`);

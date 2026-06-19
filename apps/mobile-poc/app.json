@@ -16,14 +16,7 @@
       "permissions": ["android.permission.CAMERA"]
     },
     "plugins": [
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
-        }
-      ],
+      "./plugins/withLanCleartext.js",
       [
         "expo-camera",
         {

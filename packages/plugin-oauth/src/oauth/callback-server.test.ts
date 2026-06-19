@@ -63,4 +63,28 @@ describe('waitForCallback — dual-stack loopback', () => {
     await hit('127.0.0.1', port, '/auth/callback?code=X&state=EVIL');
     await rejected;
   });
+
+  it('rejects immediately on an ALREADY-aborted signal — never binds, never blocks', async () => {
+    const port = await freePort();
+    const ac = new AbortController();
+    ac.abort(); // aborted BEFORE the flow starts → the abort event never fires
+    const started = Date.now();
+    // A huge timeout: if the guard were missing it would block for the full
+    // timeout (the abort listener never runs for a pre-aborted signal).
+    await expect(
+      waitForCallback({
+        port,
+        path: '/auth/callback',
+        expectedState: 'S',
+        timeoutMs: 60_000,
+        signal: ac.signal,
+      }),
+    ).rejects.toMatchObject({ code: 'NETWORK_ABORTED' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    // The port was never bound — a fresh listener can claim it without EADDRINUSE.
+    const second = waitForCallback({ port, path: '/auth/callback', expectedState: 'S', timeoutMs: 2_000 });
+    await tick();
+    await hit('127.0.0.1', port, '/auth/callback?code=AFTER&state=S');
+    expect(await second).toBe('AFTER');
+  });
 });

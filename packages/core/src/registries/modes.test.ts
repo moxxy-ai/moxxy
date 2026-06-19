@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { defineMode } from '@moxxy/sdk';
 import { ModeRegistry } from './modes.js';
 
@@ -62,5 +62,25 @@ describe('ModeRegistry legacy-name migration', () => {
     });
     reg.replace(mode('goal')); // not the active mode
     expect(fired).toBe(0);
+  });
+
+  it('isolates a throwing change listener so register/setActive never aborts', () => {
+    const reg = new ModeRegistry();
+    const after = vi.fn();
+    reg.onActiveChange(() => {
+      throw new Error('observer down (e.g. dead socket on InfoChanged)');
+    });
+    reg.onActiveChange(after);
+    // A throwing observer must NOT abort the remaining listeners nor unwind into
+    // the registration that triggered the notification.
+    expect(() => reg.register(mode('default'))).not.toThrow();
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(reg.getActive().name).toBe('default');
+
+    // Same isolation on an explicit setActive (mode switch).
+    reg.register(mode('goal'));
+    after.mockClear();
+    expect(() => reg.setActive('goal')).not.toThrow();
+    expect(after).toHaveBeenCalledTimes(1);
   });
 });

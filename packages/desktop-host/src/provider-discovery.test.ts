@@ -24,11 +24,17 @@ function writeProvidersFile(json: unknown): void {
   writeFileSync(path.join(dir, 'providers.json'), JSON.stringify(json));
 }
 
+const savedMoxxyHome = process.env.MOXXY_HOME;
+
 beforeEach(() => {
   tmp = mkdtempSync(path.join(os.tmpdir(), 'provider-discovery-'));
+  // Default: no $MOXXY_HOME → moxxyHome() falls to <homedir>/.moxxy (the mocked tmp).
+  delete process.env.MOXXY_HOME;
 });
 
 afterEach(() => {
+  if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = savedMoxxyHome;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -65,6 +71,28 @@ describe('readAdminProviderNames', () => {
       ],
     });
     await expect(readAdminProviderNames()).resolves.toEqual(['together', 'openrouter']);
+  });
+
+  it('reads providers.json from $MOXXY_HOME, not a hardcoded ~/.moxxy', async () => {
+    // The CLI's provider-admin writes providers.json under moxxyHome(); when the
+    // user relocates state with $MOXXY_HOME, a hardcoded ~/.moxxy here would miss
+    // it entirely (the bug that loops onboarding despite a configured provider).
+    const relocated = mkdtempSync(path.join(os.tmpdir(), 'moxxy-home-'));
+    try {
+      process.env.MOXXY_HOME = relocated;
+      // Write ONLY to the relocated home; the default tmp/.moxxy stays empty.
+      writeFileSync(
+        path.join(relocated, 'providers.json'),
+        JSON.stringify({
+          providers: [
+            { kind: 'openai-compat', name: 'relocated', baseURL: 'https://z', defaultModel: 'm', models: [] },
+          ],
+        }),
+      );
+      await expect(readAdminProviderNames()).resolves.toEqual(['relocated']);
+    } finally {
+      rmSync(relocated, { recursive: true, force: true });
+    }
   });
 });
 
@@ -122,6 +150,39 @@ describe('fetchProviderModels', () => {
   it('returns [] for a built-in (not in providers.json) without any network call', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     await expect(fetchProviderModels('anthropic')).resolves.toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('refuses an http (non-localhost) baseURL — never attaches the key over cleartext', async () => {
+    // A poisoned providers.json with a plain-http remote endpoint must NOT
+    // trigger the vault read or the fetch — the bearer token would leak in
+    // cleartext / to an SSRF target.
+    writeProvidersFile({
+      providers: [
+        {
+          kind: 'openai-compat',
+          name: 'evil',
+          baseURL: 'http://attacker.example',
+          defaultModel: 'm',
+          models: [],
+        },
+      ],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(fetchProviderModels('evil')).rejects.toThrow(/non-https/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('rejects a non-URL baseURL without a network call', async () => {
+    writeProvidersFile({
+      providers: [
+        { kind: 'openai-compat', name: 'broken', baseURL: 'not a url', defaultModel: 'm', models: [] },
+      ],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    await expect(fetchProviderModels('broken')).rejects.toThrow(/invalid provider baseurl/i);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });

@@ -71,7 +71,7 @@ export async function runSlash(
   // 2) Channel-local cases.
   switch (head) {
     case '/model':
-      await renderModelPicker(ctx, session, state);
+      await renderModelPicker(ctx, session, state, args);
       return;
     case '/mode':
       await renderModePicker(ctx, session);
@@ -112,10 +112,14 @@ export async function runSlash(
   }
 }
 
+/** Telegram inline keyboards get unwieldy past this many rows; cap the picker. */
+const MODEL_PICKER_CAP = 30;
+
 async function renderModelPicker(
   ctx: Context,
   session: Session,
   state: SlashState,
+  filter = '',
 ): Promise<void> {
   const providers = session.providers.list();
   if (providers.length === 0) {
@@ -131,21 +135,37 @@ async function renderModelPicker(
   // and a tap on them surfaces the right setup command instead of
   // a no-op switch.
   const ready = session.readyProviders ?? new Set<string>();
-  let count = 0;
-  for (const p of providers) {
-    for (const m of p.models) {
-      const isCurrent = providerName === p.name && activeModel === m.id;
-      const connected = ready.has(p.name);
-      const label =
-        `${isCurrent ? '• ' : ''}${p.name}: ${m.id}` +
-        (connected ? '' : ' (not connected)');
-      keyboard.text(label, `model:${p.name}::${m.id}`).row();
-      count += 1;
-      if (count >= 30) break;
-    }
-    if (count >= 30) break;
+  // `/model <substring>` narrows the list so a model that sorts past the
+  // keyboard cap is still reachable from chat (the cap below would otherwise
+  // silently hide it with no fallback).
+  const needle = filter.trim().toLowerCase();
+  // Flatten so we can both apply the substring filter and report how many the
+  // cap hides (vs. how many the filter excluded).
+  const all = providers.flatMap((p) =>
+    p.models.map((m) => ({ provider: p.name, model: m.id })),
+  );
+  const matched = needle
+    ? all.filter((e) => `${e.provider}::${e.model}`.toLowerCase().includes(needle))
+    : all;
+  if (matched.length === 0) {
+    await ctx.reply(`no model matches "${filter.trim()}" — try /model with no argument.`);
+    return;
   }
-  await ctx.reply('Pick a model:', { reply_markup: keyboard });
+  const shown = matched.slice(0, MODEL_PICKER_CAP);
+  for (const e of shown) {
+    const isCurrent = providerName === e.provider && activeModel === e.model;
+    const connected = ready.has(e.provider);
+    const label =
+      `${isCurrent ? '• ' : ''}${e.provider}: ${e.model}` +
+      (connected ? '' : ' (not connected)');
+    keyboard.text(label, `model:${e.provider}::${e.model}`).row();
+  }
+  const hidden = matched.length - shown.length;
+  const prompt =
+    hidden > 0
+      ? `Pick a model (${hidden} more not shown — narrow with /model <text>):`
+      : 'Pick a model:';
+  await ctx.reply(prompt, { reply_markup: keyboard });
 }
 
 async function renderModePicker(ctx: Context, session: Session): Promise<void> {

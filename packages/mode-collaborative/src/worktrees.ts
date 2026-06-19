@@ -10,31 +10,62 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { readFile, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { PeerReader } from '@moxxy/plugin-collab';
 
 export interface GitResult {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
+  /** True when git's stdout exceeded `maxBuffer` and the captured output is a
+   *  TRUNCATED prefix — callers that parse stdout (changedFiles/diff/conflict
+   *  lists) MUST treat this as a hard error, never as a clean-but-non-zero git
+   *  result, or they silently operate on partial data. */
+  readonly truncated?: boolean;
 }
 
 // A stable identity so commits work even where the repo/user has none (CI).
 const IDENTITY = ['-c', 'user.name=moxxy-collab', '-c', 'user.email=collab@moxxy.local'];
 
+const DEFAULT_GIT_MAXBUFFER = 64 * 1024 * 1024;
+
+/** The stdout/stderr capture cap for git children. 64MB by default; a *positive*
+ *  `MOXXY_COLLAB_GIT_MAXBUFFER` override lets tests trigger a real overflow with a
+ *  tiny limit so the truncation-refusal chain is exercised against a real child
+ *  process (a real 64MB overflow is too slow/flaky to provoke in the suite).
+ *  Ignored unless it parses to a finite, positive integer, so a hostile/garbage
+ *  env value can never shrink or disable the production cap. */
+function gitMaxBuffer(): number {
+  const raw = process.env.MOXXY_COLLAB_GIT_MAXBUFFER;
+  if (!raw) return DEFAULT_GIT_MAXBUFFER;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_GIT_MAXBUFFER;
+}
+
 export function git(cwd: string, args: ReadonlyArray<string>): Promise<GitResult> {
   return new Promise((resolve) => {
-    execFile('git', args as string[], { cwd, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const code =
-        err && typeof (err as { code?: unknown }).code === 'number'
-          ? ((err as { code: number }).code)
-          : err
-            ? 1
-            : 0;
-      resolve({ code, stdout: stdout.toString(), stderr: stderr.toString() });
+    execFile('git', args as string[], { cwd, maxBuffer: gitMaxBuffer() }, (err, stdout, stderr) => {
+      // maxBuffer overflow surfaces as a STRING code, not a numeric git exit
+      // code; Node aborts the child and stdout is a truncated prefix. Flag it so
+      // parsers refuse the partial output instead of mis-reading it as exit 1.
+      const errCode = (err as NodeJS.ErrnoException | null)?.code;
+      const truncated = errCode === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+      const code = typeof errCode === 'number' ? errCode : err ? 1 : 0;
+      resolve({ code, stdout: stdout.toString(), stderr: stderr.toString(), ...(truncated ? { truncated } : {}) });
     });
   });
+}
+
+/** Throw if a git result was truncated by maxBuffer overflow. Callers that PARSE
+ *  stdout (file lists, diffs, conflict sets) must call this so a partial capture
+ *  aborts the integration instead of silently corrupting ownership resolution.
+ *  Exported for direct unit coverage (a real 64MB overflow is too slow/flaky to
+ *  trigger end-to-end in the suite). */
+export function assertNotTruncated(r: GitResult, op: string): void {
+  if (r.truncated) {
+    throw new Error(`git ${op} output exceeded the 64MB buffer and was truncated — refusing to act on partial output`);
+  }
 }
 
 /** Is the `git` binary available at all? (Desktop users may not have it.) */
@@ -128,12 +159,24 @@ export async function commitAll(worktreeCwd: string, message: string): Promise<b
 export async function changedFiles(
   worktreeCwd: string,
 ): Promise<ReadonlyArray<{ path: string; status: string }>> {
-  const r = await git(worktreeCwd, ['status', '--porcelain']);
-  return r.stdout
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((line) => ({ status: line.slice(0, 2).trim(), path: line.slice(2).trim() }));
+  // `-z` is NUL-delimited and emits raw (un-C-quoted) paths, so files with
+  // spaces/quotes/non-ASCII bytes parse correctly. Renames/copies are emitted as
+  // two NUL-separated records: `XY <new>\0<old>\0` — we keep the NEW path (the
+  // one ownership keys on) and skip its trailing source record.
+  const r = await git(worktreeCwd, ['status', '--porcelain', '-z']);
+  assertNotTruncated(r, 'status --porcelain');
+  const records = r.stdout.split('\0');
+  const out: Array<{ path: string; status: string }> = [];
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
+    if (!rec) continue;
+    const status = rec.slice(0, 2).trim();
+    const path = rec.slice(3); // porcelain field: 2 status chars + 1 space, then the path (no trim — paths may end in spaces)
+    if (path) out.push({ status, path });
+    // A rename/copy ('R'/'C') carries its source path in the NEXT record — skip it.
+    if (status.startsWith('R') || status.startsWith('C')) i++;
+  }
+  return out;
 }
 
 /** Full diff of a worktree vs the shared base, including not-yet-committed work. */
@@ -153,6 +196,9 @@ export async function mergeNoFf(repoCwd: string, branch: string, message: string
   const r = await git(repoCwd, [...IDENTITY, 'merge', '--no-ff', '--no-edit', '-m', message, branch]);
   if (r.code === 0) return { ok: true, conflicts: [] };
   const conflicted = await git(repoCwd, ['diff', '--name-only', '--diff-filter=U']);
+  // A truncated conflict list would under-report conflicts and let a partial
+  // merge proceed — abort and surface it rather than silently dropping files.
+  assertNotTruncated(conflicted, 'diff --name-only --diff-filter=U');
   const conflicts = conflicted.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
   await git(repoCwd, ['merge', '--abort']);
   return { ok: false, conflicts };
@@ -183,7 +229,11 @@ export async function mergeWithOwnership(
 ): Promise<{ ok: boolean; unresolved: ReadonlyArray<string>; resolved: ReadonlyArray<{ file: string; owner: string }> }> {
   const m = await git(repoCwd, [...IDENTITY, 'merge', '--no-ff', '--no-edit', '-m', `merge ${incomingAgentId}`, branch]);
   if (m.code === 0) return { ok: true, unresolved: [], resolved: [] };
-  const conflicted = (await git(repoCwd, ['diff', '--name-only', '--diff-filter=U'])).stdout
+  const conflictedResult = await git(repoCwd, ['diff', '--name-only', '--diff-filter=U']);
+  // A truncated conflict list would silently skip some conflicted files,
+  // promoting an incompletely-resolved merge — refuse it.
+  assertNotTruncated(conflictedResult, 'diff --name-only --diff-filter=U');
+  const conflicted = conflictedResult.stdout
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -255,6 +305,41 @@ function resolveWithin(baseDir: string, requested: string): string {
 }
 
 /**
+ * Like {@link resolveWithin}, but additionally defeats SYMLINK escape: an agent's
+ * worktree is attacker-influenced content, so it can plant `ln -s /etc/passwd
+ * leak` whose path-string `leak` passes resolveWithin yet resolves on disk to a
+ * target OUTSIDE the worktree. We realpath the validated target (and, when it
+ * doesn't exist yet, its nearest existing ancestor) and re-check it stays inside
+ * realpath(base) before any read follows the link.
+ */
+async function resolveWithinReal(baseDir: string, requested: string): Promise<string> {
+  const target = resolveWithin(baseDir, requested);
+  const realBase = await realpath(resolve(baseDir));
+  // Find the realpath of the deepest EXISTING ancestor of `target` (the leaf may
+  // not exist yet for a future write; a symlink anywhere along the chain still
+  // resolves here).
+  let probe = target;
+  let realProbe: string | undefined;
+  for (;;) {
+    try {
+      realProbe = await realpath(probe);
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      const parent = dirname(probe);
+      if (parent === probe) return target; // reached the filesystem root; nothing to resolve
+      probe = parent;
+    }
+  }
+  // Re-confine the (symlink-resolved) real path to the (symlink-resolved) base.
+  const rel = relative(realBase, realProbe);
+  if (rel !== '' && rel !== '.' && (rel.startsWith('..') || isAbsolute(rel))) {
+    throw new Error('path escapes the worktree (symlink)');
+  }
+  return target;
+}
+
+/**
  * A {@link PeerReader} backed by the agents' worktrees — lets one agent read
  * another's actual in-progress files (served by the coordinator, which has fs
  * access to every worktree). Path traversal is contained to the worktree.
@@ -271,7 +356,7 @@ export function peerReaderFor(worktrees: ReadonlyMap<string, string>, baseSha: s
     },
     async read(agentId, path) {
       const dir = dirFor(agentId);
-      return readFile(resolveWithin(dir, path), 'utf8');
+      return readFile(await resolveWithinReal(dir, path), 'utf8');
     },
     async diff(agentId) {
       return diffVsBase(dirFor(agentId), baseSha);
@@ -282,9 +367,11 @@ export function peerReaderFor(worktrees: ReadonlyMap<string, string>, baseSha: s
 /**
  * A {@link PeerReader} for the lock-coordinated shared-workspace path: all agents
  * share ONE tree, so peer-read is just "read the live shared workspace" (agent id
- * is ignored). The same `resolveWithin` traversal guard applies — `path` is still
- * untrusted peer input over the socket. Note: a read can catch a teammate's file
- * mid-write (there is no isolation here); callers are told to read released work.
+ * is ignored). The same traversal + symlink guard as `peerReaderFor` applies —
+ * `path` is still untrusted peer input over the socket, and the shared tree is
+ * attacker-influenced content (a planted symlink could otherwise escape the cwd).
+ * Note: a read can catch a teammate's file mid-write (there is no isolation here);
+ * callers are told to read released work.
  */
 export function cwdPeerReader(cwd: string): PeerReader {
   return {
@@ -294,7 +381,7 @@ export function cwdPeerReader(cwd: string): PeerReader {
       return (await isGitRepo(cwd)) ? changedFiles(cwd) : [];
     },
     async read(_agentId, path) {
-      return readFile(resolveWithin(cwd, path), 'utf8');
+      return readFile(await resolveWithinReal(cwd, path), 'utf8');
     },
     async diff() {
       return ''; // no base commit to diff against without git

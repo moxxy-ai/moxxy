@@ -19,6 +19,16 @@ import type {
  * nodes. The browser renderer applies the same allow-list as defense in depth.
  */
 
+/**
+ * Hard cap on view-tree nesting depth, honored by every recursive descent
+ * (convert/expand/validateDoc). Comfortably above any legitimate UI but far
+ * below Node's native call-stack limit, so a hostile or malformed AST yields a
+ * normal {@link ViewParseError} instead of an uncaught `RangeError: Maximum
+ * call stack size exceeded`. parseView already converts a thrown overflow into
+ * a clean result; validateDoc has no such guard, so the cap is the wall there.
+ */
+const MAX_VIEW_DEPTH = 256;
+
 // ---------------------------------------------------------------------------
 // Tokenizer
 // ---------------------------------------------------------------------------
@@ -169,7 +179,13 @@ function parseAttrs(s: string): RawAttr[] {
           }
           i++;
         }
-        value = s.slice(start, i); // keep braces; raw
+        // There is no JSX-expression evaluation behind `{...}`; strip the outer
+        // braces and treat the inner text as the literal value so it flows
+        // through coerceValue (incl. the href/src URL-scheme check) on the
+        // de-braced string — keeping the braces would smuggle a `{javascript:…}`
+        // past isSafeViewUrl as a bogus relative URL.
+        const raw = s.slice(start, i);
+        value = raw.startsWith('{') && raw.endsWith('}') ? raw.slice(1, -1) : raw;
       } else {
         while (i < n && !/\s/.test(s[i]!)) {
           value += s[i]!;
@@ -228,14 +244,47 @@ function build(tokens: Token[], src: string): BNode {
   return elements[0]!;
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  amp: '&',
+};
+
+/**
+ * Decode the named + numeric HTML character references a browser would resolve.
+ * Done in a SINGLE pass (one regex) so each `&…;` is consumed exactly once: a
+ * double-encoded `&amp;#58;` yields the literal `&#58;` rather than being
+ * re-decoded to `:` (which a naive chain of `.replace()` calls would do).
+ *
+ * Numeric references (`&#58;`, `&#x3a;`) MUST be decoded here, not just the
+ * named ones: this output feeds the href/src URL-scheme check in coerceValue,
+ * and a browser decodes `javascript&#58;alert(1)` to `javascript:` at click
+ * time. Decoding numeric refs first means isSafeViewUrl sees the same `:` the
+ * browser will, so an entity-obfuscated `javascript:`/`data:text` scheme is
+ * rejected instead of sailing through as a bogus relative URL. The SDK check
+ * additionally strips C0 control chars, so a numeric ref that decodes to one
+ * cannot smuggle a scheme either.
+ */
 function decodeEntities(s: string): string {
-  return s
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&');
+  if (s.indexOf('&') === -1) return s;
+  return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);/g, (whole, body: string) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      // Reject out-of-range / non-character code points (surrogates, > U+10FFFF);
+      // leave the raw text untouched rather than emit U+FFFD or throw.
+      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+        return whole;
+      }
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return whole;
+      }
+    }
+    return Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, body) ? NAMED_ENTITIES[body]! : whole;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +311,13 @@ function coerceValue(
     return '';
   }
   if (spec.type === 'number') {
-    const num = Number(value);
+    // Only accept a plain decimal the agent actually wrote. JS `Number()` also
+    // parses `0x10`/`0b1`/`0o7`/`1e3` — so `cols="0x4"` would silently become 4
+    // (a human reads hex 16) and `cols="1e1"` → 10, surprising the author.
+    // Require an optional sign + digits with at most one decimal point; reject
+    // everything else with a clear error instead of guessing.
+    const trimmed = value.trim();
+    const num = /^[+-]?(\d+\.?\d*|\.\d+)$/.test(trimmed) ? Number(trimmed) : NaN;
     if (!Number.isFinite(num)) {
       errors.push({ message: `<${tag}> attribute "${name}" must be a number` });
       return 0;
@@ -326,11 +381,16 @@ function coerceAttrs(b: BNode, spec: ViewTagSpec | undefined, errors: ViewParseE
   return out;
 }
 
-function convert(b: BNode, specByTag: Map<string, ViewTagSpec>, errors: ViewParseError[]): ViewNode {
+function convert(b: BNode, specByTag: Map<string, ViewTagSpec>, errors: ViewParseError[], depth = 0): ViewNode {
   const spec = specByTag.get(b.tag);
   if (!spec) errors.push({ message: `unknown tag <${b.tag}>` });
   const props = coerceAttrs(b, spec, errors);
   const children: ViewNode[] = [];
+  if (depth >= MAX_VIEW_DEPTH) {
+    // Bound the descent rather than recurse into a native stack overflow.
+    errors.push({ message: `<${b.tag}> view nesting too deep (max ${MAX_VIEW_DEPTH})` });
+    return finalizeNode({ kind: 'element', tag: b.tag, props, children }, spec);
+  }
   for (const c of b.children) {
     if (!isBNode(c)) {
       const v = c.text.replace(/\s+/g, ' ').trim();
@@ -347,7 +407,7 @@ function convert(b: BNode, specByTag: Map<string, ViewTagSpec>, errors: ViewPars
           errors.push({ message: `<${b.tag}> may not contain <${c.tag}>` });
         }
       }
-      children.push(convert(c, specByTag, errors));
+      children.push(convert(c, specByTag, errors, depth + 1));
     }
   }
   return finalizeNode({ kind: 'element', tag: b.tag, props, children }, spec);
@@ -442,10 +502,37 @@ function expandResults(node: Extract<ViewNode, { kind: 'element' }>): ViewNode {
   return el('stack', { gap: 'md' }, cards);
 }
 
-function expand(node: ViewNode): ViewNode {
+/**
+ * Per-component expanders keyed by tag. A {@link ViewTagSpec} marked
+ * `component: true` MUST have an entry here; expand() asserts that invariant so
+ * an unexpanded component can never reach a frontend that only knows
+ * primitives. Add a new rich component by registering its expander, not by
+ * editing expand()'s control flow.
+ */
+const EXPANDERS: Record<string, (node: Extract<ViewNode, { kind: 'element' }>) => ViewNode> = {
+  results: expandResults,
+};
+
+function expand(
+  node: ViewNode,
+  specByTag: Map<string, ViewTagSpec>,
+  errors: ViewParseError[],
+  depth = 0,
+): ViewNode {
   if (node.kind !== 'element') return node;
-  if (node.tag === 'results') return expandResults(node);
-  return { ...node, children: node.children.map(expand) };
+  if (depth >= MAX_VIEW_DEPTH) {
+    errors.push({ message: `<${node.tag}> view nesting too deep (max ${MAX_VIEW_DEPTH})` });
+    return node;
+  }
+  const expander = EXPANDERS[node.tag];
+  if (expander) return expander(node);
+  // A component-flagged tag with no registered expander would survive to the
+  // renderer as a non-primitive — reject it instead of leaking it through.
+  if (specByTag.get(node.tag)?.component) {
+    errors.push({ message: `<${node.tag}> is a component with no registered expander` });
+    return node;
+  }
+  return { ...node, children: node.children.map((c) => expand(c, specByTag, errors, depth + 1)) };
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +547,8 @@ export function parseView(source: string, allowList: ReadonlyArray<ViewTagSpec>)
     const errors: ViewParseError[] = [];
     let root = convert(rootB, specByTag, errors);
     if (errors.length) return { ok: false, errors };
-    root = expand(root);
+    root = expand(root, specByTag, errors);
+    if (errors.length) return { ok: false, errors };
     const title = root.kind === 'element' && root.tag === 'view' && typeof root.props.title === 'string' ? root.props.title : undefined;
     return { ok: true, doc: { root, ...(title ? { title } : {}) } };
   } catch (e) {
@@ -473,8 +561,15 @@ export function parseView(source: string, allowList: ReadonlyArray<ViewTagSpec>)
 export function validateDoc(doc: ViewDoc, allowList: ReadonlyArray<ViewTagSpec>): ViewParseError[] {
   const specByTag = new Map(allowList.map((s) => [s.tag, s]));
   const errors: ViewParseError[] = [];
-  const walk = (node: ViewNode) => {
+  const walk = (node: ViewNode, depth: number) => {
     if (node.kind !== 'element') return;
+    if (depth >= MAX_VIEW_DEPTH) {
+      // Match parseView's hardening: a deep AST handed straight to validateDoc
+      // (over the transport, or from a replacement renderer) must reject, not
+      // throw an uncaught RangeError at the caller.
+      errors.push({ message: `<${node.tag}> view nesting too deep (max ${MAX_VIEW_DEPTH})` });
+      return;
+    }
     const spec = specByTag.get(node.tag);
     if (!spec) {
       errors.push({ message: `unknown tag <${node.tag}>` });
@@ -507,10 +602,10 @@ export function validateDoc(doc: ViewDoc, allowList: ReadonlyArray<ViewTagSpec>)
       } else if (spec.allowedChildren !== 'any' && c.value.trim()) {
         errors.push({ message: `<${node.tag}> may not contain text` });
       }
-      walk(c);
+      walk(c, depth + 1);
     }
   };
-  walk(doc.root);
+  walk(doc.root, 0);
   return errors;
 }
 

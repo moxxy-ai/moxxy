@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { generateKeyPairSync, createHash, sign as cryptoSign, createPrivateKey } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import path from 'node:path';
@@ -8,7 +8,14 @@ import os from 'node:os';
 import { buildAppBundle } from './build';
 import { canonicalManifestBytes, type AppManifest } from './manifest';
 import { checkForUpdate, downloadAndStage, isAllowedUpdateHost } from './stager';
-import { bundleRoot, markBad, readBadVersions, readActiveVersion, type ShellInfo } from './resolve';
+import {
+  appUpdateDir,
+  bundleRoot,
+  markBad,
+  readBadVersions,
+  readActiveVersion,
+  type ShellInfo,
+} from './resolve';
 
 const SHELL: ShellInfo = { electron: '33.4.11', nodeAbi: '115' };
 const keys = generateKeyPairSync('ed25519');
@@ -462,5 +469,200 @@ describe('downloadAndStage hardening', () => {
     expect(version).toBe('0.0.6');
     expect(readBadVersions(tmp).has('0.0.6')).toBe(false); // poison cleared
     expect(readActiveVersion(tmp)).toBe('0.0.6'); // and activated
+  });
+});
+
+describe('downloadAndStage SSRF + OOM hardening', () => {
+  const GH = 'https://github.com/moxxy-ai/moxxy/releases/latest/download/b.json.gz';
+
+  function bundle(): { manifest: AppManifest; bundleGz: Buffer } {
+    return buildAppBundle({
+      version: '0.0.6',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from('// main'),
+      },
+    });
+  }
+
+  it('refuses to follow a bundle redirect that leaves the allowlist (SSRF)', async () => {
+    const { manifest } = bundle();
+    // The download host is allowed, but it 302-redirects OFF the allowlist. With
+    // redirect:'follow' the loader would silently fetch from the off-allowlist
+    // host; the manual re-validating follow must reject it.
+    const fetchImpl = (async () =>
+      new Response('', {
+        status: 302,
+        headers: { location: 'https://evil.test/payload.json.gz' },
+      })) as unknown as typeof fetch;
+    await expect(
+      downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY }, { fetchImpl }),
+    ).rejects.toThrow(/allowed origin/i);
+    expect(existsSync(bundleRoot(tmp, '0.0.6'))).toBe(false);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+
+  it('follows an in-allowlist redirect (object-store CDN) and stages normally', async () => {
+    const { manifest, bundleGz } = bundle();
+    const cdn = 'https://objects.githubusercontent.com/x/payload.json.gz';
+    let hops = 0;
+    const fetchImpl = (async (url: string | URL): Promise<Response> => {
+      hops++;
+      if (String(url) === cdn) return new Response(new Uint8Array(bundleGz));
+      // First hop: a 302 to the (allowlisted) CDN host.
+      return new Response('', { status: 302, headers: { location: cdn } });
+    }) as unknown as typeof fetch;
+    const { version } = await downloadAndStage(
+      { userDataDir: tmp, manifest, publicKeyPem: PUBKEY },
+      { fetchImpl },
+    );
+    expect(version).toBe('0.0.6');
+    expect(hops).toBe(2); // original → re-validated CDN hop
+    expect(readActiveVersion(tmp)).toBe('0.0.6');
+  });
+
+  it('rejects a download whose declared content-length exceeds the ceiling (OOM)', async () => {
+    const { manifest } = bundle();
+    // A hostile/buggy response advertises an absurd size — refuse before reading
+    // a single byte into memory.
+    const fetchImpl = (async () =>
+      new Response('ignored', {
+        headers: { 'content-length': String(2 * 1024 * 1024 * 1024) }, // 2 GiB
+      })) as unknown as typeof fetch;
+    await expect(
+      downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY }, { fetchImpl }),
+    ).rejects.toThrow(/maximum allowed size/i);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+
+  it('aborts a stream that runs past the byte ceiling even without a content-length', async () => {
+    const { manifest } = bundle();
+    // A chunked response with no content-length that keeps emitting forever: the
+    // per-chunk ceiling must abort it before it grows the buffer unbounded.
+    const fetchImpl = (async () => {
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(64 * 1024 * 1024)); // 64 MiB per pull
+        },
+      });
+      return new Response(body);
+    }) as unknown as typeof fetch;
+    await expect(
+      downloadAndStage({ userDataDir: tmp, manifest, publicKeyPem: PUBKEY }, { fetchImpl }),
+    ).rejects.toThrow(/maximum allowed size/i);
+    expect(readActiveVersion(tmp)).toBeNull();
+  });
+});
+
+describe('downloadAndStage concurrency', () => {
+  const GH = 'https://github.com/moxxy-ai/moxxy/releases/latest/download/b.json.gz';
+
+  function bundleAt(version: string): { manifest: AppManifest; bundleGz: Buffer } {
+    return buildAppBundle({
+      version,
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: GH,
+      privateKeyPem: PRIVKEY,
+      files: {
+        'dist/index.html': Buffer.from('x'),
+        'dist-electron/main/index.js': Buffer.from(`// main ${version}`),
+      },
+    });
+  }
+
+  it('serializes two concurrent installs so they never overlap (no interleaved swap)', async () => {
+    // Two installs of DIFFERENT versions launched at the same time on the same
+    // userData. The mutex must run them strictly one-at-a-time: the second's
+    // fetch cannot begin until the first has fully finished. Without that, the
+    // rmSync(finalRoot)+rename activation swaps interleave and corrupt a dir.
+    const a = bundleAt('0.0.6');
+    const b = bundleAt('0.0.7');
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchFor = (gz: Buffer) =>
+      (async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        // Yield a few microtasks so a non-serialized impl would overlap here.
+        await Promise.resolve();
+        await Promise.resolve();
+        inFlight--;
+        return new Response(new Uint8Array(gz));
+      }) as unknown as typeof fetch;
+
+    const [r1, r2] = await Promise.all([
+      downloadAndStage(
+        { userDataDir: tmp, manifest: a.manifest, publicKeyPem: PUBKEY },
+        { fetchImpl: fetchFor(a.bundleGz) },
+      ),
+      downloadAndStage(
+        { userDataDir: tmp, manifest: b.manifest, publicKeyPem: PUBKEY },
+        { fetchImpl: fetchFor(b.bundleGz) },
+      ),
+    ]);
+
+    expect(maxInFlight).toBe(1); // never two stages running at once
+    expect(r1.version).toBe('0.0.6');
+    expect(r2.version).toBe('0.0.7');
+    // Both staged trees are intact (no half-populated / clobbered dir).
+    expect(existsSync(path.join(bundleRoot(tmp, '0.0.6'), 'manifest.json'))).toBe(true);
+    expect(existsSync(path.join(bundleRoot(tmp, '0.0.7'), 'manifest.json'))).toBe(true);
+    // Exactly one active pointer — one of the two, never a corrupt mix.
+    expect(['0.0.6', '0.0.7']).toContain(readActiveVersion(tmp));
+  });
+
+  it('a failed install does not wedge the serialization chain for the next caller', async () => {
+    const good = bundleAt('0.0.8');
+    const badUrlManifest = buildAppBundle({
+      version: '0.0.9',
+      minElectron: '33.0.0',
+      nodeAbi: '',
+      bundleUrl: 'https://evil.test/b.json.gz', // refused before any fetch
+      privateKeyPem: PRIVKEY,
+      files: { 'dist/index.html': Buffer.from('x') },
+    }).manifest;
+
+    const failing = downloadAndStage(
+      { userDataDir: tmp, manifest: badUrlManifest, publicKeyPem: PUBKEY },
+      {},
+    );
+    const succeeding = downloadAndStage(
+      { userDataDir: tmp, manifest: good.manifest, publicKeyPem: PUBKEY },
+      { fetchImpl: (async () => new Response(new Uint8Array(good.bundleGz))) as unknown as typeof fetch },
+    );
+
+    await expect(failing).rejects.toThrow(/allowed origin/i);
+    await expect(succeeding).resolves.toEqual({ version: '0.0.8' });
+    expect(readActiveVersion(tmp)).toBe('0.0.8'); // the chain recovered
+  });
+
+  it('re-staging an existing version keeps a complete dir even if the swap throws', async () => {
+    // First install lands 0.0.6.
+    const v1 = bundleAt('0.0.6');
+    await downloadAndStage(
+      { userDataDir: tmp, manifest: v1.manifest, publicKeyPem: PUBKEY },
+      { fetchImpl: (async () => new Response(new Uint8Array(v1.bundleGz))) as unknown as typeof fetch },
+    );
+    const main = path.join(bundleRoot(tmp, '0.0.6'), 'dist-electron', 'main', 'index.js');
+    expect(existsSync(main)).toBe(true);
+
+    // Re-stage the SAME version successfully — the old dir is moved aside, the new
+    // one committed, the old removed. The version's dir must remain complete the
+    // whole time (never an empty hole), and stay active.
+    const v2 = bundleAt('0.0.6');
+    await downloadAndStage(
+      { userDataDir: tmp, manifest: v2.manifest, publicKeyPem: PUBKEY },
+      { fetchImpl: (async () => new Response(new Uint8Array(v2.bundleGz))) as unknown as typeof fetch },
+    );
+    expect(existsSync(main)).toBe(true);
+    expect(readActiveVersion(tmp)).toBe('0.0.6');
+    // No stray `.retired-*` / `.incoming-*` scaffolding left behind.
+    const leftover = readdirSync(appUpdateDir(tmp)).filter((n) => /\.(retired|incoming)-/.test(n));
+    expect(leftover).toEqual([]);
   });
 });

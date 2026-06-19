@@ -166,4 +166,64 @@ describe('WebSocketCommandBus', () => {
     await new Promise((r) => queueMicrotask(() => r(null)));
     expect(got).toEqual([{ workspaceId: 'ws-1', turnId: 't1', error: null }]);
   });
+
+  it('one peer that throws on notify does not abort the fan-out to the rest', async () => {
+    const bus = new WebSocketCommandBus();
+    // A poisoned transport whose send throws synchronously (mimics a payload
+    // that fails JSON.stringify on a real WsTransport).
+    const poisoned: Transport = {
+      send: () => {
+        throw new Error('cannot serialize');
+      },
+      onFrame: () => {},
+      onClose: () => {},
+      close: () => {},
+    };
+    const [server, client] = makeTransportPair();
+    const got: unknown[] = [];
+    const healthy = new JsonRpcPeer(client);
+    healthy.on('runner.turn.complete', (params) => got.push(params));
+
+    // Attach the poisoned peer FIRST so it is iterated before the healthy one;
+    // the old loop would throw out before ever reaching the healthy peer.
+    bus.attach(poisoned);
+    bus.attach(server);
+
+    expect(() =>
+      bus.broadcast('runner.turn.complete', { workspaceId: 'ws-1', turnId: 't1', error: null }),
+    ).not.toThrow();
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    expect(got).toEqual([{ workspaceId: 'ws-1', turnId: 't1', error: null }]);
+  });
+
+  it('ignores a redundant attach of the same transport (no clobbered duplicate peer)', async () => {
+    const bus = new WebSocketCommandBus();
+    const [server, client] = makeTransportPair();
+    bus.attach(server);
+    bus.attach(server); // redundant — must not create a second peer
+
+    const peer = new JsonRpcPeer(client);
+    const got: unknown[] = [];
+    peer.on('runner.turn.complete', (params) => got.push(params));
+    bus.broadcast('runner.turn.complete', { workspaceId: 'ws-1', turnId: 't1', error: null });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    // Exactly one delivery — a duplicate peer would have fanned out twice (or
+    // been a broken half-dead peer); either way the count proves single-attach.
+    expect(got).toEqual([{ workspaceId: 'ws-1', turnId: 't1', error: null }]);
+  });
+
+  it('closeAll() deterministically drops every peer so later broadcasts no-op', async () => {
+    const bus = new WebSocketCommandBus();
+    const [server, client] = makeTransportPair();
+    bus.attach(server);
+    const peer = new JsonRpcPeer(client);
+    const got: unknown[] = [];
+    peer.on('runner.turn.complete', (params) => got.push(params));
+
+    bus.closeAll();
+    bus.broadcast('runner.turn.complete', { workspaceId: 'ws-1', turnId: 't1', error: null });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    expect(got).toEqual([]); // peer was dropped; nothing delivered
+    expect(() => bus.closeAll()).not.toThrow(); // idempotent
+  });
 });

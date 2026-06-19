@@ -80,6 +80,10 @@ export async function runAuthorizationCodeFlow(opts: OAuthFlowOptions): Promise<
   }
 
   const code = await codePromise;
+  // Thread the abort signal into the exchange too: a turn cancelled AFTER the
+  // browser redirect arrives but DURING the token POST must cancel the in-flight
+  // fetch, not leak a hung request past the cancel. (waitForCallback already
+  // honours the same signal for the listening phase.)
   return exchangeCodeForToken({
     tokenUrl: opts.tokenUrl,
     code,
@@ -87,5 +91,6 @@ export async function runAuthorizationCodeFlow(opts: OAuthFlowOptions): Promise<
     clientId: opts.clientId,
     ...(opts.clientSecret ? { clientSecret: opts.clientSecret } : {}),
     codeVerifier,
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
 }

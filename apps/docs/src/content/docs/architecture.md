@@ -49,7 +49,7 @@ required plugins, active providers, runtime auth facts, registered
 transcribers, and similar preflight state. The plugin host skips plugins with
 missing hard requirements before partial contributions are registered, and
 registries check block requirements before activation or execution. See
-[Requirements](./guides/requirements).
+[Requirements](./guides/requirements.md).
 
 ## Channel model
 

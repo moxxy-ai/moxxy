@@ -65,6 +65,15 @@ class ComposerDraftStore {
     return text;
   }
 
+  /** Forget any pending draft for a removed workspace. Called from the
+   *  session-removal flow so a draft staged for a session that is deleted
+   *  before its composer drains it doesn't linger forever (and can't resurface
+   *  if the id is ever reused). No-op when there's nothing staged. */
+  dropWorkspace(workspaceId: string): void {
+    if (!this.drafts.delete(workspaceId)) return;
+    this.listeners.emit();
+  }
+
   /** Whether a "show the chat view" request is pending. PURE snapshot getter. */
   peekChatViewRequest = (): boolean => this.wantChatView;
 

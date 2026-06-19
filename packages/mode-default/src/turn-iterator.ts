@@ -54,7 +54,13 @@ let sleepImpl = (ms: number, signal: AbortSignal): Promise<void> =>
     signal.addEventListener('abort', onAbort, { once: true });
   });
 
-/** Override the retry back-off sleep (test seam). Returns a restore fn. */
+/**
+ * Override the retry back-off sleep (test seam). Returns a restore fn that
+ * callers MUST invoke (in a `finally`) — `sleepImpl` is a module-scoped
+ * singleton shared process-wide, so a leaked override bleeds the fake sleep
+ * into every other turn/test running in the same worker (parallel subagent
+ * fan-out, multiple Sessions in one host). Test-only; never call from prod.
+ */
 export function __setRetrySleepForTests(
   fn: (ms: number, signal: AbortSignal) => Promise<void>,
 ): () => void {
@@ -70,7 +76,15 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
   // glitch causing an infinite retry, bad prompt, etc.) — primary
   // termination signal is the stuck-loop detector, which catches the
   // common "model keeps calling the same tool" case ~10 iterations in.
-  const maxIterations = ctx.maxIterations ?? 500;
+  // Coerce a caller/config-supplied bound to a positive integer; a degenerate
+  // value (0, negative, NaN, fractional) would otherwise make the loop never
+  // run and emit a misleading "exceeded maxIterations" fatal. Treat anything
+  // un-coercible (NaN) as the default rather than failing the turn.
+  const requestedMaxIterations = ctx.maxIterations;
+  const maxIterations =
+    typeof requestedMaxIterations === 'number' && Number.isFinite(requestedMaxIterations)
+      ? Math.max(1, Math.floor(requestedMaxIterations))
+      : 500;
   const detector = createStuckLoopDetector();
   // Reactive-compaction budget per overflow episode. If the provider keeps
   // rejecting for context size even after compacting this many times, give up
@@ -133,6 +147,22 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
       },
     );
 
+    // A user cancellation WHILE the provider stream was being consumed surfaces
+    // as a non-retryable provider `error` ("The operation was aborted") rather
+    // than a clean abort — collectProviderStream catches the fetch AbortError
+    // and classifies it as fatal. Treat it as the cancellation it is so
+    // downstream channels render a 'stopped' turn, not a failed/error turn.
+    if (ctx.signal.aborted) {
+      yield await ctx.emit({
+        type: 'abort',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'system',
+        reason: 'signal aborted during provider stream',
+      });
+      return;
+    }
+
     yield await ctx.emit({
       type: 'provider_response',
       sessionId: ctx.sessionId,
@@ -152,9 +182,12 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
         isContextOverflowError(error.message) &&
         reactiveCompactions < MAX_REACTIVE_COMPACTIONS
       ) {
-        reactiveCompactions += 1;
         const compacted = await runCompactionIfNeeded(ctx, { force: true });
         if (compacted) {
+          // Only count an attempt that actually compacted against the budget —
+          // a no-op (overflow lives in the un-compactable recent tail) must not
+          // deny a later, genuinely compactable overflow its retry.
+          reactiveCompactions += 1;
           yield await ctx.emit({
             type: 'error',
             sessionId: ctx.sessionId,
@@ -247,6 +280,21 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
     if (stuck) return;
 
     if (text || stopReason === 'end_turn' || toolUses.length === 0) {
+      // A completion with no text, no tool uses, and a non-natural stop (e.g.
+      // 'max_tokens' truncated to nothing) yields a blank assistant bubble that
+      // silently swallows the truncation signal. Surface a retryable note so the
+      // user sees why the turn produced nothing, alongside the (preserved)
+      // empty assistant_message.
+      if (!text && toolUses.length === 0 && stopReason !== 'end_turn') {
+        yield await ctx.emit({
+          type: 'error',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          kind: 'retryable',
+          message: `provider returned an empty completion (stopReason: ${stopReason ?? 'unknown'})`,
+        });
+      }
       yield await ctx.emit({
         type: 'assistant_message',
         sessionId: ctx.sessionId,

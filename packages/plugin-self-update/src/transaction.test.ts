@@ -8,6 +8,7 @@ import {
   failedAttemptCount,
   gcTransactions,
   listTransactions,
+  newTxnId,
   readJournal,
   recordAttempt,
   resolveTarget,
@@ -59,6 +60,26 @@ describe('snapshot / restore round-trip', () => {
     await expect(fs.access(path.join(dir, 'extra.txt'))).rejects.toBeTruthy();
   });
 
+  it('excludes node_modules / .git / dist from the snapshot (no full dep-tree copy)', async () => {
+    const moxxy = await makeMoxxyDir();
+    const dir = path.join(moxxy, 'plugins', 'heavy');
+    await fs.mkdir(path.join(dir, 'node_modules', 'left-pad'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'node_modules', 'left-pad', 'index.js'), 'module.exports=1\n', 'utf8');
+    await fs.mkdir(path.join(dir, '.git'), { recursive: true });
+    await fs.writeFile(path.join(dir, '.git', 'HEAD'), 'ref: x\n', 'utf8');
+    await fs.mkdir(path.join(dir, 'dist'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'dist', 'out.js'), '// built\n', 'utf8');
+    await fs.writeFile(path.join(dir, 'index.mjs'), 'export default 1;\n', 'utf8');
+
+    const journal = await beginTransaction({ moxxyDir: moxxy, kind: 'plugin', name: 'heavy' });
+    const before = path.join(moxxy, 'self-update', 'txns', journal.txnId, 'before');
+    // Source files snapshotted, heavy/reproducible dirs skipped.
+    expect(await fs.readFile(path.join(before, 'index.mjs'), 'utf8')).toBe('export default 1;\n');
+    await expect(fs.access(path.join(before, 'node_modules'))).rejects.toBeTruthy();
+    await expect(fs.access(path.join(before, '.git'))).rejects.toBeTruthy();
+    await expect(fs.access(path.join(before, 'dist'))).rejects.toBeTruthy();
+  });
+
   it('deletes a newly-created artifact on restore (tombstone)', async () => {
     const moxxy = await makeMoxxyDir();
     const journal = await beginTransaction({ moxxyDir: moxxy, kind: 'plugin', name: 'newp' });
@@ -97,6 +118,15 @@ describe('journal persistence', () => {
     expect((await listTransactions(moxxy)).length).toBe(4);
     await gcTransactions(moxxy, 2);
     expect((await listTransactions(moxxy)).length).toBe(2);
+  });
+});
+
+describe('newTxnId', () => {
+  it('is unique even for ids minted at the same timestamp', () => {
+    const at = new Date('2026-06-19T12:00:00.000Z');
+    const ids = new Set(Array.from({ length: 500 }, () => newTxnId(at)));
+    // A second-resolution stamp would collide; the crypto suffix must not.
+    expect(ids.size).toBe(500);
   });
 });
 

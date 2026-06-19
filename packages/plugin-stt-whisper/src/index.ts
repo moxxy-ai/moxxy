@@ -29,9 +29,14 @@ export interface BuildWhisperPluginOptions {
 }
 
 /**
- * Build the @moxxy/plugin-stt-whisper plugin. The registered transcriber
- * name is `openai-<model>` so multiple Whisper-family models can coexist
- * if a plugin ever exposes more than one.
+ * Build the @moxxy/plugin-stt-whisper plugin. Each instance registers
+ * exactly one transcriber, named `openai-<model>`.
+ *
+ * To run several Whisper-family models at once, build the plugin once per
+ * model — the transcriber names won't collide (`openai-whisper-1` vs
+ * `openai-gpt-4o-transcribe`), but each registration carries the SAME
+ * plugin name, so the host must register them under DISTINCT plugin names
+ * (the name-keyed plugin registry would otherwise clobber the first).
  *
  * Activation:
  *   session.transcribers.setActive('openai-whisper-1', { apiKey: ... });

@@ -133,6 +133,19 @@ const RENDERED_EVENT_TYPES: ReadonlySet<MoxxyEvent['type']> = new Set([
 const SUBAGENT_PLUGIN_ID = '@moxxy/subagents';
 const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
 
+/**
+ * Plugin ids whose `plugin_event`s are transcript-worthy. Seeded with the two
+ * first-party plugins that emit rendered events; a plugin can opt its own events
+ * in via {@link registerRenderablePlugin} instead of editing this module (an
+ * open-for-extension seam, matching the rest of the registry-driven codebase).
+ */
+const renderablePluginIds = new Set<string>([SUBAGENT_PLUGIN_ID, COLLAB_PLUGIN_ID]);
+
+/** Opt a plugin's `plugin_event`s into the rendered transcript. Idempotent. */
+export function registerRenderablePlugin(pluginId: string): void {
+  renderablePluginIds.add(pluginId);
+}
+
 /** Mutable per-workspace chat state. The log is append-only; the rest is
  *  small scalar/array state. `rev` bumps on every change for snapshot
  *  identity; `log.version` changes only when a committed event lands. */
@@ -176,8 +189,7 @@ export function createRuntime(initialEvents: ReadonlyArray<MoxxyEvent> = []): Ch
 
 /** Should this runner event be committed to the rendered log? */
 export function isRenderedEvent(event: MoxxyEvent): boolean {
-  if (event.type === 'plugin_event')
-    return event.pluginId === SUBAGENT_PLUGIN_ID || event.pluginId === COLLAB_PLUGIN_ID;
+  if (event.type === 'plugin_event') return renderablePluginIds.has(event.pluginId);
   return RENDERED_EVENT_TYPES.has(event.type);
 }
 

@@ -106,6 +106,27 @@ describe('buildConfigPlugin tools', () => {
     expect(await tool('config_get').handler({ scope: 'project', path: 'context.missing' }, ctx)).toBeNull();
   });
 
+  it('config_get does not traverse into the prototype chain or index scalars', async () => {
+    await fs.writeFile(
+      path.join(tmp, 'moxxy.config.yaml'),
+      `provider:\n  model: sonnet\n`,
+    );
+    // Prototype-chain hops must return null, not built-in members.
+    expect(
+      await tool('config_get').handler(
+        { scope: 'project', path: 'constructor.prototype.toString' },
+        ctx,
+      ),
+    ).toBeNull();
+    expect(
+      await tool('config_get').handler({ scope: 'project', path: '__proto__.polluted' }, ctx),
+    ).toBeNull();
+    // Descending into a string value (char-by-index) must not leak characters.
+    expect(
+      await tool('config_get').handler({ scope: 'project', path: 'provider.model.0' }, ctx),
+    ).toBeNull();
+  });
+
   it('config_set writes a value, preserving the rest of the file', async () => {
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.yaml'),

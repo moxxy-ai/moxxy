@@ -11,7 +11,7 @@
  */
 
 import { JsonRpcPeer, RpcError, createUnixSocketServer, type Transport } from '@moxxy/runner';
-import type { CollabControl, CollabEvent, CollabMessage, MessageTarget, RosterEntry } from './hub-types.js';
+import type { AgentStatus, CollabControl, CollabEvent, CollabMessage, MessageTarget, RosterEntry } from './hub-types.js';
 import { CollaborationState } from './state.js';
 import {
   CollabHubMethod,
@@ -78,15 +78,47 @@ function optStringArray(v: unknown): ReadonlyArray<string> {
   return v as string[];
 }
 
+/** Statuses a peer may set on ITSELF. Terminal/coordinator-only kinds
+ *  ('done'/'crashed'/'killed') must never be settable via collab.status — they
+ *  release the agent's own file locks (or desync allDone()), so the hub is the
+ *  trust boundary and force-casts of the raw string are not acceptable. */
+const PEER_SETTABLE_STATUS: ReadonlySet<AgentStatus> = new Set<AgentStatus>([
+  'working',
+  'blocked',
+  'connected',
+  'failed',
+]);
+
+function reqPeerStatus(v: unknown): AgentStatus {
+  const s = reqString(v, 'status');
+  if (!PEER_SETTABLE_STATUS.has(s as AgentStatus)) {
+    throw new RpcError(`collab: status "${s}" is not settable by a peer`);
+  }
+  return s as AgentStatus;
+}
+
 export async function createCollaborationHub(opts: CreateHubOptions): Promise<CollaborationHub> {
   const subscribers = new Set<(event: CollabEvent) => void>();
   const connections = new Set<JsonRpcPeer>();
+  /** agentIds currently bound to a live connection — guards impersonation. */
+  const liveIds = new Set<string>();
 
   const state = new CollaborationState({
     task: opts.task,
     roster: opts.roster,
     emit: (event) => {
-      for (const peer of connections) peer.notify(CollabHubNotification.Event, event);
+      // Each recipient is individually guarded: a single peer that throws on
+      // notify (a future transport that can throw on write, an unexpected
+      // non-serializable payload) must not abort the fan-out — that would skip
+      // the remaining peers AND every in-process subscriber, and propagate up
+      // into the mutating RPC, leaving observers inconsistent.
+      for (const peer of connections) {
+        try {
+          peer.notify(CollabHubNotification.Event, event);
+        } catch {
+          // a throwing recipient must not break the bus
+        }
+      }
       for (const fn of subscribers) {
         try {
           fn(event);
@@ -102,6 +134,15 @@ export async function createCollaborationHub(opts: CreateHubOptions): Promise<Co
     if (!peerReader) throw new RpcError('collab: peer-read is not available in this collaboration');
     return peerReader;
   };
+  /** Resolve + validate the target of a peer-read. The injected reader maps an
+   *  agentId onto a worktree path, so an UNKNOWN id must be rejected at the hub
+   *  (the trust boundary) before the reader's filesystem access is invoked —
+   *  defense-in-depth against a peer probing for non-roster targets. */
+  const requireKnownTarget = (v: unknown): string => {
+    const target = reqString(v, 'agentId');
+    if (!state.knowsAgent(target)) throw new RpcError(`collab: unknown agent "${target}"`);
+    return target;
+  };
 
   const onConnection = (transport: Transport): void => {
     const peer = new JsonRpcPeer(transport);
@@ -115,7 +156,25 @@ export async function createCollaborationHub(opts: CreateHubOptions): Promise<Co
 
     peer.handle(CollabHubMethod.Register, (params) => {
       const p = (params ?? {}) as Partial<RegisterParams>;
-      agentId = reqString(p.agentId, 'agentId');
+      const requested = reqString(p.agentId, 'agentId');
+      // Identity is set-once per connection — a single link must not be able to
+      // switch identities mid-stream (the closure var was previously mutable).
+      if (agentId) throw new RpcError('collab: already registered (identity is set-once)');
+      // Reject a peer built against an incompatible protocol rather than letting
+      // it connect silently and call methods with shapes the hub mishandles.
+      // (Older clients that omit the field are tolerated as informational.)
+      if (typeof p.protocolVersion === 'number' && p.protocolVersion !== COLLAB_HUB_PROTOCOL_VERSION) {
+        throw new RpcError(
+          `collab: protocol version mismatch (hub ${COLLAB_HUB_PROTOCOL_VERSION}, client ${p.protocolVersion})`,
+        );
+      }
+      // Reject an id that isn't a known roster slot (no inventing teammates) or
+      // that another live connection already holds (no impersonating/flipping a
+      // peer's status, which onClose would otherwise mark 'crashed').
+      if (!state.knowsAgent(requested)) throw new RpcError(`collab: unknown agent "${requested}"`);
+      if (liveIds.has(requested)) throw new RpcError(`collab: agent "${requested}" is already connected`);
+      agentId = requested;
+      liveIds.add(agentId);
       return {
         ok: true as const,
         protocolVersion: COLLAB_HUB_PROTOCOL_VERSION,
@@ -141,7 +200,7 @@ export async function createCollaborationHub(opts: CreateHubOptions): Promise<Co
 
     peer.handle(CollabHubMethod.StatusSet, (params) => {
       const p = (params ?? {}) as Partial<StatusSetParams>;
-      state.setStatus(me(), reqString(p.status, 'status') as never, p.detail);
+      state.setStatus(me(), reqPeerStatus(p.status), p.detail);
       return { ok: true };
     });
 
@@ -208,21 +267,25 @@ export async function createCollaborationHub(opts: CreateHubOptions): Promise<Co
 
     peer.handle(CollabHubMethod.PeerFiles, async (params) => {
       const p = (params ?? {}) as Partial<PeerFilesParams>;
-      return { files: await requirePeerReader().files(reqString(p.agentId, 'agentId')) };
+      return { files: await requirePeerReader().files(requireKnownTarget(p.agentId)) };
     });
 
     peer.handle(CollabHubMethod.PeerRead, async (params) => {
       const p = (params ?? {}) as Partial<PeerReadParams>;
-      return { content: await requirePeerReader().read(reqString(p.agentId, 'agentId'), reqString(p.path, 'path')) };
+      return { content: await requirePeerReader().read(requireKnownTarget(p.agentId), reqString(p.path, 'path')) };
     });
 
     peer.handle(CollabHubMethod.PeerDiff, async (params) => {
       const p = (params ?? {}) as Partial<PeerDiffParams>;
-      return { diff: await requirePeerReader().diff(reqString(p.agentId, 'agentId')) };
+      return { diff: await requirePeerReader().diff(requireKnownTarget(p.agentId)) };
     });
 
     peer.onClose(() => {
       connections.delete(peer);
+      // Free the id so a genuine reconnect (e.g. the agent process restarts) can
+      // re-register under it; impersonation by a concurrent live link is what we
+      // block, not an honest re-attach.
+      if (agentId) liveIds.delete(agentId);
       // A registered agent whose link dropped before reaching a terminal status
       // crashed. Don't clobber a status the agent already reported for itself
       // ('done' / 'failed') or one the coordinator set ('killed').

@@ -119,7 +119,11 @@ const GLOBAL: DetectorDef[] = [
     category: 'email',
     region: 'global',
     label: 'EMAIL',
-    re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24}\b/,
+    // Every quantifier is bounded (local ≤64 per RFC 5321; DNS labels ≤63; ≤32
+    // sub-labels) so a hostile no-TLD-tail input like `x@a.a.a.…` cannot trigger
+    // catastrophic backtracking (ReDoS) that freezes the renderer thread. The
+    // bounds are far larger than any legitimate address, so recall is unaffected.
+    re: /\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,32}\.[A-Za-z]{2,24}\b/,
   }),
   make({
     id: 'url',

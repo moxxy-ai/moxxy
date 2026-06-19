@@ -69,6 +69,11 @@ export interface BrowserSessionDeps {
    * of `child_process.spawn` — useful for fake sidecars.
    */
   readonly spawnFn?: (sidecarPath: string) => SidecarStream;
+  /**
+   * Per-call timeout override (test seam). Defaults to
+   * {@link DEFAULT_CALL_TIMEOUT_MS}. A hung sidecar op is rejected after this.
+   */
+  readonly callTimeoutMs?: number;
 }
 
 export interface SidecarStream {
@@ -83,6 +88,34 @@ interface PendingCall {
   readonly resolve: (value: unknown) => void;
   readonly reject: (err: Error) => void;
 }
+
+/**
+ * Parent-side per-call ceiling. A wedged sidecar op (an `eval` running
+ * `while(true){}`, a screenshot on a hung renderer) never replies and the
+ * sidecar process stays alive, so without a parent timeout the pending entry —
+ * and every request queued behind it — would hang forever (the surface poll's
+ * inFlight guard then latches and the live view silently freezes). 90s is
+ * comfortably above the longest legitimate in-sidecar timeout (goto's 120s is
+ * the only one above, and it is bounded inside the sidecar; surface frame polls
+ * are sub-second). Exceeding it rejects THIS call only — the shared sidecar and
+ * any healthy concurrent calls are untouched (a late reply is ignored).
+ */
+const DEFAULT_CALL_TIMEOUT_MS = 150_000;
+/** Hard ceiling on queued requests so a wedged head can't let the parent pile
+ *  up unbounded pending entries (e.g. 3/s surface polls behind a stuck op). */
+const MAX_PENDING = 256;
+/**
+ * Cap the parent's hand-rolled stdout line buffer. A sidecar (or a process
+ * spoofing the JSON-RPC channel) that emits a very long line with no newline
+ * would otherwise grow this string without limit, copying it on every chunk
+ * (O(n^2) + unbounded memory in the runner). 96MB comfortably fits the largest
+ * legitimate single line — a base64 full-page PNG at deviceScaleFactor 2 — while
+ * still bounding a runaway. On overflow we drop the buffer and log a protocol
+ * error rather than OOM the runner.
+ */
+const MAX_STDOUT_BUFFER = 96 * 1024 * 1024;
+/** stderr is human-readable status only — a much smaller cap is plenty. */
+const MAX_STDERR_BUFFER = 1 * 1024 * 1024;
 
 /**
  * Coerce a sidecar reply into an object so we can attach `notice`.
@@ -113,6 +146,7 @@ class Sidecar {
   constructor(
     private readonly sidecarPath: string,
     private readonly spawnFn: (path: string) => SidecarStream,
+    private readonly callTimeoutMs: number = DEFAULT_CALL_TIMEOUT_MS,
   ) {}
 
   /** Subscribe to sidecar stderr lines. Returns an unsubscribe function. */
@@ -139,6 +173,16 @@ class Sidecar {
         this.buffer = this.buffer.slice(nl + 1);
         if (line.trim()) this.handleLine(line);
       }
+      // A single line with no newline that exceeds the cap is malformed/hostile
+      // protocol output. Drop it (and any partial accumulation) rather than let
+      // the runner grow unbounded; the in-flight call that expected its reply
+      // will hit its per-call timeout.
+      if (this.buffer.length > MAX_STDOUT_BUFFER) {
+        this.recentStderr.push(
+          `[moxxy] dropped ${this.buffer.length} bytes of un-delimited sidecar stdout (> ${MAX_STDOUT_BUFFER} cap)`,
+        );
+        this.buffer = '';
+      }
     });
     // Forward sidecar stderr line-by-line. The sidecar uses stderr
     // for install progress ("downloading chromium…") and other
@@ -156,6 +200,9 @@ class Sidecar {
           for (const fn of this.stderrListeners) fn(line);
         }
       }
+      // Bound a runaway no-newline stderr stream too (it feeds the error tail,
+      // so keep only the most recent bytes rather than drop wholesale).
+      if (stderrBuf.length > MAX_STDERR_BUFFER) stderrBuf = stderrBuf.slice(-MAX_STDERR_BUFFER);
     });
     this.child.once('exit', (code) => {
       // Surface whatever the sidecar printed before dying — that's where the
@@ -217,17 +264,46 @@ class Sidecar {
     await this.ensure();
     if (!this.child) throw new MoxxyError({ code: 'INTERNAL', message: 'sidecar not running' });
     if (signal?.aborted) throw new MoxxyError({ code: 'NETWORK_ABORTED', message: 'browser_session aborted' });
+    // Bound the pending map: a wedged sidecar head + chatty caller (surface
+    // polls) must not let the parent accumulate pending entries without limit.
+    if (this.pending.size >= MAX_PENDING) {
+      throw new MoxxyError({
+        code: 'INTERNAL',
+        message: `browser sidecar busy (${this.pending.size} requests in flight)`,
+      });
+    }
     const id = randomUUID();
     const req = { id, method, params };
     return new Promise<unknown>((resolve, reject) => {
+      // Per-call timeout: a sidecar op that never replies (hung eval/screenshot)
+      // would otherwise strand this pending entry — and the serial queue behind
+      // it — indefinitely. On expiry, drop the entry and reject THIS call only;
+      // a late reply is then ignored (id no longer in `pending`).
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) {
+          cleanup();
+          reject(
+            new MoxxyError({
+              code: 'INTERNAL',
+              message: `browser_session "${method}" timed out after ${this.callTimeoutMs}ms`,
+            }),
+          );
+        }
+      }, this.callTimeoutMs);
+      timer.unref?.();
       // Abort cancels ONLY this pending call (rejects its promise); it does
       // NOT kill the shared singleton sidecar, which other concurrent calls
       // depend on. A late reply for this id is then ignored (not in `pending`).
       const onAbort = (): void => {
-        if (this.pending.delete(id))
+        if (this.pending.delete(id)) {
+          cleanup();
           reject(new MoxxyError({ code: 'NETWORK_ABORTED', message: 'browser_session aborted' }));
+        }
       };
-      const cleanup = (): void => signal?.removeEventListener('abort', onAbort);
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+      };
       this.pending.set(id, {
         resolve: (v) => {
           cleanup();
@@ -251,22 +327,51 @@ class Sidecar {
 
   async close(): Promise<void> {
     if (!this.child) return;
+    const child = this.child;
     try {
       await this.call('close');
     } catch {
       /* ignore */
     }
-    try {
-      this.child.kill('SIGTERM');
-    } catch {
-      /* ignore */
-    }
+    // Wait briefly for a clean exit, escalating SIGTERM → SIGKILL so a wedged
+    // sidecar (or a detached Chromium ignoring SIGTERM) can't survive as an
+    // orphan after session shutdown.
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const done = (): void => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        resolve();
+      };
+      // Arm the SIGKILL escalation BEFORE killing, so a synchronous `exit`
+      // (e.g. the test fake) finds `timer` already assigned when `done` runs.
+      timer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* ignore */
+        }
+        done();
+      }, 2000);
+      timer.unref?.();
+      child.once('exit', () => done());
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        done();
+      }
+    });
     this.child = null;
   }
 }
 
 /** Module-level singleton: one sidecar per process. */
 let SIDECAR_INSTANCE: Sidecar | null = null;
+/** The deps the live singleton was created with, so a later caller passing
+ *  DIFFERENT deps (silently ignored) is made visible rather than a footgun. */
+let SIDECAR_DEPS: BrowserSessionDeps | undefined;
 
 /**
  * Resolve the shared, process-wide sidecar, creating it on first use.
@@ -278,12 +383,28 @@ let SIDECAR_INSTANCE: Sidecar | null = null;
  * they agree. A test that wants a distinct spawn override must therefore call
  * {@link closeBrowserSidecar} first to reset the singleton, otherwise it will
  * bind against whatever spawn was installed by an earlier call.
+ *
+ * When a later caller passes deps that DIFFER from the live singleton's we emit
+ * a warning (the binding stays the original's) so the silent-ignore is visible
+ * — the proper fix is a per-owner registry, tracked in needsFollowup.
  */
 function getSidecar(deps?: BrowserSessionDeps): Sidecar {
-  if (SIDECAR_INSTANCE) return SIDECAR_INSTANCE;
+  if (SIDECAR_INSTANCE) {
+    if (
+      deps &&
+      (deps.sidecarPath !== SIDECAR_DEPS?.sidecarPath || deps.spawnFn !== SIDECAR_DEPS?.spawnFn)
+    ) {
+      console.warn(
+        '[moxxy/plugin-browser] getSidecar called with deps that differ from the live singleton; ' +
+          'they are ignored. Call closeBrowserSidecar() first to rebind.',
+      );
+    }
+    return SIDECAR_INSTANCE;
+  }
   const sidecarPath = deps?.sidecarPath ?? defaultSidecarPath();
   const spawnFn = deps?.spawnFn ?? defaultSpawn;
-  SIDECAR_INSTANCE = new Sidecar(sidecarPath, spawnFn);
+  SIDECAR_INSTANCE = new Sidecar(sidecarPath, spawnFn, deps?.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS);
+  SIDECAR_DEPS = deps;
   return SIDECAR_INSTANCE;
 }
 
@@ -330,16 +451,21 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
     description:
       'Drive a real browser (Playwright). Use for pages that need JS execution, clicks, form fills, or screenshots. For simple GETs prefer web_fetch (no extra deps). Calls within a session share one page. ' +
       'Navigation is restricted to public http(s) origins: goto URLs and top-level/iframe navigations (including redirects) to loopback, private (RFC-1918), link-local/metadata, or CGNAT addresses are blocked. ' +
-      'Residual risk: subresource requests (img/fetch/script) issued by a loaded page are NOT filtered, so a hostile page can still send blind requests at internal services.',
+      'The `eval` action runs ARBITRARY JavaScript in the loaded page context (full DOM/cookie/localStorage access, can drive same-origin requests) — set MOXXY_BROWSER_DISABLE_EVAL=1 to disable in-page scripting while keeping navigation/click/fill. ' +
+      'Residual risk: by default subresource requests (img/fetch/script) issued by a loaded page are NOT filtered, so a hostile page can still send blind requests at internal services; set MOXXY_BROWSER_FILTER_SUBRESOURCES=1 to filter those too.',
     inputSchema: z.object({
       action: actionSchema,
     }),
     permission: { action: 'prompt' },
     // Honest capability surface: browser_session spawns the Playwright sidecar
     // (a child process) which drives a real browser to arbitrary hosts and may
-    // auto-install browser binaries into Playwright's cache on first use.
-    // Modeled on the Bash tool's declaration — these caps are advisory until
-    // @moxxy/plugin-security is enabled, at which point an isolator enforces them.
+    // auto-install browser binaries into Playwright's cache on first use. The
+    // `eval` action additionally executes ARBITRARY in-page JavaScript (DOM /
+    // cookie / localStorage access of the loaded site) — gate it with
+    // MOXXY_BROWSER_DISABLE_EVAL=1 to keep navigation/click/fill but forbid
+    // scripting. Modeled on the Bash tool's declaration — these caps are
+    // advisory until @moxxy/plugin-security is enabled, at which point an
+    // isolator enforces them.
     isolation: {
       capabilities: {
         subprocess: true,
@@ -370,7 +496,9 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
             // The sidecar re-checks in its goto dispatch (defence in depth, it
             // is a separate process) and intercepts in-page navigations.
             try {
-              await assertPublicUrl(action.url, 'browser_session');
+              // fail-closed on the browser path: Chromium resolves names itself,
+              // so an unresolvable-here name must not be handed to the sidecar.
+              await assertPublicUrl(action.url, 'browser_session', { failClosed: true });
             } catch (err) {
               if (err instanceof SsrfBlockedError) {
                 throw new MoxxyError({ code: 'INTERNAL', message: err.message });
@@ -397,6 +525,15 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
           case 'screenshot':
             return await call('screenshot', { fullPage: action.fullPage });
           case 'eval':
+            // Deployment opt-out: in-page scripting can exfiltrate the loaded
+            // site's DOM/cookies/storage, so allow disabling it while keeping
+            // navigation/click/fill.
+            if (process.env.MOXXY_BROWSER_DISABLE_EVAL === '1') {
+              throw new MoxxyError({
+                code: 'INTERNAL',
+                message: 'browser_session eval is disabled (MOXXY_BROWSER_DISABLE_EVAL=1)',
+              });
+            }
             return await call('eval', { expression: action.expression });
           case 'url':
             return await call('url');
@@ -425,5 +562,6 @@ export async function closeBrowserSidecar(): Promise<void> {
   if (SIDECAR_INSTANCE) {
     await SIDECAR_INSTANCE.close();
     SIDECAR_INSTANCE = null;
+    SIDECAR_DEPS = undefined;
   }
 }

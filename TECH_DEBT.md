@@ -88,6 +88,74 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-19 — Repo-wide pessimistic hardening sweep (audit → fix → verify → elevate)
+
+A fresh, deliberately pessimistic re-audit scored **every** package/app (71
+packages, 87 audit units) on security / performance / code-quality / extensibility
+(+ accessibility on UI surfaces) under a worst-case lens — malformed input, races,
+partial failure, OOM, hostile data, resource leaks, silent error-swallowing. It
+cataloged **757 findings (88 high / 299 medium / 370 low)**; full per-unit detail
+lives in `.claude/audits/scan-2026-06-19/` (not committed — working artifacts).
+
+**Resolved in this sweep (gate green: build/typecheck/test/lint/deps):**
+
+- **All 88 high + 291 medium + 320 low** findings whose fix is local to a package
+  were applied, **with worst-case regression tests** (84 units gained tests).
+  Adversarial per-unit verification then caught 14 fixes that compiled-but-didn't-
+  close-their-finding or shipped a RED test (e.g. the email ReDoS "fix" was still
+  quadratic; `provider-admin`/`subagents`/`self-update` safety nets were left
+  dormant because the CLI wiring didn't pass the new options; the anthropic error
+  `stopReason` was clobbered by a trailing `message_delta`) — **all re-fixed**.
+- A real regression introduced mid-sweep was caught and fixed: tightening
+  `scheduleEntrySchema.id` to `min(1)` made the workflow bridge's `id: ''` sentinel
+  throw inside `syncWorkflowSchedule`, silently stranding **every** workflow
+  schedule. `syncWorkflowSchedule` now mints the id (`packages/plugin-scheduler/
+  src/store.ts`).
+- Dead code removed, incl. the committed **`apps/docs/.astro`** generated cache
+  (now git-ignored). Closes the dead-`.astro` techDebt item.
+
+**Honest residual — NOT zero, and deliberately so (pessimistic accounting):**
+
+1. **Elevate pass cut short by a session usage cap.** A second "elevate to 10"
+   pass (close every remaining cross-unit gap + add coverage) completed **33 of 87
+   units** (60 further gaps closed, 31 units gained more tests) before the shared
+   session token budget was exhausted (resets 07:30 Europe/Warsaw). The other
+   **54 units did not get the second pass** — their first-wave hardening stands and
+   is green, but a follow-up elevate pass is owed. This is the single largest piece
+   of tracked, *known-incomplete* work from this sweep.
+2. **~81 deferred cross-package structural items** surfaced by the fixers and held
+   back from the parallel waves *by design* (a new shared module imported by
+   multiple packages, or a runner/IPC protocol bump, cannot be done collision-free
+   in a fan-out). These are defense-in-depth / DRY / "could be configurable"
+   improvements, **not** open security/correctness holes. Representative set:
+   - **DRY:** `SHIM_SOURCE` duplicated across `isolator-worker`/`isolator-subprocess`;
+     `LOOPBACK_PORTS` duplicated between the renderer redirect regex and the
+     electron-main loopback server; collab lock/history fs-layout inline in IPC
+     handlers vs. a shared `mode-collaborative` store module.
+   - **Contract-layer validation:** add `desktop-ipc-contract` zod schemas for
+     `git.diff` / `collab.history` (the handlers already path-confine + bound
+     defensively in-package; this is the second boundary).
+   - **Shared-hook guards:** re-entrancy guard in `client-core` `useAppInstall` /
+     `useWorkflowBuilder.load` (call sites already guard locally).
+   - **`prefers-reduced-motion`:** a global rule disabling inline CSS *transitions*
+     in `apps/desktop` `styles.css` (keyframes are already neutered; JS-driven
+     motion is already gated).
+3. **`collab.active` PID-reuse false-positive** (a recycled OS pid passes
+   `process.kill(pid,0)`) — needs a start-time/heartbeat-TTL staleness check; the
+   liveness probe is now shape-validated but a robust fix is cross-package.
+4. **node-gyp / `@electron/rebuild` modernization** — unchanged owner decision
+   (2026-06-18): keep the working pinned config; a blind bump bricks the native
+   build and only a packaged `electron-builder` run can verify it.
+5. **`ClientSession` → minimal `SessionLike` retype** and **one-shot CLI exit
+   hygiene** — unchanged from below; planned-PR items, not tail-end edits.
+
+The catalogued residual (items 1–3) is the next session's work: resume the elevate
+pass on the 54 outstanding units and land the cross-package extractions as focused,
+collision-free PRs. None of it is a hidden hole — the high/medium security &
+correctness findings are closed and tested.
+
+---
+
 ## 2026-06-18 — Quality sweep COMPLETE: all audit clusters processed
 
 The repo-wide audit below (41 clusters / 636 findings) has now been fully worked

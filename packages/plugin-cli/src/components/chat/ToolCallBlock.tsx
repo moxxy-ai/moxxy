@@ -4,6 +4,7 @@ import { isFileDiffDisplay, type FileDiffDisplay, type ToolCallRequestedEvent, t
 import { Colors, Glyphs } from '../../theme.js';
 import { dotColorForTool, isFileDiffResult, oneLine, stringify, summarizeArgs, truncate } from '@moxxy/chat-model';
 import { FileDiffView } from './FileDiffView.js';
+import { MOTION_ENABLED } from '../motion.js';
 
 
 /**
@@ -18,6 +19,7 @@ import { FileDiffView } from './FileDiffView.js';
 const PendingBullet: React.FC = () => {
   const [on, setOn] = useState(true);
   useEffect(() => {
+    if (!MOTION_ENABLED) return; // static (non-blinking) dot for reduced-motion / non-TTY
     const t = setInterval(() => setOn((v) => !v), 500);
     return () => clearInterval(t);
   }, []);
@@ -64,7 +66,10 @@ export const ToolCallBlock: React.FC<{
         {status === 'pending' ? (
           <PendingBullet />
         ) : status === 'err' ? (
-          <Text color={Colors.danger}>{Glyphs.filled} </Text>
+          // Distinct glyph (✗), not color alone, so a failed call is
+          // distinguishable from a successful one in a no-color / colorblind
+          // terminal — the dots were otherwise an identical filled '●'.
+          <Text color={Colors.danger}>✗ </Text>
         ) : (
           <Text color={dotColorForTool(request.name)}>{Glyphs.filled} </Text>
         )}

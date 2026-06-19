@@ -14,6 +14,15 @@ import { retryWhileReconnecting } from '@moxxy/client-core';
 import { StepCard, Nav, PrimaryButton, SuccessRow, inputStyle } from '../chrome';
 import { OAuthSignIn } from '../../settings/shared/OAuthSignIn';
 
+/** Static fallback provider list (used until `settings.providerCatalog`
+ *  resolves). */
+const FALLBACK_CATALOG = ['anthropic', 'openai', 'openai-codex', 'claude-code'] as const;
+
+/** Providers known to authenticate via OAuth — a best-effort visual hint for the
+ *  *non-selected* options (the selected one's tag is driven by the authoritative
+ *  `authKind` the backend resolves, so the two can never disagree there). */
+const OAUTH_PROVIDER_IDS = new Set(['openai-codex', 'claude-code']);
+
 export function ProviderStep({
   onNext,
   onBack,
@@ -21,12 +30,7 @@ export function ProviderStep({
   readonly onNext: () => void;
   readonly onBack: () => void;
 }): JSX.Element {
-  const [catalog, setCatalog] = useState<ReadonlyArray<string>>([
-    'anthropic',
-    'openai',
-    'openai-codex',
-    'claude-code',
-  ]);
+  const [catalog, setCatalog] = useState<ReadonlyArray<string>>(FALLBACK_CATALOG);
   const [provider, setProvider] = useState('anthropic');
   const [authKind, setAuthKind] = useState<'oauth' | 'api-key'>('api-key');
   const [secret, setSecret] = useState('');
@@ -150,12 +154,20 @@ export function ProviderStep({
             onChange={(e) => setProvider(e.target.value)}
             style={inputStyle}
           >
-            {catalog.map((name) => (
-              <option key={name} value={name}>
-                {name}
-                {name === 'openai-codex' || name === 'claude-code' ? ' · OAuth' : ''}
-              </option>
-            ))}
+            {catalog.map((name) => {
+              // For the selected provider use the authoritative authKind the
+              // backend resolved; for the rest fall back to the static hint set.
+              // This removes the chance of the tag and the actual auth flow
+              // disagreeing for the option the user is acting on.
+              const isOauth =
+                name === provider ? authKind === 'oauth' : OAUTH_PROVIDER_IDS.has(name);
+              return (
+                <option key={name} value={name}>
+                  {name}
+                  {isOauth ? ' · OAuth' : ''}
+                </option>
+              );
+            })}
           </select>
         </label>
         {authKind === 'api-key' && (

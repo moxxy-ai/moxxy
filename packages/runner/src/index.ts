@@ -4,6 +4,7 @@ export {
   RpcError,
   type RequestHandler,
   type NotificationHandler,
+  type RequestOptions,
 } from './jsonrpc.js';
 export {
   createUnixSocketServer,

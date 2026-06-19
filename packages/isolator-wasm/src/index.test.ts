@@ -217,3 +217,93 @@ describe('wasmIsolator v1 calling convention', () => {
     expect(out).toEqual({ proof: 'cannot-touch-host' });
   });
 });
+
+describe('wasmIsolator module fetch + compile failure paths', () => {
+  it('frames a CompileError on non-wasm / corrupt bytes (degrades, no bare trap)', async () => {
+    // A server serving an HTML error page (or a truncated download) instead of
+    // a .wasm module produces a bare V8 CompileError ("expected magic word").
+    // The isolator must frame it with [security:wasm] context.
+    const garbage =
+      'data:application/wasm;base64,' + Buffer.from('<html>not wasm</html>').toString('base64');
+    const iso = createWasmIsolator();
+    await expect(
+      iso.run(
+        baseCall('echo', {}, { moduleRef: { url: garbage, export: 'echo' } }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/\[security:wasm\] failed to compile\/instantiate/);
+  });
+
+  it('frames a malformed data: URL (missing comma) instead of leaking a raw error', async () => {
+    const iso = createWasmIsolator();
+    await expect(
+      iso.run(
+        baseCall('echo', {}, { moduleRef: { url: 'data:application/wasm;base64', export: 'echo' } }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/\[security:wasm\] malformed data URL/);
+  });
+
+  it('frames a malformed percent-escape in a non-base64 data: URL (no bare URIError)', async () => {
+    // `decodeURIComponent('%E0')` throws URIError: URI malformed; it must be
+    // caught and re-framed rather than escaping the isolator boundary.
+    const iso = createWasmIsolator();
+    await expect(
+      iso.run(
+        baseCall('echo', {}, { moduleRef: { url: 'data:application/wasm,%E0', export: 'echo' } }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/\[security:wasm\] malformed data URL/);
+  });
+
+  it('rejects an oversized inline data: module before allocating it', async () => {
+    // Build a data: URL whose decoded length exceeds the 8 MB cap. The bytes
+    // are never even a valid module — the size guard must trip first, proving
+    // the cap is enforced for local schemes (not just the remote stream).
+    const big = Buffer.alloc(9 * 1024 * 1024, 0x41); // 9 MB of 'A'
+    const url = 'data:application/wasm;base64,' + big.toString('base64');
+    const iso = createWasmIsolator();
+    await expect(
+      iso.run(
+        baseCall('echo', {}, { moduleRef: { url, export: 'echo' } }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/inline data: module is \d+ bytes \(> \d+ limit\)/);
+  });
+
+  it('refuses a plaintext http: module URL (MITM-able executable bytes)', async () => {
+    const iso = createWasmIsolator();
+    await expect(
+      iso.run(
+        baseCall('echo', {}, { moduleRef: { url: 'http://evil.example/m.wasm', export: 'echo' } }),
+        async () => 'unused',
+        {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/refusing to fetch module over a non-https scheme/);
+  });
+
+  it('short-circuits an already-aborted call before decoding a local data: module', async () => {
+    // An already-aborted signal must bail before the (potentially multi-MB)
+    // local decode runs — parity with the https path which threads the signal.
+    const iso = createWasmIsolator({ defaultTimeMs: 10_000 });
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(
+      iso.run(
+        baseCall('echo', {}),
+        async () => 'unused',
+        {},
+        ctrl.signal,
+      ),
+    ).rejects.toThrow(/aborted/);
+  });
+});

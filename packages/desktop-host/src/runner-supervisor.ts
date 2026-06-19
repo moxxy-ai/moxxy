@@ -44,6 +44,7 @@ import { redactSecrets } from './security';
 const PROBE_TIMEOUT_MS = 250;
 const SOCKET_WAIT_MS = 20_000;
 const SOCKET_POLL_MS = 200;
+const SOCKET_POLL_MAX_MS = 500;
 const RECONNECT_BACKOFF_MS = 2_000;
 const LOG_RING_SIZE = 200;
 
@@ -559,6 +560,10 @@ export class RunnerSupervisor extends EventEmitter {
     child?.once('exit', onExit);
     try {
       const deadline = Date.now() + SOCKET_WAIT_MS;
+      // Back off the poll interval (200ms → 500ms) so a reachable-but-slow-to-
+      // bind serve — especially the adopt path, where there's no child 'exit'
+      // fast-fail — doesn't churn through ~100 connect/destroy cycles.
+      let pollMs = SOCKET_POLL_MS;
       while (Date.now() < deadline) {
         if (await this.probeSocket()) return;
         // The serve we spawned died before binding — no point polling for
@@ -569,7 +574,8 @@ export class RunnerSupervisor extends EventEmitter {
               `(code=${exited.code} signal=${exited.signal})`,
           );
         }
-        await sleep(SOCKET_POLL_MS);
+        await sleep(pollMs);
+        pollMs = Math.min(pollMs + 100, SOCKET_POLL_MAX_MS);
       }
       throw new Error(
         `moxxy serve did not bind ${this.socketPath} within ${SOCKET_WAIT_MS} ms`,

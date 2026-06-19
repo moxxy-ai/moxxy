@@ -213,11 +213,16 @@ export function Switch({
   onClick,
   label,
   disabled = false,
+  busy = false,
 }: {
   readonly on: boolean;
   readonly onClick: () => void;
   readonly label: string;
   readonly disabled?: boolean;
+  /** True while the toggle's effect is in flight (e.g. the runner is starting
+   *  the LAN bridge). Announces `aria-busy` so a screen reader knows the
+   *  control is working rather than inert. */
+  readonly busy?: boolean;
 }): JSX.Element {
   return (
     <button
@@ -225,6 +230,7 @@ export function Switch({
       role="switch"
       aria-checked={on}
       aria-label={label}
+      aria-busy={busy || undefined}
       disabled={disabled}
       onClick={onClick}
       style={{

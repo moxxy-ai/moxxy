@@ -22,6 +22,12 @@ const storedModelSchema = z
   .object({
     id: z.string().min(1),
     contextWindow: z.number(),
+    // ModelDescriptor declares these as REQUIRED booleans; default them here so
+    // a hand-edited / legacy providers.json round-trips into a complete
+    // descriptor instead of reaching buildProviderDef with `undefined` (which
+    // channels treat differently from `false` for tool/streaming gating).
+    supportsTools: z.boolean().default(true),
+    supportsStreaming: z.boolean().default(true),
   })
   .passthrough();
 
@@ -42,20 +48,37 @@ const storedProvidersConfigSchema = z.object({
 });
 
 export async function readProvidersConfig(filePath: string = providersConfigPath()): Promise<StoredProvidersConfig> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(filePath, 'utf8');
-    const parsed = storedProvidersConfigSchema.safeParse(JSON.parse(raw) as unknown);
-    if (parsed.success) {
-      // The schema is intentionally looser than StoredProvidersConfig (model
-      // descriptors are validated as id+contextWindow + passthrough, not the
-      // full ModelDescriptor) so newer/older builds round-trip without losing
-      // fields. Assert the domain type after the structural check.
-      return parsed.data as unknown as StoredProvidersConfig;
-    }
-  } catch {
-    // missing or malformed — start fresh
+    raw = await fs.readFile(filePath, 'utf8');
+  } catch (err) {
+    // A MISSING file means "no providers yet" — start fresh. But a genuine IO /
+    // permission error (EACCES, EBUSY, EMFILE, …) must NOT be collapsed into an
+    // empty catalog: doing so makes the plugin behave as if zero providers are
+    // registered and the next read-modify-write would CLOBBER the real file.
+    // Rethrow so callers (onInit's try/catch, the admin tools) see the failure.
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return { providers: [] };
+    throw err;
+  }
+  // Malformed JSON / structurally-bogus content is intentionally treated as an
+  // empty catalog (start fresh) rather than a hard failure.
+  const parsed = storedProvidersConfigSchema.safeParse(parseJsonSafe(raw));
+  if (parsed.success) {
+    // The schema is intentionally looser than StoredProvidersConfig (model
+    // descriptors are validated as id+contextWindow + passthrough, not the
+    // full ModelDescriptor) so newer/older builds round-trip without losing
+    // fields. Assert the domain type after the structural check.
+    return parsed.data as unknown as StoredProvidersConfig;
   }
   return { providers: [] };
+}
+
+function parseJsonSafe(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function writeProvidersConfig(

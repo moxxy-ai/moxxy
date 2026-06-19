@@ -69,6 +69,33 @@ describe('formatErrorForCli', () => {
     expect(links).toHaveLength(5);
   });
 
+  it('redacts secret-looking context keys under debug', () => {
+    const err = new MoxxyError({
+      code: 'AUTH_NO_CREDENTIALS',
+      message: 'denied',
+      context: {
+        provider: 'anthropic',
+        apiKey: 'sk-super-secret',
+        authorization: 'Bearer leaked',
+        token: 'tok_leaked',
+      },
+    });
+    const out = strip(formatErrorForCli(err, { debug: true }));
+    expect(out).toContain('provider=anthropic');
+    expect(out).not.toContain('sk-super-secret');
+    expect(out).not.toContain('Bearer leaked');
+    expect(out).not.toContain('tok_leaked');
+    expect(out).toContain('apiKey=[redacted]');
+  });
+
+  it('truncates an enormous context value so it cannot flood stderr', () => {
+    const huge = 'x'.repeat(5000);
+    const err = new MoxxyError({ code: 'INTERNAL', message: 'big', context: { body: huge } });
+    const out = strip(formatErrorForCli(err, { debug: true }));
+    expect(out).not.toContain(huge);
+    expect(out).toContain('5000 chars');
+  });
+
   it('does not hang on a self-referential cause chain', () => {
     const a = new Error('loop');
     (a as { cause?: unknown }).cause = a;

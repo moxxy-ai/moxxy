@@ -74,6 +74,27 @@ describe('parseJwtClaims', () => {
     expect(parseJwtClaims('a.notbase64payload.c')).toBeUndefined();
     expect(parseJwtClaims('')).toBeUndefined();
   });
+
+  it('rejects a hostile JWT with an oversized payload segment instead of decoding it', () => {
+    // A MITM'd/hostile token endpoint (or a tampered vault entry replayed back)
+    // hands us a multi-megabyte base64url payload. We must NOT base64-decode and
+    // JSON.parse the whole thing — bound the segment and degrade to undefined.
+    const hugePayload = 'A'.repeat(2 * 1024 * 1024); // ~2 MiB, well over the 64 KiB cap
+    const jwt = `aGVhZGVy.${hugePayload}.sig`;
+    expect(parseJwtClaims(jwt)).toBeUndefined();
+  });
+
+  it('rejects a JWT whose payload parses to a non-object (string/array/null)', () => {
+    // The payload is valid base64url JSON but not a claim bag. Downstream code
+    // indexes the result as an object, so a scalar/array/null must be rejected
+    // rather than returned as a surprising value.
+    const scalar = `h.${Buffer.from('"just a string"').toString('base64url')}.s`;
+    const arr = `h.${Buffer.from('[1,2,3]').toString('base64url')}.s`;
+    const nul = `h.${Buffer.from('null').toString('base64url')}.s`;
+    expect(parseJwtClaims(scalar)).toBeUndefined();
+    expect(parseJwtClaims(arr)).toBeUndefined();
+    expect(parseJwtClaims(nul)).toBeUndefined();
+  });
 });
 
 describe('extractAccountId', () => {
@@ -107,6 +128,24 @@ describe('extractAccountId', () => {
   it('falls through from id_token to access_token', () => {
     const access_token = makeJwt({ chatgpt_account_id: 'acct_from_access' });
     expect(extractAccountId({ access_token })).toBe('acct_from_access');
+  });
+
+  it('degrades to undefined on hostile claim shapes instead of throwing', () => {
+    // organizations present but its first element is a scalar / null, the
+    // auth-bag is null, and chatgpt_account_id is the wrong type. None of these
+    // should crash extraction — it must return undefined.
+    const id_token = makeJwt({
+      chatgpt_account_id: 12345, // wrong type
+      'https://api.openai.com/auth': null,
+      organizations: ['not-an-object', null, { id: 42 }],
+    });
+    expect(() => extractAccountId({ id_token })).not.toThrow();
+    expect(extractAccountId({ id_token })).toBeUndefined();
+  });
+
+  it('returns undefined when handed empty/blank token strings', () => {
+    expect(extractAccountId({})).toBeUndefined();
+    expect(extractAccountId({ id_token: '', access_token: '' })).toBeUndefined();
   });
 });
 

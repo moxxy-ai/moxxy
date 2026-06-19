@@ -29,4 +29,35 @@ describe('openai validateKey', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toContain('Incorrect API key');
   });
+
+  it('strips URLs and caps length of the surfaced error message', async () => {
+    const long = 'x'.repeat(500);
+    const make = () => ({
+      models: {
+        list: async () => {
+          throw new Error(`failed talking to https://evil.example/v1/models?key=leak ${long}`);
+        },
+      },
+    });
+    const res = await validateKey('sk-bad-but-long-enough', { client: make });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.message).not.toContain('https://');
+      expect(res.message).toContain('[url]');
+      expect(res.message.length).toBeLessThanOrEqual(201);
+    }
+  });
+
+  it('does not crash on a non-Error thrown value and never returns an empty message', async () => {
+    const make = () => ({
+      models: {
+        list: async () => {
+          throw '   ';
+        },
+      },
+    });
+    const res = await validateKey('sk-bad-but-long-enough', { client: make });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message.length).toBeGreaterThan(0);
+  });
 });

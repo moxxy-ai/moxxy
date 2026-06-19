@@ -64,7 +64,22 @@ export function App(): JSX.Element {
   // workspaces" in the FirstRunWizard, so we don't re-render the
   // wizard while waiting for prefs.read to round-trip.
   const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
-  if (phase?.phase === 'connected' && phase !== lastConnected) {
+  // Capture the latest `connected` phase to keep the shell mounted across the
+  // brief `snapshot === undefined` gap a workspace switch can produce. Gate the
+  // derive-during-render update on a STABLE SCALAR key (not object identity): an
+  // upstream snapshot mirror that returns a fresh connected-phase object every
+  // poll would otherwise re-set state and force an extra render each tick — at
+  // worst a render loop. The key only changes when the connection's identity
+  // actually changes.
+  const connectedKey =
+    phase?.phase === 'connected'
+      ? `${phase.sessionId}|${phase.activeProvider}|${phase.activeMode}`
+      : null;
+  const lastConnectedKey =
+    lastConnected?.phase === 'connected'
+      ? `${lastConnected.sessionId}|${lastConnected.activeProvider}|${lastConnected.activeMode}`
+      : null;
+  if (phase?.phase === 'connected' && connectedKey !== lastConnectedKey) {
     setLastConnected(phase);
   }
 
@@ -291,8 +306,15 @@ function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | nul
   const ask = useActiveAsk(workspaceId);
   const claimed = useAskSurfaceClaimed();
   if (!ask || claimed) return null;
+  // AskSheet's inner Sheet already owns the dialog semantics (role/aria-modal),
+  // its own focus trap, Escape, and focus restoration — so this outer wrapper
+  // must NOT add a second dialog/trap. What it adds is a polite live region so a
+  // screen-reader user in a NON-chat view is told the runner is now blocked on
+  // their input (otherwise the sheet appears silently off-context).
   return (
     <div
+      role="status"
+      aria-live="polite"
       style={{
         position: 'fixed',
         left: '50%',

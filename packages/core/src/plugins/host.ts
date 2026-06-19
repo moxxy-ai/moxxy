@@ -220,20 +220,58 @@ export class PluginHost implements PluginHostHandle {
   }
 
   private applyPlugin(plugin: Plugin, manifest?: ResolvedPluginManifest): LoadedRecord {
-    // Snapshot the contributed names BEFORE registering (same as the original
-    // two-phase order), keyed by REGISTRY_KINDS field. Building the names from
-    // the same table the registration loop uses keeps the two in lockstep.
-    const names = {} as Record<keyof RegistryNameRecord, ReadonlyArray<string>>;
-    for (const kind of REGISTRY_KINDS) {
-      names[kind.recordField] = kind.defs(plugin).map((def) => kind.nameOf(def));
-    }
+    // A statically-registered builtin (no manifest) is trusted; a discovered
+    // plugin (manifest present) is not. The isolator registry uses this to
+    // refuse letting a discovered plugin shadow a trusted isolator name.
+    const trusted = manifest === undefined;
 
     // Register in REGISTRY_KINDS order — the exact set + order the original
     // hand-written register sequence used (incl. viewRenderers/tunnelProviders
-    // via `replace`).
-    for (const kind of REGISTRY_KINDS) {
-      for (const def of kind.defs(plugin)) kind.register(this.opts, def);
+    // via `replace`). Track what we successfully registered so a mid-loop throw
+    // (e.g. a duplicate name colliding with an already-loaded plugin, since most
+    // registries throw on duplicate) doesn't strand half-registered
+    // contributions: no LoadedRecord is created on throw, so `unload` could
+    // never reach them. On failure, unregister in reverse before rethrowing.
+    const registered: Array<{ kind: (typeof REGISTRY_KINDS)[number]; name: string }> = [];
+    try {
+      for (const kind of REGISTRY_KINDS) {
+        for (const def of kind.defs(plugin)) {
+          // A `false` return means the registration was REFUSED without taking
+          // effect (an untrusted plugin shadowing a trusted isolator). Don't
+          // track it — neither for rollback (unregistering would delete the
+          // trusted impl this plugin never owned) NOR for the LoadedRecord (so
+          // a clean `unload` later doesn't delete that same trusted impl).
+          const applied = kind.register(this.opts, def, trusted);
+          if (applied === false) continue;
+          registered.push({ kind, name: kind.nameOf(def) });
+        }
+      }
+    } catch (err) {
+      for (let i = registered.length - 1; i >= 0; i--) {
+        const entry = registered[i];
+        if (!entry) continue;
+        const { kind, name } = entry;
+        // Don't roll back override-on-register kinds (view/tunnel): they're
+        // last-wins `replace`, so this plugin may have clobbered a def core or
+        // another plugin owned — unregistering would delete that shared def.
+        if (kind.overrideOnRegister) continue;
+        try {
+          kind.unregister(this.opts, name);
+        } catch {
+          // Best-effort rollback: keep unwinding the rest even if one
+          // unregister throws, so we don't leave further orphans behind.
+        }
+      }
+      throw err;
     }
+
+    // Build the LoadedRecord's per-kind name lists from what was ACTUALLY
+    // applied (the `registered` list), not from the raw `defs` snapshot — a
+    // refused isolator registration must not appear here, or `unload` would
+    // unregister a name this plugin never owned (deleting a trusted builtin).
+    const names = {} as Record<keyof RegistryNameRecord, string[]>;
+    for (const kind of REGISTRY_KINDS) names[kind.recordField] = [];
+    for (const { kind, name } of registered) names[kind.recordField].push(name);
 
     return {
       plugin,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
 import { FakeProvider, textReply } from '@moxxy/testing';
 import { buildSystemPrompt, draftWorkflow } from './draft.js';
 
@@ -90,6 +91,35 @@ describe('draftWorkflow', () => {
     });
     await draftWorkflow(provider, 'tiny-model', 'anything', AbortSignal.timeout(5000));
     expect(provider.received[0]?.maxTokens).toBe(2000);
+  });
+
+  it('bounds the accumulated draft when a provider ignores maxTokens (no unbounded buffer)', async () => {
+    // A provider that streams forever, ignoring the token budget. draftWorkflow
+    // must break out at its byte cap and mark the result truncated rather than
+    // grow an unbounded string (and feed it to the lazy fence regex).
+    let chunks = 0;
+    const runaway = {
+      name: 'runaway',
+      models: [{ id: 'm', contextWindow: 8000, maxOutputTokens: 100, supportsTools: true, supportsStreaming: true }],
+      countTokens: async () => 0,
+      async *stream(): AsyncIterable<ProviderEvent> {
+        yield { type: 'message_start', model: 'm' } as ProviderEvent;
+        // 4 MB of deltas — far past the 256 KB internal cap.
+        const block = 'x'.repeat(16 * 1024);
+        for (let i = 0; i < 256; i += 1) {
+          chunks += 1;
+          yield { type: 'text_delta', delta: block } as ProviderEvent;
+        }
+        yield { type: 'message_end', stopReason: 'end_turn' } as ProviderEvent;
+      },
+    } as unknown as LLMProvider;
+
+    const drafted = await draftWorkflow(runaway, 'm', 'anything', AbortSignal.timeout(5000));
+    expect(drafted.truncated).toBe(true);
+    // The loop broke early — it did not consume all 256 chunks (4 MB).
+    expect(chunks).toBeLessThan(256);
+    // The retained raw is bounded near the cap, not the full 4 MB.
+    expect(drafted.raw.length).toBeLessThanOrEqual(256 * 1024);
   });
 
   it('flags a max_tokens stop as truncated', async () => {

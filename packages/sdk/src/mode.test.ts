@@ -17,4 +17,22 @@ describe('migrateModeName', () => {
     expect(migrateModeName('some-future-mode')).toBe('some-future-mode');
     expect(migrateModeName('')).toBe('');
   });
+
+  it('never leaks an inherited Object.prototype member for a polluting name', () => {
+    // `name` is externally-sourced; a bare object index would resolve these to
+    // truthy Functions and break the `string` contract. Each must pass through
+    // as its own identity string instead.
+    for (const polluting of [
+      'toString',
+      'valueOf',
+      'constructor',
+      'hasOwnProperty',
+      'isPrototypeOf',
+      '__proto__',
+    ]) {
+      const result = migrateModeName(polluting);
+      expect(typeof result).toBe('string');
+      expect(result).toBe(polluting);
+    }
+  });
 });

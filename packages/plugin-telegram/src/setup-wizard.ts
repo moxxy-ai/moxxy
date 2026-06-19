@@ -14,6 +14,7 @@ import {
   TELEGRAM_AUTHORIZED_CHAT_KEY,
   TELEGRAM_TOKEN_KEY,
   TELEGRAM_TOKEN_RE,
+  parseChatId,
 } from './keys.js';
 import { runPairFlow } from './pair-flow.js';
 
@@ -97,7 +98,7 @@ async function readState(vault: VaultStore): Promise<State> {
   return {
     hasToken: !!vaultToken,
     tokenPreview: vaultToken ? maskToken(vaultToken) : null,
-    authorizedChatId: authorized ? Number(authorized) : null,
+    authorizedChatId: parseChatId(authorized),
   };
 }
 

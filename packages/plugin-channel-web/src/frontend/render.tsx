@@ -63,9 +63,9 @@ export function renderNode(node: ViewNode, h: RenderHandlers, key?: number): Rea
       return <hr className="v-divider" key={key} />;
     case 'spinner':
       return (
-        <div className="v-spinner" key={key}>
-          <span className="v-spin" />
-          {p.label ? <span className="v-text" data-tone="muted">{String(p.label)}</span> : null}
+        <div className="v-spinner" role="status" aria-live="polite" aria-busy="true" key={key}>
+          <span className="v-spin" aria-hidden="true" />
+          <span className="v-text" data-tone="muted">{p.label ? String(p.label) : 'Loading…'}</span>
         </div>
       );
     case 'skeleton': {
@@ -158,7 +158,9 @@ export function renderNode(node: ViewNode, h: RenderHandlers, key?: number): Rea
     case 'tr':
       return <tr key={key}>{kids}</tr>;
     case 'th':
-      return <th style={{ textAlign: align(p.align) }} key={key}>{kids}</th>;
+      // scope="col" lets screen readers associate header cells with their
+      // column for the data tables agents commonly build.
+      return <th scope="col" style={{ textAlign: align(p.align) }} key={key}>{kids}</th>;
     case 'td':
       return <td style={{ textAlign: align(p.align) }} key={key}>{kids}</td>;
     case 'form':

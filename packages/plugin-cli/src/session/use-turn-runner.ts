@@ -13,7 +13,17 @@ export interface TurnRunnerOptions {
   /** Resolved model id at turn-start time (override > prop > default). */
   resolveModel: () => string | undefined;
   stream: EventStreamHandle;
+  /** Optional notice sink — used to warn the user when a large queue drain is
+   *  split across turns rather than merged into one oversized prompt. */
+  onNotice?: (msg: string) => void;
 }
+
+/** Cap how many queued messages merge into one follow-up turn, and the joined
+ *  character length, so a flood of queued (or large) messages can't be
+ *  concatenated into a single prompt that blows past the model context window
+ *  in one shot. The remainder stays queued and drains on the next turn. */
+const MAX_DRAIN_MESSAGES = 50;
+const MAX_DRAIN_CHARS = 200_000;
 
 export interface TurnRunnerHandle {
   busy: boolean;
@@ -110,8 +120,26 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
         setPriority(null);
         await runTurnWith(p.text, p.attachments);
       } else if (queueRef.current.length > 0) {
-        const batch = queueRef.current.splice(0);
-        setQueueCount(0);
+        // Take a bounded batch: at most MAX_DRAIN_MESSAGES messages and
+        // MAX_DRAIN_CHARS of joined text, leaving the rest queued for the next
+        // drain (which auto-runs because the queue stays non-empty). Always
+        // take at least one message so the queue can't stall.
+        const batch: QueuedMessage[] = [];
+        let chars = 0;
+        while (queueRef.current.length > 0 && batch.length < MAX_DRAIN_MESSAGES) {
+          const next = queueRef.current[0]!;
+          const projected = chars + next.text.length;
+          if (batch.length > 0 && projected > MAX_DRAIN_CHARS) break;
+          batch.push(queueRef.current.shift()!);
+          chars = projected;
+        }
+        const remaining = queueRef.current.length;
+        setQueueCount(remaining);
+        if (remaining > 0) {
+          opts.onNotice?.(
+            `queued input is large — sending ${batch.length} message${batch.length === 1 ? '' : 's'} now, ${remaining} will follow`,
+          );
+        }
         const joinedText = batch.map((b) => b.text).join('\n\n');
         const joinedAtts = batch.flatMap((b) => b.attachments);
         await runTurnWith(joinedText, joinedAtts);

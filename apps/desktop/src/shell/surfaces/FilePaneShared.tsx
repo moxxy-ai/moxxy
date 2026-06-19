@@ -8,6 +8,7 @@
 
 import { Icon } from '@moxxy/desktop-ui';
 import type { FileInsertDetail } from '../WorkspaceFiles';
+import { useMenuKeyboard } from '../useMenuKeyboard';
 
 /** A pending file click-menu, anchored at the click point. */
 export interface MenuState {
@@ -35,8 +36,12 @@ export function FileMenu({
   // Anchor at the click; clamp to viewport so it never overflows off-screen.
   const left = Math.min(menu.x, window.innerWidth - 200);
   const top = Math.min(menu.y, window.innerHeight - 96);
+  // This component only mounts while the menu is open, so focus-in / restore +
+  // arrow-key navigation are always active.
+  const menuRef = useMenuKeyboard<HTMLDivElement>(true);
   return (
     <div
+      ref={menuRef}
       role="menu"
       // Stop the window mousedown-to-close from firing for clicks inside.
       onMouseDown={(e) => e.stopPropagation()}

@@ -13,7 +13,7 @@
  * O(k) total `stepFold` work, NOT the O(k²) of re-folding the whole prefix on
  * every event (the bug this cluster kills).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   asEventId,
   asPluginId,
@@ -247,6 +247,22 @@ const SEQUENCES: Recorded[] = [
     ],
   },
   {
+    name: 'open live aggregate sealed by a subagent start, then more compact reads',
+    compact: compactMap,
+    events: () => [
+      userPrompt('look around'),
+      toolRequest('r1', 'read', { file_path: '/a.ts' }),
+      toolResult('r1'),
+      // Subagent starts while the live block is still open — must seal it so the
+      // later read below opens a FRESH live block under the agents (in order).
+      subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'verify', agentType: 'Test' }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn', tokensUsed: 100, text: 'ok' }),
+      toolRequest('r2', 'read', { file_path: '/b.ts' }),
+      toolResult('r2'),
+      assistantMessage('done'),
+    ],
+  },
+  {
     name: 'long burst of compact reads (stress)',
     compact: compactMap,
     events: () => {
@@ -336,13 +352,88 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
   });
 
   it('rebuilds when the array shrinks below the high-water mark', () => {
-    const events = SEQUENCES[9]!.events(); // the long mixed sequence
+    const events = SEQUENCES.find((s) => s.name.startsWith('mixed'))!.events();
     const fold = new IncrementalFold(compactMap);
     fold.syncTo(events);
     const shorter = events.slice(0, 3);
     const tree = fold.syncTo(shorter);
     expect(tree).toEqual(pairToolEvents(shorter, compactMap));
     expect(fold.length).toBe(3);
+  });
+
+  it('stays correct when the tail event id is replaced in place', () => {
+    // canExtend matches head+tail ids; a replaced TAIL is detected and the fold
+    // rebuilds, so the tree stays byte-identical to a from-scratch fold.
+    const events = SEQUENCES[0]!.events();
+    const fold = new IncrementalFold();
+    fold.syncTo(events);
+    const swapped = events.slice();
+    swapped[swapped.length - 1] = { ...events[events.length - 1]!, id: asEventId('swapped-tail') };
+    const tree = fold.syncTo(swapped);
+    expect(tree).toEqual(pairToolEvents(swapped));
+  });
+
+  it('detects a tail rewritten in place even when its id is REUSED', () => {
+    // Id-only matching would miss a tail event whose content changed but whose
+    // id was reused (a regression in the upstream log). The tail REFERENCE check
+    // catches it: a different object at prefixLength-1 forces a rebuild, so the
+    // fold reflects the rewritten content instead of folding stale.
+    const events = SEQUENCES[0]!.events();
+    const fold = new IncrementalFold();
+    fold.syncTo(events);
+    const last = events[events.length - 1]!;
+    const swapped = events.slice();
+    // Same id, different object & content (assistant text changed).
+    swapped[swapped.length - 1] =
+      last.type === 'assistant_message' ? { ...last, content: 'REWRITTEN' } : { ...last };
+    const tree = fold.syncTo(swapped);
+    expect(tree).toEqual(pairToolEvents(swapped));
+  });
+
+  it('detects an INTERIOR event rewritten in place and rebuilds (pins the append-only invariant)', () => {
+    // The load-bearing contract: a settled event is never rewritten in place
+    // (only its tool outcome, which the fold owns). canExtend's head+tail O(1)
+    // checks cannot see a mid-prefix rewrite; the dev-only interior integrity
+    // hash does, forcing a rebuild so the tree never folds stale. NODE_ENV is
+    // not 'production' under vitest, so the dev check is live here.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const events = SEQUENCES.find((s) => s.name.startsWith('mixed'))!.events();
+      const fold = new IncrementalFold(compactMap);
+      fold.syncTo(events);
+      // Rewrite an INTERIOR event's id (not head, not tail). Keep length and the
+      // head/tail ids identical so ONLY the interior check can catch it.
+      const mid = Math.floor(events.length / 2);
+      const tampered = events.slice();
+      tampered[mid] = { ...events[mid]!, id: asEventId('interior-rewrite') };
+      const tree = fold.syncTo(tampered);
+      // Despite the head+tail looking like a pure append, the fold rebuilt and
+      // is byte-identical to a from-scratch fold of the tampered prefix.
+      expect(tree).toEqual(pairToolEvents(tampered, compactMap));
+      expect(warn).toHaveBeenCalledOnce();
+      expect(String(warn.mock.calls[0]![0])).toContain('integrity check failed');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a genuine pure append does NOT trip the interior integrity check', () => {
+    // The dev check must not false-positive on the common live-append case:
+    // extending the array with new tail events keeps the interior hash valid.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const events = SEQUENCES.find((s) => s.name.startsWith('long burst'))!.events();
+      const fold = new IncrementalFold(compactMap);
+      for (let n = 1; n <= events.length; n += 1) {
+        const snapshot = events.slice(0, n);
+        const tree = fold.syncTo(snapshot);
+        expect(tree).toEqual(pairToolEvents(snapshot, compactMap));
+      }
+      // No interior rewrite ever happened → the integrity check never fired.
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

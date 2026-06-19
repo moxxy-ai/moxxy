@@ -280,13 +280,31 @@ async function* runPlanningPhase(
   unknown
 > {
   // Capture the original prompt from the log so we can re-include it in
-  // synthesis context.
+  // synthesis context. Use the LAST user_prompt — the one that triggered this
+  // turn — to stay consistent with how the runner scopes a turn (a multi-turn
+  // session's earlier prompts would otherwise anchor synthesis on a stale
+  // question). null = no user prompt at all (empty log).
   const originalPrompt = (() => {
-    for (const e of ctx.log.slice()) {
+    const events = ctx.log.slice();
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const e = events[i]!;
       if (e.type === 'user_prompt') return e.text;
     }
-    return '';
+    return null;
   })();
+
+  if (originalPrompt === null) {
+    yield await ctx.emit({
+      type: 'error',
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      source: 'system',
+      kind: 'fatal',
+      message:
+        'deep-research: no user prompt found in the session log — nothing to research.',
+    });
+    return null;
+  }
 
   let redraftFeedback: string | null = null;
   let redraftCount = 0;
@@ -330,6 +348,19 @@ async function* runPlanningPhase(
     }
 
     if (queries.length > MAX_SUBAGENTS) {
+      // Over-production is a normal, recoverable failure mode ("be exhaustive"
+      // prompts trip it easily). When an interactive resolver is present and we
+      // still have redraft budget, auto-redraft asking the planner to narrow,
+      // rather than killing the whole turn. Headless (no approval) or once the
+      // redraft cap is exhausted, fall through to the fatal abort.
+      const nextCount = redraftCount + 1;
+      if (ctx.approval && nextCount <= MAX_REDRAFTS) {
+        redraftCount = nextCount;
+        redraftFeedback =
+          `You produced ${queries.length} queries; the cap is ${MAX_SUBAGENTS}. ` +
+          `Return at most ${MAX_SUBAGENTS} parallel gathering queries.`;
+        continue;
+      }
       yield await ctx.emit({
         type: 'error',
         sessionId: ctx.sessionId,

@@ -1,6 +1,7 @@
 import { defineTool, z, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import {
   corePreflight,
+  countCorruptCoreTxns,
   listCoreTxns,
   newCoreTxnId,
   provisionWorkspace,
@@ -28,6 +29,17 @@ export function coreBeginTool(cd: CoreToolDeps): ToolDef {
       const install = resolveCore(cd);
       if (!install) throw new Error('could not resolve the installed @moxxy/core — cannot self-update core');
 
+      // Fail CLOSED on a corrupt journal: an unparseable in-flight journal would
+      // otherwise vanish from listCoreTxns and let this begin clobber the shared
+      // repoDir. Refuse rather than risk concurrent overlay corruption.
+      const corrupt = await countCorruptCoreTxns(deps.moxxyDir);
+      if (corrupt > 0) {
+        throw new Error(
+          `${corrupt} core-update transaction journal(s) are corrupt/unreadable — refusing to start a ` +
+            `new core update (the serialization guard can't see them). Inspect ` +
+            `~/.moxxy/self-update/core-txns and resolve them before retrying.`,
+        );
+      }
       // Serialize core transactions: only ONE may be in flight at a time. Every
       // txn shares the single provisioned workspace (repoDir), so a second
       // concurrent txn would clobber the first's edits + build. Refuse rather

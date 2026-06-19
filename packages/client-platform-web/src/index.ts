@@ -33,6 +33,6 @@ export { audioToPcm16, pcm16Peak, uint8ArrayToBase64, MOXXY_PCM16_24KHZ_MIME } f
 export const webPlatform: PlatformCapabilities = {
   audioCapture: webAudioCapture,
   tts: webTts,
-  eventBus: webEventBus,
+  ...(webEventBus ? { eventBus: webEventBus } : {}),
   ...(webKeyValueStore ? { kv: webKeyValueStore } : {}),
 };

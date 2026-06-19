@@ -43,6 +43,23 @@ describe('composerDraftStore', () => {
     expect(fn).toHaveBeenCalledTimes(2);
     unsub();
   });
+
+  it('dropWorkspace evicts a pending draft so it cannot leak after removal', () => {
+    composerDraftStore.prefill('ws-1', 'staged');
+    expect(composerDraftStore.peekDraft('ws-1')).toBe('staged');
+    composerDraftStore.dropWorkspace('ws-1');
+    expect(composerDraftStore.peekDraft('ws-1')).toBeNull();
+    // A reused id starts clean — no stale text resurfaces.
+    expect(composerDraftStore.takeDraft('ws-1')).toBeNull();
+  });
+
+  it('dropWorkspace is a no-op (no emit) when nothing is staged', () => {
+    const fn = vi.fn();
+    const unsub = composerDraftStore.subscribe(fn);
+    composerDraftStore.dropWorkspace('ws-unknown');
+    expect(fn).not.toHaveBeenCalled();
+    unsub();
+  });
 });
 
 describe('sendToSession', () => {

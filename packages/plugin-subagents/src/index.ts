@@ -14,6 +14,14 @@ export interface BuildSubagentsPluginOpts {
    * don't want to wire a session.
    */
   readonly getAgent?: (name: string) => AgentDef | undefined;
+  /**
+   * Live snapshot of the parent's tool names, e.g.
+   * `() => session.tools.list().map((t) => t.name)`. When provided, a child
+   * that neither the caller nor its kind restricts is defaulted to the
+   * parent's tools MINUS `dispatch_agent` — cutting unbounded recursive
+   * fan-out (8^N sessions). Omit to keep full unrestricted inheritance.
+   */
+  readonly getToolNames?: () => ReadonlyArray<string>;
 }
 
 /**
@@ -30,6 +38,7 @@ export interface BuildSubagentsPluginOpts {
 export function buildSubagentsPlugin(opts: BuildSubagentsPluginOpts = {}): Plugin {
   const deps: DispatchAgentDeps = {
     getAgent: opts.getAgent ?? (() => undefined),
+    ...(opts.getToolNames ? { getToolNames: opts.getToolNames } : {}),
   };
   return definePlugin({
     name: '@moxxy/plugin-subagents',
