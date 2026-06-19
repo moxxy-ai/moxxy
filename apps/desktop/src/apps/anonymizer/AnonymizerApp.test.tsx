@@ -2,7 +2,7 @@
  * Component tests for the redesigned anonymizer flow (Import → Settings →
  * Output). The redaction engine is real (`@moxxy/anonymizer`); only the host
  * boundaries are stubbed:
- *   - the NER Worker (loads a ~109 MB model) → a no-op fake, so the on-device
+ *   - the NER Worker (loads a ~300 MB model) → a no-op fake, so the on-device
  *     name pass simply yields nothing and structured redaction still runs.
  *   - the desktop IPC api → a fake, so Save routes without a native dialog.
  *

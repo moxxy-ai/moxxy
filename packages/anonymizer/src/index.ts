@@ -7,12 +7,21 @@
  * renderer, where CSP `connect-src 'self'` already blocks all egress.
  */
 
-export { detect } from './detect.js';
+export { detect, selectDetectors } from './detect.js';
 export { redact } from './redact.js';
 export { shortHash } from './hash.js';
-export { ALL_CATEGORIES, STRUCTURED_CATEGORIES } from './types.js';
+export {
+  DICTIONARY,
+  DETECTOR_BY_ID,
+  DEFAULT_CATEGORIES,
+  DETECTABLE_CATEGORIES,
+  detectCustom,
+} from './dictionary.js';
+export type { DetectorDef } from './dictionary.js';
+export { ALL_CATEGORIES, ALL_REGIONS, STRUCTURED_CATEGORIES } from './types.js';
 export type {
   PiiCategory,
+  Region,
   PiiSpan,
   RedactionMode,
   DetectOptions,

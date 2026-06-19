@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   redact,
-  STRUCTURED_CATEGORIES,
+  DEFAULT_CATEGORIES,
   type PiiCategory,
   type PiiSpan,
   type RedactionMode,
+  type Region,
 } from '@moxxy/anonymizer';
 import { useAnonymizer } from '@moxxy/client-core';
 import { Button, Icon, TextArea } from '@moxxy/desktop-ui';
@@ -13,7 +14,7 @@ import type { DesktopAppProps } from '../registry';
 import { OfflineBadge } from '../OfflineBadge';
 import { Counts } from './Counts';
 import { SpanHighlight } from './SpanHighlight';
-import { CATEGORY_LABELS, TOGGLE_CATEGORIES } from './labels';
+import { CATEGORY_LABELS, TOGGLE_CATEGORIES, REGION_LABELS, SELECTABLE_REGIONS } from './labels';
 import { FilterSelect, type FilterOption } from './FilterSelect';
 import { ImportStep, type ImportTab } from './ImportStep';
 import { useNer } from './ner/useNer';
@@ -27,9 +28,10 @@ const REDACT_MODES: ReadonlyArray<{ id: RedactionMode; label: string }> = [
 /** A short description of what each redaction style produces, shown under the
  *  segmented control so the choice is obvious without trying each one. */
 const MODE_HINT: Record<RedactionMode, string> = {
-  label: 'Replaces each item with its type, e.g. [EMAIL].',
-  pseudonym: 'Stable tokens, e.g. EMAIL_1 — the same value stays consistent.',
-  hash: 'Compact fingerprints, e.g. [EMAIL:a1b2c3d4].',
+  label: 'Replaces each item with its type, e.g. [EMAIL]. Irreversible — the only mode that truly anonymises.',
+  pseudonym:
+    'Stable tokens, e.g. EMAIL_1 — the same value stays consistent. Reversible, so this is pseudonymisation (still personal data under GDPR), not anonymisation.',
+  hash: 'Compact fingerprints, e.g. [EMAIL:a1b2c3d4]. Still pseudonymisation — a salted hash is not anonymisation.',
 };
 
 /** Synthetic filter id the multi-select adds on top of the structured
@@ -77,8 +79,10 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
   // driving the multi-select. Custom terms are a separate input but their
   // `custom` category is always on (the term box is its own switch).
   const [filters, setFilters] = useState<ReadonlySet<FilterId>>(
-    () => new Set<FilterId>([...STRUCTURED_CATEGORIES, NAMES_FILTER]),
+    () => new Set<FilterId>([...DEFAULT_CATEGORIES, NAMES_FILTER]),
   );
+  // Markets whose region-specific detectors run (global detectors always run).
+  const [regions, setRegions] = useState<ReadonlySet<Region>>(() => new Set(SELECTABLE_REGIONS));
   const [customTermsText, setCustomTermsText] = useState('');
   const [mode, setMode] = useState<RedactionMode>('label');
   const [nerSpans, setNerSpans] = useState<readonly PiiSpan[]>([]);
@@ -106,15 +110,23 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
     [filters],
   );
 
+  const regionList = useMemo(() => SELECTABLE_REGIONS.filter((r) => regions.has(r)), [regions]);
+
   const result = useMemo(
     () =>
       redact(input, {
         categories: categoryList,
+        regions: regionList,
         customTerms,
         extraSpans: nerEnabled ? nerSpans : [],
         mode,
       }),
-    [input, categoryList, customTerms, nerEnabled, nerSpans, mode],
+    [input, categoryList, regionList, customTerms, nerEnabled, nerSpans, mode],
+  );
+
+  const regionOptions = useMemo<ReadonlyArray<FilterOption<Region>>>(
+    () => SELECTABLE_REGIONS.map((r) => ({ id: r, label: REGION_LABELS[r] })),
+    [],
   );
 
   const hasInput = input.trim().length > 0;
@@ -280,6 +292,18 @@ export function AnonymizerApp({ onExit, sendToSession }: DesktopAppProps): JSX.E
                       {nerError}
                     </span>
                   )}
+                </Field>
+
+                <Field
+                  label="Markets"
+                  help="Which countries' ID formats to look for (PESEL, NHS, SSN…). Global formats (email, cards, IBAN) always apply."
+                >
+                  <FilterSelect
+                    options={regionOptions}
+                    selected={regions}
+                    onChange={setRegions}
+                    testId="anon-region-select"
+                  />
                 </Field>
 
                 <Field label="Redaction style">
