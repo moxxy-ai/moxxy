@@ -6,8 +6,10 @@ interface FloatingChatHeaderProps {
   readonly statusLabel: string;
   readonly pendingActions: number;
   readonly onToggleMenu: () => void;
-  readonly onNewSession: () => void;
-  readonly onToggleActions: () => void;
+  readonly onRenameSession: () => void;
+  readonly onOpenActions: () => void;
+  readonly actionsDisabled?: boolean;
+  readonly renameDisabled?: boolean;
 }
 
 export function FloatingChatHeader({
@@ -15,8 +17,10 @@ export function FloatingChatHeader({
   statusLabel,
   pendingActions,
   onToggleMenu,
-  onNewSession,
-  onToggleActions,
+  onRenameSession,
+  onOpenActions,
+  actionsDisabled = false,
+  renameDisabled = false,
 }: FloatingChatHeaderProps) {
   return (
     <View
@@ -38,7 +42,11 @@ export function FloatingChatHeader({
       }}
     >
         <Pressable
+          accessible
+          accessibilityRole="button"
           accessibilityLabel="Open mobile menu"
+          testID="mobile-chat-open-menu"
+          hitSlop={8}
           className="items-center justify-center rounded-block bg-cardBg"
           style={{ borderColor: '#e3e5f0', borderRadius: 10, borderWidth: 1, height: 40, width: 40 }}
           onPress={onToggleMenu}
@@ -77,18 +85,28 @@ export function FloatingChatHeader({
           style={{ alignItems: 'center', flexDirection: 'row', gap: 6 }}
         >
           <Pressable
-            accessibilityLabel="New session"
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Rename session"
+            testID="mobile-chat-rename-session"
+            hitSlop={8}
             className="items-center justify-center rounded-block"
-            style={{ borderRadius: 9, height: 36, width: 36 }}
-            onPress={onNewSession}
+            disabled={renameDisabled}
+            style={{ borderRadius: 9, height: 36, opacity: renameDisabled ? 0.42 : 1, width: 36 }}
+            onPress={onRenameSession}
           >
             <MobileIcon name="edit" size={19} strokeWidth={2.3} color="#475569" />
           </Pressable>
           <Pressable
-            accessibilityLabel="More actions"
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Open session actions"
+            testID="mobile-chat-open-session-actions"
+            hitSlop={8}
             className="items-center justify-center rounded-block"
-            style={{ borderRadius: 9, height: 36, width: 36 }}
-            onPress={onToggleActions}
+            disabled={actionsDisabled}
+            style={{ borderRadius: 9, height: 36, opacity: actionsDisabled ? 0.42 : 1, width: 36 }}
+            onPress={onOpenActions}
           >
             <MobileIcon name="more" size={20} strokeWidth={2.7} color="#475569" />
           </Pressable>

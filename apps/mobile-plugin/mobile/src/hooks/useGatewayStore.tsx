@@ -5,6 +5,7 @@ import {
   askStore,
   chatStore,
   deskForWorkspace,
+  toErrorMessage,
   useActiveWorkspaceId,
   useChat as useCoreChat,
   useConnection,
@@ -31,6 +32,7 @@ import { routeSelectWorkspaceFrame } from '../gatewayFrameRouting';
 import { buildSelectedSessionRecord } from '../mobileSessionSelection';
 import { buildMobileWorkspaceSessionRecords } from '../mobileWorkspaceSessions';
 import { emptyMobileState, type MobileState } from '../protocol';
+import { normalizeSessionCommandResult, type SessionCommandResult } from '../sessionCommandResult';
 import { textOf } from '../utils/record';
 
 function useDisconnectedGatewayStoreValue(pairing: PairingState) {
@@ -168,10 +170,34 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       }
       if (type === 'runCommand') {
         const name = textOf(frame.name);
+        const args = textOf(frame.args);
+        const targetWorkspaceId = textOf(frame.workspaceId) || workspaceId;
         if (name) {
           void api()
-            .invoke('session.runCommand', { ...workspaceParam(workspaceId), name, args: textOf(frame.args) })
-            .catch(() => undefined);
+            .invoke('session.runCommand', { ...workspaceParam(targetWorkspaceId), name, args })
+            .then(async (result) => {
+              if (!targetWorkspaceId) return;
+              const normalized = normalizeSessionCommandResult(name, args, result as SessionCommandResult);
+              if (normalized.sideEffect === 'clear') {
+                chatStore.clear(targetWorkspaceId);
+              } else if (normalized.sideEffect === 'new') {
+                chatStore.clear(targetWorkspaceId);
+                await api().invoke('session.newSession', { workspaceId: targetWorkspaceId });
+              }
+              if (normalized.dispatch) {
+                chatStore.dispatch(targetWorkspaceId, normalized.dispatch);
+              }
+            })
+            .catch((err) => {
+              if (!targetWorkspaceId) return;
+              chatStore.dispatch(targetWorkspaceId, {
+                type: 'action_result',
+                commandName: name,
+                argsLine: args,
+                tone: 'error',
+                text: toErrorMessage(err),
+              });
+            });
         }
         return;
       }
@@ -278,7 +304,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   ]);
 
   const session = useSessionSnapshot(state);
-  const sessions = useSessions(state, sendFrame);
+  const sessions = useSessions(state, sendFrame, { renameSession: coreDesks.renameSession });
   const permissions = usePermissions(state, sendFrame);
   const chatTranscript = useChatTranscript(state);
   const compact = useCompactContext({

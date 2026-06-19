@@ -9,12 +9,15 @@ import { GoalSheet } from '@/components/GoalSheet';
 import { MobileMenuSheet } from '@/components/MobileMenuSheet';
 import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
 import { ModeSelectorSheet } from '@/components/ModeSelectorSheet';
+import { RenameSessionSheet } from '@/components/RenameSessionSheet';
+import { SessionActionsSheet } from '@/components/SessionActionsSheet';
 import { buildFloatingSheetPlacement } from '@/floatingSheetLayout';
 import { buildGoalSheetPlacement } from '@/goalSheetLayout';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useMessageCopy } from '@/hooks/useMessageCopy';
 import { useMobileChrome } from '@/hooks/useMobileChrome';
+import { useSessionActions } from '@/hooks/useSessionActions';
 import { useWorkspaceCollapse } from '@/hooks/useWorkspaceCollapse';
 import { buildMobileMenuItems, buildWorkspaceMenuSections } from '@/navigation';
 import { buildChatConnectionUi } from '@/chatConnectionUi';
@@ -26,6 +29,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 export default function ChatScreen() {
   const { autoApprove, chat, compact, composer, gatewayConnected, goals, modelSelector, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
   const [composerHeight, setComposerHeight] = useState(0);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const chrome = useMobileChrome();
   const messageCopy = useMessageCopy();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
@@ -36,6 +43,14 @@ export default function ChatScreen() {
     sending: chat.sending,
   });
   const sessionLabel = textOf(session.session?.id, 'No active session');
+  const activeSessionRecord = sessions.sessions.find((item) => textOf(item.id) === sessions.activeWorkspaceId);
+  const activeSessionTitle = textOf(activeSessionRecord?.name, sessionLabel);
+  const canEditSession = session.connected && !session.readOnly && Boolean(sessions.activeWorkspaceId);
+  const sessionActions = useSessionActions({
+    workspaceId: sessions.activeWorkspaceId,
+    readOnly: session.readOnly || !session.connected,
+    onRunCommand: composer.runCommand,
+  });
   const menuItems = buildMobileMenuItems(pendingActions);
   const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
   const workspaceCollapse = useWorkspaceCollapse(workspaceSections);
@@ -63,6 +78,34 @@ export default function ChatScreen() {
   const handleComposerHeightChange = useCallback((height: number) => {
     setComposerHeight((current) => (Math.abs(current - height) > 1 ? height : current));
   }, []);
+  const openRename = useCallback(() => {
+    if (!canEditSession) return;
+    composer.setActionsOpen(false);
+    setRenameDraft(activeSessionTitle);
+    setRenameError(null);
+    setRenameOpen(true);
+  }, [activeSessionTitle, canEditSession, composer]);
+  const closeRename = useCallback(() => {
+    setRenameOpen(false);
+    setRenameError(null);
+  }, []);
+  const submitRename = useCallback(() => {
+    const sessionId = sessions.activeWorkspaceId;
+    const name = renameDraft.trim();
+    if (!sessionId || !name || renameSaving) return;
+    setRenameSaving(true);
+    setRenameError(null);
+    void sessions.renameSession(sessionId, name)
+      .then(() => {
+        setRenameOpen(false);
+      })
+      .catch((err) => {
+        setRenameError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        setRenameSaving(false);
+      });
+  }, [renameDraft, renameSaving, sessions]);
 
   return (
     <AppShell>
@@ -179,8 +222,40 @@ export default function ChatScreen() {
             statusLabel={connectionUi.statusLabel}
             pendingActions={pendingActions}
             onToggleMenu={chrome.toggleMenu}
-            onNewSession={sessions.newSession}
-            onToggleActions={() => composer.setActionsOpen(!composer.actionsOpen)}
+            onRenameSession={openRename}
+            onOpenActions={() => {
+              composer.setActionsOpen(false);
+              sessionActions.openSheet();
+            }}
+            actionsDisabled={!session.connected}
+            renameDisabled={!canEditSession}
+          />
+
+          <SessionActionsSheet
+            open={sessionActions.open}
+            actions={sessionActions.actions}
+            allActionsCount={sessionActions.allActionsCount}
+            filter={sessionActions.filter}
+            error={sessionActions.error}
+            readOnly={session.readOnly || !session.connected}
+            argsFor={sessionActions.argsFor}
+            argValues={sessionActions.argValues}
+            onFilterChange={sessionActions.setFilter}
+            onSelectAction={sessionActions.selectAction}
+            onArgValueChange={sessionActions.setArgValue}
+            onRunArgsAction={sessionActions.runArgsAction}
+            onBackToList={sessionActions.backToList}
+            onClose={sessionActions.close}
+          />
+
+          <RenameSessionSheet
+            open={renameOpen}
+            value={renameDraft}
+            error={renameError}
+            saving={renameSaving}
+            onChange={setRenameDraft}
+            onCancel={closeRename}
+            onSubmit={submitRename}
           />
 
           <ComposerCard
