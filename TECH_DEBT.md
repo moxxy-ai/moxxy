@@ -21,6 +21,29 @@ It's dead weight — ~21 MB of orphan that nonetheless rides every Tier-1 hot-up
 bundle. Follow-up: stop Vite resolving that internal `new URL` (e.g. a resolve alias /
 `assetsInclude` exclusion) so only `dist/ort/` ships. `apps/desktop/electron.vite.config.ts`.
 
+**Accrued 2026-06-19 (anonymizer PII dictionary + multilingual NER).** The region-aware
+detector dictionary (`@moxxy/anonymizer`) and the English→multilingual NER swap
+**retired** the long-standing "`nationalId` declared but no detector" gap and the
+English-only name detection. New debt/follow-ups accrued by that work:
+- **NER Polish recall is unproven.** `tjruesch/xlm-roberta-base-ner-hrl-onnx` reaches
+  Polish via XLM-R cross-lingual transfer, NOT Polish gold fine-tuning. It degrades
+  gracefully (a model/runtime failure yields `[]`, structured redaction still runs), but
+  Polish PER/LOC recall needs a real-Polish-document eval harness before we lean on it;
+  `jiting/xlm-roberta-base-ner-hrl_onnx` (AFL-3.0) is the drop-in fallback if it underperforms.
+- **Crypto + secret checksums are structural-only.** Base58Check (BTC), Keccak-256/EIP-55
+  (ETH) and CRC32 (GitHub) would need a crypto dep or hand-rolled crypto, which breaks the
+  zero-dependency offline guarantee — so those detectors validate shape only. Acceptable
+  (both are opt-in / very-low-FP prefixes), but a pure-JS SHA-256/Keccak/CRC32 in `hash.ts`
+  would let them validate properly.
+- **No HIPAA Safe-Harbor profile.** `regions` defaults to ALL with category toggles; a
+  proper per-jurisdiction profile (PL/UK/US/HIPAA) would force-enable the right set —
+  including the opt-in `date` detector + an age-90+/date-shift rule and a generic
+  context-gated unique-id fallback (medical record numbers have no fixed format) — to
+  credibly claim Safe-Harbor coverage. `apps/desktop/src/apps/anonymizer/`.
+- **Context window is a flat 48 chars.** Keyword-gated detectors miss a label that sits a
+  line or two away (e.g. `Numer Identyfikacji Podatkowej` far above the digits). Consider a
+  per-detector window or line-aware context. `packages/anonymizer/src/dictionary.ts`.
+
 **Last refreshed:** 2026-06-09 (second pass) — **journal repair + audit intake.** PRs #113
 and #115 rebuilt this file from a branch cut before #107/#108 merged, silently resurrecting
 two entries those PRs had retired (P1 #2's growth defect, P2 #6 mode-loop scaffolding) and

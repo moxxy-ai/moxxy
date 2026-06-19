@@ -44,9 +44,6 @@ export function Counts({ counts, total }: { counts: PiiCounts; total: number }):
       {rows.map((c) => (
         <span
           key={c}
-          // The visual `·` separator reads as noise to a screen reader, so give
-          // the chip a clean spoken label ("Emails: 3") and hide the glyph.
-          aria-label={`${CATEGORY_LABELS[c]}: ${counts[c]}`}
           style={{
             fontSize: 12,
             padding: '3px 9px',
@@ -56,9 +53,7 @@ export function Counts({ counts, total }: { counts: PiiCounts; total: number }):
             color: 'var(--color-text-muted)',
           }}
         >
-          <span aria-hidden>
-            {CATEGORY_LABELS[c]} · {counts[c]}
-          </span>
+          {CATEGORY_LABELS[c]} · {counts[c]}
         </span>
       ))}
     </div>

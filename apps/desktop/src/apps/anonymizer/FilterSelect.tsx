@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 
 /** One selectable filter row in the multi-select. `hint` surfaces a secondary
@@ -12,16 +12,11 @@ export interface FilterOption<Id extends string> {
 }
 
 /**
- * A compact multi-select dropdown — the redaction filters.
+ * A compact multi-select dropdown with checkboxes — the redaction filters.
  *
  * Replaces the old long row of raw toggles: the trigger is a single chip
- * showing how many filters are active ("Filters · 9"), and the panel is an ARIA
- * `listbox` of `option` rows (toggle = select), plus All / None shortcuts.
- *
- * Keyboard: the trigger opens with Enter/Space; inside the panel Up/Down/Home/End
- * move a roving focus between rows, Enter/Space toggle the focused filter, and
- * Escape (or outside-click) closes and restores focus to the trigger so a
- * keyboard/screen-reader user is never stranded on <body>.
+ * showing how many filters are active ("Filters · 9"), and the panel lists
+ * every category with a checkbox, plus All / None shortcuts.
  *
  * Anchored-dropdown mechanics mirror RailMenu / the header's collapsible
  * Segmented: outside-click + Escape dismiss. The panel is absolutely
@@ -42,34 +37,16 @@ export function FilterSelect<Id extends string>({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
-  // Roving-tabindex focus position within the option list.
-  const [activeIndex, setActiveIndex] = useState(0);
-  // Which row currently holds DOM focus (-1 = none) — drives the visible focus
-  // ring inline, since the global `button:focus-visible` rule can't reach a
-  // `role="option"` <div> and the surrounding stylesheet is out of scope here.
-  const [focusedIndex, setFocusedIndex] = useState(-1);
   const labelId = useId();
-
-  const close = useCallback((restoreFocus: boolean): void => {
-    setOpen(false);
-    // Return focus to the trigger so the popup focus-return contract holds —
-    // otherwise focus drops to <body> and keyboard users lose their anchor.
-    if (restoreFocus) triggerRef.current?.focus();
-  }, []);
 
   // Dismiss on outside-click / Escape — the shared anchored-dropdown pattern.
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) close(false);
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        close(true);
-      }
+      if (e.key === 'Escape') setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -77,35 +54,7 @@ export function FilterSelect<Id extends string>({
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, close]);
-
-  // When the panel opens, land the roving focus on the first selected row (or
-  // the first row) and move DOM focus there so arrow keys work immediately.
-  useLayoutEffect(() => {
-    if (!open) return;
-    const firstSelected = options.findIndex((o) => !o.disabled && selected.has(o.id));
-    const firstEnabled = options.findIndex((o) => !o.disabled);
-    const start = firstSelected >= 0 ? firstSelected : Math.max(0, firstEnabled);
-    setActiveIndex(start);
-    optionRefs.current[start]?.focus();
-    // Only on open — re-running on every selection change would steal focus.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  const focusIndex = (i: number, dir: 1 | -1 = 1): void => {
-    const n = options.length;
-    if (n === 0) return;
-    // Skip disabled rows in the travel direction, wrapping around.
-    let next = ((i % n) + n) % n;
-    let guard = 0;
-    while (options[next]?.disabled && guard < n) {
-      next = (next + dir + n) % n;
-      guard += 1;
-    }
-    if (options[next]?.disabled) return; // every row disabled — nothing to focus
-    setActiveIndex(next);
-    optionRefs.current[next]?.focus();
-  };
 
   const selectable = options.filter((o) => !o.disabled);
   const activeCount = selectable.filter((o) => selected.has(o.id)).length;
@@ -133,7 +82,6 @@ export function FilterSelect<Id extends string>({
       style={{ position: 'relative', zIndex: open ? 50 : undefined, alignSelf: 'flex-start' }}
     >
       <button
-        ref={triggerRef}
         type="button"
         data-testid={testId}
         aria-haspopup="listbox"
@@ -196,28 +144,6 @@ export function FilterSelect<Id extends string>({
           aria-multiselectable
           aria-labelledby={labelId}
           data-testid={`${testId}-panel`}
-          onKeyDown={(e) => {
-            switch (e.key) {
-              case 'ArrowDown':
-                e.preventDefault();
-                focusIndex(activeIndex + 1, 1);
-                break;
-              case 'ArrowUp':
-                e.preventDefault();
-                focusIndex(activeIndex - 1, -1);
-                break;
-              case 'Home':
-                e.preventDefault();
-                focusIndex(0, 1);
-                break;
-              case 'End':
-                e.preventDefault();
-                focusIndex(options.length - 1, -1);
-                break;
-              default:
-                break;
-            }
-          }}
           style={{
             position: 'absolute',
             top: 'calc(100% + 6px)',
@@ -271,36 +197,14 @@ export function FilterSelect<Id extends string>({
           </div>
 
           <div style={{ overflowY: 'auto', padding: 4 }}>
-            {options.map((o, i) => {
+            {options.map((o) => {
               const checked = selected.has(o.id);
               return (
-                <div
+                <label
                   key={o.id}
-                  ref={(el) => {
-                    optionRefs.current[i] = el;
-                  }}
-                  role="option"
-                  aria-selected={checked}
-                  aria-disabled={o.disabled || undefined}
                   data-testid={`${testId}-opt-${o.id}`}
                   className="row-button"
-                  // Roving tabindex: exactly one row is in the tab order at a time
-                  // so Tab enters/leaves the list while arrows move within it.
-                  tabIndex={o.disabled ? -1 : i === activeIndex ? 0 : -1}
-                  onClick={() => {
-                    if (o.disabled) return;
-                    setActiveIndex(i);
-                    toggle(o.id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (o.disabled) return;
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      toggle(o.id);
-                    }
-                  }}
-                  onFocus={() => setFocusedIndex(i)}
-                  onBlur={() => setFocusedIndex((cur) => (cur === i ? -1 : cur))}
+                  aria-disabled={o.disabled}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -311,8 +215,6 @@ export function FilterSelect<Id extends string>({
                     fontSize: 13,
                     cursor: o.disabled ? 'not-allowed' : 'pointer',
                     opacity: o.disabled ? 0.55 : 1,
-                    outline: focusedIndex === i ? '2px solid var(--color-primary)' : 'none',
-                    outlineOffset: -2,
                   }}
                 >
                   <span
@@ -341,7 +243,14 @@ export function FilterSelect<Id extends string>({
                       {o.hint}
                     </span>
                   )}
-                </div>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={o.disabled}
+                    onChange={() => toggle(o.id)}
+                    style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
+                  />
+                </label>
               );
             })}
           </div>

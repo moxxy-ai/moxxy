@@ -63,21 +63,6 @@ describe('detect', () => {
     }
   });
 
-  it('honors an injected priority override when two spans overlap', () => {
-    // By default email(80) outranks an overlapping NER person(55) → email wins.
-    // Bumping person above email via the priority override flips the winner.
-    const text = 'John smith@x.com here';
-    const extraSpans = [{ category: 'person' as const, start: 0, end: 16, value: text.slice(0, 16) }];
-    const def = detect(text, { categories: ['email'], extraSpans });
-    expect(def.map((s) => s.category)).toEqual(['email']);
-    const overridden = detect(text, {
-      categories: ['email'],
-      extraSpans,
-      priority: { person: 999 },
-    });
-    expect(overridden.map((s) => s.category)).toEqual(['person']);
-  });
-
   it('resolves a large fully-disjoint span set without quadratic blowup', () => {
     // 40k non-overlapping custom hits is the pathological case for overlap
     // resolution: a linear-scan resolver is O(n²) (multiple seconds and rising

@@ -83,7 +83,7 @@ export function compileAllowedHosts(hosts: readonly string[]): RegExp[] {
 }
 
 /** Hard ceiling on any single downloaded asset. The largest real asset is the
- *  ~109 MB quantised NER model; 512 MB leaves generous headroom while still
+ *  ~278 MB quantised XLM-RoBERTa NER weight; 512 MB leaves headroom while still
  *  bounding a hostile/buggy server that streams an unbounded body (disk-fill
  *  DoS). Tunable per call via {@link installApp}'s `maxAssetBytes`. */
 export const MAX_ASSET_BYTES = 512 * 1024 * 1024;

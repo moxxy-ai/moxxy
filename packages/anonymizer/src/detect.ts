@@ -1,47 +1,70 @@
 /**
- * Detection orchestration: run the enabled detectors, fold in custom-term and
- * external (NER) spans, then resolve overlaps so each character is claimed by at
- * most one category — the highest-priority one.
+ * Detection orchestration: select the enabled detectors (by category + region,
+ * or by an explicit id allow-list), run them, fold in custom-term and external
+ * (NER) spans, then resolve overlaps so each character is claimed by at most one
+ * category — the highest-priority one.
  */
 
-import { DETECTORS, detectCustom } from './detectors.js';
-import type { DetectOptions, PiiCategory, PiiSpan } from './types.js';
-import { STRUCTURED_CATEGORIES } from './types.js';
+import {
+  DICTIONARY,
+  DETECTOR_BY_ID,
+  DEFAULT_CATEGORIES,
+  detectCustom,
+  type DetectorDef,
+} from './dictionary.js';
+import type { DetectOptions, PiiCategory, PiiSpan, Region } from './types.js';
+import { ALL_REGIONS } from './types.js';
 
 /**
  * Overlap-resolution priority. A 16-digit Luhn-valid card overlaps a phone
  * pattern; keeping the higher-priority category stops it being mis-tagged.
- * Structured + validated categories outrank looser ones (phone, date).
+ * Structured + checksum-validated categories outrank looser ones (phone, date,
+ * postalCode). Higher number wins.
  */
 const PRIORITY: Record<PiiCategory, number> = {
+  // deviceId (IMEI) outranks creditCard because an IMEI is a 15-digit Luhn-valid
+  // run — a subset of the card pattern — and only fires when an `IMEI` keyword is
+  // nearby, so when both match the same digits the context-gated IMEI is the
+  // right call (a real Amex sitting next to the word "IMEI" is implausible).
+  deviceId: 102,
   creditCard: 100,
-  iban: 95,
-  ssn: 90,
-  email: 80,
+  iban: 98,
+  bankAccount: 96,
+  ssn: 94,
+  nationalId: 92,
+  taxId: 90,
+  healthId: 88,
+  vehicleId: 86,
+  crypto: 82,
+  secret: 80,
+  email: 78,
   url: 70,
-  ipv6: 66,
-  ipv4: 64,
+  passport: 68,
+  driverLicense: 66,
+  ipv6: 64,
+  ipv4: 62,
   mac: 60,
   person: 55,
   org: 50,
   location: 48,
-  nationalId: 45,
+  postalCode: 44,
   custom: 40,
   phone: 30,
   date: 10,
 };
 
-/** Fallback rank for any category not present in the active priority map, so an
- *  unlisted (e.g. future) category never makes the sort comparator return NaN. */
-const DEFAULT_PRIORITY = 45;
-
-/** Build a total `category → rank` lookup from the default map merged with any
- *  caller overrides. Unknown categories resolve to {@link DEFAULT_PRIORITY}. */
-function resolvePriority(
-  overrides?: Partial<Record<PiiCategory, number>>,
-): (c: PiiCategory) => number {
-  if (!overrides) return (c) => PRIORITY[c] ?? DEFAULT_PRIORITY;
-  return (c) => overrides[c] ?? PRIORITY[c] ?? DEFAULT_PRIORITY;
+/** Resolve which detectors to run from the options. */
+export function selectDetectors(opts: DetectOptions = {}): DetectorDef[] {
+  if (opts.detectorIds) {
+    return opts.detectorIds
+      .map((id) => DETECTOR_BY_ID.get(id))
+      .filter((d): d is DetectorDef => !!d);
+  }
+  const categories = new Set<PiiCategory>(opts.categories ?? DEFAULT_CATEGORIES);
+  const regions = new Set<Region>(opts.regions ?? ALL_REGIONS);
+  return DICTIONARY.filter(
+    (d) => categories.has(d.category) && (d.region === 'global' || regions.has(d.region)),
+  );
 }
 
 /**
@@ -51,17 +74,11 @@ function resolvePriority(
  * `extraSpans` (e.g. on-device NER) are merged through the same overlap pass.
  */
 export function detect(text: string, opts: DetectOptions = {}): PiiSpan[] {
-  const categories = new Set(opts.categories ?? STRUCTURED_CATEGORIES);
   const raw: PiiSpan[] = [];
-
-  for (const cat of categories) {
-    const fn = DETECTORS[cat];
-    if (fn) raw.push(...fn(text));
-  }
+  for (const d of selectDetectors(opts)) raw.push(...d.detect(text));
   if (opts.customTerms?.length) raw.push(...detectCustom(text, opts.customTerms));
   if (opts.extraSpans?.length) raw.push(...opts.extraSpans);
-
-  return resolveOverlaps(raw, resolvePriority(opts.priority), text.length);
+  return resolveOverlaps(raw);
 }
 
 /** First index `i` in the start-sorted `kept` array with `kept[i].start >= start`. */
@@ -86,20 +103,11 @@ function lowerBoundByStart(kept: readonly PiiSpan[], start: number): number {
  *  over every kept span. This keeps the whole pass O(n log n) instead of O(n²),
  *  which matters on large documents (tens of thousands of detections, e.g. a log
  *  file full of IPs/emails) that would otherwise freeze the renderer. */
-function resolveOverlaps(
-  spans: readonly PiiSpan[],
-  rank: (c: PiiCategory) => number,
-  len: number,
-): PiiSpan[] {
-  // Keep only well-formed, in-bounds spans. `extraSpans` (e.g. NER output) are
-  // caller-supplied and may carry inverted or out-of-range offsets; an `end`
-  // past `text.length` would make redact()'s slice/replacement logic emit
-  // garbage, so clamp to `0 <= start < end <= len` here at the single point all
-  // spans converge.
-  const valid = spans.filter((s) => s.start >= 0 && s.end > s.start && s.end <= len);
+function resolveOverlaps(spans: readonly PiiSpan[]): PiiSpan[] {
+  const valid = spans.filter((s) => s.end > s.start);
   const ordered = [...valid].sort(
     (a, b) =>
-      rank(b.category) - rank(a.category) ||
+      PRIORITY[b.category] - PRIORITY[a.category] ||
       b.end - b.start - (a.end - a.start) ||
       a.start - b.start,
   );

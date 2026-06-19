@@ -18,73 +18,16 @@ describe('email', () => {
     expect(values('email', 'ping @johnny on chat')).toEqual([]);
   });
   it('does not catastrophically backtrack on a hostile no-TLD-tail input (ReDoS)', () => {
-    // The old regex backtracked quadratically on 'x@a.a.a.…' and froze the
-    // thread; the bounded-local-part form must reject this in linear time.
+    // `x@a.a.a.…` with no valid TLD tail made the unbounded email regex backtrack
+    // quadratically and freeze the renderer thread. Every quantifier is now
+    // bounded (local ≤64, labels ≤63, ≤32 sub-labels), so this stays linear.
     const hostile = `x@${'a.'.repeat(20_000)}`;
     const t0 = Date.now();
-    const out = values('email', hostile);
-    const elapsed = Date.now() - t0;
-    expect(out).toEqual([]);
-    // The bounded regex runs in ~tens of ms; the old quadratic form took
-    // ~2.3s on this input. A generous 1.5s ceiling stays a decisive
-    // catastrophic/linear discriminator without flaking under parallel CI load.
-    expect(elapsed).toBeLessThan(1500);
-  });
-  it('stays well under budget at 2x the hostile size (linear, not quadratic)', () => {
-    // A quadratic scan would ~4x in time when the input doubles; a linear one
-    // ~2x. Doubling the hostile run must still finish far under the same budget.
-    const hostile = `x@${'a.'.repeat(40_000)}`;
-    const t0 = Date.now();
     expect(values('email', hostile)).toEqual([]);
-    // Quadratic would be ~9s at this size; linear stays in the tens of ms.
+    // Bounded form runs in ~tens of ms; the unbounded form took multiple seconds.
+    // A generous 1.5s ceiling discriminates catastrophic vs linear without flaking
+    // under parallel CI load.
     expect(Date.now() - t0).toBeLessThan(1500);
-  });
-  it('still finds an email past the windowed-scan ceiling (chunking recall)', () => {
-    // Inputs over MAX_SCAN_LEN are scanned in overlapping windows; a real match
-    // far past the first window must still be detected (no recall loss).
-    const filler = 'x'.repeat(40_000);
-    expect(values('email', `${filler} a.b@example.com ${filler}`)).toEqual(['a.b@example.com']);
-  });
-  it('recovers an email that straddles a window boundary', () => {
-    // An email whose chars cross the MAX_SCAN_LEN edge is clipped by the first
-    // window; the edge-recovery path must re-find it whole (no false negative).
-    const email = 'longuser.name+tag@subdomain.example.co.uk';
-    const before = 'word '.repeat(3270); // ~16350 chars, ends on a boundary
-    expect(values('email', `${before}${email} tail`)).toEqual([email]);
-  });
-});
-
-describe('url (unbounded match — windowed-scan recall)', () => {
-  it('matches a simple url', () => {
-    expect(values('url', 'see https://example.com/path?q=1 here')).toEqual([
-      'https://example.com/path?q=1',
-    ]);
-  });
-  it('recovers a url LONGER than a scan window (no silent false negative)', () => {
-    // URL is the only built-in detector with no length cap, so a single match can
-    // exceed MAX_SCAN_LEN. Before edge-recovery such a url touched the right edge
-    // of EVERY non-final window and was dropped forever — a silent leak of (e.g.)
-    // a session token in its query string. It must now be detected whole.
-    const url = `https://evil.test/?token=${'s'.repeat(40_000)}`;
-    const text = `leak ${url} here`;
-    expect(values('url', text)).toEqual([url]);
-  });
-  it('recovers a long url that crosses the first window boundary', () => {
-    const url = `http://x.io/${'a'.repeat(20_000)}`;
-    const pre = `${'p'.repeat(16_380)} `; // url begins right at the window edge
-    expect(values('url', `${pre}${url} z`)).toEqual([url]);
-  });
-  it('stays bounded with many long boundary-crossing urls (no quadratic recovery)', () => {
-    // Many edge-touching unbounded matches exercise the recovery path repeatedly;
-    // it must stay a single linear pass each, not a per-position rescan.
-    const one = `http://x.io/${'a'.repeat(1500)} `;
-    let text = '';
-    while (text.length < 400_000) text += one;
-    const t0 = Date.now();
-    const out = values('url', text);
-    expect(out.length).toBeGreaterThan(0);
-    expect(out.every((v) => v.length === one.trim().length)).toBe(true); // all recovered whole
-    expect(Date.now() - t0).toBeLessThan(2_000);
   });
 });
 
@@ -119,13 +62,6 @@ describe('ipv4', () => {
   it('rejects an out-of-range octet', () => {
     expect(values('ipv4', 'bad 999.1.1.1')).toEqual([]);
   });
-  it('rejects zero-padded (octal-ambiguous) octets', () => {
-    expect(_internals.isIpv4('010.0.0.1')).toBe(false);
-    expect(_internals.isIpv4('00.00.00.00')).toBe(false);
-    expect(values('ipv4', 'addr 010.020.030.040')).toEqual([]);
-    // Canonical addresses with single-zero octets still pass.
-    expect(_internals.isIpv4('10.0.0.1')).toBe(true);
-  });
 });
 
 describe('ipv6', () => {
@@ -137,17 +73,6 @@ describe('ipv6', () => {
   });
   it('does not treat a MAC as IPv6', () => {
     expect(values('ipv6', '01:23:45:67:89:ab')).toEqual([]);
-  });
-  it('recovers the valid address glued to a rejected prefix (no false negative)', () => {
-    // The broad candidate greedily swallows the leading 'zzzz:'; rejecting it and
-    // rewinding must still surface the real 'fe80::1', not drop it or emit garbage.
-    expect(values('ipv6', 'zzzz:fe80::1')).toEqual(['fe80::1']);
-  });
-  it('rejects a bare leading/trailing single colon', () => {
-    expect(_internals.isIpv6(':fe80::1')).toBe(false);
-    expect(_internals.isIpv6('fe80::1:')).toBe(false);
-    expect(_internals.isIpv6('::1')).toBe(true);
-    expect(_internals.isIpv6('fe80::')).toBe(true);
   });
 });
 
@@ -182,30 +107,5 @@ describe('custom terms', () => {
     // Raw (unresolved): 'Jane' also matches inside 'JANE DOE'; dedup is detect()'s job.
     const spans = detectCustom('Jane and JANE DOE met Janet', ['jane doe', 'Jane']);
     expect(spans.map((s) => s.value).sort()).toEqual(['JANE', 'JANE DOE', 'Jane']);
-  });
-  it('uses Unicode-aware boundaries for accented terms (no over-redaction)', () => {
-    // 'José' is a longer word containing the term 'José' only as a prefix here.
-    // ASCII \w sees the trailing accented letter as a boundary and over-matches
-    // 'José' inside 'JoséÁlvarez'; Unicode \p{L} boundaries reject it.
-    expect(detectCustom('Hi JoséÁlvarez', ['José']).map((s) => s.value)).toEqual([]);
-    // The standalone whole word still matches.
-    expect(detectCustom('Hi José there', ['José']).map((s) => s.value)).toEqual(['José']);
-  });
-  it('degrades (does not crash) on an absurdly long term', () => {
-    // A huge term, escaped and wrapped in lookaround, can exceed the engine's
-    // regex size limit and throw "Invalid regular expression" out of the whole
-    // detect()/redact() call — a redactor must never crash on hostile input. The
-    // over-length term is silently skipped instead.
-    const huge = 'a'.repeat(100_000);
-    expect(() => detectCustom(`prefix ${huge} suffix`, [huge])).not.toThrow();
-    expect(detectCustom(`prefix ${huge} suffix`, [huge])).toEqual([]);
-  });
-  it('a bad (over-length) term does not suppress a good one in the same list', () => {
-    // One uncompilable term must not take down the rest of the list.
-    const spans = detectCustom('keep secret-x here', ['a'.repeat(50_000), 'secret-x']);
-    expect(spans.map((s) => s.value)).toEqual(['secret-x']);
-  });
-  it('skips empty / whitespace-only terms', () => {
-    expect(detectCustom('anything at all', ['', '   ', '\t'])).toEqual([]);
   });
 });

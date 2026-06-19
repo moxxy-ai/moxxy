@@ -2,7 +2,7 @@
   "name": "@moxxy/anonymizer",
   "private": true,
   "version": "0.1.0",
-  "description": "A pure, dependency-free, network-free PII detection + redaction engine. Detects structured PII (email, phone, credit card, SSN, IP, MAC, IBAN, URL, date) with high-precision validators and redacts it with labeled / pseudonym / hash modes. Has ZERO runtime dependencies and touches no network API — that emptiness is the load-bearing offline guarantee (enforced by offline.test.ts), so it bundles cleanly into the desktop renderer.",
+  "description": "A pure, dependency-free, network-free PII detection + redaction engine with a region-aware detector dictionary (Poland / UK / US + global). Detects structured PII, national/tax/health ids, bank accounts, passports, postcodes, crypto wallets, device/vehicle ids and leaked secrets with checksum-backed validators, and redacts it with labeled / pseudonym / hash modes. Has ZERO runtime dependencies and touches no network API — that emptiness is the load-bearing offline guarantee (enforced by offline.test.ts), so it bundles cleanly into the desktop renderer.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
