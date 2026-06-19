@@ -1,5 +1,16 @@
 # @moxxy/agent
 
+## 0.2.3
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+  - @moxxy/core@0.5.1
+  - @moxxy/mode-default@0.1.1
+  - @moxxy/plugin-provider-anthropic@0.2.1
+  - @moxxy/plugin-provider-openai@0.1.1
+
 ## 0.2.2
 
 ### Patch Changes

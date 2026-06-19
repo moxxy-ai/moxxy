@@ -1,5 +1,70 @@
 # @moxxy/desktop
 
+## 0.22.0
+
+### Minor Changes
+
+- e762d40: Desktop apps can send their output back to the active session instead of copy+paste. New shared `sendToSession()` + `composerDraftStore` in `@moxxy/client-core` prefill the chat composer and switch to the chat view for the user to review and send. The built-in document anonymizer gains a **Send to chat** button (opt-in per app via `DesktopAppDef.canSendToSession`, enriched with a context line + redaction count). A forward-looking `session.send` capability (permission + bridge method + client sugar) is added to `@moxxy/desktop-app-sdk` for sandboxed apps; it is renderer-dispatched, and the main-process bridge gate refuses it by design.
+
+### Patch Changes
+
+- 21e0d9b: fix(desktop): send pasted / dropped / browser-capture images to the model
+
+  Images that arrive as bytes — a clipboard paste, a drag-drop, or a
+  browser-surface screenshot — are stashed to a temp file under `os.tmpdir()` and
+  then ride the same attachment pipeline as a picked file. But `session.runTurn`'s
+  provenance gate (`authorizeAttachments`) only trusts paths the native picker
+  handed out or paths inside the workspace cwd, and `session.saveImageAttachment`
+  — unlike `session.pickAttachment` — never remembered the temp path it wrote. So
+  every byte-sourced image was silently dropped at send time (only a `console.warn`
+  in the main process) and the prompt reached the model as text only. This was a
+  regression: the provenance gate, added in the PR right after the chat
+  image-paste feature, never vouched for the paste/capture path.
+
+  `session.saveImageAttachment` now remembers the temp path it creates, mirroring
+  `session.pickAttachment`, so pasted / dropped / captured images survive the gate
+  and actually reach the model.
+
+- e762d40: Repo-wide worst-case hardening (audit-driven). A pessimistic re-audit of every
+  package/app scored security, performance, code-quality, extensibility (+a11y on
+  UI surfaces) and cataloged 757 findings; this resolves the high+medium+clear-low
+  set with regression tests for the failure paths. Highlights:
+
+  - **Security:** email-detector ReDoS made linear (bounded local-part + label
+    count + windowed scan); IPv4-mapped-IPv6 SSRF bypass closed; `memory_*` and
+    workflow `runId` path-traversal sanitized; cross-host redirects no longer
+    replay `Authorization`/body; webhook filter-regex ReDoS bounded; capability
+    isolation now also covers tools registered after `onInit`; recursive subagent
+    fan-out capped.
+  - **Robustness (no happy-path assumptions):** unbounded child/stdout/socket/grep
+    buffers bounded (OOM); missing `'error'` listeners + per-call timeouts + abort
+    wiring added across the WS transport, runner JSON-RPC, isolators, browser
+    sidecar, MCP boot, and provider streams; stale-name/out-of-order resolves,
+    malformed-JSON tool input, and corrupt on-disk caches now degrade instead of
+    crashing.
+  - **Accessibility:** real focus traps + focus restoration + ARIA/`aria-modal` +
+    keyboard navigation + Escape across desktop modals/sheets, the shared
+    `desktop-ui` Modal, the workflow canvas, and the TUI.
+  - **Quality:** dead code removed (incl. the committed `apps/docs/.astro` cache),
+    per-workflow schedule-sync isolation, scheduler invalid-timezone resilience,
+    and worst-case regression tests throughout.
+
+- Updated dependencies [e762d40]
+- Updated dependencies [e762d40]
+  - @moxxy/client-core@0.10.0
+  - @moxxy/desktop-host@0.8.2
+  - @moxxy/cli@0.14.9
+  - @moxxy/sdk@0.15.1
+  - @moxxy/client-platform-web@0.1.27
+  - @moxxy/chat-model@0.3.1
+  - @moxxy/desktop-ipc-contract@0.10.1
+  - @moxxy/ipc-server-ws@0.1.26
+  - @moxxy/plugin-channel-mobile@0.1.27
+  - @moxxy/plugin-stt-whisper-codex@0.0.24
+  - @moxxy/plugin-vault@0.0.24
+  - @moxxy/runner@0.2.14
+  - @moxxy/workflows-builder@0.1.12
+
 ## 0.21.0
 
 ### Minor Changes
