@@ -21,9 +21,10 @@ import { useSessionActions } from '@/hooks/useSessionActions';
 import { useWorkspaceCollapse } from '@/hooks/useWorkspaceCollapse';
 import { buildMobileMenuItems, buildWorkspaceMenuSections } from '@/navigation';
 import { buildChatConnectionUi } from '@/chatConnectionUi';
+import { shouldShowPendingActionsSheet } from '@/chatOverlayState';
 import { textOf } from '@/utils/record';
 import { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Platform, useWindowDimensions, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ChatScreen() {
@@ -75,11 +76,22 @@ export default function ChatScreen() {
     right: 16,
     zIndex: 40,
   };
+  const showPendingActionsSheet = shouldShowPendingActionsSheet({
+    pendingActions,
+    composerActionsOpen: composer.actionsOpen,
+    goalsOpen: goals.open,
+    compactConfirmOpen: compact.confirmOpen,
+    modelPickerOpen: modelSelector.open,
+    modePickerOpen: modelSelector.modeOpen,
+    sessionActionsOpen: sessionActions.open,
+    renameOpen,
+  });
   const handleComposerHeightChange = useCallback((height: number) => {
     setComposerHeight((current) => (Math.abs(current - height) > 1 ? height : current));
   }, []);
   const openRename = useCallback(() => {
     if (!canEditSession) return;
+    Keyboard.dismiss();
     composer.setActionsOpen(false);
     setRenameDraft(activeSessionTitle);
     setRenameError(null);
@@ -130,7 +142,7 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
-          {pendingActions > 0 && !composer.actionsOpen && !goals.open ? (
+          {showPendingActionsSheet ? (
             <View className="absolute z-40" style={floatingSheetStyle}>
               <AskSheet
                 asks={permissions.pendingAsks}
@@ -221,9 +233,13 @@ export default function ChatScreen() {
             connected={session.connected}
             statusLabel={connectionUi.statusLabel}
             pendingActions={pendingActions}
-            onToggleMenu={chrome.toggleMenu}
+            onToggleMenu={() => {
+              Keyboard.dismiss();
+              chrome.toggleMenu();
+            }}
             onRenameSession={openRename}
             onOpenActions={() => {
+              Keyboard.dismiss();
               composer.setActionsOpen(false);
               sessionActions.openSheet();
             }}
@@ -279,16 +295,24 @@ export default function ChatScreen() {
             onTextChange={composer.setText}
             onSubmit={composer.submit}
             onAbort={composer.abort}
-            onToggleActions={() => composer.setActionsOpen(!composer.actionsOpen)}
+            onToggleActions={() => {
+              if (!composer.actionsOpen) Keyboard.dismiss();
+              composer.setActionsOpen(!composer.actionsOpen);
+            }}
             onOpenModelSelector={() => {
+              Keyboard.dismiss();
               composer.setActionsOpen(false);
               modelSelector.openPicker();
             }}
             onOpenModeSelector={() => {
+              Keyboard.dismiss();
               composer.setActionsOpen(false);
               modelSelector.openModePicker();
             }}
-            onGoal={() => goals.setOpen(true)}
+            onGoal={() => {
+              Keyboard.dismiss();
+              goals.setOpen(true);
+            }}
             onVoice={composer.transcribe}
             onPickImage={composer.pickImageAttachment}
             onPickFile={composer.pickDocumentAttachment}

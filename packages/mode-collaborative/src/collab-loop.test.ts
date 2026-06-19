@@ -38,11 +38,21 @@ async function initRepo(): Promise<string> {
   return dir;
 }
 
-function fakeCtx(): { ctx: ModeContext; events: MoxxyEvent[] } {
+function fakeCtx(overrides: Partial<ModeContext> = {}): { ctx: ModeContext; events: MoxxyEvent[] } {
   const events: MoxxyEvent[] = [];
   const ctx = {
     sessionId: 'sess-collabtest',
     turnId: 'turn-collabtest',
+    cwd: process.cwd(),
+    env: {},
+    model: 'gpt-5.4-mini',
+    provider: {
+      models: [
+        { id: 'gpt-5.4-mini' },
+        { id: 'gpt-5.4' },
+        { id: 'gpt-5.3-codex' },
+      ],
+    },
     signal: new AbortController().signal,
     emit: async (e: MoxxyEvent) => {
       events.push(e);
@@ -53,6 +63,7 @@ function fakeCtx(): { ctx: ModeContext; events: MoxxyEvent[] } {
         { type: 'user_prompt', text: 'build the thing', sessionId: 's', turnId: 't', source: 'user' },
       ],
     },
+    ...overrides,
   } as unknown as ModeContext;
   return { ctx, events };
 }
@@ -148,6 +159,67 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     // sequential edits land directly in the shared workspace
     expect(existsSync(join(dir, 'api.ts'))).toBe(true);
     expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
+  });
+
+  it('uses the coordinator-selected model as the default peer model', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-model-default-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx } = fakeCtx();
+    let seenDefaultModel: string | undefined;
+    const deps: CollabDeps = {
+      cwd: dir,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (opts, hub) => {
+        seenDefaultModel = opts.defaultModel;
+        return fakeSupervisor(hub);
+      },
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    expect(seenDefaultModel).toBe('gpt-5.4-mini');
+  });
+
+  it('canonicalizes shorthand peer model ids from the architect roster', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-model-roster-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx } = fakeCtx();
+    const spawnedModels: Array<string | undefined> = [];
+    const deps: CollabDeps = {
+      cwd: dir,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                {
+                  id: 'worker',
+                  name: 'Worker',
+                  role: 'implementer',
+                  subtask: 'build the thing',
+                  model: '5.4-mini',
+                },
+              ]),
+            );
+            hub.state.markDone('architect', 'design done');
+          } else {
+            spawnedModels.push(entry.model);
+            hub.state.markDone(entry.id, 'worker done');
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    expect(spawnedModels).toEqual(['gpt-5.4-mini']);
   });
 });
 
