@@ -273,10 +273,18 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     await rememberPickedAttachment(picked);
     return picked;
   });
-  handle('session.saveImageAttachment', async ({ dataBase64, mediaType, name }) =>
-    // The renderer can't write files, so a pasted/dropped image's bytes
-    // are stashed to a temp file here; the returned path then rides the
+  handle('session.saveImageAttachment', async ({ dataBase64, mediaType, name }) => {
+    // The renderer can't write files, so a pasted/dropped/captured image's
+    // bytes are stashed to a temp file here; the returned path then rides the
     // same attachment pipeline as a picked file.
-    persistImageBlob(dataBase64, mediaType, name),
-  );
+    const saved = await persistImageBlob(dataBase64, mediaType, name);
+    // Remember the temp path so the later runTurn that references it clears the
+    // provenance gate. The file lives under os.tmpdir() — not the workspace cwd
+    // — and was never handed out by the picker, so without this
+    // authorizeAttachments drops it and the prompt is sent with NO image
+    // (clipboard paste, drag-drop, AND browser-capture screenshots all land
+    // here). Mirrors session.pickAttachment, which remembers its picked path.
+    await rememberPickedAttachment(saved.path);
+    return saved;
+  });
 }

@@ -44,6 +44,24 @@ English-only name detection. New debt/follow-ups accrued by that work:
   line or two away (e.g. `Numer Identyfikacji Podatkowej` far above the digits). Consider a
   per-detector window or line-aware context. `packages/anonymizer/src/dictionary.ts`.
 
+**Accrued 2026-06-19 (browser / clipboard image attachments).** Fixed THE
+"screenshot attached but never sent" bug: byte-sourced images (clipboard paste,
+drag-drop, browser-surface capture) are persisted to `os.tmpdir()` by
+`session.saveImageAttachment`, but the `session.runTurn` provenance gate
+(`authorizeAttachments`) only trusts picker paths or paths under the workspace
+cwd — and the save handler, unlike `session.pickAttachment`, never remembered the
+temp path it wrote. Every such image was silently dropped at send. The save
+handler now remembers its temp path (`packages/desktop-host/src/ipc/session.ts`),
+covered by `session.test.ts`. New debt logged on sight:
+- **Dropped attachments are invisible to the user.** When `authorizeAttachments`
+  rejects a path, or `buildAttachments` skips a file (oversized / unreadable /
+  binary), the only signal is a `console.warn` in the main process — the chip
+  stays in the composer and the prompt sends without it, so the user believes it
+  went. The renderer already surfaces a transient `attachError` for paste-time
+  failures; the dropped-at-send path should round-trip a similar notice (e.g.
+  `session.runTurn` returning the dropped names so the composer can flag them).
+  `packages/desktop-host/src/ipc/session.ts`, `attachments.ts`.
+
 **Last refreshed:** 2026-06-09 (second pass) — **journal repair + audit intake.** PRs #113
 and #115 rebuilt this file from a branch cut before #107/#108 merged, silently resurrecting
 two entries those PRs had retired (P1 #2's growth defect, P2 #6 mode-loop scaffolding) and
