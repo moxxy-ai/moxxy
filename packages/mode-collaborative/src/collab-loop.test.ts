@@ -166,10 +166,12 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(existsSync(join(repo, 'api.test.ts'))).toBe(true);
     // the agreed contracts landed too
     expect(existsSync(join(repo, '.moxxy-collab', 'CONTRACTS.md'))).toBe(true);
-    // the coordinator distilled a shared brief (goal + intent) into the scaffold
+    // the coordinator distilled a shared brief (goal + summary) into the scaffold,
+    // and wrote the full conversation to the on-demand recall file
     const briefPath = join(repo, '.moxxy-collab', 'BRIEF.md');
     expect(existsSync(briefPath)).toBe(true);
     expect(readFileSync(briefPath, 'utf8')).toContain('build the thing');
+    expect(existsSync(join(repo, '.moxxy-collab', 'CONVERSATION.md'))).toBe(true);
     expect(subtypes).toContain('collab_brief_written');
 
     // final synthesis names both agents
@@ -235,6 +237,57 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(byId.sneaky).toBe('implementer');
   });
 
+  it('passes each peer its architect-authored charter (capped) and keeps it OUT of the committed tree', async () => {
+    const repo = await initRepo();
+    const { ctx } = fakeCtx();
+    const spawned: Array<{ id: string; charterFile?: string; content: string | null }> = [];
+    const longCharter = 'You are the WRITER. '.repeat(200); // >2000 chars → must be capped
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd, charterFile }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# C\n');
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                { id: 'writer', name: 'Writer', role: 'writer', subtask: 'docs', ownedPaths: ['intro.md'], charter: longCharter },
+              ]),
+            );
+            hub.state.markDone('architect', 'done');
+          } else {
+            spawned.push({
+              id: entry.id,
+              charterFile,
+              content: charterFile ? readFileSync(charterFile, 'utf8') : null,
+            });
+            writeFileSync(join(cwd, 'intro.md'), '# intro\n');
+            hub.state.boardClaim(entry.id, ['intro.md']);
+            hub.state.markDone(entry.id, 'done');
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const writer = spawned.find((s) => s.id === 'writer')!;
+    expect(writer.charterFile).toBeTruthy();
+    expect(writer.content).toContain('You are the WRITER.');
+    // capped at 2000 (+ trailing newline)
+    expect(writer.content!.trimEnd().length).toBeLessThanOrEqual(2000);
+    // the charter lives in the run dir, NOT the committed scaffold/worktree
+    expect(existsSync(join(repo, '.moxxy-collab', 'charter-writer.md'))).toBe(false);
+    expect(writer.charterFile).not.toContain(repo);
+  });
+
   it('does NOT hang on a failed agent: surfaces it and completes with the others', async () => {
     const repo = await initRepo();
     const { ctx, events } = fakeCtx();
@@ -272,8 +325,8 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(completed.payload.total).toBe(2);
   });
 
-  it('falls back to sequential when the workspace is not a git repo', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'mc-nogit-'));
+  it('GIT-FIRST: auto-inits a plain folder and runs git-parallel (worktrees + merge)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-plain-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
@@ -284,12 +337,63 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
     for await (const _ of runCollaborative(ctx, deps)) void _;
 
+    const exec = events.find((e) => (e as { subtype?: string }).subtype === 'collab_exec_mode') as {
+      payload: { mode: string };
+    };
+    expect(exec.payload.mode).toBe('git-parallel');
+    // the folder is now a git repo, and the work was integrated into it
+    expect(existsSync(join(dir, '.git'))).toBe(true);
+    expect(existsSync(join(dir, 'api.ts'))).toBe(true);
+    expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
+  });
+
+  it('NO GIT: runs cwd-parallel (all agents in the shared workspace, lock-coordinated)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-nogit-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: dir,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      detectGit: async () => ({ installed: false, repo: false }), // force the no-git path
+      createSupervisor: (_opts, hub) => fakeSupervisor(hub),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const subtypes = events
+      .filter((e) => e.type === 'plugin_event')
+      .map((e) => (e as { subtype: string }).subtype);
+    const exec = events.find((e) => (e as { subtype?: string }).subtype === 'collab_exec_mode') as {
+      payload: { mode: string };
+    };
+    expect(exec.payload.mode).toBe('cwd-parallel');
+    // it is NOT the old sequential fallback, and there is no git repo
+    expect(subtypes).not.toContain('collab_fallback_sequential');
+    expect(existsSync(join(dir, '.git'))).toBe(false);
+    // edits land directly in the shared workspace
+    expect(existsSync(join(dir, 'api.ts'))).toBe(true);
+    expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
+    expect(subtypes).toContain('collab_completed');
+  });
+
+  it('SEQUENTIAL (explicit): one agent at a time in the shared workspace', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-seq-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: dir,
+      concurrencyOverride: 'sequential',
+      detectGit: async () => ({ installed: false, repo: false }),
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false, concurrency: 'sequential' }),
+      createSupervisor: (_opts, hub) => fakeSupervisor(hub),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
     const subtypes = events
       .filter((e) => e.type === 'plugin_event')
       .map((e) => (e as { subtype: string }).subtype);
     expect(subtypes).toContain('collab_fallback_sequential');
-    expect(subtypes).toContain('collab_completed');
-    // sequential edits land directly in the shared workspace
     expect(existsSync(join(dir, 'api.ts'))).toBe(true);
     expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
   });
@@ -334,6 +438,50 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     const runs = listRunRecords();
     expect(runs.length).toBe(1);
     expect(runs[0]!.outcome).toBe('failed');
+  });
+
+  it('cwd-parallel pre-seeds ownedPaths as locks and surfaces an overlap', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-overlap-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: dir,
+      detectGit: async () => ({ installed: false, repo: false }),
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# C\n');
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                { id: 'a', name: 'A', role: 'writer', subtask: 'x', ownedPaths: ['shared.md'] },
+                { id: 'b', name: 'B', role: 'writer', subtask: 'y', ownedPaths: ['shared.md'] }, // overlap!
+              ]),
+            );
+            hub.state.markDone('architect', 'done');
+          } else {
+            writeFileSync(join(cwd, `${entry.id}.md`), '1');
+            hub.state.markDone(entry.id, 'done');
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const overlap = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_ownership_overlap',
+    ) as { payload: { id: string; ownedBy: string } } | undefined;
+    expect(overlap).toBeTruthy();
+    expect(overlap!.payload.id).toBe('b');
+    expect(overlap!.payload.ownedBy).toBe('a');
   });
 });
 

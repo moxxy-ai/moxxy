@@ -1,5 +1,89 @@
 # @moxxy/mode-collaborative
 
+## 0.7.0
+
+### Minor Changes
+
+- 0daee68: feat(collaborative): git-first execution with a parallel lock-coordinated fallback (invisible)
+
+  The non-git path ran agents ONE AT A TIME (sequential) — slow, and it's why "the
+  team doesn't respond" when a user runs in a plain folder (only one agent is ever
+  live). Now the engine is git-first and always parallel, and picks the safest
+  mechanism underneath without any user-facing jargon:
+
+  - **Already a git repo** → worktrees + a clean, conflict-aware merge (unchanged).
+  - **Plain folder** → we quietly `git init` + snapshot it, so it STILL gets full
+    worktree isolation + merge. Most "plain folder" runs now go fully parallel.
+  - **Git genuinely unavailable** (not installed, or init/commit throws) → agents
+    run in PARALLEL in the shared workspace, coordinated by the file-lock board
+    (claim-before-edit). ownedPaths are pre-seeded as locks; an overlap is surfaced.
+  - **`concurrency: 'sequential'`** remains as the explicit one-at-a-time fallback.
+
+  Safety (from adversarial review): the shared-workspace prompt is hardened —
+  claim before EVERY edit, narrowest paths, claim both old+new on rename, one owner
+  for shared/aggregator files, only rely on a teammate's released work; the
+  architect is required to hand out DISJOINT ownedPaths. peer-read on the shared
+  tree reuses the path-traversal guard.
+
+  Tests: auto-init → git-parallel; forced no-git → cwd-parallel (not sequential, no
+  git repo); explicit sequential; cwd-parallel pre-seed + overlap surfacing.
+
+## 0.6.0
+
+### Minor Changes
+
+- f50a306: feat(collaborative): coordinator-authored role charters (proper, task-suited roles)
+
+  Every peer ran the SAME generic prompt and only a role LABEL was injected — so a
+  "designer" and a "developer" behaved identically. Now the ARCHITECT authors, per
+  roster agent, a tailored CHARTER (persona + responsibilities + quality bar +
+  collaboration + definition-of-done) suited to THIS task, and each peer runs with
+  that charter as part of its system prompt — proper roles created for the task,
+  not pre-configured.
+
+  - RosterEntry gains an optional `charter`; the architect prompt asks for a 4-8
+    sentence charter per agent.
+  - The charter is written to the run dir (NOT the workspace/worktree, so it's
+    never committed), passed to the peer by PATH via a new `MOXXY_COLLAB_CHARTER_FILE`
+    env (never the body), and read at boot into the STATIC system-prompt prefix
+    (cached once, not re-billed per turn).
+  - Safety: the charter is LLM-authored, so it is sanitised (NUL-stripped, capped
+    at 2000 chars) and APPENDED after the authoritative shared rules (never the
+    sole prompt); the roster-approval dialog shows a clipped charter preview — the
+    human gate on injected system-prompt text.
+
+  Tests: charter carried + capped + written outside the committed tree + passed to
+  the peer; peerPromptWithCharter appends-not-replaces; architect prompt asks for a
+  charter.
+
+### Patch Changes
+
+- Updated dependencies [f50a306]
+  - @moxxy/plugin-collab@0.3.0
+
+## 0.5.0
+
+### Minor Changes
+
+- d71bf6f: feat(collaborative): brief is a SUMMARY, not the transcript — with on-demand recall
+
+  The brief dumped up to ~6KB of the raw conversation into BRIEF.md, and every one
+  of the N spawned agents was told to read it — so each peer re-ingested the whole
+  dialogue. Now:
+
+  - **BRIEF.md is a concise summary** — the goal + key requirements/constraints/
+    decisions — produced by a single coordinator-side LLM call (`summarize.ts`,
+    a direct off-log `provider.stream`, mirroring the summarize-compactor) with a
+    deterministic **heuristic fallback** when no provider is available, so a brief
+    never sinks the run.
+  - **The full conversation goes to `.moxxy-collab/CONVERSATION.md`** for ON-DEMAND
+    recall — never auto-loaded into any agent's context. The prompts tell agents to
+    read or grep it only when they need a detail the summary omits.
+
+  Net: peers get the intent cheaply instead of paying for the transcript N times.
+  Adds summarizer (provider/model guard, error/empty → null), brief, and prompt
+  tests; the e2e run now asserts CONVERSATION.md is written.
+
 ## 0.4.1
 
 ### Patch Changes

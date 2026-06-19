@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/desktop-app-sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The contract for moxxy desktop mini-apps: the moxxy-app.json manifest schema + capability list, the host<->app bridge protocol, and the tiny browser client an app imports to call host services over postMessage. Lets anyone (or an agent) build a sandboxed web app that installs into the desktop Apps gallery.",
   "keywords": [
     "moxxy",

@@ -38,6 +38,9 @@ export interface SpawnPeerArgs {
   readonly entry: RosterEntry;
   readonly cwd: string;
   readonly mode: string;
+  /** Path to this agent's architect-authored charter file (read at boot into the
+   *  peer's system prompt). Only the PATH crosses env, never the charter body. */
+  readonly charterFile?: string;
 }
 
 /**
@@ -96,6 +99,7 @@ export class PeerSupervisor implements Supervisor {
       [COLLAB_ENV.Subtask]: args.entry.subtask,
       [COLLAB_ENV.ParentTask]: this.opts.parentTask,
       [COLLAB_ENV.RunnerSocket]: socket,
+      ...(args.charterFile ? { [COLLAB_ENV.CharterFile]: args.charterFile } : {}),
       MOXXY_SESSION_ID: `${this.opts.coordinatorSessionId}::${args.entry.id}`,
       MOXXY_MODE: args.mode,
     };

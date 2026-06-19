@@ -61,12 +61,29 @@ export async function isGitRepo(cwd: string): Promise<boolean> {
   return r.code === 0 && r.stdout.trim() === 'true';
 }
 
-/** Classify the workspace so the coordinator can pick parallel-worktrees vs the
- *  sequential single-workspace fallback, with a clear reason for the UI. */
+/** Classify the workspace so the coordinator can pick its execution mode. */
 export async function detectGit(cwd: string): Promise<{ installed: boolean; repo: boolean }> {
   const installed = await gitInstalled(cwd);
   const repo = installed ? await isGitRepo(cwd) : false;
   return { installed, repo };
+}
+
+/**
+ * Git-first auto-init: turn a plain folder into a git repo (with a base commit)
+ * so a non-git workspace still gets worktree isolation + a clean merge. Snapshots
+ * whatever is already in the folder as the initial commit; an empty folder gets
+ * an empty initial commit so worktrees can still branch off a HEAD. Returns true
+ * only when the folder is a usable repo with a base commit afterwards. Best-effort
+ * — any failure (no perms, weird FS) leaves it for the lock-coordinated fallback.
+ */
+export async function tryInitGitRepo(cwd: string): Promise<boolean> {
+  let r = await git(cwd, ['init', '-b', 'main']);
+  if (r.code !== 0) r = await git(cwd, ['init']); // older git without -b
+  if (r.code !== 0 || !(await isGitRepo(cwd))) return false;
+  await git(cwd, ['add', '-A']);
+  const c = await git(cwd, [...IDENTITY, 'commit', '--allow-empty', '-m', 'moxxy-collab: initial snapshot', '--no-verify']);
+  // Confirm a HEAD now exists (worktrees branch off it).
+  return c.code === 0 && (await headSha(cwd)).length > 0;
 }
 
 export async function headSha(cwd: string): Promise<string> {
@@ -326,6 +343,29 @@ export function peerReaderFor(worktrees: ReadonlyMap<string, string>, baseSha: s
     },
     async diff(agentId) {
       return diffVsBase(dirFor(agentId), baseSha);
+    },
+  };
+}
+
+/**
+ * A {@link PeerReader} for the lock-coordinated shared-workspace path: all agents
+ * share ONE tree, so peer-read is just "read the live shared workspace" (agent id
+ * is ignored). The same `resolveWithin` traversal guard applies — `path` is still
+ * untrusted peer input over the socket. Note: a read can catch a teammate's file
+ * mid-write (there is no isolation here); callers are told to read released work.
+ */
+export function cwdPeerReader(cwd: string): PeerReader {
+  return {
+    async files() {
+      // changedFiles needs git; without it there's no cheap "what changed" — so
+      // return [] rather than guess (the workspace itself is the source of truth).
+      return (await isGitRepo(cwd)) ? changedFiles(cwd) : [];
+    },
+    async read(_agentId, path) {
+      return readFile(resolveWithin(cwd, path), 'utf8');
+    },
+    async diff() {
+      return ''; // no base commit to diff against without git
     },
   };
 }

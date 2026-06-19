@@ -22,9 +22,14 @@ export const COLLAB_SCAFFOLD_DIR = '.moxxy-collab';
 export const CONTRACTS_FILENAME = 'CONTRACTS.md';
 /** Architect's machine-readable roster proposal, read by the coordinator. */
 export const ROSTER_FILENAME = 'roster.json';
-/** Coordinator-written brief: the overall goal + the user's conversation/intent,
- *  so every spawned agent inherits the full picture (not just its subtask). */
+/** Coordinator-written brief: a CONCISE summary (goal + key requirements/
+ *  constraints/decisions) every spawned agent reads up front — not the raw
+ *  transcript. */
 export const BRIEF_FILENAME = 'BRIEF.md';
+/** The full conversation, written for ON-DEMAND recall only — never loaded into
+ *  an agent's context by default. An agent reads/greps it if it needs a detail
+ *  the brief summary omits. */
+export const CONVERSATION_FILENAME = 'CONVERSATION.md';
 
 /** A short, filesystem-safe, COLLISION-RESISTANT run id. The session+turn tails
  *  alone collide when two ids share their trailing 6 alnum chars, reusing the
@@ -49,6 +54,13 @@ export function hubSocketPath(runId: string): string {
 
 export function peerSocketPath(runId: string, agentId: string): string {
   return join(collabRunDir(runId), `p-${agentId}.sock`);
+}
+
+/** Per-agent charter file (architect-authored role brief). Lives in the run dir
+ *  (NOT the workspace/worktree) so it's never swept into the scaffold commit, yet
+ *  is reachable by an absolute path from every peer regardless of git mode. */
+export function charterFilePath(runId: string, agentId: string): string {
+  return join(collabRunDir(runId), `charter-${agentId}.md`);
 }
 
 /** Per-run worktree root (kept out of the repo, under the OS temp dir). */
