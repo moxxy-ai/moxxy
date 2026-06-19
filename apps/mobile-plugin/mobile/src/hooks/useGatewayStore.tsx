@@ -25,6 +25,7 @@ import { useComposer } from './useComposer';
 import { useGoals } from './useGoals';
 import { useChatTranscript } from './useChatTranscript';
 import { createDisabledModelSelector, useModelSelector } from './useModelSelector';
+import { disconnectedMobileSchedulerStore, useMobileScheduler } from './useMobileScheduler';
 import { usePairing, type PairingState } from './usePairing';
 import { usePermissions } from './usePermissions';
 import { useSessionSnapshot } from './useSessionSnapshot';
@@ -33,7 +34,6 @@ import { routeSelectWorkspaceFrame } from '../gatewayFrameRouting';
 import { buildSelectedSessionRecord } from '../mobileSessionSelection';
 import { buildMobileWorkspaceSessionRecords } from '../mobileWorkspaceSessions';
 import { emptyMobileState, type MobileState } from '../protocol';
-import { normalizeScheduleForMobile, type MobileSchedule } from '../schedulerUi';
 import { normalizeSessionCommandResult, type SessionCommandResult } from '../sessionCommandResult';
 import { textOf } from '../utils/record';
 
@@ -74,14 +74,7 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
       refresh: () => undefined,
       run: () => undefined,
     },
-    scheduler: {
-      schedules: [] as MobileSchedule[],
-      loading: false,
-      error: null as string | null,
-      refresh: () => undefined,
-      setEnabled: () => undefined,
-      deleteSchedule: () => undefined,
-    },
+    scheduler: disconnectedMobileSchedulerStore,
     composer,
     autoApprove: useAutoApprove({
       workspaceId: null,
@@ -117,6 +110,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const queuedTurns = useQueuedTurns(workspaceId);
   const coreWorkflows = useCoreWorkflows();
   const coreScheduler = useCoreScheduler();
+  const scheduler = useMobileScheduler(coreScheduler);
   const contextUsage = useContextUsage(workspaceId);
   const pendingAsks = useSyncExternalStore(askStore.subscribe, askStore.getAll);
   const autoApproveEnabled = useSyncExternalStore(chatStore.subscribe, () =>
@@ -341,22 +335,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
         void coreWorkflows.run(name);
       },
     },
-    scheduler: {
-      schedules: coreScheduler.list.map((schedule, index) =>
-        normalizeScheduleForMobile(schedule as unknown as Record<string, unknown>, index),
-      ),
-      loading: coreScheduler.loading,
-      error: coreScheduler.error,
-      refresh: () => {
-        void coreScheduler.refresh();
-      },
-      setEnabled: (id: string, enabled: boolean) => {
-        void coreScheduler.setEnabled(id, enabled);
-      },
-      deleteSchedule: (id: string) => {
-        void coreScheduler.deleteSchedule(id);
-      },
-    },
+    scheduler,
     composer: useComposer(sendFrame, {
       workspaceId: state.activeWorkspaceId,
       activeTurnId: state.activeTurnId,
