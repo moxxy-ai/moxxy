@@ -21,7 +21,7 @@ const cronOrTimestamp = z
     message: 'provide either `cron` or `runAt`',
   });
 
-function describeEntry(entry: ScheduleEntry): Record<string, unknown> {
+export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unknown> {
   let nextFireAt: number | null = null;
   if (entry.cron) {
     // Share the poller's baseline (lastRunAt ?? createdAt) so the displayed
@@ -100,7 +100,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           ...(input.channel ? { channel: input.channel } : {}),
           ...(input.model ? { model: input.model } : {}),
         });
-        return describeEntry(created);
+        return describeScheduleEntry(created);
       },
     }),
 
@@ -120,7 +120,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           if (source !== 'all' && e.source !== source) return false;
           return true;
         });
-        return filtered.map(describeEntry);
+        return filtered.map(describeScheduleEntry);
       },
     }),
 
@@ -145,7 +145,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       handler: async ({ id }) => {
         const updated = await store.update(id, { enabled: true });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
-        return { ok: true, schedule: describeEntry(updated) };
+        return { ok: true, schedule: describeScheduleEntry(updated) };
       },
     }),
 
@@ -156,7 +156,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       handler: async ({ id }) => {
         const updated = await store.update(id, { enabled: false });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
-        return { ok: true, schedule: describeEntry(updated) };
+        return { ok: true, schedule: describeScheduleEntry(updated) };
       },
     }),
 

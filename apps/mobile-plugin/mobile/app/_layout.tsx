@@ -21,6 +21,7 @@ export default function Layout() {
         <Stack.Screen name="sessions" />
         <Stack.Screen name="permissions" />
         <Stack.Screen name="goals" />
+        <Stack.Screen name="scheduler" />
         <Stack.Screen name="settings" />
       </Stack>
     </GatewayProvider>

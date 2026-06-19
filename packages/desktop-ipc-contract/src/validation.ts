@@ -77,6 +77,8 @@ const workflowName = z
   .max(200)
   .refine((s) => !s.includes('..') && !s.includes('/') && !s.includes('\\'), 'invalid workflow name');
 
+const scheduleId = z.string().min(1).max(256);
+
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
   // "nothing" so a hostile renderer can't smuggle args across.
@@ -182,6 +184,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     previousName: workflowName.optional(),
   }),
   'workflows.getRun': z.object({ name: workflowName }),
+  'scheduler.list': z.undefined(),
+  'scheduler.setEnabled': z.object({ id: scheduleId, enabled: z.boolean() }),
+  'scheduler.delete': z.object({ id: scheduleId }),
   // Human-in-the-loop resume: bound the run id + the operator reply (the reply
   // is forwarded into the paused step's child agent, so cap it to avoid OOM).
   'workflows.resume': z.object({

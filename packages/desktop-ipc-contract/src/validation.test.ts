@@ -223,6 +223,7 @@ describe('IPC payload validation', () => {
       'connection.activeWorkspace',
       'connection.retry',
       'session.hasTranscriber',
+      'scheduler.list',
       'workflows.list',
     ]);
     for (const cmd of REMOTE_ALLOWED_COMMANDS) {
@@ -349,5 +350,30 @@ describe('IPC payload validation', () => {
     expect(() =>
       validateIpcInput('session.setAutoApprove', { workspaceId: 'workspace-1', enabled: true }),
     ).not.toThrow();
+  });
+
+  it('allows paired mobile clients to manage existing scheduler entries with bounded ids', () => {
+    expect(REMOTE_ALLOWED_COMMANDS.has('scheduler.list' as never)).toBe(true);
+    expect(REMOTE_ALLOWED_COMMANDS.has('scheduler.setEnabled' as never)).toBe(true);
+    expect(REMOTE_ALLOWED_COMMANDS.has('scheduler.delete' as never)).toBe(true);
+
+    expect(() =>
+      validateIpcInput('scheduler.setEnabled' as never, { id: 'daily-summary', enabled: false }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('scheduler.delete' as never, { id: 'daily-summary' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('scheduler.setEnabled' as never, { id: '', enabled: true }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('scheduler.setEnabled' as never, { id: 's'.repeat(257), enabled: true }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('scheduler.setEnabled' as never, { id: 'daily-summary', enabled: 'yes' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('scheduler.delete' as never, { id: 's'.repeat(257) }),
+    ).toThrow();
   });
 });

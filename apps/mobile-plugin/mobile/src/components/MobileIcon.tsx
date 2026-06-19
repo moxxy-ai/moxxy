@@ -7,6 +7,7 @@ export type MobileIconName =
   | 'menu'
   | 'folder'
   | 'workflows'
+  | 'scheduler'
   | 'agent'
   | 'gateway'
   | 'search'
@@ -104,6 +105,16 @@ function IconPaths({ name, color, strokeWidth }: Required<Pick<MobileIconProps, 
           <Path {...props} d="M5 21a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
           <Path {...props} d="M7 5h4a4 4 0 0 1 4 4v1" />
           <Path {...props} d="M17 12h-4a4 4 0 0 0-4 4v1" />
+        </>
+      );
+    case 'scheduler':
+      return (
+        <>
+          <Path {...props} d="M7 3v3" />
+          <Path {...props} d="M17 3v3" />
+          <Path {...props} d="M4.5 8h15" />
+          <Path {...props} d="M6.5 5h11a2 2 0 0 1 2 2v11.5a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
+          <Path {...props} d="M12 11v3.5l2.5 1.5" />
         </>
       );
     case 'agent':

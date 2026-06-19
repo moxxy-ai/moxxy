@@ -326,6 +326,21 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   echoing another persistence clear. The client store also invalidates in-flight history
   loads so a stale `chat.loadSegment` response cannot resurrect pre-clear events.
 
+## 2026-06-19 — mobile scheduler visibility
+
+- **Retired (found + fixed same PR): mobile had no first-class view of scheduler/cron
+  entries.** Desktop and the model could create or list schedules, but phone users had to
+  ask the agent to inspect them and could not quickly pause or remove an existing timed
+  prompt from the same paired surface. The desktop host now exposes a bounded
+  scheduler IPC surface (`list`, `setEnabled`, `delete`) over the mobile allow-list,
+  client-core owns a reusable `useScheduler` hook, and the mobile menu includes a
+  Scheduler screen that shows cron/runAt timing, source, prompt preview, status, and
+  pause/delete controls.
+- **Deliberately deferred:** mobile still does not create or edit schedules directly.
+  Those flows stay with the agent/desktop actions for now because editing cron prompts
+  needs a fuller validation and permission UX than a narrow parity list/toggle/delete
+  screen.
+
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 
 - **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with

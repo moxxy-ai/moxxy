@@ -20,11 +20,13 @@ import type { IpcCommandName } from './commands.js';
  * conversation: read the session snapshot, send/abort a turn, switch mode,
  * toggle the session-scoped auto-approve flag, run a slash command, reset the
  * conversation, transcribe voice, answer permission prompts, persist the
- * per-workspace transcript, and list/run/read an EXISTING workflow. Everything
- * else — desk/onboarding/settings/vault/app/prefs writes, workflow AUTHORING
- * (save/validateDraft/setEnabled), native pickers, focus-window control, and
- * the gateway-control commands themselves (`mobileGateway.*`) — stays
- * Electron-bus-only (the trusted local UI) and is refused over the wire.
+ * per-workspace transcript, list/run/read an EXISTING workflow, and manage
+ * existing scheduler entries (list/pause/delete) surfaced in the mobile
+ * scheduler view. Everything else — desk/onboarding/settings/vault/app/prefs
+ * writes, workflow AUTHORING (save/validateDraft/setEnabled), native pickers,
+ * focus-window control, and the gateway-control commands themselves
+ * (`mobileGateway.*`) — stays Electron-bus-only (the trusted local UI) and is
+ * refused over the wire.
  *
  * RULE: add a command here ONLY if a paired phone should be able to invoke it.
  * If it mutates host state beyond the conversation, it almost certainly does not
@@ -72,6 +74,13 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   'chat.loadHistory',
   'chat.clearLog',
   'chat.migrate',
+  // Scheduler: mobile may inspect, pause/resume, and delete existing schedules
+  // from the shared scheduler store. Creating/editing prompts remains an
+  // agent/desktop-authoring flow so a paired phone cannot write arbitrary new
+  // prompt automations into the host.
+  'scheduler.list',
+  'scheduler.setEnabled',
+  'scheduler.delete',
   // Workflows: READ + run an existing one only. Authoring (`workflows.save`,
   // `workflows.validateDraft`, `workflows.setEnabled`) is host-only — a paired
   // phone must not rewrite or re-enable the host's workflows.

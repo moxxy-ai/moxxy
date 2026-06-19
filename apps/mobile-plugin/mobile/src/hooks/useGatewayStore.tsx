@@ -13,6 +13,7 @@ import {
   useDesks as useCoreDesks,
   useQueuedTurns,
   useSessions as useCoreDeskSessions,
+  useScheduler as useCoreScheduler,
   useWorkflows as useCoreWorkflows,
 } from '@moxxy/client-core';
 import type { UserPromptAttachment } from '@moxxy/sdk';
@@ -32,6 +33,7 @@ import { routeSelectWorkspaceFrame } from '../gatewayFrameRouting';
 import { buildSelectedSessionRecord } from '../mobileSessionSelection';
 import { buildMobileWorkspaceSessionRecords } from '../mobileWorkspaceSessions';
 import { emptyMobileState, type MobileState } from '../protocol';
+import { normalizeScheduleForMobile, type MobileSchedule } from '../schedulerUi';
 import { normalizeSessionCommandResult, type SessionCommandResult } from '../sessionCommandResult';
 import { textOf } from '../utils/record';
 
@@ -72,6 +74,14 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
       refresh: () => undefined,
       run: () => undefined,
     },
+    scheduler: {
+      schedules: [] as MobileSchedule[],
+      loading: false,
+      error: null as string | null,
+      refresh: () => undefined,
+      setEnabled: () => undefined,
+      deleteSchedule: () => undefined,
+    },
     composer,
     autoApprove: useAutoApprove({
       workspaceId: null,
@@ -106,6 +116,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const coreDeskSessions = useCoreDeskSessions(activeDesk?.id ?? null);
   const queuedTurns = useQueuedTurns(workspaceId);
   const coreWorkflows = useCoreWorkflows();
+  const coreScheduler = useCoreScheduler();
   const contextUsage = useContextUsage(workspaceId);
   const pendingAsks = useSyncExternalStore(askStore.subscribe, askStore.getAll);
   const autoApproveEnabled = useSyncExternalStore(chatStore.subscribe, () =>
@@ -328,6 +339,22 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       },
       run: (name: string) => {
         void coreWorkflows.run(name);
+      },
+    },
+    scheduler: {
+      schedules: coreScheduler.list.map((schedule, index) =>
+        normalizeScheduleForMobile(schedule as unknown as Record<string, unknown>, index),
+      ),
+      loading: coreScheduler.loading,
+      error: coreScheduler.error,
+      refresh: () => {
+        void coreScheduler.refresh();
+      },
+      setEnabled: (id: string, enabled: boolean) => {
+        void coreScheduler.setEnabled(id, enabled);
+      },
+      deleteSchedule: (id: string) => {
+        void coreScheduler.deleteSchedule(id);
       },
     },
     composer: useComposer(sendFrame, {

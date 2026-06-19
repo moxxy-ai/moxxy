@@ -67,6 +67,9 @@ export type {
   WorkflowDetail,
 } from './workflows.js';
 
+// ---------- Scheduler -----------------------------------------------------
+export type { ScheduleSource, ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
+
 // ---------- Mobile gateway (WebSocket bridge) ------------------------------
 export type { MobileGatewayStatus } from './mobile.js';
 

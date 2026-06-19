@@ -42,10 +42,11 @@ describe('mobile chat chrome navigation model', () => {
   it('keeps hamburger menu focused on full-screen app areas, not composer actions', () => {
     const items = buildMobileMenuItems(2);
 
-    expect(items.map((item) => item.label)).toEqual(['Workflows', 'Settings', 'Gateway']);
-    expect(items.map((item) => item.icon)).toEqual(['workflows', 'settings', 'gateway']);
-    expect(items.map((item) => item.kind)).toEqual(['link', 'link', 'link']);
+    expect(items.map((item) => item.label)).toEqual(['Workflows', 'Scheduler', 'Settings', 'Gateway']);
+    expect(items.map((item) => item.icon)).toEqual(['workflows', 'scheduler', 'settings', 'gateway']);
+    expect(items.map((item) => item.kind)).toEqual(['link', 'link', 'link', 'link']);
     expect(items.find((item) => item.label === 'Workflows')).toMatchObject({ href: '/workflows' });
+    expect(items.find((item) => item.label === 'Scheduler')).toMatchObject({ href: '/scheduler' });
     expect(items.map((item) => item.href)).not.toContain('/sessions');
     expect(items.map((item) => item.label)).not.toContain('Sessions');
     expect(items.map((item) => item.label)).not.toContain('Actions');

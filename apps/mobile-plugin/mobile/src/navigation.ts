@@ -7,11 +7,11 @@ export interface BottomTabItem {
 
 export interface MobileMenuItem {
   readonly kind: 'link' | 'command';
-  readonly href?: '/settings' | '/workflows';
+  readonly href?: '/settings' | '/workflows' | '/scheduler';
   readonly command?: 'workflows';
   readonly commandArgs?: string;
-  readonly label: 'Workflows' | 'Settings' | 'Gateway';
-  readonly icon: 'workflows' | 'settings' | 'gateway';
+  readonly label: 'Workflows' | 'Scheduler' | 'Settings' | 'Gateway';
+  readonly icon: 'workflows' | 'scheduler' | 'settings' | 'gateway';
   readonly badge: string | null;
 }
 
@@ -85,6 +85,7 @@ export function buildBottomTabs(pendingActions = 0): BottomTabItem[] {
 
 const MENU_ITEMS: ReadonlyArray<Omit<MobileMenuItem, 'badge'>> = [
   { kind: 'link', href: '/workflows', label: 'Workflows', icon: 'workflows' },
+  { kind: 'link', href: '/scheduler', label: 'Scheduler', icon: 'scheduler' },
   { kind: 'link', href: '/settings', label: 'Settings', icon: 'settings' },
   { kind: 'link', href: '/settings', label: 'Gateway', icon: 'gateway' },
 ];

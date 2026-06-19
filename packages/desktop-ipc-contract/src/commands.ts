@@ -18,6 +18,7 @@ import type {
   WorkflowSave,
   WorkflowDetail,
 } from './workflows.js';
+import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { MobileGatewayStatus } from './mobile.js';
 import type {
   ProviderEntry,
@@ -424,6 +425,16 @@ export interface IpcCommands {
    * run result. Throws a coded error when the host predates the resume path.
    */
   'workflows.resume': (args: { runId: string; reply: string }) => Promise<WorkflowRun>;
+
+  // Scheduler
+  /** List every persisted scheduler entry (manual, skill-driven, workflow-driven).
+   *  The host reads the scheduler store directly so it also sees schedules
+   *  created by the agent's schedule_* tools. */
+  'scheduler.list': () => Promise<ReadonlyArray<ScheduleSummary>>;
+  /** Pause/resume an existing scheduler entry without rewriting its prompt. */
+  'scheduler.setEnabled': (args: { id: string; enabled: boolean }) => Promise<ScheduleSummary | null>;
+  /** Permanently remove an existing scheduler entry by id. */
+  'scheduler.delete': (args: { id: string }) => Promise<SchedulerDeleteResult>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
   // All host-only (native pickers + filesystem + a network download). They are
