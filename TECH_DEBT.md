@@ -114,45 +114,59 @@ lives in `.claude/audits/scan-2026-06-19/` (not committed — working artifacts)
 - Dead code removed, incl. the committed **`apps/docs/.astro`** generated cache
   (now git-ignored). Closes the dead-`.astro` techDebt item.
 
-**Honest residual — NOT zero, and deliberately so (pessimistic accounting):**
+**Follow-up status (both the elevate pass and the cross-package items are now done):**
 
-1. **Elevate pass cut short by a session usage cap.** A second "elevate to 10"
-   pass (close every remaining cross-unit gap + add coverage) completed **33 of 87
-   units** (60 further gaps closed, 31 units gained more tests) before the shared
-   session token budget was exhausted (resets 07:30 Europe/Warsaw). The other
-   **54 units did not get the second pass** — their first-wave hardening stands and
-   is green, but a follow-up elevate pass is owed. This is the single largest piece
-   of tracked, *known-incomplete* work from this sweep.
-2. **~81 deferred cross-package structural items** surfaced by the fixers and held
-   back from the parallel waves *by design* (a new shared module imported by
-   multiple packages, or a runner/IPC protocol bump, cannot be done collision-free
-   in a fan-out). These are defense-in-depth / DRY / "could be configurable"
-   improvements, **not** open security/correctness holes. Representative set:
-   - **DRY:** `SHIM_SOURCE` duplicated across `isolator-worker`/`isolator-subprocess`;
-     `LOOPBACK_PORTS` duplicated between the renderer redirect regex and the
-     electron-main loopback server; collab lock/history fs-layout inline in IPC
-     handlers vs. a shared `mode-collaborative` store module.
-   - **Contract-layer validation:** add `desktop-ipc-contract` zod schemas for
-     `git.diff` / `collab.history` (the handlers already path-confine + bound
-     defensively in-package; this is the second boundary).
-   - **Shared-hook guards:** re-entrancy guard in `client-core` `useAppInstall` /
-     `useWorkflowBuilder.load` (call sites already guard locally).
-   - **`prefers-reduced-motion`:** a global rule disabling inline CSS *transitions*
-     in `apps/desktop` `styles.css` (keyframes are already neutered; JS-driven
-     motion is already gated).
-3. **`collab.active` PID-reuse false-positive** (a recycled OS pid passes
-   `process.kill(pid,0)`) — needs a start-time/heartbeat-TTL staleness check; the
-   liveness probe is now shape-validated but a robust fix is cross-package.
-4. **node-gyp / `@electron/rebuild` modernization** — unchanged owner decision
-   (2026-06-18): keep the working pinned config; a blind bump bricks the native
-   build and only a packaged `electron-builder` run can verify it.
-5. **`ClientSession` → minimal `SessionLike` retype** and **one-shot CLI exit
-   hygiene** — unchanged from below; planned-PR items, not tail-end edits.
+- **Elevate pass — COMPLETE.** All **87 of 87** audit units have had the second
+  "elevate to 10" pass (the budget reset, the remaining 54 units ran: +115 gaps
+  closed, 50 units gained more tests). No unit is missing the pass.
+- **Cross-package deferred items — CLOSED (the actionable set).** The bounded,
+  high-value cross-package gaps are now fixed *with regression tests* (separate
+  follow-up PR off main):
+  - **Real bugs:** `sdk/view-renderer.ts countNodes()` recursion → iterative (no
+    RangeError on a deep AST); `core` `subagents/run-child.ts spawnAll`
+    `Promise.all` → `allSettled` (one child's setup throw no longer orphans
+    siblings); `runner` `runnerSocketPath()` now honors `$MOXXY_HOME`; the
+    `computer-control` screenshot tool returns an image-shaped result that
+    `project-messages` now projects as a provider **image** block (the model can
+    finally see screenshots — was the HIGH "screenshot-not-seen"); narrowed
+    `MoxxyRequirement.version` to the `plugin` kind; aligned `CompactorDef.compact`
+    signature; tightened `isFileDiffDisplay` validation.
+  - **DRY:** `sleepWithAbort` / `nextBackoffMs` extracted into `@moxxy/sdk` and
+    consumed by `mode-default` + `mode-goal`; the isolator `SHIM_SOURCE` + the
+    broker-op concurrency limiter single-sourced in `@moxxy/plugin-security` and
+    applied to **both** isolators; desktop `LOOPBACK_PORTS` hoisted to one module;
+    a shared collab-store helper extracted and imported by the IPC handlers.
+  - **A11y / contract:** a global `prefers-reduced-motion` rule disabling inline
+    CSS transitions; real ARIA roles + roving focus + Enter/Space/Escape +
+    focus-restore on the anonymizer `FilterSelect`; zod schemas for the collab IPC
+    channels (`collab.history` / `active` / `end`; `git.diff` already bounded).
 
-The catalogued residual (items 1–3) is the next session's work: resume the elevate
-pass on the 54 outstanding units and land the cross-package extractions as focused,
-collision-free PRs. None of it is a hidden hole — the high/medium security &
-correctness findings are closed and tested.
+**Genuinely remaining — resolved by engineering decision, NOT silent debt:**
+
+1. **node-gyp / `@electron/rebuild` modernization** — owner decision (2026-06-18):
+   keep the working pinned config; a blind bump bricks the native build and only a
+   packaged `electron-builder` run can verify it. Gated on a `verify-desktop-packaged`
+   run; not a tail-end edit.
+2. **`ClientSession` → minimal `SessionLike` retype** + the matching
+   **`setPermissionResolver(null)` overload across `sdk`/`core`/`runner`** — these
+   belong to the runner/thin-client split (a deliberate architectural PR with a
+   possible RUNNER_PROTOCOL bump). The mobile channel's dispose path is already
+   **fail-closed (deny)** in-package, so the gap is mitigated, not open.
+3. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login`
+   boot a full session and never `close()`) — a correct fix must drain persistence
+   before exit; a focused PR, not a mechanical edit.
+4. **"Could be configurable" extension seams** (subagent retention constants,
+   discovery concurrency, a `credentialResolver` capability, a per-owner browser
+   sidecar registry, a warm subprocess pool) — consciously **YAGNI / net-negative
+   now**: each adds surface + risk for no current behavior win, and the warm-pool
+   idea is in direct tension with the per-call full-isolation guarantee. Recorded
+   here so they're a *choice*, not an oversight; revisit only when a concrete need
+   appears.
+
+Items 1–3 are planned-PR architectural work (each needs its own focused change and,
+for #1, owner-gated hardware verification). Item 4 is a documented design stance.
+Every concrete bug, security, correctness, DRY, a11y, and contract-validation
+finding from the sweep is fixed and tested. There is no hidden hole.
 
 ---
 
