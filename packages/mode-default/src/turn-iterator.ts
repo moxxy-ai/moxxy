@@ -5,9 +5,11 @@ import {
   emitRequestsAndDetectStuck,
   executeToolUses,
   isContextOverflowError,
+  nextBackoffMs,
   projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
+  sleepWithAbort,
   usageEventFields,
   type ModeContext,
   type MoxxyEvent,
@@ -30,29 +32,15 @@ export const DEFAULT_MODE_NAME = 'default';
  */
 export const MAX_CONSECUTIVE_RETRIES = 6;
 
-/** Exponential schedule, capped — base*2^(attempt-1), attempt is 1-based. */
-function retryBackoffMs(attempt: number): number {
-  const base = 500;
-  const cap = 30_000;
-  return Math.min(cap, base * 2 ** Math.max(0, attempt - 1));
-}
+/** Exponential back-off base/cap for the retry schedule (attempt is 1-based). */
+const RETRY_BACKOFF_BASE_MS = 500;
+const RETRY_BACKOFF_CAP_MS = 30_000;
 
 // Abort-aware sleep, injectable for tests so the back-off path runs instantly
-// and deterministically. Production uses a real timer that clears on abort so a
-// pending back-off never outlives a cancelled turn.
-let sleepImpl = (ms: number, signal: AbortSignal): Promise<void> =>
-  new Promise<void>((resolve) => {
-    if (signal.aborted) return resolve();
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
+// and deterministically. Production delegates to the SDK's sleepWithAbort: a
+// real timer that clears (and drops its abort listener) when the signal fires,
+// so a pending back-off never outlives a cancelled turn.
+let sleepImpl = (ms: number, signal: AbortSignal): Promise<void> => sleepWithAbort(ms, signal);
 
 /**
  * Override the retry back-off sleep (test seam). Returns a restore fn that
@@ -235,7 +223,10 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
         });
         return;
       }
-      await sleepImpl(retryBackoffMs(consecutiveRetries), ctx.signal);
+      await sleepImpl(
+        nextBackoffMs(consecutiveRetries, RETRY_BACKOFF_BASE_MS, RETRY_BACKOFF_CAP_MS),
+        ctx.signal,
+      );
       if (ctx.signal.aborted) {
         yield await ctx.emit({
           type: 'abort',

@@ -157,6 +157,12 @@ export const screenshotTool = defineTool({
             context: { tool: 'computer_screenshot', byteLength: bytes.length },
           });
         }
+        // The `{ mediaType, base64 }` pair is load-bearing, not decorative: the
+        // SDK's tool_result projection keys off exactly this shape to emit a
+        // provider `image` ContentBlock so the model SEES the pixels. Returning
+        // the bytes inside a stringified blob (the JSON.stringify fallback path)
+        // would reach the model as base64 TEXT it cannot decode. Extra fields
+        // are diagnostic only and ignored by the image projection.
         return {
           mediaType: fmt === 'jpeg' ? ('image/jpeg' as const) : ('image/png' as const),
           base64: bytes.toString('base64'),

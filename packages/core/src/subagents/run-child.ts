@@ -497,26 +497,27 @@ export function createSubagentSpawner(rt: SubagentRuntime): SubagentSpawner {
     async spawnAll(specs) {
       // Per-child degradation: a single child's PRE-`try` setup throw (no active
       // provider, a `compactors.getActive()` config error, a log-append reject in
-      // `resolveStrategy`) must NOT reject the whole batch. `Promise.all` would do
-      // exactly that, and worse — it would orphan the still-running sibling
-      // promises, whose later settlement surfaces as an `unhandledRejection`.
-      // Convert every spec into one result in input order; a setup throw becomes
-      // an error-bearing `SubagentResult` so a fan-out partially succeeds instead
-      // of taking the parent turn down with it.
-      const settled = await Promise.all(
-        specs.map(async (spec): Promise<SubagentResult> => {
-          try {
-            return await runChildTurn({ rt, spec, retainSession: spec.retainSession === true });
-          } catch (err) {
-            // A PRE-`try` setup throw inside runChildTurn (no active provider, a
-            // failing getActive(), a log-append reject in resolveStrategy) is
-            // caught HERE per-child so it can't reject the batch or orphan a
-            // sibling. The outer Promise.all is now safe: every element resolves.
-            return spawnFailureResult(spec, err);
-          }
-        }),
+      // `resolveStrategy`) must NOT reject the whole batch, and must NEVER abort or
+      // orphan its still-running siblings (whose later settlement would otherwise
+      // surface as an `unhandledRejection`). `Promise.all` short-circuits on the
+      // first rejection and leaks the rest — `Promise.allSettled` always waits for
+      // every child and never rejects. Each spec yields exactly one result, in
+      // input order; a setup throw becomes an error-bearing `SubagentResult` so a
+      // fan-out partially succeeds instead of taking the parent turn down with it.
+      const outcomes = await Promise.allSettled(
+        specs.map((spec) =>
+          runChildTurn({ rt, spec, retainSession: spec.retainSession === true }),
+        ),
       );
-      return settled;
+      return outcomes.map((outcome, i): SubagentResult => {
+        if (outcome.status === 'fulfilled') return outcome.value;
+        // `specs[i]` is always defined here (i indexes the same array we mapped),
+        // but `noUncheckedIndexedAccess` widens it to `| undefined`; narrow so the
+        // failure result still carries the failing spec's label rather than the
+        // generic fallback.
+        const spec = specs[i];
+        return spawnFailureResult(spec ?? { prompt: '' }, outcome.reason);
+      });
     },
     async continue(args: SubagentContinueArgs) {
       return continueChildTurn(args);

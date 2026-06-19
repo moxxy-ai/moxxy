@@ -249,6 +249,44 @@ describe('spawnAll per-child degradation', () => {
     vi.restoreAllMocks();
   });
 
+  it('a rejecting child never aborts its siblings; per-child failure carries the spec label', async () => {
+    const session = buildSession(['parent-model']);
+    const rt = buildRuntime(session, 'parent-model');
+    const spawner = createSubagentSpawner(rt);
+
+    // Make the THIRD child's runChildTurn reject outright (a pre-`try` setup throw
+    // inside buildChildContext) so the promise actually rejects rather than being
+    // self-degraded. With Promise.all the first rejection short-circuits the batch
+    // and orphans the two still-running siblings; Promise.allSettled must let every
+    // sibling finish and turn the rejection into one error-bearing result.
+    const realAppContext = session.appContext.bind(session);
+    let appCtxCalls = 0;
+    vi.spyOn(session, 'appContext').mockImplementation(() => {
+      appCtxCalls += 1;
+      if (appCtxCalls === 3) throw new Error('boom: setup exploded');
+      return realAppContext();
+    });
+
+    const results = await spawner.spawnAll([
+      { prompt: 'a', mode: 'echo-model', label: 'one' },
+      { prompt: 'b', mode: 'echo-model', label: 'two' },
+      { prompt: 'c', mode: 'echo-model', label: 'three' },
+    ]);
+
+    // The batch resolves (never rejects) with one result per spec, in input order.
+    expect(results.map((r) => r.label)).toEqual(['one', 'two', 'three']);
+    // The two non-throwing siblings completed normally...
+    expect(results[0]!.stopReason).toBe('end_turn');
+    expect(results[0]!.text).toBe('parent-model');
+    expect(results[1]!.stopReason).toBe('end_turn');
+    expect(results[1]!.text).toBe('parent-model');
+    // ...and only the doomed child degraded to a per-child failure that keeps its label.
+    expect(results[2]!.stopReason).toBe('error');
+    expect(results[2]!.label).toBe('three');
+    expect(results[2]!.error?.message).toContain('boom: setup exploded');
+    vi.restoreAllMocks();
+  });
+
   it('returns one result per spec in input order on the all-success path', async () => {
     const session = buildSession(['parent-model']);
     const rt = buildRuntime(session, 'parent-model');

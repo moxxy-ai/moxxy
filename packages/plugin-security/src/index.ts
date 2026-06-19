@@ -57,6 +57,8 @@ export {
   type BrokerResponse,
   type BrokerContext,
 } from './broker.js';
+export { BROKER_CLIENT_SOURCE, SYNTHETIC_CTX_SOURCE } from './shim.js';
+export { BrokerOpLimiter, DEFAULT_MAX_INFLIGHT_BROKER_OPS } from './broker-limiter.js';
 
 /**
  * Runtime config shape consumed by `buildSecurityPlugin`. Mirrors the

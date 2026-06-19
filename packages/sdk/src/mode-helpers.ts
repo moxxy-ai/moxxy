@@ -25,6 +25,7 @@ export {
   type StreamResult,
 } from './mode/collect-stream.js';
 export { runSingleShotTurn } from './mode/single-shot.js';
+export { sleepWithAbort, nextBackoffMs } from './mode/abort-backoff.js';
 export {
   createStuckLoopDetector,
   type StuckLoopDetector,

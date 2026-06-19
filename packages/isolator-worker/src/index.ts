@@ -1,9 +1,13 @@
 import { Worker } from 'node:worker_threads';
 import { definePlugin, type Isolator, type Plugin } from '@moxxy/sdk';
 import {
+  BrokerOpLimiter,
+  BROKER_CLIENT_SOURCE,
   checkAllCaps,
+  DEFAULT_MAX_INFLIGHT_BROKER_OPS,
   handleBrokerRequest,
   LOADER_HOOK_SOURCE,
+  SYNTHETIC_CTX_SOURCE,
   type BrokerRequest,
 } from '@moxxy/plugin-security';
 
@@ -80,17 +84,7 @@ function rpc(op, args) {
     parentPort.postMessage({ type: 'broker-request', id, op, args });
   });
 }
-
-const broker = {
-  fs: {
-    readFile: (filePath, opts) => rpc('fs.readFile', [filePath, opts || {}]),
-    writeFile: (filePath, data) => rpc('fs.writeFile', [filePath, data]),
-    readdir: (dirPath) => rpc('fs.readdir', [dirPath]),
-    stat: (filePath) => rpc('fs.stat', [filePath]),
-  },
-  fetch: (url, init) => rpc('fetch', [url, init || {}]),
-  exec: (cmd, args, opts) => rpc('exec', [cmd, args || [], opts || {}]),
-};
+${BROKER_CLIENT_SOURCE}
 
 try {
   const mod = await import(moduleUrl);
@@ -103,18 +97,7 @@ try {
       errorMessage: "worker shim: export '" + exportName + "' from " + moduleUrl + " is " + (typeof fn) + ", expected function",
     });
   } else {
-    const ctx = {
-      sessionId: syntheticCtx.sessionId,
-      turnId: syntheticCtx.turnId,
-      callId: syntheticCtx.callId,
-      cwd: syntheticCtx.cwd,
-      signal: abortController.signal,
-      log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
-      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-      fs: broker.fs,
-      fetch: broker.fetch,
-      exec: broker.exec,
-    };
+    ${SYNTHETIC_CTX_SOURCE}
     const out = await fn(input, ctx);
     parentPort.postMessage({ type: 'result', ok: true, value: out });
   }
@@ -148,6 +131,19 @@ export interface WorkerIsolatorOptions {
   readonly defaultMemMb?: number;
   /** Default wall-clock budget (ms) when caps.timeMs is omitted. Default 60_000. */
   readonly defaultTimeMs?: number;
+  /**
+   * Hard cap on the number of brokered ops (`fs`/`fetch`/`exec`) the parent
+   * will run concurrently on behalf of one worker. Each `broker-request` is
+   * tiny to post but triggers a heavyweight parent-side operation (an open fd,
+   * a socket, a spawned exec child), so a hostile worker can stream cheap
+   * request lines and make the PARENT (the trust boundary) hold thousands of
+   * concurrent handles. Requests beyond this ceiling are rejected back to the
+   * worker (its `rpc` promise rejects) rather than queued or crashing the
+   * parent — degrade, never crash. Default 128 (shared with the subprocess
+   * isolator). Set higher only if a trusted handler legitimately needs more
+   * parallelism.
+   */
+  readonly maxInflightBrokerOps?: number;
 }
 
 /**
@@ -168,6 +164,12 @@ export interface WorkerIsolatorOptions {
  * - **Mediated fetch** — handlers that use `ctx.fetch()` get every URL
  *   re-checked against `caps.net` on the parent side before the
  *   socket is opened.
+ * - **Bounded brokered concurrency** — the parent runs at most
+ *   `maxInflightBrokerOps` (default 128) brokered ops at once per worker;
+ *   excess `broker-request`s are rejected back to the worker instead of
+ *   fanning out unbounded fds / sockets / exec children, so a worker that
+ *   streams cheap request lines can't exhaust host handles (mirrors the
+ *   subprocess isolator).
  *
  * **Direct-import escape is closed (loader hook):** the shim registers
  * an ESM loader hook (`LOADER_HOOK_SOURCE`, `BLOCKED_HANDLER_MODULES`)
@@ -203,6 +205,8 @@ export interface WorkerIsolatorOptions {
 export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator {
   const defaultMemMb = opts.defaultMemMb ?? 256;
   const defaultTimeMs = opts.defaultTimeMs ?? 60_000;
+  const maxInflightBrokerOps =
+    opts.maxInflightBrokerOps ?? DEFAULT_MAX_INFLIGHT_BROKER_OPS;
 
   return {
     name: 'worker',
@@ -275,6 +279,12 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         const onHostAbortLink = (): void => brokerAbort.abort();
         signal.addEventListener('abort', onHostAbortLink, { once: true });
         cleanup.add(() => signal.removeEventListener('abort', onHostAbortLink));
+        // Bound the parent-side fan-out of brokered ops per worker. Each
+        // broker-request is a tiny post but pins a real fd / socket / exec
+        // child until it settles, so a flood of request lines is a
+        // resource-exhaustion vector. Past the ceiling, reject the request
+        // back to the worker rather than fanning out unbounded work.
+        const brokerLimiter = new BrokerOpLimiter(maxInflightBrokerOps);
         // True once we've hard-terminated (or scheduled the immediate,
         // non-graceful terminate). While settled-but-not-yet-terminated
         // (the graceful abort grace window) we keep servicing brokered
@@ -378,21 +388,45 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
             // isolator-owned `brokerAbort.signal` so a timeout cancels
             // it even though the host `signal` isn't aborted.
             if (terminated) return;
+            // Bound concurrency: a hostile worker can post cheap
+            // broker-request lines faster than the parent settles them,
+            // each pinning a real fd / socket / exec child. Past the
+            // ceiling, reject the request back to the worker (its `rpc`
+            // promise rejects) instead of fanning out unbounded work.
+            if (!brokerLimiter.tryAcquire()) {
+              const overflow = {
+                type: 'broker-response' as const,
+                id: msg.id,
+                ok: false as const,
+                errorName: 'Error',
+                errorMessage: `[security:worker] too many concurrent brokered ops (limit ${brokerLimiter.limit})`,
+              };
+              try {
+                worker.postMessage(overflow);
+              } catch {
+                // Worker torn down; the response is moot.
+              }
+              return;
+            }
             void handleBrokerRequest(msg, {
               caps,
               cwd: call.cwd,
               signal: brokerAbort.signal,
-            }).then((response) => {
-              if (terminated) return;
-              try {
-                worker.postMessage(response);
-              } catch {
-                // Worker torn down mid-flight (TOCTOU between the
-                // `terminated` check and postMessage on a torn-down
-                // port). Dropping the response is safe — the call has
-                // already settled or is about to.
-              }
-            });
+            })
+              .then((response) => {
+                if (terminated) return;
+                try {
+                  worker.postMessage(response);
+                } catch {
+                  // Worker torn down mid-flight (TOCTOU between the
+                  // `terminated` check and postMessage on a torn-down
+                  // port). Dropping the response is safe — the call has
+                  // already settled or is about to.
+                }
+              })
+              .finally(() => {
+                brokerLimiter.release();
+              });
             return;
           }
           if (settled) return;

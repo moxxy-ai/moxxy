@@ -1,6 +1,5 @@
 import net from 'node:net';
-import os from 'node:os';
-import path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 
 /**
  * Address of the runner's listening socket. The single place that knows about
@@ -46,7 +45,10 @@ export function isNamedPipe(address: string): boolean {
 export function runnerSocketPath(): string {
   const override = process.env.MOXXY_RUNNER_SOCKET;
   if (override) return override;
-  return platformSocket('serve', path.join(os.homedir(), '.moxxy', 'serve.sock'));
+  // Resolve under `moxxyPath` (honors `$MOXXY_HOME`, falling back to `~/.moxxy`)
+  // so the runner socket follows the same data dir as the rest of the framework
+  // instead of stranding it at a hardcoded `~/.moxxy` when MOXXY_HOME is set.
+  return platformSocket('serve', moxxyPath('serve.sock'));
 }
 
 /**

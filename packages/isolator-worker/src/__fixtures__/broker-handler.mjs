@@ -80,3 +80,34 @@ export async function statViaBroker(input, ctx) {
 export async function execViaBroker(input, ctx) {
   return await ctx.exec(input.cmd, input.args);
 }
+
+// Fans out many concurrent brokered exec ops (each a short sleep, so they
+// stay in-flight together) and tallies how many were rejected with the
+// isolator's concurrency-cap error vs. how many completed. Proves the
+// parent bounds in-flight brokered work: a hostile worker can't fan out
+// unbounded fds / sockets / exec children even though each request line
+// is tiny. Input: { count, sleepSec, cmd }.
+export async function floodBrokerOps(input, ctx) {
+  const count = input?.count ?? 64;
+  const sleepSec = String(input?.sleepSec ?? 0.4);
+  const cmd = input?.cmd ?? '/bin/sleep';
+  let completed = 0;
+  let capped = 0;
+  let otherError = 0;
+  const ops = [];
+  for (let i = 0; i < count; i++) {
+    ops.push(
+      ctx
+        .exec(cmd, [sleepSec])
+        .then(() => {
+          completed++;
+        })
+        .catch((e) => {
+          if (/too many concurrent brokered ops/.test(String(e?.message ?? e))) capped++;
+          else otherError++;
+        }),
+    );
+  }
+  await Promise.all(ops);
+  return { completed, capped, otherError };
+}

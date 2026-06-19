@@ -2,28 +2,23 @@
  * Worst-case coverage for the collaboration-lock parsing the `collab.active` /
  * `collab.end` handlers feed to `process.kill`.
  *
- * `parseCollabLock` is the ONLY guard between a renderer-invisible, on-disk lock
- * file (written by the collaborative coordinator, possibly truncated mid-write
- * or corrupt) and a `process.kill(info.pid, 0)` liveness probe. A regression
- * that loosened it could hand a garbage / out-of-range pid to `process.kill`,
- * throwing inside the handler, or — worse — trust a non-integer pid. These
- * tests lock the "treat anything not a clean positive-integer pid as no live
- * holder" contract so a future simplification can't silently reopen that.
+ * That parse + path derivation USED to live inline in `./session`; it now lives
+ * in `@moxxy/mode-collaborative`'s collab-store (the on-disk-layout contract the
+ * coordinator WRITES and this host READS), so the handlers and the coordinator
+ * can't drift. This suite pins the contract from the HOST's consumer side: the
+ * parse is the only guard between a renderer-invisible, on-disk lock file
+ * (possibly truncated mid-write or corrupt) and a `process.kill(info.pid, 0)`
+ * liveness probe — a regression that loosened it could hand a garbage /
+ * out-of-range pid to `process.kill`, throwing inside the handler, or trust a
+ * non-integer pid. The "treat anything not a clean positive-integer pid as no
+ * live holder" rule is locked here AND in the store's own suite.
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-// shared.ts (imported transitively via ./session) touches electron; importing
-// it must not require the GUI binary. Same stub as the sibling suites.
-vi.mock('electron', () => ({
-  ipcMain: { handle: () => undefined },
-  dialog: {},
-  BrowserWindow: {},
-}));
+import { collabLockPath, parseCollabLock } from '@moxxy/mode-collaborative';
 
-import { collabLockPath, parseCollabLock } from './session';
-
-describe('parseCollabLock', () => {
+describe('parseCollabLock (collab.active/end on-disk lock guard)', () => {
   it('parses a well-formed lock record', () => {
     const info = parseCollabLock(
       JSON.stringify({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000 }),
@@ -75,24 +70,12 @@ describe('parseCollabLock', () => {
   });
 });
 
-describe('collabLockPath', () => {
-  const join = (...p: string[]): string => p.join('/');
-
-  it('derives the default path under the home dir', () => {
-    const prev = process.env.MOXXY_COLLAB_LOCK;
-    delete process.env.MOXXY_COLLAB_LOCK;
-    try {
-      expect(collabLockPath('/home/u', join)).toBe('/home/u/.moxxy/collab/active.lock');
-    } finally {
-      if (prev !== undefined) process.env.MOXXY_COLLAB_LOCK = prev;
-    }
-  });
-
-  it('honors the MOXXY_COLLAB_LOCK override (the coordinator contract)', () => {
+describe('collabLockPath (the coordinator contract the host reads)', () => {
+  it('honors the MOXXY_COLLAB_LOCK override', () => {
     const prev = process.env.MOXXY_COLLAB_LOCK;
     process.env.MOXXY_COLLAB_LOCK = '/tmp/custom.lock';
     try {
-      expect(collabLockPath('/home/u', join)).toBe('/tmp/custom.lock');
+      expect(collabLockPath()).toBe('/tmp/custom.lock');
     } finally {
       if (prev === undefined) delete process.env.MOXXY_COLLAB_LOCK;
       else process.env.MOXXY_COLLAB_LOCK = prev;

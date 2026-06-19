@@ -68,4 +68,28 @@ describe('guards', () => {
     expect(isToolDisplayResult({ forModel: 'x' })).toBe(false);
     expect(isToolDisplayResult('wrote 12 chars')).toBe(false);
   });
+
+  it('rejects malformed file-diff objects (not just the right `kind`)', () => {
+    // Right kind, but the rest of the shape is bogus — must not be trusted as a
+    // structured diff (channels would otherwise render garbage / the model loses
+    // the real output).
+    expect(isFileDiffDisplay({ kind: 'file-diff' })).toBe(false); // no path/counts/hunks
+    expect(isFileDiffDisplay({ kind: 'file-diff', path: 1, added: 1, removed: 0, hunks: [] })).toBe(false); // path not a string
+    expect(isFileDiffDisplay({ kind: 'file-diff', path: 'a', added: '1', removed: 0, hunks: [] })).toBe(false); // added not numeric
+    expect(isFileDiffDisplay({ kind: 'file-diff', path: 'a', added: 1, removed: 0, hunks: 'nope' })).toBe(false); // hunks not an array
+    expect(isFileDiffDisplay({ kind: 'file-diff', path: 'a', added: 1, removed: 0, hunks: [{ lines: 'x' }] })).toBe(false); // hunk.lines not an array
+    expect(isFileDiffDisplay({ kind: 'file-diff', path: 'a', added: 1, removed: 0, hunks: [null] })).toBe(false); // bad hunk entry
+    // A malformed display must also fail the wrapping ToolDisplayResult guard.
+    expect(isToolDisplayResult({ forModel: 'x', display: { kind: 'file-diff' } })).toBe(false);
+    // A well-formed hunk passes.
+    expect(
+      isFileDiffDisplay({
+        kind: 'file-diff',
+        path: 'a',
+        added: 1,
+        removed: 0,
+        hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] }],
+      }),
+    ).toBe(true);
+  });
 });

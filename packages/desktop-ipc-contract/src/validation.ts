@@ -363,11 +363,14 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     before: z.number().int().nonnegative().nullable(),
     limit: z.number().int().positive().max(2000),
   }),
-  // Reads + parses archived collab run files off disk (~/.moxxy/collab/runs).
-  // The handler already clamps `limit` and bounds its file scan, but this is a
-  // filesystem-touching command, so it gets the boundary check the module header
-  // promises: a positive, bounded page size (matching the handler's 200 ceiling)
-  // so a hostile renderer can't push a non-integer/NaN/huge window across.
+  // Collaboration control. All three touch the on-disk collab store
+  // (~/.moxxy/collab/{active.lock,runs}) — a filesystem-touching surface — so
+  // each gets the boundary check the module header promises:
+  //   - active: no-arg → pin the payload to "nothing" so no args smuggle across;
+  //   - history: a positive, bounded page size (matching the handler's 200
+  //     ceiling) so a hostile renderer can't push a non-integer/NaN/huge window;
+  //   - end: an optional, bounded workspace slug (the target runner to abort).
+  'collab.active': z.undefined(),
   'collab.history': z.object({ limit: z.number().int().positive().max(200) }).partial().optional(),
   'collab.end': z.object({ workspaceId: optionalWorkspace }).optional(),
   // Vault writes are security-sensitive: lock the key name to a safe slug

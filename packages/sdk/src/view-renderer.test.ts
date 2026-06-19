@@ -33,6 +33,18 @@ describe('countNodes', () => {
   it('counts a leaf element as 1', () => {
     expect(countNodes(el('hr'))).toBe(1);
   });
+
+  it('does not throw (RangeError) on a deeply nested AST', () => {
+    // A hand-built/corrupt AST can be arbitrarily deep; the count must be
+    // iterative so a deep chain never blows the call stack. 100k deep would
+    // overflow naive recursion.
+    const depth = 100_000;
+    let node: ViewNode = text('leaf');
+    for (let i = 0; i < depth; i++) node = el('wrap', [node]);
+    // depth wrapping elements + the leaf text node.
+    expect(() => countNodes(node)).not.toThrow();
+    expect(countNodes(node)).toBe(depth + 1);
+  });
 });
 
 describe('view vocabulary integrity', () => {

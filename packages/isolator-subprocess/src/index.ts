@@ -2,9 +2,13 @@ import { spawn } from 'node:child_process';
 import { definePlugin, type Isolator, type Plugin } from '@moxxy/sdk';
 import {
   buildBrokerEnv,
+  BrokerOpLimiter,
+  BROKER_CLIENT_SOURCE,
   checkAllCaps,
+  DEFAULT_MAX_INFLIGHT_BROKER_OPS,
   handleBrokerRequest,
   LOADER_HOOK_SOURCE,
+  SYNTHETIC_CTX_SOURCE,
   type BrokerRequest,
 } from '@moxxy/plugin-security';
 
@@ -69,17 +73,7 @@ function rpc(op, args) {
     send({ type: 'broker-request', id, op, args });
   });
 }
-
-const broker = {
-  fs: {
-    readFile: (filePath, opts) => rpc('fs.readFile', [filePath, opts || {}]),
-    writeFile: (filePath, data) => rpc('fs.writeFile', [filePath, data]),
-    readdir: (dirPath) => rpc('fs.readdir', [dirPath]),
-    stat: (filePath) => rpc('fs.stat', [filePath]),
-  },
-  fetch: (url, init) => rpc('fetch', [url, init || {}]),
-  exec: (cmd, args, opts) => rpc('exec', [cmd, args || [], opts || {}]),
-};
+${BROKER_CLIENT_SOURCE}
 
 stdin.setEncoding('utf8');
 stdin.on('data', (chunk) => {
@@ -135,18 +129,7 @@ async function runTask() {
     send({ type: 'result', ok: false, errorName: 'Error', errorMessage: "subprocess shim: export '" + exportName + "' is " + (typeof fn) });
     return;
   }
-  const ctx = {
-    sessionId: syntheticCtx.sessionId,
-    turnId: syntheticCtx.turnId,
-    callId: syntheticCtx.callId,
-    cwd: syntheticCtx.cwd,
-    signal: abortController.signal,
-    log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    fs: broker.fs,
-    fetch: broker.fetch,
-    exec: broker.exec,
-  };
+  ${SYNTHETIC_CTX_SOURCE}
   try {
     const out = await fn(input, ctx);
     send({ type: 'result', ok: true, value: out });
@@ -232,17 +215,9 @@ const KILL_GRACE_MS = 2_000;
  */
 const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-/**
- * Default ceiling on concurrent parent-side brokered ops per child. The
- * byte cap bounds what the child can *send*, but each broker-request is
- * a tiny line that fans out into a real parent-side handle (fd / socket
- * / spawned exec child). Without a concurrency cap a hostile child can
- * stream cheap request lines and drive the parent to exhaust fds /
- * sockets / PIDs — a resource-exhaustion attack on the trust boundary
- * that the output cap does not catch. 128 is comfortably above any
- * legitimate handler's parallelism while still bounding a flood.
- */
-const DEFAULT_MAX_INFLIGHT_BROKER_OPS = 128;
+// The default brokered-op concurrency ceiling is single-sourced in
+// @moxxy/plugin-security (DEFAULT_MAX_INFLIGHT_BROKER_OPS) so this isolator
+// and the worker isolator share the identical bound.
 
 /**
  * Cap on retained stderr. Only the tail is surfaced in the exit error,
@@ -302,10 +277,9 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
   const defaultTimeMs = opts.defaultTimeMs ?? 60_000;
   const defaultMemMb = opts.defaultMemMb ?? 256;
   const maxOutputBytes = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
-  const maxInflightBrokerOps = Math.max(
-    1,
-    Math.floor(opts.maxInflightBrokerOps ?? DEFAULT_MAX_INFLIGHT_BROKER_OPS),
-  );
+  // The BrokerOpLimiter clamps to a finite >= 1; default matches the worker.
+  const maxInflightBrokerOps =
+    opts.maxInflightBrokerOps ?? DEFAULT_MAX_INFLIGHT_BROKER_OPS;
   const nodePath = opts.nodePath ?? process.execPath;
 
   return {
@@ -392,14 +366,14 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
         // PARENT (the trust boundary) to OOM. Crossing the cap rejects
         // and kills the child.
         let outputBytes = 0;
-        // Number of brokered ops currently running on behalf of this
-        // child. Each broker-request line is cheap for the child to send
-        // but holds a real parent-side handle (fd / socket / spawned exec
-        // child) until it settles, so a flood of request lines is a
-        // resource-exhaustion vector the byte cap does NOT bound. Cap the
-        // concurrency; excess requests are rejected back to the child
-        // rather than queued or crashing the parent.
-        let inflightBrokerOps = 0;
+        // Bound concurrent brokered ops on behalf of this child. Each
+        // broker-request line is cheap for the child to send but holds a real
+        // parent-side handle (fd / socket / spawned exec child) until it
+        // settles, so a flood of request lines is a resource-exhaustion vector
+        // the byte cap does NOT bound. Past the ceiling, excess requests are
+        // rejected back to the child rather than queued or crashing the parent.
+        // Single-sourced with the worker isolator via @moxxy/plugin-security.
+        const brokerLimiter = new BrokerOpLimiter(maxInflightBrokerOps);
         let killEscalation: ReturnType<typeof setTimeout> | undefined;
         const cleanup = new Set<() => void>();
         cleanup.add(() => signal.removeEventListener('abort', onHostAbortLink));
@@ -543,7 +517,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
             // promise rejects) instead of fanning out unbounded work or
             // crashing the parent. The byte cap can't catch this — the
             // request lines are tiny.
-            if (inflightBrokerOps >= maxInflightBrokerOps) {
+            if (!brokerLimiter.tryAcquire()) {
               // Reject in the broker-response shape the child's `rpc`
               // already understands, so an over-flooding handler sees a
               // normal op failure rather than a hang.
@@ -552,7 +526,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
                 id: msg.id,
                 ok: false as const,
                 errorName: 'Error',
-                errorMessage: `[security:subprocess] too many concurrent brokered ops (limit ${maxInflightBrokerOps})`,
+                errorMessage: `[security:subprocess] too many concurrent brokered ops (limit ${brokerLimiter.limit})`,
               };
               try {
                 child.stdin.write(JSON.stringify(overflow) + '\n');
@@ -561,7 +535,6 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
               }
               return;
             }
-            inflightBrokerOps++;
             void handleBrokerRequest(msg, {
               caps,
               cwd: call.cwd,
@@ -581,7 +554,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
                 }
               })
               .finally(() => {
-                inflightBrokerOps--;
+                brokerLimiter.release();
               });
             return;
           }

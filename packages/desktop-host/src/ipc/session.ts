@@ -34,44 +34,12 @@ import {
  *  malformed payload AT the boundary instead of feeding the transcriber junk. */
 const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
 
-/**
- * The global single-flight lock the collaborative coordinator writes
- * (`~/.moxxy/collab/active.lock`, overridable via `MOXXY_COLLAB_LOCK`). Derived
- * in one place so `collab.active` and `collab.end` can't drift apart — the
- * lock's location is the coordinator's contract, not three hand-edited spots.
- */
-export function collabLockPath(homedir: string, join: (...parts: string[]) => string): string {
-  return process.env.MOXXY_COLLAB_LOCK || join(homedir, '.moxxy', 'collab', 'active.lock');
-}
-
-/** Shape of the coordinator's lock record. Validated before we trust `pid`. */
-interface CollabLockInfo {
-  readonly pid: number;
-  readonly sessionId: string;
-  readonly task: string;
-  readonly startedAtMs: number;
-}
-
-/** Parse a lock file's JSON and verify it carries a usable numeric pid — a
- *  truncated/corrupt lock (non-object, missing/garbage pid) is treated as
- *  "no live holder" rather than handed to `process.kill` with a bad value. */
-export function parseCollabLock(raw: string): CollabLockInfo | null {
-  let info: unknown;
-  try {
-    info = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (typeof info !== 'object' || info === null) return null;
-  const rec = info as Record<string, unknown>;
-  if (typeof rec.pid !== 'number' || !Number.isInteger(rec.pid) || rec.pid <= 0) return null;
-  return {
-    pid: rec.pid,
-    sessionId: typeof rec.sessionId === 'string' ? rec.sessionId : '',
-    task: typeof rec.task === 'string' ? rec.task : '',
-    startedAtMs: typeof rec.startedAtMs === 'number' ? rec.startedAtMs : 0,
-  };
-}
+// The collaboration on-disk layout (lock path + runs dir) and the defensive
+// lock parse/liveness probe are the coordinator's contract, owned by
+// `@moxxy/mode-collaborative`'s collab-store. The Collaborate tab reads them
+// straight off disk here (no runner round-trip, so a collaboration in ANY
+// workspace's runner is visible) — importing the SAME helpers the coordinator
+// writes with means the two can't drift apart.
 
 export function registerSessionHandlers(pool: RunnerPool): void {
   // ---- Session (per-workspace) --------------------------------------------
@@ -157,19 +125,12 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // (~/.moxxy/collab/active.lock). Read directly here (no runner round-trip)
     // so the Collaborate tab sees a collaboration running in ANY workspace.
     try {
-      const { readFileSync } = await import('node:fs');
-      const { homedir } = await import('node:os');
-      const { join } = await import('node:path');
-      const lockPath = collabLockPath(homedir(), join);
-      const info = parseCollabLock(readFileSync(lockPath, 'utf8'));
+      const { readCollabLock, isCollabHolderAlive } = await import('@moxxy/mode-collaborative');
+      const info = readCollabLock();
       // A missing/corrupt lock (or one without a usable pid) → not active.
       if (!info) return { active: false };
       // Liveness: a dead holder pid means the lock is stale → not active.
-      try {
-        process.kill(info.pid, 0);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'EPERM') return { active: false };
-      }
+      if (!isCollabHolderAlive(info.pid)) return { active: false };
       return { active: true, sessionId: info.sessionId, task: info.task, startedAtMs: info.startedAtMs };
     } catch {
       return { active: false };
@@ -182,20 +143,11 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const abortedTurns = resolveDriver(pool, workspaceId)?.abortActiveTurns() ?? 0;
     let clearedTask: string | undefined;
     try {
-      const { readFileSync, unlinkSync } = await import('node:fs');
-      const { homedir } = await import('node:os');
-      const { join } = await import('node:path');
-      const lockPath = collabLockPath(homedir(), join);
-      try {
-        clearedTask = parseCollabLock(readFileSync(lockPath, 'utf8'))?.task || undefined;
-      } catch {
-        // no lock to read
-      }
-      try {
-        unlinkSync(lockPath);
-      } catch {
-        // already gone
-      }
+      // forceReleaseCollabLock removes the lock regardless of holder and returns
+      // the cleared holder (if any) so we can report which task we ended — the
+      // coordinator's own release-side helper, so the unlink path stays identical.
+      const { forceReleaseCollabLock } = await import('@moxxy/mode-collaborative');
+      clearedTask = forceReleaseCollabLock()?.task || undefined;
     } catch {
       // best-effort
     }
@@ -214,10 +166,13 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // finish), then sort the parsed records by their authoritative `startedAtMs`.
     try {
       const { readdir, readFile, stat } = await import('node:fs/promises');
-      const { homedir } = await import('node:os');
       const { join } = await import('node:path');
-      const home = process.env.MOXXY_HOME || join(homedir(), '.moxxy');
-      const dir = join(home, 'collab', 'runs');
+      // The runs dir layout is the coordinator's contract (`collabRunsDir`); the
+      // ASYNC, mtime-bounded scan below stays desktop-side on purpose — the
+      // coordinator's sync `listRunRecords` would block the Electron main event
+      // loop reading every file, which this handler header explicitly avoids.
+      const { collabRunsDir } = await import('@moxxy/mode-collaborative');
+      const dir = collabRunsDir();
       // Clamp the renderer-supplied limit to a sane window (default 50, max 200);
       // a non-positive / non-finite value falls back to the default.
       const requested = Number(args?.limit ?? 50);

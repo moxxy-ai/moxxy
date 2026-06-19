@@ -132,6 +132,45 @@ describe('worker broker: exec', () => {
   });
 });
 
+describe('worker broker: bounded concurrency', () => {
+  // A worker that fans out far more concurrent brokered ops than the
+  // configured ceiling must NOT make the parent hold unbounded fds /
+  // sockets / exec children. Excess requests are rejected back to the
+  // worker with the cap error; the parent degrades (some ops capped) but
+  // never crashes, and every request is accounted for.
+  it('caps in-flight brokered ops and rejects the overflow instead of crashing', async () => {
+    const iso = createWorkerIsolator({ maxInflightBrokerOps: 4 });
+    const out = (await iso.run(
+      { ...baseCall('floodBrokerOps', { count: 48, sleepSec: 0.3 }), cwd: os.tmpdir() },
+      async () => 'unused',
+      { subprocess: true, timeMs: 20_000 },
+      new AbortController().signal,
+    )) as { completed: number; capped: number; otherError: number };
+    // The cap fired: with a ceiling of 4 and 48 simultaneous slow ops,
+    // the overwhelming majority must be rejected as overflow.
+    expect(out.capped).toBeGreaterThan(0);
+    // No op vanished or produced an unexpected failure — degrade, don't lose.
+    expect(out.otherError).toBe(0);
+    expect(out.completed + out.capped).toBe(48);
+    expect(out.completed).toBeGreaterThan(0);
+  }, 30_000);
+
+  // A handler whose parallelism stays under the ceiling must NOT see any
+  // ops capped — the bound is a flood guard, not a throttle on normal use.
+  it('does not cap brokered ops that stay under the ceiling', async () => {
+    const iso = createWorkerIsolator({ maxInflightBrokerOps: 8 });
+    const out = (await iso.run(
+      { ...baseCall('floodBrokerOps', { count: 4, sleepSec: 0.1 }), cwd: os.tmpdir() },
+      async () => 'unused',
+      { subprocess: true, timeMs: 20_000 },
+      new AbortController().signal,
+    )) as { completed: number; capped: number; otherError: number };
+    expect(out.capped).toBe(0);
+    expect(out.otherError).toBe(0);
+    expect(out.completed).toBe(4);
+  }, 30_000);
+});
+
 describe('worker broker: ctx.fs.readFile mediation', () => {
   it('round-trips a real file read via the broker', async () => {
     const tmp = path.join(os.tmpdir(), `moxxy-broker-e2e-${Date.now()}.txt`);

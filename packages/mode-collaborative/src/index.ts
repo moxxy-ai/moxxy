@@ -39,3 +39,16 @@ export {
   type CollabRunAgent,
 } from './archive.js';
 export { forceReleaseCollabLock, readActiveCollab, type CollabLockInfo } from './collab-lock.js';
+// The on-disk-layout contract the desktop host reads directly off disk — the
+// lock path, the defensive lock parse + liveness probe, and the runs dir +
+// record shape — co-located with the coordinator that WRITES it so the two
+// readers can't drift. (collabRunsDir / listRunRecords / CollabRunRecord are
+// also surfaced via archive, which now re-exports them FROM this module — one
+// identity, one source of truth.)
+export {
+  collabLockPath,
+  isCollabHolderAlive,
+  moxxyHome,
+  parseCollabLock,
+  readCollabLock,
+} from './collab-store.js';

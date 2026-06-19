@@ -188,8 +188,22 @@ export const DEFAULT_VIEW_TAGS: ReadonlyArray<ViewTagSpec> = [...VIEW_PRIMITIVES
  * Count element + text nodes in a view tree (the `nodeCount` a `present_view`
  * tool reports). Single source of truth: core's parser and the plugin-view tool
  * both import this rather than re-implementing the recursion.
+ *
+ * Iterative (explicit stack) rather than recursive: a deeply nested
+ * hand-built/corrupt AST would blow the call stack with a `RangeError`, and this
+ * runs on untrusted agent-authored input. Each node counts as 1; an element's
+ * children are pushed for later counting. Order-independent (we only sum), so
+ * the count is byte-identical to the old recursion for any normal tree.
  */
 export function countNodes(node: ViewNode): number {
-  if (node.kind === 'text') return 1;
-  return 1 + node.children.reduce((sum, child) => sum + countNodes(child), 0);
+  let count = 0;
+  const stack: ViewNode[] = [node];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    count += 1;
+    if (current.kind === 'element') {
+      for (const child of current.children) stack.push(child);
+    }
+  }
+  return count;
 }

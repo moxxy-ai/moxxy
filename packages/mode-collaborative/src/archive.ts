@@ -10,8 +10,14 @@
  */
 
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+
+import {
+  type CollabRunAgent,
+  type CollabRunRecord,
+  collabRunsDir,
+  listRunRecords,
+} from './collab-store.js';
 
 /** Hard retention cap on the archive dir. Without this, every collaboration ever
  *  run leaks one JSON file under ~/.moxxy/collab/runs forever — the desktop
@@ -19,50 +25,11 @@ import { join } from 'node:path';
  *  unbounded. We keep the newest `MAX_RUN_RECORDS` and prune the rest on write. */
 export const MAX_RUN_RECORDS = 200;
 
-/** `$MOXXY_HOME` or `~/.moxxy` — the single source of truth for the home dir,
- *  matching `@moxxy/sdk`'s `moxxyHome()` (inlined to avoid an entry-point dep). */
-function moxxyHome(): string {
-  return process.env.MOXXY_HOME ?? join(homedir(), '.moxxy');
-}
-
-export interface CollabRunAgent {
-  readonly id: string;
-  readonly name: string;
-  readonly role: string;
-  readonly status: string;
-  readonly subtask: string;
-  readonly doneSummary?: string;
-}
-
-export interface CollabRunRecord {
-  readonly runId: string;
-  readonly task: string;
-  readonly startedAtMs: number;
-  readonly finishedAtMs: number;
-  /** completed = reached collab_completed; aborted = user/abort; failed = error before completion. */
-  readonly outcome: 'completed' | 'aborted' | 'failed';
-  readonly parallel: boolean;
-  readonly gitRepo: boolean;
-  readonly agents: ReadonlyArray<CollabRunAgent>;
-  readonly doneCount: number;
-  readonly totalCount: number;
-  readonly board: ReadonlyArray<{ id: string; title: string; status: string; owner?: string; paths?: ReadonlyArray<string> }>;
-  readonly contracts: ReadonlyArray<{ id: string; title: string; owner: string; status: string; version: number }>;
-  readonly messageCount: number;
-  readonly merge?: {
-    readonly merged: ReadonlyArray<string>;
-    readonly promoted: boolean;
-    readonly conflicts: number;
-    readonly stagingBranch?: string;
-  };
-  /** The shared brief (goal + intent) the run was seeded with. */
-  readonly brief?: string;
-}
-
-/** `~/.moxxy/collab/runs` — the archive directory. */
-export function collabRunsDir(): string {
-  return join(moxxyHome(), 'collab', 'runs');
-}
+// The dir layout + record shape + the (read-only) list are the on-disk contract
+// the desktop host also reads, so they live in `collab-store`; this file owns
+// the coordinator's WRITE side (atomic write + retention prune) and re-exports
+// the shared pieces so existing importers (`./archive`) are unchanged.
+export { collabRunsDir, listRunRecords, type CollabRunAgent, type CollabRunRecord };
 
 /** Persist one run record. Best-effort: never throws (archiving must not sink a
  *  run). Writes atomically (tmp + rename) so a crash mid-write can't leave a
@@ -146,26 +113,6 @@ function pruneRunRecords(max: number = MAX_RUN_RECORDS): void {
   } catch {
     // pruning is housekeeping; a failure must never sink a run
   }
-}
-
-/** All archived runs, newest first (by start time), capped at `limit`. */
-export function listRunRecords(limit = 50): CollabRunRecord[] {
-  let files: string[];
-  try {
-    files = readdirSync(collabRunsDir()).filter((f) => f.endsWith('.json'));
-  } catch {
-    return [];
-  }
-  const out: CollabRunRecord[] = [];
-  for (const f of files) {
-    try {
-      out.push(JSON.parse(readFileSync(join(collabRunsDir(), f), 'utf8')) as CollabRunRecord);
-    } catch {
-      // skip a corrupt record rather than failing the whole list
-    }
-  }
-  out.sort((a, b) => b.startedAtMs - a.startedAtMs);
-  return out.slice(0, limit);
 }
 
 /** One archived run by id, or null. */

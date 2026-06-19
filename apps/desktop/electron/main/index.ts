@@ -59,6 +59,8 @@ import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-serv
 
 import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
 
+import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
+
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 import { readConfirmed, markConfirmed, markBad, appendBootLog } from '@moxxy/desktop-host/app-update';
@@ -130,8 +132,8 @@ let loopbackCert: SelfSignedCert | null = null;
 // Fixed, stable loopback ports — each MUST be allow-listed in the Clerk
 // dashboard (origins are exact-match including the port), and the
 // `certificate-error` trust is scoped to exactly these ports on
-// desktop.moxxy.ai.
-const LOOPBACK_PORTS = [51789, 51790, 51791, 51792] as const;
+// desktop.moxxy.ai. Sourced from the shared `../loopback-ports` module so the
+// renderer's redirect-origin regex (src/main.tsx) can't drift from this list.
 
 // ---- moxxy:// deep-link transport -----------------------------------------
 
@@ -196,7 +198,7 @@ async function createWindow(): Promise<void> {
   // page's CURRENT origin mid-flow, so those origins are allow-listed
   // explicitly (dev: the Vite origin).
   const appOriginPatterns = [
-    new RegExp(`^https://desktop\\.moxxy\\.ai:(?:${LOOPBACK_PORTS.join('|')})$`),
+    new RegExp(`^https://desktop\\.moxxy\\.ai:(?:${LOOPBACK_PORTS_ALT})$`),
     ...(isDev ? [/^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/] : []),
   ];
   lockDownNavigation(mainWindow, {

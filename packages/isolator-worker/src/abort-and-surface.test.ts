@@ -17,7 +17,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BLOCKED_HANDLER_MODULES } from '@moxxy/plugin-security';
+import {
+  BLOCKED_HANDLER_MODULES,
+  BROKER_CLIENT_SOURCE,
+} from '@moxxy/plugin-security';
 import type { IsolatedToolCall } from '@moxxy/sdk';
 import { createWorkerIsolator } from './index.js';
 
@@ -119,14 +122,15 @@ describe('worker isolator: documented capability surface matches enforced (u64-1
   const source = readFileSync(indexSrc, 'utf8');
 
   it('every brokered fs op the doc lists is actually exposed on the broker', () => {
-    // The shim broker surface (the enforced reality) brokers all four
-    // fs ops plus fetch and exec. The doc must not claim only readFile
-    // is brokered.
+    // The shim broker surface (the enforced reality) is the shared
+    // BROKER_CLIENT_SOURCE fragment — the single source both isolators
+    // interpolate. Assert the ops against THAT (not the index.ts text,
+    // which no longer inlines the literal) so the surface and doc can't drift.
     for (const op of ['readFile', 'writeFile', 'readdir', 'stat']) {
-      expect(source).toContain(`${op}:`);
+      expect(BROKER_CLIENT_SOURCE).toContain(`${op}:`);
     }
-    expect(source).toContain('fetch:');
-    expect(source).toContain('exec:');
+    expect(BROKER_CLIENT_SOURCE).toContain('fetch:');
+    expect(BROKER_CLIENT_SOURCE).toContain('exec:');
     // The doc must NOT resurrect the stale "only readFile is brokered"
     // / "Phase 2.2" claim.
     expect(source).not.toMatch(/only\s+`?readFile`?\s+is brokered/i);

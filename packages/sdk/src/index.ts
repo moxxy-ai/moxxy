@@ -226,6 +226,8 @@ export {
   buildSystemPromptWithSkills,
   createStuckLoopDetector,
   stableHash,
+  sleepWithAbort,
+  nextBackoffMs,
   type CollectedToolUse,
   type StreamResult,
   type ProjectMessagesOptions,

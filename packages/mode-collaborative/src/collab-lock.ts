@@ -9,41 +9,23 @@
  * (a crash) the lock is reclaimed automatically on the next attempt.
  */
 
-import { mkdirSync, openSync, closeSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, openSync, closeSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+import {
+  type CollabLockInfo,
+  collabLockPath,
+  isCollabHolderAlive as isAlive,
+  readCollabLock as readRaw,
+} from './collab-store.js';
+
 export const COLLAB_LOCK_PATH = join(homedir(), '.moxxy', 'collab', 'active.lock');
 
-/** Resolve the lock path; `MOXXY_COLLAB_LOCK` overrides it (tests, multi-tenant). */
-export function collabLockPath(): string {
-  return process.env.MOXXY_COLLAB_LOCK || COLLAB_LOCK_PATH;
-}
-
-export interface CollabLockInfo {
-  readonly pid: number;
-  readonly sessionId: string;
-  readonly task: string;
-  readonly startedAtMs: number;
-}
-
-function readRaw(): CollabLockInfo | null {
-  try {
-    return JSON.parse(readFileSync(collabLockPath(), 'utf8')) as CollabLockInfo;
-  } catch {
-    return null;
-  }
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM = exists but not ours to signal (still alive); ESRCH = gone.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
+// The lock path, defensive lock read, and liveness probe live in the shared
+// on-disk-layout module so the desktop host reads the EXACT same contract; this
+// file owns only the write/acquire/release lifecycle that the coordinator runs.
+export { collabLockPath, type CollabLockInfo };
 
 /** The currently-active collaboration, or null. Reclaims a stale (dead-pid) lock. */
 export function readActiveCollab(): CollabLockInfo | null {
