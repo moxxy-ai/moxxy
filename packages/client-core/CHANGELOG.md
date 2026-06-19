@@ -1,5 +1,19 @@
 # @moxxy/client-core
 
+## 0.10.0
+
+### Minor Changes
+
+- e762d40: Desktop apps can send their output back to the active session instead of copy+paste. New shared `sendToSession()` + `composerDraftStore` in `@moxxy/client-core` prefill the chat composer and switch to the chat view for the user to review and send. The built-in document anonymizer gains a **Send to chat** button (opt-in per app via `DesktopAppDef.canSendToSession`, enriched with a context line + redaction count). A forward-looking `session.send` capability (permission + bridge method + client sugar) is added to `@moxxy/desktop-app-sdk` for sandboxed apps; it is renderer-dispatched, and the main-process bridge gate refuses it by design.
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+  - @moxxy/chat-model@0.3.1
+  - @moxxy/desktop-ipc-contract@0.10.1
+  - @moxxy/workflows-builder@0.1.12
+
 ## 0.9.0
 
 ### Minor Changes

@@ -1,5 +1,13 @@
 # @moxxy/plugin-collab
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+  - @moxxy/runner@0.2.14
+
 ## 0.3.0
 
 ### Minor Changes

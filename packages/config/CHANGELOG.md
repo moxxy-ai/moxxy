@@ -1,5 +1,12 @@
 # @moxxy/config
 
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+
 ## 0.1.8
 
 ### Patch Changes

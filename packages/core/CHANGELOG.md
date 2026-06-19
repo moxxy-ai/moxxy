@@ -1,5 +1,12 @@
 # @moxxy/core
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+
 ## 0.5.0
 
 ### Minor Changes
