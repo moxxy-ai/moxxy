@@ -184,13 +184,36 @@ function MenuActionRow({
   readonly onCommand: (name: string, args?: string) => void;
 }) {
   const content = (
-    <View className="min-h-12 flex-row items-center gap-4 rounded-block" style={{ paddingVertical: 6 }}>
+    <View
+      className="min-h-12 flex-row items-center gap-4 rounded-block"
+      style={{ opacity: item.disabled ? 0.48 : 1, paddingVertical: 6 }}
+    >
       <View className="h-9 w-9 items-center justify-center">
-        <MobileIcon name={item.icon} size={22} strokeWidth={2.25} color="#0f172a" />
+        <MobileIcon name={item.icon} size={22} strokeWidth={2.25} color={item.disabled ? '#94a3b8' : '#0f172a'} />
       </View>
-      <Text className="flex-1 text-[18px] font-bold text-text">{item.label}</Text>
+      <View className="min-w-0 flex-1">
+        <Text className={`text-[18px] font-bold ${item.disabled ? 'text-muted' : 'text-text'}`}>{item.label}</Text>
+        {item.disabled && item.disabledReason ? (
+          <Text className="mt-0.5 text-[12px] font-semibold text-muted" numberOfLines={1}>
+            {item.disabledReason}
+          </Text>
+        ) : null}
+      </View>
     </View>
   );
+
+  if (item.disabled) {
+    return (
+      <Pressable
+        accessibilityLabel={item.label}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: true }}
+        disabled
+      >
+        {content}
+      </Pressable>
+    );
+  }
 
   if (item.kind === 'link' && item.href) {
     return (

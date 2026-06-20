@@ -36,6 +36,9 @@ import {
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 
+const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['workflows', 'collaborate', 'apps'];
+const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
+
 /**
  * Top-level shell. Three layers of gating, in order:
  *
@@ -138,6 +141,27 @@ export function App(): JSX.Element {
 
   // First-run gate. Block on prefs loading so we never flash the
   // main UI before deciding whether onboarding is needed.
+  const shell = resolveActiveSessionShell({
+    activeWorkspaceId,
+    snapshot,
+    lastConnected,
+    sessionInfoReady,
+  });
+  const runnerTabsLocked = shell.sessionLoading;
+  const onView = (next: View): void => {
+    if (runnerTabsLocked && isRunnerLockedView(next)) {
+      setView('chat');
+      return;
+    }
+    setView(next);
+  };
+
+  useEffect(() => {
+    if (runnerTabsLocked && isRunnerLockedView(view)) {
+      setView('chat');
+    }
+  }, [runnerTabsLocked, view]);
+
   if (prefsLoading) {
     return (
       <>
@@ -165,13 +189,6 @@ export function App(): JSX.Element {
   // the full-screen Splash there is exactly the flicker the user saw. Keep
   // the shell mounted instead and fall back to `lastConnected` for the
   // chrome phase (see `shellPhase` below).
-  const shell = resolveActiveSessionShell({
-    activeWorkspaceId,
-    snapshot,
-    lastConnected,
-    sessionInfoReady,
-  });
-
   if (shell.needsInitialSplash || activeWorkspaceId === null) {
     return (
       <>
@@ -246,7 +263,7 @@ export function App(): JSX.Element {
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      <WorkspaceSidebar view={view} onView={setView} />
+      <WorkspaceSidebar view={view} onView={onView} />
       {view === 'chat' && (
         <>
           <ChatSurface
@@ -255,7 +272,9 @@ export function App(): JSX.Element {
             railPane={railPane}
             onPickPane={setRailPane}
             sessionLoading={shell.sessionLoading}
-            onView={setView}
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
           />
           <ContextRail
             pane={railPane}
@@ -266,22 +285,39 @@ export function App(): JSX.Element {
       )}
       {view === 'workflows' && (
         <main className="col-main col-main--flat">
-          <WorkflowsPanel onView={setView} />
+          <WorkflowsPanel
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {view === 'collaborate' && (
         <main className="col-main col-main--flat">
-          <CollaboratePanel onView={setView} workspaceId={activeWorkspaceId} />
+          <CollaboratePanel
+            onView={onView}
+            workspaceId={activeWorkspaceId}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {view === 'settings' && (
         <main className="col-main col-main--flat">
-          <SettingsPanel onView={setView} />
+          <SettingsPanel
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {view === 'apps' && (
         <main className="col-main col-main--flat">
-          <AppsPanel onView={setView} />
+          <AppsPanel
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}
@@ -301,6 +337,10 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true;
   const tag = target.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+function isRunnerLockedView(view: View): boolean {
+  return view === 'workflows' || view === 'collaborate' || view === 'apps';
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {

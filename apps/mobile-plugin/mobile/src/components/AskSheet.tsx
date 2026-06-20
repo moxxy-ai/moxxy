@@ -3,6 +3,7 @@ import { recordId, textOf } from '@/utils/record';
 import type { PermissionResponseMode } from '../permissionResponse';
 import { ApprovalCard } from './ApprovalCard';
 import { PermissionCard } from './PermissionCard';
+import { WorkflowAskCard } from './WorkflowAskCard';
 
 interface AskSheetProps {
   readonly asks: ReadonlyArray<Record<string, unknown>>;
@@ -43,19 +44,25 @@ export function AskSheet(props: AskSheetProps) {
         (() => {
           const requestId = textOf(firstAsk.requestId, 'ask-0');
           const kind = textOf(firstAsk.kind, 'permission');
-          return kind === 'approval' ? (
-          <ApprovalCard
-            key={requestId}
-            ask={firstAsk}
-            onRespond={(response) => props.onAskResponse(requestId, response)}
-          />
-        ) : (
-          <PermissionCard
-            key={requestId}
-            ask={firstAsk}
-            onRespond={(response) => props.onAskResponse(requestId, response)}
-          />
-        );
+          return kind === 'workflow' ? (
+            <WorkflowAskCard
+              key={requestId}
+              ask={firstAsk}
+              onRespond={(response) => props.onAskResponse(requestId, response)}
+            />
+          ) : kind === 'approval' ? (
+            <ApprovalCard
+              key={requestId}
+              ask={firstAsk}
+              onRespond={(response) => props.onAskResponse(requestId, response)}
+            />
+          ) : (
+            <PermissionCard
+              key={requestId}
+              ask={firstAsk}
+              onRespond={(response) => props.onAskResponse(requestId, response)}
+            />
+          );
         })()
       ) : null}
       {firstPermission ? (

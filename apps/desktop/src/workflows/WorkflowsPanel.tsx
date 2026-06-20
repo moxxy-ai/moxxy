@@ -3,7 +3,6 @@ import { useWorkflows } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import { AgentTaskModal } from '../settings/shared/AgentTaskModal';
 import { WorkflowBuilder } from './WorkflowBuilder';
-import { PausedWorkflows } from './PausedWorkflows';
 import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 
@@ -23,8 +22,12 @@ export function WorkflowsPanel({
   // Optional so the panel can render standalone (tests); the app shell
   // always wires it so the header switcher navigates.
   onView = () => undefined,
+  disabledViews,
+  disabledViewReason,
 }: {
   readonly onView?: (v: View) => void;
+  readonly disabledViews?: ReadonlyArray<View>;
+  readonly disabledViewReason?: string;
 }): JSX.Element {
   const wf = useWorkflows();
   // `editing === undefined` → list; `null` → new workflow; string → edit by name.
@@ -46,7 +49,12 @@ export function WorkflowsPanel({
   return (
     <>
       <ViewHeader>
-        <ViewSwitcher view="workflows" onView={onView} />
+        <ViewSwitcher
+          view="workflows"
+          onView={onView}
+          disabledViews={disabledViews}
+          disabledReason={disabledViewReason}
+        />
         <span style={{ flex: 1 }} />
         <Button variant="chip" onClick={() => void wf.refresh()} style={{ borderRadius: 9 }}>
           <Icon name="rotate" size={14} />
@@ -96,7 +104,6 @@ export function WorkflowsPanel({
           {wf.error}
         </p>
       )}
-      <PausedWorkflows />
       {wf.loading && wf.list.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <Skeleton.Card />

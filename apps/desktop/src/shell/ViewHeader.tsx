@@ -80,6 +80,8 @@ export function Segmented<T extends string>({
   testIdPrefix,
   collapsible = false,
   collapsedLabel = 'Menu',
+  disabledIds,
+  disabledReason,
 }: {
   readonly items: ReadonlyArray<{ readonly id: T; readonly label: string }>;
   readonly value: T | null;
@@ -89,10 +91,19 @@ export function Segmented<T extends string>({
   readonly collapsible?: boolean;
   /** Button label when collapsed and no tab is active (e.g. switcher on Settings). */
   readonly collapsedLabel?: string;
+  readonly disabledIds?: ReadonlySet<T> | ReadonlyArray<T>;
+  readonly disabledReason?: string;
 }): JSX.Element {
   if (!collapsible) {
     return (
-      <PillRow items={items} value={value} onChange={onChange} testIdPrefix={testIdPrefix} />
+      <PillRow
+        items={items}
+        value={value}
+        onChange={onChange}
+        testIdPrefix={testIdPrefix}
+        disabledIds={disabledIds}
+        disabledReason={disabledReason}
+      />
     );
   }
 
@@ -103,6 +114,8 @@ export function Segmented<T extends string>({
       onChange={onChange}
       testIdPrefix={testIdPrefix}
       collapsedLabel={collapsedLabel}
+      disabledIds={disabledIds}
+      disabledReason={disabledReason}
     />
   );
 }
@@ -117,12 +130,16 @@ function PillRow<T extends string>({
   onChange,
   testIdPrefix,
   measureOnly = false,
+  disabledIds,
+  disabledReason,
 }: {
   readonly items: ReadonlyArray<{ readonly id: T; readonly label: string }>;
   readonly value: T | null;
   readonly onChange: (id: T) => void;
   readonly testIdPrefix: string;
   readonly measureOnly?: boolean;
+  readonly disabledIds?: ReadonlySet<T> | ReadonlyArray<T>;
+  readonly disabledReason?: string;
 }): JSX.Element {
   return (
     <nav
@@ -137,15 +154,21 @@ function PillRow<T extends string>({
     >
       {items.map((t) => {
         const active = value === t.id;
+        const disabled = isDisabledId(disabledIds, t.id);
         return (
           <button
             key={t.id}
             type="button"
             data-testid={measureOnly ? undefined : `${testIdPrefix}${t.id}`}
             data-active={active}
+            aria-disabled={disabled || undefined}
+            disabled={disabled}
+            title={disabled ? disabledReason : undefined}
             tabIndex={measureOnly ? -1 : undefined}
-            onClick={() => onChange(t.id)}
-            style={pillStyle(active)}
+            onClick={() => {
+              if (!disabled) onChange(t.id);
+            }}
+            style={pillStyle(active, disabled)}
           >
             {t.label}
           </button>
@@ -155,16 +178,22 @@ function PillRow<T extends string>({
   );
 }
 
-function pillStyle(active: boolean): React.CSSProperties {
+function pillStyle(active: boolean, disabled = false): React.CSSProperties {
   return {
     padding: '6px 15px',
     fontSize: 13,
     fontWeight: 600,
     borderRadius: 9,
     whiteSpace: 'nowrap',
-    color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
+    color: disabled
+      ? 'color-mix(in oklab, var(--color-text-muted) 62%, transparent)'
+      : active
+        ? 'var(--color-text)'
+        : 'var(--color-text-muted)',
     background: active ? 'var(--color-surface)' : 'transparent',
     boxShadow: active ? '0 1px 3px rgba(15, 23, 42, 0.12)' : 'none',
+    cursor: disabled ? 'not-allowed' : undefined,
+    opacity: disabled ? 0.62 : undefined,
     transition: 'background 140ms, color 140ms',
   };
 }
@@ -195,12 +224,16 @@ function CollapsibleSegmented<T extends string>({
   onChange,
   testIdPrefix,
   collapsedLabel,
+  disabledIds,
+  disabledReason,
 }: {
   readonly items: ReadonlyArray<{ readonly id: T; readonly label: string }>;
   readonly value: T | null;
   readonly onChange: (id: T) => void;
   readonly testIdPrefix: string;
   readonly collapsedLabel: string;
+  readonly disabledIds?: ReadonlySet<T> | ReadonlyArray<T>;
+  readonly disabledReason?: string;
 }): JSX.Element {
   const outerRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
@@ -287,6 +320,8 @@ function CollapsibleSegmented<T extends string>({
           value={value}
           onChange={onChange}
           testIdPrefix={testIdPrefix}
+          disabledIds={disabledIds}
+          disabledReason={disabledReason}
           measureOnly={collapsed}
         />
       </div>
@@ -364,6 +399,7 @@ function CollapsibleSegmented<T extends string>({
             >
               {items.map((t) => {
                 const active = value === t.id;
+                const disabled = isDisabledId(disabledIds, t.id);
                 return (
                   <button
                     key={t.id}
@@ -371,7 +407,11 @@ function CollapsibleSegmented<T extends string>({
                     role="menuitem"
                     data-testid={`${testIdPrefix}${t.id}`}
                     data-active={active}
+                    aria-disabled={disabled || undefined}
+                    disabled={disabled}
+                    title={disabled ? disabledReason : undefined}
                     onClick={() => {
+                      if (disabled) return;
                       onChange(t.id);
                       setOpen(false);
                     }}
@@ -386,7 +426,13 @@ function CollapsibleSegmented<T extends string>({
                       fontSize: 13,
                       fontWeight: active ? 600 : 500,
                       textAlign: 'left',
-                      color: active ? 'var(--color-primary-strong)' : 'var(--color-text)',
+                      color: disabled
+                        ? 'color-mix(in oklab, var(--color-text-muted) 62%, transparent)'
+                        : active
+                          ? 'var(--color-primary-strong)'
+                          : 'var(--color-text)',
+                      cursor: disabled ? 'not-allowed' : undefined,
+                      opacity: disabled ? 0.62 : undefined,
                     }}
                   >
                     {active && <Icon name="check" size={14} />}
@@ -417,10 +463,15 @@ const SWITCH_ITEMS: ReadonlyArray<{
 export function ViewSwitcher({
   view,
   onView,
+  disabledViews,
+  disabledReason,
 }: {
   readonly view: View;
   readonly onView: (v: View) => void;
+  readonly disabledViews?: ReadonlySet<View> | ReadonlyArray<View>;
+  readonly disabledReason?: string;
 }): JSX.Element {
+  const disabledIds = toSwitchDisabledIds(disabledViews);
   return (
     <Segmented
       items={SWITCH_ITEMS}
@@ -428,9 +479,41 @@ export function ViewSwitcher({
       onChange={onView}
       testIdPrefix="nav-"
       collapsible
+      disabledIds={disabledIds}
+      disabledReason={disabledReason}
       // On the Settings view this switcher has no active segment; label the
       // folded button with the view family rather than a blank.
       collapsedLabel="Views"
     />
   );
+}
+
+function isDisabledId<T extends string>(
+  disabledIds: ReadonlySet<T> | ReadonlyArray<T> | undefined,
+  id: T,
+): boolean {
+  if (!disabledIds) return false;
+  return isReadonlyArray(disabledIds) ? disabledIds.includes(id) : disabledIds.has(id);
+}
+
+type SwitchView = (typeof SWITCH_ITEMS)[number]['id'];
+
+function toSwitchDisabledIds(
+  disabledViews: ReadonlySet<View> | ReadonlyArray<View> | undefined,
+): ReadonlySet<SwitchView> | undefined {
+  if (!disabledViews) return undefined;
+  const disabled = new Set<SwitchView>();
+  for (const item of SWITCH_ITEMS) {
+    const locked = isReadonlyArray(disabledViews)
+      ? disabledViews.includes(item.id)
+      : disabledViews.has(item.id);
+    if (locked) disabled.add(item.id);
+  }
+  return disabled;
+}
+
+function isReadonlyArray<T>(
+  value: ReadonlySet<T> | ReadonlyArray<T>,
+): value is ReadonlyArray<T> {
+  return Array.isArray(value);
 }

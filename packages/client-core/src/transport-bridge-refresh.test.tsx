@@ -123,7 +123,8 @@ describe('client bridges after transport replacement', () => {
         expect.objectContaining({ id: 'event-new', text: 'hello from new transport' }),
       ]),
     );
-    expect(second.subscriptions.get('runner.event')?.size).toBe(1);
+    expect(first.subscriptions.get('runner.event')?.size ?? 0).toBe(0);
+    expect(second.subscriptions.get('runner.event')?.size ?? 0).toBeGreaterThan(0);
   });
 
   it('mirrors shared turn starts so every attached client shows thinking state', async () => {

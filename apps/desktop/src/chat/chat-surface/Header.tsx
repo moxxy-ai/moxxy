@@ -15,6 +15,8 @@ export function Header({
   canRename,
   onRename,
   onView,
+  disabledViews,
+  disabledViewReason,
 }: {
   readonly phase: ConnectionPhase;
   readonly workspaceId: string;
@@ -25,11 +27,18 @@ export function Header({
   readonly canRename: boolean;
   readonly onRename: () => void;
   readonly onView: (v: View) => void;
+  readonly disabledViews?: ReadonlyArray<View>;
+  readonly disabledViewReason?: string;
 }): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
   return (
     <ViewHeader>
-      <ViewSwitcher view="chat" onView={onView} />
+      <ViewSwitcher
+        view="chat"
+        onView={onView}
+        disabledViews={disabledViews}
+        disabledReason={disabledViewReason}
+      />
       {/* workspace path lives in the right-hand context rail now */}
       <span style={{ flex: 1 }} />
       {searchOpen ? (

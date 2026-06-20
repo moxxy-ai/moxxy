@@ -5,6 +5,7 @@ import {
   askStore,
   chatStore,
   deskForWorkspace,
+  isSessionFeatureLoading,
   toErrorMessage,
   useActiveWorkspaceId,
   useChat as useCoreChat,
@@ -14,6 +15,7 @@ import {
   useQueuedTurns,
   useSessions as useCoreDeskSessions,
   useScheduler as useCoreScheduler,
+  useSessionInfoReady,
   useWorkflows as useCoreWorkflows,
 } from '@moxxy/client-core';
 import type { UserPromptAttachment } from '@moxxy/sdk';
@@ -66,6 +68,7 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
     gatewayConnected: false,
     socketStatus: 'idle' as const,
     snapshot: state,
+    sessionLoading: false,
     session,
     sessions,
     permissions,
@@ -100,6 +103,12 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
 function useConnectedGatewayStoreValue(pairing: PairingState) {
   const workspaceId = useActiveWorkspaceId();
   const connection = useConnection(workspaceId);
+  const sessionInfoReady = useSessionInfoReady(workspaceId, connection.snapshot?.phase);
+  const sessionLoading = isSessionFeatureLoading({
+    workspaceId,
+    phase: connection.snapshot?.phase,
+    sessionInfoReady,
+  });
   const coreChat = useCoreChat(workspaceId);
   const coreDesks = useCoreDesks();
   const activeDesk = useMemo(
@@ -323,6 +332,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     gatewayConnected: true,
     socketStatus: 'connected' as const,
     snapshot: state,
+    sessionLoading,
     session,
     sessions,
     permissions,

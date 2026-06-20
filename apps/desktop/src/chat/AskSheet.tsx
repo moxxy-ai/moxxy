@@ -11,10 +11,56 @@ import { askStore } from '@moxxy/client-core';
  * user picks an option and we reply over `ask.respond`, unblocking the turn.
  */
 export function AskSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
-  return ask.kind === 'approval' && ask.approval ? (
+  return ask.kind === 'workflow' && ask.workflow ? (
+    <WorkflowSheet ask={ask} />
+  ) : ask.kind === 'approval' && ask.approval ? (
     <ApprovalSheet ask={ask} approval={ask.approval} />
   ) : (
     <PermissionSheet ask={ask} />
+  );
+}
+
+function WorkflowSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
+  const workflow = ask.workflow!;
+  const [reply, setReply] = useState('');
+  const send = (): void => askStore.respond(ask.requestId, { text: reply.trim() });
+
+  return (
+    <Sheet icon="spark" title={`${workflow.workflow} is waiting`} accent="var(--color-amber)">
+      <p style={bodyTextStyle}>
+        <strong style={{ color: 'var(--color-text)' }}>{workflow.label}</strong>
+        {workflow.stepId ? ` · ${workflow.stepId}` : ''}
+      </p>
+      {workflow.prompt.trim() && <pre style={preStyle}>{workflow.prompt.trim()}</pre>}
+      <textarea
+        autoFocus
+        value={reply}
+        onChange={(e) => setReply(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && reply.trim()) send();
+        }}
+        placeholder="Type your reply..."
+        rows={3}
+        style={{
+          width: '100%',
+          resize: 'vertical',
+          padding: '10px 12px',
+          fontSize: 13.5,
+          lineHeight: 1.5,
+          color: 'var(--color-text)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-card-border)',
+          borderRadius: 10,
+          outline: 'none',
+          fontFamily: 'inherit',
+        }}
+      />
+      <Buttons>
+        <SheetButton tone="primary" onClick={send} disabled={reply.trim().length === 0}>
+          Send reply
+        </SheetButton>
+      </Buttons>
+    </Sheet>
   );
 }
 

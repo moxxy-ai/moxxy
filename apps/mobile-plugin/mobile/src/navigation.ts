@@ -13,6 +13,8 @@ export interface MobileMenuItem {
   readonly label: 'Workflows' | 'Scheduler' | 'Settings' | 'Gateway';
   readonly icon: 'workflows' | 'scheduler' | 'settings' | 'gateway';
   readonly badge: string | null;
+  readonly disabled: boolean;
+  readonly disabledReason: string | null;
 }
 
 export interface RecentMenuSession {
@@ -84,17 +86,29 @@ export function buildBottomTabs(pendingActions = 0): BottomTabItem[] {
 }
 
 const MENU_ITEMS: ReadonlyArray<Omit<MobileMenuItem, 'badge'>> = [
-  { kind: 'link', href: '/workflows', label: 'Workflows', icon: 'workflows' },
-  { kind: 'link', href: '/scheduler', label: 'Scheduler', icon: 'scheduler' },
-  { kind: 'link', href: '/settings', label: 'Settings', icon: 'settings' },
-  { kind: 'link', href: '/settings', label: 'Gateway', icon: 'gateway' },
+  { kind: 'link', href: '/workflows', label: 'Workflows', icon: 'workflows', disabled: false, disabledReason: null },
+  { kind: 'link', href: '/scheduler', label: 'Scheduler', icon: 'scheduler', disabled: false, disabledReason: null },
+  { kind: 'link', href: '/settings', label: 'Settings', icon: 'settings', disabled: false, disabledReason: null },
+  { kind: 'link', href: '/settings', label: 'Gateway', icon: 'gateway', disabled: false, disabledReason: null },
 ];
 
-export function buildMobileMenuItems(_pendingActions = 0): MobileMenuItem[] {
+export function buildMobileMenuItems(
+  _pendingActions = 0,
+  options: { readonly sessionLoading?: boolean } = {},
+): MobileMenuItem[] {
   return MENU_ITEMS.map((item) => ({
     ...item,
     badge: null,
+    disabled: options.sessionLoading === true && isRunnerBackedMenuItem(item),
+    disabledReason:
+      options.sessionLoading === true && isRunnerBackedMenuItem(item)
+        ? 'Selected session is still loading'
+        : null,
   }));
+}
+
+function isRunnerBackedMenuItem(item: Omit<MobileMenuItem, 'badge'>): boolean {
+  return item.href === '/workflows' || item.href === '/scheduler';
 }
 
 export function buildRecentMenuSessions(

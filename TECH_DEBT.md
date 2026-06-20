@@ -1501,22 +1501,20 @@ graph) is intact; the two operate on different graphs and don't conflict.
     `workflows.resume` entry on `REMOTE_ALLOWED_COMMANDS` (RESPOND-only — answering a question
     the WORKFLOW asked, like `ask.respond`; it can't author). The `workflow_paused` event now
     carries the workflow name + step label + the question so the operator UI is self-contained.
-    **Reply UI:** desktop (`apps/desktop/src/workflows/PausedWorkflows.tsx` via the new
-    client-core `usePausedWorkflows` hook — a card with a reply box that dispatches
-    `workflows.resume`) and TUI (`plugin-cli` `WorkflowsPanel` switches to inline reply capture
-    when `view.run` returns `status: 'paused'`). The non-terminal-`paused` handling in `runNow`
-    is kept (and the resume side delivers the now-completed run to the inbox); the stale-checkpoint
-    sweeper + `clearRetainedChildren()`-on-shutdown from #146 are kept. Vars set before a pause
-    now survive the checkpoint round-trip (Finding 4, below) so downstream `{{ vars.* }}` render.
-    **Remaining edges (honest):** (1) the **mobile** UI is bridge-wired (handler + allow-list +
-    contract, Expo-bundled) but has **no paused-workflow card yet** — a mobile user can reach
-    `workflows.resume` over the frame bridge, but the screen doesn't surface the pending question
-    yet; add a paused card to `apps/mobile`. (2) **Multi-pause** workflows (several awaitInput
-    steps) work — resume re-pauses and the UI re-prompts — but each pause writes a fresh checkpoint;
-    not stress-tested beyond two pauses. (3) **Concurrent paused runs** of the SAME workflow each
-    get a distinct `runId`/checkpoint and surface as separate cards; the retained-child registry
-    is keyed by child session id so they don't collide, but the desktop card list isn't ordered
-    or de-duped beyond run id. (4) Resume relies on the **retained child still being in the
+    **Reply UI:** desktop and mobile now route `workflow_paused` through the same global
+    `askStore`/`AskSheet` path as permissions and approvals, so pending workflow questions survive
+    tab changes and can be answered from any surface; TUI (`plugin-cli` `WorkflowsPanel`) still
+    switches to inline reply capture when `view.run` returns `status: 'paused'`. The
+    non-terminal-`paused` handling in `runNow` is kept (and the resume side delivers the
+    now-completed run to the inbox); the stale-checkpoint sweeper +
+    `clearRetainedChildren()`-on-shutdown from #146 are kept. Vars set before a pause now survive
+    the checkpoint round-trip (Finding 4, below) so downstream `{{ vars.* }}` render.
+    **Remaining edges (honest):** (1) **Multi-pause** workflows (several awaitInput steps) work —
+    resume re-pauses and the UI re-prompts — but each pause writes a fresh checkpoint; not
+    stress-tested beyond two pauses. (2) **Concurrent paused runs** of the SAME workflow each get a
+    distinct `runId`/checkpoint and surface as separate asks; the retained-child registry is keyed
+    by child session id so they don't collide, but ordering across concurrent paused runs remains a
+    UI policy decision. (3) Resume relies on the **retained child still being in the
     runner process's in-memory registry** — a runner restart between pause and resume loses it
     (the checkpoint survives, but `spawner.continue` then fails cleanly rather than resuming);
     persisting/rehydrating the child across restarts is future work.

@@ -21,6 +21,8 @@ interface ChatSurfaceProps {
   readonly onPickPane: (pane: import('../shell/ContextRail').RailPane) => void;
   readonly sessionLoading: boolean;
   readonly onView: (v: import('../shell/ViewHeader').View) => void;
+  readonly disabledViews?: ReadonlyArray<import('../shell/ViewHeader').View>;
+  readonly disabledViewReason?: string;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -79,6 +81,8 @@ export function ChatSurface({
   onPickPane,
   sessionLoading,
   onView,
+  disabledViews,
+  disabledViewReason,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const desks = useDesks();
@@ -113,6 +117,8 @@ export function ChatSurface({
           canRename={activeDesk !== undefined}
           onRename={() => setRenameOpen(true)}
           onView={onView}
+          disabledViews={disabledViews}
+          disabledViewReason={disabledViewReason}
         />
         <div
           key={workspaceId}
@@ -139,6 +145,8 @@ export function ChatSurface({
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
         onView={onView}
+        disabledViews={disabledViews}
+        disabledViewReason={disabledViewReason}
       />
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}

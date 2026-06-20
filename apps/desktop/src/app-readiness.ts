@@ -1,4 +1,5 @@
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
+import { isSessionFeatureLoading } from '@moxxy/client-core';
 
 export interface LastConnectedSession {
   readonly workspaceId: string;
@@ -44,9 +45,11 @@ export function resolveActiveSessionShell({
       needsInitialSplash: false,
       phase: snapshot.phase,
       connected,
-      sessionLoading:
-        isRunnerLoadingPhase(snapshot.phase) ||
-        (connected && sessionInfoReady === false),
+      sessionLoading: isSessionFeatureLoading({
+        workspaceId: activeWorkspaceId,
+        phase: snapshot.phase,
+        sessionInfoReady,
+      }),
     };
   }
 
@@ -81,21 +84,4 @@ export function shouldShowProviderRecovery(
   sessionLoading: boolean,
 ): boolean {
   return phase.phase === 'connected' && phase.activeProvider === null && !sessionLoading;
-}
-
-function isRunnerLoadingPhase(phase: ConnectionPhase): boolean {
-  switch (phase.phase) {
-    case 'idle':
-    case 'resolving-cli':
-    case 'spawning':
-    case 'adopting':
-    case 'attaching':
-    case 'reconnecting':
-      return true;
-    case 'connected':
-    case 'cli-missing':
-    case 'failed':
-    case 'protocol-incompatible':
-      return false;
-  }
 }

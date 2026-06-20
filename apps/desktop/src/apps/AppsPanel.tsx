@@ -15,8 +15,12 @@ import './builtins';
  */
 export function AppsPanel({
   onView = () => undefined,
+  disabledViews,
+  disabledViewReason,
 }: {
   readonly onView?: (v: View) => void;
+  readonly disabledViews?: ReadonlyArray<View>;
+  readonly disabledViewReason?: string;
 }): JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -30,7 +34,12 @@ export function AppsPanel({
   return (
     <>
       <ViewHeader>
-        <ViewSwitcher view="apps" onView={onView} />
+        <ViewSwitcher
+          view="apps"
+          onView={onView}
+          disabledViews={disabledViews}
+          disabledReason={disabledViewReason}
+        />
         <span style={{ flex: 1 }} />
       </ViewHeader>
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1.5rem 2rem' }}>

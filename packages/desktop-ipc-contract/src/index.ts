@@ -43,7 +43,7 @@ export type { SessionInfo };
 
 // ---------- Interactive ask (permission / approval prompts) ---------------
 export { SESSION_INFO_REFRESH_EVENT } from './ask.js';
-export type { AskRequest, AskResponse } from './ask.js';
+export type { AskRequest, AskResponse, WorkflowAsk } from './ask.js';
 
 // ---------- Uniform error envelope ----------------------------------------
 export { encodeIpcError, decodeIpcError } from './error-envelope.js';

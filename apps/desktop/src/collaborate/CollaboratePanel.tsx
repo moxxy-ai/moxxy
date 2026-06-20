@@ -24,9 +24,13 @@ function taskChip(status: string): React.CSSProperties {
 export function CollaboratePanel({
   onView,
   workspaceId,
+  disabledViews,
+  disabledViewReason,
 }: {
   readonly onView: (v: View) => void;
   readonly workspaceId: string;
+  readonly disabledViews?: ReadonlyArray<View>;
+  readonly disabledViewReason?: string;
 }): JSX.Element {
   const chat = useChat(workspaceId);
   const blocks = useMemo(() => pairToolEvents(chat.events), [chat.events]);
@@ -102,7 +106,12 @@ export function CollaboratePanel({
 
   const header = (
     <ViewHeader>
-      <ViewSwitcher view="collaborate" onView={onView} />
+      <ViewSwitcher
+        view="collaborate"
+        onView={onView}
+        disabledViews={disabledViews}
+        disabledReason={disabledViewReason}
+      />
       <span
         style={{
           fontWeight: 600,

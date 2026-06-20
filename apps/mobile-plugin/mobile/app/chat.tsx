@@ -28,7 +28,21 @@ import { Keyboard, KeyboardAvoidingView, Platform, useWindowDimensions, View } f
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function ChatScreen() {
-  const { autoApprove, chat, compact, composer, gatewayConnected, goals, modelSelector, pairing, permissions, session, sessions, socketStatus } = useGatewayStore();
+  const {
+    autoApprove,
+    chat,
+    compact,
+    composer,
+    gatewayConnected,
+    goals,
+    modelSelector,
+    pairing,
+    permissions,
+    session,
+    sessionLoading,
+    sessions,
+    socketStatus,
+  } = useGatewayStore();
   const [composerHeight, setComposerHeight] = useState(0);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
@@ -52,7 +66,7 @@ export default function ChatScreen() {
     readOnly: session.readOnly || !session.connected,
     onRunCommand: composer.runCommand,
   });
-  const menuItems = buildMobileMenuItems(pendingActions);
+  const menuItems = buildMobileMenuItems(pendingActions, { sessionLoading });
   const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
   const workspaceCollapse = useWorkspaceCollapse(workspaceSections);
   const { height: screenHeight } = useWindowDimensions();
