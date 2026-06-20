@@ -1,15 +1,8 @@
 import { useCallback, useMemo } from 'react';
 import { buildWorkflowListFrame, buildWorkflowRunFrame } from '../clientFrames';
 import type { MobileState } from '../protocol';
-
-export interface MobileWorkflow {
-  readonly name: string;
-  readonly description: string;
-  readonly enabled: boolean;
-  readonly scope: string;
-  readonly steps: number;
-  readonly triggers: string;
-}
+import type { MobileWorkflow } from './useMobileWorkflows';
+export type { MobileWorkflow } from './useMobileWorkflows';
 
 export function useWorkflows(
   state: MobileState,

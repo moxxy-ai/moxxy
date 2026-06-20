@@ -47,6 +47,18 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-20 — Mobile workflow blocker cleanup
+
+**Retired on sight:** mobile workflow state no longer recreates its action
+callbacks on every render, so opening the Workflows tab cannot loop `refresh()`
+into React's maximum-update-depth guard. Paused workflow runs now route solely
+through the global ask/permission surface instead of being stashed as local
+Workflows-panel state, so workflow questions remain visible across Chat /
+Workflows / Collaborate / Apps navigation. The iOS app plist also declares the
+background modes used by the local Live Activity + notification refresh path.
+
+---
+
 ## 2026-06-18 — Quality sweep COMPLETE: all audit clusters processed
 
 The repo-wide audit below (41 clusters / 636 findings) has now been fully worked

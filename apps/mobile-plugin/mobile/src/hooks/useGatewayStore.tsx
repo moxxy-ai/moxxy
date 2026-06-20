@@ -20,13 +20,13 @@ import {
 } from '@moxxy/client-core';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
-import type { MobileWorkflow } from './useWorkflows';
 import { useAutoApprove } from './useAutoApprove';
 import { useCompactContext } from './useCompactContext';
 import { useComposer } from './useComposer';
 import { useGoals } from './useGoals';
 import { useChatTranscript } from './useChatTranscript';
 import { createDisabledModelSelector, useModelSelector } from './useModelSelector';
+import { disconnectedMobileWorkflowStore, useMobileWorkflows } from './useMobileWorkflows';
 import { disconnectedMobileSchedulerStore, useMobileScheduler } from './useMobileScheduler';
 import { usePairing, type PairingState } from './usePairing';
 import { usePermissions } from './usePermissions';
@@ -72,11 +72,7 @@ function useDisconnectedGatewayStoreValue(pairing: PairingState) {
     session,
     sessions,
     permissions,
-    workflows: {
-      workflows: [] as MobileWorkflow[],
-      refresh: () => undefined,
-      run: () => undefined,
-    },
+    workflows: disconnectedMobileWorkflowStore,
     scheduler: disconnectedMobileSchedulerStore,
     composer,
     autoApprove: useAutoApprove({
@@ -118,6 +114,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const coreDeskSessions = useCoreDeskSessions(activeDesk?.id ?? null);
   const queuedTurns = useQueuedTurns(workspaceId);
   const coreWorkflows = useCoreWorkflows();
+  const workflows = useMobileWorkflows(coreWorkflows);
   const coreScheduler = useCoreScheduler();
   const scheduler = useMobileScheduler(coreScheduler);
   const contextUsage = useContextUsage(workspaceId);
@@ -336,15 +333,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     session,
     sessions,
     permissions,
-    workflows: {
-      workflows: coreWorkflows.list.map(normalizeWorkflow),
-      refresh: () => {
-        void coreWorkflows.refresh();
-      },
-      run: (name: string) => {
-        void coreWorkflows.run(name);
-      },
-    },
+    workflows,
     scheduler,
     composer: useComposer(sendFrame, {
       workspaceId: state.activeWorkspaceId,
@@ -428,24 +417,6 @@ export function useGatewayStore(): GatewayStore {
   const value = useContext(GatewayContext);
   if (!value) throw new Error('GatewayProvider is missing');
   return value;
-}
-
-function normalizeWorkflow(value: {
-  readonly name: string;
-  readonly description?: string;
-  readonly enabled?: boolean;
-  readonly scope?: string;
-  readonly steps?: ReadonlyArray<unknown> | number;
-  readonly triggers?: ReadonlyArray<unknown> | string;
-}): MobileWorkflow {
-  return {
-    name: value.name,
-    description: value.description ?? '',
-    enabled: value.enabled === true,
-    scope: value.scope ?? '',
-    steps: Array.isArray(value.steps) ? value.steps.length : typeof value.steps === 'number' ? value.steps : 0,
-    triggers: Array.isArray(value.triggers) ? String(value.triggers.length) : String(value.triggers ?? ''),
-  };
 }
 
 function workspaceParam(workspaceId: string | null): { readonly workspaceId?: string } {
