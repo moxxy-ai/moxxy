@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Moxxy Mobile Gateway",
+    "name": "Moxxy Mobile",
     "slug": "moxxy-mobile-gateway",
     "scheme": "moxxy-mobile",
     "icon": "./assets/icon.png",
@@ -35,19 +35,19 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow Moxxy Mobile Gateway to access your microphone for voice input."
+          "microphonePermission": "Allow Moxxy Mobile to access your microphone for voice input."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Moxxy Mobile Gateway to scan the pairing QR code from your Mac."
+          "cameraPermission": "Allow Moxxy Mobile to scan the pairing QR code from your Mac."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Moxxy Mobile Gateway to attach screenshots and photos to your Moxxy messages."
+          "photosPermission": "Allow Moxxy Mobile to attach screenshots and photos to your Moxxy messages."
         }
       ]
     ]
