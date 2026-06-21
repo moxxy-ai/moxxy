@@ -5,6 +5,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
   type NativeScrollEvent,
@@ -14,8 +15,9 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useState, type ReactNode } from 'react';
 import { buildChatAttachmentPreview, summarizeAttachment } from '@/attachments';
+import { buildChatListContentStyle, buildOfflineEmptyStateCopy } from '@/chatListLayout';
 import type {
   AssistantTranscriptItem,
   SubagentGroupTranscriptItem,
@@ -45,6 +47,7 @@ const CHAT_LIST_PERFORMANCE_PROPS = buildMobileChatListPerformanceProps();
 
 interface ChatListProps {
   readonly items: ReadonlyArray<TranscriptItem>;
+  readonly connectionBanner?: ReactNode;
   readonly sending?: boolean;
   readonly hasOlder?: boolean;
   readonly onLoadOlder?: () => void;
@@ -54,6 +57,7 @@ interface ChatListProps {
 
 export function ChatList({
   items,
+  connectionBanner,
   sending = false,
   hasOlder = false,
   onLoadOlder,
@@ -79,14 +83,18 @@ export function ChatList({
     />
   ), [copiedMessageId, onCopyMessage]);
   const keyExtractor = useCallback((item: TranscriptItem) => item.id, []);
-  const empty = useCallback(() => (
-    <View className="mt-20">
-      <Text className="text-[27px] font-black leading-9 text-text">Moxxy Mobile</Text>
-      <Text className="mt-3 text-[16px] leading-7 text-muted">
-        Wybierz sesję z menu albo napisz wiadomość, żeby sterować tym samym runtime z telefonu.
-      </Text>
-    </View>
-  ), []);
+  const header = useCallback(() => (
+    connectionBanner ? <View style={{ marginBottom: 16 }}>{connectionBanner}</View> : null
+  ), [connectionBanner]);
+  const empty = useCallback(() => {
+    const copy = buildOfflineEmptyStateCopy(Boolean(connectionBanner));
+    return (
+      <View style={[styles.emptyState, connectionBanner ? styles.emptyStateCompact : styles.emptyStateRoomy]}>
+        <Text style={styles.emptyTitle}>{copy.title}</Text>
+        <Text style={styles.emptyBody}>{copy.body}</Text>
+      </View>
+    );
+  }, [connectionBanner]);
   const footer = useCallback(
     () => (shouldShowThinkingIndicator({ items, sending }) ? <ThinkingIndicator /> : null),
     [items, sending],
@@ -98,16 +106,47 @@ export function ChatList({
       data={items}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
+      ListHeaderComponent={header}
       ListEmptyComponent={empty}
       ListFooterComponent={footer}
       className="flex-1"
-      contentContainerStyle={{ gap: 16, paddingBottom: 20, paddingHorizontal: 20, paddingTop: 82 }}
+      contentContainerStyle={buildChatListContentStyle()}
       onContentSizeChange={autoScroll.handleContentSizeChange}
       onScroll={handleScroll}
       {...CHAT_LIST_PERFORMANCE_PROPS}
     />
   );
 }
+
+const styles = StyleSheet.create({
+  emptyBody: {
+    color: '#667085',
+    fontSize: 14,
+    lineHeight: 22,
+    marginTop: 6,
+  },
+  emptyState: {
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    borderColor: '#e3e5f0',
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  emptyStateCompact: {
+    marginTop: -2,
+  },
+  emptyStateRoomy: {
+    marginTop: 20,
+  },
+  emptyTitle: {
+    color: '#0f172a',
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 22,
+  },
+});
 
 function MessageBlock({
   item,

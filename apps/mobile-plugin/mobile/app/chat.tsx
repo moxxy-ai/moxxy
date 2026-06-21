@@ -11,6 +11,7 @@ import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
 import { ModeSelectorSheet } from '@/components/ModeSelectorSheet';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
 import { SessionActionsSheet } from '@/components/SessionActionsSheet';
+import { WaitingRoom } from '@/components/WaitingRoom';
 import { buildFloatingSheetPlacement } from '@/floatingSheetLayout';
 import { buildGoalSheetPlacement } from '@/goalSheetLayout';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
@@ -23,6 +24,7 @@ import { buildMobileMenuItems, buildWorkspaceMenuSections } from '@/navigation';
 import { buildChatConnectionUi } from '@/chatConnectionUi';
 import { shouldShowPendingActionsSheet } from '@/chatOverlayState';
 import { textOf } from '@/utils/record';
+import { buildWaitingRoomUi, shouldShowWaitingRoom } from '@/waitingRoomUi';
 import { useCallback, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -132,6 +134,11 @@ export default function ChatScreen() {
         setRenameSaving(false);
       });
   }, [renameDraft, renameSaving, sessions]);
+  const showWaitingRoom = shouldShowWaitingRoom(connectionUi.showConnectionBanner);
+  const waitingRoomUi = buildWaitingRoomUi({ paired: pairing.transportReady, status: socketStatus });
+  const connectionBanner = !showWaitingRoom && connectionUi.showConnectionBanner ? (
+    <ConnectionBanner paired={pairing.transportReady} connected={connectionUi.bannerConnected} status={socketStatus} />
+  ) : null;
 
   return (
     <AppShell>
@@ -141,20 +148,19 @@ export default function ChatScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
         >
-          <ChatList
-            items={chat.items}
-            sending={chat.sending}
-            hasOlder={chat.hasOlder}
-            onLoadOlder={chat.loadOlder}
-            copiedMessageId={messageCopy.copiedMessageId}
-            onCopyMessage={messageCopy.copyMessage}
-          />
-
-          {connectionUi.showConnectionBanner ? (
-            <View className="absolute z-10" style={{ left: 16, position: 'absolute', right: 16, top: 76, zIndex: 10 }}>
-              <ConnectionBanner paired={pairing.transportReady} connected={connectionUi.bannerConnected} status={socketStatus} />
-            </View>
-          ) : null}
+          {showWaitingRoom ? (
+            <WaitingRoom waitingRoomUi={waitingRoomUi} />
+          ) : (
+            <ChatList
+              items={chat.items}
+              connectionBanner={connectionBanner}
+              sending={chat.sending}
+              hasOlder={chat.hasOlder}
+              onLoadOlder={chat.loadOlder}
+              copiedMessageId={messageCopy.copiedMessageId}
+              onCopyMessage={messageCopy.copyMessage}
+            />
+          )}
 
           {showPendingActionsSheet ? (
             <View className="absolute z-40" style={floatingSheetStyle}>
@@ -247,6 +253,7 @@ export default function ChatScreen() {
             connected={session.connected}
             statusLabel={connectionUi.statusLabel}
             pendingActions={pendingActions}
+            title={showWaitingRoom ? 'Gateway' : 'Chat'}
             onToggleMenu={() => {
               Keyboard.dismiss();
               chrome.toggleMenu();
@@ -288,55 +295,57 @@ export default function ChatScreen() {
             onSubmit={submitRename}
           />
 
-          <ComposerCard
-            text={composer.text}
-            inputResetKey={composer.inputResetKey}
-            sending={chat.sending}
-            compacting={chat.compacting}
-            autoApprove={autoApprove.enabled}
-            actionsOpen={composer.actionsOpen}
-            voicePhase={composer.voicePhase}
-            voiceError={composer.voiceError}
-            attachments={composer.attachments}
-            attachmentError={composer.attachmentError}
-            readOnly={session.readOnly}
-            usage={chat.usage}
-            modelLabel={modelSelector.ui.chipLabel}
-            modelDisabled={modelSelector.disabled}
-            modeLabel={modelSelector.modeUi.chipLabel}
-            modeDisabled={modelSelector.modeUi.disabled || !session.connected || session.readOnly}
-            modeBanner={modelSelector.modeUi.banner}
-            onTextChange={composer.setText}
-            onSubmit={composer.submit}
-            onAbort={composer.abort}
-            onToggleActions={() => {
-              if (!composer.actionsOpen) Keyboard.dismiss();
-              composer.setActionsOpen(!composer.actionsOpen);
-            }}
-            onOpenModelSelector={() => {
-              Keyboard.dismiss();
-              composer.setActionsOpen(false);
-              modelSelector.openPicker();
-            }}
-            onOpenModeSelector={() => {
-              Keyboard.dismiss();
-              composer.setActionsOpen(false);
-              modelSelector.openModePicker();
-            }}
-            onGoal={() => {
-              Keyboard.dismiss();
-              goals.setOpen(true);
-            }}
-            onVoice={composer.transcribe}
-            onPickImage={composer.pickImageAttachment}
-            onPickFile={composer.pickDocumentAttachment}
-            onRemoveAttachment={composer.removeAttachment}
-            onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
-            onNewSession={sessions.newSession}
-            onCompact={compact.requestCompact}
-            onCommand={composer.runCommand}
-            onHeightChange={handleComposerHeightChange}
-          />
+          {!showWaitingRoom ? (
+            <ComposerCard
+              text={composer.text}
+              inputResetKey={composer.inputResetKey}
+              sending={chat.sending}
+              compacting={chat.compacting}
+              autoApprove={autoApprove.enabled}
+              actionsOpen={composer.actionsOpen}
+              voicePhase={composer.voicePhase}
+              voiceError={composer.voiceError}
+              attachments={composer.attachments}
+              attachmentError={composer.attachmentError}
+              readOnly={session.readOnly}
+              usage={chat.usage}
+              modelLabel={modelSelector.ui.chipLabel}
+              modelDisabled={modelSelector.disabled}
+              modeLabel={modelSelector.modeUi.chipLabel}
+              modeDisabled={modelSelector.modeUi.disabled || !session.connected || session.readOnly}
+              modeBanner={modelSelector.modeUi.banner}
+              onTextChange={composer.setText}
+              onSubmit={composer.submit}
+              onAbort={composer.abort}
+              onToggleActions={() => {
+                if (!composer.actionsOpen) Keyboard.dismiss();
+                composer.setActionsOpen(!composer.actionsOpen);
+              }}
+              onOpenModelSelector={() => {
+                Keyboard.dismiss();
+                composer.setActionsOpen(false);
+                modelSelector.openPicker();
+              }}
+              onOpenModeSelector={() => {
+                Keyboard.dismiss();
+                composer.setActionsOpen(false);
+                modelSelector.openModePicker();
+              }}
+              onGoal={() => {
+                Keyboard.dismiss();
+                goals.setOpen(true);
+              }}
+              onVoice={composer.transcribe}
+              onPickImage={composer.pickImageAttachment}
+              onPickFile={composer.pickDocumentAttachment}
+              onRemoveAttachment={composer.removeAttachment}
+              onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
+              onNewSession={sessions.newSession}
+              onCompact={compact.requestCompact}
+              onCommand={composer.runCommand}
+              onHeightChange={handleComposerHeightChange}
+            />
+          ) : null}
         </KeyboardAvoidingView>
       </SafeAreaView>
     </AppShell>
