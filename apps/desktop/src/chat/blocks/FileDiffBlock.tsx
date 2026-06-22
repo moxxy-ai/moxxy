@@ -8,6 +8,7 @@ import {
   type FileDiffDisplay,
 } from '@moxxy/sdk/tool-display';
 import { Icon } from '@moxxy/desktop-ui';
+import { usePanelControls } from '../../shell/surfaces/panelControls';
 
 /** Rows shown before the diff is collapsed (click the header to expand). */
 const COLLAPSED_ROWS = 14;
@@ -58,6 +59,11 @@ function DiffRowLine({ row, gutterWidth }: { row: DiffRow; gutterWidth: number }
  */
 export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const panel = usePanelControls();
+  // Clicking the card's icon/title opens the file in the embedded pane (z.ai:
+  // click the artifact chip → open the panel). Create → content, edit → diff.
+  const openInPanel = (): void =>
+    panel.openFile(display.path, display.mode === 'create' ? 'content' : 'diff');
   const allRows = toDiffRows(display);
   const rows = open ? allRows : allRows.slice(0, COLLAPSED_ROWS);
   const hidden = allRows.length - rows.length;
@@ -70,8 +76,11 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
       data-testid="block-file-diff"
       style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}
     >
-      <span
-        aria-hidden
+      <button
+        type="button"
+        onClick={openInPanel}
+        aria-label={`Open ${display.path} in the panel`}
+        title="Open in panel"
         style={{
           width: 34,
           height: 34,
@@ -82,42 +91,67 @@ export function FileDiffBlock({ display }: { readonly display: FileDiffDisplay }
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
+          cursor: 'pointer',
         }}
       >
         <Icon name="edit" size={17} />
-      </span>
+      </button>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', width: '100%', textAlign: 'left' }}
-        >
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>
-            {verb}
-            <span className="mono" style={{ color: 'var(--color-text-dim)', fontWeight: 500, marginLeft: 6 }}>
-              · {display.path}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+          {/* Click the title to OPEN the artifact in the panel (z.ai). */}
+          <button
+            type="button"
+            onClick={openInPanel}
+            title="Open in panel"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              minWidth: 0,
+              textAlign: 'left',
+              cursor: 'pointer',
+            }}
+          >
+            <span style={{ fontWeight: 600, fontSize: 13.5 }}>
+              {verb}
+              <span className="mono" style={{ color: 'var(--color-text-dim)', fontWeight: 500, marginLeft: 6 }}>
+                · {display.path}
+              </span>
             </span>
-          </span>
-          <span className="mono" style={{ fontSize: 11, fontWeight: 600 }}>
-            <span style={{ color: 'var(--color-green)' }}>+{display.added}</span>{' '}
-            <span style={{ color: 'var(--color-red)' }}>−{display.removed}</span>
-          </span>
+            <span className="mono" style={{ fontSize: 11, fontWeight: 600 }}>
+              <span style={{ color: 'var(--color-green)' }}>+{display.added}</span>{' '}
+              <span style={{ color: 'var(--color-red)' }}>−{display.removed}</span>
+            </span>
+          </button>
           <span style={{ flex: 1 }} />
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={openInPanel}
+            aria-label="Open in panel"
+            title="Open in panel"
+            style={{ width: 26, height: 26, borderRadius: 7, color: 'var(--color-text-dim)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Icon name="external" size={14} />
+          </button>
           {allRows.length > COLLAPSED_ROWS && (
-            <span
-              aria-hidden
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              aria-label={open ? 'Collapse diff' : 'Expand diff'}
+              title={open ? 'Collapse diff' : 'Expand diff'}
               style={{
                 color: 'var(--color-text-dim)',
+                display: 'inline-flex',
                 transform: open ? 'rotate(90deg)' : 'none',
                 transition: 'transform 120ms ease',
-                display: 'inline-flex',
               }}
             >
               <Icon name="chevron-right" size={14} />
-            </span>
+            </button>
           )}
-        </button>
+        </div>
         {display.hunks.length > 0 ? (
           <div
             className="mono"

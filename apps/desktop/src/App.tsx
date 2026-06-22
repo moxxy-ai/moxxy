@@ -24,6 +24,7 @@ import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import type { View } from './shell/ViewHeader';
 import { ContextRail, type RailPane } from './shell/ContextRail';
 import type { AgentLink, FileSelection } from './shell/surfaces/registry';
+import { PanelControlsProvider, type PanelControls } from './shell/surfaces/panelControls';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
@@ -106,6 +107,19 @@ export function App(): JSX.Element {
     if (file) setRailFile(file);
   }, []);
   useAgentSurfaceReveal(activeWorkspaceId, revealPane);
+
+  // Imperative panel controls for chat artifact cards: clicking a Write/Edit
+  // card opens the file pane (z.ai "click the chip → open the embedded pane").
+  const panelControls = useMemo<PanelControls>(
+    () => ({
+      openFile: (path, mode) => {
+        setRailFile({ path, mode });
+        setRailPane('file');
+      },
+      openPane: (kind) => setRailPane(kind),
+    }),
+    [],
+  );
 
   // Pane → chat/agent channel. Built-in panes use `ask` ("Ask agent about this
   // file"); the browser pane's region-capture attaches screenshots directly.
@@ -281,7 +295,7 @@ export function App(): JSX.Element {
       <UpdateBanner />
       <WorkspaceSidebar view={view} onView={setView} workspaceId={activeWorkspaceId} />
       {view === 'chat' && (
-        <>
+        <PanelControlsProvider value={panelControls}>
           <ChatSurface
             phase={shellPhase}
             workspaceId={activeWorkspaceId}
@@ -296,7 +310,7 @@ export function App(): JSX.Element {
             file={railFile}
             agent={agent}
           />
-        </>
+        </PanelControlsProvider>
       )}
       {view === 'workflows' && (
         <main className="col-main col-main--flat">
