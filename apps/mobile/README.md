@@ -12,7 +12,7 @@ relay only ever sees ciphertext. On the same Wi-Fi it falls back to a plain LAN
 
 ```sh
 pnpm install            # from the repo root
-cd apps/mobile-plugin/mobile
+cd apps/mobile
 pnpm start              # expo start  (no Expo account needed)
 ```
 
@@ -44,7 +44,7 @@ Run the **Mobile EAS Build** workflow from the Actions tab
 ### Build locally
 
 ```sh
-cd apps/mobile-plugin/mobile
+cd apps/mobile
 export EXPO_TOKEN=...           # or `eas login`
 eas build --profile preview --platform all
 ```

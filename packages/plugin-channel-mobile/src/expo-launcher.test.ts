@@ -7,7 +7,7 @@ import {
 } from './expo-launcher.js';
 
 describe('mobile Expo launcher', () => {
-  it('starts the bundled full mobile-plugin Expo app by default', () => {
+  it('starts the bundled full mobile Expo app by default', () => {
     expect(resolveMobileExpoOptions()).toEqual({
       enabled: true,
       host: 'lan',
@@ -35,8 +35,8 @@ describe('mobile Expo launcher', () => {
     ]);
   });
 
-  it('resolves the repo mobile-plugin app from the package directory', () => {
-    const expected = fileURLToPath(new URL('../../../apps/mobile-plugin/mobile', import.meta.url));
+  it('resolves the repo mobile app from the package directory', () => {
+    const expected = fileURLToPath(new URL('../../../apps/mobile', import.meta.url));
 
     expect(resolveMobileExpoAppDir()).toBe(expected);
   });

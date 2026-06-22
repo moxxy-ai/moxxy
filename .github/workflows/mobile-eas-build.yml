@@ -1,6 +1,6 @@
 name: Mobile EAS Build
 
-# Build (and optionally submit) the Expo mobile app — apps/mobile-plugin/mobile —
+# Build (and optionally submit) the Expo mobile app — apps/mobile —
 # on EAS, using YOUR Expo account. All account identity stays in repo secrets so
 # nothing is committed:
 #
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/mobile-plugin/mobile
+        working-directory: apps/mobile
     env:
       # Injected into app.config.ts so the account identity is never committed.
       EXPO_OWNER: ${{ secrets.EXPO_OWNER }}

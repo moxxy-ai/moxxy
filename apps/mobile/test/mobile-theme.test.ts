@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const repoRoot = path.resolve(__dirname, '../../../..');
+const repoRoot = path.resolve(__dirname, '../../..');
 const tokenSource = readFileSync(
-  path.join(repoRoot, 'apps/mobile-plugin/mobile/src/styles/tokens.ts'),
+  path.join(repoRoot, 'apps/mobile/src/styles/tokens.ts'),
   'utf8',
 );
 

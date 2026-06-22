@@ -16,4 +16,4 @@ environment (so the account identity is never committed), and a
 (`EXPO_TOKEN`, `EXPO_OWNER`, `EAS_PROJECT_ID`).
 
 Remove the retired `apps/mobile-poc` proof-of-concept (superseded by
-`apps/mobile-plugin/mobile`).
+`apps/mobile`).
