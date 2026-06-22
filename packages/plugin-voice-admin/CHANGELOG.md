@@ -1,5 +1,12 @@
 # @moxxy/plugin-voice-admin
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [648c966]
+  - @moxxy/sdk@0.16.1
+
 ## 0.0.4
 
 ### Patch Changes
