@@ -1,0 +1,14 @@
+# Expo (https://docs.expo.dev) — generated artifacts, never committed.
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Metro
+.metro-health-check*
+
+# Native build caches not already covered by ios/.gitignore
+*.orig.*
+
+# TypeScript incremental build info
+*.tsbuildinfo
