@@ -246,7 +246,7 @@ export function App(): JSX.Element {
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      <WorkspaceSidebar view={view} onView={setView} />
+      <WorkspaceSidebar view={view} onView={setView} workspaceId={activeWorkspaceId} />
       {view === 'chat' && (
         <>
           <ChatSurface

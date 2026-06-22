@@ -3,17 +3,27 @@ import { useAuth, useClerk, useUser } from '@clerk/clerk-react';
 import { Icon } from '@moxxy/desktop-ui';
 import { usePrefs } from '@moxxy/client-core';
 import { ProfileView } from '../ProfileView';
+import type { View } from '../ViewHeader';
 
 /**
- * Bottom-of-rail profile row. Doubles as a presence indicator: signed-out
- * renders a "Sign in" prompt that opens Clerk's own modal
- * (`clerk.openSignIn()` — this is the only sign-in entry point, no longer
- * an onboarding step); signed-in shows the display name plus a tier badge
- * and opens the full account view on click. There is no "Guest" state — the
- * row is always either Sign in or the profile. A top border separates it
- * from the scrolling workspace list above.
+ * Bottom-of-rail profile row (z.ai style): avatar + display name + a settings
+ * gear. Doubles as a presence indicator: signed-out renders a "Sign in" prompt
+ * that opens Clerk's own modal (`clerk.openSignIn()` — the only sign-in entry
+ * point); signed-in shows the name + tier badge and opens the full account view
+ * on click. The gear is the sole Settings destination now that the standalone
+ * sidebar nav entry was folded in. A top border separates it from the list above.
+ *
+ * In the collapsed icon rail it shrinks to just the avatar + a gear, stacked.
  */
-export function ProfilePill(): JSX.Element {
+export function ProfilePill({
+  view,
+  onView,
+  collapsed = false,
+}: {
+  readonly view: View;
+  readonly onView: (v: View) => void;
+  readonly collapsed?: boolean;
+}): JSX.Element {
   const { user, isLoaded } = useUser();
   const { sessionClaims } = useAuth();
   const clerk = useClerk();
@@ -64,56 +74,172 @@ export function ProfilePill(): JSX.Element {
       claims['account_type'] ??
       (user?.unsafeMetadata as Record<string, unknown> | undefined)?.accountType,
   );
-  // Single-line profile row, no background — a top border separates it
-  // from the workspace list above. Signed-out reads as a sign-in prompt;
-  // there is no "Guest" middle state.
-  const row =
-    !showProfile ? (
-      <button
-        type="button"
-        className="row-button"
-        // Explicit redirect targets, mirroring the ClerkProvider fallback
-        // props: keep the post-OAuth landing on the app's own origin so the
-        // FAPI never falls back to the hosted Account Portal.
-        onClick={() =>
-          void clerk.openSignIn({ fallbackRedirectUrl: '/', signUpFallbackRedirectUrl: '/' })
-        }
-        style={profileRowStyle('var(--color-primary-strong)')}
+  const avatar = <Avatar imageUrl={user?.imageUrl ?? null} name={displayName} signedIn={showProfile} />;
+  const openSignIn = (): void =>
+    void clerk.openSignIn({ fallbackRedirectUrl: '/', signUpFallbackRedirectUrl: '/' });
+  const settingsActive = view === 'settings';
+
+  // Collapsed rail: just the avatar (opens account / sign-in) + a gear, stacked.
+  if (collapsed) {
+    return (
+      <div
+        style={{
+          borderTop: '1px solid var(--color-sidebar-border)',
+          padding: '8px 0',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 6,
+        }}
       >
-        <Icon name="agent" size={14} style={{ flexShrink: 0 }} />
-        <span style={profileLabelStyle('var(--color-primary-strong)')}>Sign in</span>
-        <Icon name="chevron-right" size={14} style={{ flexShrink: 0 }} />
-      </button>
-    ) : (
-      <button
-        type="button"
-        className="row-button"
-        onClick={() => setProfileOpen(true)}
-        title={`${displayName} · click for account`}
-        style={profileRowStyle('var(--color-sidebar-text)')}
-      >
-        <span style={profileLabelStyle('var(--color-sidebar-text)')}>{displayName}</span>
-        {!isLoaded ? (
-          <span style={{ fontSize: 10.5, color: 'var(--color-sidebar-text-dim)', flexShrink: 0 }}>…</span>
-        ) : (
-          <span style={tierBadgeStyle(tier)}>{tier}</span>
+        <button
+          type="button"
+          className="row-button"
+          aria-label={showProfile ? `${displayName} — account` : 'Sign in'}
+          title={showProfile ? displayName : 'Sign in'}
+          onClick={() => (showProfile ? setProfileOpen(true) : openSignIn())}
+          style={{ ...gearBtnStyle(false), width: 36, height: 36 }}
+        >
+          {avatar}
+        </button>
+        <button
+          type="button"
+          className="row-button"
+          data-testid="nav-settings"
+          data-active={settingsActive}
+          aria-label="Settings"
+          title="Settings"
+          onClick={() => onView('settings')}
+          style={gearBtnStyle(settingsActive)}
+        >
+          <Icon name="settings" size={17} />
+        </button>
+        {profileOpen && signedIn && (
+          <ProfileView tier={tier} onClose={() => setProfileOpen(false)} />
         )}
-        <Icon
-          name="chevron-right"
-          size={13}
-          style={{ color: 'var(--color-sidebar-text-dim)', flexShrink: 0 }}
-        />
-      </button>
+      </div>
     );
+  }
+
+  // Single-line profile row: avatar + name (+ tier) on the left, settings gear
+  // on the right. Signed-out reads as a sign-in prompt; no "Guest" middle state.
+  const identity = !showProfile ? (
+    <button
+      type="button"
+      className="row-button"
+      onClick={openSignIn}
+      style={profileRowStyle('var(--color-primary-strong)')}
+    >
+      {avatar}
+      <span style={profileLabelStyle('var(--color-primary-strong)')}>Sign in</span>
+      <Icon name="chevron-right" size={14} style={{ flexShrink: 0 }} />
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="row-button"
+      onClick={() => setProfileOpen(true)}
+      title={`${displayName} · click for account`}
+      style={profileRowStyle('var(--color-sidebar-text)')}
+    >
+      {avatar}
+      <span style={profileLabelStyle('var(--color-sidebar-text)')}>{displayName}</span>
+      {!isLoaded ? (
+        <span style={{ fontSize: 10.5, color: 'var(--color-sidebar-text-dim)', flexShrink: 0 }}>…</span>
+      ) : (
+        <span style={tierBadgeStyle(tier)}>{tier}</span>
+      )}
+    </button>
+  );
 
   return (
-    <div style={{ borderTop: '1px solid var(--color-sidebar-border)', padding: '6px 6px 8px' }}>
-      {row}
+    <div
+      style={{
+        borderTop: '1px solid var(--color-sidebar-border)',
+        padding: '6px 6px 8px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>{identity}</div>
+      <button
+        type="button"
+        className="row-button"
+        data-testid="nav-settings"
+        data-active={settingsActive}
+        aria-label="Settings"
+        title="Settings"
+        onClick={() => onView('settings')}
+        style={gearBtnStyle(settingsActive)}
+      >
+        <Icon name="settings" size={17} />
+      </button>
       {profileOpen && signedIn && (
         <ProfileView tier={tier} onClose={() => setProfileOpen(false)} />
       )}
     </div>
   );
+}
+
+/** Round avatar — Clerk image if available, else initials, else the agent glyph. */
+function Avatar({
+  imageUrl,
+  name,
+  signedIn,
+}: {
+  readonly imageUrl: string | null;
+  readonly name: string;
+  readonly signedIn: boolean;
+}): JSX.Element {
+  const base: React.CSSProperties = {
+    width: 26,
+    height: 26,
+    borderRadius: '50%',
+    flexShrink: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    objectFit: 'cover',
+  };
+  if (imageUrl) return <img src={imageUrl} alt="" style={base} />;
+  const initials = signedIn
+    ? name
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0]?.toUpperCase() ?? '')
+        .join('') || name[0]?.toUpperCase() || '?'
+    : null;
+  return (
+    <span
+      aria-hidden
+      style={{
+        ...base,
+        background: 'var(--color-sidebar-bg-active)',
+        color: 'var(--color-sidebar-text)',
+        fontSize: 11,
+        fontWeight: 700,
+      }}
+    >
+      {initials ?? <Icon name="agent" size={14} />}
+    </span>
+  );
+}
+
+/** Settings/avatar icon button — grey active wash when on the Settings view. */
+function gearBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    flexShrink: 0,
+    color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
+    background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
+  };
 }
 
 // ---- tier helpers ----

@@ -1,13 +1,15 @@
 /**
  * Sidebar collapse/expand:
- *   1. The rail's collapse button hides the whole sidebar and surfaces
- *      the expand affordance in the main-pane header (`ViewHeader`).
- *   2. The expand button restores the rail and disappears again.
+ *   1. The rail's collapse button shrinks the sidebar to a narrow ICON rail
+ *      (it is NOT hidden) which carries its own expand button.
+ *   2. The expand button restores the full rail and disappears again.
  *   3. State persists via localStorage (`moxxy.sidebarCollapsed`) — a
  *      "restart" (store re-read) comes back collapsed.
  *
  * WorkspaceSidebar's data hooks (client-core) and ProfilePill's Clerk
- * hooks are mocked — this suite only cares about the shell chrome.
+ * hooks are mocked — this suite only cares about the shell chrome. The
+ * Chat/Agent toggle (which would need a session) is skipped by passing
+ * workspaceId={null}.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,7 +55,7 @@ const STORAGE_KEY = 'moxxy.sidebarCollapsed';
 function renderShell(): void {
   render(
     <>
-      <WorkspaceSidebar view="chat" onView={vi.fn()} />
+      <WorkspaceSidebar view="chat" onView={vi.fn()} workspaceId={null} />
       <ViewHeader>
         <span>header content</span>
       </ViewHeader>
@@ -69,29 +71,29 @@ beforeEach(() => {
 });
 
 describe('sidebar collapse', () => {
-  it('starts expanded: sidebar visible, no expand button in the header', () => {
+  it('starts expanded: full rail visible, no expand button', () => {
     renderShell();
     expect(screen.getByTestId('sidebar-collapse')).toBeTruthy();
     expect(screen.getByTestId('nav-settings')).toBeTruthy();
     expect(screen.queryByTestId('sidebar-expand')).toBeNull();
   });
 
-  it('collapse hides the sidebar, shows the header expand button, persists', () => {
+  it('collapse shrinks to the icon rail (expand button in the rail), persists', () => {
     renderShell();
     fireEvent.click(screen.getByTestId('sidebar-collapse'));
-    // The whole rail is gone (width 0 — it renders nothing)…
-    expect(screen.queryByTestId('nav-settings')).toBeNull();
+    // The collapse button is gone, but the rail is NOT — it's now an icon rail
+    // that still carries the settings gear and an expand button.
     expect(screen.queryByTestId('sidebar-collapse')).toBeNull();
-    // …and the main-pane header now carries the way back.
+    expect(screen.getByTestId('nav-settings')).toBeTruthy();
     expect(screen.getByTestId('sidebar-expand')).toBeTruthy();
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe('1');
   });
 
-  it('expand restores the sidebar and clears the persisted flag', () => {
+  it('expand restores the full rail and clears the persisted flag', () => {
     renderShell();
     fireEvent.click(screen.getByTestId('sidebar-collapse'));
     fireEvent.click(screen.getByTestId('sidebar-expand'));
-    expect(screen.getByTestId('nav-settings')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-collapse')).toBeTruthy();
     expect(screen.queryByTestId('sidebar-expand')).toBeNull();
     expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
@@ -100,7 +102,7 @@ describe('sidebar collapse', () => {
     window.localStorage.setItem(STORAGE_KEY, '1');
     reloadSidebarCollapsedFromStorage();
     renderShell();
-    expect(screen.queryByTestId('nav-settings')).toBeNull();
+    expect(screen.queryByTestId('sidebar-collapse')).toBeNull();
     expect(screen.getByTestId('sidebar-expand')).toBeTruthy();
   });
 
@@ -111,9 +113,9 @@ describe('sidebar collapse', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe('1');
     act(() => toggleSidebarCollapsed());
     expect(screen.queryByTestId('sidebar-expand')).toBeNull();
-    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe(null);
     // Direct set to the current value is a no-op.
     act(() => setSidebarCollapsed(false));
-    expect(screen.getByTestId('nav-settings')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-collapse')).toBeTruthy();
   });
 });

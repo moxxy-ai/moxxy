@@ -1,7 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
-import { PanelLeftIcon } from './PanelLeftIcon';
-import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import { useMenuKeyboard } from './useMenuKeyboard';
 
 /** Top-level main-content views. Chat ↔ Workflows ↔ Collaborate ↔ Apps switch
@@ -14,13 +12,11 @@ export type View = 'chat' | 'workflows' | 'collaborate' | 'settings' | 'apps';
  * Children lay out in a flex row; use `<span style={{ flex: 1 }} />`
  * to push trailing controls to the right edge.
  *
- * When the workspace sidebar is collapsed the rail (and its collapse
- * button) is gone entirely, so every header leads with the expand
- * affordance — it reads the shared collapsed store directly rather
- * than threading a prop through each view.
+ * The sidebar no longer disappears when collapsed — it becomes a narrow icon
+ * rail that carries its own expand button — so the header no longer needs to
+ * host an expand affordance.
  */
 export function ViewHeader({ children }: { readonly children: ReactNode }): JSX.Element {
-  const sidebarCollapsed = useSidebarCollapsed();
   return (
     <header
       style={{
@@ -35,27 +31,6 @@ export function ViewHeader({ children }: { readonly children: ReactNode }): JSX.
         gap: 12,
       }}
     >
-      {sidebarCollapsed && (
-        <button
-          type="button"
-          aria-label="Expand sidebar"
-          data-testid="sidebar-expand"
-          title="Expand sidebar (⌘B / Ctrl+B)"
-          onClick={() => setSidebarCollapsed(false)}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 5,
-            marginLeft: -6,
-            borderRadius: 8,
-            color: 'var(--color-text-muted)',
-            flexShrink: 0,
-          }}
-        >
-          <PanelLeftIcon size={16} />
-        </button>
-      )}
       {children}
     </header>
   );
@@ -165,7 +140,7 @@ function pillStyle(active: boolean): React.CSSProperties {
     whiteSpace: 'nowrap',
     color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
     background: active ? 'var(--color-surface)' : 'transparent',
-    boxShadow: active ? '0 1px 3px rgba(15, 23, 42, 0.12)' : 'none',
+    boxShadow: active ? '0 1px 2px rgba(24, 24, 27, 0.06)' : 'none',
     transition: 'background 140ms, color 140ms',
   };
 }

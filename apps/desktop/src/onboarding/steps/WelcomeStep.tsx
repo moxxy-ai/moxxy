@@ -21,7 +21,7 @@ export function WelcomeStep({ onNext }: { readonly onNext: () => void }): JSX.El
         style={{ width: 220, height: 'auto', imageRendering: 'pixelated' }}
       />
       <div>
-        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>
+        <h2 style={{ margin: 0, fontSize: 30, fontWeight: 400, fontFamily: 'var(--font-serif)' }}>
           Hi, I&rsquo;m <span style={{ color: 'var(--color-primary-strong)' }}>Moxxy</span>.
         </h2>
         <p

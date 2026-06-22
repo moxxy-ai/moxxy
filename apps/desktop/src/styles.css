@@ -277,6 +277,14 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   border-right: 1px solid var(--color-sidebar-border);
 }
 
+/* Collapsed = a narrow icon-only rail (z.ai), NOT hidden. Width is
+ * intentionally NOT transitioned: a width animation would reflow the main
+ * column for ~200ms, and the right context rail (which can host xterm) must
+ * never animate width — keep the whole shell snap-resize for consistency. */
+.col-sidebar[data-collapsed='true'] {
+  width: 56px;
+}
+
 .col-rail {
   /* position: relative anchors the absolutely-positioned resize handle
    * (ContextRail) to the rail's own left edge. Without it the handle resolves

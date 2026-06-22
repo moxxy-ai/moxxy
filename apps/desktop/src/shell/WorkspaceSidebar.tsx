@@ -3,7 +3,7 @@ import { useDesks } from '@moxxy/client-core';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
-import { Logo } from './workspace-sidebar/Logo';
+import { Logo, LogoGlyph } from './workspace-sidebar/Logo';
 import { PanelLeftIcon } from './PanelLeftIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import {
@@ -13,11 +13,14 @@ import {
 import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
+import { ChatAgentToggle } from './workspace-sidebar/ChatAgentToggle';
 import type { View } from './ViewHeader';
 
 interface Props {
   readonly view: View;
   readonly onView: (v: View) => void;
+  /** Active workspace — drives the Chat/Agent (mode) toggle. */
+  readonly workspaceId: string | null;
 }
 
 /**
@@ -33,7 +36,7 @@ interface Props {
  * beside the logo); `ViewHeader` then shows the matching expand button
  * in the main pane, so the affordance never disappears with the rail.
  */
-export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
+export function WorkspaceSidebar({ view, onView, workspaceId }: Props): JSX.Element | null {
   const collapsed = useSidebarCollapsed();
   const desks = useDesks();
   const foldedDesks = useWorkspaceCollapsed();
@@ -52,11 +55,6 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
   const [pendingRemove, setPendingRemove] = useState<Desk | null>(null);
   /** Session queued for removal; null when no confirm is open. */
   const [pendingSessionRemove, setPendingSessionRemove] = useState<DeskSession | null>(null);
-
-  // Collapsed = the rail contributes no width at all (it's text-first
-  // now, so a mini icon rail would have nothing useful to show). All
-  // hooks above ran, so the early return is hook-safe.
-  if (collapsed) return null;
 
   const activeDesk = desks.desks.find((d) => d.id === desks.activeId) ?? null;
 
@@ -90,8 +88,58 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
     }
   };
 
+  // Collapsed = a narrow ICON rail (z.ai), not hidden. Hooks above all ran,
+  // so this branch is hook-safe.
+  if (collapsed) {
+    return (
+      <aside className="col-sidebar" data-collapsed="true">
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 8,
+            padding: '14px 0 8px',
+          }}
+        >
+          <LogoGlyph size={28} />
+          <button
+            type="button"
+            aria-label="Expand sidebar"
+            data-testid="sidebar-expand"
+            title="Expand sidebar (⌘B / Ctrl+B)"
+            onClick={() => setSidebarCollapsed(false)}
+            className="row-button"
+            style={iconRailBtn}
+          >
+            <PanelLeftIcon size={16} />
+          </button>
+          {workspaceId && <ChatAgentToggle workspaceId={workspaceId} collapsed />}
+          {activeDesk && (
+            <button
+              type="button"
+              aria-label="New chat"
+              title="New chat"
+              data-testid="rail-new-session"
+              onClick={() => {
+                void onNewSession(activeDesk.id);
+                onView('chat');
+              }}
+              className="row-button"
+              style={iconRailBtn}
+            >
+              <Icon name="plus" size={18} />
+            </button>
+          )}
+        </div>
+        <div style={{ flex: 1 }} />
+        <ProfilePill view={view} onView={onView} collapsed />
+      </aside>
+    );
+  }
+
   return (
-    <aside className="col-sidebar">
+    <aside className="col-sidebar" data-collapsed="false">
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <Logo />
@@ -116,6 +164,11 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
           <PanelLeftIcon size={16} />
         </button>
       </div>
+      {workspaceId && (
+        <div style={{ padding: '2px 0 10px' }}>
+          <ChatAgentToggle workspaceId={workspaceId} />
+        </div>
+      )}
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 12px 12px' }}>
         {desks.loading && desks.desks.length === 0 ? (
           <div style={{ padding: '8px 0' }}>
@@ -183,47 +236,8 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
           />
         )}
       </div>
-      {/* Settings is the only sidebar destination — anchored just above
-       *  the profile's top border. Chat/Workflows switch in the main-pane
-       *  header instead. */}
-      <nav style={{ padding: '6px 12px 10px' }}>
-        <button
-          type="button"
-          data-testid="nav-settings"
-          data-active={view === 'settings'}
-          onClick={() => onView('settings')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            width: '100%',
-            padding: '10px 12px',
-            fontSize: 13.5,
-            color:
-              view === 'settings'
-                ? 'var(--color-sidebar-text)'
-                : 'var(--color-sidebar-text-dim)',
-            background:
-              view === 'settings' ? 'var(--color-sidebar-bg-active)' : 'transparent',
-            borderRadius: 10,
-            fontWeight: view === 'settings' ? 600 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: 20,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.85,
-            }}
-          >
-            <Icon name="settings" size={17} />
-          </span>
-          <span>Settings</span>
-        </button>
-      </nav>
-      <ProfilePill />
+      {/* Settings is reached via the gear in the profile row (z.ai). */}
+      <ProfilePill view={view} onView={onView} />
       {pendingFolder && (
         <NameWorkspaceModal
           defaultName={pendingFolder.split('/').filter(Boolean).pop() ?? 'New workspace'}
@@ -261,3 +275,14 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
     </aside>
   );
 }
+
+/** Square icon button used in the collapsed icon rail. */
+const iconRailBtn: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 36,
+  height: 36,
+  borderRadius: 9,
+  color: 'var(--color-sidebar-text-dim)',
+};

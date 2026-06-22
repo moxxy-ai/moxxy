@@ -3,6 +3,7 @@ import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../../shell/ViewHeader';
 import { RailMenu } from './RailMenu';
+import { ModelSelectorButton } from '../agent-picker/ModelSelectorButton';
 import type { RailPane } from '../../shell/ContextRail';
 
 export function Header({
@@ -29,6 +30,9 @@ export function Header({
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
   return (
     <ViewHeader>
+      {/* z.ai puts the model name top-left; the view switcher follows it. */}
+      <ModelSelectorButton workspaceId={workspaceId} />
+      <span style={{ width: 1, height: 22, background: 'var(--color-card-border)' }} />
       <ViewSwitcher view="chat" onView={onView} />
       {/* workspace path lives in the right-hand context rail now */}
       <span style={{ flex: 1 }} />
@@ -80,6 +84,50 @@ export function Header({
         <Icon name="pencil" size={18} />
       </IconButton>
       <RailMenu workspaceId={workspaceId} current={railPane} onPick={onPickPane} />
+      {/* Share opens the mobile/pairing flow (tunnel + QR live in Settings →
+       *  Mobile); API jumps to the providers settings. */}
+      <button
+        type="button"
+        data-testid="topbar-share"
+        onClick={() => onView('settings')}
+        title="Share this session to your phone"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '7px 14px',
+          borderRadius: 9,
+          fontSize: 13,
+          fontWeight: 600,
+          color: 'var(--color-main-bg)',
+          background: 'var(--color-ink)',
+          border: 'none',
+        }}
+      >
+        <Icon name="send" size={14} />
+        <span>Share</span>
+      </button>
+      <button
+        type="button"
+        className="btn-ghost"
+        data-testid="topbar-api"
+        onClick={() => onView('settings')}
+        title="API & providers"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 3,
+          padding: '7px 8px',
+          borderRadius: 9,
+          fontSize: 13,
+          fontWeight: 600,
+          color: 'var(--color-text-muted)',
+          background: 'transparent',
+        }}
+      >
+        <span>API</span>
+        <span aria-hidden style={{ fontSize: 11 }}>↗</span>
+      </button>
     </ViewHeader>
   );
 }

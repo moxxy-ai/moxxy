@@ -31,7 +31,7 @@ export function DoneStep({ onComplete }: { readonly onComplete: () => void }): J
         style={{ width: 200, height: 'auto', imageRendering: 'pixelated' }}
       />
       <div>
-        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>You&rsquo;re all set!</h2>
+        <h2 style={{ margin: 0, fontSize: 30, fontWeight: 400, fontFamily: 'var(--font-serif)' }}>You&rsquo;re all set!</h2>
         <p
           style={{
             margin: '8px 0 0',
