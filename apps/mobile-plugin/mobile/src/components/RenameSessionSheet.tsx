@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import { MobileIcon } from './MobileIcon';
 
@@ -38,28 +39,25 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
         style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 96 }}
       >
         <View
-          className="rounded-card border border-cardBorder bg-cardBg p-4 shadow-card"
-          style={{
-            borderColor: '#e3e5f0',
+          style={sx('rounded-card border border-cardBorder bg-cardBg p-4 shadow-card', {
             borderRadius: 20,
-            borderWidth: 1,
             gap: 14,
             shadowColor: '#0f172a',
             shadowOffset: { width: 0, height: 18 },
             shadowOpacity: 0.18,
             shadowRadius: 28,
-          }}
+          })}
         >
-          <View className="flex-row items-center justify-between gap-3">
-            <View className="min-w-0 flex-1">
-              <Text className="text-[22px] font-black text-text">Rename session</Text>
-              <Text className="mt-1 text-[12px] font-semibold text-muted">This updates the same session on desktop and mobile.</Text>
+          <View style={sx('flex-row items-center justify-between gap-3')}>
+            <View style={sx('min-w-0 flex-1')}>
+              <Text style={sx('text-[22px] font-black text-text')}>Rename session</Text>
+              <Text style={sx('mt-1 text-[12px] font-semibold text-muted')}>This updates the same session on desktop and mobile.</Text>
             </View>
             <Pressable
               accessible
               accessibilityRole="button"
               accessibilityLabel="Close rename dialog"
-              className="h-10 w-10 items-center justify-center rounded-pill bg-appBg"
+              style={sx('h-10 w-10 items-center justify-center rounded-pill bg-appBg')}
               onPress={props.onCancel}
             >
               <MobileIcon name="x" size={19} strokeWidth={2.35} color="#64748b" />
@@ -75,14 +73,14 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
             autoCapitalize="sentences"
             autoCorrect
             autoFocus
-            className="min-h-12 rounded-block border border-cardBorder bg-appBg px-4 text-[16px] font-semibold text-text"
+            style={sx('min-h-12 rounded-block border border-cardBorder bg-appBg px-4 text-[16px] font-semibold text-text')}
             returnKeyType="done"
             onSubmitEditing={canSubmit ? props.onSubmit : undefined}
           />
 
           {props.error ? (
-            <View className="rounded-block bg-red/10 px-3 py-2">
-              <Text className="text-[12px] font-semibold text-red">{props.error}</Text>
+            <View style={sx('rounded-block bg-red/10 px-3 py-2')}>
+              <Text style={sx('text-[12px] font-semibold text-red')}>{props.error}</Text>
             </View>
           ) : null}
 
@@ -91,21 +89,26 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
               accessible
               accessibilityRole="button"
               accessibilityLabel="Cancel rename session"
-              className="min-h-12 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg"
+              style={sx('min-h-12 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg')}
               onPress={props.onCancel}
             >
-              <Text className="text-[14px] font-black text-muted">Cancel</Text>
+              <Text style={sx('text-[14px] font-black text-muted')}>Cancel</Text>
             </Pressable>
             <Pressable
               accessible
               accessibilityRole="button"
               accessibilityLabel="Save session name"
-              className={canSubmit ? 'bg-primary' : 'bg-cardBorder'}
+              style={sx(canSubmit ? 'bg-primary' : 'bg-cardBorder', {
+                alignItems: 'center',
+                borderRadius: 12,
+                flex: 1,
+                justifyContent: 'center',
+                minHeight: 48,
+              })}
               disabled={!canSubmit}
-              style={{ alignItems: 'center', borderRadius: 12, flex: 1, justifyContent: 'center', minHeight: 48 }}
               onPress={props.onSubmit}
             >
-              <Text className="text-[14px] font-black text-white">{props.saving ? 'Saving...' : 'Save'}</Text>
+              <Text style={sx('text-[14px] font-black text-white')}>{props.saving ? 'Saving...' : 'Save'}</Text>
             </Pressable>
           </View>
         </View>

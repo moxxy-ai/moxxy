@@ -3,7 +3,6 @@ import { StatusBar } from 'expo-status-bar';
 import { LogBox } from 'react-native';
 import { GatewayProvider } from '@/hooks/useGatewayStore';
 import { MoxxyLiveActivityController } from '@/components/MoxxyLiveActivityController';
-import '../global.css';
 
 LogBox.ignoreLogs(['props.pointerEvents is deprecated. Use style.pointerEvents']);
 

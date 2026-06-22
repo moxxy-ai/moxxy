@@ -1,15 +1,50 @@
-import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const mobileRoot = join(root, 'mobile');
 const require = createRequire(import.meta.url);
 
-describe('mobile NativeWind configuration', () => {
+const bannedStylePatterns = [
+  { label: 'className prop', pattern: /className\s*=/ },
+  { label: 'NativeWind runtime', pattern: /nativewind/i },
+  { label: 'NativeWind Metro wrapper', pattern: /withNativeWind/ },
+  { label: 'CSS interop', pattern: /cssInterop/ },
+  { label: 'remap props interop', pattern: /remapProps/ },
+  { label: 'Tailwind runtime', pattern: /tailwind/i },
+  { label: 'global CSS import', pattern: /global\.css/ },
+] as const;
+
+const sourceExtensions = new Set(['.js', '.jsx', '.ts', '.tsx', '.cjs', '.mjs', '.json']);
+const sourceRoots = [
+  join(mobileRoot, 'app'),
+  join(mobileRoot, 'src'),
+  join(mobileRoot, 'babel.config.cjs'),
+  join(mobileRoot, 'metro.config.cjs'),
+  join(mobileRoot, 'package.json'),
+  join(mobileRoot, 'tsconfig.json'),
+] as const;
+
+async function listFiles(path: string): Promise<string[]> {
+  const entryStat = await stat(path);
+  if (entryStat.isFile()) return sourceExtensions.has(extname(path)) ? [path] : [];
+
+  const entries = await readdir(path, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries
+      .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules' && entry.name !== 'ios')
+      .map((entry) => listFiles(join(path, entry.name))),
+  );
+  return nested.flat();
+}
+
+describe('mobile StyleSheet configuration', () => {
   function loadBabelConfigFor(caller: { readonly isNodeModule?: boolean; readonly name?: string }) {
-    const buildConfig = require(join(root, 'mobile', 'babel.config.cjs')) as (api: {
+    const buildConfig = require(join(mobileRoot, 'babel.config.cjs')) as (api: {
       caller: <T>(callback: (caller: { readonly isNodeModule?: boolean; readonly name?: string }) => T) => T;
     }) => unknown;
 
@@ -21,7 +56,7 @@ describe('mobile NativeWind configuration', () => {
     };
   }
 
-  it('lets Metro transform app JSX through Expo while NativeWind owns className styles', () => {
+  it('lets Metro transform app JSX through Expo without a style compiler', () => {
     const babel = loadBabelConfigFor({ name: 'metro' });
 
     expect(babel.plugins).toHaveLength(1);
@@ -43,11 +78,11 @@ describe('mobile NativeWind configuration', () => {
     expect(babel.presets ?? []).toEqual([]);
   });
 
-  it('keeps Expo dev JSX metadata out of app output so Metro can bundle NativeWind screens', () => {
+  it('keeps Expo dev JSX metadata out of app output so Metro can bundle mobile screens', () => {
     const babelPresetExpoRequire = createRequire(require.resolve('babel-preset-expo'));
     const babel = babelPresetExpoRequire('@babel/core') as typeof import('@babel/core');
-    const configFile = join(root, 'mobile', 'babel.config.cjs');
-    const inputFile = join(root, 'mobile', 'app', '_layout.tsx');
+    const configFile = join(mobileRoot, 'babel.config.cjs');
+    const inputFile = join(mobileRoot, 'app', '_layout.tsx');
 
     const result = babel.transformFileSync(inputFile, {
       babelrc: false,
@@ -69,24 +104,63 @@ describe('mobile NativeWind configuration', () => {
     expect(code).not.toContain('__source');
   });
 
-  it('installs the Expo Web interop shim before the router entrypoint', async () => {
-    const entry = await readFile(join(root, 'mobile', 'index.ts'), 'utf8');
-    const shimImport = "import './src/nativeWindWebInterop';";
-    const routerImport = "import 'expo-router/entry';";
+  it('loads the Expo Router entrypoint without a web style interop shim', async () => {
+    const entry = await readFile(join(mobileRoot, 'index.ts'), 'utf8');
 
-    expect(entry).toContain(shimImport);
-    expect(entry.indexOf(shimImport)).toBeLessThan(entry.indexOf(routerImport));
-
-    const shim = await readFile(join(root, 'mobile', 'src', 'nativeWindWebInterop.ts'), 'utf8');
-    expect(shim).toContain('react-native-web/dist/exports/View');
-    expect(shim).toContain('cssInterop');
+    expect(entry).toContain("import 'expo-router/entry';");
+    expect(entry).not.toContain('nativeWindWebInterop');
+    expect(entry).not.toContain('global.css');
   });
 
-  it('keeps NativeWind wired through Metro so className styles are generated without duplicate JSX transforms', async () => {
-    const metroConfig = await readFile(join(root, 'mobile', 'metro.config.cjs'), 'utf8');
+  it('keeps Metro plain Expo-managed so runtime styles come from React Native StyleSheet', async () => {
+    const metroConfig = await readFile(join(mobileRoot, 'metro.config.cjs'), 'utf8');
 
-    expect(metroConfig).toContain("require('nativewind/metro')");
-    expect(metroConfig).toContain('withNativeWind(config');
-    expect(metroConfig).toContain("input: './global.css'");
+    expect(metroConfig).toContain('getDefaultConfig');
+    expect(metroConfig).not.toContain("require('nativewind/metro')");
+    expect(metroConfig).not.toContain('withNativeWind');
+    expect(metroConfig).not.toContain('global.css');
+  });
+
+  it('does not keep legacy style compiler files around', () => {
+    const removedFiles = [
+      'global.css',
+      'tailwind.config.ts',
+      'nativewind-env.d.ts',
+      'nativewind-preset.d.ts',
+      join('src', 'nativeWindWebInterop.ts'),
+    ];
+
+    for (const file of removedFiles) {
+      expect(existsSync(join(mobileRoot, file)), file).toBe(false);
+    }
+  });
+
+  it('does not depend on NativeWind, Tailwind, or React Native CSS interop packages', async () => {
+    const pkg = JSON.parse(await readFile(join(mobileRoot, 'package.json'), 'utf8')) as {
+      readonly dependencies?: Record<string, string>;
+      readonly devDependencies?: Record<string, string>;
+    };
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+    expect(deps).not.toHaveProperty('nativewind');
+    expect(deps).not.toHaveProperty('tailwindcss');
+    expect(deps).not.toHaveProperty('react-native-css-interop');
+    expect(deps).not.toHaveProperty('react-native-css');
+  });
+
+  it('keeps mobile source free of NativeWind and className styling hooks', async () => {
+    const files = (await Promise.all(sourceRoots.map((path) => listFiles(path)))).flat();
+    const failures: string[] = [];
+
+    for (const file of files) {
+      const source = await readFile(file, 'utf8');
+      for (const banned of bannedStylePatterns) {
+        if (banned.pattern.test(source)) {
+          failures.push(`${relative(mobileRoot, file)} contains ${banned.label}`);
+        }
+      }
+    }
+
+    expect(failures).toEqual([]);
   });
 });

@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { Pressable, Text, View } from 'react-native';
 import { boolOf, recordId, textOf } from '@/utils/record';
 import { buildSessionRowAccessibility } from '@/sessionRowUi';
@@ -23,24 +24,24 @@ export function SessionRow({ workspace, active, onPress }: SessionRowProps) {
     <Pressable
       accessibilityLabel={accessibility.accessibilityLabel}
       accessibilityRole={accessibility.accessibilityRole}
-      className={`min-h-16 rounded-card border px-4 py-3 ${
+      style={sx(`min-h-16 rounded-card border px-4 py-3 ${
         active ? 'border-primary bg-primarySoft' : 'border-cardBorder bg-cardBg'
-      }`}
+      }`)}
       onPress={() => id && onPress(id)}
     >
-      <View className="flex-row items-center gap-3">
-        <View className={`h-2.5 w-2.5 rounded-pill ${unread ? 'bg-primary' : active ? 'bg-green' : 'bg-cardBorderStrong'}`} />
-        <View className="min-w-0 flex-1">
-          <Text className="text-[15px] font-bold text-text">{name}</Text>
-          {cwd ? <Text className="truncate text-[12px] text-muted">{cwd}</Text> : null}
-          <View className="mt-2 flex-row flex-wrap gap-1.5">
+      <View style={sx('flex-row items-center gap-3')}>
+        <View style={sx(`h-2.5 w-2.5 rounded-pill ${unread ? 'bg-primary' : active ? 'bg-green' : 'bg-cardBorderStrong'}`)} />
+        <View style={sx('min-w-0 flex-1')}>
+          <Text style={sx('text-[15px] font-bold text-text')}>{name}</Text>
+          {cwd ? <Text style={sx('truncate text-[12px] text-muted')}>{cwd}</Text> : null}
+          <View style={sx('mt-2 flex-row flex-wrap gap-1.5')}>
             {eventCount !== null ? <Badge label={`${eventCount} events`} /> : null}
             {lastActivity ? <Badge label={formatDate(lastActivity)} /> : null}
             {live ? <Badge label="Live" active /> : null}
             {readOnly ? <Badge label="Archive" /> : null}
           </View>
         </View>
-        {active ? <Text className="text-[11px] font-bold text-primaryStrong">Active</Text> : null}
+        {active ? <Text style={sx('text-[11px] font-bold text-primaryStrong')}>Active</Text> : null}
       </View>
     </Pressable>
   );
@@ -48,8 +49,8 @@ export function SessionRow({ workspace, active, onPress }: SessionRowProps) {
 
 function Badge({ label, active }: { readonly label: string; readonly active?: boolean }) {
   return (
-    <View className={`rounded-pill px-2 py-0.5 ${active ? 'bg-green' : 'bg-appBg'}`}>
-      <Text className={`text-[10px] font-bold ${active ? 'text-white' : 'text-muted'}`}>{label}</Text>
+    <View style={sx(`rounded-pill px-2 py-0.5 ${active ? 'bg-green' : 'bg-appBg'}`)}>
+      <Text style={sx(`text-[10px] font-bold ${active ? 'text-white' : 'text-muted'}`)}>{label}</Text>
     </View>
   );
 }

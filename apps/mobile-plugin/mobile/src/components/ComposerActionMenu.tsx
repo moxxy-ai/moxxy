@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { Pressable, Text, View } from 'react-native';
 import { buildComposerAttachmentActionItems, buildQuickActionItems, type ComposerAttachmentActionItem, type QuickActionItem } from '../navigation';
 import type { MobileIconName } from './MobileIcon';
@@ -58,22 +59,23 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
 
   return (
     <View
-      className="absolute z-20 rounded-card border border-cardBorder bg-cardBg shadow-card"
-      style={{
-        borderColor: '#e3e5f0',
-        borderRadius: 12,
-        borderWidth: 1,
+      style={sx('absolute z-20 rounded-card border border-cardBorder bg-cardBg shadow-card', {
         bottom: 118,
         left: 16,
         padding: 4,
-        position: 'absolute',
         right: 16,
-        zIndex: 20,
-      }}
+      })}
     >
-      <View className="flex-row items-center justify-between" style={{ alignItems: 'center', flexDirection: 'row', paddingHorizontal: 6, paddingVertical: 4 }}>
-        <Text className="text-[11px] font-black uppercase text-dim">Actions</Text>
-        <Pressable accessibilityLabel="Close actions" accessibilityRole="button" className="h-9 w-9 items-center justify-center rounded-pill" onPress={props.onToggleOpen}>
+      <View
+        style={sx('flex-row items-center justify-between', {
+          alignItems: 'center',
+          flexDirection: 'row',
+          paddingHorizontal: 6,
+          paddingVertical: 4,
+        })}
+      >
+        <Text style={sx('text-[11px] font-black uppercase text-dim')}>Actions</Text>
+        <Pressable accessibilityLabel="Close actions" accessibilityRole="button" style={sx('h-9 w-9 items-center justify-center rounded-pill')} onPress={props.onToggleOpen}>
           <MobileIcon name="x" size={18} color="#64748b" />
         </Pressable>
       </View>
@@ -96,8 +98,7 @@ function MenuButton({ item, onPress }: { readonly item: ComposerMenuItem | Quick
     <Pressable
       accessibilityLabel={item.label}
       accessibilityRole="button"
-      className={item.active ? 'bg-primarySoft' : 'bg-transparent'}
-      style={{
+      style={sx(item.active ? 'bg-primarySoft' : 'bg-transparent', {
         alignItems: 'center',
         borderRadius: 8,
         flexDirection: 'row',
@@ -105,16 +106,15 @@ function MenuButton({ item, onPress }: { readonly item: ComposerMenuItem | Quick
         minHeight: 40,
         paddingHorizontal: 10,
         width: '100%',
-      }}
+      })}
       onPress={onPress}
     >
       <View
-        className={item.active ? 'bg-cardBg' : 'bg-primarySoft'}
-        style={{ alignItems: 'center', borderRadius: 8, height: 28, justifyContent: 'center', width: 28 }}
+        style={sx(item.active ? 'bg-cardBg' : 'bg-primarySoft', { alignItems: 'center', borderRadius: 8, height: 28, justifyContent: 'center', width: 28 })}
       >
         <MobileIcon name={item.icon} size={15} strokeWidth={2.35} color={item.active ? '#db2777' : '#64748b'} />
       </View>
-      <Text className={`flex-1 text-[13px] font-bold ${item.active ? 'text-primaryStrong' : 'text-text'}`}>
+      <Text style={sx(`flex-1 text-[13px] font-bold ${item.active ? 'text-primaryStrong' : 'text-text'}`)}>
         {item.label}
       </Text>
     </Pressable>

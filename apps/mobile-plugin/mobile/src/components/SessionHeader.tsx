@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { Text, View } from 'react-native';
 import { textOf } from '@/utils/record';
 
@@ -17,15 +18,15 @@ export function SessionHeader({
   activeProvider,
 }: SessionHeaderProps) {
   return (
-    <View className="rounded-card border border-cardBorder bg-cardBg p-4 shadow-card">
-      <View className="flex-row items-center gap-2">
-        <View className={`h-2.5 w-2.5 rounded-pill ${connected ? 'bg-green' : 'bg-amber'}`} />
-        <Text className="text-[13px] font-bold text-muted">{connected ? 'Connected' : 'Waiting for gateway'}</Text>
+    <View style={sx('rounded-card border border-cardBorder bg-cardBg p-4 shadow-card')}>
+      <View style={sx('flex-row items-center gap-2')}>
+        <View style={sx(`h-2.5 w-2.5 rounded-pill ${connected ? 'bg-green' : 'bg-amber'}`)} />
+        <Text style={sx('text-[13px] font-bold text-muted')}>{connected ? 'Connected' : 'Waiting for gateway'}</Text>
       </View>
-      <Text className="mt-2 text-[17px] font-bold text-text">
+      <Text style={sx('mt-2 text-[17px] font-bold text-text')}>
         {textOf(session?.id, 'No active session')}
       </Text>
-      <View className="mt-3 flex-row flex-wrap gap-2">
+      <View style={sx('mt-3 flex-row flex-wrap gap-2')}>
         <Pill label={activeProvider ?? 'Provider'} />
         <Pill label={activeMode ?? 'Mode'} />
         <Pill label={`${agents.length} agent${agents.length === 1 ? '' : 's'}`} />
@@ -36,8 +37,8 @@ export function SessionHeader({
 
 function Pill({ label }: { readonly label: string }) {
   return (
-    <View className="rounded-pill bg-primarySoft px-3 py-1">
-      <Text className="text-[11px] font-bold text-primaryStrong">{label}</Text>
+    <View style={sx('rounded-pill bg-primarySoft px-3 py-1')}>
+      <Text style={sx('text-[11px] font-bold text-primaryStrong')}>{label}</Text>
     </View>
   );
 }

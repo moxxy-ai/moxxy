@@ -47,6 +47,16 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-22 — Mobile NativeWind cleanup
+
+**Retired:** the mobile app no longer depends on NativeWind/Tailwind runtime
+styling. The Expo app now renders through React Native style objects backed by
+`@moxxy/design-tokens`, and the old `global.css`, NativeWind Metro wrapper,
+Tailwind config, type shims, and web interop shim were removed. A static guard
+test now fails if `className`, NativeWind, Tailwind, css-interop, or `global.css`
+come back into the mobile app, which protects the sidebar / QR / waiting-room
+screens from silently falling back to unstyled raw text again.
+
 ## 2026-06-20 — Mobile workflow blocker cleanup
 
 **Retired on sight:** mobile workflow state no longer recreates its action

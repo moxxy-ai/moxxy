@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { textOf } from '@/utils/record';
@@ -16,17 +17,17 @@ export function ApprovalCard({ ask, onRespond }: ApprovalCardProps) {
 
   if (textOption) {
     return (
-      <View className="gap-3 rounded-card border border-cardBorder bg-cardBg p-3 shadow-card">
-        <Text className="text-[15px] font-bold text-text">{textOf(textOption.label, 'Respond')}</Text>
+      <View style={sx('gap-3 rounded-card border border-cardBorder bg-cardBg p-3 shadow-card')}>
+        <Text style={sx('text-[15px] font-bold text-text')}>{textOf(textOption.label, 'Respond')}</Text>
         <TextInput
           value={text}
           onChangeText={setText}
           multiline
           placeholder={textOf(textOption.textPrompt, 'Add details...')}
           placeholderTextColor="#94a3b8"
-          className="min-h-24 rounded-block border border-cardBorder bg-cardBg px-3 py-2 text-[14px] text-text"
+          style={sx('min-h-24 rounded-block border border-cardBorder bg-cardBg px-3 py-2 text-[14px] text-text')}
         />
-        <View className="flex-row justify-end gap-2">
+        <View style={sx('flex-row justify-end gap-2')}>
           <Button label="Back" onPress={() => setTextOption(null)} />
           <Button
             label={textOf(textOption.label, 'Send')}
@@ -40,26 +41,26 @@ export function ApprovalCard({ ask, onRespond }: ApprovalCardProps) {
   }
 
   return (
-    <View className="gap-3 rounded-card border border-cardBorder bg-cardBg p-3 shadow-card">
-      <View className="flex-row items-start gap-3">
-        <View className="h-9 w-9 items-center justify-center rounded-block bg-primarySoft">
+    <View style={sx('gap-3 rounded-card border border-cardBorder bg-cardBg p-3 shadow-card')}>
+      <View style={sx('flex-row items-start gap-3')}>
+        <View style={sx('h-9 w-9 items-center justify-center rounded-block bg-primarySoft')}>
           <MobileIcon name="actions" size={17} strokeWidth={2.35} color="#db2777" />
         </View>
-        <View className="min-w-0 flex-1">
-          <Text className="text-[15px] font-bold text-text">{textOf(approval.title, 'Approval required')}</Text>
-          <Text className="mt-0.5 text-[12px] leading-4 text-muted">The current turn is waiting for your decision.</Text>
+        <View style={sx('min-w-0 flex-1')}>
+          <Text style={sx('text-[15px] font-bold text-text')}>{textOf(approval.title, 'Approval required')}</Text>
+          <Text style={sx('mt-0.5 text-[12px] leading-4 text-muted')}>The current turn is waiting for your decision.</Text>
         </View>
       </View>
       <View>
         {textOf(approval.body, textOf(approval.message, textOf(approval.description, textOf(approval.reason)))) ? (
-          <ScrollView className="rounded-block border border-cardBorder bg-appBg" style={{ maxHeight: 150 }}>
-            <Text className="p-3 text-[12px] leading-5 text-text">
+          <ScrollView style={sx('rounded-block border border-cardBorder bg-appBg', { maxHeight: 150 })}>
+            <Text style={sx('p-3 text-[12px] leading-5 text-text')}>
               {textOf(approval.body, textOf(approval.message, textOf(approval.description, textOf(approval.reason))))}
             </Text>
           </ScrollView>
         ) : null}
       </View>
-      <View className="flex-row flex-wrap justify-end gap-2">
+      <View style={sx('flex-row flex-wrap justify-end gap-2')}>
         {options.length > 0 ? (
           options.map((option, index) => (
             <Button
@@ -104,11 +105,11 @@ function Button({
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ disabled: disabled === true }}
-      className={`min-h-9 justify-center rounded-block border px-3 ${bg} ${disabled ? 'opacity-50' : ''}`}
+      style={sx(`min-h-9 justify-center rounded-block border px-3 ${bg} ${disabled ? 'opacity-50' : ''}`)}
       disabled={disabled}
       onPress={onPress}
     >
-      <Text className={`text-[13px] font-bold ${color}`}>{label}</Text>
+      <Text style={sx(`text-[13px] font-bold ${color}`)}>{label}</Text>
     </Pressable>
   );
 }

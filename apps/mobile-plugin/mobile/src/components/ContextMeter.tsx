@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { Text, View } from 'react-native';
 import { buildContextMeterUiState } from '../contextMeterUi';
 
@@ -9,14 +10,14 @@ export function ContextMeter({ usage }: { readonly usage: Record<string, unknown
 
   if (!ui.visible) {
     return (
-      <View className="rounded-pill bg-appBg px-3 py-1">
-        <Text className="text-[11px] font-bold text-dim">Context</Text>
+      <View style={sx('rounded-pill bg-appBg px-3 py-1')}>
+        <Text style={sx('text-[11px] font-bold text-dim')}>Context</Text>
       </View>
     );
   }
 
   return (
-    <View className="flex-row items-center gap-2 rounded-pill bg-appBg px-3 py-1">
+    <View style={sx('flex-row items-center gap-2 rounded-pill bg-appBg px-3 py-1')}>
       <View
         style={{
           backgroundColor: 'rgba(148, 163, 184, 0.22)',
@@ -35,7 +36,7 @@ export function ContextMeter({ usage }: { readonly usage: Record<string, unknown
           }}
         />
       </View>
-      <Text className="text-[11px] font-bold tabular-nums text-dim">{ui.label}</Text>
+      <Text style={sx('text-[11px] font-bold tabular-nums text-dim')}>{ui.label}</Text>
     </View>
   );
 }

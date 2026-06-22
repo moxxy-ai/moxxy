@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { ScrollView, Text, View } from 'react-native';
 import { recordId, textOf } from '@/utils/record';
 import type { PermissionResponseMode } from '../permissionResponse';
@@ -17,9 +18,9 @@ export function AskSheet(props: AskSheetProps) {
   const total = props.asks.length + props.permissions.length;
   if (total === 0) {
     return (
-      <View className="mt-8 items-center rounded-card border border-cardBorder bg-cardBg px-5 py-8">
-        <Text className="text-center text-[16px] font-bold text-text">No pending actions</Text>
-        <Text className="mt-1 text-center text-[13px] text-muted">Approvals and permissions will appear here.</Text>
+      <View style={sx('mt-8 items-center rounded-card border border-cardBorder bg-cardBg px-5 py-8')}>
+        <Text style={sx('text-center text-[16px] font-bold text-text')}>No pending actions</Text>
+        <Text style={sx('mt-1 text-center text-[13px] text-muted')}>Approvals and permissions will appear here.</Text>
       </View>
     );
   }
@@ -30,14 +31,13 @@ export function AskSheet(props: AskSheetProps) {
 
   return (
     <ScrollView
-      className="gap-2"
+      style={sx('gap-2', { maxHeight: props.maxHeight })}
       keyboardShouldPersistTaps="handled"
-      style={{ maxHeight: props.maxHeight }}
       contentContainerStyle={{ gap: 8 }}
     >
       {extraCount > 0 ? (
-        <View className="self-start rounded-pill bg-cardBg px-3 py-1.5">
-          <Text className="text-[11px] font-bold text-muted">+{extraCount} more pending</Text>
+        <View style={sx('self-start rounded-pill bg-cardBg px-3 py-1.5')}>
+          <Text style={sx('text-[11px] font-bold text-muted')}>+{extraCount} more pending</Text>
         </View>
       ) : null}
       {firstAsk ? (

@@ -1,3 +1,4 @@
+import { sx } from '../src/styles/tokens';
 import { AskSheet } from '@/components/AskSheet';
 import { AppShell } from '@/components/AppShell';
 import { ChatList } from '@/components/ChatList';
@@ -156,9 +157,9 @@ export default function ChatScreen() {
 
   return (
     <AppShell>
-      <SafeAreaView className="relative flex-1 overflow-hidden" edges={['top', 'bottom']}>
+      <SafeAreaView style={sx('relative flex-1 overflow-hidden')} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
-          className="flex-1"
+          style={sx('flex-1')}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
         >
@@ -180,7 +181,7 @@ export default function ChatScreen() {
           )}
 
           {showPendingActionsSheet ? (
-            <View className="absolute z-40" style={floatingSheetStyle}>
+            <View style={sx('absolute z-40', floatingSheetStyle)}>
               <AskSheet
                 asks={permissions.pendingAsks}
                 permissions={permissions.pendingPermissions}
@@ -193,15 +194,14 @@ export default function ChatScreen() {
 
           {goals.open ? (
             <View
-              className="absolute z-40"
-              style={{
+              style={sx('absolute z-40', {
                 left: 16,
                 maxHeight: goalPlacement.maxHeight,
                 position: 'absolute',
                 right: 16,
                 top: goalPlacement.top,
                 zIndex: 40,
-              }}
+              })}
             >
               <GoalSheet
                 objective={goals.objective}
@@ -216,7 +216,7 @@ export default function ChatScreen() {
           ) : null}
 
           {compact.confirmOpen ? (
-            <View className="absolute z-40" style={floatingSheetStyle}>
+            <View style={sx('absolute z-40', floatingSheetStyle)}>
               <CompactContextSheet
                 open={compact.confirmOpen}
                 compacting={chat.compacting}
@@ -227,7 +227,7 @@ export default function ChatScreen() {
           ) : null}
 
           {modelSelector.modeOpen ? (
-            <View className="absolute z-40" style={floatingSheetStyle}>
+            <View style={sx('absolute z-40', floatingSheetStyle)}>
               <ModeSelectorSheet
                 ui={modelSelector.modeUi}
                 error={modelSelector.error}
@@ -238,7 +238,7 @@ export default function ChatScreen() {
           ) : null}
 
           {modelSelector.open ? (
-            <View className="absolute z-40" style={floatingSheetStyle}>
+            <View style={sx('absolute z-40', floatingSheetStyle)}>
               <ModelSelectorSheet
                 ui={modelSelector.ui}
                 error={modelSelector.error}

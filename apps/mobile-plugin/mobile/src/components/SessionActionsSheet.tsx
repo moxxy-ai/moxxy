@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import type { MobileSessionActionRow } from '../sessionActions';
 import { MobileIcon } from './MobileIcon';
@@ -44,18 +45,15 @@ export function SessionActionsSheet(props: SessionActionsSheetProps) {
         onPress={props.onClose}
       />
       <View
-        className="rounded-card border border-cardBorder bg-cardBg shadow-card"
-        style={{
-          borderColor: '#e3e5f0',
+        style={sx('rounded-card border border-cardBorder bg-cardBg shadow-card', {
           borderRadius: 20,
-          borderWidth: 1,
           maxHeight: '100%',
           padding: 16,
           shadowColor: '#0f172a',
           shadowOffset: { width: 0, height: 18 },
           shadowOpacity: 0.18,
           shadowRadius: 28,
-        }}
+        })}
       >
         {props.argsFor ? <ArgsView {...props} action={props.argsFor} /> : <ListView {...props} />}
       </View>
@@ -66,10 +64,10 @@ export function SessionActionsSheet(props: SessionActionsSheetProps) {
 function ListView(props: SessionActionsSheetProps) {
   return (
     <View style={{ gap: 14 }}>
-      <View className="flex-row items-center justify-between gap-3">
-        <View className="min-w-0 flex-1">
-          <Text className="text-[22px] font-black text-text">Actions</Text>
-          <Text className="mt-1 text-[12px] font-bold text-muted">
+      <View style={sx('flex-row items-center justify-between gap-3')}>
+        <View style={sx('min-w-0 flex-1')}>
+          <Text style={sx('text-[22px] font-black text-text')}>Actions</Text>
+          <Text style={sx('mt-1 text-[12px] font-bold text-muted')}>
             {props.allActionsCount} available for this session
           </Text>
         </View>
@@ -77,7 +75,7 @@ function ListView(props: SessionActionsSheetProps) {
           accessible
           accessibilityRole="button"
           accessibilityLabel="Close actions"
-          className="h-10 w-10 items-center justify-center rounded-pill bg-appBg"
+          style={sx('h-10 w-10 items-center justify-center rounded-pill bg-appBg')}
           onPress={props.onClose}
         >
           <MobileIcon name="x" size={19} strokeWidth={2.35} color="#64748b" />
@@ -92,12 +90,12 @@ function ListView(props: SessionActionsSheetProps) {
         placeholderTextColor="#94a3b8"
         autoCapitalize="none"
         autoCorrect={false}
-        className="min-h-12 rounded-block border border-cardBorder bg-appBg px-4 text-[16px] font-semibold text-text"
+        style={sx('min-h-12 rounded-block border border-cardBorder bg-appBg px-4 text-[16px] font-semibold text-text')}
       />
 
       {props.error ? (
-        <View className="rounded-block bg-red/10 px-3 py-2">
-          <Text className="text-[12px] font-semibold text-red">{props.error}</Text>
+        <View style={sx('rounded-block bg-red/10 px-3 py-2')}>
+          <Text style={sx('text-[12px] font-semibold text-red')}>{props.error}</Text>
         </View>
       ) : null}
 
@@ -111,9 +109,9 @@ function ListView(props: SessionActionsSheetProps) {
           />
         ))}
         {props.actions.length === 0 ? (
-          <View className="rounded-block border border-cardBorder bg-appBg px-4 py-4">
-            <Text className="text-[14px] font-black text-text">No actions match</Text>
-            <Text className="mt-1 text-[12px] font-semibold text-muted">Try a shorter filter.</Text>
+          <View style={sx('rounded-block border border-cardBorder bg-appBg px-4 py-4')}>
+            <Text style={sx('text-[14px] font-black text-text')}>No actions match</Text>
+            <Text style={sx('mt-1 text-[12px] font-semibold text-muted')}>Try a shorter filter.</Text>
           </View>
         ) : null}
       </ScrollView>
@@ -125,10 +123,10 @@ function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSes
   const canRun = props.action.args.every((arg) => (props.argValues[arg.id] ?? '').trim().length > 0);
   return (
     <View style={{ gap: 14 }}>
-      <View className="flex-row items-center justify-between gap-3">
-        <View className="min-w-0 flex-1">
-          <Text className="text-[22px] font-black text-text">{props.action.label}</Text>
-          <Text className="mt-1 text-[12px] font-semibold text-muted" numberOfLines={2}>
+      <View style={sx('flex-row items-center justify-between gap-3')}>
+        <View style={sx('min-w-0 flex-1')}>
+          <Text style={sx('text-[22px] font-black text-text')}>{props.action.label}</Text>
+          <Text style={sx('mt-1 text-[12px] font-semibold text-muted')} numberOfLines={2}>
             {props.action.description}
           </Text>
         </View>
@@ -136,7 +134,7 @@ function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSes
           accessible
           accessibilityRole="button"
           accessibilityLabel="Close action arguments"
-          className="h-10 w-10 items-center justify-center rounded-pill bg-appBg"
+          style={sx('h-10 w-10 items-center justify-center rounded-pill bg-appBg')}
           onPress={props.onClose}
         >
           <MobileIcon name="x" size={19} strokeWidth={2.35} color="#64748b" />
@@ -146,7 +144,7 @@ function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSes
       <ScrollView style={{ maxHeight: 330 }} contentContainerStyle={{ gap: 12, paddingBottom: 2 }}>
         {props.action.args.map((arg) => (
           <View key={arg.id} style={{ gap: 6 }}>
-            <Text className="text-[12px] font-black uppercase tracking-widest text-muted">{arg.label}</Text>
+            <Text style={sx('text-[12px] font-black uppercase tracking-widest text-muted')}>{arg.label}</Text>
             <TextInput
               accessibilityLabel={arg.label}
               value={props.argValues[arg.id] ?? ''}
@@ -157,8 +155,9 @@ function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSes
               secureTextEntry={arg.id === 'value'}
               autoCapitalize="none"
               autoCorrect={false}
-              className="min-h-12 rounded-block border border-cardBorder bg-appBg px-4 py-3 text-[16px] font-semibold text-text"
-              style={{ maxHeight: arg.multiline ? 140 : undefined }}
+              style={sx('min-h-12 rounded-block border border-cardBorder bg-appBg px-4 py-3 text-[16px] font-semibold text-text', {
+                maxHeight: arg.multiline ? 140 : undefined,
+              })}
             />
           </View>
         ))}
@@ -169,21 +168,26 @@ function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSes
           accessible
           accessibilityRole="button"
           accessibilityLabel="Back to actions"
-          className="min-h-12 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg"
+          style={sx('min-h-12 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg')}
           onPress={props.onBackToList}
         >
-          <Text className="text-[14px] font-black text-muted">Back</Text>
+          <Text style={sx('text-[14px] font-black text-muted')}>Back</Text>
         </Pressable>
         <Pressable
           accessible
           accessibilityRole="button"
           accessibilityLabel={`Run ${props.action.label}`}
-          className={canRun && !props.readOnly ? 'bg-primary' : 'bg-cardBorder'}
+          style={sx(canRun && !props.readOnly ? 'bg-primary' : 'bg-cardBorder', {
+            alignItems: 'center',
+            borderRadius: 12,
+            flex: 1,
+            justifyContent: 'center',
+            minHeight: 48,
+          })}
           disabled={!canRun || props.readOnly}
-          style={{ alignItems: 'center', borderRadius: 12, flex: 1, justifyContent: 'center', minHeight: 48 }}
           onPress={props.onRunArgsAction}
         >
-          <Text className="text-[14px] font-black text-white">Run action</Text>
+          <Text style={sx('text-[14px] font-black text-white')}>Run action</Text>
         </Pressable>
       </View>
     </View>
@@ -225,16 +229,16 @@ function ActionRow({
     >
       <View style={{ alignItems: 'flex-start', flexDirection: 'row', gap: 10 }}>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text className="text-[16px] font-black" style={{ color: toneColors.text }} numberOfLines={1}>
+          <Text style={sx('text-[16px] font-black', { color: toneColors.text })} numberOfLines={1}>
             {action.label}
           </Text>
-          <Text className="mt-1 text-[12px] font-semibold leading-4 text-muted" numberOfLines={2}>
+          <Text style={sx('mt-1 text-[12px] font-semibold leading-4 text-muted')} numberOfLines={2}>
             {action.description}
           </Text>
         </View>
         {action.args.length > 0 ? (
-          <View className="rounded-pill bg-primarySoft px-2.5 py-1">
-            <Text className="text-[10px] font-black uppercase text-primaryStrong">Args</Text>
+          <View style={sx('rounded-pill bg-primarySoft px-2.5 py-1')}>
+            <Text style={sx('text-[10px] font-black uppercase text-primaryStrong')}>Args</Text>
           </View>
         ) : null}
       </View>

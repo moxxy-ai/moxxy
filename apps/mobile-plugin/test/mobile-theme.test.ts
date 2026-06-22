@@ -1,35 +1,53 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { desktopLightThemeExtension, nativeWindContentGlobs } from '../mobile/src/themeTokens';
 
-describe('mobile Tailwind theme', () => {
-  it('maps the desktop design tokens into NativeWind', () => {
-    expect(desktopLightThemeExtension.colors).toMatchObject({
-      appBg: '#f1f2f9',
-      cardBg: '#ffffff',
-      cardBorder: '#e3e5f0',
-      cardBorderStrong: '#cdd1e3',
-      text: '#0f172a',
-      muted: '#475569',
-      dim: '#94a3b8',
-      primary: '#ec4899',
-      primaryStrong: '#db2777',
-      primarySoft: '#fdf2f8',
-      accent: '#22d3ee',
-      green: '#10b981',
-      amber: '#f59e0b',
-      red: '#ef4444',
-    });
-    expect(desktopLightThemeExtension.borderRadius).toMatchObject({
-      block: '8px',
-      card: '14px',
-      pill: '9999px',
-    });
+const repoRoot = path.resolve(__dirname, '../../..');
+const tokenSource = readFileSync(
+  path.join(repoRoot, 'apps/mobile-plugin/mobile/src/styles/tokens.ts'),
+  'utf8',
+);
+
+describe('mobile StyleSheet theme', () => {
+  it('maps the shared design tokens into React Native-friendly values', () => {
+    expect(tokenSource).toContain("import { tokens } from '@moxxy/design-tokens'");
+    expect(tokenSource).toContain('const color = tokens.color');
+
+    for (const colorName of [
+      'appBg',
+      'cardBg',
+      'cardBorder',
+      'cardBorderStrong',
+      'text',
+      'textMuted',
+      'textDim',
+      'primary',
+      'primaryStrong',
+      'primarySoft',
+      'accent',
+      'green',
+      'amber',
+      'red',
+    ]) {
+      expect(tokenSource).toContain(`${colorName}: color.${colorName}`);
+    }
+
+    expect(tokenSource).toContain('block: tokens.radius.block');
+    expect(tokenSource).toContain('card: tokens.radius.card');
+    expect(tokenSource).toContain('pill: tokens.radius.pill');
   });
 
-  it('scans Expo Router screens and reusable mobile components', () => {
-    expect(nativeWindContentGlobs).toEqual([
-      './app/**/*.{ts,tsx}',
-      './src/**/*.{ts,tsx}',
-    ]);
+  it('keeps reusable semantic styles as StyleSheet specs', () => {
+    expect(tokenSource).toContain('export const mobileStyleSpecs');
+    expect(tokenSource).toContain('card: {');
+    expect(tokenSource).toContain('backgroundColor: mobileTheme.color.cardBg');
+    expect(tokenSource).toContain('borderColor: mobileTheme.color.cardBorder');
+    expect(tokenSource).toContain('borderRadius: mobileTheme.radius.card');
+    expect(tokenSource).toContain('borderWidth: 1');
+    expect(tokenSource).toContain('pill: {');
+    expect(tokenSource).toContain("alignItems: 'center'");
+    expect(tokenSource).toContain('borderRadius: mobileTheme.radius.pill');
+    expect(tokenSource).toContain("justifyContent: 'center'");
+    expect(tokenSource).toContain('export const mobileStyles = StyleSheet.create');
   });
 });

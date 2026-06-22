@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import { Pressable, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import { summarizeAttachment } from '@/attachments';
 import { buildComposerUiState } from '@/composerUi';
@@ -70,8 +71,7 @@ export function ComposerCard(props: ComposerCardProps) {
 
   return (
     <View
-      className="relative z-30 px-4 pb-3 pt-2"
-      style={{ paddingBottom: 12, paddingHorizontal: 16, paddingTop: 8 }}
+      style={sx('relative z-30 px-4 pb-3 pt-2')}
       onLayout={handleLayout}
     >
       <ComposerActionMenu
@@ -88,8 +88,7 @@ export function ComposerCard(props: ComposerCardProps) {
       />
 
       <View
-        className="rounded-card border border-cardBorder bg-cardBg shadow-card"
-        style={{
+        style={sx('rounded-card border border-cardBorder bg-cardBg shadow-card', {
           borderColor: ui.frameTone === 'bypass' ? '#ec4899' : '#e3e5f0',
           borderRadius: 16,
           borderWidth: ui.frameTone === 'bypass' ? 2 : 1,
@@ -99,7 +98,7 @@ export function ComposerCard(props: ComposerCardProps) {
           shadowOffset: { width: 0, height: 10 },
           shadowOpacity: ui.frameTone === 'bypass' ? 0.14 : 0.05,
           shadowRadius: ui.frameTone === 'bypass' ? 22 : 14,
-        }}
+        })}
       >
         {props.attachments.length > 0 ? (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
@@ -144,8 +143,7 @@ export function ComposerCard(props: ComposerCardProps) {
           placeholderTextColor="#94a3b8"
           returnKeyType="send"
           editable={!ui.disabled}
-          className="text-text"
-          style={{
+          style={sx('text-text', {
             backgroundColor: 'transparent',
             color: '#0f172a',
             fontSize: 15,
@@ -154,15 +152,15 @@ export function ComposerCard(props: ComposerCardProps) {
             minHeight: 48,
             paddingHorizontal: 4,
             paddingVertical: 4,
-          }}
+          })}
         />
         {props.voiceError ? (
-          <Text className="mt-1 px-1 text-[12px] font-semibold text-red">
+          <Text style={sx('mt-1 px-1 text-[12px] font-semibold text-red')}>
             {props.voiceError}
           </Text>
         ) : null}
         {props.attachmentError ? (
-          <Text className="mt-1 px-1 text-[12px] font-semibold text-red">
+          <Text style={sx('mt-1 px-1 text-[12px] font-semibold text-red')}>
             {props.attachmentError}
           </Text>
         ) : null}
@@ -189,9 +187,8 @@ export function ComposerCard(props: ComposerCardProps) {
           <Pressable
             accessibilityLabel="Open actions"
             accessibilityRole="button"
-            className={ui.actionsTone === 'active' ? 'bg-primarySoft' : 'bg-cardBg'}
             hitSlop={toolbar.iconHitSlop}
-            style={{
+            style={sx(ui.actionsTone === 'active' ? 'bg-primarySoft' : 'bg-cardBg', {
               alignItems: 'center',
               borderColor: ui.actionsTone === 'active' ? '#ec4899' : '#e3e5f0',
               borderRadius: 10,
@@ -199,7 +196,7 @@ export function ComposerCard(props: ComposerCardProps) {
               height: toolbar.actionButtonSize,
               justifyContent: 'center',
               width: toolbar.actionButtonSize,
-            }}
+            })}
             onPress={props.onToggleActions}
           >
             <MobileIcon name="plus" size={18} strokeWidth={2.35} color={ui.actionsTone === 'active' ? '#db2777' : '#475569'} />
@@ -231,9 +228,8 @@ export function ComposerCard(props: ComposerCardProps) {
               color={ui.voiceTone === 'neutral' ? '#475569' : '#db2777'}
             />
             <Text
-              className="text-[12px] font-bold"
+              style={sx('text-[12px] font-bold', { color: ui.voiceTone === 'neutral' ? '#475569' : '#db2777' })}
               numberOfLines={1}
-              style={{ color: ui.voiceTone === 'neutral' ? '#475569' : '#db2777' }}
             >
               {ui.voiceLabel}
             </Text>
@@ -268,10 +264,9 @@ export function ComposerCard(props: ComposerCardProps) {
           <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
           {ui.statusLabel ? (
             <View
-              className="rounded-pill bg-primarySoft"
-              style={{ alignItems: 'center', height: 28, justifyContent: 'center', paddingHorizontal: 9 }}
+              style={sx('rounded-pill bg-primarySoft', { alignItems: 'center', height: 28, justifyContent: 'center', paddingHorizontal: 9 })}
             >
-              <Text className="text-[11px] font-bold text-primaryStrong">{ui.statusLabel}</Text>
+              <Text style={sx('text-[11px] font-bold text-primaryStrong')}>{ui.statusLabel}</Text>
             </View>
           ) : null}
             {toolbar.showContextMeter ? <ContextMeter usage={props.usage} /> : null}
@@ -310,9 +305,9 @@ function ModeStatusBanner({ banner }: { readonly banner: ModeBannerState }) {
           paddingVertical: 3,
         }}
       >
-        <Text className="text-[11px] font-black text-white">{banner.label}</Text>
+        <Text style={sx('text-[11px] font-black text-white')}>{banner.label}</Text>
       </View>
-      <Text className="min-w-0 flex-1 text-[12px] font-bold leading-4 text-text">
+      <Text style={sx('min-w-0 flex-1 text-[12px] font-bold leading-4 text-text')}>
         {banner.description}
       </Text>
     </View>
@@ -357,8 +352,8 @@ function PickerChip({
       }}
       onPress={onPress}
     >
-      <Text className="text-[12px] font-bold text-dim">{label}:</Text>
-      <Text className="min-w-0 flex-1 text-[12px] font-bold text-text" numberOfLines={1}>
+      <Text style={sx('text-[12px] font-bold text-dim')}>{label}:</Text>
+      <Text style={sx('min-w-0 flex-1 text-[12px] font-bold text-text')} numberOfLines={1}>
         {value}
       </Text>
       <MobileIcon name="chevronDown" size={13} strokeWidth={2.5} color={active ? '#f59e0b' : '#64748b'} />
@@ -390,8 +385,8 @@ function AttachmentChip({
         paddingRight: 4,
       }}
     >
-      <Text className="text-[11px] font-bold text-muted">{summary.detail}</Text>
-      <Text className="max-w-[150px] text-[12px] font-bold text-text" numberOfLines={1}>
+      <Text style={sx('text-[11px] font-bold text-muted')}>{summary.detail}</Text>
+      <Text style={sx('max-w-[150px] text-[12px] font-bold text-text')} numberOfLines={1}>
         {summary.label}
       </Text>
       <Pressable

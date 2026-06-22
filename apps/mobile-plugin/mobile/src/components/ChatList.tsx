@@ -1,3 +1,4 @@
+import { sx } from '../styles/tokens';
 import {
   FlatList,
   Image,
@@ -109,7 +110,7 @@ export function ChatList({
       ListHeaderComponent={header}
       ListEmptyComponent={empty}
       ListFooterComponent={footer}
-      className="flex-1"
+      style={sx('flex-1')}
       contentContainerStyle={buildChatListContentStyle()}
       onContentSizeChange={autoScroll.handleContentSizeChange}
       onScroll={handleScroll}
@@ -190,7 +191,7 @@ function MessageBlock({
                 shadowRadius: 14,
               }}
             >
-              <Text className="text-[15px] leading-6 text-white">{item.text}</Text>
+              <Text style={sx('text-[15px] leading-6 text-white')}>{item.text}</Text>
             </View>
           ) : null}
         </View>
@@ -216,19 +217,17 @@ function MessageBlock({
 
   return (
     <View
-      className="rounded-block border border-cardBorder bg-cardBg"
-      style={{
+      style={sx('rounded-block border border-cardBorder bg-cardBg', {
         alignSelf: 'center',
         borderColor: '#fecaca',
         borderRadius: 10,
-        borderWidth: 1,
         maxWidth: '92%',
         paddingHorizontal: 12,
         paddingVertical: 8,
-      }}
+      })}
     >
-      <Text className="text-[12px] font-bold text-red">{item.label}</Text>
-      <Text className="mt-1 text-[13px] leading-5 text-muted">{item.text}</Text>
+      <Text style={sx('text-[12px] font-bold text-red')}>{item.label}</Text>
+      <Text style={sx('mt-1 text-[13px] leading-5 text-muted')}>{item.text}</Text>
     </View>
   );
 }
@@ -360,17 +359,16 @@ function AssistantMessage({
       style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}
     >
       <View
-        className="bg-primarySoft"
-        style={{ alignItems: 'center', borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}
+        style={sx('bg-primarySoft', { alignItems: 'center', borderRadius: 10, height: 34, justifyContent: 'center', width: 34 })}
       >
         <MobileIcon name="message" size={18} strokeWidth={2.35} color="#db2777" />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
-          <Text className="text-[13px] font-bold text-text">{message.label}</Text>
+          <Text style={sx('text-[13px] font-bold text-text')}>{message.label}</Text>
           {message.streaming ? (
-            <View className="rounded-pill bg-primarySoft px-2 py-0.5">
-              <Text className="text-[11px] font-bold text-primary">typing...</Text>
+            <View style={sx('rounded-pill bg-primarySoft px-2 py-0.5')}>
+              <Text style={sx('text-[11px] font-bold text-primary')}>typing...</Text>
             </View>
           ) : null}
           <View style={{ flex: 1 }} />
@@ -383,7 +381,7 @@ function AssistantMessage({
         </View>
         <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
         {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
-          <Text className="mt-1 text-[10px] font-bold uppercase text-dim">stop: {message.stopReason.replace(/_/g, ' ')}</Text>
+          <Text style={sx('mt-1 text-[10px] font-bold uppercase text-dim')}>stop: {message.stopReason.replace(/_/g, ' ')}</Text>
         ) : null}
       </View>
     </View>
@@ -424,8 +422,8 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
           onPress={() => setOpen((value) => !value)}
           style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 34 }}
         >
-          <Text className="text-[13px] font-bold text-text">{group.title}</Text>
-          <Text className="text-[11px] font-bold text-dim">{group.tools.length}</Text>
+          <Text style={sx('text-[13px] font-bold text-text')}>{group.title}</Text>
+          <Text style={sx('text-[11px] font-bold text-dim')}>{group.tools.length}</Text>
           <View
             style={{
               alignItems: 'center',
@@ -449,10 +447,10 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
             ) : null}
             <Text style={{ color: ui.accent, fontSize: 11, fontWeight: '800' }}>{ui.statusLabel}</Text>
           </View>
-          <Text className="flex-1 text-[11px] font-medium text-dim" numberOfLines={1}>
+          <Text style={sx('flex-1 text-[11px] font-medium text-dim')} numberOfLines={1}>
             {ui.summary || group.summary}
           </Text>
-          <Text className="text-[16px] font-bold text-dim">{open ? '-' : '+'}</Text>
+          <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
         </Pressable>
         {open ? (
           <View style={{ gap: 8, marginTop: 8 }}>
@@ -508,10 +506,10 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
               width: 6,
             }}
           />
-          <Text className="flex-1 text-[13px] font-bold text-text" numberOfLines={1}>
+          <Text style={sx('flex-1 text-[13px] font-bold text-text')} numberOfLines={1}>
             {group.summary}
           </Text>
-          <Text className="text-[16px] font-bold text-dim">{open ? '-' : '+'}</Text>
+          <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
         </Pressable>
         {open ? (
           <View style={{ borderLeftColor: '#c7d2fe', borderLeftWidth: 1, gap: 6, marginTop: 6, paddingLeft: 10 }}>
@@ -533,7 +531,7 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
               >
                 <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text className="text-[12px] font-semibold text-muted" numberOfLines={1}>
+                    <Text style={sx('text-[12px] font-semibold text-muted')} numberOfLines={1}>
                       {agent.label} · {agent.toolCallCount} {agent.toolCallCount === 1 ? 'tool' : 'tools'}
                       {formatAgentTokens(agent.tokensUsed)}
                     </Text>
@@ -544,12 +542,12 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
                   <MobileIcon name="chevronRight" size={15} strokeWidth={2.4} color="#94a3b8" />
                 </View>
                 {agent.error ? (
-                  <Text className="mt-1 text-[11px] leading-4 text-red" numberOfLines={2}>
+                  <Text style={sx('mt-1 text-[11px] leading-4 text-red')} numberOfLines={2}>
                     {agent.error}
                   </Text>
                 ) : null}
                 {agent.finalPreview ? (
-                  <Text className="mt-1 text-[11px] leading-4 text-dim" numberOfLines={2}>
+                  <Text style={sx('mt-1 text-[11px] leading-4 text-dim')} numberOfLines={2}>
                     {agent.finalPreview}
                   </Text>
                 ) : null}
@@ -662,8 +660,8 @@ function SubagentDetailModalContent({
               <MobileIcon name="agent" size={20} strokeWidth={2.5} color="#7c3aed" />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text className="text-[17px] font-black text-text" numberOfLines={1}>{ui.title}</Text>
-              <Text className="mt-0.5 text-[12px] font-semibold text-muted" numberOfLines={1}>{ui.subtitle}</Text>
+              <Text style={sx('text-[17px] font-black text-text')} numberOfLines={1}>{ui.title}</Text>
+              <Text style={sx('mt-0.5 text-[12px] font-semibold text-muted')} numberOfLines={1}>{ui.subtitle}</Text>
             </View>
             <View
               style={{
@@ -697,10 +695,10 @@ function SubagentDetailModalContent({
             showsVerticalScrollIndicator
           >
             <View>
-              <Text className="text-[11px] font-black uppercase text-dim">{ui.meta}</Text>
+              <Text style={sx('text-[11px] font-black uppercase text-dim')}>{ui.meta}</Text>
             </View>
             <View>
-              <Text className="text-[13px] font-black text-text">{ui.responseTitle}</Text>
+              <Text style={sx('text-[13px] font-black text-text')}>{ui.responseTitle}</Text>
               <View
                 style={{
                   backgroundColor: '#f8fafc',
@@ -716,9 +714,9 @@ function SubagentDetailModalContent({
               </View>
             </View>
             <View>
-              <Text className="text-[13px] font-black text-text">{ui.toolsTitle}</Text>
+              <Text style={sx('text-[13px] font-black text-text')}>{ui.toolsTitle}</Text>
               {ui.emptyToolsText ? (
-                <Text className="mt-2 text-[12px] leading-5 text-dim">{ui.emptyToolsText}</Text>
+                <Text style={sx('mt-2 text-[12px] leading-5 text-dim')}>{ui.emptyToolsText}</Text>
               ) : null}
               <View style={{ gap: 8, marginTop: 8 }}>
                 {ui.tools.map((tool) => (
@@ -766,12 +764,12 @@ function ExpandableToolCard({
     >
       <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 22 }}>
         <View style={{ backgroundColor: toolTone.accent, borderRadius: 999, height: 7, width: 7 }} />
-        <Text className="flex-1 text-[12px] font-black text-text" numberOfLines={1}>{tool.name}</Text>
+        <Text style={sx('flex-1 text-[12px] font-black text-text')} numberOfLines={1}>{tool.name}</Text>
         <Text style={{ color: toolTone.accent, fontSize: 11, fontWeight: '900' }}>{tool.statusLabel}</Text>
         <MobileIcon name={expanded ? 'chevronDown' : 'chevronRight'} size={15} strokeWidth={2.5} color="#94a3b8" />
       </View>
       {tool.summary ? (
-        <Text className="mt-1 text-[11px] leading-4 text-muted" numberOfLines={expanded ? undefined : 2}>
+        <Text style={sx('mt-1 text-[11px] leading-4 text-muted')} numberOfLines={expanded ? undefined : 2}>
           {tool.summary}
         </Text>
       ) : null}
@@ -787,8 +785,8 @@ function ExpandableToolCard({
             paddingVertical: 8,
           }}
         >
-          <Text className="text-[10px] font-black uppercase text-dim">{tool.detailLabel}</Text>
-          <Text className="mt-1 text-[11px] leading-4 text-text">
+          <Text style={sx('text-[10px] font-black uppercase text-dim')}>{tool.detailLabel}</Text>
+          <Text style={sx('mt-1 text-[11px] leading-4 text-text')}>
             {tool.detail ?? 'No details captured yet.'}
           </Text>
         </View>
@@ -813,7 +811,7 @@ function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptIt
   const [open, setOpen] = useState(false);
   return (
     <View style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}>
-      <View className="h-[34px] w-[34px] items-center justify-center rounded-block bg-appBg">
+      <View style={sx('h-[34px] w-[34px] items-center justify-center rounded-block bg-appBg')}>
         <MobileIcon name="more" size={17} strokeWidth={2.35} color="#94a3b8" />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -823,19 +821,19 @@ function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptIt
           onPress={() => setOpen((value) => !value)}
           style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 34 }}
         >
-          <Text className="text-[12px] font-bold text-muted">{group.title}</Text>
-          <Text className="text-[11px] font-bold text-dim">{group.count} events</Text>
-          <Text className="flex-1 text-[11px] text-dim" numberOfLines={1}>
+          <Text style={sx('text-[12px] font-bold text-muted')}>{group.title}</Text>
+          <Text style={sx('text-[11px] font-bold text-dim')}>{group.count} events</Text>
+          <Text style={sx('flex-1 text-[11px] text-dim')} numberOfLines={1}>
             collapsed
           </Text>
-          <Text className="text-[16px] font-bold text-dim">{open ? '-' : '+'}</Text>
+          <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
         </Pressable>
         {open ? (
-          <View className="mt-2 rounded-block border border-cardBorder bg-cardBg px-3 py-2">
+          <View style={sx('mt-2 rounded-block border border-cardBorder bg-cardBg px-3 py-2')}>
             {group.events.map((event) => (
-              <View key={event.id} className="py-1">
-                <Text className="text-[11px] font-bold text-muted">{event.type}</Text>
-                <Text className="text-[11px] leading-4 text-dim">{event.text}</Text>
+              <View key={event.id} style={sx('py-1')}>
+                <Text style={sx('text-[11px] font-bold text-muted')}>{event.type}</Text>
+                <Text style={sx('text-[11px] leading-4 text-dim')}>{event.text}</Text>
               </View>
             ))}
           </View>
