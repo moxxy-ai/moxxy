@@ -103,7 +103,16 @@ makes `tsc` skip emit (false "Done", no output); a real EAS checkout has neither
 so it builds clean. To reproduce EAS locally, wipe `dist` **and** `*.tsbuildinfo`.
 Considered but rejected: bundling `@moxxy/*` from TS source via a Metro resolver —
 cleaner in theory but leaks a babel-must-transpile-all-shared-TS coupling; the
-dist contract is kept uniform with every other consumer.
+dist contract is kept uniform with every other consumer. **Submit follow-on:** the
+EAS *submit* step then failed with altool 1192 "No version found … on platform iOS
+App" — an App Store Connect-side condition (app/version not set up to receive a
+build, or inactive Paid/Free-Apps agreement), surfaced because the empty `submit`
+profile made `eas submit --non-interactive` auto-resolve a stub app. Pinned
+`submit.production.ios.{ascAppId,bundleIdentifier}` in `eas.json` to make the
+target deterministic; the upload itself still requires the ASC app record + active
+agreement (owner action, not a repo fix). `eas.json` can't env-drive `ascAppId`
+(no interpolation, no CLI flag), so it's committed despite the keep-identity-out
+pattern.
 
 ## 2026-06-22 — Mobile NativeWind cleanup
 
