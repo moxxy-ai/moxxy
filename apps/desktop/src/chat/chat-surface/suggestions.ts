@@ -8,6 +8,33 @@ export const COLD_START_SUGGESTIONS: ReadonlyArray<string> = [
   'What commands can I run here?',
 ];
 
+/** Larger starter templates for the empty-state cards (z.ai shows example
+ *  cards under the hero). Clicking one prefills the composer — static prompt
+ *  seeds, deliberately NOT wired to the Apps registry. */
+export interface StarterCard {
+  readonly title: string;
+  readonly subtitle: string;
+  readonly prompt: string;
+}
+
+export const STARTER_CARDS: ReadonlyArray<StarterCard> = [
+  {
+    title: 'Explore this codebase',
+    subtitle: 'Map the structure & key files',
+    prompt: 'Give me a tour of this codebase: the structure, the key modules, and how they fit together.',
+  },
+  {
+    title: 'Fix a bug',
+    subtitle: 'Reproduce, isolate, patch',
+    prompt: 'I have a bug. Help me reproduce it, find the root cause, and propose a fix.',
+  },
+  {
+    title: 'Build a feature',
+    subtitle: 'Plan, then implement',
+    prompt: 'I want to add a new feature. Plan the implementation, then build it step by step.',
+  },
+];
+
 /**
  * Pick three short follow-ups based on the latest block. Heuristic-
  * only — no extra LLM call — because the value here is a clickable

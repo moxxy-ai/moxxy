@@ -9,10 +9,17 @@ import {
 import { api, toSpeakableText } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
 
-export function ActionRow({ text }: { readonly text: string }): JSX.Element {
+export function ActionRow({
+  text,
+  onRegenerate,
+}: {
+  readonly text: string;
+  /** When provided, render a Regenerate button (z.ai). Stub today — real
+   *  regeneration needs runner support, so it's omitted until wired. */
+  readonly onRegenerate?: () => void;
+}): JSX.Element {
   const [copied, setCopied] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   // Track the "Copied!" reset timer so it can be cleared on unmount — this
   // block lives in a virtualised list and is unmounted on scroll / workspace
   // switch, where a pending setTimeout would fire setState on a dead component.
@@ -92,6 +99,11 @@ export function ActionRow({ text }: { readonly text: string }): JSX.Element {
       <ActBtn label={copied ? 'Copied!' : 'Copy'} active={copied} activeColor="var(--color-green)" onClick={() => void onCopy()}>
         <Icon name={copied ? 'check' : 'copy'} size={15} />
       </ActBtn>
+      {onRegenerate && (
+        <ActBtn label="Regenerate" active={false} activeColor="var(--color-primary)" onClick={onRegenerate}>
+          <Icon name="rotate" size={15} />
+        </ActBtn>
+      )}
       {isSpeechSupported() && (
         <ActBtn
           label={speaking ? 'Stop' : 'Read aloud'}
@@ -102,23 +114,6 @@ export function ActionRow({ text }: { readonly text: string }): JSX.Element {
           <Icon name={speaking ? 'stop' : 'speaker'} size={15} />
         </ActBtn>
       )}
-      <span aria-hidden style={{ width: 1, height: 14, background: 'var(--color-card-border)', margin: '0 5px' }} />
-      <ActBtn
-        label="Good response"
-        active={feedback === 'up'}
-        activeColor="var(--color-green)"
-        onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
-      >
-        <Icon name="thumbs-up" size={15} />
-      </ActBtn>
-      <ActBtn
-        label="Bad response"
-        active={feedback === 'down'}
-        activeColor="var(--color-red)"
-        onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
-      >
-        <Icon name="thumbs-down" size={15} />
-      </ActBtn>
     </div>
   );
 }

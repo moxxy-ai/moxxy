@@ -143,19 +143,15 @@ export function UserBlock({
         <div
           style={{
             padding: '12px 16px',
-            // Solid contrast-safe base UNDER the gradient: if the lightest
-            // gradient stop resolves too pale in a given theme, the dark base
-            // (and the text-shadow below) keep the white prompt text legible.
-            backgroundColor: 'var(--color-primary-strong)',
-            backgroundImage: 'var(--grad-user)',
-            color: '#fff',
-            // Guarantees the white text stays readable over the lightest stop.
-            textShadow: '0 1px 2px rgba(15, 23, 42, 0.45)',
+            // z.ai: a quiet neutral-grey bubble with dark text (not a brand
+            // gradient). color-mix keeps it theme-aware (grey on white in light,
+            // a step above the canvas in dark).
+            background: 'color-mix(in srgb, var(--color-text) 7%, var(--color-main-bg))',
+            color: 'var(--color-text)',
             borderRadius: '16px 16px 4px 16px',
             whiteSpace: 'pre-wrap',
             lineHeight: 1.55,
             fontSize: 14.5,
-            boxShadow: '0 6px 18px -10px color-mix(in srgb, var(--color-primary) 55%, transparent)',
           }}
         >
           {text}

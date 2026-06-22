@@ -110,6 +110,20 @@ export function ChatSurface({
     [showSuggestions, chat.events],
   );
 
+  // One set of composer props, rendered either centered (empty state) or
+  // docked (during a conversation) — never both at once.
+  const composerProps = {
+    ready,
+    sending: chat.sending,
+    compacting: chat.compacting,
+    activeTurnId: chat.activeTurnId,
+    workspaceId,
+    onSend: (p: string, atts?: ReadonlyArray<import('./composer/useComposerAttachments').ComposerAttachment>) =>
+      void chat.send(p, atts),
+    onAbort: () => void chat.abort(),
+    onRevealBrowser: () => onPickPane('browser'),
+  };
+
   return (
     <main className="col-main col-main--flat">
       <Header
@@ -133,7 +147,7 @@ export function ChatSurface({
         {chat.loading ? (
           <ChatLoading />
         ) : chat.isEmpty ? (
-          <EmptyState ready={ready} />
+          <EmptyState ready={ready} composer={composerProps} />
         ) : (
           <Transcript
             events={filteredEvents}
@@ -144,6 +158,7 @@ export function ChatSurface({
             workspaceId={workspaceId}
             hasOlder={!searchQuery && chat.hasOlder}
             onReachedTop={chat.loadOlder}
+            onSkip={() => void chat.abort()}
           />
         )}
       </div>
@@ -151,15 +166,9 @@ export function ChatSurface({
         <SuggestedActions suggestions={suggestions} onPick={(p) => void chat.send(p)} />
       )}
       {activeAsk && <AskSheet ask={activeAsk} />}
-      <Composer
-        ready={ready}
-        sending={chat.sending}
-        compacting={chat.compacting}
-        activeTurnId={chat.activeTurnId}
-        workspaceId={workspaceId}
-        onSend={(p, atts) => void chat.send(p, atts)}
-        onAbort={() => void chat.abort()}
-      />
+      {/* Docked composer only during a conversation — the empty state hosts its
+       *  own centered composer (one instance is mounted at a time). */}
+      {!chat.isEmpty && !chat.loading && <Composer {...composerProps} variant="docked" />}
       {chat.error && <ErrorToast text={chat.error} />}
       {renameOpen && activeDesk && (
         <RenameWorkspaceModal

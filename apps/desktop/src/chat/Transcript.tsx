@@ -24,6 +24,9 @@ interface TranscriptProps {
   readonly hasOlder?: boolean;
   /** Fired when the user scrolls to the top edge — load the older page. */
   readonly onReachedTop?: () => void;
+  /** "Skip" on the live thinking indicator — aborts the current turn (there
+   *  is no reasoning-only skip primitive). */
+  readonly onSkip?: () => void;
 }
 
 /** Memoised per-block so a streaming chunk (which only changes
@@ -40,7 +43,17 @@ const MemoBlock = memo(
  *  (user → right, tool → left, assistant → stretch) is honoured; in the
  *  old flat flex container it worked for free, but each virtualised row is
  *  its own element now. */
-const ROW: React.CSSProperties = { padding: '8px 24px', display: 'flex', flexDirection: 'column' };
+// Centered reading column (z.ai): each row's content is capped and centered
+// so prose doesn't stretch edge-to-edge on a wide window. alignSelf inside
+// still places user bubbles right / assistant text full-width within it.
+const ROW: React.CSSProperties = {
+  padding: '8px 24px',
+  display: 'flex',
+  flexDirection: 'column',
+  width: '100%',
+  maxWidth: 860,
+  margin: '0 auto',
+};
 
 function keyOf(node: RenderNode): string {
   if (node.kind === 'ext') return node.ext.id;
@@ -83,6 +96,7 @@ export function Transcript({
   workspaceId,
   hasOlder,
   onReachedTop,
+  onSkip,
 }: TranscriptProps): JSX.Element {
   // Fold only when committed events / extensions change — never on a
   // streaming tick (the events array reference is stable across chunks). The
@@ -160,13 +174,13 @@ export function Transcript({
         itemContent={(_i, node) => <Row node={node} workspaceId={workspaceId} />}
         components={{
           Footer: () => (
-            <div style={{ padding: '0 24px 12px' }}>
+            <div style={{ padding: '0 24px 12px', width: '100%', maxWidth: 860, margin: '0 auto' }}>
               {streamingText ? (
                 <StreamingAssistant text={streamingText} />
               ) : streamingReasoning ? (
-                <StreamingReasoning text={streamingReasoning} />
+                <StreamingReasoning text={streamingReasoning} onSkip={onSkip} />
               ) : sending ? (
-                <ThinkingIndicator />
+                <ThinkingIndicator onSkip={onSkip} />
               ) : null}
             </div>
           ),

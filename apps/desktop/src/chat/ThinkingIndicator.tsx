@@ -1,15 +1,13 @@
 /**
- * "Thinking…" placeholder rendered between send and the agent's
- * first chunk. Once the assistant block has any text (or the turn
- * completes), the indicator disappears.
- *
- * Uses the brand avatar bobbing softly so it reads as the agent
- * doing something, not the app being stuck.
+ * "Thinking…" placeholder rendered between send and the agent's first chunk
+ * (z.ai pattern): a minimal label + animated dots on the left, a "Skip" button
+ * on the right. No avatar — the assistant turn is full-width plain text. Once
+ * any reasoning/answer text arrives, this is replaced.
  */
 
-import { Icon } from '@moxxy/desktop-ui';
+import { SkipButton } from './blocks/SkipButton';
 
-export function ThinkingIndicator(): JSX.Element {
+export function ThinkingIndicator({ onSkip }: { readonly onSkip?: () => void }): JSX.Element {
   return (
     <div
       role="status"
@@ -17,58 +15,26 @@ export function ThinkingIndicator(): JSX.Element {
       style={{
         alignSelf: 'stretch',
         display: 'flex',
-        gap: 12,
-        maxWidth: '92%',
+        alignItems: 'center',
+        gap: 10,
       }}
     >
+      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--color-text-muted)' }}>
+        Thinking…
+      </span>
       <span
-        aria-hidden
         style={{
-          width: 34,
-          height: 34,
-          borderRadius: 10,
-          background: 'var(--color-primary-soft)',
-          color: 'var(--color-primary-strong)',
           display: 'inline-flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
+          gap: 6,
         }}
       >
-        <Icon name="agent" size={18} />
+        <span className="thinking-dot" style={{ animationDelay: '0ms' }} />
+        <span className="thinking-dot" style={{ animationDelay: '160ms' }} />
+        <span className="thinking-dot" style={{ animationDelay: '320ms' }} />
       </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>Assistant</span>
-          <span
-            className="mono"
-            style={{
-              fontSize: 11,
-              color: 'var(--color-primary)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            thinking…
-          </span>
-        </div>
-        <div
-          style={{
-            marginTop: 8,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '8px 12px',
-            background: 'var(--color-primary-soft)',
-            borderRadius: 14,
-          }}
-        >
-          <span className="thinking-dot" style={{ animationDelay: '0ms' }} />
-          <span className="thinking-dot" style={{ animationDelay: '160ms' }} />
-          <span className="thinking-dot" style={{ animationDelay: '320ms' }} />
-        </div>
-      </div>
+      <span style={{ flex: 1 }} />
+      {onSkip && <SkipButton onSkip={onSkip} />}
     </div>
   );
 }

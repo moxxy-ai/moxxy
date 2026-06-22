@@ -5,7 +5,7 @@ export function sendBtn(bg: string, enabled: boolean): React.CSSProperties {
   return {
     width: 38,
     height: 38,
-    borderRadius: 12,
+    borderRadius: '50%',
     background: bg,
     color: '#fff',
     fontSize: 14,

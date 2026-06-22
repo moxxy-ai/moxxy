@@ -33,10 +33,7 @@ export function ReasoningBlock({ event }: { readonly event: ReasoningMessageEven
   }
 
   return (
-    <div
-      data-testid="block-reasoning"
-      style={{ alignSelf: 'stretch', maxWidth: '92%', opacity: 0.8 }}
-    >
+    <div data-testid="block-reasoning" style={{ alignSelf: 'stretch' }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -44,12 +41,14 @@ export function ReasoningBlock({ event }: { readonly event: ReasoningMessageEven
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 6,
           padding: '2px 0',
-          width: '100%',
           textAlign: 'left',
         }}
       >
+        <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+          Thought Process
+        </span>
         <span
           aria-hidden
           style={{
@@ -61,12 +60,16 @@ export function ReasoningBlock({ event }: { readonly event: ReasoningMessageEven
         >
           <Icon name="chevron-right" size={14} />
         </span>
-        <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
-          Thinking
-        </span>
       </button>
       {open && (
-        <div style={{ marginTop: 4, paddingLeft: 22, color: 'var(--color-text-muted)' }}>
+        <div
+          style={{
+            marginTop: 6,
+            paddingLeft: 14,
+            borderLeft: '2px solid var(--color-card-border)',
+            color: 'var(--color-text-muted)',
+          }}
+        >
           <MarkdownBody text={event.content} />
         </div>
       )}

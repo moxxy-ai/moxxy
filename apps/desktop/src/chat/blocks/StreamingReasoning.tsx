@@ -1,65 +1,70 @@
+import { useState } from 'react';
 import { Icon } from '@moxxy/desktop-ui';
 import { MarkdownBody } from '../MarkdownBody';
+import { SkipButton } from './SkipButton';
 
-/** Live reasoning preview while the model is still thinking — shown in
- *  place of the dead "thinking…" dots for a reasoning model. Visually
- *  subdued (dim avatar + muted body) so it reads as the model's scratch
- *  thinking, not its final answer; replaced by StreamingAssistant the
- *  moment the answer text starts to arrive. */
-export function StreamingReasoning({ text }: { readonly text: string }): JSX.Element {
+/** Live reasoning preview while the model is still thinking (z.ai "Thinking… ›"
+ *  pattern). A collapsible header with an animated dot, expanded by default so
+ *  the user can watch the scratch thinking; the body is a left-bordered indent.
+ *  A "Skip" button (= abort the turn) sits on the right while live. Replaced by
+ *  StreamingAssistant the moment answer text starts arriving. */
+export function StreamingReasoning({
+  text,
+  onSkip,
+}: {
+  readonly text: string;
+  readonly onSkip?: () => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(true);
   return (
-    <div
-      data-testid="block-streaming-reasoning"
-      style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%', opacity: 0.7 }}
-    >
-      <span
-        aria-hidden
-        style={{
-          width: 34,
-          height: 34,
-          borderRadius: 10,
-          background: 'var(--color-input-soft)',
-          color: 'var(--color-text-dim)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        <Icon name="agent" size={18} />
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--color-text-muted)' }}>
-            Thinking
+    <div data-testid="block-streaming-reasoning" style={{ alignSelf: 'stretch', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, textAlign: 'left' }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--color-text-dim)',
+              animation: 'moxxy-thinking 1.1s ease-in-out infinite',
+            }}
+          />
+          <span style={{ fontWeight: 600, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+            Thinking…
           </span>
           <span
-            className="mono"
+            aria-hidden
             style={{
-              fontSize: 11,
               color: 'var(--color-text-dim)',
+              transform: open ? 'rotate(90deg)' : 'none',
+              transition: 'transform 120ms ease',
               display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
             }}
           >
-            <span
-              aria-hidden
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: 'var(--color-text-dim)',
-                animation: 'moxxy-thinking 1.1s ease-in-out infinite',
-              }}
-            />
-            thinking…
+            <Icon name="chevron-right" size={14} />
           </span>
-        </div>
-        <div style={{ marginTop: 6, color: 'var(--color-text-muted)' }}>
+        </button>
+        <span style={{ flex: 1 }} />
+        {onSkip && <SkipButton onSkip={onSkip} />}
+      </div>
+      {open && (
+        <div
+          style={{
+            marginTop: 6,
+            paddingLeft: 14,
+            borderLeft: '2px solid var(--color-card-border)',
+            color: 'var(--color-text-muted)',
+          }}
+        >
           <MarkdownBody text={text} streaming />
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -46,6 +46,12 @@ interface ComposerProps {
     attachments?: ReadonlyArray<ComposerAttachment>,
   ) => void;
   readonly onAbort: () => void;
+  /** `centered` is the wide, prominent empty-state placement (z.ai hero);
+   *  `docked` (default) is the bottom-of-pane card during a conversation. */
+  readonly variant?: 'docked' | 'centered';
+  /** Globe button — reveal the browser surface (closest moxxy analog to
+   *  z.ai's web toggle). Hidden when not provided. */
+  readonly onRevealBrowser?: () => void;
 }
 
 /**
@@ -73,7 +79,10 @@ export function Composer({
   workspaceId,
   onSend,
   onAbort,
+  variant = 'docked',
+  onRevealBrowser,
 }: ComposerProps): JSX.Element {
+  const centered = variant === 'centered';
   const [draft, setDraft] = useState('');
   const [hasTranscriber, setHasTranscriber] = useState(false);
   const [noTranscriberMsg, setNoTranscriberMsg] = useState<string | null>(null);
@@ -246,12 +255,23 @@ export function Composer({
         submit();
       }}
       style={{
-        margin: '12px 18px 4px',
-        padding: '12px 14px',
+        ...(centered
+          ? {
+              width: '100%',
+              maxWidth: 720,
+              margin: '0 auto',
+              padding: '16px 18px',
+              borderRadius: 22,
+              boxShadow: '0 18px 50px -24px rgba(24, 24, 27, 0.22)',
+            }
+          : {
+              margin: '12px 18px 4px',
+              padding: '12px 14px',
+              borderRadius: 16,
+              boxShadow: 'var(--color-card-shadow)',
+            }),
         background: 'var(--color-card-bg)',
         border: '1px solid var(--color-card-border)',
-        borderRadius: 16,
-        boxShadow: 'var(--color-card-shadow)',
         display: 'flex',
         flexDirection: 'column',
         gap: 10,
@@ -328,7 +348,9 @@ export function Composer({
             : attachments.length > 0
               ? 'Ask about the attached file…'
               : ready
-                ? 'Send a message to the agent…'
+                ? centered
+                  ? 'How can I help you today?'
+                  : 'Send a message'
                 : 'Waiting for runner…'
         }
         disabled={!ready || compacting}
@@ -362,6 +384,11 @@ export function Composer({
             },
           ]}
         />
+        {onRevealBrowser && (
+          <ToolChip label="Open browser" onClick={onRevealBrowser}>
+            <Icon name="globe" size={16} />
+          </ToolChip>
+        )}
         <AgentPicker workspaceId={workspaceId} disabled={!ready || inFlight} />
         <ToolChip label="Attach file" onClick={() => void onAttach()}>
           <Icon name="attach" size={16} />
