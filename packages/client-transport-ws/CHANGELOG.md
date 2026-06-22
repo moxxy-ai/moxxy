@@ -1,5 +1,20 @@
 # @moxxy/client-transport-ws
 
+## 0.2.1
+
+### Patch Changes
+
+- d5a3014: Fix mobile (iOS) E2E pairing over the proxy relay. The encrypted channel framed
+  each ciphertext message as a **binary** WebSocket frame, but React Native's iOS
+  WebSocket silently drops binary frames — the phone's `ClientHello` never reached
+  the agent shim, so pairing failed with "transport closed during handshake"
+  (the relay, proxy, shim and handshake were all correct; a Node `ws` client
+  paired fine through the same production relay). The phone client and the agent
+  shim now exchange base64url **text** frames (delivered reliably across
+  RN/iOS/Android/browser) and still accept binary from a binary-capable peer.
+  - @moxxy/desktop-ipc-contract@0.10.4
+  - @moxxy/e2e@0.1.1
+
 ## 0.2.0
 
 ### Minor Changes
