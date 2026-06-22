@@ -444,6 +444,36 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   onChange={setQuery} placeholder="Search skills…" />` and delete the duplicate.
   Left out of this PR to keep it a pure empty-state alignment.
 
+## 2026-06-17 — self-hosted proxy tunnel (replaces ngrok/cloudflared)
+
+- **Retired: "unify tunnel subprocess management" (cloudflared/ngrok).** The
+  cloudflared/ngrok `TunnelProviderDef`s, the shared `spawnCliTunnel` /
+  `isCliTunnelAvailable` SDK helpers, and the webhooks `TunnelKind` machinery are
+  all gone — `proxy` (native Node, `@moxxy/plugin-tunnel-proxy`, dialing the
+  self-hosted relay) is the sole tunnel provider. No subprocesses to unify.
+- **New: the relay is the SOLE remote path — no fallback.** Mobile pairing, the
+  web/UI preview, and webhook ingress all depend on the relay being up; a lapsed
+  wildcard cert breaks every one at once. Needs uptime monitoring + a quick
+  redeploy story (deploy scripts exist in the private `proxy-relay` repo). Decide
+  whether to keep a hidden emergency escape hatch.
+- **New: relay is single-instance.** Horizontal scaling needs a shared
+  `uuid→instance` registry (Redis) + sticky routing; fine for a personal relay,
+  not for many users.
+- **Resolved (web preview) / partial (generic): path-prefix under multi-target.**
+  The relay strips `/<target>` from the first ingress request line. The web
+  channel is now **base-path-aware** (injects `<base href="/web/">` + a client
+  `__MOXXY_BASE__` global, and base-strips inbound paths tolerantly), so the
+  browser preview works whether or not the relay stripped a given request — no
+  keep-alive gap. Mobile (single WS upgrade) and webhook POSTs (one request) are
+  fine on the first-line strip alone. **Still open:** a *future arbitrary* HTTP
+  app served via proxy that ISN'T base-path-aware would need full L7 path
+  rewriting in the relay (keep-alive-aware) — only build that if such an app
+  appears.
+- **Spike outcome:** E2E crypto uses `@noble` (curves/ciphers/hashes) — pure JS,
+  RN-safe; signed-ephemeral-ECDH + XChaCha20-Poly1305 (not literal Noise). RN
+  needs `react-native-get-random-values` + a `TextDecoder` polyfill at app entry
+  (logged for the mobile app).
+
 ## 2026-06-17 — desktop native build (node-gyp) is brittle against runner-image churn
 
 - **Still open — the node-gyp 11 bump was tried (#204) and REVERTED.** `node-gyp@9.4.1`

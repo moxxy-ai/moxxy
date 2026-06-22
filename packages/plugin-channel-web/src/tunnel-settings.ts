@@ -20,7 +20,7 @@ const writeMutex = createMutex();
  * it on boot. Absent file → callers fall back to defaults.
  */
 export interface WebSettings {
-  /** Active tunnel provider name (e.g. 'cloudflared', 'ngrok', 'localhost'). */
+  /** Active tunnel provider name (e.g. 'proxy', 'localhost'). */
   readonly tunnel?: string;
 }
 

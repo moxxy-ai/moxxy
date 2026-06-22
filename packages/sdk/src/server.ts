@@ -15,7 +15,6 @@
  * bundle.
  */
 
-export { spawnCliTunnel, isCliTunnelAvailable } from './tunnel.js';
 export {
   writeFileAtomic,
   writeFileAtomicSync,

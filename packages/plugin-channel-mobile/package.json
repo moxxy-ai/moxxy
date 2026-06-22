@@ -14,6 +14,10 @@
     "./pairing": {
       "types": "./dist/pairing.d.ts",
       "import": "./dist/pairing.js"
+    },
+    "./e2e-proxy": {
+      "types": "./dist/e2e-proxy.d.ts",
+      "import": "./dist/e2e-proxy.js"
     }
   },
   "files": [
@@ -28,16 +32,19 @@
   },
   "dependencies": {
     "@moxxy/desktop-ipc-contract": "workspace:*",
+    "@moxxy/e2e": "workspace:*",
     "@moxxy/ipc-server-ws": "workspace:*",
-    "@moxxy/plugin-channel-web": "workspace:*",
+    "@moxxy/plugin-tunnel-proxy": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "ws": "catalog:"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
     "@types/qrcode": "^1.5.5",
+    "@types/ws": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

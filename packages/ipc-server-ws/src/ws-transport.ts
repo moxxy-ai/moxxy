@@ -217,7 +217,7 @@ export interface WebSocketBridgeServer extends TransportServer {
   /**
    * Replace the Origin allow-list on the LIVE server. Needed because some
    * allowed origins are only known after the listener is up — a tunnel
-   * (cloudflared/ngrok) URL is assigned once the tunnel opens, and iOS React
+   * (the proxy relay) URL is assigned once the tunnel opens, and iOS React
    * Native clients present that URL's https origin at the upgrade. Affects
    * future handshakes only; established connections stay up (unlike
    * `rotateAuthToken`, nothing is being revoked on the additive path).

@@ -58,6 +58,7 @@ import type { DeepLinkPayload, MobileGatewayStatus } from '@moxxy/desktop-ipc-co
 import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
 
 import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
+import { openMobileProxyTunnel } from '@moxxy/plugin-channel-mobile/e2e-proxy';
 
 import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
 
@@ -692,6 +693,9 @@ app.whenReady().then(async () => {
       onChange: (status: MobileGatewayStatus) => {
         if (mainWindow) sendEvent(mainWindow, 'mobileGateway.changed', status);
       },
+      // Expose the bridge off-LAN through the E2E proxy relay (best-effort; the
+      // manager falls back to a LAN URL if the relay is unreachable).
+      openProxyTunnel: openMobileProxyTunnel,
     });
   }
 

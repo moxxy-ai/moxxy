@@ -23,7 +23,8 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@moxxy/desktop-ipc-contract": "workspace:*"
+    "@moxxy/desktop-ipc-contract": "workspace:*",
+    "@moxxy/e2e": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

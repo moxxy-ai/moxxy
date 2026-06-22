@@ -170,6 +170,25 @@ export async function freeTcpPortIfMoxxy(
 /** Where `scripts/build-web.mjs` writes the browser bundle (relative to dist/channel.js). */
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 
+/** The path the tunnel exposes us under (e.g. `/web`), or `''` for the root. */
+export function basePathFromUrl(url: string): string {
+  try {
+    const p = new URL(url).pathname;
+    return p === '/' ? '' : p.replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/** Inject the base path into index.html so relative assets (`app.js`) resolve
+ *  under it and the client builds the right WS URL — works at root or `/web`. */
+export function injectBaseHtml(html: string, basePath: string): string {
+  const inject =
+    `<base href="${basePath}/" />` +
+    `<script>window.__MOXXY_BASE__=${JSON.stringify(basePath)}</script>`;
+  return html.replace('<!--moxxy:base-->', inject);
+}
+
 export interface WebChannelOptions {
   readonly port?: number;
   readonly host?: string;
@@ -230,6 +249,8 @@ export class WebChannel implements Channel<WebStartOpts> {
   private controller: AbortController | null = null;
   private tunnel: TunnelHandle | null = null;
   private tunnelBase: string | null = null;
+  /** Public path the surface is served under (e.g. `/web` behind the relay; `''` local). */
+  private basePath = '';
   private viewSeq = 0;
   private droppedFrames = 0;
   private lastDropWarnAt = 0;
@@ -293,12 +314,15 @@ export class WebChannel implements Channel<WebStartOpts> {
     // and the client never opens (the token is the only public-internet gate).
     const wss = new WebSocketServer({
       server,
-      path: '/ws',
-      // Frames past this are dropped at the socket layer (ws closes with
-      // 1009) instead of being buffered into memory. onMessage applies a
-      // tighter MAX_FRAME_BYTES cap of its own.
+      // No fixed `path`: behind the relay the upgrade may arrive as `/ws` or
+      // `/<base>/ws`; verifyClient base-strips and checks it (plus the token).
+      // Frames past maxPayload are dropped at the socket layer (ws closes with
+      // 1009) instead of being buffered; onMessage applies a tighter cap.
       maxPayload: 1024 * 1024,
-      verifyClient: (info: { req: IncomingMessage }) => this.validToken(info.req.url),
+      verifyClient: (info: { req: IncomingMessage }) => {
+        const p = this.stripBase((info.req.url ?? '/').split('?')[0] ?? '/');
+        return p === '/ws' && this.validToken(info.req.url);
+      },
     });
     this.wss = wss;
     wss.on('connection', (ws) => this.onConnection(ws));
@@ -376,7 +400,7 @@ export class WebChannel implements Channel<WebStartOpts> {
 
   /**
    * (Re-)open the tunnel via the active provider, closing any prior one FIRST so
-   * a switch never leaks a subprocess. Non-fatal: on failure (e.g. cloudflared
+   * a switch never leaks a subprocess. Non-fatal: on failure (e.g. the relay
    * not installed) we fall back to the local URL.
    */
   private async openTunnel(): Promise<void> {
@@ -388,12 +412,16 @@ export class WebChannel implements Channel<WebStartOpts> {
       }
       this.tunnel = null;
       this.tunnelBase = null;
+      this.basePath = '';
     }
     const provider = this.getTunnel?.() ?? null;
     if (!provider || provider.name === 'localhost') return;
     try {
-      this.tunnel = await provider.open({ port: this.port, host: this.host });
+      // Route the preview under the `web` path so the relay can multiplex it
+      // alongside the mobile bridge under one uuid subdomain.
+      this.tunnel = await provider.open({ port: this.port, host: this.host, label: 'web' });
       this.tunnelBase = this.tunnel.url;
+      this.basePath = basePathFromUrl(this.tunnel.url);
       this.logger?.info?.('web surface tunnel open', { provider: provider.name, url: this.shareUrl });
     } catch (err) {
       this.logger?.warn?.('web surface tunnel failed; using local URL', { provider: provider.name, err: String(err) });
@@ -421,6 +449,7 @@ export class WebChannel implements Channel<WebStartOpts> {
       }
       this.tunnel = null;
       this.tunnelBase = null;
+      this.basePath = '';
     }
     for (const ws of this.clients) {
       try {
@@ -445,8 +474,20 @@ export class WebChannel implements Channel<WebStartOpts> {
     }
   }
 
+  /** Strip the public base path (if any) so internal routing stays root-relative.
+   *  Tolerant: handles both `/web/app.js` (relay didn't strip) and `/app.js`
+   *  (relay stripped the first request line). */
+  private stripBase(pathname: string): string {
+    const b = this.basePath;
+    if (b && (pathname === b || pathname.startsWith(`${b}/`))) {
+      const rest = pathname.slice(b.length);
+      return rest === '' ? '/' : rest;
+    }
+    return pathname;
+  }
+
   private async handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const pathname = (req.url ?? '/').split('?')[0] ?? '/';
+    const pathname = this.stripBase((req.url ?? '/').split('?')[0] ?? '/');
     if (pathname === '/v1/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end('{"status":"ok"}');
@@ -493,7 +534,10 @@ export class WebChannel implements Channel<WebStartOpts> {
 
   private async serveFile(res: ServerResponse, name: string, contentType: string): Promise<void> {
     try {
-      const buf = await readFile(path.join(PUBLIC_DIR, name));
+      let buf = await readFile(path.join(PUBLIC_DIR, name));
+      if (name === 'index.html') {
+        buf = Buffer.from(injectBaseHtml(buf.toString('utf8'), this.basePath), 'utf8');
+      }
       res.writeHead(200, { 'content-type': contentType, ...this.securityHeaders() });
       res.end(buf);
     } catch {

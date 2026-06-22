@@ -95,7 +95,10 @@ export function useViewSocket(): ViewSocket {
     // history. Reconnects reuse this captured copy.
     const token = readAuthToken();
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${proto}://${window.location.host}/ws?t=${encodeURIComponent(token)}`;
+    // Base path the surface is served under (e.g. `/web` behind the proxy relay,
+    // `''` locally) — injected into the page by the server.
+    const base = (window as unknown as { __MOXXY_BASE__?: string }).__MOXXY_BASE__ ?? '';
+    const wsUrl = `${proto}://${window.location.host}${base}/ws?t=${encodeURIComponent(token)}`;
 
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

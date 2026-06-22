@@ -1,6 +1,5 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
 import { isLoopbackHost } from '../config.js';
-import { isTunnelCliAvailable } from '../tunnel.js';
 import type { ResolvedToolDeps } from './shared.js';
 
 export function defineWebhookStatusTool(deps: ResolvedToolDeps): ToolDef {
@@ -9,8 +8,8 @@ export function defineWebhookStatusTool(deps: ResolvedToolDeps): ToolDef {
     name: 'webhook_status',
     description:
       'Report current webhook subsystem state: listener host/port, configured public ' +
-      'URL (with provenance — manual vs. cloudflared tunnel), tunnel process status, ' +
-      'count of triggers, and whether a tunnel CLI is detected on PATH. Also surfaces an ' +
+      'URL (with provenance — manual vs. proxy tunnel), proxy tunnel status, and ' +
+      'count of triggers. Also surfaces an ' +
       'EXPOSURE warning when the listener binds a non-loopback host while one or more ' +
       'enabled triggers use verification:"none" (any machine on the network could fire ' +
       'them). Call this as the first step when a user asks for webhook help.',
@@ -18,10 +17,6 @@ export function defineWebhookStatusTool(deps: ResolvedToolDeps): ToolDef {
     handler: async () => {
       const cfg = await config.get();
       const triggers = await store.list();
-      const [cloudflaredOk, ngrokOk] = await Promise.all([
-        isTunnelCliAvailable('cloudflared'),
-        isTunnelCliAvailable('ngrok'),
-      ]);
       // Exposure check: a non-loopback bind reaches the unauthenticated POST
       // surface from other hosts. Combined with an enabled verification:'none'
       // trigger, ANY machine on the network can fire arbitrary agent turns.
@@ -51,14 +46,8 @@ export function defineWebhookStatusTool(deps: ResolvedToolDeps): ToolDef {
         publicUrl: cfg.publicUrl ?? null,
         publicUrlSource: cfg.publicUrlSource ?? null,
         tunnel: tunnelHandle.current
-          ? {
-              running: true,
-              kind: tunnelHandle.current.kind,
-              url: tunnelHandle.current.url,
-              pid: tunnelHandle.current.pid,
-            }
+          ? { running: true, url: tunnelHandle.current.url }
           : { running: false },
-        cliAvailable: { cloudflared: cloudflaredOk, ngrok: ngrokOk },
         triggerCount: triggers.length,
         enabledCount: triggers.filter((t) => t.enabled).length,
         ...(exposureWarning ? { exposureWarning } : {}),

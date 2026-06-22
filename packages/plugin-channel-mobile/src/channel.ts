@@ -16,6 +16,8 @@ import type {
 import { WebSocketCommandBus, startWsBridge } from '@moxxy/ipc-server-ws';
 import type { TunnelHandle } from '@moxxy/sdk';
 
+import { fingerprint } from '@moxxy/e2e';
+import { loadOrCreateIdentity } from '@moxxy/e2e/node';
 import { MobileSessionHost } from './single-session-host.js';
 import { resolveMobileToken, rotateMobileToken } from './token.js';
 import {
@@ -23,12 +25,14 @@ import {
   advertisedOrigins,
   buildConnectUrl,
   connectUrlOrigin,
+  isE2EChoice,
   isLoopbackHost,
   normalizeTunnelChoice,
   resolveBindHost,
   tunnelProviderFor,
   type TunnelChoice,
 } from './tunnel.js';
+import { startE2EShim, type E2EShimHandle } from './e2e-shim.js';
 import { printConnectInfo } from './qr.js';
 
 export interface MobileStartOpts extends ChannelStartOptsBase {
@@ -44,7 +48,7 @@ export interface MobileChannelOptions {
   readonly bindHost?: string;
   /** Bearer token. Falls back to env / a persisted secret (see resolveMobileToken). */
   readonly token?: string;
-  /** Reachability: `localhost` (LAN only), or a `cloudflared`/`ngrok` public tunnel. */
+  /** Reachability: `localhost` (LAN only), or the `proxy` relay (end-to-end encrypted). */
   readonly tunnel?: TunnelChoice;
   /**
    * Accept the legacy `?t=<token>` URL credential (default `true` for back-compat
@@ -89,6 +93,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
   private server: Awaited<ReturnType<typeof startWsBridge>> | null = null;
   private tunnel: TunnelHandle | null = null;
   private disconnectSweep: ReturnType<typeof setInterval> | null = null;
+  private shim: E2EShimHandle | null = null;
 
   constructor(opts: MobileChannelOptions = {}) {
     this.port = opts.port ?? DEFAULT_PORT;
@@ -212,12 +217,41 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     if (typeof this.disconnectSweep?.unref === 'function') this.disconnectSweep.unref();
 
     // Optionally expose the bridge beyond the LAN via the user's chosen tunnel.
+    // For the E2E (proxy) path the tunnel points at a local responder shim, not
+    // the bridge directly: the phone speaks an encrypted channel the shim
+    // terminates before forwarding to the bridge, so the relay only ever sees
+    // ciphertext and the bearer token never crosses it.
     let tunnelUrl: string | null = null;
+    let fp: string | undefined;
     const provider = tunnelProviderFor(this.tunnelChoice);
     if (provider) {
       try {
-        this.tunnel = await provider.open({ port: this.port, host: this.bindHost });
+        let targetPort = this.port;
+        let targetHost = this.bindHost;
+        // Route this channel under the `mobile` path so the relay can multiplex
+        // it alongside the web preview / webhooks under one uuid subdomain.
+        let label: string | undefined;
+        if (isE2EChoice(this.tunnelChoice)) {
+          const identity = await loadOrCreateIdentity();
+          fp = fingerprint(identity.publicKey);
+          this.shim = await startE2EShim({
+            identity,
+            token: this.token,
+            bridgePort: this.port,
+            bridgeHost: isLoopbackHost(this.bindHost) ? this.bindHost : '127.0.0.1',
+            ...(this.logger ? { logger: this.logger } : {}),
+          });
+          targetPort = this.shim.port;
+          targetHost = '127.0.0.1';
+          label = 'mobile';
+        }
+        this.tunnel = await provider.open({
+          port: targetPort,
+          host: targetHost,
+          ...(label ? { label } : {}),
+        });
         tunnelUrl = this.tunnel.url;
+        // The phone reaches the shim (E2E) or the bridge (plain) via this origin.
         server.setAllowedOrigins([...localOrigins, connectUrlOrigin(tunnelUrl)]);
         this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
       } catch (err) {
@@ -225,6 +259,10 @@ export class MobileChannel implements Channel<MobileStartOpts> {
           provider: provider.name,
           err: String(err),
         });
+        if (this.shim) {
+          await this.shim.close().catch(() => undefined);
+          this.shim = null;
+        }
       }
     }
 
@@ -237,6 +275,7 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       localHost: advertisedHost(this.bindHost),
       port: this.port,
       token: this.token,
+      ...(fp ? { fingerprint: fp } : {}),
     });
     const loopbackOnly = !tunnelUrl && isLoopbackHost(this.bindHost);
     await printConnectInfo(
@@ -245,8 +284,8 @@ export class MobileChannel implements Channel<MobileStartOpts> {
       loopbackOnly
         ? 'Bound to loopback — this QR only works on THIS machine (e.g. an iOS/Android\n' +
           '  simulator). For a real phone: opt in to a LAN bind with MOXXY_MOBILE_HOST=0.0.0.0\n' +
-          "  (or channels.mobile.bindHost in moxxy.config.ts), or use a tunnel\n" +
-          "  (channels.mobile.tunnel: 'cloudflared' | 'ngrok', or MOXXY_MOBILE_TUNNEL)."
+          "  (or channels.mobile.bindHost in moxxy.config.ts), or use the proxy tunnel\n" +
+          "  (channels.mobile.tunnel: 'proxy', or MOXXY_MOBILE_TUNNEL=proxy)."
         : undefined,
     );
     } catch (err) {
@@ -284,6 +323,10 @@ export class MobileChannel implements Channel<MobileStartOpts> {
         if (this.tunnel) {
           await this.tunnel.close().catch(() => undefined);
           this.tunnel = null;
+        }
+        if (this.shim) {
+          await this.shim.close().catch(() => undefined);
+          this.shim = null;
         }
         await this.server?.close();
         this.server = null;

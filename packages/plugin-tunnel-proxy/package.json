@@ -1,0 +1,39 @@
+{
+  "name": "@moxxy/plugin-tunnel-proxy",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Self-hosted tunnel provider for moxxy. Dials the proxy relay over an outbound control WebSocket, proves ownership of a keypair-derived subdomain (uuid.proxy.moxxy.ai), and pipes each inbound connection to a local port — a native-Node replacement for the cloudflared/ngrok subprocess providers.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@moxxy/e2e": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "ws": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

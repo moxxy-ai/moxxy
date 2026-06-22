@@ -1,6 +1,5 @@
 import type { WebhookConfigStore } from '../config.js';
 import type { WebhookStore } from '../store.js';
-import { isTunnelCliAvailable } from '../tunnel.js';
 
 interface SetupGuideDeps {
   readonly store: WebhookStore;
@@ -26,14 +25,9 @@ interface SetupStep {
 
 export async function buildSetupGuide(deps: SetupGuideDeps): Promise<{
   publicUrlConfigured: boolean;
-  tunnelCliAvailable: { cloudflared: boolean; ngrok: boolean };
   steps: ReadonlyArray<SetupStep>;
 }> {
   const cfg = await deps.config.get();
-  const [cloudflaredOk, ngrokOk] = await Promise.all([
-    isTunnelCliAvailable('cloudflared'),
-    isTunnelCliAvailable('ngrok'),
-  ]);
 
   const steps: SetupStep[] = [];
 
@@ -61,36 +55,19 @@ export async function buildSetupGuide(deps: SetupGuideDeps): Promise<{
           '`webhook_set_public_url` or `webhook_tunnel_start`.',
       ],
     });
-  } else if (cloudflaredOk) {
-    steps.push({
-      step: 2,
-      title: 'Public URL — auto-tunnel available',
-      askUser:
-        "I can spawn a free cloudflared tunnel for you — no signup, no account. Want me to do that?",
-      nextToolCall: 'webhook_tunnel_start',
-      hints: ['Default kind is `cloudflared`. The resulting URL is persisted automatically.'],
-    });
-  } else if (ngrokOk) {
-    steps.push({
-      step: 2,
-      title: 'Public URL — ngrok available',
-      askUser: 'I can spawn an ngrok tunnel for you. Should I?',
-      nextToolCall: 'webhook_tunnel_start',
-      hints: ['Pass `kind:"ngrok"`. Requires the user to have already run `ngrok config add-authtoken`.'],
-    });
   } else {
     steps.push({
       step: 2,
-      title: 'Public URL — need a tunnel',
+      title: 'Public URL — proxy relay available',
       askUser:
-        "Do you already have a public URL (ngrok, Tailscale Funnel, a reverse proxy, " +
-        "anything that forwards to localhost), or should I help you set one up?",
+        'I can expose the listener through the self-hosted proxy relay — no signup, no ' +
+        'account, no CLI to install. Want me to do that? (Or, if you already have a ' +
+        'public URL, I can just record it.)',
+      nextToolCall: 'webhook_tunnel_start',
       hints: [
-        'If they already have one: call `webhook_set_public_url`.',
-        'If they need help: install cloudflared (macOS `brew install cloudflared`, ' +
-          'Linux/Windows: https://github.com/cloudflare/cloudflared/releases), then call ' +
-          '`webhook_tunnel_start`.',
-        'No vendor account needed for cloudflared quick tunnels.',
+        'Call `webhook_tunnel_start` — the resulting URL is persisted automatically.',
+        'If they already have a stable public URL (Tailscale Funnel, a reverse proxy, ' +
+          'anything that forwards to localhost): call `webhook_set_public_url` instead.',
       ],
     });
   }
@@ -215,7 +192,6 @@ export async function buildSetupGuide(deps: SetupGuideDeps): Promise<{
 
   return {
     publicUrlConfigured: !!cfg.publicUrl,
-    tunnelCliAvailable: { cloudflared: cloudflaredOk, ngrok: ngrokOk },
     steps,
   };
 }

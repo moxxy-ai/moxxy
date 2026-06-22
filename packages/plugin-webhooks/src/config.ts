@@ -22,7 +22,7 @@ export const webhookConfigSchema = z.object({
   publicUrl: z.string().url().optional(),
   /** Provenance — set by webhook_tunnel_start so the agent knows whether
    *  to stop a tunnel on cleanup. */
-  publicUrlSource: z.enum(['manual', 'cloudflared', 'ngrok', 'other']).optional(),
+  publicUrlSource: z.enum(['manual', 'proxy', 'other']).optional(),
 });
 
 export type WebhookConfig = z.infer<typeof webhookConfigSchema>;
