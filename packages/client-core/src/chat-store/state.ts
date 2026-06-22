@@ -14,7 +14,7 @@
  * while a chunk is arriving.
  */
 
-import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { createRuntime, type ChatRuntime, type Extension } from '../chatModel.js';
 import { EMPTY_USAGE, type UsageSnapshot } from './usage.js';
 
@@ -24,6 +24,7 @@ export interface QueuedTurn {
   readonly id: string;
   readonly prompt: string;
   readonly attachments?: ReadonlyArray<{ path: string; name: string }>;
+  readonly inlineAttachments?: ReadonlyArray<UserPromptAttachment>;
 }
 
 /** Immutable view handed to the renderer. `events` is reference-stable
@@ -77,6 +78,8 @@ export interface Slot {
   usage: UsageSnapshot;
   /** Manual compaction in flight (composer lock). */
   compacting: boolean;
+  /** Bumped whenever local history is reset so in-flight page loads are ignored. */
+  resetEpoch: number;
 }
 
 export const EMPTY_QUEUE: ReadonlyArray<QueuedTurn> = Object.freeze([]);
@@ -99,6 +102,11 @@ export const EMPTY_SNAPSHOT: ChatSnapshot = Object.freeze({
   compacting: false,
 });
 
+export const INITIAL_LOADING_SNAPSHOT: ChatSnapshot = Object.freeze({
+  ...EMPTY_SNAPSHOT,
+  loading: true,
+});
+
 /** A fresh, empty {@link Slot} for a newly-seen workspace. */
 export function createSlot(): Slot {
   return {
@@ -116,6 +124,7 @@ export function createSlot(): Slot {
     loadingOlder: false,
     usage: EMPTY_USAGE,
     compacting: false,
+    resetEpoch: 0,
   };
 }
 

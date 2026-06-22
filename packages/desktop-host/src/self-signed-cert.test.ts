@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
 import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
@@ -47,6 +47,20 @@ describe('generateSelfSignedCert', () => {
     const now = Date.now();
     expect(new Date(x.validFrom).getTime()).toBeLessThanOrEqual(now);
     expect(new Date(x.validTo).getTime()).toBeGreaterThan(now);
+  });
+
+  it('mints a parseable cert when the random serial has DER padding bytes', () => {
+    const randomBytes = vi
+      .spyOn(crypto, 'randomBytes')
+      .mockReturnValueOnce(Buffer.from([0x00, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd]));
+
+    try {
+      const c = generateSelfSignedCert();
+      const x = new crypto.X509Certificate(c.cert);
+      expect(x.fingerprint256).toBe(c.fingerprint256);
+    } finally {
+      randomBytes.mockRestore();
+    }
   });
 });
 

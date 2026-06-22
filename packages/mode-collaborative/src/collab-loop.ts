@@ -178,12 +178,14 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     void ctx.emit(toCollabEvent(ctx, e));
   });
 
+  const providerModelIds = modelIdCatalog(ctx);
+  const peerDefaultModel = resolvePeerModel(cfg.defaultModel, ctx.model, providerModelIds);
   const supervisorOpts: PeerSupervisorOptions = {
     runId,
     hubSocket: hub.socketPath,
     coordinatorSessionId: String(ctx.sessionId),
     parentTask: task,
-    ...(cfg.defaultModel ? { defaultModel: cfg.defaultModel } : {}),
+    ...(peerDefaultModel ? { defaultModel: peerDefaultModel } : {}),
     peerMaxIterations: cfg.peerMaxIterations,
     signal: ctx.signal,
   };
@@ -252,6 +254,7 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
     if (roster.length === 0) {
       roster = [{ id: 'implementer', name: 'Implementer', role: 'implementer', subtask: task }];
     }
+    roster = resolveRosterModels(roster, peerDefaultModel, providerModelIds);
     yield await ctx.emit(plugin(ctx, 'collab_roster_proposed', { roster }));
 
     if (cfg.requireRosterApproval && ctx.approval) {
@@ -546,6 +549,46 @@ function readRoster(path: string, maxAgents: number): RosterEntry[] {
   } catch {
     return [];
   }
+}
+
+function modelIdCatalog(ctx: ModeContext): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const model of ctx.provider.models) {
+    if (typeof model.id === 'string' && model.id.trim()) ids.add(model.id.trim());
+  }
+  return ids;
+}
+
+function resolveRosterModels(
+  roster: ReadonlyArray<RosterEntry>,
+  fallbackModel: string | undefined,
+  modelIds: ReadonlySet<string>,
+): RosterEntry[] {
+  return roster.map((entry) => {
+    const model = resolvePeerModel(entry.model, fallbackModel, modelIds);
+    if (model) return { ...entry, model };
+    const { model: _model, ...rest } = entry;
+    return rest;
+  });
+}
+
+function resolvePeerModel(
+  requested: string | undefined,
+  fallback: string | undefined,
+  modelIds: ReadonlySet<string>,
+): string | undefined {
+  return canonicalModelId(requested, modelIds) ?? canonicalModelId(fallback, modelIds);
+}
+
+function canonicalModelId(model: string | undefined, modelIds: ReadonlySet<string>): string | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed) return undefined;
+  if (modelIds.size === 0 || modelIds.has(trimmed)) return trimmed;
+  if (!trimmed.startsWith('gpt-')) {
+    const prefixed = `gpt-${trimmed}`;
+    if (modelIds.has(prefixed)) return prefixed;
+  }
+  return undefined;
 }
 
 function slug(s: string): string {

@@ -51,6 +51,12 @@ export const scheduleEntrySchema = z
     skillName: z.string().optional(),
     /** When source='workflow': the workflow name this schedule fires. */
     workflowName: z.string().optional(),
+    /**
+     * User deletion marker for source-owned schedules. Skill/workflow rows can
+     * be mirrored back by their source on every sync; this marker keeps a user
+     * deletion durable without editing the source file from a thin client.
+     */
+    deletedAt: z.number().int().optional(),
   })
   .superRefine((entry, ctx) => {
     if (!entry.cron && !entry.runAt) {
@@ -171,11 +177,12 @@ export class ScheduleStore {
   }
 
   async list(): Promise<ReadonlyArray<ScheduleEntry>> {
-    return this.store.read();
+    return (await this.store.read()).filter(isVisibleSchedule);
   }
 
   async get(id: string): Promise<ScheduleEntry | null> {
-    return this.store.get(id);
+    const entry = await this.store.get(id);
+    return entry && isVisibleSchedule(entry) ? entry : null;
   }
 
   async create(
@@ -201,6 +208,7 @@ export class ScheduleStore {
     await this.store.mutate((schedules) => {
       const idx = schedules.findIndex((s) => s.id === id);
       if (idx < 0) return schedules;
+      if (!isVisibleSchedule(schedules[idx]!)) return schedules;
       const next = scheduleEntrySchema.parse({ ...schedules[idx], ...patch });
       schedules[idx] = next;
       updated = next;
@@ -212,10 +220,19 @@ export class ScheduleStore {
   async delete(id: string): Promise<boolean> {
     let removed = false;
     await this.store.mutate((schedules) => {
-      const before = schedules.length;
-      const after = schedules.filter((s) => s.id !== id);
-      removed = after.length < before;
-      return after;
+      const idx = schedules.findIndex((s) => s.id === id && isVisibleSchedule(s));
+      if (idx < 0) return schedules;
+      const entry = schedules[idx]!;
+      removed = true;
+      if (entry.source === 'manual') {
+        return schedules.filter((s) => s.id !== id);
+      }
+      schedules[idx] = scheduleEntrySchema.parse({
+        ...entry,
+        enabled: false,
+        deletedAt: Date.now(),
+      });
+      return schedules;
     });
     return removed;
   }
@@ -253,7 +270,7 @@ export class ScheduleStore {
       for (const s of schedules) {
         if (s.source === 'skill' && s.skillName) {
           if (!wanted.has(s.skillName) || keptSkillNames.has(s.skillName)) {
-            removed += 1;
+            if (isVisibleSchedule(s)) removed += 1;
             continue;
           }
           keptSkillNames.add(s.skillName);
@@ -286,6 +303,7 @@ export class ScheduleStore {
           continue;
         }
         const current = next[idx]!;
+        if (!isVisibleSchedule(current)) continue;
         const patch = {
           prompt: draft.prompt,
           ...(draft.cron ? { cron: draft.cron } : { cron: undefined }),
@@ -319,11 +337,14 @@ export class ScheduleStore {
    */
   async syncSkillSchedule(skillName: string, entry: ScheduleEntry | null): Promise<void> {
     await this.store.mutate((schedules) => {
+      const existingDeleted = schedules.find(
+        (s) => s.source === 'skill' && s.skillName === skillName && !isVisibleSchedule(s),
+      );
       const filtered = schedules.filter(
         (s) => !(s.source === 'skill' && s.skillName === skillName),
       );
       if (entry) {
-        filtered.push(scheduleEntrySchema.parse({ ...entry, source: 'skill', skillName }));
+        filtered.push(existingDeleted ?? scheduleEntrySchema.parse({ ...entry, source: 'skill', skillName }));
       }
       return filtered;
     });
@@ -338,23 +359,33 @@ export class ScheduleStore {
    */
   async syncWorkflowSchedule(workflowName: string, entry: ScheduleEntry | null): Promise<void> {
     await this.store.mutate((schedules) => {
+      const existingDeleted = schedules.find(
+        (s) => s.source === 'workflow' && s.workflowName === workflowName && !isVisibleSchedule(s),
+      );
       const filtered = schedules.filter(
         (s) => !(s.source === 'workflow' && s.workflowName === workflowName),
       );
       if (entry) {
         // The workflow bridge passes `id: ''` as a "store assigns it" sentinel;
         // mint a real id here so the (id-min-1) schema can't throw mid-mutate
-        // and silently strand every workflow schedule.
+        // and silently strand every workflow schedule. A prior soft-deleted row
+        // (its deletion marker kept durable) takes precedence so a user delete
+        // isn't resurrected on the next sync.
         filtered.push(
-          scheduleEntrySchema.parse({
-            ...entry,
-            id: entry.id || ulid(),
-            source: 'workflow',
-            workflowName,
-          }),
+          existingDeleted ??
+            scheduleEntrySchema.parse({
+              ...entry,
+              id: entry.id || ulid(),
+              source: 'workflow',
+              workflowName,
+            }),
         );
       }
       return filtered;
     });
   }
+}
+
+function isVisibleSchedule(entry: ScheduleEntry): boolean {
+  return entry.deletedAt === undefined;
 }

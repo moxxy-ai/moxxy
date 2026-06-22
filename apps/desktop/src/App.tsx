@@ -30,6 +30,15 @@ import { AppsPanel } from './apps/AppsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
 import { api, toErrorMessage } from '@moxxy/client-core';
+import {
+  resolveActiveSessionShell,
+  shouldShowProviderRecovery,
+  type LastConnectedSession,
+} from './app-readiness';
+import { useSessionInfoReady } from './app-session-readiness';
+
+const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['workflows', 'collaborate', 'apps'];
+const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
 
 /**
  * Top-level shell. Three layers of gating, in order:
@@ -54,33 +63,38 @@ export function App(): JSX.Element {
   const { snapshot, hasEverConnected, retry } = useConnection(activeWorkspaceId);
   const { prefs, loading: prefsLoading } = usePrefs();
   const phase = snapshot?.phase;
+  const sessionInfoReady = useSessionInfoReady(activeWorkspaceId, phase);
   const [view, setView] = useState<View>('chat');
   // Context rail starts collapsed. The context button opens a dropdown
   // (terminal / files changed / browser); picking one sets the active pane
   // and opens the rail. Null = collapsed.
   const [railPane, setRailPane] = useState<RailPane | null>(null);
-  const [lastConnected, setLastConnected] = useState<typeof phase>(undefined);
+  const [lastConnected, setLastConnected] = useState<LastConnectedSession | null>(null);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
   // wizard while waiting for prefs.read to round-trip.
   const [justFinishedOnboarding, setJustFinishedOnboarding] = useState(false);
-  // Capture the latest `connected` phase to keep the shell mounted across the
-  // brief `snapshot === undefined` gap a workspace switch can produce. Gate the
-  // derive-during-render update on a STABLE SCALAR key (not object identity): an
-  // upstream snapshot mirror that returns a fresh connected-phase object every
-  // poll would otherwise re-set state and force an extra render each tick — at
-  // worst a render loop. The key only changes when the connection's identity
-  // actually changes.
+  // Capture the latest `connected` phase (keyed by the active workspace) to keep
+  // the shell mounted across the brief `snapshot === undefined` gap a workspace
+  // switch can produce. Gate the derive-during-render update on a STABLE SCALAR
+  // key (not object identity): an upstream snapshot mirror that returns a fresh
+  // connected-phase object every poll would otherwise re-set state and force an
+  // extra render each tick — at worst a render loop. The key only changes when
+  // the active workspace or the connection's identity actually changes.
   const connectedKey =
-    phase?.phase === 'connected'
-      ? `${phase.sessionId}|${phase.activeProvider}|${phase.activeMode}`
+    activeWorkspaceId && phase?.phase === 'connected'
+      ? `${activeWorkspaceId}|${phase.sessionId}|${phase.activeProvider}|${phase.activeMode}`
       : null;
   const lastConnectedKey =
-    lastConnected?.phase === 'connected'
-      ? `${lastConnected.sessionId}|${lastConnected.activeProvider}|${lastConnected.activeMode}`
+    lastConnected?.phase.phase === 'connected'
+      ? `${lastConnected.workspaceId}|${lastConnected.phase.sessionId}|${lastConnected.phase.activeProvider}|${lastConnected.phase.activeMode}`
       : null;
-  if (phase?.phase === 'connected' && connectedKey !== lastConnectedKey) {
-    setLastConnected(phase);
+  if (
+    activeWorkspaceId &&
+    phase?.phase === 'connected' &&
+    connectedKey !== lastConnectedKey
+  ) {
+    setLastConnected({ workspaceId: activeWorkspaceId, phase });
   }
 
   // Mirror the active workspace into the chat store so unread state
@@ -147,6 +161,27 @@ export function App(): JSX.Element {
 
   // First-run gate. Block on prefs loading so we never flash the
   // main UI before deciding whether onboarding is needed.
+  const shell = resolveActiveSessionShell({
+    activeWorkspaceId,
+    snapshot,
+    lastConnected,
+    sessionInfoReady,
+  });
+  const runnerTabsLocked = shell.sessionLoading;
+  const onView = (next: View): void => {
+    if (runnerTabsLocked && isRunnerLockedView(next)) {
+      setView('chat');
+      return;
+    }
+    setView(next);
+  };
+
+  useEffect(() => {
+    if (runnerTabsLocked && isRunnerLockedView(view)) {
+      setView('chat');
+    }
+  }, [runnerTabsLocked, view]);
+
   if (prefsLoading) {
     return (
       <>
@@ -174,7 +209,7 @@ export function App(): JSX.Element {
   // the full-screen Splash there is exactly the flicker the user saw. Keep
   // the shell mounted instead and fall back to `lastConnected` for the
   // chrome phase (see `shellPhase` below).
-  if (activeWorkspaceId === null || (!snapshot && !lastConnected)) {
+  if (shell.needsInitialSplash || activeWorkspaceId === null) {
     return (
       <>
         <ConnectionBridge />
@@ -184,9 +219,11 @@ export function App(): JSX.Element {
     );
   }
 
-  const cliMissing = phase?.phase === 'cli-missing';
-  const connectedWithoutProvider =
-    phase?.phase === 'connected' && phase.activeProvider === null;
+  const cliMissing = shell.phase.phase === 'cli-missing';
+  const connectedWithoutProvider = shouldShowProviderRecovery(
+    shell.phase,
+    shell.sessionLoading,
+  );
 
   if (cliMissing || connectedWithoutProvider) {
     return (
@@ -194,7 +231,7 @@ export function App(): JSX.Element {
         <ConnectionBridge />
         <ChatStoreBridge />
         <Onboarding
-          phase={phase}
+          phase={shell.phase}
           // Nothing to do on completion: finishing the recovery gate (CLI
           // installed / provider added) flips the connection phase, which
           // re-renders this gate and drops it on its own.
@@ -204,7 +241,7 @@ export function App(): JSX.Element {
     );
   }
 
-  if (!isConnected(phase) && !hasEverConnected) {
+  if (!shell.connected && !hasEverConnected) {
     // Terminal protocol-incompatible self-heal: update the bundled CLI in
     // place (host `app.updateCli`), then re-run the supervisor connect — which
     // respawns the runner from the now-newer CLI, so the client attaches
@@ -235,8 +272,8 @@ export function App(): JSX.Element {
     );
   }
 
-  const connected = isConnected(phase);
-  const shellPhase = connected ? phase! : lastConnected!;
+  const connected = shell.connected;
+  const shellPhase = shell.phase;
   // (mode + provider were previously surfaced as a chip in the chat
   // header; that's been dropped in favour of the workspace path.
   // Keep this comment so the variable's absence is intentional.)
@@ -246,7 +283,7 @@ export function App(): JSX.Element {
       <ConnectionBridge />
       <ChatStoreBridge />
       <UpdateBanner />
-      <WorkspaceSidebar view={view} onView={setView} />
+      <WorkspaceSidebar view={view} onView={onView} />
       {view === 'chat' && (
         <>
           <ChatSurface
@@ -254,7 +291,10 @@ export function App(): JSX.Element {
             workspaceId={activeWorkspaceId}
             railPane={railPane}
             onPickPane={setRailPane}
-            onView={setView}
+            sessionLoading={shell.sessionLoading}
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
           />
           <ContextRail
             pane={railPane}
@@ -265,22 +305,39 @@ export function App(): JSX.Element {
       )}
       {view === 'workflows' && (
         <main className="col-main col-main--flat">
-          <WorkflowsPanel onView={setView} />
+          <WorkflowsPanel
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {view === 'collaborate' && (
         <main className="col-main col-main--flat">
-          <CollaboratePanel onView={setView} workspaceId={activeWorkspaceId} />
+          <CollaboratePanel
+            onView={onView}
+            workspaceId={activeWorkspaceId}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {view === 'settings' && (
         <main className="col-main col-main--flat">
-          <SettingsPanel onView={setView} />
+          <SettingsPanel
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {view === 'apps' && (
         <main className="col-main col-main--flat">
-          <AppsPanel onView={setView} />
+          <AppsPanel
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
         </main>
       )}
       {!connected && <ReconnectBanner label={describePhase(phase)} />}
@@ -300,6 +357,10 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true;
   const tag = target.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+function isRunnerLockedView(view: View): boolean {
+  return view === 'workflows' || view === 'collaborate' || view === 'apps';
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {

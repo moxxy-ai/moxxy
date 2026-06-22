@@ -30,7 +30,7 @@ import type { RunnerPool } from './runner-pool';
 import { SessionDriver } from './session-driver';
 import type { DeskStore } from './desks';
 import { sendEvent } from './send-event';
-import { wsEventBus } from './event-bus';
+import { desktopEventBus, wsEventBus } from './event-bus';
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import { drivers, publishDriver, setActiveBus, unpublishDriver, whenDriverReady } from './ipc/shared';
 import { registerAppHandlers } from './ipc/app';
@@ -48,6 +48,7 @@ import { registerGitHandlers } from './ipc/git';
 import { registerSurfaceHandlers } from './ipc/surfaces';
 import { registerDesksHandlers } from './ipc/desks';
 import { registerWorkflowsHandlers } from './ipc/workflows';
+import { registerSchedulerHandlers } from './ipc/scheduler';
 import { registerPrefsHandlers } from './ipc/prefs';
 import { registerSettingsHandlers } from './ipc/settings';
 import { registerVaultHandlers } from './ipc/vault';
@@ -89,6 +90,7 @@ export function registerIpcHandlers(
     registerSurfaceHandlers(pool);
     registerDesksHandlers(pool, desks);
     registerWorkflowsHandlers(pool);
+    registerSchedulerHandlers();
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
     registerVaultHandlers();
@@ -119,6 +121,11 @@ export function bindWindow(
   opts: { readonly claimGlobal?: boolean } = {},
 ): () => void {
   const claimGlobal = opts.claimGlobal ?? true;
+  const unbindDesktopEvents = desktopEventBus.addSink({
+    broadcast: (channel, payload) => {
+      sendEvent(window, channel, payload);
+    },
+  });
   const send = <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]): void => {
     sendEvent(window, channel, payload);
     // Mirror `connection.changed` to non-Electron transports — but only from
@@ -191,7 +198,6 @@ export function bindWindow(
     const sup = pool.get(id);
     if (!sup) return;
     const phase = sup.snapshot().phase;
-    send('connection.changed', { workspaceId: id, phase });
     if (phase.phase === 'connected') ensureDriverFor(id, sup);
     else {
       // Primary tears down its own driver on disconnect; secondary
@@ -208,6 +214,7 @@ export function bindWindow(
         attachUnsubs.delete(id);
       }
     }
+    send('connection.changed', { workspaceId: id, phase });
   };
 
   pool.on('change', onPoolChange);
@@ -216,11 +223,12 @@ export function bindWindow(
   // each supervisor's connection state into the renderer.
   for (const { id, supervisor } of pool.list()) {
     const phase: ConnectionPhase = supervisor.snapshot().phase;
-    send('connection.changed', { workspaceId: id, phase });
     if (phase.phase === 'connected') ensureDriverFor(id, supervisor);
+    send('connection.changed', { workspaceId: id, phase });
   }
 
   return () => {
+    unbindDesktopEvents();
     pool.off('change', onPoolChange);
     for (const driver of localDrivers.values()) driver.dispose();
     localDrivers.clear();

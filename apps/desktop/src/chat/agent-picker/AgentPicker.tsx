@@ -5,9 +5,9 @@
  *
  * The Model chip is a single entry point that opens a two-column
  * modal (providers on the left, models on the right). Switching a
- * provider hits the workspace's session over IPC (session.setProvider)
- * and resets the sticky model; picking a model commits it to the
- * chatStore for that workspace and is passed to every runTurn.
+ * provider hits the workspace's session over IPC (session.setProvider);
+ * picking a model commits the shared per-session model override
+ * (session.setModel), which every attached surface mirrors.
  *
  * The Mode chip stays as a flat native-select chip because there's no
  * sub-list to disclose — modes are flat.
@@ -17,12 +17,12 @@
  */
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { api } from '@moxxy/client-core';
-import { chatStore } from '@moxxy/client-core';
+import { api, chatStore, useConnection } from '@moxxy/client-core';
 import { ChipButton } from './ChipButton';
 import { ChipSelect } from './ChipSelect';
 import { ProviderModelPicker } from './ProviderModelPicker';
 import { SESSION_INFO_REFRESH_EVENT, type SessionInfo } from './types';
+import { isSessionInfoReady } from '../../app-session-readiness';
 
 /** Modes hidden from the chat mode chip — collaboration is launched from the
  *  Collaborate tab (single-flight), and its peer modes are internal. */
@@ -31,6 +31,8 @@ const COLLAB_MODES: ReadonlySet<string> = new Set([
   'collab-architect',
   'collab-peer',
 ]);
+
+const SESSION_INFO_RETRY_MS = 250;
 
 export function AgentPicker({
   workspaceId,
@@ -41,6 +43,12 @@ export function AgentPicker({
 }): JSX.Element | null {
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { snapshot } = useConnection(workspaceId);
+  const connectedRefreshKey =
+    snapshot?.phase.phase === 'connected'
+      ? `${snapshot.phase.sessionId}:${snapshot.phase.activeProvider ?? ''}:${snapshot.phase.activeMode ?? ''}`
+      : snapshot?.phase.phase ?? 'missing';
+  const runnerConnected = snapshot?.phase.phase === 'connected';
   const selectedModel = useSyncExternalStore(chatStore.subscribe, () =>
     chatStore.getModel(workspaceId),
   );
@@ -54,13 +62,27 @@ export function AgentPicker({
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: number | undefined;
+    const scheduleRetry = (fetchInfo: () => void): void => {
+      if (cancelled) return;
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(fetchInfo, SESSION_INFO_RETRY_MS);
+    };
+    setInfo(null);
     const fetchInfo = (): void => {
+      window.clearTimeout(retryTimer);
       void api()
         .invoke('session.info', { workspaceId })
         .then((raw) => {
-          if (!cancelled) setInfo(raw);
+          if (cancelled) return;
+          if (!isSessionInfoReady(raw)) {
+            setInfo(null);
+            scheduleRetry(fetchInfo);
+            return;
+          }
+          setInfo(raw);
         })
-        .catch(() => {});
+        .catch(() => scheduleRetry(fetchInfo));
     };
     fetchInfo();
     // Re-fetch when something switched the mode out-of-band (e.g. the Goal
@@ -68,9 +90,10 @@ export function AgentPicker({
     window.addEventListener(SESSION_INFO_REFRESH_EVENT, fetchInfo);
     return () => {
       cancelled = true;
+      window.clearTimeout(retryTimer);
       window.removeEventListener(SESSION_INFO_REFRESH_EVENT, fetchInfo);
     };
-  }, [workspaceId]);
+  }, [workspaceId, disabled, connectedRefreshKey, runnerConnected]);
 
   if (!info) return null;
 
@@ -102,6 +125,11 @@ export function AgentPicker({
       } catch {
         return;
       }
+    }
+    try {
+      await api().invoke('session.setModel', { workspaceId, model });
+    } catch {
+      return;
     }
     chatStore.setModel(workspaceId, model);
     setPickerOpen(false);

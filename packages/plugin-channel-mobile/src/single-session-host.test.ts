@@ -1,8 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test doubles cast loosely */
-import { describe, it, expect, vi } from 'vitest';
-import type { ClientSession } from '@moxxy/sdk';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { denyByDefaultResolver, type ClientSession } from '@moxxy/sdk';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
+import { mkdtempSync } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 import { MobileSessionHost } from './single-session-host.js';
+
+let originalMoxxyHome: string | undefined;
+let isolatedMoxxyHome: string;
+
+beforeEach(() => {
+  originalMoxxyHome = process.env.MOXXY_HOME;
+  isolatedMoxxyHome = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-test-home-'));
+  process.env.MOXXY_HOME = isolatedMoxxyHome;
+});
+
+afterEach(async () => {
+  if (originalMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = originalMoxxyHome;
+  await rm(isolatedMoxxyHome, { recursive: true, force: true });
+});
 
 /** A bus that records handler registrations + broadcasts and can invoke handlers. */
 class FakeBus implements CommandBus, EventSink {
@@ -34,6 +54,8 @@ function fakeSession(overrides: Record<string, unknown> = {}) {
     cwd: '/tmp',
     permissions: { addAllow: vi.fn(async () => {}) },
     log: {
+      length: 0,
+      ofType: () => [],
       subscribe: (fn: (e: unknown) => void) => {
         logSubs.add(fn);
         return () => logSubs.delete(fn);
@@ -100,6 +122,50 @@ describe('MobileSessionHost', () => {
     expect(await bus.invoke('connection.activeWorkspace')).toBe('sess-1');
   });
 
+  it('exposes the CLI session through the shared Moxxy workspace registry', async () => {
+    const oldHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-registry-'));
+    try {
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      const host = new MobileSessionHost(bus, session);
+      host.register();
+
+      expect(await bus.invoke('desks.list')).toEqual({
+        activeId: 'moxxy',
+        desks: [
+          expect.objectContaining({
+            id: 'moxxy',
+            name: 'Moxxy',
+            cwd: path.join(process.env.MOXXY_HOME, 'workspaces', 'moxxy'),
+            color: '#ec4899',
+            activeSessionId: 'sess-1',
+            sessions: [
+              expect.objectContaining({
+                id: 'sess-1',
+                name: 'Current session',
+                source: 'mobile',
+              }),
+            ],
+          }),
+        ],
+      });
+      expect(await bus.invoke('sessions.list', { deskId: 'moxxy' })).toEqual({
+        activeSessionId: 'sess-1',
+        sessions: [
+          expect.objectContaining({
+            id: 'sess-1',
+            name: 'Current session',
+            source: 'mobile',
+          }),
+        ],
+      });
+    } finally {
+      if (oldHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = oldHome;
+    }
+  });
+
   it('runs a turn and broadcasts runner.turn.complete', async () => {
     const bus = new FakeBus();
     const { session } = fakeSession();
@@ -114,6 +180,265 @@ describe('MobileSessionHost', () => {
     expect(done.some((e) => e.payload.turnId === turnId && e.payload.error === null)).toBe(true);
   });
 
+  it('runs a turn for the selected registry session', async () => {
+    const cwd = path.join(process.env.MOXXY_HOME!, 'project');
+    await mkdir(cwd, { recursive: true });
+    await new WorkspaceRegistry().registerSessionFromMeta(
+      {
+        id: 'old-session',
+        cwd,
+        startedAt: '2026-06-12T10:00:00.000Z',
+        lastActivity: '2026-06-12T10:01:00.000Z',
+        eventCount: 3,
+        firstPrompt: 'Old work',
+        provider: 'openai-codex',
+        model: null,
+      },
+      'cli',
+    );
+
+    const bus = new FakeBus();
+    const { session, raw } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.register();
+    host.wire();
+
+    await bus.invoke('sessions.setActive', { id: 'old-session' });
+
+    const { turnId } = (await bus.invoke('session.runTurn', {
+      workspaceId: 'old-session',
+      prompt: 'hi',
+    })) as { turnId: string };
+
+    expect(raw.runTurn).toHaveBeenCalledWith('hi', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      bus.event('runner.turn.complete').some((event) =>
+        event.payload.workspaceId === 'old-session' &&
+        event.payload.turnId === turnId &&
+        event.payload.error === null,
+      ),
+    ).toBe(true);
+  });
+
+  it('loads archived transcript pages from the persisted core session log', async () => {
+    const oldHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-chat-log-'));
+    try {
+      const sessionsDir = path.join(process.env.MOXXY_HOME, 'sessions');
+      await mkdir(sessionsDir, { recursive: true });
+      const events = [0, 1, 2].map((i) => ({
+        id: `e${i}`,
+        type: 'user_prompt',
+        text: `message ${i}`,
+        seq: i,
+        ts: i,
+        turnId: 'turn',
+        sessionId: 'archived-session',
+        source: 'user',
+      }));
+      await writeFile(
+        path.join(sessionsDir, 'archived-session.jsonl'),
+        events.map((event) => JSON.stringify(event)).join('\n') + '\n',
+        'utf8',
+      );
+
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      new MobileSessionHost(bus, session).register();
+
+      const page = (await bus.invoke('chat.loadHistory', {
+        workspaceId: 'archived-session',
+        before: null,
+        limit: 2,
+      })) as { events: Array<{ text: string }>; prevCursor: number | null };
+
+      expect(page.events.map((event) => event.text)).toEqual(['message 1', 'message 2']);
+      expect(page.prevCursor).toBe(1);
+    } finally {
+      if (oldHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = oldHome;
+    }
+  });
+
+  it('loads archived transcript pages from the desktop chat mirror when no core log exists', async () => {
+    const chatsDir = path.join(process.env.MOXXY_HOME!, 'chats');
+    await mkdir(chatsDir, { recursive: true });
+    const events = [0, 1, 2].map((i) => ({
+      id: `mirror-${i}`,
+      type: 'user_prompt',
+      text: `legacy message ${i}`,
+      seq: i,
+      ts: i,
+      turnId: 'turn',
+      sessionId: 'real-session-id',
+      source: 'user',
+    }));
+    await writeFile(
+      path.join(chatsDir, 'legacy-desk-session.jsonl'),
+      events.map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+
+    const bus = new FakeBus();
+    const { session } = fakeSession();
+    new MobileSessionHost(bus, session).register();
+
+    const page = (await bus.invoke('chat.loadHistory', {
+      workspaceId: 'legacy-desk-session',
+      before: null,
+      limit: 2,
+    })) as { events: Array<{ text: string }>; prevCursor: number | null };
+
+    expect(page.events.map((event) => event.text)).toEqual(['legacy message 1', 'legacy message 2']);
+    expect(page.prevCursor).toBe(1);
+  });
+
+  it('keeps the live mobile session active when the registry points at an archived session', async () => {
+    const oldHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-active-session-'));
+    try {
+      const cwd = path.join(process.env.MOXXY_HOME, 'project');
+      await mkdir(cwd, { recursive: true });
+      await new WorkspaceRegistry().registerSessionFromMeta(
+        {
+          id: 'archived-session',
+          cwd,
+          startedAt: '2026-06-12T10:00:00.000Z',
+          lastActivity: '2026-06-12T10:01:00.000Z',
+          eventCount: 3,
+          firstPrompt: 'Archived work',
+          provider: 'openai-codex',
+          model: null,
+        },
+        'cli',
+      );
+
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      new MobileSessionHost(bus, session).register();
+
+      const snapshots = (await bus.invoke('connection.snapshotAll')) as Array<{
+        workspaceId: string;
+        phase: { phase: string; sessionId: string };
+      }>;
+
+      expect(await bus.invoke('connection.activeWorkspace')).toBe('sess-1');
+      expect(snapshots).toContainEqual(
+        expect.objectContaining({
+          workspaceId: 'sess-1',
+          phase: expect.objectContaining({ phase: 'connected', sessionId: 'sess-1' }),
+        }),
+      );
+      expect(snapshots).not.toContainEqual(
+        expect.objectContaining({
+          workspaceId: 'archived-session',
+          phase: expect.objectContaining({ phase: 'connected' }),
+        }),
+      );
+
+      const desks = (await bus.invoke('desks.list')) as {
+        activeId: string | null;
+        desks: Array<{ id: string; activeSessionId: string | null }>;
+      };
+      const liveDesk = desks.desks.find((desk) => desk.activeSessionId === 'sess-1');
+      expect(liveDesk).toBeDefined();
+      expect(desks.activeId).toBe(liveDesk?.id);
+    } finally {
+      if (oldHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = oldHome;
+    }
+  });
+
+  it('broadcasts the selected registry session as the connected workspace', async () => {
+    const oldHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-select-archived-'));
+    try {
+      const cwd = path.join(process.env.MOXXY_HOME, 'project');
+      await mkdir(cwd, { recursive: true });
+      await new WorkspaceRegistry().registerSessionFromMeta(
+        {
+          id: 'archived-session',
+          cwd,
+          startedAt: '2026-06-12T10:00:00.000Z',
+          lastActivity: '2026-06-12T10:01:00.000Z',
+          eventCount: 3,
+          firstPrompt: 'Archived work',
+          provider: 'openai-codex',
+          model: null,
+        },
+        'cli',
+      );
+
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      new MobileSessionHost(bus, session).register();
+
+      await bus.invoke('sessions.setActive', { id: 'archived-session' });
+
+      expect(await bus.invoke('connection.activeWorkspace')).toBe('archived-session');
+      expect(
+        bus.event('connection.changed').some((event) =>
+          event.payload.workspaceId === 'archived-session' &&
+          event.payload.phase?.phase === 'connected',
+        ),
+      ).toBe(true);
+    } finally {
+      if (oldHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = oldHome;
+    }
+  });
+
+  it('keeps an archived registry session selected as the active runtime target', async () => {
+    const oldHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = mkdtempSync(path.join(os.tmpdir(), 'mobile-host-browse-archived-'));
+    try {
+      const cwd = path.join(process.env.MOXXY_HOME, 'project');
+      await mkdir(cwd, { recursive: true });
+      const registry = new WorkspaceRegistry();
+      await registry.create({ name: 'Project', cwd });
+      await registry.registerSessionFromMeta(
+        {
+          id: 'archived-session',
+          cwd,
+          startedAt: '2026-06-12T10:00:00.000Z',
+          lastActivity: '2026-06-12T10:01:00.000Z',
+          eventCount: 3,
+          firstPrompt: 'Archived work',
+          provider: 'openai-codex',
+          model: null,
+        },
+        'cli',
+      );
+
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      new MobileSessionHost(bus, session).register();
+
+      await bus.invoke('desks.list');
+      await bus.invoke('sessions.setActive', { id: 'archived-session' });
+      await new WorkspaceRegistry().setActive('moxxy');
+
+      const desks = (await bus.invoke('desks.list')) as {
+        activeId: string | null;
+        desks: Array<{ id: string; activeSessionId: string | null }>;
+      };
+      const activeDesk = desks.desks.find((desk) => desk.id === desks.activeId);
+
+      expect(activeDesk?.activeSessionId).toBe('archived-session');
+      expect(await bus.invoke('connection.activeWorkspace')).toBe('archived-session');
+      expect(
+        bus.event('connection.changed').some((event) =>
+          event.payload.workspaceId === 'archived-session' &&
+          event.payload.phase?.phase === 'connected',
+        ),
+      ).toBe(true);
+    } finally {
+      if (oldHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = oldHome;
+    }
+  });
+
   it('mirrors session events to runner.event', () => {
     const bus = new FakeBus();
     const { session, emit } = fakeSession();
@@ -124,6 +449,20 @@ describe('MobileSessionHost', () => {
     expect(evts.some((e) => e.payload.workspaceId === 'sess-1' && (e.payload.event as any).text === 'yo')).toBe(
       true,
     );
+  });
+
+  it('dispose clears the resolvers installed by wire', () => {
+    const bus = new FakeBus();
+    const { session, getPermissionResolver, getApprovalResolver } = fakeSession();
+    const host = new MobileSessionHost(bus, session);
+    host.wire();
+    expect(getPermissionResolver()).toBe(host.permissionResolver);
+    expect(getApprovalResolver()).not.toBeNull();
+
+    host.dispose();
+
+    expect(getPermissionResolver()).toBe(denyByDefaultResolver);
+    expect(getApprovalResolver()).toBeNull();
   });
 
   it('forwards inline attachments to session.runTurn (path attachments are ignored)', async () => {

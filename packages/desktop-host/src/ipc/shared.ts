@@ -157,6 +157,35 @@ export function resolveDriver(pool: RunnerPool, workspaceId?: string): SessionDr
   return id ? drivers.get(id) : undefined;
 }
 
+type RemoteSessionT = NonNullable<ReturnType<RunnerSupervisor['remote']>>;
+
+const REMOTE_SESSION_WAIT_MS = 5_000;
+const REMOTE_SESSION_POLL_MS = 40;
+
+/**
+ * Wait briefly for a supervisor's RemoteSession to appear. This covers the
+ * cold-start race where the renderer optimistically switches active session
+ * before the `sessions.setActive` IPC call has created and attached the
+ * runner. Returning null immediately makes every `session.info` consumer cache
+ * a false "not ready" state until a manual remount; waiting here centralizes
+ * the readiness boundary for all clients.
+ */
+export async function waitForRemoteSession(
+  pool: RunnerPool,
+  workspaceId?: string,
+  timeoutMs = REMOTE_SESSION_WAIT_MS,
+): Promise<RemoteSessionT | null> {
+  const id = workspaceId ?? pool.activeWorkspaceId();
+  if (!id) return null;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    const session = pool.get(id)?.remote() ?? null;
+    if (session) return session;
+    await waitForPoolChange(pool, id, Math.min(REMOTE_SESSION_POLL_MS, Math.max(0, deadline - Date.now())));
+  }
+  return pool.get(id)?.remote() ?? null;
+}
+
 export function mustSession(pool: RunnerPool, workspaceId?: string): SessionLike {
   // RemoteSession implements ClientSession (which extends SessionLike), so it is
   // a SessionLike directly — no cast needed.
@@ -173,7 +202,23 @@ export function mustRemote(
   return session;
 }
 
-type RemoteSessionT = NonNullable<ReturnType<RunnerSupervisor['remote']>>;
+function waitForPoolChange(pool: RunnerPool, id: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      pool.off('change', onChange);
+      resolve();
+    };
+    const onChange = (changedId: string): void => {
+      if (changedId === id) cleanup();
+    };
+    const timer = setTimeout(cleanup, timeoutMs);
+    pool.on('change', onChange);
+  });
+}
 
 /**
  * Resolve the workspace context a per-workspace command operates on, in one

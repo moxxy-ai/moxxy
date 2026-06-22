@@ -65,7 +65,10 @@ export async function* runTurn(
     let model: string;
     try {
       provider = session.providers.getActive();
-      const resolvedModel = opts.model ?? provider.models[0]?.id;
+      // Sticky model: prefer the explicit per-turn model, then the session's
+      // last-resolved model (so a conversation keeps the model it was using
+      // across turns), then the active provider's default.
+      const resolvedModel = opts.model ?? session.lastResolvedModel ?? provider.models[0]?.id;
       if (!resolvedModel) {
         throw new Error(
           `Active provider '${provider.name}' has no models configured`,

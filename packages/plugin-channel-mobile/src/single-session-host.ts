@@ -2,31 +2,43 @@
  * Backs the IPC contract with a single runner {@link ClientSession}.
  *
  * The desktop serves the same contract from a RunnerPool of desk-bound
- * supervisors; the CLI (`moxxy mobile` / `moxxy serve`) has just ONE session, so
- * this host exposes exactly one synthetic workspace (`session.id`) and registers
- * the subset of `IpcCommands` a mobile client drives. It mirrors the desktop
+ * supervisors. The CLI (`moxxy mobile` / `moxxy serve`) has just ONE live
+ * session, but exposes the shared workspace registry so remote clients can see
+ * the same workspace/session index as the desktop. It mirrors the desktop
  * `SessionDriver` + `ask-broker`: stream `session.log` → `runner.event`, run a
  * turn → `runner.turn.complete`, and route permission/approval prompts through
  * `ask.request` / `ask.respond`. The SAME `@moxxy/client-core` hooks work against
  * either backend.
  *
- * Chat history isn't paged server-side here — the live event stream rebuilds the
- * transcript and `chat.loadHistory` returns an empty page.
+ * Chat history is loaded from the shared persisted session log for archived
+ * registry sessions; the live event stream still rebuilds active-turn updates.
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
-import type { ClientSession, PermissionResolver, ApprovalResolver } from '@moxxy/sdk';
+import { restoreSessionEvents } from '@moxxy/core';
+import {
+  denyByDefaultResolver,
+  type ClientSession,
+  type PermissionResolver,
+  type ApprovalResolver,
+  type MoxxyEvent,
+} from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import type {
   AskRequest,
   AskResponse,
   ConnectionPhase,
   ConnectionSnapshot,
+  DesksOverview,
   RunTurnArgs,
   RunTurnResult,
+  SessionsOverview,
 } from '@moxxy/desktop-ipc-contract';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
 import { IpcError } from '@moxxy/desktop-ipc-contract/dispatch';
+import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 
 export interface MobileHostOptions {
   /** Workspace id exposed to the client. Defaults to the session id. */
@@ -59,7 +71,7 @@ export class MobileSessionHost {
     check: async (call, ctx) => {
       if (this.autoApprove) return { mode: 'allow' };
       const res = await this.openAsk({
-        workspaceId: this.workspaceId,
+        workspaceId: this.selectedSessionId,
         kind: 'permission',
         tool: {
           name: call.name,
@@ -79,7 +91,7 @@ export class MobileSessionHost {
     name: 'mobile-ask',
     confirm: async (request) => {
       const res = await this.openAsk({
-        workspaceId: this.workspaceId,
+        workspaceId: this.selectedSessionId,
         kind: 'approval',
         approval: request,
       });
@@ -105,8 +117,12 @@ export class MobileSessionHost {
   >();
   private askCounter = 0;
   private autoApprove = false;
+  private sessionName = 'Current session';
   private disposed = false;
+  private hasExplicitSelection = false;
+  private selectedSessionId: string;
   private readonly disposers: Array<() => void> = [];
+  private readonly registry = new WorkspaceRegistry();
 
   constructor(
     private readonly bus: CommandBus & EventSink,
@@ -114,16 +130,59 @@ export class MobileSessionHost {
     opts: MobileHostOptions = {},
   ) {
     this.workspaceId = opts.workspaceId ?? session.id;
+    this.selectedSessionId = this.workspaceId;
     this.askTimeoutMs = opts.askTimeoutMs ?? DEFAULT_ASK_TIMEOUT_MS;
     this.logErr = opts.logErr;
   }
 
   /** Register the `IpcCommands` subset the mobile client drives. */
   register(): void {
-    const ws = this.workspaceId;
-    this.bus.handle('connection.snapshotAll', async () => [{ workspaceId: ws, ...this.snapshot() }]);
-    this.bus.handle('connection.activeWorkspace', async () => ws);
+    this.bus.handle('connection.snapshotAll', async () => this.connectionSnapshots());
+    this.bus.handle('connection.activeWorkspace', async () => this.activeWorkspaceId());
     this.bus.handle('connection.retry', async () => {});
+    this.bus.handle('desks.list', async () => this.desksOverview());
+    this.bus.handle('desks.setActive', async ({ id }) => {
+      await this.syncCurrentSession();
+      await this.registry.setActive(id);
+      const activeDesk = await this.registry.getActive();
+      if (activeDesk?.activeSessionId) this.selectedSessionId = activeDesk.activeSessionId;
+      this.hasExplicitSelection = true;
+      await this.broadcastActiveConnectionChanged();
+      await this.broadcastDesksChanged();
+    });
+    this.bus.handle('sessions.list', async (args) => this.sessionsOverview(args?.deskId));
+    this.bus.handle('sessions.create', async ({ name } = {}) => {
+      await this.syncCurrentSession();
+      const activeDesk = await this.registry.deskForSession(this.workspaceId);
+      const { session } = await this.registry.createSession(
+        activeDesk?.id,
+        typeof name === 'string' ? name : undefined,
+        { source: 'mobile' },
+      );
+      await this.broadcastDesksChanged();
+      return session;
+    });
+    this.bus.handle('sessions.setActive', async ({ id }) => {
+      await this.syncCurrentSession();
+      await this.registry.setActiveSession(id);
+      this.selectedSessionId = id;
+      this.hasExplicitSelection = true;
+      this.bus.broadcast('connection.changed', { workspaceId: id, phase: this.snapshot(id).phase });
+      await this.broadcastDesksChanged();
+    });
+    this.bus.handle('sessions.remove', async ({ id }) => {
+      await this.registry.removeSession(id);
+      await this.broadcastDesksChanged();
+    });
+    this.bus.handle('sessions.rename', async ({ id, name }) => {
+      await this.syncCurrentSession();
+      const renamed = await this.registry.renameSession(id, name);
+      if (id === this.workspaceId) {
+        this.sessionName = typeof name === 'string' && name.trim().length > 0 ? name.trim() : this.sessionName;
+      }
+      await this.broadcastDesksChanged();
+      return renamed;
+    });
     this.bus.handle('session.info', async () => this.session.getInfo());
     this.bus.handle('session.runTurn', async (args) => this.runTurn(args));
     this.bus.handle('session.abortTurn', async ({ turnId }) => {
@@ -137,20 +196,16 @@ export class MobileSessionHost {
       // Re-broadcast the phase so connected clients see the new activeMode
       // without a session.info round-trip (mirrors the desktop supervisor's
       // refreshConnectedInfo()).
-      this.bus.broadcast('connection.changed', { workspaceId: ws, phase: this.snapshot().phase });
+      this.bus.broadcast('connection.changed', {
+        workspaceId: this.selectedSessionId,
+        phase: this.snapshot(this.selectedSessionId).phase,
+      });
     });
     this.bus.handle('session.newSession', async () => {
       // `/new`: abort in-flight turns, then reset at the source. `reset()` is
       // the authoritative seam (clears persistence too); a session without it
       // degrades to clearing the live log — never silently no-op.
-      for (const controller of this.turns.values()) controller.abort();
-      // Reset auto-approve to the safe default so a fresh session never
-      // silently inherits the previous one's auto-allow (desktop SessionDriver
-      // parity). Manual `allow_always` persists via permissions; auto-approve
-      // is host-level and ephemeral.
-      this.autoApprove = false;
-      if (this.session.reset) await this.session.reset();
-      else this.session.log.clear();
+      await this.resetCurrentSession();
     });
     this.bus.handle('session.runCommand', async ({ name, args }) => {
       const def = this.session.commands.get(name);
@@ -222,14 +277,16 @@ export class MobileSessionHost {
     this.bus.handle('ask.respond', async ({ requestId, response }) => {
       this.answerAsk(requestId, response);
     });
-    // No paged history for the mobile channel — the live event stream rebuilds
-    // the transcript as it arrives, so history paging returns an empty page.
-    this.bus.handle('chat.loadHistory', async () => ({ events: [], prevCursor: null }));
+    // History paging for the mobile channel. The desktop's NDJSON mirror — and
+    // its `chat.append` / `chat.clearLog` / `chat.migrate` IPCs — were retired
+    // (the runner log is the sole chat history there); the only surviving
+    // history IPC is `chat.loadHistory`. Here the session's persisted log plays
+    // the runner's role, so serve the page straight from it.
+    this.bus.handle('chat.loadHistory', async (args) => this.loadChatSegment(args));
   }
 
   /** Stream session events to clients + install the ask resolvers. */
   wire(): void {
-    const ws = this.workspaceId;
     const off = this.session.log.subscribe((event) => {
       // This callback runs synchronously inside the session's event-emit loop.
       // `broadcast` → `notify` → `JSON.stringify` throws on a non-serializable
@@ -237,7 +294,7 @@ export class MobileSessionHost {
       // event); letting that throw unwind here would break delivery to the
       // session's other subscribers. Log-and-drop the offending frame instead.
       try {
-        this.bus.broadcast('runner.event', { workspaceId: ws, event });
+        this.bus.broadcast('runner.event', { workspaceId: this.selectedSessionId, event });
       } catch (err) {
         this.logErr?.(err);
       }
@@ -249,7 +306,10 @@ export class MobileSessionHost {
 
     // Tell any already-connected client we're connected (snapshotAll covers a
     // late joiner; this covers one that connected before wire()).
-    this.bus.broadcast('connection.changed', { workspaceId: ws, phase: this.snapshot().phase });
+    this.bus.broadcast('connection.changed', {
+      workspaceId: this.selectedSessionId,
+      phase: this.snapshot(this.selectedSessionId).phase,
+    });
   }
 
   dispose(): void {
@@ -263,7 +323,10 @@ export class MobileSessionHost {
       }
     }
     this.abortAndDrain();
+    // Full teardown (unlike onAllClientsDisconnected, which keeps the host wired
+    // for a reconnecting client): detach this host's resolvers from the session.
     this.session.setApprovalResolver(null);
+    this.session.setPermissionResolver(denyByDefaultResolver);
   }
 
   /**
@@ -305,19 +368,86 @@ export class MobileSessionHost {
     }
   }
 
-  private snapshot(): ConnectionSnapshot {
+  private snapshot(sessionId = this.workspaceId): ConnectionSnapshot {
     const info = this.session.getInfo();
     const phase: ConnectionPhase = {
       phase: 'connected',
       socket: '',
-      sessionId: this.session.id,
+      sessionId,
       activeProvider: info?.activeProvider ?? null,
       activeMode: info?.activeMode ?? null,
     };
     return { phase, cliPath: null, attempts: 0, log: [] };
   }
 
+  private async activeWorkspaceId(): Promise<string> {
+    await this.syncCurrentSession({ activate: !this.hasExplicitSelection });
+    return this.selectedSessionId;
+  }
+
+  private async connectionSnapshots(): Promise<Array<ConnectionSnapshot & { workspaceId: string }>> {
+    await this.syncCurrentSession({ activate: !this.hasExplicitSelection });
+    return [{ workspaceId: this.selectedSessionId, ...this.snapshot(this.selectedSessionId) }];
+  }
+
+  private async desksOverview(): Promise<DesksOverview> {
+    await this.syncCurrentSession({ activate: this.selectedSessionId === this.workspaceId });
+    const desks = await this.registry.list();
+    const selectedDesk = deskForSession(desks, this.selectedSessionId);
+    const activeDesk = await this.registry.getActive();
+    return {
+      desks,
+      activeId: selectedDesk?.id ?? activeDesk?.id ?? null,
+    };
+  }
+
+  private async sessionsOverview(deskId?: string): Promise<SessionsOverview> {
+    await this.syncCurrentSession({ activate: this.selectedSessionId === this.workspaceId });
+    const desks = await this.registry.list();
+    const selectedDesk = deskForSession(desks, this.selectedSessionId);
+    const activeDesk = await this.registry.getActive();
+    return this.registry.listSessions(deskId ?? selectedDesk?.id ?? activeDesk?.id);
+  }
+
+  private async syncCurrentSession(options: { readonly activate?: boolean } = {}): Promise<void> {
+    const prompts = this.session.log.ofType?.('user_prompt') ?? [];
+    await this.registry.registerSessionFromMeta(
+      {
+        id: this.workspaceId,
+        cwd: this.session.cwd,
+        startedAt: new Date().toISOString(),
+        lastActivity: new Date().toISOString(),
+        eventCount: this.session.log.length ?? 0,
+        firstPrompt: prompts[0]?.text ?? null,
+        provider: this.session.getInfo().activeProvider ?? null,
+        model: null,
+      },
+      'mobile',
+      { activate: options.activate === true },
+    );
+  }
+
+  private async broadcastDesksChanged(): Promise<void> {
+    this.bus.broadcast('desks.changed', await this.desksOverview());
+  }
+
+  private async broadcastActiveConnectionChanged(): Promise<void> {
+    const id = await this.activeWorkspaceId();
+    this.bus.broadcast('connection.changed', { workspaceId: id, phase: this.snapshot(id).phase });
+  }
+
+  private async resetCurrentSession(): Promise<void> {
+    for (const controller of this.turns.values()) controller.abort();
+    // Reset auto-approve to the safe default so a fresh session never silently
+    // inherits the previous one's auto-allow (desktop SessionDriver parity).
+    this.autoApprove = false;
+    if (this.session.reset) await this.session.reset();
+    else this.session.log.clear();
+  }
+
   private async runTurn(args: RunTurnArgs & { workspaceId?: string }): Promise<RunTurnResult> {
+    const targetWorkspaceId = args.workspaceId ?? this.selectedSessionId;
+    await this.selectRuntimeTarget(targetWorkspaceId);
     const turnId = randomUUID();
     const controller = new AbortController();
     this.turns.set(turnId, controller);
@@ -342,7 +472,7 @@ export class MobileSessionHost {
         error = e instanceof Error ? e.message : String(e);
       } finally {
         this.turns.delete(turnId);
-        this.bus.broadcast('runner.turn.complete', { workspaceId: this.workspaceId, turnId, error });
+        this.bus.broadcast('runner.turn.complete', { workspaceId: targetWorkspaceId, turnId, error });
       }
     })().catch((err) => {
       // The detached drain has no awaiter; a throw from the finally-broadcast
@@ -351,6 +481,19 @@ export class MobileSessionHost {
       this.logErr?.(err);
     });
     return { turnId };
+  }
+
+  private async selectRuntimeTarget(sessionId: string): Promise<void> {
+    if (sessionId === this.selectedSessionId) return;
+    await this.syncCurrentSession();
+    await this.registry.setActiveSession(sessionId);
+    this.selectedSessionId = sessionId;
+    this.hasExplicitSelection = true;
+    this.bus.broadcast('connection.changed', {
+      workspaceId: sessionId,
+      phase: this.snapshot(sessionId).phase,
+    });
+    await this.broadcastDesksChanged();
   }
 
   private openAsk(req: Omit<AskRequest, 'requestId'>): Promise<AskResponse> {
@@ -387,4 +530,70 @@ export class MobileSessionHost {
     if (entry.timer) clearTimeout(entry.timer);
     entry.resolve(response);
   }
+
+  private async loadChatSegment(args: {
+    workspaceId?: string;
+    before?: number | null;
+    limit?: number;
+  }): Promise<{ events: MoxxyEvent[]; prevCursor: number | null }> {
+    const workspaceId = args.workspaceId ?? this.selectedSessionId;
+    const limit = args.limit ?? 100;
+    const events = await loadPersistedEvents(workspaceId);
+    return segmentFromEvents(events, args.before ?? null, limit);
+  }
+}
+
+async function loadPersistedEvents(workspaceId: string): Promise<MoxxyEvent[]> {
+  try {
+    const events = await restoreSessionEvents(workspaceId);
+    if (events.length > 0) return events;
+  } catch {
+    // Fall through to the desktop chat mirror. Older desktop workspaces used
+    // desk ids as chat keys even when the actual session id inside the events
+    // was different, so the core session log alone is not enough.
+  }
+  return readChatMirrorEvents(workspaceId);
+}
+
+async function readChatMirrorEvents(workspaceId: string): Promise<MoxxyEvent[]> {
+  let raw: string;
+  try {
+    raw = await readFile(moxxyPath('chats', `${safeChatFileId(workspaceId)}.jsonl`), 'utf8');
+  } catch {
+    return [];
+  }
+  const events: MoxxyEvent[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    try {
+      events.push(JSON.parse(line) as MoxxyEvent);
+    } catch {
+      // Match the desktop chat-log behavior: one corrupt mirror line should not
+      // hide the rest of the transcript.
+    }
+  }
+  return events;
+}
+
+function safeChatFileId(workspaceId: string): string {
+  return workspaceId.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 128) || 'unnamed';
+}
+
+function segmentFromEvents(
+  events: ReadonlyArray<MoxxyEvent>,
+  before: number | null,
+  limit: number,
+): { events: MoxxyEvent[]; prevCursor: number | null } {
+  const total = events.length;
+  const end = before === null ? total : Math.min(before, total);
+  const start = Math.max(0, end - limit);
+  const prevCursor = start > 0 ? start : null;
+  return { events: events.slice(start, end), prevCursor };
+}
+
+function deskForSession(
+  desks: ReadonlyArray<{ readonly id: string; readonly sessions: ReadonlyArray<{ readonly id: string }> }>,
+  sessionId: string,
+): { readonly id: string } | null {
+  return desks.find((desk) => desk.sessions.some((session) => session.id === sessionId)) ?? null;
 }

@@ -27,7 +27,7 @@ const cronOrTimestamp = z
     message: 'provide either `cron` or `runAt`, not both',
   });
 
-function describeEntry(entry: ScheduleEntry): Record<string, unknown> {
+export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unknown> {
   let nextFireAt: number | null = null;
   if (entry.cron) {
     // Share the poller's baseline (lastRunAt ?? createdAt) so the displayed
@@ -118,7 +118,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           ...(input.channel ? { channel: input.channel } : {}),
           ...(input.model ? { model: input.model } : {}),
         });
-        return describeEntry(created);
+        return describeScheduleEntry(created);
       },
     }),
 
@@ -138,7 +138,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           if (source !== 'all' && e.source !== source) return false;
           return true;
         });
-        return filtered.map(describeEntry);
+        return filtered.map(describeScheduleEntry);
       },
     }),
 
@@ -146,8 +146,8 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       name: 'schedule_delete',
       description:
         'Permanently remove a schedule by id. To temporarily pause, use schedule_disable ' +
-        'instead. Skill-driven schedules will be re-created from the skill frontmatter ' +
-        "on the next sync unless you also remove the skill's `schedule:` field.",
+        'instead. Source-driven skill/workflow schedules are hidden from the poller with ' +
+        'a durable user-deletion marker so they do not reappear on the next sync.',
       inputSchema: z.object({ id: z.string().min(1) }),
       permission: { action: 'prompt' },
       handler: async ({ id }) => {
@@ -163,7 +163,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       handler: async ({ id }) => {
         const updated = await store.update(id, { enabled: true });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
-        return { ok: true, schedule: describeEntry(updated) };
+        return { ok: true, schedule: describeScheduleEntry(updated) };
       },
     }),
 
@@ -174,7 +174,7 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       handler: async ({ id }) => {
         const updated = await store.update(id, { enabled: false });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
-        return { ok: true, schedule: describeEntry(updated) };
+        return { ok: true, schedule: describeScheduleEntry(updated) };
       },
     }),
 

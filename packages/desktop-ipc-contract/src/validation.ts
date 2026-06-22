@@ -126,6 +126,8 @@ const workflowName = z
   .max(200)
   .refine((s) => !s.includes('..') && !s.includes('/') && !s.includes('\\'), 'invalid workflow name');
 
+const scheduleId = z.string().min(1).max(256);
+
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
   // "nothing" so a hostile renderer can't smuggle args across.
@@ -173,6 +175,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   }),
   'sessions.list': z.object({ deskId: z.string().min(1).max(256).optional() }).optional(),
   'session.setProvider': z.object({ workspaceId: optionalWorkspace, provider: providerName }),
+  'session.setModel': z.object({
+    workspaceId: optionalWorkspace,
+    model: z.string().min(1).max(256).nullable(),
+  }),
   'session.setMode': z.object({ workspaceId: optionalWorkspace, mode: z.string().min(1).max(64) }),
   'session.newSession': z.object({ workspaceId: optionalWorkspace }),
   // A turn's prompt + optional attachments cross from the renderer into the
@@ -253,6 +259,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     previousName: workflowName.optional(),
   }),
   'workflows.getRun': z.object({ name: workflowName }),
+  'scheduler.list': z.undefined(),
+  'scheduler.setEnabled': z.object({ id: scheduleId, enabled: z.boolean() }),
+  'scheduler.delete': z.object({ id: scheduleId }),
   // Human-in-the-loop resume: bound the run id + the operator reply (the reply
   // is forwarded into the paused step's child agent, so cap it to avoid OOM).
   'workflows.resume': z.object({
@@ -315,6 +324,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     suggestedName: z.string().min(1).max(255),
     content: z.string().max(20_000_000),
   }),
+  'desks.list': z.undefined(),
   'desks.create': z.object({ name: z.string().min(1).max(200), cwd: z.string().min(1).max(4096) }),
   // Mirror desks.create's name bounds — rename writes the name into the desks
   // JSON, so an unbounded string would let a renderer bloat the state file.
@@ -322,6 +332,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     id: z.string().min(1).max(256),
     name: z.string().min(1).max(200),
   }),
+  'desks.setActive': z.object({ id: z.string().min(1).max(256) }),
   // Sessions: create/rename persist the name into the desks JSON (bound it
   // like desks.create/rename); setActive spawns a runner and remove deletes
   // the session's on-disk logs, so their ids are bounded too. These commands

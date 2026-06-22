@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { api } from './transport.js';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { api, getTransportRevision, subscribeTransport } from './transport.js';
+import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
 import { createIpcPersistence } from './chatPersistence.js';
 import { wireAskBridge } from './askStore.js';
@@ -31,6 +31,7 @@ export interface UseChat {
   readonly send: (
     prompt: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
+    inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
   ) => Promise<void>;
   readonly abort: () => Promise<void>;
   readonly clear: () => void;
@@ -49,6 +50,7 @@ async function sendImmediate(
   workspaceId: string,
   prompt: string,
   attachments?: ReadonlyArray<{ path: string; name: string }>,
+  inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
 ): Promise<void> {
   const model = chatStore.getModel(workspaceId);
   try {
@@ -57,6 +59,7 @@ async function sendImmediate(
       prompt,
       ...(model ? { model } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      ...(inlineAttachments && inlineAttachments.length > 0 ? { inlineAttachments } : {}),
     });
     chatStore.dispatch(workspaceId, { type: 'send_started', turnId });
   } catch (e) {
@@ -74,7 +77,7 @@ async function sendImmediate(
 /** Pop the next queued turn for a workspace and fire it (no-op when empty). */
 function drainNext(workspaceId: string): void {
   const next = chatStore.shiftQueue(workspaceId);
-  if (next) void sendImmediate(workspaceId, next.prompt, next.attachments);
+  if (next) void sendImmediate(workspaceId, next.prompt, next.attachments, next.inlineAttachments);
 }
 
 /** Sessions the desk registry auto-named — the ones whose sidebar title is
@@ -110,6 +113,8 @@ function scheduleSessionTitleRefresh(workspaceId: string): void {
  * persisted transcripts on first mount.
  */
 export function ChatStoreBridge(): null {
+  const transportRevision = useSyncExternalStore(subscribeTransport, getTransportRevision);
+
   useEffect(() => {
     // Wire the runner-history backend (the renderer pages transcript history
     // from the runner's authoritative log).
@@ -119,6 +124,12 @@ export function ChatStoreBridge(): null {
       ({ workspaceId, event }: { workspaceId: string; event: MoxxyEvent }) => {
         chatStore.dispatch(workspaceId, { type: 'event', event });
         if (event.type === 'user_prompt') scheduleSessionTitleRefresh(workspaceId);
+      },
+    );
+    const offStarted = api().subscribe(
+      'runner.turn.started',
+      ({ workspaceId, turnId }: { workspaceId: string; turnId: string }) => {
+        chatStore.dispatch(workspaceId, { type: 'send_started', turnId });
       },
     );
     const offComplete = api().subscribe(
@@ -143,10 +154,32 @@ export function ChatStoreBridge(): null {
         drainNext(workspaceId);
       },
     );
+    const offModel = api().subscribe(
+      'session.model.changed',
+      ({ workspaceId, model }: { workspaceId: string; model: string | null }) => {
+        chatStore.setModel(workspaceId, model);
+      },
+    );
+    const offAutoApprove = api().subscribe(
+      'session.autoApprove.changed',
+      ({ workspaceId, enabled }: { workspaceId: string; enabled: boolean }) => {
+        chatStore.setAutoApprove(workspaceId, enabled);
+      },
+    );
+    const offChatCleared = api().subscribe(
+      'chat.cleared',
+      ({ workspaceId }: { workspaceId: string }) => {
+        chatStore.clearLocal(workspaceId);
+      },
+    );
     const offAsk = wireAskBridge();
     return () => {
       offEvent();
+      offStarted();
       offComplete();
+      offModel();
+      offAutoApprove();
+      offChatCleared();
       offAsk();
       // Cancel a pending title-refresh so it can't fire an IPC round-trip after
       // the bridge (and the view) has torn down.
@@ -155,7 +188,7 @@ export function ChatStoreBridge(): null {
         titleRefreshTimer = null;
       }
     };
-  }, []);
+  }, [transportRevision]);
   return null;
 }
 
@@ -194,18 +227,25 @@ export function useChat(workspaceId: string | null): UseChat {
     async (
       prompt: string,
       attachments?: ReadonlyArray<{ path: string; name: string }>,
+      inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
     ): Promise<void> => {
       if (!workspaceId) return;
       const trimmed = prompt.trim();
-      if (!trimmed && (!attachments || attachments.length === 0)) return;
+      if (
+        !trimmed &&
+        (!attachments || attachments.length === 0) &&
+        (!inlineAttachments || inlineAttachments.length === 0)
+      ) {
+        return;
+      }
       const cur = chatStore.getChat(workspaceId);
       // Locked while the runner is compacting — don't send or even queue.
       if (cur.compacting) return;
       if (cur.activeTurnId !== null || cur.sending) {
-        chatStore.enqueue(workspaceId, trimmed, attachments);
+        chatStore.enqueue(workspaceId, trimmed, attachments, inlineAttachments);
         return;
       }
-      await sendImmediate(workspaceId, trimmed, attachments);
+      await sendImmediate(workspaceId, trimmed, attachments, inlineAttachments);
     },
     [workspaceId],
   );

@@ -1,10 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test doubles cast loosely */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ClientSession } from '@moxxy/sdk';
 
-// startWsBridge is the post-wire step that can reject (e.g. EADDRINUSE on the
-// default port, shared with the desktop bridge). Mock it so we can drive the
-// failure path without binding a real socket.
 const startWsBridge = vi.fn();
 vi.mock('@moxxy/ipc-server-ws', () => ({
   WebSocketCommandBus: class {
@@ -15,12 +12,23 @@ vi.mock('@moxxy/ipc-server-ws', () => ({
   startWsBridge: (...args: unknown[]) => startWsBridge(...args),
 }));
 
-// Keep the QR/printing side-effect-free (it shouldn't be reached on the failure
-// path anyway, since startWsBridge rejects first).
 vi.mock('./qr.js', () => ({ printConnectInfo: vi.fn(async () => {}) }));
 
 import { MobileChannel } from './channel.js';
 import { MobileSessionHost } from './single-session-host.js';
+
+function fakeBridgeServer() {
+  return {
+    address: { host: '127.0.0.1', port: 8765 },
+    close: vi.fn(async () => {}),
+    rotateAuthToken: vi.fn(),
+    setAllowedOrigins: vi.fn(),
+    // The channel wires a disconnect sweep on every start, so the stub must
+    // expose the count poll + the rising-edge hook it consults.
+    clientCount: vi.fn(() => 0),
+    onConnection: vi.fn(),
+  };
+}
 
 /** A session that records log subscription + resolver installs/clears. */
 function fakeSession() {
@@ -42,7 +50,7 @@ function fakeSession() {
       }),
       clear: vi.fn(),
     },
-    runTurn: vi.fn(() => (async function* () {})()),
+    runTurn: vi.fn(() => (async function* runTurn() {})()),
     getInfo: () => ({
       sessionId: 'sess-1',
       providers: [],
@@ -82,12 +90,10 @@ describe('MobileChannel.start teardown on startup failure', () => {
 
     await expect(channel.start({ session })).rejects.toThrow('EADDRINUSE');
 
-    // wire() subscribed to session.log; the catch must have torn it back down.
     expect(raw.log.subscribe).toHaveBeenCalledTimes(1);
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     expect(activeSubs()).toBe(0);
 
-    // The approval resolver must be cleared back to null (dispose contract).
     expect(getApprovalResolver()).toBeNull();
     expect(raw.setApprovalResolver).toHaveBeenLastCalledWith(null);
   });
@@ -99,13 +105,36 @@ describe('MobileChannel.start teardown on startup failure', () => {
 
     await expect(channel.start({ session })).rejects.toThrow();
 
-    // permissionResolver delegates to the live host; with the host nulled it
-    // must deny rather than route into a torn-down bus.
     const res = await channel.permissionResolver.check(
       { name: 'shell', input: {} } as any,
       {} as any,
     );
     expect(res.mode).toBe('deny');
+  });
+});
+
+describe('MobileChannel Expo startup', () => {
+  beforeEach(() => {
+    startWsBridge.mockReset();
+    startWsBridge.mockResolvedValue(fakeBridgeServer());
+  });
+
+  it('starts Expo beside the mobile bridge and stops it with the channel', async () => {
+    const stopExpo = vi.fn(async () => {});
+    const startExpo = vi.fn(async () => ({ stop: stopExpo }));
+    const channel = new MobileChannel({ port: 0 }, { startExpoApp: startExpo });
+
+    const handle = await channel.start({ session: fakeSession().session });
+
+    expect(startExpo).toHaveBeenCalledWith({
+      enabled: true,
+      host: 'lan',
+      port: 8081,
+    });
+
+    await handle.stop();
+
+    expect(stopExpo).toHaveBeenCalled();
   });
 });
 

@@ -1,5 +1,6 @@
 import { isCancel, select } from '@clack/prompts';
 import { deleteSession, readSessionIndex, type SessionMeta } from '@moxxy/core';
+import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 import type { ParsedArgv } from '../argv.js';
 import { helpRequested, stringFlag } from '../argv-helpers.js';
 import { colors } from '../colors.js';
@@ -48,7 +49,11 @@ async function runDelete(argv: ParsedArgv): Promise<number> {
   // left behind by old probe runs before the bug was fixed).
   if (argv.flags['empty'] === true) {
     const targets = all.filter((m) => m.eventCount === 0);
-    for (const m of targets) await deleteSession(m.id);
+    const registry = new WorkspaceRegistry();
+    for (const m of targets) {
+      await deleteSession(m.id);
+      await registry.removeSession(m.id);
+    }
     process.stdout.write(
       colors.dim(`removed ${targets.length} empty session${targets.length === 1 ? '' : 's'}\n`),
     );
@@ -61,6 +66,7 @@ async function runDelete(argv: ParsedArgv): Promise<number> {
   }
   const id = resolveId(raw, all);
   await deleteSession(id);
+  await new WorkspaceRegistry().removeSession(id);
   process.stdout.write(colors.dim(`removed ${id}\n`));
   return 0;
 }

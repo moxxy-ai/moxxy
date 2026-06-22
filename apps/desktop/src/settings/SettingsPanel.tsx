@@ -111,8 +111,12 @@ export function SettingsPanel({
   // Optional so the panel can render standalone (tests); the app shell
   // always wires it so the header switcher navigates.
   onView = () => undefined,
+  disabledViews,
+  disabledViewReason,
 }: {
   readonly onView?: (v: View) => void;
+  readonly disabledViews?: ReadonlyArray<View>;
+  readonly disabledViewReason?: string;
 }): JSX.Element {
   const s = useSettings();
   const [tab, setTab] = useState<Tab>('providers');
@@ -124,7 +128,12 @@ export function SettingsPanel({
   return (
     <>
       <ViewHeader>
-        <ViewSwitcher view="settings" onView={onView} />
+        <ViewSwitcher
+          view="settings"
+          onView={onView}
+          disabledViews={disabledViews}
+          disabledReason={disabledViewReason}
+        />
         <span style={{ flex: 1 }} />
         <Segmented
           items={TABS}

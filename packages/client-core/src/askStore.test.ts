@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AskRequest, AskResponse, MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { __setApiOverride } from './transport.js';
-import { askStore } from './askStore.js';
+import { askStore, wireAskBridge } from './askStore.js';
 
 function ask(requestId: string): AskRequest {
   return { requestId, workspaceId: 'ws1', kind: 'permission' };
@@ -56,5 +56,66 @@ describe('askStore.respond', () => {
     expect(askStore.getAll().some((a) => a.requestId === 'r2')).toBe(true);
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+});
+
+describe('wireAskBridge workflow asks', () => {
+  it('surfaces a workflow pause as a global ask and resumes it from the answer', async () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const invoke = vi.fn(async () => ({ ok: true }));
+    __setApiOverride({
+      invoke,
+      subscribe: ((channel: string, handler: (payload: unknown) => void) => {
+        handlers.set(channel, handler);
+        return () => handlers.delete(channel);
+      }) as never,
+    } as MoxxyApi);
+    const off = wireAskBridge();
+
+    handlers.get('runner.event')?.({
+      workspaceId: 'ws-workflows',
+      event: {
+        id: 'evt-workflow-pause',
+        seq: 42,
+        ts: 1,
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        source: 'plugin',
+        type: 'plugin_event',
+        pluginId: 'workflows',
+        subtype: 'workflow_paused',
+        payload: {
+          runId: 'run-global',
+          stepId: 'ask-user',
+          workflow: 'meal-plan',
+          label: 'Ask for ingredients',
+          prompt: 'What ingredients should I use?',
+        },
+      },
+    });
+
+    const globalAsk = askStore.getAll().find((item) => item.requestId.includes('run-global'));
+    expect(globalAsk).toMatchObject({
+      workspaceId: 'ws-workflows',
+      kind: 'workflow',
+      workflow: {
+        runId: 'run-global',
+        stepId: 'ask-user',
+        workflow: 'meal-plan',
+        label: 'Ask for ingredients',
+        prompt: 'What ingredients should I use?',
+      },
+    });
+
+    askStore.respond(globalAsk!.requestId, { text: 'eggs and tomatoes' });
+    await Promise.resolve();
+
+    expect(invoke).toHaveBeenCalledWith('workflows.resume', {
+      runId: 'run-global',
+      reply: 'eggs and tomatoes',
+    });
+    expect(askStore.getAll().some((item) => item.requestId === globalAsk!.requestId)).toBe(false);
+
+    off();
   });
 });

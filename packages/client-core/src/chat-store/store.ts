@@ -15,8 +15,8 @@
  * the provider-response token accounting lives in `./usage`.
  */
 
-import type { MoxxyEvent } from '@moxxy/sdk';
-import { applyAction, isRenderedEvent, type ChatAction } from '../chatModel.js';
+import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
+import { applyAction, isRenderedEvent, uniqueEventsById, type ChatAction } from '../chatModel.js';
 import { INITIAL_WINDOW, OLDER_PAGE, type ChatPersistence } from '../chatPersistence.js';
 
 /**
@@ -105,6 +105,7 @@ import {
   createSlot,
   EMPTY_QUEUE,
   EMPTY_SNAPSHOT,
+  INITIAL_LOADING_SNAPSHOT,
   type ChatSnapshot,
   type QueuedTurn,
   type Slot,
@@ -149,7 +150,7 @@ class ChatStore {
 
   getChat(workspaceId: string): ChatSnapshot {
     const slot = this.slots.get(workspaceId);
-    if (!slot) return EMPTY_SNAPSHOT;
+    if (!slot) return INITIAL_LOADING_SNAPSHOT;
     return buildSnapshot(slot);
   }
 
@@ -216,6 +217,7 @@ class ChatStore {
     workspaceId: string,
     prompt: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
+    inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
   ): string {
     const slot = this.ensure(workspaceId);
     // Monotonic id — deriving it from rev+length collides after a shiftQueue
@@ -223,10 +225,13 @@ class ChatStore {
     // silently drop a colliding twin and collide React keys.
     slot.queueSeq += 1;
     const id = `q-${slot.queueSeq}`;
-    slot.queue = [
-      ...slot.queue,
-      attachments && attachments.length > 0 ? { id, prompt, attachments } : { id, prompt },
-    ];
+    const queued: QueuedTurn = {
+      id,
+      prompt,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+      ...(inlineAttachments && inlineAttachments.length > 0 ? { inlineAttachments } : {}),
+    };
+    slot.queue = [...slot.queue, queued];
     this.emit();
     return id;
   }
@@ -281,16 +286,26 @@ class ChatStore {
    */
   async loadInitial(workspaceId: string): Promise<void> {
     const slot = this.ensure(workspaceId);
-    if (slot.loaded || !this.persistence) return;
+    if (slot.loaded) return;
+    if (!this.persistence) {
+      slot.loaded = true;
+      slot.snap = null;
+      this.emit();
+      return;
+    }
     slot.loaded = true; // set before await so concurrent calls bail
     slot.loadingInitial = true; // show the spinner while the read is in flight
     slot.snap = null;
     this.emit();
+    const epoch = slot.resetEpoch;
     try {
       // History comes SOLELY from the runner's authoritative log. A null/empty
       // result (no connected runner for this workspace yet) just shows an empty
-      // transcript until the runner attaches and streams live events in.
+      // transcript until the runner attaches and streams live events in. (For the
+      // mobile gateway the runner is the session's persisted log, surfaced via
+      // the same `chat.loadHistory` IPC.)
       const runner = await this.collectRunnerInitial(workspaceId);
+      if (slot.resetEpoch !== epoch) return;
       if (runner) {
         this.prependFresh(slot, runner.events);
         slot.oldestCursor = runner.prevCursor;
@@ -302,11 +317,16 @@ class ChatStore {
         slot.loaded = false;
       }
     } catch {
-      slot.loaded = false; // allow a retry on the next open
+      if (slot.resetEpoch === epoch) {
+        slot.loaded = false; // allow a retry on the next open
+      }
     } finally {
-      slot.loadingInitial = false;
-      slot.snap = null;
-      this.emit();
+      // Only finalize when no reset raced us (a return inside finally is unsafe).
+      if (slot.resetEpoch === epoch) {
+        slot.loadingInitial = false;
+        slot.snap = null;
+        this.emit();
+      }
     }
   }
 
@@ -339,8 +359,10 @@ class ChatStore {
     const slot = this.slots.get(workspaceId);
     if (!slot || !slot.hasOlder || slot.loadingOlder || !this.persistence) return;
     slot.loadingOlder = true;
+    const epoch = slot.resetEpoch;
     try {
       const runner = await this.loadRunnerWindow(workspaceId, slot.oldestCursor, OLDER_PAGE);
+      if (slot.resetEpoch !== epoch) return;
       if (runner) {
         this.prependFresh(slot, runner.events);
         slot.oldestCursor = runner.prevCursor;
@@ -353,10 +375,13 @@ class ChatStore {
     } finally {
       // Reset snap + emit in finally (like loadInitial) so the error path
       // also notifies subscribers — otherwise loadingOlder flips to false
-      // with no re-render and the spinner/snapshot can wedge.
-      slot.loadingOlder = false;
-      slot.snap = null;
-      this.emit();
+      // with no re-render and the spinner/snapshot can wedge. Guarded by an
+      // `if` (a return inside finally is unsafe) so a reset that raced us wins.
+      if (slot.resetEpoch === epoch) {
+        slot.loadingOlder = false;
+        slot.snap = null;
+        this.emit();
+      }
     }
   }
 
@@ -413,7 +438,7 @@ class ChatStore {
     // `seenIds` is the authoritative membership set (kept in lockstep with the
     // log by applyEvent + here), so a page that overlaps events already
     // delivered by the runner's replay is de-duped without an O(n) rescan.
-    const fresh = events.filter((e) => !slot.rt.seenIds.has(e.id));
+    const fresh = uniqueEventsById(events).filter((e) => !slot.rt.seenIds.has(e.id));
     if (fresh.length > 0) {
       slot.rt.log.prepend(fresh);
       for (const e of fresh) slot.rt.seenIds.add(e.id);
@@ -511,16 +536,37 @@ class ChatStore {
    *  `session.newSession`). */
   clear(workspaceId: string): void {
     const slot = this.ensure(workspaceId);
-    applyAction(slot.rt, { type: 'clear' });
-    slot.oldestCursor = null;
-    slot.hasOlder = false;
-    slot.usage = EMPTY_USAGE;
-    slot.snap = null;
-    this.unreadDirty = true;
+    // The runner's log is reset separately (the `/new` flow calls
+    // `session.newSession`); the old NDJSON mirror clear was retired.
+    this.resetSlot(slot);
+    this.emit();
+  }
+
+  /** Mirror a clear that already happened on another surface / host. */
+  clearLocal(workspaceId: string): void {
+    const slot = this.ensure(workspaceId);
+    this.resetSlot(slot);
     this.emit();
   }
 
   // ---- internals ---------------------------------------------------------
+
+  private resetSlot(slot: Slot): void {
+    slot.resetEpoch += 1;
+    applyAction(slot.rt, { type: 'clear' });
+    slot.oldestCursor = null;
+    slot.hasOlder = false;
+    slot.loaded = true;
+    slot.loadingInitial = false;
+    slot.loadingOlder = false;
+    slot.usage = EMPTY_USAGE;
+    slot.compacting = false;
+    slot.snap = null;
+    this.unreadDirty = true;
+    if (this.activeId !== null && this.slots.get(this.activeId) === slot) {
+      slot.lastSeenRev = slot.rt.rev;
+    }
+  }
 
   private ensure(workspaceId: string): Slot {
     let slot = this.slots.get(workspaceId);

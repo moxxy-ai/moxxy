@@ -19,7 +19,10 @@ interface ChatSurfaceProps {
   readonly workspaceId: string;
   readonly railPane: import('../shell/ContextRail').RailPane | null;
   readonly onPickPane: (pane: import('../shell/ContextRail').RailPane) => void;
+  readonly sessionLoading: boolean;
   readonly onView: (v: import('../shell/ViewHeader').View) => void;
+  readonly disabledViews?: ReadonlyArray<import('../shell/ViewHeader').View>;
+  readonly disabledViewReason?: string;
 }
 
 /** Stable empty reference for the searching code path (no extensions
@@ -81,12 +84,15 @@ export function ChatSurface({
   workspaceId,
   railPane,
   onPickPane,
+  sessionLoading,
   onView,
+  disabledViews,
+  disabledViewReason,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
-  const ready = phase.phase === 'connected';
+  const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
@@ -104,11 +110,43 @@ export function ChatSurface({
   // Suggested-action chips are only shown when the composer is idle and the
   // transcript is non-empty. Compute them only then, and memoize on the event
   // log so they aren't re-derived (regex scans) on every streaming tick.
+  // Computed before any early return so the hook order stays stable.
   const showSuggestions = ready && !chat.sending && !chat.isEmpty;
   const suggestions = useMemo(
     () => (showSuggestions ? deriveSuggestions(chat.events) : EMPTY_SUGGESTIONS),
     [showSuggestions, chat.events],
   );
+
+  const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
+
+  if (showBlockingLoading) {
+    return (
+      <main className="col-main col-main--flat">
+        <Header
+          phase={phase}
+          workspaceId={workspaceId}
+          railPane={railPane}
+          onPickPane={onPickPane}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          canRename={activeDesk !== undefined}
+          onRename={() => setRenameOpen(true)}
+          onView={onView}
+          disabledViews={disabledViews}
+          disabledViewReason={disabledViewReason}
+        />
+        <div
+          key={workspaceId}
+          className="anim-fade-in"
+          style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        >
+          <ChatLoading
+            label={sessionLoading ? 'Moxxy is loading this session…' : undefined}
+          />
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="col-main col-main--flat">
@@ -122,6 +160,8 @@ export function ChatSurface({
         canRename={activeDesk !== undefined}
         onRename={() => setRenameOpen(true)}
         onView={onView}
+        disabledViews={disabledViews}
+        disabledViewReason={disabledViewReason}
       />
       {/* Keyed by workspace so the message area cross-fades on switch
        *  instead of snapping — masks the content swap flicker. */}
@@ -130,9 +170,7 @@ export function ChatSurface({
         className="anim-fade-in"
         style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
       >
-        {chat.loading ? (
-          <ChatLoading />
-        ) : chat.isEmpty ? (
+        {chat.isEmpty ? (
           <EmptyState ready={ready} />
         ) : (
           <Transcript

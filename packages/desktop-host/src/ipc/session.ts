@@ -18,6 +18,8 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
 import { persistImageBlob } from '../attachments.js';
+import { broadcastHostEvent } from '../event-bus.js';
+import { getSessionModel, setSessionModel } from '../session-models.js';
 import {
   getInProcessPlugins,
   handle,
@@ -26,6 +28,7 @@ import {
   resolveCtx,
   resolveDriver,
   resolveSupervisor,
+  waitForRemoteSession,
   waitForSessionState,
 } from './shared';
 
@@ -45,11 +48,10 @@ export function registerSessionHandlers(pool: RunnerPool): void {
   // ---- Session (per-workspace) --------------------------------------------
 
   handle('session.info', async (args) => {
-    const sup = resolveSupervisor(pool, args?.workspaceId);
-    const session = sup?.remote();
+    const session = await waitForRemoteSession(pool, args?.workspaceId);
     return session ? session.getInfo() : null;
   });
-  handle('session.runTurn', async ({ workspaceId, prompt, model, attachments }) => {
+  handle('session.runTurn', async ({ workspaceId, prompt, model, attachments, inlineAttachments }) => {
     // requireSession:false — the turn is dispatched through the driver, not the
     // RemoteSession directly, so we only need the id + supervisor (for cwd).
     const { workspaceId: id, supervisor } = resolveCtx(pool, { workspaceId }, { requireSession: false });
@@ -68,19 +70,26 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       }
       safe = authorized;
     }
-    return driver.runTurn(prompt, model, safe);
+    if (model !== undefined) setSessionModel(id, model);
+    const selectedModel = model ?? getSessionModel(id) ?? undefined;
+    return driver.runTurn(prompt, selectedModel, safe, inlineAttachments);
   });
   handle('session.abortTurn', async ({ workspaceId, turnId }) => {
     // Active-workspace fallback lives in resolveDriver, not inline here.
     resolveDriver(pool, workspaceId)?.abortTurn(turnId);
   });
   handle('session.setProvider', async ({ workspaceId, provider }) => {
-    const { session, supervisor } = resolveCtx(pool, { workspaceId });
+    const { workspaceId: id, session, supervisor } = resolveCtx(pool, { workspaceId });
     session.providers.setActive(provider);
     await waitForSessionState(session, (info) => info.activeProvider === provider);
+    setSessionModel(id, null, { force: true });
     // Re-emit the connection phase so the renderer sees the new activeProvider
     // — otherwise the onboarding `connectedWithoutProvider` gate never clears.
     supervisor.refreshConnectedInfo();
+  });
+  handle('session.setModel', async ({ workspaceId, model }) => {
+    const { workspaceId: id } = resolveCtx(pool, { workspaceId }, { requireSession: false });
+    setSessionModel(id, model, { force: true });
   });
   handle('session.setMode', async ({ workspaceId, mode }) => {
     const { session, supervisor } = resolveCtx(pool, { workspaceId });
@@ -102,6 +111,7 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // The flag lives on the driver (where the permission resolver is set up),
     // not on the RemoteSession — so target the driver directly.
     mustDriver(id).setAutoApprove(enabled);
+    broadcastHostEvent('session.autoApprove.changed', { workspaceId: id, enabled });
   });
   handle('session.runCommand', async ({ workspaceId, name, args }) => {
     const { session } = resolveCtx(pool, { workspaceId });

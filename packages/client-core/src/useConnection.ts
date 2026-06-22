@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import { api } from './transport.js';
+import { api, getTransportRevision, subscribeTransport } from './transport.js';
 import { createListenerSet } from './externalStore.js';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
 
@@ -63,6 +63,8 @@ export interface UseConnection {
  * {@link ChatStoreBridge}.
  */
 export function ConnectionBridge(): null {
+  const transportRevision = useSyncExternalStore(subscribeTransport, getTransportRevision);
+
   useEffect(() => {
     let cancelled = false;
     void api()
@@ -106,7 +108,7 @@ export function ConnectionBridge(): null {
       cancelled = true;
       unsub();
     };
-  }, []);
+  }, [transportRevision]);
 
   return null;
 }

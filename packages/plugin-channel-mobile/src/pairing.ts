@@ -13,11 +13,11 @@
 import os from 'node:os';
 
 /** Bind address resolution, mirroring the channel's env → config → default
- *  convention. Loopback by default — exposing the bridge on the LAN is an
- *  explicit opt-in (`MOXXY_MOBILE_HOST=0.0.0.0` or `channels.mobile.bindHost`). */
+ *  convention. LAN-capable by default so `moxxy mobile` works with a physical
+ *  phone out of the box; explicit loopback remains available for simulators. */
 export function resolveBindHost(configured?: string): string {
   const v = (process.env.MOXXY_MOBILE_HOST ?? configured ?? '').trim();
-  return v.length > 0 ? v : '127.0.0.1';
+  return v.length > 0 ? v : '0.0.0.0';
 }
 
 /** Loopback addresses: only reachable from this machine (incl. simulators). */
@@ -164,4 +164,30 @@ export function advertisedOrigins(bindHost: string, port: number): string[] {
       `http://localhost:${port}`,
     ]),
   ];
+}
+
+/**
+ * Browser-hosted Expo clients present the PAGE origin at the WebSocket
+ * handshake, not the dialed WS URL's origin. `moxxy mobile` starts the full
+ * Expo app beside the bridge for local smoke/debug work, so the bridge must
+ * allow-list that exact app origin while keeping the default-deny posture for
+ * unrelated browser pages.
+ */
+export function expoWebOrigins(expo: {
+  readonly enabled: boolean;
+  readonly host: string;
+  readonly port: number;
+}): string[] {
+  if (!expo.enabled) return [];
+  const origins = new Set<string>([
+    `http://localhost:${expo.port}`,
+    `http://127.0.0.1:${expo.port}`,
+  ]);
+  const host = expo.host.trim().toLowerCase();
+  if (host === 'lan' || isWildcardHost(host)) {
+    origins.add(`http://${lanHost('127.0.0.1')}:${expo.port}`);
+  } else if (host && host !== 'local' && host !== 'localhost' && !host.startsWith('127.')) {
+    origins.add(`http://${advertisedHost(expo.host)}:${expo.port}`);
+  }
+  return [...origins];
 }

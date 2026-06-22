@@ -1,5 +1,6 @@
 import { startRunnerServer, type RunnerServer } from '@moxxy/runner';
 import type { Session } from '@moxxy/core';
+import type { RunTurnOptions } from '@moxxy/sdk';
 import { getProcessHubClient } from '@moxxy/plugin-collab';
 import type { ParsedArgv } from '../argv.js';
 import { bootSessionWithConfig, helpRequested } from '../argv-helpers.js';
@@ -69,7 +70,7 @@ export async function runAgentCommand(argv: ParsedArgv): Promise<number> {
   // Drive the sub-task turn (autonomous loop). Errors surface on the event log.
   const turnDone = (async () => {
     try {
-      for await (const _ of session.runTurn(seededTurn)) void _;
+      for await (const _ of session.runTurn(seededTurn, agentRunTurnOptions(model))) void _;
     } catch {
       // the loop already emitted an error event
     }
@@ -95,6 +96,11 @@ export async function runAgentCommand(argv: ParsedArgv): Promise<number> {
 
   await runUntilSignal(runnerServer, session, turnDone);
   return 0;
+}
+
+export function agentRunTurnOptions(model: string | undefined): RunTurnOptions {
+  const trimmed = model?.trim();
+  return trimmed ? { model: trimmed } : {};
 }
 
 /**

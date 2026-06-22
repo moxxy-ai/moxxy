@@ -6,6 +6,7 @@ import type { AppUpdateProgress } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
 import type { MobileGatewayStatus } from './mobile.js';
 import type { AppInstallProgress } from './apps.js';
+import type { DesksOverview } from './desks.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -37,6 +38,11 @@ export interface IpcEvents {
   /** The runner needs a permission/approval decision — the renderer
    *  shows a bottom sheet and replies via `ask.respond`. */
   'ask.request': AskRequest;
+  /** A permission/approval prompt was answered by one surface; every other
+   *  surface should drop its copy of the bottom sheet immediately. */
+  'ask.resolved': { workspaceId: string; requestId: string };
+  /** Workspace/session registry changed; clients should refresh desks.list. */
+  'desks.changed': DesksOverview;
   /** A `moxxy://` URL was opened while the app is running (notification /
    *  action link, or an OS protocol launch). The renderer's DeepLinkBridge
    *  routes it by `host`/`path`. Links that arrive before the renderer is
@@ -52,6 +58,17 @@ export interface IpcEvents {
    *  on its EventBus so every info-derived view (Settings tabs, mode badge,
    *  action catalog) refreshes without polling or an app restart. */
   'session.info.changed': { workspaceId: string };
+  /** The shared per-session model override changed. */
+  'session.model.changed': { workspaceId: string; model: string | null };
+  /** The shared per-session auto-approve flag changed. */
+  'session.autoApprove.changed': { workspaceId: string; enabled: boolean };
+  /** The workspace transcript was cleared by another attached surface. */
+  'chat.cleared': { workspaceId: string };
+  /** A turn started from any attached surface. */
+  'runner.turn.started': {
+    workspaceId: string;
+    turnId: string;
+  };
   /** A running interactive provider login (`provider.login.start`) needs a
    *  pasted answer — the out-of-band token or `code#state` claude-code's flow
    *  asks for. The renderer renders an input (masked when `mask`) and replies

@@ -1,16 +1,16 @@
 /**
- * Process-wide fan-out for main→renderer events to NON-Electron transports.
+ * Process-wide fan-out for main→renderer events beyond the direct SessionDriver
+ * window delivery path.
  *
- * The Electron windows keep their existing, battle-tested delivery path
- * (`SessionDriver`'s window set, `bindWindow`, `sendEvent`) untouched — this bus
- * is purely *additive*: every event emit also calls {@link wsEventBus}`.broadcast`,
- * which fans the event to whatever extra sinks are registered (today: the
- * WebSocket bridge). When no WS bridge is running the sink set is empty and
- * `broadcast` is a no-op, so the desktop pays nothing.
+ * Runner/session events keep their existing, battle-tested delivery path
+ * (`SessionDriver`'s window set, `bindWindow`, `sendEvent`) untouched. Host-level
+ * events that are not emitted by a runner (for example `desks.changed` from an IPC
+ * mutation) use {@link broadcastHostEvent}, so Electron windows and remote WS
+ * clients observe the same state changes in realtime.
  *
- * Keeping the Electron path and the WS path separate (rather than routing
- * windows through this bus too) is a deliberate conservatism: it guarantees the
- * desktop's event delivery is byte-for-byte what it was before the WS work.
+ * Keeping this as a small additive bus avoids routing the old runner stream
+ * through a new path while still letting mobile-originated host mutations refresh
+ * the desktop renderer immediately.
  */
 
 import type { IpcEvents } from '@moxxy/desktop-ipc-contract';
@@ -41,8 +41,22 @@ export class EventBus implements EventSink {
 }
 
 /**
- * The singleton every host emit site mirrors to. The WebSocket bridge registers
- * its `WebSocketCommandBus` as a sink at startup; with no bridge running this
- * has zero sinks and `broadcast` is free.
+ * Electron windows registered by `bindWindow`. This is only for host-level events
+ * that are not already sent by a `SessionDriver`.
+ */
+export const desktopEventBus = new EventBus();
+
+/**
+ * The WebSocket bridge registers its `WebSocketCommandBus` as a sink at startup;
+ * with no bridge running this has zero sinks and `broadcast` is free.
  */
 export const wsEventBus = new EventBus();
+
+/** Broadcast a host-level event to every local and remote surface. */
+export function broadcastHostEvent<K extends keyof IpcEvents>(
+  channel: K,
+  payload: IpcEvents[K],
+): void {
+  desktopEventBus.broadcast(channel, payload);
+  wsEventBus.broadcast(channel, payload);
+}

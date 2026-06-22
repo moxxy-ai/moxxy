@@ -6,6 +6,9 @@
  * render must not re-read+re-parse desks.json multiple times.
  */
 
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 // shared.ts (imported transitively by workspace-fs.ts) touches electron;
@@ -40,10 +43,16 @@ function fakeStore(activeId: string | null, desks: Desk[]) {
 }
 
 describe('cwdForWorkspace', () => {
-  const a = desk({ id: 'desk-a', cwd: '/work/a' });
+  const root = mkdtempSync(path.join(os.tmpdir(), 'moxxy-workspace-fs-'));
+  const cwdA = path.join(root, 'a');
+  const cwdB = path.join(root, 'b');
+  mkdirSync(cwdA, { recursive: true });
+  mkdirSync(cwdB, { recursive: true });
+
+  const a = desk({ id: 'desk-a', cwd: cwdA });
   const b = desk({
     id: 'desk-b',
-    cwd: '/work/b',
+    cwd: cwdB,
     sessions: [
       { id: 'desk-b', name: 'first', createdAt: 0 },
       { id: 'sess-b2', name: 'second', createdAt: 0 },
@@ -52,17 +61,17 @@ describe('cwdForWorkspace', () => {
 
   it('matches a desk by its id', async () => {
     const { store } = fakeStore('desk-a', [a, b]);
-    expect(await cwdForWorkspace(store, 'desk-b')).toBe('/work/b');
+    expect(await cwdForWorkspace(store, 'desk-b')).toBe(cwdB);
   });
 
   it('matches a desk by an owning (non-first) session id', async () => {
     const { store } = fakeStore('desk-a', [a, b]);
-    expect(await cwdForWorkspace(store, 'sess-b2')).toBe('/work/b');
+    expect(await cwdForWorkspace(store, 'sess-b2')).toBe(cwdB);
   });
 
   it('falls back to the active desk when the id is unknown', async () => {
     const { store } = fakeStore('desk-b', [a, b]);
-    expect(await cwdForWorkspace(store, 'no-such-id')).toBe('/work/b');
+    expect(await cwdForWorkspace(store, 'no-such-id')).toBe(cwdB);
   });
 
   it('falls back to process.cwd() when there is no active desk', async () => {

@@ -18,8 +18,9 @@
 import { deleteSession } from '@moxxy/core';
 
 import type { RunnerPool } from '../runner-pool';
-import type { DeskStore } from '../desks';
-import { withSessionTitlesOverview } from '../session-titles';
+import { cwdForSession, type DeskStore } from '../desks';
+import { broadcastHostEvent } from '../event-bus';
+import { withSessionTitles, withSessionTitlesOverview } from '../session-titles';
 import { handle } from './shared';
 
 export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): void {
@@ -35,7 +36,8 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
     const { desk, session } = await desks.createSession(args?.deskId, args?.name);
     // Spawn the session's runner eagerly so a follow-up setActive (the usual
     // next call from the UI) foregrounds an already-connecting supervisor.
-    await pool.getOrCreate(session.id, desk.cwd);
+    await pool.getOrCreate(session.id, cwdForSession(desk, session.id));
+    await broadcastDesksChanged(desks);
     return session;
   });
 
@@ -44,8 +46,9 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
     // sure a runner exists before pointing the pool at it — pool.setActive
     // throws on unknown ids.
     const desk = await desks.setActiveSession(id);
-    await pool.getOrCreate(id, desk.cwd);
+    await pool.getOrCreate(id, cwdForSession(desk, id));
     pool.setActive(id);
+    await broadcastDesksChanged(desks);
   });
 
   handle('sessions.remove', async ({ id }) => {
@@ -66,10 +69,26 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
     // lands on a dead pool id — pool.remove promotes an arbitrary entry.
     const active = await desks.getActive();
     if (active && active.id === desk.id) {
-      await pool.getOrCreate(desk.activeSessionId, desk.cwd);
-      pool.setActive(desk.activeSessionId);
+      if (desk.activeSessionId) {
+        await pool.getOrCreate(desk.activeSessionId, cwdForSession(desk, desk.activeSessionId));
+        pool.setActive(desk.activeSessionId);
+      }
     }
+    await broadcastDesksChanged(desks);
   });
 
-  handle('sessions.rename', async ({ id, name }) => desks.renameSession(id, name));
+  handle('sessions.rename', async ({ id, name }) => {
+    const renamed = await desks.renameSession(id, name);
+    await broadcastDesksChanged(desks);
+    return renamed;
+  });
+}
+
+async function broadcastDesksChanged(desks: DeskStore): Promise<void> {
+  const list = await desks.list();
+  const active = await desks.getActive();
+  broadcastHostEvent('desks.changed', {
+    desks: await withSessionTitles(list),
+    activeId: active?.id ?? null,
+  });
 }

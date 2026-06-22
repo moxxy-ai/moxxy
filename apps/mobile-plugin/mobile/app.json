@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Moxxy Mobile",
+    "slug": "moxxy-mobile-gateway",
+    "scheme": "moxxy-mobile",
+    "icon": "./assets/icon.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "web": {
+      "bundler": "metro"
+    },
+    "ios": {
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Connect to the Moxxy runner on your computer over your local Wi-Fi network.",
+        "NSSupportsLiveActivities": true
+      },
+      "bundleIdentifier": "com.kamiloxen1.moxxy-mobile-gateway"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Moxxy Mobile to access your microphone for voice input."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Moxxy Mobile to scan the pairing QR code from your Mac."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Moxxy Mobile to attach screenshots and photos to your Moxxy messages."
+        }
+      ]
+    ]
+  }
+}

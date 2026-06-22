@@ -15,10 +15,18 @@ import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 
 let configured: MoxxyApi | null = null;
 let override: MoxxyApi | null = null;
+let revision = 0;
+const listeners = new Set<() => void>();
+
+function emitTransportChanged(): void {
+  for (const listener of listeners) listener();
+}
 
 /** Install the transport at boot. Idempotent — last call wins. */
 export function configureTransport(transport: MoxxyApi): void {
   configured = transport;
+  revision += 1;
+  emitTransportChanged();
 }
 
 /** The active transport. Throws if neither configured nor test-overridden. */
@@ -41,4 +49,15 @@ export const api = getTransport;
 /** Inject a fake transport for tests (clears with `null`). */
 export function __setApiOverride(fake: MoxxyApi | null): void {
   override = fake;
+}
+
+export function subscribeTransport(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+export function getTransportRevision(): number {
+  return revision;
 }

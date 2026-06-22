@@ -12,6 +12,7 @@ import {
 } from '@/lib/useWorkspaceCollapsed';
 import { WorkspaceTree } from './workspace-sidebar/WorkspaceTree';
 import { NameWorkspaceModal } from './workspace-sidebar/NameWorkspaceModal';
+import { RenameSidebarItemModal } from './workspace-sidebar/RenameSidebarItemModal';
 import { ProfilePill } from './workspace-sidebar/ProfilePill';
 import type { View } from './ViewHeader';
 
@@ -50,8 +51,12 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
   const [pendingFolder, setPendingFolder] = useState<string | null>(null);
   /** Workspace queued for removal; null when no confirm is open. */
   const [pendingRemove, setPendingRemove] = useState<Desk | null>(null);
+  /** Workspace queued for rename; null when no rename modal is open. */
+  const [pendingRename, setPendingRename] = useState<Desk | null>(null);
   /** Session queued for removal; null when no confirm is open. */
   const [pendingSessionRemove, setPendingSessionRemove] = useState<DeskSession | null>(null);
+  /** Session queued for rename; null when no rename modal is open. */
+  const [pendingSessionRename, setPendingSessionRename] = useState<DeskSession | null>(null);
 
   // Collapsed = the rail contributes no width at all (it's text-first
   // now, so a mini icon rail would have nothing useful to show). All
@@ -175,9 +180,9 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
               void onNewSession(deskId);
               onView('chat');
             }}
-            onRenameSession={(id, name) => void desks.renameSession(id, name)}
+            onRenameSession={(s) => setPendingSessionRename(s)}
             onRemoveSession={(s) => setPendingSessionRemove(s)}
-            onRenameWorkspace={(id, name) => void desks.rename(id, name)}
+            onRenameWorkspace={(d) => setPendingRename(d)}
             onRemoveWorkspace={(d) => setPendingRemove(d)}
             onNewWorkspace={() => void onStartNewWorkspace()}
           />
@@ -245,10 +250,34 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
           }}
         />
       )}
+      {pendingRename && (
+        <RenameSidebarItemModal
+          title="Rename workspace"
+          defaultName={pendingRename.name}
+          description="Choose a clear name for this workspace. Project files and sessions stay in place."
+          onCancel={() => setPendingRename(null)}
+          onSubmit={(name) => {
+            void desks.rename(pendingRename.id, name);
+            setPendingRename(null);
+          }}
+        />
+      )}
+      {pendingSessionRename && (
+        <RenameSidebarItemModal
+          title="Rename session"
+          defaultName={pendingSessionRename.name}
+          description="Choose a clear name for this conversation. Its full message history stays attached."
+          onCancel={() => setPendingSessionRename(null)}
+          onSubmit={(name) => {
+            void desks.renameSession(pendingSessionRename.id, name);
+            setPendingSessionRename(null);
+          }}
+        />
+      )}
       {pendingSessionRemove && (
         <ConfirmModal
           title="Delete session?"
-          message={`The session "${pendingSessionRemove.name}" and its conversation history will be deleted. Workspace files are not touched.`}
+          message={`The session "${pendingSessionRemove.name}" and its conversation history will be deleted. Workspace files are not touched. This cannot be undone.`}
           confirmLabel="Delete"
           destructive
           onCancel={() => setPendingSessionRemove(null)}

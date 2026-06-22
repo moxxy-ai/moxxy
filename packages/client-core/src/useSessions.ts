@@ -128,6 +128,7 @@ class SessionsStore {
       async () => {
         await api().invoke('sessions.setActive', { id });
         await this.refresh();
+        await desksStore.refresh();
       },
       (e) => this.set({ activeSessionId: prevActive, error: toErrorMessage(e) }),
     );

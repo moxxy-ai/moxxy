@@ -47,11 +47,11 @@ module.exports = {
       name: 'no-node-builtins-in-renderer',
       severity: 'error',
       comment:
-        'The desktop renderer and the React-Native PoC must not statically reach a node:* builtin — ' +
-        'these bundles run under a browser engine / Metro, which cannot polyfill node:child_process etc. ' +
+        'The desktop renderer must not statically reach a node:* builtin — ' +
+        'this bundle runs under a browser engine, which cannot polyfill node:child_process etc. ' +
         "Import Node helpers from '@moxxy/sdk/server' only in Node-side code; use the browser/RN-safe " +
         'main barrel + ./tool-display subpath here.',
-      from: { path: '^apps/(desktop/src|mobile-poc/src)' },
+      from: { path: '^apps/desktop/src' },
       // dep-cruiser strips the `node:` prefix and tags builtins with the `core`
       // dependency type, so match on that (matching `^node:` would never fire).
       to: { dependencyTypes: ['core'] },

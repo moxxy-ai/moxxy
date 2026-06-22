@@ -6,6 +6,7 @@ import { EventLog } from '../events/log.js';
 import type { Logger } from '../logger.js';
 import {
   SessionPersistence,
+  defaultSessionsDir,
   deleteSession,
   readEventPage,
   readIndex,
@@ -57,6 +58,18 @@ function meta(id: string, eventCount = 0): SessionMeta {
 }
 
 describe('SessionPersistence', () => {
+  it('honors MOXXY_HOME for the default sessions directory', async () => {
+    const original = process.env.MOXXY_HOME;
+    const home = await makeTempDir();
+    process.env.MOXXY_HOME = home;
+    try {
+      expect(defaultSessionsDir()).toBe(path.join(home, 'sessions'));
+    } finally {
+      if (original === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = original;
+    }
+  });
+
   it('readIndex ignores rows whose event log file is missing', async () => {
     const dir = await makeTempDir();
     await fs.mkdir(dir, { recursive: true });
@@ -68,6 +81,172 @@ describe('SessionPersistence', () => {
     );
 
     await expect(readIndex(dir)).resolves.toEqual([meta('present')]);
+  });
+
+  it('readIndex recovers a missing firstPrompt from the event log', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01HYDRATEPROMPT0000000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id, 3), firstPrompt: null }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(dir, `${id}.jsonl`),
+      JSON.stringify({
+        id: 'e1',
+        seq: 0,
+        ts: 1,
+        sessionId: id,
+        turnId: 't1',
+        source: 'user',
+        type: 'user_prompt',
+        text: 'restored from log',
+      }) + '\n',
+      'utf8',
+    );
+
+    const [restored] = await readIndex(dir);
+
+    expect(restored?.firstPrompt).toBe('restored from log');
+  });
+
+  it('readIndex refreshes provider and model from the latest provider event', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01HYDRATEPROVIDER00000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id, 2), provider: 'old-provider', model: 'old-model' }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(dir, `${id}.jsonl`),
+      [
+        JSON.stringify({
+          id: 'e1',
+          seq: 0,
+          ts: 1,
+          sessionId: id,
+          turnId: 't1',
+          source: 'system',
+          type: 'provider_request',
+          provider: 'first-provider',
+          model: 'first-model',
+        }),
+        JSON.stringify({
+          id: 'e2',
+          seq: 1,
+          ts: 2,
+          sessionId: id,
+          turnId: 't1',
+          source: 'system',
+          type: 'provider_response',
+          provider: 'session-provider',
+          model: 'session-model',
+          inputTokens: 1,
+          outputTokens: 1,
+        }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+
+    const [restored] = await readIndex(dir);
+
+    expect(restored).toMatchObject({
+      provider: 'session-provider',
+      model: 'session-model',
+    });
+  });
+
+  it('readIndex preserves a sidecar firstPrompt when the event log is still empty', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01SIDECARPROMPT0000000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id, 2), firstPrompt: 'sidecar title', eventCount: 2 }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(path.join(dir, `${id}.jsonl`), '', 'utf8');
+
+    const [restored] = await readIndex(dir);
+
+    expect(restored?.firstPrompt).toBe('sidecar title');
+    expect(restored?.eventCount).toBe(2);
+  });
+
+  it('readIndex uses only matching-session prompts when hydrating titles', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01MATCHPROMPT000000000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id, 2), firstPrompt: 'foreign title', eventCount: 2 }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(dir, `${id}.jsonl`),
+      [
+        {
+          id: 'foreign',
+          seq: 0,
+          ts: 1,
+          sessionId: 'other-session',
+          turnId: 't1',
+          source: 'user',
+          type: 'user_prompt',
+          text: 'foreign title',
+        },
+        {
+          id: 'matching',
+          seq: 1,
+          ts: 2,
+          sessionId: id,
+          turnId: 't2',
+          source: 'user',
+          type: 'user_prompt',
+          text: 'real matching title',
+        },
+      ].map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf8',
+    );
+
+    const [restored] = await readIndex(dir);
+
+    expect(restored?.firstPrompt).toBe('real matching title');
+    expect(restored?.eventCount).toBe(1);
+  });
+
+  it('readIndex does not hydrate a visible title from a foreign-only log', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01FOREIGNONLY00000000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id, 1), firstPrompt: 'foreign prompt', eventCount: 1 }, null, 2),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(dir, `${id}.jsonl`),
+      JSON.stringify({
+        id: 'foreign',
+        seq: 0,
+        ts: 1,
+        sessionId: 'other-session',
+        turnId: 't1',
+        source: 'user',
+        type: 'user_prompt',
+        text: 'foreign prompt',
+      }) + '\n',
+      'utf8',
+    );
+
+    const [restored] = await readIndex(dir);
+
+    expect(restored?.firstPrompt).toBeNull();
+    expect(restored?.eventCount).toBe(0);
   });
 
   it('creates a resumable empty event log when a session is indexed before any events', async () => {
@@ -127,6 +306,66 @@ describe('SessionPersistence', () => {
     expect(restored).toHaveLength(1);
     expect(restored[0]!.seq).toBe(0);
     expect((restored[0] as { text?: string }).text).toBe('fresh start');
+
+    detach();
+  });
+
+  it('does not persist foreign-session events into the current session log', async () => {
+    const dir = await makeTempDir();
+    const id = '01CURRENTSESSION0000000000';
+    const log = new EventLog();
+    const { logger, lines } = captureLogger();
+    const persistence = new SessionPersistence({
+      sessionId: id as never,
+      cwd: '/tmp/p',
+      dir,
+      logger,
+    });
+    const detach = persistence.attach(log);
+
+    await log.append({
+      type: 'user_prompt',
+      sessionId: 'other-session' as never,
+      turnId: 't1' as never,
+      source: 'user',
+      text: 'should not persist',
+    });
+
+    await waitForCondition(async () =>
+      lines.some((line) => line.level === 'warn' && line.msg.includes('foreign-session')),
+    );
+    await waitForCondition(async () => (await readIndex(dir))[0]?.id === id);
+
+    expect(await restoreEvents(id, dir)).toEqual([]);
+    expect((await readIndex(dir))[0]).toMatchObject({ eventCount: 0, firstPrompt: null });
+
+    detach();
+  });
+
+  it('normalizes legacy in-memory events without sessionId to the current session before persisting', async () => {
+    const dir = await makeTempDir();
+    const id = '01LEGACYNOSESSION00000000';
+    const log = new EventLog();
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const detach = persistence.attach(log);
+
+    await log.append({
+      type: 'user_prompt',
+      turnId: 't1' as never,
+      source: 'user',
+      text: 'legacy prompt without session id',
+    } as never);
+
+    await waitForCondition(async () => (await restoreEvents(id, dir)).length === 1);
+    const [event] = await restoreEvents(id, dir);
+    await waitForCondition(async () => (await readIndex(dir))[0]?.eventCount === 1);
+
+    expect(event?.sessionId).toBe(id);
+    expect((await readIndex(dir))[0]).toMatchObject({
+      id,
+      eventCount: 1,
+      firstPrompt: 'legacy prompt without session id',
+    });
 
     detach();
   });
@@ -231,6 +470,74 @@ describe('SessionPersistence', () => {
     const second = await restoreEvents(id, dir, again.logger);
     expect(second.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
     expect(again.lines).toHaveLength(0);
+  });
+
+  it('restore removes foreign-session events, creates a backup, and re-sequences survivors', async () => {
+    const dir = await makeTempDir();
+    const id = '01RESTOREFILTER000000000';
+    await fs.mkdir(dir, { recursive: true });
+    const logPath = path.join(dir, `${id}.jsonl`);
+    const events = [
+      {
+        id: 'foreign',
+        seq: 0,
+        ts: 1,
+        sessionId: 'other-session',
+        turnId: 't1',
+        source: 'user',
+        type: 'user_prompt',
+        text: 'foreign prompt',
+      },
+      {
+        id: 'matching',
+        seq: 5,
+        ts: 2,
+        sessionId: id,
+        turnId: 't2',
+        source: 'user',
+        type: 'user_prompt',
+        text: 'matching prompt',
+      },
+    ];
+    await fs.writeFile(logPath, events.map((event) => JSON.stringify(event)).join('\n') + '\n', 'utf8');
+
+    const { logger, lines } = captureLogger();
+    const restored = await restoreEvents(id, dir, logger);
+
+    expect(restored.map((event) => event.id)).toEqual(['matching']);
+    expect(restored.map((event) => event.seq)).toEqual([0]);
+    expect(lines.some((line) => line.level === 'warn' && line.msg.includes('foreign-session'))).toBe(true);
+    await expect(fs.access(`${logPath}.foreign-session.bak`)).resolves.toBeUndefined();
+    const repaired = (await fs.readFile(logPath, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    expect(repaired.map((event) => event.id)).toEqual(['matching']);
+    expect(repaired.map((event) => event.seq)).toEqual([0]);
+  });
+
+  it('restore rewrites a foreign-only log to an empty session with a backup', async () => {
+    const dir = await makeTempDir();
+    const id = '01RESTOREEMPTY0000000000';
+    await fs.mkdir(dir, { recursive: true });
+    const logPath = path.join(dir, `${id}.jsonl`);
+    await fs.writeFile(
+      logPath,
+      JSON.stringify({
+        id: 'foreign',
+        seq: 0,
+        ts: 1,
+        sessionId: 'other-session',
+        turnId: 't1',
+        source: 'user',
+        type: 'user_prompt',
+        text: 'foreign prompt',
+      }) + '\n',
+      'utf8',
+    );
+
+    const restored = await restoreEvents(id, dir, captureLogger().logger);
+
+    expect(restored).toEqual([]);
+    expect(await fs.readFile(logPath, 'utf8')).toBe('');
+    await expect(fs.access(`${logPath}.foreign-session.bak`)).resolves.toBeUndefined();
   });
 
   it('rejects a path-traversal session id before touching the filesystem', async () => {

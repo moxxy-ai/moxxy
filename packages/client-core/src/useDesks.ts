@@ -54,20 +54,34 @@ const INITIAL: DesksState = { desks: [], activeId: null, loading: true, error: n
 class DesksStore {
   private readonly store: PatchStore<DesksState> = createPatchStore(INITIAL);
   private started = false;
+  private listenerCount = 0;
+  private unsubscribeChanged: (() => void) | null = null;
+  private pendingActiveSessionId: string | null = null;
+  private mutationEpoch = 0;
 
   private get state(): DesksState {
     return this.store.getSnapshot();
   }
 
   subscribe = (fn: () => void): (() => void) => {
+    this.listenerCount += 1;
     const unsub = this.store.subscribe(fn);
     // Lazy-load on the first subscriber so the data arrives once and is
     // shared, instead of every mounting consumer firing its own fetch.
     if (!this.started) {
       this.started = true;
+      this.subscribeToHostChanges();
       void this.refresh();
     }
-    return unsub;
+    return () => {
+      unsub();
+      this.listenerCount = Math.max(0, this.listenerCount - 1);
+      if (this.listenerCount === 0) {
+        this.unsubscribeChanged?.();
+        this.unsubscribeChanged = null;
+        this.started = false;
+      }
+    };
   };
 
   /** Cached snapshot — referentially stable until {@link set} swaps it,
@@ -78,17 +92,79 @@ class DesksStore {
     this.store.set(patch);
   }
 
+  private ownerDeskId(desks: ReadonlyArray<Desk>, sessionId: string): string | null {
+    return (
+      desks.find((desk) => desk.sessions.some((session) => session.id === sessionId))?.id ?? null
+    );
+  }
+
+  private withPendingActiveSession(next: DesksOverview): DesksOverview {
+    const pendingId = this.pendingActiveSessionId;
+    if (!pendingId) return next;
+
+    const ownerDeskId = this.ownerDeskId(next.desks, pendingId);
+    if (!ownerDeskId) return next;
+
+    const hostAlreadyCaughtUp =
+      next.activeId === ownerDeskId &&
+      next.desks.some((desk) => desk.id === ownerDeskId && desk.activeSessionId === pendingId);
+    if (hostAlreadyCaughtUp) {
+      return next;
+    }
+
+    return {
+      activeId: ownerDeskId,
+      desks: next.desks.map((desk) =>
+        desk.id === ownerDeskId ? { ...desk, activeSessionId: pendingId } : desk,
+      ),
+    };
+  }
+
+  private applyOverview(next: DesksOverview): void {
+    const overview = this.withPendingActiveSession(next);
+    this.set({
+      desks: overview.desks,
+      activeId: overview.activeId,
+      error: null,
+      loading: false,
+    });
+    const activeDesk = overview.desks.find((desk) => desk.id === overview.activeId);
+    if (activeDesk?.activeSessionId) {
+      connectionStore.setActive(activeDesk.activeSessionId);
+    }
+  }
+
+  private renameSessionInState(id: string, name: string): void {
+    let changed = false;
+    const desks = this.state.desks.map((desk) => {
+      let deskChanged = false;
+      const sessions = desk.sessions.map((session) => {
+        if (session.id !== id || session.name === name) return session;
+        changed = true;
+        deskChanged = true;
+        return { ...session, name };
+      });
+      return deskChanged ? { ...desk, sessions } : desk;
+    });
+    if (changed) this.set({ desks, error: null });
+  }
+
+  private subscribeToHostChanges(): void {
+    if (this.unsubscribeChanged) return;
+    this.unsubscribeChanged = api().subscribe('desks.changed', (next: DesksOverview) => {
+      this.applyOverview(next);
+    });
+  }
+
   refresh = async (): Promise<void> => {
+    const epoch = this.mutationEpoch;
     this.set({ loading: true });
     try {
       const next: DesksOverview = await api().invoke('desks.list');
-      this.set({
-        desks: next.desks,
-        activeId: next.activeId,
-        error: null,
-        loading: false,
-      });
+      if (epoch !== this.mutationEpoch) return;
+      this.applyOverview(next);
     } catch (e) {
+      if (epoch !== this.mutationEpoch) return;
       this.set({ error: toErrorMessage(e), loading: false });
     }
   };
@@ -96,6 +172,7 @@ class DesksStore {
   pickFolder = async (): Promise<string | null> => api().invoke('desks.pickFolder');
 
   create = async (name: string, cwd: string): Promise<Desk | null> => {
+    this.mutationEpoch += 1;
     try {
       const desk = await api().invoke('desks.create', { name, cwd });
       await this.refresh();
@@ -107,6 +184,7 @@ class DesksStore {
   };
 
   remove = async (id: string): Promise<void> => {
+    this.mutationEpoch += 1;
     try {
       await api().invoke('desks.remove', { id });
       await this.refresh();
@@ -128,6 +206,7 @@ class DesksStore {
       connectionStore,
       () => {
         const desk = this.state.desks.find((d) => d.id === id);
+        this.mutationEpoch += 1;
         this.set({ activeId: id });
         connectionStore.setActive(desk?.activeSessionId ?? id);
       },
@@ -144,6 +223,7 @@ class DesksStore {
   };
 
   rename = async (id: string, name: string): Promise<void> => {
+    this.mutationEpoch += 1;
     try {
       await api().invoke('desks.rename', { id, name });
       await this.refresh();
@@ -158,6 +238,7 @@ class DesksStore {
   // id instead of going through that store's single tracked desk.
 
   createSession = async (deskId: string, name?: string): Promise<DeskSession | null> => {
+    this.mutationEpoch += 1;
     try {
       const session = await api().invoke('sessions.create', {
         deskId,
@@ -182,6 +263,8 @@ class DesksStore {
       connectionStore,
       () => {
         const desk = this.state.desks.find((d) => d.sessions.some((s) => s.id === id));
+        this.mutationEpoch += 1;
+        this.pendingActiveSessionId = id;
         if (desk) {
           this.set({
             activeId: desk.id,
@@ -195,21 +278,29 @@ class DesksStore {
       async () => {
         await api().invoke('sessions.setActive', { id });
         await this.refresh();
+        if (this.pendingActiveSessionId === id) this.pendingActiveSessionId = null;
       },
-      (e) => this.set({ activeId: prevActive, desks: prevDesks, error: toErrorMessage(e) }),
+      (e) => {
+        if (this.pendingActiveSessionId === id) this.pendingActiveSessionId = null;
+        this.set({ activeId: prevActive, desks: prevDesks, error: toErrorMessage(e) });
+      },
     );
   };
 
   renameSession = async (id: string, name: string): Promise<void> => {
+    const prevDesks = this.state.desks;
+    this.mutationEpoch += 1;
+    this.renameSessionInState(id, name);
     try {
       await api().invoke('sessions.rename', { id, name });
       await this.refresh();
     } catch (e) {
-      this.set({ error: toErrorMessage(e) });
+      this.set({ desks: prevDesks, error: toErrorMessage(e) });
     }
   };
 
   removeSession = async (id: string): Promise<void> => {
+    this.mutationEpoch += 1;
     try {
       await api().invoke('sessions.remove', { id });
       // Forget any composer draft staged for the now-deleted session so it
@@ -226,6 +317,16 @@ class DesksStore {
       this.set({ error: toErrorMessage(e) });
     }
   };
+
+  resetForTests(): void {
+    this.unsubscribeChanged?.();
+    this.unsubscribeChanged = null;
+    this.started = false;
+    this.listenerCount = 0;
+    this.store.replace(INITIAL);
+    this.pendingActiveSessionId = null;
+    this.mutationEpoch = 0;
+  }
 }
 
 /** Shared singleton. Exported so sibling stores (the sessions store) can
@@ -233,6 +334,10 @@ class DesksStore {
  *  `sessions` array — not for component use (components go through
  *  {@link useDesks}). */
 export const desksStore = new DesksStore();
+
+export function __resetDesksStoreForTests(): void {
+  desksStore.resetForTests();
+}
 
 /**
  * The desk that owns `workspaceId`. Routing ids are SESSION ids (the

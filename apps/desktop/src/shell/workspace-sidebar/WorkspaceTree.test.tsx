@@ -7,8 +7,8 @@
  *   4. Sessions select; the active desk's active session is highlighted.
  *   5. Unread dots: per-session when expanded, rolled up onto the folder
  *      only while collapsed.
- *   6. ⋯ menus rename/remove both row kinds (inline rename: Enter commits
- *      trimmed, Escape cancels, unchanged name is a no-op).
+ *   6. ⋯ menus only request rename/remove flows; parent containers own
+ *      modals and persistence.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -141,37 +141,21 @@ describe('WorkspaceTree', () => {
     expect(screen.queryByLabelText('unread activity in Alpha')).toBeNull(); // expanded → no rollup
   });
 
-  it('renames a session inline (Enter commits the trimmed name)', () => {
+  it('requests a session rename flow from the ⋯ menu without selecting the row', () => {
     const h = renderTree();
     fireEvent.click(screen.getByLabelText('session actions Fix the login bug'));
     fireEvent.click(screen.getByLabelText('rename session Fix the login bug'));
-    const input = screen.getByLabelText(
-      'rename session Fix the login bug',
-    ) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: '  Login deep-dive  ' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(h.onRenameSession).toHaveBeenCalledWith('a2', 'Login deep-dive');
-  });
-
-  it('Escape cancels a rename; an unchanged name never commits', () => {
-    const h = renderTree();
-    fireEvent.click(screen.getByLabelText('session actions Session 1'));
-    fireEvent.click(screen.getByLabelText('rename session Session 1'));
-    const input = screen.getByLabelText('rename session Session 1') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'whatever' } });
-    fireEvent.keyDown(input, { key: 'Escape' });
-    expect(h.onRenameSession).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByLabelText('session actions Session 1'));
-    fireEvent.click(screen.getByLabelText('rename session Session 1'));
-    const again = screen.getByLabelText('rename session Session 1') as HTMLInputElement;
-    fireEvent.keyDown(again, { key: 'Enter' }); // committed draft === current name
-    expect(h.onRenameSession).not.toHaveBeenCalled();
+    expect(h.onRenameSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a2', name: 'Fix the login bug' }),
+    );
+    expect(h.onSelectSession).not.toHaveBeenCalled();
   });
 
   it('deletes a session from its ⋯ menu without selecting the row', () => {
     const h = renderTree();
     fireEvent.click(screen.getByLabelText('session actions Fix the login bug'));
+    const menu = screen.getByRole('menu', { name: 'session actions Fix the login bug' });
+    expect(menu.parentElement).toBe(document.body);
     fireEvent.click(screen.getByLabelText('remove session Fix the login bug'));
     expect(h.onRemoveSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'a2' }),
@@ -179,14 +163,13 @@ describe('WorkspaceTree', () => {
     expect(h.onSelectSession).not.toHaveBeenCalled();
   });
 
-  it('renames and removes a workspace from its ⋯ menu (no collapse toggle)', () => {
+  it('requests workspace rename/remove flows from its ⋯ menu (no collapse toggle)', () => {
     const h = renderTree();
     fireEvent.click(screen.getByLabelText('workspace actions Alpha'));
     fireEvent.click(screen.getByLabelText('rename workspace Alpha'));
-    const input = screen.getByLabelText('rename workspace Alpha') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'Apex' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(h.onRenameWorkspace).toHaveBeenCalledWith('a', 'Apex');
+    expect(h.onRenameWorkspace).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a', name: 'Alpha' }),
+    );
 
     fireEvent.click(screen.getByLabelText('workspace actions Beta'));
     fireEvent.click(screen.getByLabelText('remove workspace Beta'));
@@ -212,15 +195,6 @@ describe('WorkspaceTree', () => {
     expect(h.onToggleCollapse).toHaveBeenCalledWith('b');
     fireEvent.keyDown(session, { key: ' ' });
     expect(h.onSelectSession).toHaveBeenCalledWith('b');
-  });
-
-  it('marks the rename input inert (no button role) so it stays editable', () => {
-    renderTree();
-    fireEvent.click(screen.getByLabelText('session actions Fix the login bug'));
-    fireEvent.click(screen.getByLabelText('rename session Fix the login bug'));
-    const row = screen.getByTestId('session-row-a2');
-    // While editing the row must not capture Enter/Space as a select.
-    expect(row.getAttribute('role')).toBeNull();
   });
 
   // Accessibility: opening the ⋯ menu must move focus into it (first item) so a

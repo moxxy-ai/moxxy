@@ -74,7 +74,10 @@ export interface WsApiOptions {
   readonly onStatus?: (status: WsClientStatus) => void;
 }
 
-export function makeWsApi(opts: WsApiOptions): MoxxyApi {
+export function makeWsApiHandle(opts: WsApiOptions): {
+  api: MoxxyApi;
+  close: () => void;
+} {
   const baseCtor =
     opts.WebSocket ?? (globalThis as unknown as { WebSocket?: WebSocketCtor }).WebSocket;
   if (!baseCtor) {
@@ -100,7 +103,7 @@ export function makeWsApi(opts: WsApiOptions): MoxxyApi {
   });
   client.connect();
 
-  return {
+  const api: MoxxyApi = {
     // INVARIANT: every IPC command takes at most one positional `args` object,
     // so only args[0] crosses the wire as JSON-RPC `params`. A command with a
     // second positional parameter would silently lose it here — keep IPC
@@ -110,4 +113,10 @@ export function makeWsApi(opts: WsApiOptions): MoxxyApi {
     subscribe: ((channel: string, handler: (payload: unknown) => void) =>
       client.on(channel, handler)) as MoxxyApi['subscribe'],
   };
+
+  return { api, close: () => client.close() };
+}
+
+export function makeWsApi(opts: WsApiOptions): MoxxyApi {
+  return makeWsApiHandle(opts).api;
 }

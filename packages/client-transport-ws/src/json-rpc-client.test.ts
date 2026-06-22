@@ -7,7 +7,7 @@ import {
   type WsClientStatus,
   type WsRpcClientOptions,
 } from './json-rpc-client.js';
-import { makeWsApi } from './index.js';
+import { makeWsApi, makeWsApiHandle } from './index.js';
 
 class FakeSocket implements WebSocketLike {
   sent: string[] = [];
@@ -54,6 +54,20 @@ function makeClient(opts: WsRpcClientOptions = {}): {
   const client = new WsRpcClient('ws://x:1', CtorFake as unknown as WebSocketCtor, opts);
   client.connect();
   return { client, socket: instances[0]!, instances };
+}
+
+function makeFakeSocketCtor(): {
+  WebSocket: WebSocketCtor;
+  instances: FakeSocket[];
+} {
+  const instances: FakeSocket[] = [];
+  class CtorFake extends FakeSocket {
+    constructor(url: string, protocols?: string | string[]) {
+      super(url, protocols);
+      instances.push(this);
+    }
+  }
+  return { WebSocket: CtorFake as unknown as WebSocketCtor, instances };
 }
 
 afterEach(() => {
@@ -266,19 +280,77 @@ describe('WsRpcClient', () => {
   });
 });
 
+describe('makeWsApiHandle', () => {
+  it('returns an api that invokes over the WebSocket client', async () => {
+    const { WebSocket, instances } = makeFakeSocketCtor();
+    const { api, close } = makeWsApiHandle({ url: 'ws://host:8765', WebSocket });
+
+    expect(instances).toHaveLength(1);
+    const socket = instances[0]!;
+    const p = api.invoke('connection.activeWorkspace');
+    expect(socket.sent).toEqual([]);
+
+    socket.open();
+    const req = socket.lastReq();
+    expect(req.method).toBe('connection.activeWorkspace');
+    socket.emit({ id: req.id, result: 'ws-1' });
+
+    await expect(p).resolves.toBe('ws-1');
+    close();
+  });
+
+  it('returns an api that subscribes to WebSocket notifications', () => {
+    const { WebSocket, instances } = makeFakeSocketCtor();
+    const { api, close } = makeWsApiHandle({ url: 'ws://host:8765', WebSocket });
+    const socket = instances[0]!;
+    socket.open();
+    const got: unknown[] = [];
+
+    const off = api.subscribe('runner.turn.complete', (params) => got.push(params));
+    socket.emit({
+      method: 'runner.turn.complete',
+      params: { workspaceId: 'w', turnId: 't', error: null },
+    });
+    expect(got).toEqual([{ workspaceId: 'w', turnId: 't', error: null }]);
+
+    off();
+    socket.emit({ method: 'runner.turn.complete', params: { workspaceId: 'w2' } });
+    expect(got).toHaveLength(1);
+    close();
+  });
+
+  it('closes the underlying WebSocket client', () => {
+    const { WebSocket, instances } = makeFakeSocketCtor();
+    const { close } = makeWsApiHandle({ url: 'ws://host:8765', WebSocket });
+    const socket = instances[0]!;
+
+    close();
+
+    expect(socket.readyState).toBe(3);
+  });
+});
+
 describe('makeWsApi', () => {
+  it('still returns the api directly', async () => {
+    const { WebSocket, instances } = makeFakeSocketCtor();
+    const api = makeWsApi({ url: 'ws://host:8765', WebSocket });
+    const socket = instances[0]!;
+    socket.open();
+
+    const p = api.invoke('connection.activeWorkspace');
+    const req = socket.lastReq();
+    socket.emit({ id: req.id, result: 'ws-1' });
+
+    await expect(p).resolves.toBe('ws-1');
+    socket.close();
+  });
+
   it('presents the token via the Sec-WebSocket-Protocol bearer entry, not the URL', () => {
-    const instances: FakeSocket[] = [];
-    class CtorFake extends FakeSocket {
-      constructor(url: string, protocols?: string | string[]) {
-        super(url, protocols);
-        instances.push(this);
-      }
-    }
+    const { WebSocket, instances } = makeFakeSocketCtor();
     makeWsApi({
       url: 'ws://host:8765',
       token: 'tok+en=1',
-      WebSocket: CtorFake as unknown as WebSocketCtor,
+      WebSocket,
     });
     const socket = instances[0]!;
     expect(socket.url).toBe('ws://host:8765'); // no ?t= in the URL
@@ -286,14 +358,8 @@ describe('makeWsApi', () => {
   });
 
   it('omits subprotocols when no token is configured', () => {
-    const instances: FakeSocket[] = [];
-    class CtorFake extends FakeSocket {
-      constructor(url: string, protocols?: string | string[]) {
-        super(url, protocols);
-        instances.push(this);
-      }
-    }
-    makeWsApi({ url: 'ws://host:8765', WebSocket: CtorFake as unknown as WebSocketCtor });
+    const { WebSocket, instances } = makeFakeSocketCtor();
+    makeWsApi({ url: 'ws://host:8765', WebSocket });
     expect(instances[0]!.protocols).toBeUndefined();
   });
 });

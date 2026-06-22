@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import type { ChatPersistence } from '../chatPersistence.js';
 import { chatStore } from './store.js';
 import type { ChatPersistence } from '../chatPersistence.js';
 

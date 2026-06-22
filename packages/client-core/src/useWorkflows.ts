@@ -59,7 +59,13 @@ export function useWorkflows(): UseWorkflows {
     async (name: string): Promise<void> => {
       try {
         const result = await api().invoke('workflows.run', { name });
+        if (result.status === 'paused') {
+          setLastRun(null);
+          setError(null);
+          return;
+        }
         setLastRun({ name, result });
+        setError(null);
       } catch (e) {
         setError(toErrorMessage(e));
       }

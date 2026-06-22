@@ -254,7 +254,7 @@ describe('consumeResponsesSse', () => {
     expect(events.some((e) => e.type === 'message_end')).toBe(false);
   });
 
-  it('accumulates usage from response.completed onto message_end', async () => {
+  it('reports cached usage from response.completed as cache reads plus fresh input', async () => {
     const events = await drain(
       streamOf([
         frame({ type: 'response.output_text.delta', delta: 'hi' }),
@@ -274,7 +274,7 @@ describe('consumeResponsesSse', () => {
     expect(last).toMatchObject({
       type: 'message_end',
       stopReason: 'end_turn',
-      usage: { inputTokens: 10, outputTokens: 3, cacheReadTokens: 4 },
+      usage: { inputTokens: 6, outputTokens: 3, cacheReadTokens: 4 },
     });
   });
 });

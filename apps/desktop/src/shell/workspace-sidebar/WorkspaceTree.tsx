@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '@moxxy/desktop-ui';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { SectionHeader } from './SectionHeader';
@@ -19,16 +20,15 @@ import { useMenuKeyboard } from '../useMenuKeyboard';
  *  - clicking a folder row (or its chevron) toggles collapse — switching
  *    workspaces happens by picking one of its SESSIONS, the routing unit;
  *  - [+] on a folder row creates a session IN that workspace;
- *  - ⋯ menus carry Rename/Remove for both row kinds, with the same
- *    inline-rename gesture (Enter commits, Escape cancels) sessions
- *    always had;
+ *  - ⋯ menus carry Rename/Remove for both row kinds and delegate the
+ *    actual modal/persistence flow to the sidebar container;
  *  - row actions ([+]/⋯) are hover-only and OVERLAY the right edge of the
  *    name (gradient fade) instead of reserving width — names get the full
  *    row when idle ({@link ActionsOverlay});
  *  - the active desk's active session is the single highlighted row.
  *
  * Purely presentational — the sidebar container owns the stores, the
- * collapse state, and the remove confirmations.
+ * collapse state, and the action modals.
  */
 export function WorkspaceTree({
   desks,
@@ -61,55 +61,12 @@ export function WorkspaceTree({
   readonly onToggleCollapse: (deskId: string) => void;
   readonly onSelectSession: (id: string) => void;
   readonly onCreateSession: (deskId: string) => void;
-  readonly onRenameSession: (id: string, name: string) => void;
+  readonly onRenameSession: (session: DeskSession) => void;
   readonly onRemoveSession: (session: DeskSession) => void;
-  readonly onRenameWorkspace: (id: string, name: string) => void;
+  readonly onRenameWorkspace: (desk: Desk) => void;
   readonly onRemoveWorkspace: (desk: Desk) => void;
   readonly onNewWorkspace: () => void;
 }): JSX.Element {
-  /** Row whose name is being edited inline; null = none. */
-  const [editing, setEditing] = useState<{
-    kind: 'workspace' | 'session';
-    id: string;
-    draft: string;
-  } | null>(null);
-  // Guards the Enter→commit + the resulting blur→commit from BOTH resolving:
-  // Enter commits, then focus leaves the unmounting input and fires onBlur a
-  // second time. setEditing(null) is async, so this synchronous latch makes the
-  // second call a clean no-op even if React hasn't flushed the state clear yet
-  // (and stops it resolving `prev` against a row a focus shift may have changed
-  // under it). Cleared when a fresh edit begins.
-  const committingRef = useRef(false);
-
-  const commitRename = (): void => {
-    if (!editing || committingRef.current) return;
-    committingRef.current = true;
-    const name = editing.draft.trim();
-    const prev =
-      editing.kind === 'workspace'
-        ? desks.find((d) => d.id === editing.id)?.name
-        : desks.flatMap((d) => d.sessions).find((s) => s.id === editing.id)?.name;
-    setEditing(null);
-    if (name && name !== prev) {
-      if (editing.kind === 'workspace') onRenameWorkspace(editing.id, name);
-      else onRenameSession(editing.id, name);
-    }
-  };
-
-  const renameProps = (kind: 'workspace' | 'session', id: string, name: string) => ({
-    editing: editing?.kind === kind && editing.id === id ? editing.draft : null,
-    onStartRename: () => {
-      committingRef.current = false; // release the latch for the new edit
-      setEditing({ kind, id, draft: name });
-    },
-    onDraft: (draft: string) => setEditing({ kind, id, draft }),
-    onCommitRename: commitRename,
-    onCancelRename: () => {
-      committingRef.current = false;
-      setEditing(null);
-    },
-  });
-
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -156,8 +113,8 @@ export function WorkspaceTree({
                 busy={busyDeskId === desk.id}
                 onToggle={() => onToggleCollapse(desk.id)}
                 onCreateSession={() => onCreateSession(desk.id)}
+                onRename={() => onRenameWorkspace(desk)}
                 onRemove={() => onRemoveWorkspace(desk)}
-                {...renameProps('workspace', desk.id, desk.name)}
               />
               {!isCollapsed && (
                 <ul
@@ -179,8 +136,8 @@ export function WorkspaceTree({
                       active={s.id === activeSessionId && desk.id === activeDeskId}
                       unread={unread.has(s.id)}
                       onSelect={() => onSelectSession(s.id)}
+                      onRename={() => onRenameSession(s)}
                       onRemove={() => onRemoveSession(s)}
-                      {...renameProps('session', s.id, s.name)}
                     />
                   ))}
                 </ul>
@@ -191,15 +148,6 @@ export function WorkspaceTree({
       </ul>
     </div>
   );
-}
-
-interface RenameHandlers {
-  /** Current rename draft, or null when this row isn't being edited. */
-  readonly editing: string | null;
-  readonly onStartRename: () => void;
-  readonly onDraft: (draft: string) => void;
-  readonly onCommitRename: () => void;
-  readonly onCancelRename: () => void;
 }
 
 /** One workspace folder row: chevron + tinted workspace glyph + name,
@@ -213,12 +161,8 @@ function FolderRow({
   busy,
   onToggle,
   onCreateSession,
+  onRename,
   onRemove,
-  editing,
-  onStartRename,
-  onDraft,
-  onCommitRename,
-  onCancelRename,
 }: {
   readonly desk: Desk;
   readonly active: boolean;
@@ -228,8 +172,9 @@ function FolderRow({
   readonly busy: boolean;
   readonly onToggle: () => void;
   readonly onCreateSession: () => void;
+  readonly onRename: () => void;
   readonly onRemove: () => void;
-} & RenameHandlers): JSX.Element {
+}): JSX.Element {
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const showActions = hot || menuOpen;
@@ -240,22 +185,17 @@ function FolderRow({
       data-collapsed={collapsed}
       // The row body is the primary action (toggle collapse). Make it a real
       // keyboard-activatable control: a focusable button-role that fires on
-      // Enter/Space, so the tree is navigable without a pointer. While the
-      // inline rename input owns focus the row is inert (editing !== null).
-      role={editing === null ? 'button' : undefined}
-      tabIndex={editing === null ? 0 : undefined}
-      aria-label={editing === null ? `${collapsed ? 'expand' : 'collapse'} workspace ${desk.name}` : undefined}
-      onClick={editing === null ? onToggle : undefined}
-      onKeyDown={
-        editing === null
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onToggle();
-              }
-            }
-          : undefined
-      }
+      // Enter/Space, so the tree is navigable without a pointer.
+      role="button"
+      tabIndex={0}
+      aria-label={`${collapsed ? 'expand' : 'collapse'} workspace ${desk.name}`}
+      onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
       onFocusCapture={() => setHot(true)}
@@ -326,36 +266,20 @@ function FolderRow({
       >
         <Icon name="folder" size={14} />
       </span>
-      {editing !== null ? (
-        <input
-          autoFocus
-          value={editing}
-          aria-label={`rename workspace ${desk.name}`}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onDraft(e.target.value)}
-          onBlur={onCommitRename}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') onCommitRename();
-            if (e.key === 'Escape') onCancelRename();
-          }}
-          style={renameInputStyle}
-        />
-      ) : (
-        <span
-          style={{
-            flex: 1,
-            minWidth: 0,
-            fontSize: 13,
-            fontWeight: active ? 700 : 600,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-          title={`${desk.name} — ${desk.cwd}`}
-        >
-          {desk.name}
-        </span>
-      )}
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: 13,
+          fontWeight: active ? 700 : 600,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+        title={`${desk.name} — ${desk.cwd}`}
+      >
+        {desk.name}
+      </span>
       {unread && <UnreadDot label={`unread activity in ${desk.name}`} />}
       <ActionsOverlay show={showActions || busy} background={HOVER_ROW_BG}>
         <button
@@ -381,7 +305,7 @@ function FolderRow({
           visible={showActions || busy}
           open={menuOpen}
           onOpenChange={setMenuOpen}
-          onRename={onStartRename}
+          onRename={onRename}
           onDelete={onRemove}
           deleteLabel="Remove"
         />
@@ -396,19 +320,16 @@ function SessionRow({
   active,
   unread,
   onSelect,
+  onRename,
   onRemove,
-  editing,
-  onStartRename,
-  onDraft,
-  onCommitRename,
-  onCancelRename,
 }: {
   readonly session: DeskSession;
   readonly active: boolean;
   readonly unread: boolean;
   readonly onSelect: () => void;
+  readonly onRename: () => void;
   readonly onRemove: () => void;
-} & RenameHandlers): JSX.Element {
+}): JSX.Element {
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Hover/menu only — NOT `active`: actions overlay the name's right edge
@@ -423,22 +344,18 @@ function SessionRow({
         data-active={active}
         // The session row is the routing unit; make it keyboard-selectable
         // (Enter/Space) and focusable so screen-reader / keyboard users can
-        // pick a session, not just pointer users. Inert while renaming.
-        role={editing === null ? 'button' : undefined}
-        tabIndex={editing === null ? 0 : undefined}
-        aria-label={editing === null ? `open session ${s.name}` : undefined}
+        // pick a session, not just pointer users.
+        role="button"
+        tabIndex={0}
+        aria-label={`open session ${s.name}`}
         aria-current={active ? 'true' : undefined}
         onClick={onSelect}
-        onKeyDown={
-          editing === null
-            ? (e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onSelect();
-                }
-              }
-            : undefined
-        }
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
         onMouseEnter={() => setHot(true)}
         onMouseLeave={() => setHot(false)}
         onFocusCapture={() => setHot(true)}
@@ -463,35 +380,19 @@ function SessionRow({
           fontWeight: active ? 600 : 400,
         }}
       >
-        {editing !== null ? (
-          <input
-            autoFocus
-            value={editing}
-            aria-label={`rename session ${s.name}`}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => onDraft(e.target.value)}
-            onBlur={onCommitRename}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onCommitRename();
-              if (e.key === 'Escape') onCancelRename();
-            }}
-            style={renameInputStyle}
-          />
-        ) : (
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontSize: 13,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-            title={s.name}
-          >
-            {s.name}
-          </span>
-        )}
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 13,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+          title={s.name}
+        >
+          {s.name}
+        </span>
         {unread && <UnreadDot label="unread activity" />}
         <ActionsOverlay
           show={showActions}
@@ -503,7 +404,7 @@ function SessionRow({
             visible={showActions}
             open={menuOpen}
             onOpenChange={setMenuOpen}
-            onRename={onStartRename}
+            onRename={onRename}
             onDelete={onRemove}
             deleteLabel="Delete"
           />
@@ -603,13 +504,21 @@ function RowMenu({
 }): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
   // Focus the first item on open + restore focus to the trigger on close, with
-  // ArrowUp/Down/Home/End/Tab handling inside the popover.
+  // ArrowUp/Down/Home/End/Tab handling inside the popover. The same ref is
+  // attached to the portaled menu container below.
   const menuRef = useMenuKeyboard<HTMLDivElement>(open);
+  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false);
+      const target = e.target as Node;
+      if (
+        !rootRef.current?.contains(target) &&
+        !menuRef.current?.contains(target)
+      ) {
+        onOpenChange(false);
+      }
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onOpenChange(false);
@@ -621,6 +530,23 @@ function RowMenu({
       document.removeEventListener('keydown', onKey);
     };
   }, [open, onOpenChange]);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+    const updatePosition = (): void => {
+      if (rootRef.current) setMenuPosition(positionMenu(rootRef.current));
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
 
   const item: React.CSSProperties = {
     display: 'flex',
@@ -635,88 +561,117 @@ function RowMenu({
     cursor: 'pointer',
   };
 
+  const menu =
+    open && menuPosition && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={`${kind} actions ${name}`}
+            // A click inside the popover must not bubble to the row (which
+            // would select the session / toggle the folder under the menu).
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: menuPosition.top,
+              left: menuPosition.left,
+              zIndex: 1100,
+              width: menuPosition.width,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1,
+              padding: 4,
+              background: 'var(--color-sidebar-bg)',
+              border: '1px solid var(--color-sidebar-border)',
+              borderRadius: 10,
+              boxShadow: '0 14px 32px -16px rgba(0, 0, 0, 0.45)',
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={`rename ${kind} ${name}`}
+              className="row-button"
+              onClick={() => {
+                onOpenChange(false);
+                onRename();
+              }}
+              style={{ ...item, color: 'var(--color-sidebar-text)' }}
+            >
+              <Icon name="pencil" size={13} />
+              <span>Rename</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              aria-label={`remove ${kind} ${name}`}
+              className="row-button"
+              onClick={() => {
+                onOpenChange(false);
+                onDelete();
+              }}
+              style={{ ...item, color: 'var(--color-red-text)' }}
+            >
+              <Icon name="x" size={13} />
+              <span>{deleteLabel}</span>
+            </button>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
-    <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
-      <button
-        type="button"
-        aria-label={`${kind} actions ${name}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenChange(!open);
-        }}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 24,
-          height: 24,
-          borderRadius: 7,
-          color: 'var(--color-sidebar-text-dim)',
-          opacity: visible ? 0.9 : 0,
-          background: open ? 'var(--color-sidebar-bg-hover)' : 'transparent',
-          transition: 'opacity 120ms ease',
-        }}
-      >
-        <Icon name="more" size={14} />
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
+    <>
+      <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
+        <button
+          type="button"
           aria-label={`${kind} actions ${name}`}
-          // A click inside the popover must not bubble to the row (which
-          // would select the session / toggle the folder under the menu).
-          onClick={(e) => e.stopPropagation()}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!open && rootRef.current) setMenuPosition(positionMenu(rootRef.current));
+            onOpenChange(!open);
+          }}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            right: 0,
-            zIndex: 40,
-            minWidth: 132,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
-            padding: 4,
-            background: 'var(--color-sidebar-bg)',
-            border: '1px solid var(--color-sidebar-border)',
-            borderRadius: 10,
-            boxShadow: '0 14px 32px -16px rgba(0, 0, 0, 0.45)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 24,
+            height: 24,
+            borderRadius: 7,
+            color: 'var(--color-sidebar-text-dim)',
+            opacity: visible ? 0.9 : 0,
+            background: open ? 'var(--color-sidebar-bg-hover)' : 'transparent',
+            transition: 'opacity 120ms ease',
           }}
         >
-          <button
-            type="button"
-            role="menuitem"
-            aria-label={`rename ${kind} ${name}`}
-            className="row-button"
-            onClick={() => {
-              onOpenChange(false);
-              onRename();
-            }}
-            style={{ ...item, color: 'var(--color-sidebar-text)' }}
-          >
-            <Icon name="pencil" size={13} />
-            <span>Rename</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            aria-label={`remove ${kind} ${name}`}
-            className="row-button"
-            onClick={() => {
-              onOpenChange(false);
-              onDelete();
-            }}
-            style={{ ...item, color: 'var(--color-red-text)' }}
-          >
-            <Icon name="x" size={13} />
-            <span>{deleteLabel}</span>
-          </button>
-        </div>
-      )}
-    </div>
+          <Icon name="more" size={14} />
+        </button>
+      </div>
+      {menu}
+    </>
   );
+}
+
+interface MenuPosition {
+  readonly top: number;
+  readonly left: number;
+  readonly width: number;
+}
+
+const MENU_WIDTH = 144;
+const MENU_MARGIN = 8;
+
+function positionMenu(anchor: HTMLElement): MenuPosition {
+  const rect = anchor.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || MENU_WIDTH;
+  const maxLeft = Math.max(MENU_MARGIN, viewportWidth - MENU_WIDTH - MENU_MARGIN);
+  return {
+    top: rect.bottom + 4,
+    left: Math.min(Math.max(MENU_MARGIN, rect.right - MENU_WIDTH), maxLeft),
+    width: MENU_WIDTH,
+  };
 }
 
 const iconButtonStyle: React.CSSProperties = {
@@ -728,16 +683,4 @@ const iconButtonStyle: React.CSSProperties = {
   borderRadius: 7,
   color: 'var(--color-sidebar-text-dim)',
   flexShrink: 0,
-};
-
-const renameInputStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  fontSize: 13,
-  padding: '2px 4px',
-  borderRadius: 6,
-  border: '1px solid var(--color-sidebar-text-dim)',
-  background: 'transparent',
-  color: 'var(--color-sidebar-text)',
-  outline: 'none',
 };

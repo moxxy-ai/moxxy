@@ -43,7 +43,7 @@ export type { SessionInfo };
 
 // ---------- Interactive ask (permission / approval prompts) ---------------
 export { SESSION_INFO_REFRESH_EVENT } from './ask.js';
-export type { AskRequest, AskResponse } from './ask.js';
+export type { AskRequest, AskResponse, WorkflowAsk } from './ask.js';
 
 // ---------- Uniform error envelope ----------------------------------------
 export { encodeIpcError, decodeIpcError } from './error-envelope.js';
@@ -67,11 +67,20 @@ export type {
   WorkflowDetail,
 } from './workflows.js';
 
+// ---------- Scheduler -----------------------------------------------------
+export type { ScheduleSource, ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
+
 // ---------- Mobile gateway (WebSocket bridge) ------------------------------
 export type { MobileGatewayStatus } from './mobile.js';
 
 // ---------- Settings -------------------------------------------------------
-export type { ProviderEntry, McpServerEntry, VaultEntryName, SkillFile } from './settings.js';
+export type {
+  ProviderEntry,
+  McpServerEntry,
+  VaultEntryName,
+  SkillFile,
+  ReasoningEffort,
+} from './settings.js';
 
 // ---------- Desks ---------------------------------------------------------
 export type { DeskSession, Desk, DesksOverview, SessionsOverview } from './desks.js';

@@ -88,6 +88,28 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-22 — Mobile NativeWind cleanup
+
+**Retired:** the mobile app no longer depends on NativeWind/Tailwind runtime
+styling. The Expo app now renders through React Native style objects backed by
+`@moxxy/design-tokens`, and the old `global.css`, NativeWind Metro wrapper,
+Tailwind config, type shims, and web interop shim were removed. A static guard
+test now fails if `className`, NativeWind, Tailwind, css-interop, or `global.css`
+come back into the mobile app, which protects the sidebar / QR / waiting-room
+screens from silently falling back to unstyled raw text again.
+
+## 2026-06-20 — Mobile workflow blocker cleanup
+
+**Retired on sight:** mobile workflow state no longer recreates its action
+callbacks on every render, so opening the Workflows tab cannot loop `refresh()`
+into React's maximum-update-depth guard. Paused workflow runs now route solely
+through the global ask/permission surface instead of being stashed as local
+Workflows-panel state, so workflow questions remain visible across Chat /
+Workflows / Collaborate / Apps navigation. The iOS app plist also declares the
+background modes used by the local Live Activity + notification refresh path.
+
+---
+
 ## 2026-06-19 — Repo-wide pessimistic hardening sweep (audit → fix → verify → elevate)
 
 A fresh, deliberately pessimistic re-audit scored **every** package/app (71
@@ -431,6 +453,56 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   and the scheduler comment now describe the strictly-sequential behavior plainly
   (no "yet"/"deferred" wording) with the parity rationale spelled out.
 
+## 2026-06-18 — mobile streaming transcript latency
+
+- **Retired (found + fixed same PR): mobile could lag minutes behind desktop while an
+  assistant response was streaming.** Desktop already keeps committed events and live
+  `assistant_chunk` text as separate state, but mobile rebuilt its whole transcript in
+  `useGatewayStore` on every `streamingText` tick and rendered every message through a
+  `ScrollView`. On long sessions that made each token pay an O(history) fold + full-list
+  render cost, so the JS/UI thread fell behind even though `runner.event` arrived in
+  realtime. Mobile now memoizes the committed transcript in `useChatTranscript`, appends
+  the live assistant preview as a cheap tail item, and renders chat with `FlatList`
+  virtualization.
+- **Update — long-list dev warning closed:** the mobile chat list now keeps settled rows
+  memoized with a semantic comparator, caches parsed markdown for stable messages, and
+  uses long-session FlatList batching/scroll settings. The remaining React Native
+  `VirtualizedList` "large list" message was verified as an idle-scroll heuristic
+  (`dt` between scroll events, not render duration) and is filtered through the existing
+  mobile console-noise gate only for that exact info log.
+
+## 2026-06-18 — cross-surface action clear sync
+
+- **Retired (found + fixed same PR): desktop Actions → Clear/New could leave mobile
+  showing stale chat history.** `chatStore.clear()` cleared the initiating renderer and
+  truncated the host NDJSON log, but there was no host-level event telling other
+  attached clients to drop their local transcript windows. The desktop host now
+  broadcasts `chat.cleared` after `chat.clearLog`, and `ChatStoreBridge` mirrors it with
+  a local-only clear so mobile, desktop, and future WS clients stay in lockstep without
+  echoing another persistence clear. The client store also invalidates in-flight history
+  loads so a stale `chat.loadSegment` response cannot resurrect pre-clear events.
+
+## 2026-06-19 — mobile scheduler visibility
+
+- **Retired (found + fixed same PR): mobile had no first-class view of scheduler/cron
+  entries.** Desktop and the model could create or list schedules, but phone users had to
+  ask the agent to inspect them and could not quickly pause or remove an existing timed
+  prompt from the same paired surface. The desktop host now exposes a bounded
+  scheduler IPC surface (`list`, `setEnabled`, `delete`) over the mobile allow-list,
+  client-core owns a reusable `useScheduler` hook, and the mobile menu includes a
+  Scheduler screen that shows cron/runAt timing, source, prompt preview, status, and
+  pause/delete controls.
+- **Deliberately deferred:** mobile still does not create or edit schedules directly.
+  Those flows stay with the agent/desktop actions for now because editing cron prompts
+  needs a fuller validation and permission UX than a narrow parity list/toggle/delete
+  screen.
+- **Retired (found + fixed same PR): source-owned schedules deleted from mobile could
+  reappear and keep firing.** `ScheduleStore.delete()` physically removed skill/workflow
+  mirror rows, so the next source sync recreated them from skill frontmatter or workflow
+  metadata. Source-owned deletions now leave a durable hidden tombstone that `list()`,
+  `get()`, updates, and the poller ignore, while sync keeps the tombstone until the
+  upstream source itself disappears.
+
 ## 2026-06-17 — Skills gallery reimplements the shared settings `SearchBox`
 
 - **`SkillGallery` hand-rolls its own search input** (the `display:flex` row with
@@ -677,6 +749,86 @@ item — the debt it *creates* is logged here on sight:
   the wizard skip the prompt. Deferred (init is one-time; runtime switch is the
   main path).
 
+## 2026-06-17 — desktop stress-session transcript stability
+
+- **Retired (found + fixed same PR): huge desktop transcripts could require multiple
+  jump-to-latest clicks and briefly blank during selected-session runner reconnects.**
+  The floating jump button now uses an instant Virtuoso `LAST` scroll instead of a
+  long smooth animation over virtualized 100k-event logs, and `ChatSurface` only shows
+  the full loading state before any transcript is available. Existing session history
+  remains mounted while the runner catches up, with the composer kept non-ready until
+  the session is actually connected.
+- **Retired (found + fixed same PR): desktop runner startup could pick an older GUI
+  fallback Node before the user's shell Node.** `spawnPath` now keeps explicit CLI dirs
+  first, then the inherited shell `PATH`, then macOS GUI fallback paths, so `moxxy serve`
+  no longer crashes under an old `/usr/local/bin/node` when dev desktop is launched from
+  Electron.
+
+## 2026-06-17 — mobile session tree parity
+
+- **Retired (found + fixed same PR): mobile rendered the sessions screen as detached
+  workspace cards while desktop used a folder tree.** The mobile session picker now uses
+  a shared dumb workspace tree component for both the Sessions tab and hamburger menu:
+  workspace folders keep desktop colors, sessions sit as indented children, active rows
+  stay readable on narrow screens, and collapse state remains owned by hooks instead of
+  presentational components.
+- **Retired (found + fixed same PR): delayed desk overviews could roll back a
+  freshly selected session.** A `desks.list` response that started before a
+  mobile/desktop `sessions.setActive` mutation could land after the optimistic
+  switch and overwrite `connectionStore` with the old active session. The
+  shared desks store now gates stale refresh responses by mutation epoch and
+  keeps the pending active session pinned until the switching command's own
+  refresh completes, so phone and desktop no longer snap back to the previous
+  conversation.
+
+## 2026-06-17 — mobile/desktop auto-approve + context meter parity
+
+- **Retired (found + fixed same PR): session-scoped auto-approve could diverge between
+  mobile and desktop.** The phone could render bypass mode locally while the desktop
+  `SessionDriver` and composer stayed off because `session.setAutoApprove` was not on the
+  mobile WS allow-list and no shared event updated `chatStore`. The command is now allowed
+  as a conversation-scoped mutation, broadcasts `session.autoApprove.changed` to Electron
+  and WS surfaces, and both desktop/mobile fold the event into the same client-core store.
+- **Retired (found + fixed same PR): OpenAI/Codex context meters double-counted cached
+  input tokens.** OpenAI reports `cached_tokens` as a subset of `input_tokens`; the adapter
+  passed both through as additive fields, so desktop/mobile could show inflated context
+  usage such as `100%` even when the real prompt was below the model window. The OpenAI and
+  Codex providers now normalize to SDK semantics: fresh input plus cache-read tokens.
+
+## 2026-06-17 — desktop gateway CI portability
+
+- **Retired (found + fixed same PR): the desktop mobile-gateway connection-count test
+  depended on Node's global WebSocket.** Node 20 CI does not expose that global, so the
+  test now imports the same explicit `ws` client used by other Node-side WebSocket tests
+  and `@moxxy/desktop` declares the test dependency directly.
+- **Retired (found during verification): workspace-registry tests used Vitest defaults
+  instead of the repo preset.** The package now opts into `@moxxy/vitest-preset`, so its
+  filesystem-heavy registry tests get the same CI timeout budget as the rest of the repo.
+
+## 2026-06-17 — desktop sidebar action modals
+
+- **Retired (found + fixed same PR): sidebar session/workspace rename used tiny inline
+  edits while delete relied on a generic confirmation path.** Sidebar row menus now only
+  request action flows from the presentational tree, `WorkspaceSidebar` owns modal state,
+  rename opens a focused modal form with trimmed-name validation, and session delete copy
+  explicitly calls out irreversible history deletion before the destructive confirm.
+
+## 2026-06-14 — desktop transcript dedupe
+
+- **Retired: duplicate event ids in persisted transcript history triggered React key
+  collisions.** Some legacy `~/.moxxy/chats/*.jsonl` mirrors contained adjacent duplicate
+  event ids, and the renderer only de-duped against previously loaded events, not duplicates
+  inside the same loaded page. `ChatRuntime` now de-dupes initial events, `ChatStore`
+  de-dupes every loaded history page before prepending, and `desktop-host`'s `appendEvents`
+  filters duplicate ids inside one append batch so new mirrors do not grow duplicate lines.
+- **Retired: shared workspace import trusted foreign-session events.** The first
+  shared-registry pass imported old `~/.moxxy/sessions/*.jsonl` files into Desktop/Mobile
+  without proving that each line belonged to the file's `sessionId`, so polluted logs could
+  clone a foreign first prompt into many sessions. Session persistence now rejects foreign
+  appends, `readIndex` derives titles/event counts only from matching events, `restoreEvents`
+  backs up and repairs polluted logs, workspace-registry drops imported foreign-only entries,
+  and desktop chat mirrors filter/repair by owner before rendering or paginating history.
+
 ## 2026-06-12 — desktop live registry refresh + interactive provider management
 
 - **Retired (found + fixed same PR): desktop UI went stale after runtime registry
@@ -710,16 +862,35 @@ item — the debt it *creates* is logged here on sight:
   DIFFERENT providers from two clients could lose one update (same best-effort
   semantics as every `savePreferences` caller — acceptable, noted for completeness).
 
-## 2026-06-11 — mobile-poc app intake
+## 2026-06-11 — mobile app bridge intake
 
-`apps/mobile-poc` (Expo SDK 54, single screen) replaces the removed `apps/mobile` as the
-smallest app proving the mobile channel end to end (QR pairing → chat → ask round-trip).
+`apps/mobile-poc` (Expo SDK 54, single screen) is the smallest app proving the mobile
+channel end to end (QR pairing → chat → ask round-trip). The production mobile surface is
+`apps/mobile-plugin/mobile`, which now consumes the same bridge/client-core flow.
 
 - **Retired:** the "remove broken apps" commit (508f5d8) left `apps/desktop`'s
   `ws-bridge.test.ts` importing the deleted `apps/mobile/src/pairingQr` — `pnpm typecheck`
   on main was red. The client half of the pairing contract (`splitConnectUrl`) now lives in
   `@moxxy/client-transport-ws`, and both the PoC app and the desktop round-trip test consume
   it from there (no app→app imports).
+- **Retired (2026-06-11): the real mobile app was still bypassed by the working PoC.**
+  `moxxy mobile` only started the bridge/QR, and the only working Expo client was the
+  separate `apps/mobile-poc` reference app. The mobile channel now starts the full
+  `apps/mobile-plugin/mobile` Expo app beside the bridge by default (`--no-expo` keeps
+  bridge-only runs), and the full app consumes the same `@moxxy/client-core` +
+  `@moxxy/client-transport-ws` WebSocket transport proven by the PoC.
+- **Retired (2026-06-11): the full Expo app missed the PoC's singleton React Metro
+  guard.** The first full-app bridge pass copied the client-core transport flow but not the
+  PoC's monorepo-aware `metro.config`, so Metro could resolve `react` from a workspace package
+  instead of the app renderer and crash with `Invalid hook call` after QR pairing. The full app
+  now watches the repo root, searches app + workspace `node_modules`, and pins `react` /
+  `react-dom` resolution to the app entrypoint while preserving NativeWind's Metro wrapper.
+- **Retired (2026-06-11): Expo SDK 54's Worklets Babel plugin failed under pnpm strict
+  resolution.** `react-native-worklets@0.8.3` requires `@babel/generator`,
+  `@babel/traverse`, and `@babel/types` from its Babel plugin but does not declare them in
+  package metadata, so Metro crashed while processing `babel-preset-expo` on iOS. Root
+  `packageExtensions` now patches those missing dependencies, keeping the fix in package
+  metadata instead of relying on hoisting.
 - **M1 [med, security/feature gap] LAN pairing is cleartext `ws://`** — the bridge
   (`createWebSocketTransportServer`) constructs a plain `WebSocketServer` with no TLS
   option, so a `MOXXY_MOBILE_HOST=0.0.0.0` bind sends the bearer handshake unencrypted on
@@ -728,8 +899,43 @@ smallest app proving the mobile channel end to end (QR pairing → chat → ask 
   trusted cert) — the PoC README now leads with it. **Action** if direct-LAN encryption ever
   matters: add an optional `https.Server` (cert/key) to `WebSocketBridgeOptions` + a dev-build
   (non-Expo-Go) pinning story; until then, treat LAN binds as trusted-network-only.
-- **M2 [low, dx]** the PoC consumes workspace packages as built `dist` — editing any
+- **Retired (2026-06-16): `moxxy mobile` defaulted to a loopback-only QR that real phones
+  could not use.** The channel now defaults to a LAN-capable wildcard bind, advertises the
+  selected Wi-Fi/hotspot IP in the QR, and keeps explicit `MOXXY_MOBILE_HOST=127.0.0.1`
+  available for simulator/local-only pairing. The cleartext-LAN caveat in M1 remains: default
+  LAN mode is for trusted networks, while tunnels remain the secure cross-network path.
+- **Retired (2026-06-16): mobile composer controls could wrap and keep stale native text.**
+  The Expo composer now keeps primary controls in one responsive row, moves context/status
+  into a secondary row, uses 44px touch targets, and bumps a reset key after submit so iOS
+  cannot leave an autocorrected draft visible after the turn was sent.
+- **Retired (2026-06-16): mobile session selection could snap back to the live runtime and
+  selected sessions could become read-only history.** The standalone mobile host now returns
+  the selected registry session as the active connected workspace, routes asks/events/turn
+  completion through that selected id, allows `runTurn` for the selected session, and the
+  Expo session model keeps normal selected sessions writable instead of treating old history
+  as read-only. Chat auto-scroll now ignores prepended older-history pages so infinite scroll
+  does not jump back to the tail.
+- **Retired (2026-06-17): desktop session UI missed realtime refreshes from mobile-origin
+  session changes.** The desktop gateway registered the same `sessions.*` handlers on Electron
+  IPC and the mobile WebSocket bus, but `desks.changed` broadcasts emitted by those handlers
+  only fanned out to WS clients. Host-level desk/session events now use a shared fan-out that
+  reaches both bound Electron windows and remote WS clients, so selecting or mutating a session
+  from mobile refreshes the desktop sidebar/session state without reopen or manual refresh.
+- **Retired (2026-06-17): Settings → Mobile showed a stale connected-device count after
+  pairing.** The runtime gateway tracked `clientCount()` internally but never emitted
+  `mobileGateway.changed` when a WS client connected or disconnected, so the mobile app could
+  be paired and live while desktop still displayed `0 devices connected`. The WS transport now
+  exposes a connection-count callback and `MobileGatewayManager` republishes a fresh status
+  snapshot for both runtime-toggle and env-start gateway paths.
+- **M2 [low, dx]** the Expo apps consume workspace packages as built `dist` — editing any
   `@moxxy/*` package needs a root `pnpm build` before Metro sees it (documented in the README).
+- **M3 [med, runtime parity] standalone `moxxy mobile` still multiplexes selected
+  registry sessions over one upstream `ClientSession`.** `MobileSessionHost` now routes the
+  selected session id through connection snapshots, asks, events, and `runTurn` completion,
+  so the mobile contract is writable instead of read-only; unlike the desktop gateway's
+  RunnerPool, it still cannot instantiate/restore a separate runner per selected registry
+  session when started with a single `RemoteSession`. **Action:** give channels a resume-capable
+  session factory or route standalone mobile through the same runner-pool abstraction.
 - **Retired (2026-06-11): real iPhones were rejected by the Origin default-deny.** The A27
   hardening assumed "native clients send no `Origin` header" — false on iOS: React Native's
   WebSocket (SocketRocket) sends an Origin derived from the dialed URL (ws→http, wss→https,
@@ -739,6 +945,31 @@ smallest app proving the mobile channel end to end (QR pairing → chat → ask 
   (live update — the tunnel URL only exists after start) + the mobile channel and desktop
   gateway allow-list exactly the origins of the URLs they advertise (`advertisedOrigins` /
   `connectUrlOrigin` in `plugin-channel-mobile/pairing.ts`). Default-deny otherwise unchanged.
+- **Retired (2026-06-11): the full mobile plugin still lacked the PoC's complete bridge
+  semantics.** Browser-hosted Expo connected with an `Origin: http://localhost:8081` that
+  `moxxy mobile` never advertised, the production QR parser still depended on RN's brittle
+  `URL` implementation, and the standalone mobile host exposed only single-session calls while
+  the full app expected desktop-style `desks.*` / `sessions.*`. The channel now allow-lists
+  its Expo web origins, the app parses `ws://...?t=` through the shared transport helper,
+  `MobileSessionHost` serves registry-backed desk/session calls for standalone runs, and the
+  mobile session screen is driven from real client-core desks/sessions before chat starts.
+- **Retired (2026-06-12): TUI, Desktop, and Mobile kept separate session indexes.** Desktop
+  workspaces lived in `~/.moxxy/desktop/desks.json`, CLI/TUI sessions lived in
+  `~/.moxxy/sessions`, and `moxxy mobile` exposed a standalone `Moxxy Mobile / Current session`
+  placeholder, so a phone could pair successfully but still miss the user's real session list.
+  The workspace/session store is now shared through `@moxxy/workspace-registry`, old v2 desktop
+  docs are read in place and written as v3, CLI/TUI persistence syncs session metadata into the
+  registry, remote-safe `desks.list` / `desks.setActive` are exposed over the WS IPC bridge, and
+  unmatched sessions land in the stable global `Moxxy` workspace (`id: moxxy`).
+- **Retired (2026-06-12): the first shared-registry pass polluted the user's desktop registry
+  with test and empty sessions.** `SessionPersistence` still wrote to the real
+  `~/.moxxy/sessions` directory because its default path bypassed `MOXXY_HOME`, and
+  `syncSessionIndexIntoRegistry()` imported every sidecar, including zero-event/event-only sessions
+  and temp-dir sessions. The persistence root now uses `moxxyPath('sessions')`, `readIndex()`
+  backfills missing first prompts from the JSONL log, CLI/TUI registry sync waits for a real user
+  prompt before registering, workspace-registry ignores empty/stale sidecars and falls back to a
+  safe managed cwd when a session cwd has disappeared, and desktop runner spawn errors are surfaced
+  as controlled reconnect phases instead of uncaught main-process exceptions.
 
 ## 2026-06-10 round-2 audit intake — mobile gateway
 
@@ -1170,6 +1401,11 @@ verification — not a mechanical change.** Note (2026-06-09): the shared client
 #120) wires the same append-on-dispatch persistence into EVERY connected client (WS/mobile
 included, `client-core/src/chat-store/store.ts:325`), so multi-client setups now lean even
 harder on the host-side id-dedup cache — one more reason to make the host the single writer.
+**Partial mitigation (2026-06-12):** `chat.loadSegment` now treats the runner session
+JSONL as canonical whenever it exists, and repairs a missing/empty/partial desktop NDJSON
+mirror from it before returning a page. This keeps pre-registry and shared-registry
+multi-session transcripts readable in Desktop/Mobile, while preserving NDJSON-only legacy
+chats as the fallback case.
 
 **Also remaining:** the **`/new` desync window**. The renderer still clears its store before
 the runner reset confirms; if the reset fails or the app dies between them, the two desync
@@ -1384,14 +1620,15 @@ runners stay alive (consider lazy spawn + idle-stop).
   PCM16@24kHz pipeline that doesn't fit shipping a platform-native compressed clip to the
   host transcriber. Reconcile the contract (or add a clip-based capability) if a second
   native platform ever appears.
-- **Mobile-port residue (2026-06-10, low):** (a) the bearer-subprotocol encoder is
-  mirrored in `apps/mobile/src/hooks/useGatewaySocket.ts` (WsRpcClient needed a
-  close-on-replace lifecycle `makeWsApi` doesn't expose — same mirroring convention
-  client-transport-ws uses vs the SDK; converge if a third copy appears); (b) sending
-  attachments while a turn is in flight is refused with a visible error (inline payloads
-  can't ride client-core's path-based queue) — queue inline attachments host-side if this
-  bites; (c) `pairing.loadPairing` is a documented no-op (the WS bridge has no
-  pairing-code endpoint; the QR/`?t=` URL IS the pairing flow).
+- **Mobile-port residue (2026-06-10, low):** ~~(a) the bearer-subprotocol encoder needed
+  a mobile-side close-on-replace lifecycle because `makeWsApi` didn't expose one.~~
+  **RETIRED 2026-06-12:** `@moxxy/client-transport-ws` now exports `makeWsApiHandle`
+  (`{ api, close }`), and the full mobile app's pairing hook owns the closeable WS
+  lifecycle directly. Remaining: (b) sending attachments while a turn is in flight is
+  refused with a visible error (inline payloads can't ride client-core's path-based
+  queue) — queue inline attachments host-side if this bites; (c) manual pairing refresh
+  only parses the full `ws(s)://...?t=` bridge URL (there is deliberately no HTTP
+  pairing-code endpoint in the runtime mobile path).
 - ~~**Desktop bridge had no UI — only env-gated boot (`MOXXY_WS_BRIDGE=1`).**~~
   **ADDRESSED 2026-06-10:** Settings → **Mobile** tab now starts/stops the bridge at
   runtime (`MobileGatewayManager` in `electron/main/ws-bridge.ts` + `mobileGateway.*` IPC,
@@ -1450,22 +1687,20 @@ graph) is intact; the two operate on different graphs and don't conflict.
     `workflows.resume` entry on `REMOTE_ALLOWED_COMMANDS` (RESPOND-only — answering a question
     the WORKFLOW asked, like `ask.respond`; it can't author). The `workflow_paused` event now
     carries the workflow name + step label + the question so the operator UI is self-contained.
-    **Reply UI:** desktop (`apps/desktop/src/workflows/PausedWorkflows.tsx` via the new
-    client-core `usePausedWorkflows` hook — a card with a reply box that dispatches
-    `workflows.resume`) and TUI (`plugin-cli` `WorkflowsPanel` switches to inline reply capture
-    when `view.run` returns `status: 'paused'`). The non-terminal-`paused` handling in `runNow`
-    is kept (and the resume side delivers the now-completed run to the inbox); the stale-checkpoint
-    sweeper + `clearRetainedChildren()`-on-shutdown from #146 are kept. Vars set before a pause
-    now survive the checkpoint round-trip (Finding 4, below) so downstream `{{ vars.* }}` render.
-    **Remaining edges (honest):** (1) the **mobile** UI is bridge-wired (handler + allow-list +
-    contract, Expo-bundled) but has **no paused-workflow card yet** — a mobile user can reach
-    `workflows.resume` over the frame bridge, but the screen doesn't surface the pending question
-    yet; add a paused card to `apps/mobile`. (2) **Multi-pause** workflows (several awaitInput
-    steps) work — resume re-pauses and the UI re-prompts — but each pause writes a fresh checkpoint;
-    not stress-tested beyond two pauses. (3) **Concurrent paused runs** of the SAME workflow each
-    get a distinct `runId`/checkpoint and surface as separate cards; the retained-child registry
-    is keyed by child session id so they don't collide, but the desktop card list isn't ordered
-    or de-duped beyond run id. (4) Resume relies on the **retained child still being in the
+    **Reply UI:** desktop and mobile now route `workflow_paused` through the same global
+    `askStore`/`AskSheet` path as permissions and approvals, so pending workflow questions survive
+    tab changes and can be answered from any surface; TUI (`plugin-cli` `WorkflowsPanel`) still
+    switches to inline reply capture when `view.run` returns `status: 'paused'`. The
+    non-terminal-`paused` handling in `runNow` is kept (and the resume side delivers the
+    now-completed run to the inbox); the stale-checkpoint sweeper +
+    `clearRetainedChildren()`-on-shutdown from #146 are kept. Vars set before a pause now survive
+    the checkpoint round-trip (Finding 4, below) so downstream `{{ vars.* }}` render.
+    **Remaining edges (honest):** (1) **Multi-pause** workflows (several awaitInput steps) work —
+    resume re-pauses and the UI re-prompts — but each pause writes a fresh checkpoint; not
+    stress-tested beyond two pauses. (2) **Concurrent paused runs** of the SAME workflow each get a
+    distinct `runId`/checkpoint and surface as separate asks; the retained-child registry is keyed
+    by child session id so they don't collide, but ordering across concurrent paused runs remains a
+    UI policy decision. (3) Resume relies on the **retained child still being in the
     runner process's in-memory registry** — a runner restart between pause and resume loses it
     (the checkpoint survives, but `spawner.continue` then fails cleanly rather than resuming);
     persisting/rehydrating the child across restarts is future work.

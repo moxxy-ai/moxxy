@@ -13,13 +13,14 @@ import {
   type ScheduleSource,
   type ScheduleStoreOptions,
 } from './store.js';
-import { buildSchedulerTools, type SchedulerToolDeps } from './tools.js';
+import { buildSchedulerTools, describeScheduleEntry, type SchedulerToolDeps } from './tools.js';
 
 export {
   FiringLock,
   SchedulerPoller,
   ScheduleStore,
   buildSchedulerTools,
+  describeScheduleEntry,
   isDue,
   isValidCron,
   isValidTimeZone,

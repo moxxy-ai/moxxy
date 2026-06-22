@@ -25,6 +25,7 @@ import {
   advertisedOrigins,
   buildConnectUrl,
   connectUrlOrigin,
+  expoWebOrigins,
   isE2EChoice,
   isLoopbackHost,
   normalizeTunnelChoice,
@@ -34,6 +35,12 @@ import {
 } from './tunnel.js';
 import { startE2EShim, type E2EShimHandle } from './e2e-shim.js';
 import { printConnectInfo } from './qr.js';
+import {
+  resolveMobileExpoOptions,
+  startMobileExpoApp,
+  type MobileExpoOptionsInput,
+  type MobileExpoHandle,
+} from './expo-launcher.js';
 
 export interface MobileStartOpts extends ChannelStartOptsBase {
   readonly session: ClientSession;
@@ -42,14 +49,21 @@ export interface MobileStartOpts extends ChannelStartOptsBase {
 export interface MobileChannelOptions {
   /** TCP port (default 8765 — matches the desktop bridge + the Expo app's default). */
   readonly port?: number;
-  /** Bind address (`MOXXY_MOBILE_HOST` env overrides). Loopback by default —
-   *  good for simulators on this machine; `0.0.0.0` exposes on the LAN for a
-   *  real phone (still token-gated). */
+  /** Bind address (`MOXXY_MOBILE_HOST` env overrides). LAN-capable by default
+   *  for physical phones; use `127.0.0.1` for simulator/local-only pairing. */
   readonly bindHost?: string;
   /** Bearer token. Falls back to env / a persisted secret (see resolveMobileToken). */
   readonly token?: string;
   /** Reachability: `localhost` (LAN only), or the `proxy` relay (end-to-end encrypted). */
   readonly tunnel?: TunnelChoice;
+  /** Expo Go launcher for the full bundled `apps/mobile-plugin/mobile` app. Enabled by default. */
+  readonly expo?: MobileExpoOptionsInput;
+  readonly 'no-expo'?: unknown;
+  readonly 'expo-host'?: unknown;
+  readonly 'expo-port'?: unknown;
+  readonly expoHost?: unknown;
+  readonly expoPort?: unknown;
+  readonly expoAppDir?: unknown;
   /**
    * Accept the legacy `?t=<token>` URL credential (default `true` for back-compat
    * with older installed app builds; current apps authenticate via the
@@ -62,6 +76,10 @@ export interface MobileChannelOptions {
     info?(msg: string, meta?: Record<string, unknown>): void;
     warn?(msg: string, meta?: Record<string, unknown>): void;
   };
+}
+
+export interface MobileChannelDeps {
+  readonly startExpoApp?: typeof startMobileExpoApp;
 }
 
 const DEFAULT_PORT = 8765;
@@ -83,6 +101,8 @@ export class MobileChannel implements Channel<MobileStartOpts> {
   private readonly bindHost: string;
   private token: string;
   private readonly tunnelChoice: TunnelChoice;
+  private readonly expoOptions: MobileExpoOptionsInput;
+  private readonly startExpoApp: typeof startMobileExpoApp;
   private readonly allowQueryToken: boolean;
   /** True when the token came from `MOXXY_MOBILE_TOKEN` / config (not the
    *  rotatable persisted secret). Rotating then has no durable effect because
@@ -92,16 +112,27 @@ export class MobileChannel implements Channel<MobileStartOpts> {
   private host: MobileSessionHost | null = null;
   private server: Awaited<ReturnType<typeof startWsBridge>> | null = null;
   private tunnel: TunnelHandle | null = null;
+  private expo: MobileExpoHandle | null = null;
   private disconnectSweep: ReturnType<typeof setInterval> | null = null;
   private shim: E2EShimHandle | null = null;
 
-  constructor(opts: MobileChannelOptions = {}) {
+  constructor(opts: MobileChannelOptions = {}, deps: MobileChannelDeps = {}) {
     this.port = opts.port ?? DEFAULT_PORT;
     this.bindHost = resolveBindHost(opts.bindHost);
     this.token = resolveMobileToken(opts.token);
     this.tokenPinned =
       !!(process.env.MOXXY_MOBILE_TOKEN ?? '').trim() || !!opts.token?.trim();
     this.tunnelChoice = normalizeTunnelChoice(opts.tunnel);
+    this.expoOptions = {
+      ...opts.expo,
+      'no-expo': opts['no-expo'],
+      'expo-host': opts['expo-host'],
+      'expo-port': opts['expo-port'],
+      expoHost: opts.expoHost,
+      expoPort: opts.expoPort,
+      expoAppDir: opts.expoAppDir,
+    };
+    this.startExpoApp = deps.startExpoApp ?? startMobileExpoApp;
     this.allowQueryToken = resolveAllowQueryToken(opts.allowQueryToken);
     this.logger = opts.logger;
     // The field `moxxy serve --all` reads to coordinate the session resolver.
@@ -161,137 +192,150 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     // tear the host (and any opened tunnel/server) back down so we don't leak a
     // dead subscriber/resolver onto a live session.
     try {
-    // iOS React Native sends an `Origin` header derived from the WS URL it
-    // dials (Android/Node send none), so every URL this channel advertises
-    // must have its origin allow-listed or real iPhones are rejected at the
-    // upgrade. Local origins are known now; the tunnel origin is added below
-    // once the tunnel URL is assigned.
-    const localOrigins = advertisedOrigins(this.bindHost, this.port);
-    const server = await startWsBridge(bus, {
-      port: this.port,
-      host: this.bindHost,
-      authToken: this.token,
-      allowedOrigins: localOrigins,
-      // Back-compat: the QR this channel prints embeds the token as `?t=`
-      // (pairing payload); current apps strip it and authenticate via the
-      // Sec-WebSocket-Protocol bearer entry, but older installed builds still
-      // connect with the token in the WS URL. Default-on for those installs;
-      // closeable via the option / MOXXY_MOBILE_QUERY_TOKEN to stop leaking the
-      // bearer into tunnel/proxy logs once apps no longer need it.
-      allowQueryToken: this.allowQueryToken,
-    });
-    this.server = server;
-    this.logger?.info?.('mobile channel listening', { address: server.address });
+      // iOS React Native sends an `Origin` header derived from the WS URL it
+      // dials (Android/Node send none), so every URL this channel advertises
+      // must have its origin allow-listed or real iPhones are rejected at the
+      // upgrade. Local origins are known now; the tunnel origin is added below
+      // once the tunnel URL is assigned. The Expo dev-server web origins are
+      // folded in so the bundled app can also drive the channel from a browser.
+      const expoOptions = resolveMobileExpoOptions(this.expoOptions);
+      const localOrigins = [
+        ...new Set([
+          ...advertisedOrigins(this.bindHost, this.port),
+          ...expoWebOrigins(expoOptions),
+        ]),
+      ];
+      const server = await startWsBridge(bus, {
+        port: this.port,
+        host: this.bindHost,
+        authToken: this.token,
+        allowedOrigins: localOrigins,
+        // Back-compat: the QR this channel prints embeds the token as `?t=`
+        // (pairing payload); current apps strip it and authenticate via the
+        // Sec-WebSocket-Protocol bearer entry, but older installed builds still
+        // connect with the token in the WS URL. Default-on for those installs;
+        // closeable via the option / MOXXY_MOBILE_QUERY_TOKEN to stop leaking the
+        // bearer into tunnel/proxy logs once apps no longer need it.
+        allowQueryToken: this.allowQueryToken,
+      });
+      this.server = server;
+      this.logger?.info?.('mobile channel listening', { address: server.address });
 
-    // A network client is the EXPECTED-to-drop case (network loss, app killed
-    // or backgrounded). The bridge exposes no per-disconnect event the host can
-    // subscribe to (each transport's single onClose is already owned by its
-    // JsonRpcPeer), so poll the connected-client count and, on the transition
-    // back to zero AFTER at least one client connected, abort in-flight turns +
-    // drain parked asks so an abandoned turn/ask can't strand the runner. The
-    // timer is unref'd (never holds the process open) and cleared on teardown.
-    //
-    // The RISING edge is driven by `onConnection`, NOT the poll: a fast-crashing
-    // client (the hostile case — connect, fire a turn, die within one poll
-    // window) would read clientCount()===0 on both surrounding polls, so a
-    // poll-only `sawClient` flag would never see the connect and never drain the
-    // stranded turn/ask. `onConnection` marks `sawClient` synchronously the
-    // instant a client attaches, so the next falling-edge poll still drains it.
-    // `onConnection` is additive (the bridge already registered bus.attach), so
-    // this doesn't disturb connection routing.
-    let sawClient = false;
-    server.onConnection(() => {
-      sawClient = true;
-    });
-    this.disconnectSweep = setInterval(() => {
-      const n = server.clientCount();
-      if (n > 0) {
+      // A network client is the EXPECTED-to-drop case (network loss, app killed
+      // or backgrounded). The bridge exposes no per-disconnect event the host can
+      // subscribe to (each transport's single onClose is already owned by its
+      // JsonRpcPeer), so poll the connected-client count and, on the transition
+      // back to zero AFTER at least one client connected, abort in-flight turns +
+      // drain parked asks so an abandoned turn/ask can't strand the runner. The
+      // timer is unref'd (never holds the process open) and cleared on teardown.
+      //
+      // The RISING edge is driven by `onConnection`, NOT the poll: a fast-crashing
+      // client (the hostile case — connect, fire a turn, die within one poll
+      // window) would read clientCount()===0 on both surrounding polls, so a
+      // poll-only `sawClient` flag would never see the connect and never drain the
+      // stranded turn/ask. `onConnection` marks `sawClient` synchronously the
+      // instant a client attaches, so the next falling-edge poll still drains it.
+      // `onConnection` is additive (the bridge already registered bus.attach), so
+      // this doesn't disturb connection routing.
+      let sawClient = false;
+      server.onConnection(() => {
         sawClient = true;
-        return;
-      }
-      if (sawClient) {
-        sawClient = false;
-        host.onAllClientsDisconnected();
-      }
-    }, 1000);
-    if (typeof this.disconnectSweep?.unref === 'function') this.disconnectSweep.unref();
+      });
+      this.disconnectSweep = setInterval(() => {
+        const n = server.clientCount();
+        if (n > 0) {
+          sawClient = true;
+          return;
+        }
+        if (sawClient) {
+          sawClient = false;
+          host.onAllClientsDisconnected();
+        }
+      }, 1000);
+      if (typeof this.disconnectSweep?.unref === 'function') this.disconnectSweep.unref();
 
-    // Optionally expose the bridge beyond the LAN via the user's chosen tunnel.
-    // For the E2E (proxy) path the tunnel points at a local responder shim, not
-    // the bridge directly: the phone speaks an encrypted channel the shim
-    // terminates before forwarding to the bridge, so the relay only ever sees
-    // ciphertext and the bearer token never crosses it.
-    let tunnelUrl: string | null = null;
-    let fp: string | undefined;
-    const provider = tunnelProviderFor(this.tunnelChoice);
-    if (provider) {
-      try {
-        let targetPort = this.port;
-        let targetHost = this.bindHost;
-        // Route this channel under the `mobile` path so the relay can multiplex
-        // it alongside the web preview / webhooks under one uuid subdomain.
-        let label: string | undefined;
-        if (isE2EChoice(this.tunnelChoice)) {
-          const identity = await loadOrCreateIdentity();
-          fp = fingerprint(identity.publicKey);
-          this.shim = await startE2EShim({
-            identity,
-            token: this.token,
-            bridgePort: this.port,
-            bridgeHost: isLoopbackHost(this.bindHost) ? this.bindHost : '127.0.0.1',
-            ...(this.logger ? { logger: this.logger } : {}),
+      // Optionally expose the bridge beyond the LAN via the user's chosen tunnel.
+      // For the E2E (proxy) path the tunnel points at a local responder shim, not
+      // the bridge directly: the phone speaks an encrypted channel the shim
+      // terminates before forwarding to the bridge, so the relay only ever sees
+      // ciphertext and the bearer token never crosses it.
+      let tunnelUrl: string | null = null;
+      let fp: string | undefined;
+      const provider = tunnelProviderFor(this.tunnelChoice);
+      if (provider) {
+        try {
+          let targetPort = this.port;
+          let targetHost = this.bindHost;
+          // Route this channel under the `mobile` path so the relay can multiplex
+          // it alongside the web preview / webhooks under one uuid subdomain.
+          let label: string | undefined;
+          if (isE2EChoice(this.tunnelChoice)) {
+            const identity = await loadOrCreateIdentity();
+            fp = fingerprint(identity.publicKey);
+            this.shim = await startE2EShim({
+              identity,
+              token: this.token,
+              bridgePort: this.port,
+              bridgeHost: isLoopbackHost(this.bindHost) ? this.bindHost : '127.0.0.1',
+              ...(this.logger ? { logger: this.logger } : {}),
+            });
+            targetPort = this.shim.port;
+            targetHost = '127.0.0.1';
+            label = 'mobile';
+          }
+          this.tunnel = await provider.open({
+            port: targetPort,
+            host: targetHost,
+            ...(label ? { label } : {}),
           });
-          targetPort = this.shim.port;
-          targetHost = '127.0.0.1';
-          label = 'mobile';
-        }
-        this.tunnel = await provider.open({
-          port: targetPort,
-          host: targetHost,
-          ...(label ? { label } : {}),
-        });
-        tunnelUrl = this.tunnel.url;
-        // The phone reaches the shim (E2E) or the bridge (plain) via this origin.
-        server.setAllowedOrigins([...localOrigins, connectUrlOrigin(tunnelUrl)]);
-        this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
-      } catch (err) {
-        this.logger?.warn?.('mobile tunnel failed; using the local URL', {
-          provider: provider.name,
-          err: String(err),
-        });
-        if (this.shim) {
-          await this.shim.close().catch(() => undefined);
-          this.shim = null;
+          tunnelUrl = this.tunnel.url;
+          // The phone reaches the shim (E2E) or the bridge (plain) via this origin.
+          server.setAllowedOrigins([...localOrigins, connectUrlOrigin(tunnelUrl)]);
+          this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
+        } catch (err) {
+          this.logger?.warn?.('mobile tunnel failed; using the local URL', {
+            provider: provider.name,
+            err: String(err),
+          });
+          if (this.shim) {
+            await this.shim.close().catch(() => undefined);
+            this.shim = null;
+          }
         }
       }
-    }
 
-    // A QR (+ plain URL) the mobile app scans to connect — token embedded.
-    // The URL only ever advertises an address the server is reachable on:
-    // the tunnel URL, the LAN IP for a wildcard bind, or the bind host itself
-    // (the loopback default advertises 127.0.0.1 — simulators on this machine).
-    const connectUrl = buildConnectUrl({
-      tunnelUrl,
-      localHost: advertisedHost(this.bindHost),
-      port: this.port,
-      token: this.token,
-      ...(fp ? { fingerprint: fp } : {}),
-    });
-    const loopbackOnly = !tunnelUrl && isLoopbackHost(this.bindHost);
-    await printConnectInfo(
-      connectUrl,
-      this.token,
-      loopbackOnly
-        ? 'Bound to loopback — this QR only works on THIS machine (e.g. an iOS/Android\n' +
-          '  simulator). For a real phone: opt in to a LAN bind with MOXXY_MOBILE_HOST=0.0.0.0\n' +
-          "  (or channels.mobile.bindHost in moxxy.config.ts), or use the proxy tunnel\n" +
-          "  (channels.mobile.tunnel: 'proxy', or MOXXY_MOBILE_TUNNEL=proxy)."
-        : undefined,
-    );
+      // A QR (+ plain URL) the mobile app scans to connect — token embedded.
+      // The URL only ever advertises an address the server is reachable on:
+      // the tunnel URL, the LAN IP for a wildcard bind, or the bind host itself
+      // (the loopback default advertises 127.0.0.1 — simulators on this machine).
+      const connectUrl = buildConnectUrl({
+        tunnelUrl,
+        localHost: advertisedHost(this.bindHost),
+        port: this.port,
+        token: this.token,
+        ...(fp ? { fingerprint: fp } : {}),
+      });
+      const loopbackOnly = !tunnelUrl && isLoopbackHost(this.bindHost);
+      await printConnectInfo(
+        connectUrl,
+        this.token,
+        loopbackOnly
+          ? 'Bound to loopback — this QR only works on THIS machine (e.g. an iOS/Android\n' +
+            '  simulator). For a real phone: opt in to a LAN bind with MOXXY_MOBILE_HOST=0.0.0.0\n' +
+            "  (or channels.mobile.bindHost in moxxy.config.ts), or use the proxy tunnel\n" +
+            "  (channels.mobile.tunnel: 'proxy', or MOXXY_MOBILE_TUNNEL=proxy)."
+          : undefined,
+      );
+      // Launch the bundled Expo app (Expo Go / dev server) pointed at this
+      // channel. Best-effort: a failure here rolls the whole start() back via
+      // the catch below, tearing down the bridge/tunnel/shim we just opened.
+      this.expo = await this.startExpoApp(expoOptions);
     } catch (err) {
       // Roll back the partial wiring: unsubscribe from session.log + clear the
       // ask resolvers (host.dispose), close anything we managed to open, and
       // null the fields back out so this channel owns nothing.
+      await this.expo?.stop().catch(() => undefined);
+      this.expo = null;
       host.dispose();
       if (this.disconnectSweep) {
         clearInterval(this.disconnectSweep);
@@ -315,6 +359,8 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     return {
       running,
       stop: async () => {
+        await this.expo?.stop();
+        this.expo = null;
         host.dispose();
         if (this.disconnectSweep) {
           clearInterval(this.disconnectSweep);

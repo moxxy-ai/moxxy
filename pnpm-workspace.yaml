@@ -1,6 +1,7 @@
 packages:
   - 'packages/*'
   - 'apps/*'
+  - 'apps/mobile-plugin/mobile'
   - 'tooling/*'
 
 # Centralized dependency versions. Packages reference these with

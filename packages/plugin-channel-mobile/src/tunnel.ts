@@ -21,6 +21,7 @@ export {
   buildConnectUrl,
   connectUrlOrigin,
   advertisedOrigins,
+  expoWebOrigins,
 } from './pairing.js';
 
 /** `localhost` (no tunnel) plus the name of any registered provider. Kept a wide

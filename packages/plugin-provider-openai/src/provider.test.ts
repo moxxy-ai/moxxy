@@ -191,7 +191,7 @@ describe('OpenAIProvider.stream', () => {
     expect(captured?.stream_options).toEqual({ include_usage: true });
     expect(events[events.length - 1]).toMatchObject({
       type: 'message_end',
-      usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 80 },
+      usage: { inputTokens: 20, outputTokens: 20, cacheReadTokens: 80 },
     });
   });
 

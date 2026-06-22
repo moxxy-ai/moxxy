@@ -8,6 +8,13 @@ export interface DeskSession {
   id: string;
   name: string;
   createdAt: number;
+  cwd?: string;
+  firstPrompt?: string | null;
+  lastActivity?: string;
+  eventCount?: number;
+  provider?: string | null;
+  model?: string | null;
+  source?: 'desktop' | 'tui' | 'mobile' | 'cli';
 }
 
 export interface Desk {
@@ -16,13 +23,14 @@ export interface Desk {
   cwd: string;
   color: string;
   createdAt: number;
-  /** Every conversation under this desk. A desk always has >= 1 session;
-   *  the default first session's id equals the desk id (the v1 migration
+  /** Every conversation under this desk. Normal project desks always have >= 1
+   *  session; the global Moxxy workspace may be empty before session sync.
+   *  The default first project-session id equals the desk id (the v1 migration
    *  invariant that keeps pre-multi-session runner logs + chat mirrors
    *  resuming untouched). */
   sessions: DeskSession[];
   /** The session the desk foregrounds when it becomes active. */
-  activeSessionId: string;
+  activeSessionId: string | null;
 }
 
 export interface DesksOverview {

@@ -80,6 +80,35 @@ describe('ScheduleStore', () => {
     expect(remaining.map((s) => s.name)).toEqual(['b']);
   });
 
+  it('delete hides workflow-sourced schedules from later workflow syncs', async () => {
+    await store.syncWorkflowSchedule('daily-report', {
+      id: 'workflow-daily-report',
+      name: 'daily-report',
+      prompt: 'p',
+      cron: '0 9 * * *',
+      enabled: true,
+      createdAt: Date.now(),
+      source: 'workflow',
+      workflowName: 'daily-report',
+    });
+    const created = (await store.list())[0]!;
+
+    expect(await store.delete(created.id)).toBe(true);
+    expect(await store.list()).toEqual([]);
+
+    await store.syncWorkflowSchedule('daily-report', {
+      id: 'workflow-daily-report-next',
+      name: 'daily-report',
+      prompt: 'p',
+      cron: '0 9 * * *',
+      enabled: true,
+      createdAt: Date.now(),
+      source: 'workflow',
+      workflowName: 'daily-report',
+    });
+    expect(await store.list()).toEqual([]);
+  });
+
   it('syncSkillSchedule replaces only skill-sourced rows for that skill', async () => {
     // Mix of manual + skill schedules.
     await store.create({ name: 'manual-one', prompt: 'p', cron: '0 9 * * *' });

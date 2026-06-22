@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { buildSeedTurn } from './agent.js';
+import { agentRunTurnOptions, buildSeedTurn } from './agent.js';
+
+describe('agentRunTurnOptions', () => {
+  it('passes the coordinator-selected model into the peer turn', () => {
+    expect(agentRunTurnOptions(' gpt-5.4-mini ')).toEqual({ model: 'gpt-5.4-mini' });
+  });
+
+  it('omits the option when no model was provided', () => {
+    expect(agentRunTurnOptions(undefined)).toEqual({});
+  });
+});
 
 describe('buildSeedTurn', () => {
   it('frames an implementer with the overall goal, its sub-task, and the brief pointer', () => {

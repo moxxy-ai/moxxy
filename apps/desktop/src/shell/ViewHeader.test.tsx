@@ -151,4 +151,57 @@ describe('Segmented (collapsible)', () => {
     for (const t of TABS) expect(screen.getByTestId(`t-${t.id}`)).toBeTruthy();
     expect(screen.queryByTestId('t-collapsed')).toBeNull();
   });
+
+  it('blocks disabled inline tabs from firing navigation while keeping the active tab usable', () => {
+    pinWidths(300, 800);
+    const onChange = vi.fn();
+    render(
+      <Segmented
+        items={TABS}
+        value="providers"
+        onChange={onChange}
+        testIdPrefix="t-"
+        disabledIds={new Set(['mcp', 'mobile'])}
+        disabledReason="Session is still loading"
+        collapsible
+      />,
+    );
+
+    const disabledTab = screen.getByTestId('t-mcp');
+    expect(disabledTab.getAttribute('aria-disabled')).toBe('true');
+    expect(disabledTab.hasAttribute('disabled')).toBe(true);
+
+    fireEvent.click(disabledTab);
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('t-providers'));
+    expect(onChange).toHaveBeenCalledWith('providers');
+  });
+
+  it('blocks disabled collapsed menu items and leaves the dropdown open', () => {
+    pinWidths(800, 300);
+    const onChange = vi.fn();
+    render(
+      <Segmented
+        items={TABS}
+        value="providers"
+        onChange={onChange}
+        testIdPrefix="t-"
+        disabledIds={new Set(['mobile'])}
+        disabledReason="Session is still loading"
+        collapsible
+      />,
+    );
+
+    const trigger = screen.getByTestId('t-collapsed');
+    fireEvent.click(trigger);
+
+    const disabledItem = screen.getByTestId('t-mobile');
+    expect(disabledItem.getAttribute('aria-disabled')).toBe('true');
+    expect(disabledItem.hasAttribute('disabled')).toBe(true);
+
+    fireEvent.click(disabledItem);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  });
 });

@@ -140,6 +140,8 @@ export function handleSseEvent(
 
   if (type === 'response.completed') {
     const usage = ev.response?.usage;
+    const input = usage?.input_tokens ?? 0;
+    const cacheRead = usage?.input_tokens_details?.cached_tokens ?? 0;
     const incomplete = ev.response?.incomplete_details?.reason;
     let stopReason: StopReason = 'end_turn';
     if (incomplete === 'max_output_tokens') stopReason = 'max_tokens';
@@ -152,11 +154,9 @@ export function handleSseEvent(
       ...(usage
         ? {
             usage: {
-              input: usage.input_tokens ?? 0,
+              input: Math.max(0, input - cacheRead),
               output: usage.output_tokens ?? 0,
-              ...(usage.input_tokens_details?.cached_tokens !== undefined
-                ? { cacheRead: usage.input_tokens_details.cached_tokens }
-                : {}),
+              ...(usage.input_tokens_details?.cached_tokens !== undefined ? { cacheRead } : {}),
             },
           }
         : {}),

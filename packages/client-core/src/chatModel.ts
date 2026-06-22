@@ -173,10 +173,22 @@ export interface ChatRuntime {
   rev: number;
 }
 
+export function uniqueEventsById(events: ReadonlyArray<MoxxyEvent>): MoxxyEvent[] {
+  const seen = new Set<string>();
+  const unique: MoxxyEvent[] = [];
+  for (const event of events) {
+    if (seen.has(event.id)) continue;
+    seen.add(event.id);
+    unique.push(event);
+  }
+  return unique;
+}
+
 export function createRuntime(initialEvents: ReadonlyArray<MoxxyEvent> = []): ChatRuntime {
+  const uniqueInitialEvents = uniqueEventsById(initialEvents);
   return {
-    log: new ChunkedBlockLog<MoxxyEvent>(128, initialEvents),
-    seenIds: new Set(initialEvents.map((e) => e.id)),
+    log: new ChunkedBlockLog<MoxxyEvent>(128, uniqueInitialEvents),
+    seenIds: new Set(uniqueInitialEvents.map((e) => e.id)),
     extensions: [],
     streamingText: '',
     streamingReasoning: '',
@@ -254,6 +266,7 @@ export function applyAction(rt: ChatRuntime, action: ChatAction): boolean {
     case 'event':
       return applyEvent(rt, action.event);
     case 'send_started':
+      if (rt.sending && rt.activeTurnId === action.turnId) return false;
       rt.activeTurnId = action.turnId;
       rt.sending = true;
       rt.error = null;

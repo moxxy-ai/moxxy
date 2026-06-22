@@ -59,6 +59,52 @@ function buildSession(): Session {
 }
 
 describe('runTurn turnId filtering', () => {
+  it('continues the last resolved session model when no model override is supplied', async () => {
+    const models = [{ id: 'noop-default' }, { id: 'noop-sticky' }];
+    const session = new Session({ cwd: '/tmp', silent: true });
+    session.pluginHost.registerStatic(
+      definePlugin({
+        name: 'test-sticky-model',
+        version: '0.0.0',
+        providers: [
+          defineProvider({
+            name: 'noop',
+            models,
+            createClient: () => ({
+              name: 'noop',
+              models,
+              stream: async function* () {},
+              countTokens: async () => 0,
+            }),
+          }),
+        ],
+        modes: [
+          defineMode({
+            name: 'model-echo',
+            run: async function* (ctx: ModeContext): AsyncIterable<MoxxyEvent> {
+              await ctx.emit({
+                type: 'assistant_message',
+                sessionId: ctx.sessionId,
+                turnId: ctx.turnId,
+                source: 'assistant',
+                text: ctx.model,
+              });
+            },
+          }),
+        ],
+      }),
+    );
+    session.providers.setActive('noop');
+    session.modes.setActive('model-echo');
+    session.lastResolvedModel = 'noop-sticky';
+
+    const events = await collectTurn(session, 'continue');
+
+    expect(events.find((e) => e.type === 'assistant_message')).toMatchObject({
+      text: 'noop-sticky',
+    });
+  });
+
   it('a single turn surfaces all of its own events', async () => {
     const session = buildSession();
     const events = await collectTurn(session, 'hi');

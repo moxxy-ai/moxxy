@@ -31,10 +31,12 @@
     "@moxxy/desktop-app-sdk": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/mode-collaborative": "workspace:*",
+    "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",
+    "@moxxy/workspace-registry": "workspace:*",
     "officeparser": "~5.1.1",
     "pdfjs-dist": "4.10.38"
   },

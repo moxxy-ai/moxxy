@@ -17,34 +17,40 @@ import type { IpcCommandName } from './commands.js';
  * after deciding a paired phone should be able to drive it.
  *
  * The list is exactly the commands a chat client legitimately needs to hold a
- * conversation: read the session snapshot, send/abort a turn, switch mode, run a
- * slash command, reset the conversation, transcribe voice, ANSWER (not bypass)
- * permission prompts, persist the per-workspace transcript, and list/run/read an
- * EXISTING workflow. Everything else — auto-approve toggling, desk/onboarding/
- * settings/vault/app/prefs writes, workflow AUTHORING (save/validateDraft/
- * setEnabled), native pickers, focus-window control, and the gateway-control
- * commands themselves (`mobileGateway.*`) — stays Electron-bus-only (the trusted
- * local UI) and is refused over the wire.
+ * conversation: read the session snapshot, send/abort a turn, switch mode,
+ * toggle the session-scoped auto-approve flag, run a slash command, reset the
+ * conversation, transcribe voice, answer permission prompts, persist the
+ * per-workspace transcript, list/run/read an EXISTING workflow, and manage
+ * existing scheduler entries (list/pause/delete) surfaced in the mobile
+ * scheduler view. Everything else — desk/onboarding/settings/vault/app/prefs
+ * writes, workflow AUTHORING (save/validateDraft/setEnabled), native pickers,
+ * focus-window control, and the gateway-control commands themselves
+ * (`mobileGateway.*`) — stays Electron-bus-only (the trusted local UI) and is
+ * refused over the wire.
  *
  * RULE: add a command here ONLY if a paired phone should be able to invoke it.
  * If it mutates host state beyond the conversation, it almost certainly does not
  * belong.
  */
 export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcCommandName>([
-  // Answer a permission/approval prompt — RESPOND only. Note that
-  // `session.setAutoApprove` (turn the prompt OFF entirely) is deliberately NOT
-  // here: a remote client may answer the desktop user's prompts, never disable
-  // them and run tools unattended.
+  // Answer a permission/approval prompt.
   'ask.respond',
   // Workspace discovery + reconnect (read-only / non-mutating).
   'connection.snapshotAll',
   'connection.activeWorkspace',
   'connection.retry',
+  'desks.list',
+  'desks.setActive',
   // The conversation itself.
   'session.info',
   'session.runTurn',
   'session.abortTurn',
+  'session.setProvider',
+  'session.setModel',
   'session.setMode',
+  // Session-scoped only: this does NOT persist allow rules to permissions.json,
+  // but it must be shared so desktop and mobile show the same bypass state.
+  'session.setAutoApprove',
   'session.newSession',
   // ASSUMPTION (breadth-of-surface): this single entry fans out to the ENTIRE
   // registered slash-command set — a paired phone can invoke any command by
@@ -72,6 +78,13 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // Read a workspace's transcript history from the runner's authoritative log
   // (a paired phone may read history, scoped to a workspace, not host config).
   'chat.loadHistory',
+  // Scheduler: mobile may inspect, pause/resume, and delete existing schedules
+  // from the shared scheduler store. Creating/editing prompts remains an
+  // agent/desktop-authoring flow so a paired phone cannot write arbitrary new
+  // prompt automations into the host.
+  'scheduler.list',
+  'scheduler.setEnabled',
+  'scheduler.delete',
   // Workflows: READ + run an existing one only. Authoring (`workflows.save`,
   // `workflows.validateDraft`, `workflows.setEnabled`) is host-only — a paired
   // phone must not rewrite or re-enable the host's workflows.

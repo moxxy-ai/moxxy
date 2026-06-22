@@ -185,18 +185,23 @@ export class SessionDriver {
     prompt: string,
     model?: string,
     attachments?: ReadonlyArray<{ path: string; name: string }>,
+    inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
   ): Promise<{ turnId: string }> {
     const id = randomUUID();
     const controller = new AbortController();
 
-    const pump = (async () => {
+    const pump = Promise.resolve().then(async () => {
       let error: string | null = null;
       try {
-        let built: ReadonlyArray<UserPromptAttachment> = [];
+        const promptAttachments: UserPromptAttachment[] = [];
         if (attachments && attachments.length > 0) {
           // Read each file in the main process and build a real attachment
           // (image base64 / inline text) — the renderer only had the path.
-          built = await buildAttachments(attachments);
+          const built = await buildAttachments(attachments);
+          promptAttachments.push(...built);
+        }
+        if (inlineAttachments && inlineAttachments.length > 0) {
+          promptAttachments.push(...inlineAttachments);
         }
         const opts: RunTurnOptions = {
           signal: controller.signal,
@@ -207,7 +212,7 @@ export class SessionDriver {
           // uuid to the SDK's TurnId without widening the field's type.
           turnId: asTurnId(id),
           ...(model ? { model } : {}),
-          ...(built.length > 0 ? { attachments: built } : {}),
+          ...(promptAttachments.length > 0 ? { attachments: promptAttachments } : {}),
         };
         // RemoteSession's runTurn forwards opts.attachments verbatim
         // to the runner's RunTurnParams, where each becomes a
@@ -228,9 +233,13 @@ export class SessionDriver {
           error,
         });
       }
-    })();
+    });
 
     this.turns.set(id, { controller, pump });
+    this.send('runner.turn.started', {
+      workspaceId: this.workspaceId,
+      turnId: id,
+    });
     return { turnId: id };
   }
 

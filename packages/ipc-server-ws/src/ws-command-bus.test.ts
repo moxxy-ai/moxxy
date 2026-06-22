@@ -72,7 +72,6 @@ describe('WebSocketCommandBus', () => {
      *  token) must NEVER reach over the WS bridge — even though the desktop wires
      *  ALL of them onto the same bus as the chat commands. */
     const HOST_MUTATING: ReadonlyArray<IpcCommandName> = [
-      'session.setAutoApprove',
       'desks.create',
       'desks.rename',
       'desks.remove',
@@ -123,6 +122,7 @@ describe('WebSocketCommandBus', () => {
       ['session.runTurn', { workspaceId: 'ws-1', prompt: 'hi' }],
       ['session.abortTurn', { workspaceId: 'ws-1', turnId: 't1' }],
       ['session.setMode', { workspaceId: 'ws-1', mode: 'default' }],
+      ['session.setAutoApprove', { workspaceId: 'ws-1', enabled: true }],
       ['session.newSession', { workspaceId: 'ws-1' }],
       ['session.runCommand', { workspaceId: 'ws-1', name: 'compact', args: '' }],
       ['session.transcribe', { audioBase64: 'AA==' }],

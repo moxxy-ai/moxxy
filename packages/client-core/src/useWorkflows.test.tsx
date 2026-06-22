@@ -139,4 +139,30 @@ describe('useWorkflows', () => {
 
     expect(result.current.lastRun).toEqual({ name: 'daily-summary', result: run });
   });
+
+  it('does not stash paused runs because workflow asks are handled globally', async () => {
+    const run: WorkflowRun = {
+      ok: true,
+      output: 'waiting for user input',
+      steps: [{ id: 'ask-user', status: 'paused' }],
+      status: 'paused',
+      runId: 'run-awaiting-input',
+    };
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'workflows.list') return [];
+      if (cmd === 'workflows.run') return run;
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
+
+    const { result } = renderHook(() => useWorkflows());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.run('daily-summary');
+    });
+
+    expect(result.current.lastRun).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
 });

@@ -15,7 +15,7 @@
     "test": "turbo run test && pnpm run test:scripts",
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:watch": "turbo run test:watch --concurrency=1",
-    "check:deps": "depcruise --config .dependency-cruiser.cjs packages apps/desktop/electron apps/desktop/src apps/mobile-poc/src",
+    "check:deps": "depcruise --config .dependency-cruiser.cjs packages apps/desktop/electron apps/desktop/src",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {
@@ -30,6 +30,30 @@
     "vitest": "catalog:"
   },
   "pnpm": {
+    "packageExtensions": {
+      "@clerk/clerk-react@*": {
+        "dependencies": {
+          "@types/react": "^18.3.0"
+        }
+      },
+      "@clerk/shared@*": {
+        "dependencies": {
+          "@types/react": "^18.3.0"
+        }
+      },
+      "react-native-worklets@0.8.3": {
+        "dependencies": {
+          "@babel/generator": "^7.29.7",
+          "@babel/traverse": "^7.29.7",
+          "@babel/types": "^7.29.7"
+        }
+      },
+      "react-virtuoso@*": {
+        "dependencies": {
+          "@types/react": "^18.3.0"
+        }
+      }
+    },
     "onlyBuiltDependencies": [
       "esbuild",
       "electron",

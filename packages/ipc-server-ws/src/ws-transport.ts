@@ -204,6 +204,9 @@ export interface WebSocketBridgeOptions {
   readonly bufferStallGraceMs?: number;
   /** Max bytes per frame. Defaults to 64 MB to cover the base64 audio cap. */
   readonly maxPayloadBytes?: number;
+  /** Called whenever a client connects or disconnects. Used by host UIs to
+   *  live-refresh pairing state without polling. */
+  readonly onClientCountChange?: (count: number) => void;
 }
 
 export interface WebSocketBridgeServer extends TransportServer {
@@ -309,6 +312,7 @@ export async function createWebSocketTransportServer(
     // connection (releasing it so its backstop timer can't fire).
     releaseReservation(req.socket);
     connections += 1;
+    opts.onClientCountChange?.(connections);
     const transport = new WsTransport(
       ws,
       new SlowReaderGuard(opts.maxBufferedBytes, opts.bufferStallGraceMs),
@@ -316,6 +320,7 @@ export async function createWebSocketTransportServer(
     liveTransports.add(transport);
     ws.once('close', () => {
       connections -= 1;
+      opts.onClientCountChange?.(connections);
       liveTransports.delete(transport);
     });
     for (const handler of connectionHandlers) handler(transport);

@@ -31,11 +31,13 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@moxxy/core": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/e2e": "workspace:*",
     "@moxxy/ipc-server-ws": "workspace:*",
     "@moxxy/plugin-tunnel-proxy": "workspace:*",
     "@moxxy/sdk": "workspace:*",
+    "@moxxy/workspace-registry": "workspace:*",
     "qrcode": "^1.5.4",
     "ws": "catalog:"
   },

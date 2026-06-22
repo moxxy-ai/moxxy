@@ -48,6 +48,27 @@ function keyOf(node: RenderNode): string {
   return node.block.id;
 }
 
+function toolAnchorId(node: RenderNode): string | null {
+  if (node.kind === 'tool-group') return node.tools.at(-1)?.id ?? null;
+  if (node.kind === 'block' && node.block.kind === 'tool-call') return node.block.id;
+  return null;
+}
+
+function containsToolAnchor(node: RenderNode, anchorId: string): boolean {
+  if (node.kind === 'tool-group') return node.tools.some((tool) => tool.id === anchorId);
+  return node.kind === 'block' && node.block.kind === 'tool-call' && node.block.id === anchorId;
+}
+
+function findAnchoredIndex(nodes: ReadonlyArray<RenderNode>, previousHead: RenderNode): number {
+  const previousKey = keyOf(previousHead);
+  const exact = nodes.findIndex((node) => keyOf(node) === previousKey);
+  if (exact >= 0) return exact;
+
+  const anchorId = toolAnchorId(previousHead);
+  if (!anchorId) return -1;
+  return nodes.findIndex((node) => containsToolAnchor(node, anchorId));
+}
+
 function Row({ node, workspaceId }: { readonly node: RenderNode; readonly workspaceId?: string }): JSX.Element {
   return (
     <div style={ROW}>
@@ -118,22 +139,33 @@ export function Transcript({
     // `align: 'end'` on the LAST index also accounts for the Footer (the
     // in-flight streaming bubble), landing fully at the bottom — which
     // flips `atBottom` back on and resumes `followOutput`.
-    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'smooth' });
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
   }, []);
 
   // Track how many rows have been prepended so far and shift
   // firstItemIndex by that amount. Detect a prepend by finding where the
-  // previous head row landed in the new list.
+  // previous head row landed in the new list. Tool runs can merge across a
+  // pagination boundary, so fall back to the previous head tool id when the
+  // render-node key itself changes.
   const [firstItemIndex, setFirstItemIndex] = useState(BASE_FIRST_INDEX);
-  const prevHeadKey = useRef<string | null>(null);
+  const prevWorkspaceId = useRef<string | undefined>(workspaceId);
+  const prevHeadNode = useRef<RenderNode | null>(null);
   useLayoutEffect(() => {
-    const headKey = nodes.length > 0 ? keyOf(nodes[0]!) : null;
-    if (prevHeadKey.current !== null && headKey !== prevHeadKey.current) {
-      const idx = nodes.findIndex((n) => keyOf(n) === prevHeadKey.current);
+    const headNode = nodes[0] ?? null;
+    if (prevWorkspaceId.current !== workspaceId) {
+      prevWorkspaceId.current = workspaceId;
+      prevHeadNode.current = headNode;
+      setFirstItemIndex(BASE_FIRST_INDEX);
+      return;
+    }
+
+    const previousHead = prevHeadNode.current;
+    if (previousHead !== null && headNode !== null && keyOf(headNode) !== keyOf(previousHead)) {
+      const idx = findAnchoredIndex(nodes, previousHead);
       if (idx > 0) setFirstItemIndex((v) => v - idx);
     }
-    prevHeadKey.current = headKey;
-  }, [nodes]);
+    prevHeadNode.current = headNode;
+  }, [nodes, workspaceId]);
 
   return (
     // Relative wrapper so the jump-to-latest button can float over the
