@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/e2e",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "End-to-end-encrypted secure channel for the proxy tunnel: a signed-ephemeral-ECDH handshake (Ed25519 identity pinned out-of-band via the QR fingerprint) + XChaCha20-Poly1305 framing, so a relay between agent and phone sees only ciphertext it cannot forge or read. Pure JS (@noble), no Node built-ins on the '.' export, so it bundles cleanly under Metro/React Native.",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/agent",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Batteries-included entry to moxxy: one install + one call to run an agent. Bundles @moxxy/core, the default loop, and the OpenAI + Anthropic providers behind drop-in presets — `setupAgent(openaiPreset({ apiKey }))`.",
   "keywords": [
     "moxxy",
