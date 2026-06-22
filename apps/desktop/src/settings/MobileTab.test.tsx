@@ -33,6 +33,17 @@ const ENABLED: MobileGatewayStatus = {
   clientCount: 1,
 };
 
+/** The E2E proxy relay is up — the advertised URL is a remote `wss://` link with
+ *  the pinned fingerprint (the gateway's preferred, encrypted, off-LAN path). */
+const ENABLED_REMOTE: MobileGatewayStatus = {
+  enabled: true,
+  host: '192.168.1.7',
+  port: 8765,
+  connectUrl: 'wss://uuid123.proxy.moxxy.ai/mobile/?t=s3cret&fp=AGENT_FP',
+  token: 's3cret',
+  clientCount: 0,
+};
+
 /** Install a fake transport whose `mobileGateway.status` returns `initial`,
  *  and whose `setEnabled` / `rotateToken` flip a recorded state. */
 function installFakeApi(initial: MobileGatewayStatus): IpcSpy {
@@ -115,6 +126,21 @@ describe('MobileTab', () => {
     expect(warning.textContent).toMatch(/intercept/i);
     // Connected-client count surfaces.
     expect(screen.getByText(/1 device connected/i)).toBeTruthy();
+  });
+
+  it('shows the encrypted-relay note (not the LAN warning) for a remote wss URL', async () => {
+    installFakeApi(ENABLED_REMOTE);
+    render(<MobileTab />);
+    await waitFor(() => {
+      expect(screen.getByTestId('mobile-connect-url').textContent).toBe(
+        'wss://uuid123.proxy.moxxy.ai/mobile/?t=s3cret&fp=AGENT_FP',
+      );
+    });
+    // The E2E path shows the milder relay note and NOT the unencrypted-LAN alert.
+    const note = screen.getByTestId('mobile-proxy-note');
+    expect(note.textContent).toMatch(/end-to-end-encrypted/i);
+    expect(note.textContent).toMatch(/relay/i);
+    expect(screen.queryByTestId('mobile-lan-warning')).toBeNull();
   });
 
   it('surfaces a copy failure instead of swallowing it', async () => {

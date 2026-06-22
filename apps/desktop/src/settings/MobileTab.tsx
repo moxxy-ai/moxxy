@@ -123,10 +123,16 @@ export function MobileTab(): JSX.Element {
     }
   };
 
+  // Which pairing path is live drives the copy + the security warning. A remote
+  // `wss://` connectUrl means the E2E proxy relay is up (off-LAN, encrypted, the
+  // relay sees only ciphertext); a `ws://` URL is the LAN fallback (plaintext,
+  // same-network only) shown when the relay was unreachable.
+  const remote = !!status.connectUrl && status.connectUrl.startsWith('wss://');
+
   return (
     <Section
       title="Mobile gateway"
-      description="Pair the moxxy mobile app to drive this desktop from your phone. Scan the QR in the app to connect over your local network."
+      description="Pair the moxxy mobile app to drive this desktop from your phone. Scan the QR in the app — it connects securely over the internet through the moxxy relay, or falls back to your local network if the relay is unreachable."
     >
       <div
         style={{
@@ -196,8 +202,40 @@ export function MobileTab(): JSX.Element {
           </p>
         )}
 
-        {/* Security warning — only meaningful (and shown) when the gateway is on. */}
-        {status.enabled && (
+        {/* Security warning — only meaningful (and shown) when the gateway is on.
+            Two flavours: the unencrypted-LAN fallback (load-bearing — passive
+            interception is possible) and the E2E-encrypted relay path (milder —
+            no interception, but the QR/token still grants full control). */}
+        {status.enabled && remote && (
+          <div
+            role="note"
+            data-testid="mobile-proxy-note"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 9,
+              padding: '10px 14px',
+              border: '1px solid color-mix(in oklab, var(--color-amber, #d97706) 30%, transparent)',
+              background: 'color-mix(in oklab, var(--color-amber, #d97706) 8%, transparent)',
+              borderRadius: 12,
+              fontSize: 12.5,
+              lineHeight: 1.5,
+              color: 'var(--color-text)',
+            }}
+          >
+            <Icon name="lock" size={15} style={{ marginTop: 1, flexShrink: 0 }} />
+            <span>
+              <strong>Reachable from anywhere over an end-to-end-encrypted link.</strong> The
+              connection runs through the moxxy relay, which only ever sees ciphertext — your phone
+              and this desktop verify each other directly (the QR pins this machine&apos;s key), so
+              the relay cannot read your traffic or impersonate the desktop. But anyone who obtains
+              the QR / pairing token can still drive moxxy on this machine: send prompts, run tools,
+              read your workspaces. Keep the code private, turn the gateway off when you are done, and
+              use <em>Regenerate code</em> if it may have leaked.
+            </span>
+          </div>
+        )}
+        {status.enabled && !remote && (
           <div
             role="alert"
             data-testid="mobile-lan-warning"
@@ -216,13 +254,13 @@ export function MobileTab(): JSX.Element {
           >
             <Icon name="lock" size={15} style={{ marginTop: 1, flexShrink: 0 }} />
             <span>
-              <strong>This exposes your desktop on the local network over an unencrypted
-              connection.</strong> Traffic uses plain <code>ws://</code> (no TLS), so anyone on the
-              same network can passively intercept the pairing token and everything you send and
-              receive — they do not even need the QR code to do it. Once they have the token they
-              can drive moxxy on this machine: send prompts, run tools, read your workspaces. Only
-              enable this on networks you trust, turn the gateway off when you are done, and use{' '}
-              <em>Regenerate code</em> if a token may have leaked.
+              <strong>The relay is unreachable, so this exposes your desktop on the local network
+              over an unencrypted connection.</strong> Traffic uses plain <code>ws://</code> (no
+              TLS), so anyone on the same network can passively intercept the pairing token and
+              everything you send and receive — they do not even need the QR code to do it. Once they
+              have the token they can drive moxxy on this machine: send prompts, run tools, read your
+              workspaces. Only enable this on networks you trust, turn the gateway off when you are
+              done, and use <em>Regenerate code</em> if a token may have leaked.
             </span>
           </div>
         )}
