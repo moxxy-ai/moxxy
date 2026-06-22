@@ -52,15 +52,18 @@ describe('generateRootCss', () => {
 
   it('keeps the brand tokens parity with styles.css values', () => {
     const css = generateRootCss();
-    // Spot-check the load-bearing brand declarations against the desktop CSS.
+    // Spot-check the load-bearing brand declarations against the desktop CSS
+    // (z.ai-style neutral palette; pink primary kept).
     expect(css).toContain('--color-primary: #ec4899;');
-    expect(css).toContain('--color-app-bg: #f1f2f9;');
-    expect(css).toContain('--color-main-bg: rgb(252, 252, 255);');
+    expect(css).toContain('--color-app-bg: #f7f7f5;');
+    expect(css).toContain('--color-main-bg: #ffffff;');
     expect(css).toContain('--color-surface: #ffffff;');
+    expect(css).toContain('--color-ink: #18181b;');
     expect(css).toContain(
-      '--color-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.10);',
+      '--color-card-shadow: 0 1px 2px rgba(24, 24, 27, 0.04), 0 8px 24px -18px rgba(24, 24, 27, 0.06);',
     );
     expect(css).toContain('--grad-cta: linear-gradient(135deg, #ec4899 0%, #db2777 100%);');
+    expect(css).toContain("--font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;");
     expect(css).toContain('--radius-card: 14px;');
   });
 

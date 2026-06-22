@@ -13,28 +13,33 @@
 
 export const tokens = {
   color: {
-    appBg: '#f1f2f9',
-    /* Main chat column — a hair off pure white so it reads as separate
-     * from adjacent white surfaces without being grey. */
-    mainBg: 'rgb(252, 252, 255)',
+    /* z.ai-style neutral canvas — a warm off-white/light-grey. */
+    appBg: '#f7f7f5',
+    /* Main chat column — pure white; it reads as the bright surface
+     * against the grey canvas + grey sidebar. */
+    mainBg: '#ffffff',
     /* Resting surface for buttons / chips / inputs that sit ON a card
      * or column (the things that were hard-coded `#fff`). */
     surface: '#ffffff',
-    /* Recessed "soft" input fill — a cool near-white a step below the
-     * surface (TextInput/TextArea tone='soft', modal fields). */
-    inputSoft: '#f7f8fc',
+    /* Recessed "soft" input fill — a neutral grey a step below the surface
+     * (TextInput/TextArea tone='soft', modal fields). */
+    inputSoft: '#f3f3f1',
     cardBg: '#ffffff',
-    cardBorder: '#e3e5f0',
-    cardBorderStrong: '#cdd1e3',
-    text: '#0f172a',
-    textMuted: '#475569',
-    textDim: '#94a3b8',
-    sidebarBg: '#ffffff',
-    sidebarBgHover: '#f4f5fb',
-    sidebarBgActive: '#fdf2f8',
-    sidebarText: '#0f172a',
-    sidebarTextDim: '#6b7194',
-    sidebarBorder: '#e3e5f0',
+    cardBorder: '#ebebe8',
+    cardBorderStrong: '#d6d6d2',
+    text: '#18181b',
+    textMuted: '#52525b',
+    textDim: '#a1a1aa',
+    /* Sidebar is the grey; the main column is the white (z.ai inverts the
+     * old "sidebar white / canvas off-white"). */
+    sidebarBg: '#f7f7f5',
+    sidebarBgHover: '#efefec',
+    sidebarBgActive: '#e9e9e6' /* neutral grey active row (was a pink wash) */,
+    sidebarText: '#18181b',
+    sidebarTextDim: '#71717a',
+    sidebarBorder: '#ebebe8',
+    /* Brand accent — pink is kept (sparingly) for the send button, focus
+     * ring, and active accents per the redesign decision. */
     primary: '#ec4899',
     primaryStrong: '#db2777',
     primarySoft: '#fdf2f8',
@@ -46,9 +51,12 @@ export const tokens = {
     amber: '#f59e0b',
     pink: '#ec4899',
     red: '#ef4444',
+    /* Near-black "ink" action color — z.ai's dark pills / Share button.
+     * Flips to near-white in dark so dark pills read as light-on-dark. */
+    ink: '#18181b',
   },
   shadow: {
-    card: '0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.10)',
+    card: '0 1px 2px rgba(24, 24, 27, 0.04), 0 8px 24px -18px rgba(24, 24, 27, 0.06)',
   },
   gradient: {
     user: 'linear-gradient(135deg, #ec4899 0%, #f472b6 100%)',
@@ -58,6 +66,8 @@ export const tokens = {
   font: {
     sans: "'Inter', system-ui, -apple-system, sans-serif",
     mono: "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace",
+    /* Display serif for hero headings (z.ai aesthetic). */
+    serif: "'Instrument Serif', Georgia, 'Times New Roman', serif",
   },
   radius: {
     block: 8,
@@ -90,22 +100,25 @@ export type ThemeTokens = Widen<Tokens>;
  */
 export const darkTokens: ThemeTokens = {
   color: {
-    appBg: '#0b0c13',
-    mainBg: '#101117',
-    surface: '#1b1e2b',
-    inputSoft: '#121420' /* soft inputs recess below the card they sit on */,
-    cardBg: '#161823',
-    cardBorder: '#262a3c',
-    cardBorderStrong: '#363c54',
-    text: '#e8eaf6',
-    textMuted: '#a4abc8',
-    textDim: '#697091',
-    sidebarBg: '#0d0e16',
-    sidebarBgHover: '#171927',
-    sidebarBgActive: '#2b1622' /* dark plum — the brand-pink wash on dark */,
-    sidebarText: '#e8eaf6',
-    sidebarTextDim: '#8b91b0',
-    sidebarBorder: '#1f2233',
+    /* z.ai-style neutral dark: near-black canvas, dark-grey columns/cards,
+     * light text. Lightness ordering preserved: sidebar < canvas < main <
+     * card < surface. Pink accent kept. */
+    appBg: '#0d0d0f',
+    mainBg: '#161618',
+    surface: '#222226',
+    inputSoft: '#17171a' /* soft inputs recess below the card they sit on */,
+    cardBg: '#1b1b1e',
+    cardBorder: '#26262b',
+    cardBorderStrong: '#3a3a40',
+    text: '#e8e8ea',
+    textMuted: '#a1a1aa',
+    textDim: '#6e6e76',
+    sidebarBg: '#0a0a0c',
+    sidebarBgHover: '#19191c',
+    sidebarBgActive: '#26262b' /* neutral grey active row */,
+    sidebarText: '#e8e8ea',
+    sidebarTextDim: '#8a8a92',
+    sidebarBorder: '#222226',
     primary: tokens.color.primary,
     primaryStrong: tokens.color.primaryStrong,
     primarySoft: '#2b1622' /* the near-white pink-50 flips to the dark plum wash */,
@@ -117,6 +130,7 @@ export const darkTokens: ThemeTokens = {
     amber: tokens.color.amber,
     pink: tokens.color.pink,
     red: tokens.color.red,
+    ink: '#e8eaf6' /* near-white ink for dark pills */,
   },
   shadow: {
     card: '0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 24px -18px rgba(0, 0, 0, 0.7)',

@@ -6,40 +6,38 @@
  */
 
 :root {
-  /* App canvas — cool lavender to match the landing site's hero. */
-  --color-app-bg:        #f1f2f9;
-  /* Main chat column — near-white with a faint cool tint, a hair off
-   * pure white so the column reads as separate from any adjacent white
-   * surface without being grey. */
-  --color-main-bg:       rgb(252, 252, 255);
+  /* App canvas — z.ai-style neutral off-white/light-grey. */
+  --color-app-bg:        #f7f7f5;
+  /* Main chat column — pure white; it is the bright surface against the
+   * grey canvas + grey sidebar. */
+  --color-main-bg:       #ffffff;
   /* Resting surface for buttons / chips / inputs that sit ON a card or
    * column (the things that used to be hard-coded `#fff`). */
   --color-surface:       #ffffff;
-  /* Recessed "soft" input fill — a cool near-white a step below the
+  /* Recessed "soft" input fill — a neutral grey a step below the
    * surface, used by TextInput/TextArea tone='soft' and modal fields. */
-  --color-input-soft:    #f7f8fc;
+  --color-input-soft:    #f3f3f1;
   --color-card-bg:       #ffffff;
-  --color-card-border:   #e3e5f0;
-  --color-card-border-strong: #cdd1e3;
-  --color-card-shadow:   0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.10);
+  --color-card-border:   #ebebe8;
+  --color-card-border-strong: #d6d6d2;
+  --color-card-shadow:   0 1px 2px rgba(24, 24, 27, 0.04), 0 8px 24px -18px rgba(24, 24, 27, 0.06);
 
-  /* Text — same high-contrast navy as the landing headlines. */
-  --color-text:          #0f172a;
-  --color-text-muted:    #475569;
-  --color-text-dim:      #94a3b8;
+  /* Text — neutral near-black. */
+  --color-text:          #18181b;
+  --color-text-muted:    #52525b;
+  --color-text-dim:      #a1a1aa;
 
-  /* Sidebar — pure white. The chat column sits a hair off-white
-   * (rgb(252,252,255)) so the columns still register as separate
-   * against each other and against the lavender canvas. */
-  --color-sidebar-bg:        #ffffff;
-  --color-sidebar-bg-hover:  #f4f5fb;
-  --color-sidebar-bg-active: #fdf2f8;   /* brand-pink wash for the active row */
-  --color-sidebar-text:      #0f172a;
-  --color-sidebar-text-dim:  #6b7194;
-  --color-sidebar-border:    #e3e5f0;
+  /* Sidebar — the grey. The chat column sits pure white so the columns
+   * still register as separate surfaces against each other. */
+  --color-sidebar-bg:        #f7f7f5;
+  --color-sidebar-bg-hover:  #efefec;
+  --color-sidebar-bg-active: #e9e9e6;   /* neutral grey active row */
+  --color-sidebar-text:      #18181b;
+  --color-sidebar-text-dim:  #71717a;
+  --color-sidebar-border:    #ebebe8;
 
-  /* Accents — pink primary (CTA), cyan secondary, emerald success. */
-  --color-primary:        #ec4899;   /* hot pink — CTAs, send button, focus glow */
+  /* Accents — pink primary kept (sparingly) for send/focus/active. */
+  --color-primary:        #ec4899;   /* hot pink — send button, focus glow, active accents */
   --color-primary-strong: #db2777;
   --color-primary-soft:   #fdf2f8;
   --color-send:           #ec4899;   /* CTA / send share the brand pink */
@@ -50,6 +48,7 @@
   --color-amber:          #f59e0b;
   --color-pink:           #ec4899;
   --color-red:            #ef4444;
+  --color-ink:            #18181b;   /* near-black action color — dark pills / Share */
   --color-purple-strong:  #7c3aed;   /* readable violet for text on the purple tints */
 
   /* Status tints — the tailwind-derived washes the transcript blocks and
@@ -76,7 +75,7 @@
   --color-amber-border: #fde68a;
   --color-amber-text:   #b45309;
   /* Inline-code background in rendered Markdown. */
-  --color-code-bg:      #f1f3fb;
+  --color-code-bg:      #f3f3f1;
 
   /* Brand gradients */
   --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
@@ -86,6 +85,7 @@
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
   --radius-block: 8px;
   --radius-card:  14px;
   --radius-pill:  9999px;
@@ -102,9 +102,9 @@
 :root {
   --color-bg:              var(--color-app-bg);
   --color-bg-card:         var(--color-card-bg);
-  --color-bg-card-hover:   #f4f5fa;
+  --color-bg-card-hover:   #f0f0ed;
   --color-border:          var(--color-card-border);
-  --color-border-light:    #d8dbeb;
+  --color-border-light:    #e0e0dc;
 }
 
 /* --- Dark theme -------------------------------------------------
@@ -118,29 +118,30 @@
  * column < cards < surfaces in lightness, brand accents unchanged.
  */
 [data-theme="dark"] {
-  --color-app-bg:        #0b0c13;
-  --color-main-bg:       #101117;
-  --color-surface:       #1b1e2b;
+  /* z.ai-style neutral dark: near-black canvas, dark-grey columns/cards. */
+  --color-app-bg:        #0d0d0f;
+  --color-main-bg:       #161618;
+  --color-surface:       #222226;
   /* Soft inputs recess BELOW the card they sit on (mirror of light's
    * near-white-on-white): between main column and card lightness. */
-  --color-input-soft:    #121420;
-  --color-card-bg:       #161823;
-  --color-card-border:   #262a3c;
-  --color-card-border-strong: #363c54;
+  --color-input-soft:    #17171a;
+  --color-card-bg:       #1b1b1e;
+  --color-card-border:   #26262b;
+  --color-card-border-strong: #3a3a40;
   --color-card-shadow:   0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 24px -18px rgba(0, 0, 0, 0.7);
 
-  --color-text:          #e8eaf6;
-  --color-text-muted:    #a4abc8;
-  --color-text-dim:      #697091;
+  --color-text:          #e8e8ea;
+  --color-text-muted:    #a1a1aa;
+  --color-text-dim:      #6e6e76;
 
   /* Left rail deepens slightly below the canvas so the columns still
    * register as separate surfaces in the dark. */
-  --color-sidebar-bg:        #0d0e16;
-  --color-sidebar-bg-hover:  #171927;
-  --color-sidebar-bg-active: #2b1622;   /* dark plum — the brand-pink wash on dark */
-  --color-sidebar-text:      #e8eaf6;
-  --color-sidebar-text-dim:  #8b91b0;
-  --color-sidebar-border:    #1f2233;
+  --color-sidebar-bg:        #0a0a0c;
+  --color-sidebar-bg-hover:  #19191c;
+  --color-sidebar-bg-active: #26262b;   /* neutral grey active row */
+  --color-sidebar-text:      #e8e8ea;
+  --color-sidebar-text-dim:  #8a8a92;
+  --color-sidebar-border:    #222226;
 
   /* Brand accents survive dark unchanged (re-declared so the parity
    * test can assert full coverage), EXCEPT the near-white pink-50
@@ -156,6 +157,7 @@
   --color-amber:          #f59e0b;
   --color-pink:           #ec4899;
   --color-red:            #ef4444;
+  --color-ink:            #e8eaf6;   /* near-white ink for dark pills */
   --color-purple-strong:  #a78bfa;   /* violet text lightens for contrast on dark tints */
 
   /* Status tints — deep desaturated washes in the same lightness band as
@@ -178,15 +180,15 @@
   --color-amber-border: #5b430f;
   --color-amber-text:   #fbbf24;
   /* Inline code pops a step LIGHTER than the card it sits on. */
-  --color-code-bg:      #262b40;
+  --color-code-bg:      #26262b;
 
   --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
   --grad-cta:     linear-gradient(135deg, #ec4899 0%, #db2777 100%);
   --grad-accent:  linear-gradient(135deg, #38bdf8 0%, #22d3ee 100%);
 
   /* Legacy literal aliases — see the note above the alias block. */
-  --color-bg-card-hover:   #1d2030;
-  --color-border-light:    #2c3147;
+  --color-bg-card-hover:   #202024;
+  --color-border-light:    #303036;
 
   color-scheme: dark;
 }
