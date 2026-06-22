@@ -194,6 +194,21 @@ export default defineConfig(({ mode }) => {
           bootstrap: path.resolve('electron/main/bootstrap.ts'),
         },
         external: EXTERNAL_NATIVE,
+        // DEV ONLY: `electron-vite dev` emits the main as ESM and inlines some
+        // transitive CJS deps (e.g. `ulid`) that call a bare `require()` — which
+        // is undefined in an ES module, so they throw at import and the main
+        // never boots. Expose a `require` on the global so those inlined CJS
+        // paths work in dev. Not applied to the production build (which resolves
+        // these deps via its own path), so the shipped floor stays untouched.
+        ...(mode === 'development'
+          ? {
+              output: {
+                banner:
+                  "import { createRequire as __cjsRequire } from 'node:module';" +
+                  ' globalThis.require ||= __cjsRequire(import.meta.url);',
+              },
+            }
+          : {}),
       },
     },
   },
