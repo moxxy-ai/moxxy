@@ -1,5 +1,12 @@
 # @moxxy/workflows-builder
 
+## 0.1.15
+
+### Patch Changes
+
+- Updated dependencies [648c966]
+  - @moxxy/sdk@0.16.1
+
 ## 0.1.14
 
 ### Patch Changes

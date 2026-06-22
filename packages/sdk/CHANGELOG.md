@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.16.1
+
+### Patch Changes
+
+- 648c966: Sync desktop/mobile session state, auto-approve, and OpenAI cached-token usage for context meters.
+
 ## 0.16.0
 
 ### Minor Changes
