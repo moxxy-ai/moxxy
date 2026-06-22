@@ -1,70 +1,57 @@
 /**
- * Right-hand context rail — repurposed into a router for agentic surfaces.
+ * Right-hand embedded-window panel — a resizable host for "surfaces".
  *
- * The chevron/context button no longer just toggles the rail; it opens a
- * dropdown (see {@link RailMenu}) to pick what the rail shows:
- *   - Terminal — a shared shell the user and the agent drive together.
- *   - Files changed — git-changed files with a diff (only in a git repo).
- *   - Files — browse + preview every file in the workspace (any folder).
- *   - Browser — a live, in-window view of the agent's browser.
+ * The body and the rail/embed menu are driven by the surface registry
+ * ({@link ./surfaces/registry}) so panes are pluggable: built-ins are
+ * terminal / files-changed / files / browser / code-file, plus generic
+ * web + text renderers any plugin surface can target. The header carries a
+ * code↔preview toggle (file pane) and contextual actions — including
+ * pane→agent actions (e.g. "Ask agent about this file") — plus Close.
  *
- * The rail is drag-resizable (left edge) and its width persists across
- * restarts (see {@link useRailWidth}).
+ * Drag the left edge (the ⋮ grip) to resize; the width persists
+ * ({@link useRailWidth}). Width is intentionally NOT animated (xterm's fit()
+ * would measure a sliver mid-animation and lock the terminal).
  */
 
-import { useRef } from 'react';
-import { deskForWorkspace, useDesks } from '@moxxy/client-core';
+import { useRef, useState } from 'react';
+import { api, deskForWorkspace, useDesks } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
 import { RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, setRailWidth, useRailWidth } from '../lib/useRailWidth';
-import { TerminalPane } from './surfaces/TerminalPane';
-import { FilesPane } from './surfaces/FilesPane';
-import { FilesExplorerPane } from './surfaces/FilesExplorerPane';
-import { BrowserPane } from './surfaces/BrowserPane';
+import {
+  paneDef,
+  renderPaneBody,
+  type AgentLink,
+  type FileSelection,
+  type RailPane,
+} from './surfaces/registry';
+import type { FileSurfaceView } from './surfaces/FileSurface';
+import { isPreviewable } from './surfaces/FilePreview';
 
-export type RailPane = 'terminal' | 'files' | 'explorer' | 'browser';
-
-const PANE_TITLE: Record<RailPane, string> = {
-  terminal: 'Terminal',
-  files: 'Files changed',
-  explorer: 'Files',
-  browser: 'Browser',
-};
-
-/**
- * Agent tool name → the rail pane that showcases that tool's work, colocated
- * with the panes themselves so adding a surface-backed pane is a single edit
- * here (the auto-reveal in {@link useAgentSurfaceReveal} reads this seam rather
- * than carrying its own copy). When the surface set becomes runner-contributed
- * this can be swapped for a registry lookup without touching call sites.
- */
-const TOOL_PANE: Readonly<Record<string, RailPane>> = {
-  browser_session: 'browser',
-  terminal: 'terminal',
-};
-
-/** The rail pane a given agent tool should reveal, or undefined if none. */
-export function railPaneForTool(toolName: string): RailPane | undefined {
-  return TOOL_PANE[toolName];
-}
+export type { RailPane } from './surfaces/registry';
 
 interface Props {
-  /** Active pane, or null when the rail is collapsed. */
+  /** Active pane, or null when the panel is collapsed. */
   readonly pane: RailPane | null;
   readonly onClose: () => void;
   /** The workspace (session id) the rest of the UI is showing. */
   readonly workspaceId: string | null;
+  /** File revealed in the `file` pane (lifted in App). */
+  readonly file: FileSelection;
+  /** Pane → chat/agent channel. */
+  readonly agent: AgentLink;
 }
 
-export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element {
+export function ContextRail({ pane, onClose, workspaceId, file, agent }: Props): JSX.Element {
   const desks = useDesks();
   const active = deskForWorkspace(desks.desks, workspaceId);
+  const cwd = active?.cwd ?? null;
   const width = useRailWidth();
   const railRef = useRef<HTMLElement | null>(null);
+  const [view, setView] = useState<FileSurfaceView>('code');
   const open = pane !== null;
 
-  // Drag the left edge to resize. The rail is pinned to the window's right
-  // edge, so width = (rail right edge) − pointer x. Capture the right edge at
-  // pointer-down so the math survives the rail itself resizing mid-drag.
+  const ctx = { workspaceId, cwd, file, view, setView, agent };
+
   const startDrag = (e: React.PointerEvent): void => {
     e.preventDefault();
     const right = railRef.current?.getBoundingClientRect().right ?? window.innerWidth;
@@ -97,10 +84,6 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
           aria-valuenow={width}
           tabIndex={0}
           onPointerDown={startDrag}
-          // Keyboard resize: the separator advertises slider semantics, so it
-          // must be operable without a pointer. The rail grows leftward, so
-          // ArrowLeft widens and ArrowRight narrows; Home/End jump to the
-          // clamped extremes. setRailWidth already clamps to [MIN, MAX].
           onKeyDown={(e) => {
             const step = e.shiftKey ? 40 : 16;
             if (e.key === 'ArrowLeft') {
@@ -119,10 +102,6 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
           }}
           title="Drag to resize"
           style={{
-            // Sit just inside the rail's left edge. The rail clips horizontal
-            // overflow (overflow-y:auto ⇒ overflow-x:auto), so a negative-left
-            // handle would be clipped and unclickable; left:0 keeps the whole
-            // grab strip live over the border.
             position: 'absolute',
             left: 0,
             top: 0,
@@ -130,17 +109,32 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
             width: 8,
             cursor: 'col-resize',
             zIndex: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--color-text-dim)',
           }}
-        />
+        >
+          <span aria-hidden style={{ fontSize: 12, lineHeight: 1, letterSpacing: '-2px', opacity: 0.6 }}>
+            ⋮
+          </span>
+        </div>
       )}
 
-      <Header pane={pane} cwd={active?.cwd ?? null} onClose={onClose} />
+      <Header
+        pane={pane}
+        cwd={cwd}
+        file={file}
+        view={view}
+        onSetView={setView}
+        onClose={onClose}
+        onAsk={() => agent.ask(`About \`${baseName(file.path)}\`: `)}
+        onEdit={() => agent.ask(`Please edit \`${baseName(file.path)}\`: `)}
+        onOpenExternal={() => openExternal(cwd, file.path)}
+      />
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {pane === 'terminal' && <TerminalPane workspaceId={workspaceId} />}
-        {pane === 'files' && <FilesPane workspaceId={workspaceId} cwd={active?.cwd ?? null} />}
-        {pane === 'explorer' && <FilesExplorerPane workspaceId={workspaceId} />}
-        {pane === 'browser' && <BrowserPane workspaceId={workspaceId} />}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: pane === 'file' ? 0 : undefined }}>
+        {pane !== null && renderPaneBody(pane, ctx)}
       </div>
     </section>
   );
@@ -149,12 +143,28 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
 function Header({
   pane,
   cwd,
+  file,
+  view,
+  onSetView,
   onClose,
+  onAsk,
+  onEdit,
+  onOpenExternal,
 }: {
   readonly pane: RailPane | null;
   readonly cwd: string | null;
+  readonly file: FileSelection;
+  readonly view: FileSurfaceView;
+  readonly onSetView: (v: FileSurfaceView) => void;
   readonly onClose: () => void;
+  readonly onAsk: () => void;
+  readonly onEdit: () => void;
+  readonly onOpenExternal: () => void;
 }): JSX.Element {
+  const def = paneDef(pane);
+  const isFile = pane === 'file';
+  const canPreview = isFile && isPreviewable(file.path);
+
   return (
     <div
       style={{
@@ -165,55 +175,155 @@ function Header({
         minHeight: 64,
         flexShrink: 0,
         boxSizing: 'border-box',
-        padding: '0 14px',
+        padding: '0 12px',
         borderBottom: '1px solid var(--color-card-border)',
         background: 'var(--color-card-bg)',
       }}
     >
-      <button type="button" aria-label="Collapse panel" onClick={onClose} style={iconBtnStyle}>
-        <Icon name="chevron-right" size={14} />
-      </button>
-      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-        <span
+      {isFile ? (
+        <div
           style={{
-            fontSize: 11.5,
-            fontWeight: 700,
-            color: 'var(--color-text-muted)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.07em',
+            display: 'inline-flex',
+            padding: 3,
+            gap: 2,
+            background: 'var(--color-app-bg)',
+            borderRadius: 9,
           }}
         >
-          {pane ? PANE_TITLE[pane] : 'Context'}
-        </span>
-        {cwd && (
+          <ToggleBtn active={view === 'code'} label="Code" onClick={() => onSetView('code')}>
+            <Icon name="code" size={15} />
+          </ToggleBtn>
+          {canPreview && (
+            <ToggleBtn active={view === 'preview'} label="Preview" onClick={() => onSetView('preview')}>
+              <Icon name="eye" size={15} />
+            </ToggleBtn>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
           <span
-            className="mono"
-            title={cwd}
             style={{
-              fontSize: 10.5,
-              color: 'var(--color-text-dim)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              fontSize: 11.5,
+              fontWeight: 700,
+              color: 'var(--color-text-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.07em',
             }}
           >
-            {cwd}
+            {def?.title ?? 'Context'}
           </span>
-        )}
-      </div>
+          {cwd && (
+            <span
+              className="mono"
+              title={cwd}
+              style={{
+                fontSize: 10.5,
+                color: 'var(--color-text-dim)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {cwd}
+            </span>
+          )}
+        </div>
+      )}
+
+      <span style={{ flex: 1 }} />
+
+      {isFile && (
+        <>
+          <ActBtn label="Ask agent about this file" onClick={onAsk}>
+            <Icon name="chat" size={15} />
+          </ActBtn>
+          <ActBtn label="Ask the agent to edit this file" onClick={onEdit}>
+            <Icon name="pencil" size={15} />
+          </ActBtn>
+          <ActBtn label="Open in default app" onClick={onOpenExternal}>
+            <Icon name="external" size={15} />
+          </ActBtn>
+        </>
+      )}
+      <ActBtn label="Close panel" onClick={onClose}>
+        <Icon name="x" size={15} />
+      </ActBtn>
     </div>
   );
 }
 
+function ToggleBtn({
+  active,
+  label,
+  onClick,
+  children,
+}: {
+  readonly active: boolean;
+  readonly label: string;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 30,
+        height: 26,
+        borderRadius: 7,
+        color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
+        background: active ? 'var(--color-surface)' : 'transparent',
+        boxShadow: active ? '0 1px 2px rgba(24, 24, 27, 0.06)' : 'none',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ActBtn({
+  label,
+  onClick,
+  children,
+}: {
+  readonly label: string;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <button type="button" className="btn-icon" aria-label={label} title={label} onClick={onClick} style={iconBtnStyle}>
+      {children}
+    </button>
+  );
+}
+
 const iconBtnStyle: React.CSSProperties = {
-  width: 26,
-  height: 26,
-  borderRadius: 7,
+  width: 28,
+  height: 28,
+  borderRadius: 8,
   color: 'var(--color-text-dim)',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  border: '1px solid var(--color-card-border)',
-  background: 'var(--color-surface)',
   flexShrink: 0,
 };
+
+function baseName(path: string | null): string {
+  if (!path) return 'this file';
+  return path.split('/').filter(Boolean).pop() ?? path;
+}
+
+/** Best-effort "open in default app" via the existing external-open IPC. */
+function openExternal(cwd: string | null, path: string | null): void {
+  if (!path) return;
+  const abs = path.startsWith('/') ? path : cwd ? `${cwd.replace(/\/$/, '')}/${path}` : path;
+  void api()
+    .invoke('onboarding.openExternal', { url: `file://${abs}` })
+    .catch(() => {});
+}

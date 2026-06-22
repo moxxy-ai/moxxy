@@ -1,33 +1,42 @@
 import { useEffect } from 'react';
 import { api } from '@moxxy/client-core';
-import { railPaneForTool, type RailPane } from '../ContextRail';
+import { revealForTool, type FileSelection, type RailPane } from './registry';
 
 /**
- * Auto-reveal the matching rail pane the first time the agent uses its
- * browser / terminal tool, so its work is shown to the user without them
- * having to open the pane manually ("showcase its work"). Renderer-only: we
- * observe the SAME `runner.event` stream the transcript renders and call
- * `reveal` for the active workspace — no runner / protocol change.
+ * Auto-reveal the matching embedded pane the first time the agent uses a tool
+ * that has a surface (browser / terminal / file writes). Registry-driven: the
+ * pane (and, for Write/Edit, the file path + diff/content mode) comes from
+ * {@link revealForTool}, so adding a surface-backed pane needs no edit here.
  *
- * Each pane is revealed at most once per workspace session: the showcase
- * happens at the meaningful moment (the agent's first navigation / first
- * command) and we never fight the user by reopening a pane they've closed.
- * We never auto-CLOSE — the rail's close button stays authoritative.
+ * Renderer-only: we observe the SAME `runner.event` stream the transcript
+ * renders — no runner / protocol change. We never auto-CLOSE, and reveal each
+ * pane at most once per session (a fresh write to a *different* file still
+ * updates the path). We never fight a user who has closed a pane.
  */
 export function useAgentSurfaceReveal(
   workspaceId: string | null,
-  reveal: (pane: RailPane) => void,
+  reveal: (pane: RailPane, file?: FileSelection) => void,
 ): void {
   useEffect(() => {
     if (!workspaceId) return;
-    // Reset per workspace — a fresh session showcases afresh.
     const revealed = new Set<RailPane>();
+    let lastFilePath: string | null = null;
     return api().subscribe('runner.event', ({ workspaceId: wid, event }) => {
       if (wid !== workspaceId || event.type !== 'tool_call_requested') return;
-      const pane = railPaneForTool(event.name);
-      if (!pane || revealed.has(pane)) return;
-      revealed.add(pane);
-      reveal(pane);
+      const target = revealForTool(event.name, event.input);
+      if (!target) return;
+      // The file pane re-reveals when a DIFFERENT file is written (so the panel
+      // tracks the agent's current file); other panes only the first time.
+      if (target.kind === 'file' && target.file) {
+        if (target.file.path === lastFilePath && revealed.has('file')) return;
+        lastFilePath = target.file.path;
+        revealed.add('file');
+        reveal('file', target.file);
+        return;
+      }
+      if (revealed.has(target.kind)) return;
+      revealed.add(target.kind);
+      reveal(target.kind);
     });
   }, [workspaceId, reveal]);
 }

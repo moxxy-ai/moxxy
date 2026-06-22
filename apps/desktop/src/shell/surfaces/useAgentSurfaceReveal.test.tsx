@@ -23,9 +23,13 @@ function installFakeApi(): { emit: (payload: unknown) => void } {
   return { emit: (payload) => subs.forEach((cb) => cb(payload)) };
 }
 
-const toolEvent = (workspaceId: string, name: string): unknown => ({
+const toolEvent = (
+  workspaceId: string,
+  name: string,
+  input: Record<string, unknown> = {},
+): unknown => ({
   workspaceId,
-  event: { type: 'tool_call_requested', turnId: 't1', callId: 'c1', name, input: {} },
+  event: { type: 'tool_call_requested', turnId: 't1', callId: 'c1', name, input },
 });
 
 afterEach(() => __setApiOverride(null));
@@ -61,5 +65,32 @@ describe('useAgentSurfaceReveal', () => {
     spy.emit(toolEvent('ws-1', 'browser_session'));
     spy.emit(toolEvent('ws-1', 'browser_session'));
     expect(revealed).toEqual(['browser']);
+  });
+
+  it('reveals the file pane for Write/Edit with the file path + mode', () => {
+    const spy = installFakeApi();
+    const calls: Array<{ pane: string; file?: { path: string | null; mode: string } }> = [];
+    renderHook(() =>
+      useAgentSurfaceReveal('ws-1', (pane, file) => calls.push({ pane, file })),
+    );
+
+    spy.emit(toolEvent('ws-1', 'Write', { file_path: 'src/a.ts' }));
+    // A different file re-reveals (panel tracks the agent's current file)…
+    spy.emit(toolEvent('ws-1', 'Edit', { file_path: 'src/b.ts' }));
+    // …but the same file again does not.
+    spy.emit(toolEvent('ws-1', 'Edit', { file_path: 'src/b.ts' }));
+
+    expect(calls).toEqual([
+      { pane: 'file', file: { path: 'src/a.ts', mode: 'content' } },
+      { pane: 'file', file: { path: 'src/b.ts', mode: 'diff' } },
+    ]);
+  });
+
+  it('ignores a file write with no file_path', () => {
+    const spy = installFakeApi();
+    const revealed: string[] = [];
+    renderHook(() => useAgentSurfaceReveal('ws-1', (p) => revealed.push(p)));
+    spy.emit(toolEvent('ws-1', 'Write', {}));
+    expect(revealed).toEqual([]);
   });
 });

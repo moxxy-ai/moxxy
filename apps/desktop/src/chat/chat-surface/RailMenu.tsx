@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@moxxy/client-core';
-import { Icon, type IconName } from '@moxxy/desktop-ui';
-import type { RailPane } from '../../shell/ContextRail';
+import { Icon } from '@moxxy/desktop-ui';
+import { SURFACE_PANES, type RailPane } from '../../shell/surfaces/registry';
 
 /**
  * The repurposed context button: instead of toggling the rail, it opens a
@@ -54,12 +54,15 @@ export function RailMenu({
     };
   }, [open]);
 
-  const items: ReadonlyArray<{ pane: RailPane; icon: IconName; label: string; show: boolean }> = [
-    { pane: 'terminal', icon: 'terminal', label: 'Open a terminal', show: true },
-    { pane: 'files', icon: 'diff', label: 'Files changed', show: isRepo },
-    { pane: 'explorer', icon: 'folder', label: 'Files', show: true },
-    { pane: 'browser', icon: 'globe', label: 'Browser', show: true },
-  ];
+  // Driven by the surface registry: every `menu` pane appears here (plugin
+  // panes that opt into the menu show up automatically). `needsRepo` panes are
+  // gated on the git probe above.
+  const items = SURFACE_PANES.filter((p) => p.menu).map((p) => ({
+    pane: p.kind,
+    icon: p.icon,
+    label: p.title,
+    show: p.needsRepo ? isRepo : true,
+  }));
 
   return (
     <div ref={rootRef} style={{ position: 'relative', display: 'inline-flex' }}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { asset } from '@/lib/asset';
 import {
   ConnectionBridge,
@@ -8,6 +8,7 @@ import {
   useConnection,
   ChatStoreBridge,
   chatStore,
+  composerDraftStore,
   usePrefs,
   useSessionInfoBridge,
   useComposerChatViewRequest,
@@ -22,6 +23,7 @@ import { ChatSurface } from './chat/ChatSurface';
 import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import type { View } from './shell/ViewHeader';
 import { ContextRail, type RailPane } from './shell/ContextRail';
+import type { AgentLink, FileSelection } from './shell/surfaces/registry';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
@@ -59,6 +61,8 @@ export function App(): JSX.Element {
   // (terminal / files changed / browser); picking one sets the active pane
   // and opens the rail. Null = collapsed.
   const [railPane, setRailPane] = useState<RailPane | null>(null);
+  // The file the `file` pane shows (set by auto-reveal on Write/Edit).
+  const [railFile, setRailFile] = useState<FileSelection>({ path: null, mode: 'content' });
   const [lastConnected, setLastConnected] = useState<typeof phase>(undefined);
   // Local flag that flips the moment the user clicks "Open my
   // workspaces" in the FirstRunWizard, so we don't re-render the
@@ -94,9 +98,38 @@ export function App(): JSX.Element {
   // the user lands on the prefilled composer.
   useComposerChatViewRequest(() => setView('chat'));
 
-  // When the agent drives the browser / terminal, open the matching rail
-  // pane so its work is shown to the user (once per session per pane).
-  useAgentSurfaceReveal(activeWorkspaceId, setRailPane);
+  // When the agent drives the browser / terminal / writes a file, open the
+  // matching embedded pane so its work is shown (once per session per pane; the
+  // file pane re-reveals when a different file is written).
+  const revealPane = useCallback((pane: RailPane, file?: FileSelection): void => {
+    setRailPane(pane);
+    if (file) setRailFile(file);
+  }, []);
+  useAgentSurfaceReveal(activeWorkspaceId, revealPane);
+
+  // Pane → chat/agent channel. Built-in panes use `ask` ("Ask agent about this
+  // file"); the browser pane's region-capture attaches screenshots directly.
+  // `send` deliberately stages for review (no silent auto-send) — the consent
+  // gate matches composerDraftStore's review-in-composer behaviour.
+  const agent = useMemo<AgentLink>(
+    () => ({
+      ask: (text) => {
+        if (activeWorkspaceId) composerDraftStore.prefill(activeWorkspaceId, text);
+      },
+      send: (text) => {
+        if (activeWorkspaceId) composerDraftStore.prefill(activeWorkspaceId, text);
+      },
+      attach: (a) => {
+        if (activeWorkspaceId) {
+          composerDraftStore.prefill(
+            activeWorkspaceId,
+            `Please look at \`${a.name ?? a.path ?? 'the attached item'}\`.`,
+          );
+        }
+      },
+    }),
+    [activeWorkspaceId],
+  );
 
   // Cmd/Ctrl+B toggles the workspace sidebar (same window-level keydown
   // pattern as WorkflowCanvas's Delete handling). Skipped while typing —
@@ -260,6 +293,8 @@ export function App(): JSX.Element {
             pane={railPane}
             onClose={() => setRailPane(null)}
             workspaceId={activeWorkspaceId}
+            file={railFile}
+            agent={agent}
           />
         </>
       )}

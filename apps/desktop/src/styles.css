@@ -77,6 +77,16 @@
   /* Inline-code background in rendered Markdown. */
   --color-code-bg:      #f3f3f1;
 
+  /* Syntax-highlight tokens (highlight.js, theme-aware). Not --color-* so the
+   * design-tokens parity test leaves them alone; both themes still define them. */
+  --syntax-keyword: #cf222e;
+  --syntax-string:  #0a3069;
+  --syntax-number:  #0550ae;
+  --syntax-comment: #6e7781;
+  --syntax-func:    #8250df;
+  --syntax-type:    #953800;
+  --syntax-attr:    #0550ae;
+
   /* Brand gradients */
   --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
   --grad-cta:     linear-gradient(135deg, #ec4899 0%, #db2777 100%);
@@ -181,6 +191,15 @@
   --color-amber-text:   #fbbf24;
   /* Inline code pops a step LIGHTER than the card it sits on. */
   --color-code-bg:      #26262b;
+
+  /* Syntax-highlight tokens — dark variant. */
+  --syntax-keyword: #ff7b72;
+  --syntax-string:  #a5d6ff;
+  --syntax-number:  #79c0ff;
+  --syntax-comment: #8b949e;
+  --syntax-func:    #d2a8ff;
+  --syntax-type:    #ffa657;
+  --syntax-attr:    #79c0ff;
 
   --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
   --grad-cta:     linear-gradient(135deg, #ec4899 0%, #db2777 100%);
@@ -583,3 +602,41 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 .markdown-body.streaming > ol:last-child::after {
   content: none;
 }
+
+/* --- Syntax highlighting (highlight.js) -------------------------
+ * Map hljs token classes to the theme-aware --syntax-* vars so code
+ * reads correctly in both light and dark. Covers both the chat code
+ * fences (rehype-highlight) and the file code pane (highlight.js direct). */
+.hljs { color: var(--color-text); background: transparent; }
+.hljs-keyword,
+.hljs-literal,
+.hljs-selector-tag,
+.hljs-doctag { color: var(--syntax-keyword); }
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string,
+.hljs-char.escape_ { color: var(--syntax-string); }
+.hljs-number { color: var(--syntax-number); }
+.hljs-comment,
+.hljs-quote,
+.hljs-meta { color: var(--syntax-comment); font-style: italic; }
+.hljs-title,
+.hljs-title.function_,
+.hljs-section { color: var(--syntax-func); }
+.hljs-type,
+.hljs-built_in,
+.hljs-title.class_,
+.hljs-class .hljs-title { color: var(--syntax-type); }
+.hljs-attr,
+.hljs-attribute,
+.hljs-name,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-selector-id,
+.hljs-selector-class { color: var(--syntax-attr); }
+.hljs-addition { color: var(--color-diff-add-text); }
+.hljs-deletion { color: var(--color-diff-del-text); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }

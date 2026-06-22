@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, toErrorMessage } from '@moxxy/client-core';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { DiffView } from './DiffView';
+import { highlightCode } from './highlight';
 
 export type FileViewMode = 'diff' | 'content';
 
@@ -209,25 +210,74 @@ export function FileViewer({
     );
   }
 
+  return <CodeText content={body.content} truncated={body.truncated} path={path} />;
+}
+
+/** Syntax-highlighted, line-numbered code body for the file pane. */
+function CodeText({
+  content,
+  truncated,
+  path,
+}: {
+  readonly content: string;
+  readonly truncated: boolean;
+  readonly path: string;
+}): JSX.Element {
+  const { html } = useMemo(() => highlightCode(content, path), [content, path]);
+  const lineCount = useMemo(() => content.split('\n').length, [content]);
+  const gutter = useMemo(
+    () => Array.from({ length: lineCount }, (_, i) => i + 1).join('\n'),
+    [lineCount],
+  );
   return (
-    <pre
-      className="mono"
+    <div
       style={{
-        margin: 0,
-        padding: 10,
-        fontSize: 11.5,
-        lineHeight: 1.5,
-        overflow: 'auto',
+        display: 'flex',
         height: '100%',
+        overflow: 'auto',
         background: 'var(--color-input-soft)',
         borderRadius: 8,
-        whiteSpace: 'pre',
-        color: 'var(--color-text-muted)',
       }}
     >
-      {body.content}
-      {body.truncated ? '\n\n… (truncated)' : ''}
-    </pre>
+      <pre
+        aria-hidden
+        className="mono"
+        style={{
+          margin: 0,
+          padding: '10px 8px 10px 12px',
+          fontSize: 11.5,
+          lineHeight: 1.5,
+          textAlign: 'right',
+          color: 'var(--color-text-dim)',
+          userSelect: 'none',
+          whiteSpace: 'pre',
+          flexShrink: 0,
+        }}
+      >
+        {gutter}
+      </pre>
+      <pre
+        className="mono hljs-body"
+        style={{
+          margin: 0,
+          padding: '10px 12px',
+          fontSize: 11.5,
+          lineHeight: 1.5,
+          whiteSpace: 'pre',
+          color: 'var(--color-text)',
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        <code
+          // hljs escapes the source text, so injecting its token markup is safe;
+          // the content is the user's own local file (read via workspace.readFile).
+          dangerouslySetInnerHTML={{
+            __html: html + (truncated ? '\n\n… (truncated)' : ''),
+          }}
+        />
+      </pre>
+    </div>
   );
 }
 

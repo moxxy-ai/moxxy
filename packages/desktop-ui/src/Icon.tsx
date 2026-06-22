@@ -42,7 +42,12 @@ export type IconName =
   | 'terminal'
   | 'globe'
   | 'file'
-  | 'diff';
+  | 'diff'
+  | 'code'
+  | 'eye'
+  | 'external'
+  | 'atom'
+  | 'share';
 
 export interface IconProps extends SVGProps<SVGSVGElement> {
   readonly name: IconName;
@@ -272,6 +277,40 @@ const paths: Record<IconName, JSX.Element> = {
       <path d="M12 3v6" />
       <path d="M9 6h6" />
       <path d="M9 18h6" />
+    </>
+  ),
+  code: (
+    <>
+      <path d="m16 18 6-6-6-6" />
+      <path d="m8 6-6 6 6 6" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  external: (
+    <>
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </>
+  ),
+  atom: (
+    <>
+      <circle cx="12" cy="12" r="1.6" />
+      <path d="M20.2 20.2c1.8-1.8-1-7-6.2-12.2S2.6 1.6 1.8 3.4s1 7 6.2 12.2 10.4 6.4 12.2 4.6Z" />
+      <path d="M3.4 20.6c-1.8-1.8 1-7 6.2-12.2S18.2 1.6 20.6 3.4s-1 7-6.2 12.2-10.4 6.4-12.2 4.6Z" />
+    </>
+  ),
+  share: (
+    <>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4" />
     </>
   ),
 };

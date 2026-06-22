@@ -6,6 +6,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 import type { Components } from 'react-markdown';
 
 const components: Components = {
@@ -149,7 +150,13 @@ export function MarkdownBody({
         wordBreak: 'break-word',
       }}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        // `ignoreMissing` so an unknown ```lang fence degrades to plain code
+        // rather than throwing mid-stream.
+        rehypePlugins={[[rehypeHighlight, { ignoreMissing: true, detect: true }]]}
+        components={components}
+      >
         {text}
       </ReactMarkdown>
     </div>
