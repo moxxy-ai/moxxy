@@ -88,6 +88,53 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-22 — z.ai-style desktop redesign (tokens · shell · chat · embedded panel)
+
+Re-skinned the desktop to the z.ai aesthetic: neutral design tokens (pink kept as
+a sparing accent) + a serif display font, an icon-collapsible sidebar with a
+Chat/Agent (mode) toggle, a top-bar model selector, a centered serif empty state
+with an inline composer, grey user bubbles + full-width assistant prose, a
+collapsible Thinking/Thought-Process block with a Skip (=abort) button, and a
+plugin-extensible embedded panel (surface registry) with a code/preview file
+pane, syntax highlighting, and pane→agent actions. Both light + dark themes
+re-tuned. Reviewed this journal before/while doing the work.
+
+**Retired:**
+- The agentic-surfaces design note "swap the hardcoded `TOOL_PANE` map for a
+  registry lookup when the surface set becomes runner-contributed" (see the
+  2026-06-17 entry) is **done**: `apps/desktop/src/shell/surfaces/registry.tsx`
+  is now the single source the rail body, the rail menu, and the agent
+  auto-reveal all read. Adding a pane is one registry entry.
+- Removed dead UI: the composer's duplicate Model chip (model selection now lives
+  in the top bar) and the local-only thumbs-up/down feedback in the chat
+  ActionRow (it had no backend — pure local state).
+
+**New debt logged on sight:**
+- **Message-version nav (`‹2/2›`) + Regenerate are visual stubs.** Rendered only
+  when data exists (never, today) — real revision storage needs runner/event-log
+  support (a user prompt with multiple selectable assistant attempts), which
+  touches `packages/runner`, the SDK event model, and `chat-model` fold logic.
+  `ActionRow`'s `onRegenerate` and a future `MessageVersionNav` are the seams.
+- **Plugin embedded-windows: renderer is safe-by-construction but capability
+  gating is not yet wired.** The renderer registry is a CLOSED, audited set and
+  the generic `web`/`text` renderers sandbox/validate untrusted plugin payloads
+  (no `allow-scripts`/`allow-same-origin`; `textContent` only), so no plugin code
+  runs in the privileged renderer. But there is no dedicated `surface`/`ui`
+  capability in `@moxxy/plugin-security` yet, and the generic renderers are
+  untested end-to-end (no runner plugin emits `web`/`text` surfaces today). Add a
+  declared capability + an example plugin surface before leaning on this path.
+- **Share / API / open-external are best-effort stubs.** Top-bar Share + API jump
+  to Settings; the file-pane open-external uses `onboarding.openExternal` with a
+  `file://` URL rather than a dedicated reveal-in-OS IPC. Wire real targets
+  (mobile pairing for Share, a `shell.openPath`-style command for open-external).
+- **AgentLink.attach falls back to a text reference.** `ask`/`send` reuse
+  `composerDraftStore.prefill` (review-in-composer), but there is no attachment-
+  staging seam exposed to non-composer surfaces, so `attach` prefills a textual
+  mention instead of staging the actual artifact. The browser pane's existing
+  region-capture remains the real image→chat path.
+
+---
+
 ## 2026-06-19 — Repo-wide pessimistic hardening sweep (audit → fix → verify → elevate)
 
 A fresh, deliberately pessimistic re-audit scored **every** package/app (71
