@@ -1,5 +1,30 @@
 # @moxxy/mobile-gateway-app
 
+## 0.1.2
+
+### Patch Changes
+
+- d9965f5: Fix mobile pairing over the proxy relay (`wss://…?fp=…`). The `@moxxy/e2e` Noise
+  handshake draws its nonces and ephemeral keys from
+  `globalThis.crypto.getRandomValues`, which Hermes (React Native) does not
+  provide — so the encrypted handshake threw `crypto.getRandomValues must be
+defined` before the socket ever opened, and pairing failed with a generic
+  "couldn't connect to this gateway". Install a WebCrypto `getRandomValues`
+  polyfill backed by `expo-crypto` as the first import in the app entry (works in
+  Expo Go and native builds).
+
+  Also narrow the Metro crawl: keep `watchFolders` at the repo root (so transitive
+  `@moxxy/*` workspace deps still resolve) but add a `blockList` for `.git`, the
+  multi-GB `.claude/worktrees`, and the other monorepo apps, so a cold start no
+  longer traverses the whole workspace.
+
+- d9965f5: Fix the mobile Metro `workspaceRoot` after the move to `apps/mobile`. It was
+  `path.resolve(projectRoot, '../../..')`, correct for the old three-deep
+  `apps/mobile-plugin/mobile` path but now resolving to the directory _above_ the
+  repo. That gave Metro the wrong watch folder and `nodeModulesPaths`, so it
+  resolved/served the workspace `@moxxy/*` packages incorrectly (e.g. a stale
+  `@moxxy/client-transport-ws`). Now `../..` → the repo root.
+
 ## 0.1.1
 
 ### Patch Changes
