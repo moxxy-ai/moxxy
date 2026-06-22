@@ -866,7 +866,7 @@ item — the debt it *creates* is logged here on sight:
 
 `apps/mobile-poc` (Expo SDK 54, single screen) is the smallest app proving the mobile
 channel end to end (QR pairing → chat → ask round-trip). The production mobile surface is
-`apps/mobile-plugin/mobile`, which now consumes the same bridge/client-core flow.
+`apps/mobile`, which now consumes the same bridge/client-core flow.
 
 - **Retired:** the "remove broken apps" commit (508f5d8) left `apps/desktop`'s
   `ws-bridge.test.ts` importing the deleted `apps/mobile/src/pairingQr` — `pnpm typecheck`
@@ -876,7 +876,7 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
 - **Retired (2026-06-11): the real mobile app was still bypassed by the working PoC.**
   `moxxy mobile` only started the bridge/QR, and the only working Expo client was the
   separate `apps/mobile-poc` reference app. The mobile channel now starts the full
-  `apps/mobile-plugin/mobile` Expo app beside the bridge by default (`--no-expo` keeps
+  `apps/mobile` Expo app beside the bridge by default (`--no-expo` keeps
   bridge-only runs), and the full app consumes the same `@moxxy/client-core` +
   `@moxxy/client-transport-ws` WebSocket transport proven by the PoC.
 - **Retired (2026-06-11): the full Expo app missed the PoC's singleton React Metro
