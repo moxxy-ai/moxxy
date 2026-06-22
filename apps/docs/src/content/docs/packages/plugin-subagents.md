@@ -61,5 +61,5 @@ nudges the agent to use the tool instead of a single oversized loop.
 
 ## See also
 
-- [Sub-agents guide](../guides/subagents) — when to spawn, registry, AgentDef.
-- [Modes](../guides/modes) — pairing a child with `goal` or `research`.
+- [Sub-agents guide](../guides/subagents.md) — when to spawn, registry, AgentDef.
+- [Modes](../guides/modes.md) — pairing a child with `goal` or `research`.

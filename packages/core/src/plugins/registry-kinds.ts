@@ -64,10 +64,29 @@ export interface RegistryKind<TDef> {
   readonly defs: (plugin: Plugin) => ReadonlyArray<TDef>;
   /** Extract the registry key from a def (mostly `.name`; surfaces use `.kind`). */
   readonly nameOf: (def: TDef) => string;
-  /** Register a single def into its registry (uses `register` or `replace`). */
-  readonly register: (opts: PluginHostOptions, def: TDef) => void;
+  /**
+   * Register a single def into its registry (uses `register` or `replace`).
+   * `trusted` is true for statically-registered builtins and false for
+   * discovered (untrusted) plugins; most kinds ignore it, but the isolator
+   * registry uses it to refuse letting a discovered plugin shadow a builtin.
+   *
+   * Returns `false` when the registration was REFUSED without taking effect
+   * (currently only the isolator registry, when an untrusted plugin tries to
+   * shadow a trusted name). PluginHost must NOT track a refused registration
+   * for rollback — unregistering it on a later mid-`applyPlugin` failure would
+   * delete a name this plugin never actually owned. `void`/`true` means applied.
+   */
+  readonly register: (opts: PluginHostOptions, def: TDef, trusted: boolean) => void | boolean;
   /** Remove a previously-registered name from its registry. */
   readonly unregister: (opts: PluginHostOptions, name: string) => void;
+  /**
+   * True when `register` is an override (`replace`) rather than a throw-on-
+   * duplicate insert. Such kinds are last-wins and may clobber a name seeded by
+   * core or another plugin, so PluginHost must NOT roll them back when a later
+   * kind throws mid-`applyPlugin` (unregistering would delete a def this plugin
+   * didn't actually own).
+   */
+  readonly overrideOnRegister?: boolean;
 }
 
 /**
@@ -124,6 +143,7 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     // viewRenderers use `replace` (override-allowed) on the register side.
     register: (o, v: ViewRendererDef) => o.viewRenderers.replace(v),
     unregister: (o, n) => o.viewRenderers.unregister(n),
+    overrideOnRegister: true,
   } satisfies RegistryKind<ViewRendererDef>,
   {
     kind: 'tunnelProvider',
@@ -133,6 +153,7 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     // tunnelProviders use `replace` (override-allowed) on the register side.
     register: (o, t: TunnelProviderDef) => o.tunnelProviders.replace(t),
     unregister: (o, n) => o.tunnelProviders.unregister(n),
+    overrideOnRegister: true,
   } satisfies RegistryKind<TunnelProviderDef>,
   {
     kind: 'channel',
@@ -196,7 +217,8 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     recordField: 'isolatorNames',
     defs: (p) => p.isolators ?? [],
     nameOf: (i: Isolator) => i.name,
-    register: (o, i: Isolator) => o.isolators.register(i),
+    register: (o, i: Isolator, trusted): boolean =>
+      o.isolators.register(i, { trusted, logger: o.logger }),
     unregister: (o, n) => o.isolators.unregister(n),
   } satisfies RegistryKind<Isolator>,
   {

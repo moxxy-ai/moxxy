@@ -27,6 +27,17 @@ export function jkScrolls(
   return !options.some((o) => o.hotkey === letter);
 }
 
+/**
+ * Sanitize a (possibly pasted, multi-character) text-entry chunk for the
+ * single-line approval reply buffer. Bracketed paste arrives as one `input`,
+ * so every newline/CR is collapsed to a space (a raw `\n` would break the
+ * inline render and submit with the newline preserved) and the other control
+ * bytes are stripped. Exported for unit tests. Mirrors parse-input.ts.
+ */
+export function sanitizeEntry(input: string): string {
+  return input.replace(/[\r\n]+/g, ' ').replace(/[\t\v\f\x08\x7f]/g, '');
+}
+
 type LineRender = { readonly text: string; readonly color?: string; readonly dim?: boolean };
 
 /**
@@ -149,7 +160,12 @@ export const ApprovalDialog: React.FC<ApprovalDialogProps> = ({ request, onDecid
         !key.tab &&
         input
       ) {
-        const sanitized = input.replace(/[\r\t\v\f\x08\x7f]/g, '');
+        // Bracketed paste arrives as one multi-character `input`; collapse
+        // every newline/CR (and the other controls) to a space so a pasted
+        // multi-line answer can't inject raw `\n` into this single-line
+        // buffer — which would break the inline render and submit with the
+        // newline preserved. Mirrors parse-input.ts collapsing CR/LF.
+        const sanitized = sanitizeEntry(input);
         if (sanitized) {
           setTextEntry((t) => (t ? { ...t, buffer: t.buffer + sanitized } : t));
         }

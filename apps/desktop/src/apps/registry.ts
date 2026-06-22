@@ -1,9 +1,17 @@
 import type { ComponentType } from 'react';
 import type { IconName } from '@moxxy/desktop-ui';
+import type { SendToSessionPayload } from '@moxxy/client-core';
 
 export interface DesktopAppProps {
   /** Return to the Apps gallery. */
   readonly onExit: () => void;
+  /** Hand a payload to the user's active session (review-in-composer): prefills
+   *  the chat composer + switches to chat for the user to review and send.
+   *  Present ONLY when the app declared `canSendToSession` — apps that didn't
+   *  opt in never receive it, so the capability can't be used by accident.
+   *  Returns `false` when there is no active session (nothing was staged) so the
+   *  app can surface that instead of failing silently. */
+  readonly sendToSession?: (payload: SendToSessionPayload) => boolean;
 }
 
 /**
@@ -28,6 +36,10 @@ export interface DesktopAppDef {
   readonly requiresInstall?: boolean;
   /** One line describing what Install downloads (size, what it's for). */
   readonly installSummary?: string;
+  /** Opt in to the "send to chat" capability: when set, the gallery passes a
+   *  `sendToSession` to the component so it can push output into the active
+   *  session's composer. Off by default — a capability the app must request. */
+  readonly canSendToSession?: boolean;
   /** Full-pane component, rendered inside `<main className="col-main col-main--flat">`. */
   readonly Component: ComponentType<DesktopAppProps>;
 }

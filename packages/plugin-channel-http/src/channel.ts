@@ -7,13 +7,26 @@ import type {
   ChannelStartOptsBase,
   PermissionResolver,
 } from '@moxxy/sdk';
-import { routeRequest, type RouterContext } from './router.js';
+import { routeRequest, TurnLimiter, type RouterContext } from './router.js';
+
+/** Hosts auth-disabled mode is only safe to bind on. A non-loopback bind with
+ *  no token would expose an unauthenticated agent endpoint to the network. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost', '::ffff:127.0.0.1']);
 
 export interface HttpChannelOptions {
   readonly port?: number;
   readonly host?: string;
   /** Bearer token required on every protected route. If unset, auth is disabled (dev-only). */
   readonly authToken?: string;
+  /** Max turns running concurrently on the shared session; excess requests get
+   *  a 429. Bounds provider-stream fan-out and history interleaving. */
+  readonly maxConcurrentTurns?: number;
+  /** Abort an SSE turn whose consumer has stalled (socket open but not reading)
+   *  for this many ms, so a half-open client can't keep a provider stream alive
+   *  forever. A live-but-slow consumer resets the timer on every flushed write.
+   *  Defaults to 120_000; set <= 0 to disable (not recommended for a network
+   *  bind). */
+  readonly streamStallMs?: number;
   /**
    * Tool names that the model is allowed to call without further interaction.
    * This is the entire permission story for HTTP — there's no human in the
@@ -37,6 +50,8 @@ export class HttpChannel implements Channel<HttpStartOpts> {
   private readonly port: number;
   private readonly host: string;
   private readonly authToken: string | null;
+  private readonly maxConcurrentTurns: number;
+  private readonly streamStallMs: number | undefined;
   private readonly logger: HttpChannelOptions['logger'];
   private server: Server | null = null;
   private boundPortValue = 0;
@@ -52,6 +67,16 @@ export class HttpChannel implements Channel<HttpStartOpts> {
     this.port = opts.port ?? 3737;
     this.host = opts.host ?? '127.0.0.1';
     this.authToken = opts.authToken ?? null;
+    this.maxConcurrentTurns =
+      typeof opts.maxConcurrentTurns === 'number' && opts.maxConcurrentTurns > 0
+        ? Math.floor(opts.maxConcurrentTurns)
+        : 4;
+    // undefined => router uses its DEFAULT_STREAM_STALL_MS; a finite number
+    // (including <= 0 to disable) is honored as-is.
+    this.streamStallMs =
+      typeof opts.streamStallMs === 'number' && Number.isFinite(opts.streamStallMs)
+        ? opts.streamStallMs
+        : undefined;
     this.logger = opts.logger;
     this.permissionResolver = opts.allowedTools && opts.allowedTools.length > 0
       ? createAllowListResolver([...opts.allowedTools])
@@ -66,10 +91,22 @@ export class HttpChannel implements Channel<HttpStartOpts> {
       throw new Error('HttpChannel is already started — call stop() before starting again.');
     }
 
+    // Refuse to expose an unauthenticated agent endpoint to the network. With
+    // no token the only gate is the deny-by-default tool resolver; a
+    // non-loopback bind would still let anyone reach /v1/turn.
+    if (this.authToken === null && !LOOPBACK_HOSTS.has(this.host)) {
+      throw new Error(
+        `HttpChannel refuses to bind non-loopback host "${this.host}" without an authToken. ` +
+          'Set authToken (or MOXXY_HTTP_TOKEN), or bind 127.0.0.1.',
+      );
+    }
+
     const ctx: RouterContext = {
       session: startOpts.session,
       authToken: this.authToken,
       logger: this.logger as RouterContext['logger'],
+      turnLimiter: new TurnLimiter(this.maxConcurrentTurns),
+      ...(this.streamStallMs !== undefined ? { streamStallMs: this.streamStallMs } : {}),
     };
 
     const server = createServer(async (req, res) => {
@@ -82,15 +119,25 @@ export class HttpChannel implements Channel<HttpStartOpts> {
       try {
         await handler(req, res, ctx);
       } catch (err) {
+        // Log the full error server-side; return a generic message so internal
+        // paths/provider details can't leak to a (possibly remote) caller.
         this.logger?.warn?.('http handler threw', { err: String(err) });
         if (!res.headersSent) {
           res.writeHead(500, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: 'internal', message: String(err) }));
+          res.end(JSON.stringify({ error: 'internal' }));
         } else {
           try { res.end(); } catch { /* ignore */ }
         }
       }
     });
+
+    // Tighten timeouts so a slow-loris client can't tie up sockets by dribbling
+    // headers/bodies. Defaults (requestTimeout 300s) are too generous for an
+    // agent endpoint. Cap total connections so a flood can't exhaust handles.
+    server.headersTimeout = 10_000;
+    server.requestTimeout = 30_000;
+    server.keepAliveTimeout = 5_000;
+    server.maxConnections = 256;
 
     this.server = server;
 
@@ -103,6 +150,11 @@ export class HttpChannel implements Channel<HttpStartOpts> {
       resolveRunning = resolve;
       rejectRunning = reject;
     });
+    // A fire-and-forget caller may never attach a .catch; without this default
+    // observer a post-listen server error escalates to a process-level
+    // unhandledRejection (fatal under --unhandled-rejections=strict). Real
+    // awaiters still see the rejection — a settled promise fans out to all.
+    running.catch(() => {});
 
     const listening = new Promise<void>((resolve, reject) => {
       // Scoped to the listen handshake only — detached once we're listening so
@@ -139,16 +191,20 @@ export class HttpChannel implements Channel<HttpStartOpts> {
       running,
       stop: async () => {
         const srv = this.server;
-        await new Promise<void>((resolve) => {
-          if (!srv) return resolve();
-          srv.close(() => resolve());
-        });
-        // Clear the handle so a subsequent start() is allowed (and the port is
-        // no longer considered held).
+        // Clear the handle first so a concurrent/double stop() is a no-op rather
+        // than racing two close() calls on the same server (the second close
+        // gets an 'ERR_SERVER_NOT_RUNNING' error in its callback).
         if (this.server === srv) {
           this.server = null;
           this.boundPortValue = 0;
         }
+        await new Promise<void>((resolve) => {
+          if (!srv) return resolve();
+          srv.close((err) => {
+            if (err) this.logger?.warn?.('http server close error', { err: String(err) });
+            resolve();
+          });
+        });
       },
     };
   }

@@ -1,5 +1,199 @@
 # @moxxy/cli
 
+## 0.14.11
+
+### Patch Changes
+
+- Updated dependencies [b19d401]
+  - @moxxy/sdk@0.16.0
+
+## 0.14.10
+
+### Patch Changes
+
+- 92fecb8: Close the cross-package hardening items deferred from the repo-wide sweep, with
+  regression tests:
+
+  - **Bugs:** `countNodes()` recursion → iterative (no RangeError on a deep AST);
+    subagent `spawnAll` now settles all children (one child's setup failure no
+    longer orphans its siblings); the runner socket path honors `$MOXXY_HOME`; the
+    computer-control screenshot tool result is projected as a provider image block
+    so the model can actually see screenshots; `MoxxyRequirement.version` narrowed
+    to the plugin kind; `CompactorDef.compact` signature aligned; `isFileDiffDisplay`
+    validation tightened.
+  - **DRY:** `sleepWithAbort` / `nextBackoffMs` extracted into `@moxxy/sdk` (shared by
+    the default and goal modes); the isolator shim + broker-op concurrency limiter
+    single-sourced in `@moxxy/plugin-security` and applied to both isolators; desktop
+    loopback ports hoisted to one module; a shared collab-store helper extracted.
+  - **Accessibility / contract:** a global `prefers-reduced-motion` rule for inline
+    transitions; real ARIA roles + roving focus + Escape + focus-restore on the
+    anonymizer filter dropdown; zod schemas for the collab IPC channels.
+
+- Updated dependencies [92fecb8]
+  - @moxxy/sdk@0.15.2
+
+## 0.14.9
+
+### Patch Changes
+
+- e762d40: Repo-wide worst-case hardening (audit-driven). A pessimistic re-audit of every
+  package/app scored security, performance, code-quality, extensibility (+a11y on
+  UI surfaces) and cataloged 757 findings; this resolves the high+medium+clear-low
+  set with regression tests for the failure paths. Highlights:
+
+  - **Security:** email-detector ReDoS made linear (bounded local-part + label
+    count + windowed scan); IPv4-mapped-IPv6 SSRF bypass closed; `memory_*` and
+    workflow `runId` path-traversal sanitized; cross-host redirects no longer
+    replay `Authorization`/body; webhook filter-regex ReDoS bounded; capability
+    isolation now also covers tools registered after `onInit`; recursive subagent
+    fan-out capped.
+  - **Robustness (no happy-path assumptions):** unbounded child/stdout/socket/grep
+    buffers bounded (OOM); missing `'error'` listeners + per-call timeouts + abort
+    wiring added across the WS transport, runner JSON-RPC, isolators, browser
+    sidecar, MCP boot, and provider streams; stale-name/out-of-order resolves,
+    malformed-JSON tool input, and corrupt on-disk caches now degrade instead of
+    crashing.
+  - **Accessibility:** real focus traps + focus restoration + ARIA/`aria-modal` +
+    keyboard navigation + Escape across desktop modals/sheets, the shared
+    `desktop-ui` Modal, the workflow canvas, and the TUI.
+  - **Quality:** dead code removed (incl. the committed `apps/docs/.astro` cache),
+    per-workflow schedule-sync isolation, scheduler invalid-timezone resilience,
+    and worst-case regression tests throughout.
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+
+## 0.14.8
+
+### Patch Changes
+
+- 0daee68: feat(collaborative): git-first execution with a parallel lock-coordinated fallback (invisible)
+
+  The non-git path ran agents ONE AT A TIME (sequential) — slow, and it's why "the
+  team doesn't respond" when a user runs in a plain folder (only one agent is ever
+  live). Now the engine is git-first and always parallel, and picks the safest
+  mechanism underneath without any user-facing jargon:
+
+  - **Already a git repo** → worktrees + a clean, conflict-aware merge (unchanged).
+  - **Plain folder** → we quietly `git init` + snapshot it, so it STILL gets full
+    worktree isolation + merge. Most "plain folder" runs now go fully parallel.
+  - **Git genuinely unavailable** (not installed, or init/commit throws) → agents
+    run in PARALLEL in the shared workspace, coordinated by the file-lock board
+    (claim-before-edit). ownedPaths are pre-seeded as locks; an overlap is surfaced.
+  - **`concurrency: 'sequential'`** remains as the explicit one-at-a-time fallback.
+
+  Safety (from adversarial review): the shared-workspace prompt is hardened —
+  claim before EVERY edit, narrowest paths, claim both old+new on rename, one owner
+  for shared/aggregator files, only rely on a teammate's released work; the
+  architect is required to hand out DISJOINT ownedPaths. peer-read on the shared
+  tree reuses the path-traversal guard.
+
+  Tests: auto-init → git-parallel; forced no-git → cwd-parallel (not sequential, no
+  git repo); explicit sequential; cwd-parallel pre-seed + overlap surfacing.
+
+## 0.14.7
+
+### Patch Changes
+
+- d71bf6f: feat(collaborative): brief is a SUMMARY, not the transcript — with on-demand recall
+
+  The brief dumped up to ~6KB of the raw conversation into BRIEF.md, and every one
+  of the N spawned agents was told to read it — so each peer re-ingested the whole
+  dialogue. Now:
+
+  - **BRIEF.md is a concise summary** — the goal + key requirements/constraints/
+    decisions — produced by a single coordinator-side LLM call (`summarize.ts`,
+    a direct off-log `provider.stream`, mirroring the summarize-compactor) with a
+    deterministic **heuristic fallback** when no provider is available, so a brief
+    never sinks the run.
+  - **The full conversation goes to `.moxxy-collab/CONVERSATION.md`** for ON-DEMAND
+    recall — never auto-loaded into any agent's context. The prompts tell agents to
+    read or grep it only when they need a detail the summary omits.
+
+  Net: peers get the intent cheaply instead of paying for the transcript N times.
+  Adds summarizer (provider/model guard, error/empty → null), brief, and prompt
+  tests; the e2e run now asserts CONVERSATION.md is written.
+
+## 0.14.6
+
+### Patch Changes
+
+- b226696: feat(collaborative): dynamic, cross-functional roles (not a pool of identical implementers)
+
+  The roster could only ever be `architect | implementer`, and `readRoster`
+  force-overwrote every proposed role to `'implementer'` — so the architect's
+  team was always a flat pool of clones, the opposite of the "a PM, a designer,
+  some developers, a QA, a writer" vision.
+
+  - `AgentRole` is now open (`'architect'` stays reserved for the coordinator's
+    planner; any other label is a free-form team function).
+  - `readRoster` carries the architect's proposed `role` (sanitised; a proposed
+    `'architect'` is coerced to `'implementer'` since that's reserved) instead of
+    hardcoding `'implementer'`.
+  - The architect prompt now tells it to assemble the RIGHT team for the
+    deliverable (developer/designer/pm/qa/writer/researcher/editor/…), not to
+    default everyone to "implementer". The peer prompt + seeded turn now lead with
+    the agent's role so a writer writes, a designer designs, a QA reviews.
+
+  Roles flow straight into the existing roster/archive/UI, which already render
+  `role`. Adds tests that proposed roles are carried and the reserved role coerced.
+
+## 0.14.5
+
+### Patch Changes
+
+- 8bc25e7: feat(collaborative): give every agent the whole goal + the conversation, not just its subtask
+
+  Spawned agents booted fresh sessions seeded with only their one-line subtask, so
+  they never saw the overall goal or the dialogue that produced it — and the
+  `MOXXY_COLLAB_PARENT_TASK` env the coordinator already set was read nowhere.
+
+  - The coordinator now distils the user's conversation into a compact, token-
+    capped **`.moxxy-collab/BRIEF.md`** (goal + recent intent) and writes it into
+    the scaffold before the architect runs, so it's committed into every worktree
+    (parallel) or present in the shared dir (sequential) — the whole team inherits
+    the real intent.
+  - `moxxy agent` now reads `MOXXY_COLLAB_PARENT_TASK` and seeds each implementer's
+    first turn with the overall goal + its sub-task + a pointer to the brief and
+    contracts (the architect, whose sub-task already is the goal, just gets the
+    pointer).
+  - The shared agent prompt now tells every agent to read the brief first and to
+    `recall()` prior knowledge + `memory_save` durable facts — so the team builds
+    memory/recall for the larger work.
+
+  The brief is a pure, unit-tested digest (most-recent turns, clipped, total-
+  capped) so a long conversation still yields a small file.
+
+## 0.14.4
+
+### Patch Changes
+
+- a2cb758: fix(collaborative): stop the 30-minute hang, the spawn crash, and worktree leaks
+
+  Agentic-collaborative mode could freeze for the full wall-clock (30 min) or take
+  down the whole runner. Three root causes, fixed:
+
+  - **30-minute hang.** A spawned agent only reported a terminal hub status when it
+    called `collab_done`. Every other way a turn can end (provider error, iteration
+    cap, idle, stuck-loop) left the process idling as `connected`, so the
+    coordinator polled the full wall-clock before giving up. Peers now report a new
+    terminal `failed` status when their turn ends without `collab_done`, and the
+    coordinator adds a short **boot deadline** plus reacts to an observed child
+    exit — so failures surface in seconds, not after 30 minutes.
+  - **Coordinator crash on a bad spawn.** The peer `spawn()` had no `'error'`
+    listener, so a failed spawn became an uncaught exception. It is now captured as
+    a normal exit + diagnostic.
+  - **Leaks.** Worktrees and the run's socket dir are now cleaned up on every exit
+    path (abort, 0-done, conflict), not just integrate()'s happy path. The
+    sequential fallback now awaits a peer's real exit before starting the next, so
+    two agents never edit the shared workspace at once.
+
+  A `failed` agent also releases its file locks (like a crash), and agents now
+  self-report `working` while a turn is in flight. Adds a deterministic
+  fail-fast coordinator test and a real-process integration test that spawns the
+  actual `moxxy agent` binary and asserts it registers and reports a terminal
+  status (no LLM required).
+
 ## 0.14.3
 
 ### Patch Changes

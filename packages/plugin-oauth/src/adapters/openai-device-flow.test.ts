@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MoxxyError } from '@moxxy/sdk';
 import { openaiDeviceFlow } from './openai-device-flow.js';
 
 const opts = {
@@ -53,6 +54,107 @@ describe('openaiDeviceFlow.start — interval/expires_in coercion (u89-2)', () =
     const init = await openaiDeviceFlow(opts).start({ clientId: 'c1', scopes: [] });
     expect(init.intervalMs).toBe(5000);
     expect(init.expiresInMs).toBe(600000);
+  });
+});
+
+describe('openaiDeviceFlow.start — malformed response rejection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Stub an init response whose JSON body is exactly `body` (no auto-fields). */
+  function stubRawInit(body: Record<string, unknown>): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body, text: async () => '' })),
+    );
+  }
+
+  it('rejects with PROVIDER_UNKNOWN_RESPONSE when device_auth_id is missing', async () => {
+    stubRawInit({ user_code: 'CODE-1' });
+    let err: unknown;
+    try {
+      await openaiDeviceFlow(opts).start({ clientId: 'c1', scopes: [] });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MoxxyError);
+    expect((err as MoxxyError).code).toBe('PROVIDER_UNKNOWN_RESPONSE');
+  });
+
+  it('rejects with PROVIDER_UNKNOWN_RESPONSE when user_code is missing', async () => {
+    stubRawInit({ device_auth_id: 'd1' });
+    await expect(openaiDeviceFlow(opts).start({ clientId: 'c1', scopes: [] })).rejects.toMatchObject({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+    });
+  });
+
+  it('rejects with PROVIDER_UNKNOWN_RESPONSE on a non-JSON 200 body', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('not json');
+        },
+        text: async () => '<html/>',
+      })),
+    );
+    await expect(openaiDeviceFlow(opts).start({ clientId: 'c1', scopes: [] })).rejects.toMatchObject({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+    });
+  });
+});
+
+describe('openaiDeviceFlow.poll — malformed success response rejection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const init = {
+    userCode: 'CODE-1',
+    verificationUri: opts.verificationUri,
+    intervalMs: 5000,
+    expiresInMs: 600000,
+    providerData: { deviceAuthId: 'd1', userCode: 'CODE-1', clientId: 'c1' },
+  };
+
+  it('rejects when a 200 success body omits authorization_code/code_verifier (never exchanges undefined)', async () => {
+    const fetchSpy = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({}), // missing both fields
+      text: async () => '',
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+    let err: unknown;
+    try {
+      await openaiDeviceFlow(opts).poll(init, { intervalMs: 5000 });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MoxxyError);
+    expect((err as MoxxyError).code).toBe('PROVIDER_UNKNOWN_RESPONSE');
+    // It must NOT have proceeded to a second fetch (the token exchange).
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects with PROVIDER_UNKNOWN_RESPONSE on a non-JSON 200 poll body', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError('not json');
+        },
+        text: async () => 'oops',
+      })),
+    );
+    await expect(openaiDeviceFlow(opts).poll(init, { intervalMs: 5000 })).rejects.toMatchObject({
+      code: 'PROVIDER_UNKNOWN_RESPONSE',
+    });
   });
 });
 

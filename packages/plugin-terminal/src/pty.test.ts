@@ -2,8 +2,8 @@ import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { makeExecutable, TerminalProcessImpl } from './pty.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { makeExecutable, resolveNodePtyModule, TerminalProcessImpl } from './pty.js';
 
 const MAX_SCROLLBACK = 200_000;
 
@@ -29,6 +29,37 @@ function fakeChild(stdinWrite?: (d?: string) => void): {
   proc.stdin = stdin;
   return { stdout: proc.stdout, stderr: proc.stderr, stdin, proc };
 }
+
+describe('resolveNodePtyModule (degrade on a malformed optional dep)', () => {
+  it('accepts a namespace with a callable spawn', () => {
+    const mod = { spawn: () => ({}) };
+    expect(resolveNodePtyModule(mod)).toBe(mod);
+  });
+
+  it('accepts a CJS-interop module whose spawn lives on .default', () => {
+    const def = { spawn: () => ({}) };
+    expect(resolveNodePtyModule({ default: def })).toBe(def);
+  });
+
+  it('rejects a module whose default lacks spawn (degrade to pipe, no later throw)', () => {
+    // A partially-shimmed module: a `default` object with no spawn. The old code
+    // returned it and let `pty.spawn(...)` blow up with "is not a function".
+    expect(resolveNodePtyModule({ default: { notSpawn: 1 } })).toBeNull();
+  });
+
+  it('rejects a non-function spawn', () => {
+    expect(resolveNodePtyModule({ spawn: 'nope' })).toBeNull();
+    expect(resolveNodePtyModule({ default: { spawn: 42 } })).toBeNull();
+  });
+
+  it('rejects null / undefined / primitive module shapes without throwing', () => {
+    expect(resolveNodePtyModule(null)).toBeNull();
+    expect(resolveNodePtyModule(undefined)).toBeNull();
+    expect(resolveNodePtyModule('node-pty')).toBeNull();
+    expect(resolveNodePtyModule(123)).toBeNull();
+    expect(resolveNodePtyModule({})).toBeNull();
+  });
+});
 
 describe('makeExecutable (node-pty spawn-helper repair)', () => {
   let dir: string | null = null;
@@ -183,5 +214,72 @@ describe('TerminalProcessImpl exit lifecycle', () => {
     unsub();
     stdout.emit('data', Buffer.from('b', 'utf8'));
     expect(seen).toEqual(['a']);
+  });
+});
+
+describe('TerminalProcessImpl kill() terminates the child process tree', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('signals the whole process GROUP (negative pid) then escalates to SIGKILL', () => {
+    if (process.platform === 'win32') return; // POSIX group-kill path only
+    vi.useFakeTimers();
+    const { proc } = fakeChild();
+    // Give the fake a pid + a kill so the group-signal path is exercised.
+    (proc as unknown as { pid: number }).pid = 4242;
+    (proc as unknown as { kill: (s?: string) => boolean }).kill = () => true;
+
+    const killed: Array<{ target: number; signal: string }> = [];
+    vi.spyOn(process, 'kill').mockImplementation(((pid: number, signal?: string | number) => {
+      killed.push({ target: pid, signal: String(signal) });
+      return true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    term.kill();
+
+    // SIGTERM goes to the GROUP: negative pid.
+    expect(killed).toContainEqual({ target: -4242, signal: 'SIGTERM' });
+    // After the grace window, SIGKILL also targets the group.
+    vi.advanceTimersByTime(5_000);
+    expect(killed).toContainEqual({ target: -4242, signal: 'SIGKILL' });
+  });
+
+  it('falls back to signaling just the child when the group signal fails', () => {
+    if (process.platform === 'win32') return;
+    vi.useFakeTimers(); // keep the escalation timer from firing real process.kill after restore
+    const { proc } = fakeChild();
+    (proc as unknown as { pid: number }).pid = 99;
+    const childSignals: string[] = [];
+    (proc as unknown as { kill: (s?: string) => boolean }).kill = (s?: string) => {
+      childSignals.push(String(s));
+      return true;
+    };
+    vi.spyOn(process, 'kill').mockImplementation((() => {
+      throw new Error('ESRCH'); // no such process group
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    expect(() => term.kill()).not.toThrow();
+    // Group signal threw → fell back to child.kill('SIGTERM').
+    expect(childSignals).toContain('SIGTERM');
+  });
+
+  it('warns once when listeners grow past the leak threshold and never crashes', () => {
+    const { proc } = fakeChild();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const term = new TerminalProcessImpl('pipe', null, proc as any);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Attach far more than the threshold (64) without ever unsubscribing — the
+    // "viewer that never closed" leak the warning is meant to surface.
+    for (let i = 0; i < 100; i += 1) term.onData(() => {});
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('listeners');
   });
 });

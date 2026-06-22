@@ -79,6 +79,17 @@ describe('DeliveryDedupeCache', () => {
     expect(c.check('t', 'mid')).toBe(false); // still present
   });
 
+  it('re-admits an expired key even when the full TTL sweep is throttled', () => {
+    // sweepEveryMs far larger than the TTL: the background sweep won't run on
+    // the second check, but the per-key TTL check must still re-admit the key
+    // (otherwise a throttled sweep would re-fire the same delivery forever).
+    const c = new DeliveryDedupeCache({ ttlMs: 100, sweepEveryMs: 1_000_000 });
+    expect(c.check('t', 'k')).toBe(true); // ts=0, runs the first sweep
+    expect(c.check('t', 'k')).toBe(false); // still fresh
+    vi.setSystemTime(101); // past TTL, but the sweep is throttled out
+    expect(c.check('t', 'k')).toBe(true); // re-admitted via the per-key TTL check
+  });
+
   it('clear() empties the cache', () => {
     const c = new DeliveryDedupeCache();
     c.check('t', 'a');

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import type { ChatPersistence } from '../chatPersistence.js';
 import { chatStore } from './store.js';
+import type { ChatPersistence } from '../chatPersistence.js';
 
 let nextId = 0;
 function ws(): string {
@@ -86,6 +87,22 @@ describe('chatStore queue', () => {
     expect(chatStore.getQueue(id).map((q) => q.id)).toEqual([q1]);
   });
 
+  it('mints unique ids across a shift — no collision drops the wrong twin', () => {
+    const id = ws();
+    // Burst of enqueues with no intervening event (rev/length-derived ids would
+    // repeat after the shift below). The id must survive a shiftQueue.
+    chatStore.enqueue(id, 'a');
+    chatStore.enqueue(id, 'b');
+    chatStore.shiftQueue(id); // removes 'a'; queue.length now 1, rev unchanged
+    const survivor = chatStore.getQueue(id)[0]!;
+    const fresh = chatStore.enqueue(id, 'c');
+    // The freshly-minted id must NOT collide with the surviving item's id.
+    expect(fresh).not.toBe(survivor.id);
+    // Dropping the fresh one leaves the survivor intact (no twin-drop).
+    chatStore.dropFromQueue(id, fresh);
+    expect(chatStore.getQueue(id).map((q) => q.prompt)).toEqual(['b']);
+  });
+
   it('carries attachments only when non-empty', () => {
     const id = ws();
     chatStore.enqueue(id, 'with', [{ path: '/a', name: 'a' }]);
@@ -117,6 +134,16 @@ describe('chatStore hidden turns', () => {
     // After completion the turn id is no longer hidden — subsequent events show.
     chatStore.dispatch(id, { type: 'event', event: userPrompt('after', 'bg-turn') });
     expect(chatStore.getChat(id).events).toHaveLength(1);
+  });
+
+  it('isHidden reports a turn hidden ONLY until its turn_complete clears it', () => {
+    chatStore.hideTurn('bg-2');
+    expect(chatStore.isHidden('bg-2')).toBe(true);
+    expect(chatStore.isHidden('never-hidden')).toBe(false);
+    // dispatch of the hidden turn_complete clears the flag (the queue drainer in
+    // the bridge captures isHidden() BEFORE this dispatch for exactly that reason).
+    chatStore.dispatch(ws(), { type: 'turn_complete', turnId: 'bg-2', error: null });
+    expect(chatStore.isHidden('bg-2')).toBe(false);
   });
 });
 
@@ -288,103 +315,97 @@ describe('chatStore clear/drop', () => {
   });
 });
 
-describe('chatStore initial history loading', () => {
-  it('treats an unseen workspace as loading until its initial history read completes', async () => {
-    const workspaceId = ws();
-    const persisted = userPrompt('loaded after switch');
-    let resolveLoad:
-      | ((value: { events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }) => void)
-      | null = null;
-    const persistence: ChatPersistence = {
-      loadSegment() {
-        return new Promise((resolve) => {
-          resolveLoad = resolve;
-        });
-      },
-      async append() {},
-      async clear() {},
-    };
-    chatStore.setPersistence(persistence);
-
-    expect(chatStore.getChat(workspaceId).loading).toBe(true);
-
-    const loading = chatStore.loadInitial(workspaceId);
-    expect(chatStore.getChat(workspaceId).loading).toBe(true);
-
-    resolveLoad?.({ events: [persisted], prevCursor: null });
-    await loading;
-
-    expect(chatStore.getChat(workspaceId).loading).toBe(false);
-    expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
-  });
-
-  it('dedupes duplicate event ids inside an initial history page', async () => {
-    const workspaceId = ws();
-    const persisted = userPrompt('loaded once');
-    const persistence: ChatPersistence = {
-      async loadSegment() {
-        return { events: [persisted, { ...persisted } as MoxxyEvent], prevCursor: null };
-      },
-      async append() {},
-      async clear() {},
-    };
-    chatStore.setPersistence(persistence);
-
-    await chatStore.loadInitial(workspaceId);
-
-    expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
-  });
-
-  it('retries initial history loading when the first fallback page was empty', async () => {
-    const workspaceId = ws();
-    const persisted = userPrompt('stored history');
+describe('chatStore history loading', () => {
+  /** Page an ASCENDING raw log newest-first by `seq` — the same semantics as
+   *  @moxxy/core's pageEvents / the runner's session.loadHistory (mirrors the
+   *  proven helper in history-equivalence.test.ts): the page itself stays
+   *  ascending-within-page; the cursor walks from the newest end backward. */
+  function pagerFor(
+    rawAscending: ReadonlyArray<MoxxyEvent>,
+  ): { persistence: ChatPersistence; calls: () => number } {
     let calls = 0;
     const persistence: ChatPersistence = {
-      async loadHistory() {
-        return null;
-      },
-      async loadSegment() {
+      async loadHistory(_ws, before, limit) {
         calls += 1;
-        return calls === 1
-          ? { events: [], prevCursor: null }
-          : { events: [persisted], prevCursor: null };
+        let end = rawAscending.length;
+        if (before !== null) {
+          end = 0;
+          for (let i = 0; i < rawAscending.length; i += 1) {
+            if (rawAscending[i]!.seq < before) end = i + 1;
+            else break;
+          }
+        }
+        const start = Math.max(0, end - limit);
+        const page = rawAscending.slice(start, end);
+        return { events: page, prevCursor: start <= 0 ? null : page[0]!.seq };
       },
-      async append() {},
-      async clear() {},
     };
-    chatStore.setPersistence(persistence);
+    return { persistence, calls: () => calls };
+  }
 
-    await chatStore.loadInitial(workspaceId);
-    expect(chatStore.getChat(workspaceId).events).toEqual([]);
-
-    await chatStore.loadInitial(workspaceId);
-
-    expect(chatStore.getChat(workspaceId).events).toEqual([persisted]);
+  it('loadInitial leaves loaded=false (retryable) when no runner is connected', async () => {
+    const id = ws();
+    chatStore.setPersistence({
+      async loadHistory() {
+        return null; // no connected runner
+      },
+    });
+    await chatStore.loadInitial(id);
+    // A second open must re-attempt — the backfill was never run.
+    let retried = false;
+    chatStore.setPersistence({
+      async loadHistory() {
+        retried = true;
+        return { events: [userPrompt('late')], prevCursor: null };
+      },
+    });
+    await chatStore.loadInitial(id);
+    expect(retried).toBe(true);
+    expect(chatStore.getChat(id).events).toHaveLength(1);
   });
 
-  it('ignores stale initial history that resolves after a remote clear', async () => {
-    const workspaceId = 'session-clear-during-load';
-    const stale = userPrompt('event-stale', 'old history');
-    let resolveLoad:
-      | ((value: { events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }) => void)
-      | null = null;
-    const persistence: ChatPersistence = {
-      loadSegment() {
-        return new Promise((resolve) => {
-          resolveLoad = resolve;
-        });
-      },
-      async append() {},
-      async clear() {},
-    };
+  it('walks raw pages bounded, stopping once enough rendered rows are gathered', async () => {
+    const id = ws();
+    // An ascending raw log: 600 events, every other one rendered, so a single
+    // 200-event page already yields ~100 rendered rows — well past INITIAL_WINDOW
+    // (50). The walk MUST stop after the first page, not fan out across the log.
+    const pool: MoxxyEvent[] = [];
+    for (let i = 0; i < 600; i += 1) {
+      pool.push(
+        i % 2 === 0
+          ? evt('user_prompt', { text: `m${i}`, seq: i, turnId: `t${i}` })
+          : evt('provider_request', { provider: 'p', seq: i, turnId: `t${i}` }),
+      );
+    }
+    const { persistence, calls } = pagerFor(pool);
     chatStore.setPersistence(persistence);
+    await chatStore.loadInitial(id);
+    const events = chatStore.getChat(id).events;
+    expect(events.length).toBeGreaterThanOrEqual(50);
+    // Every rendered row in the projected window is a real rendered event (no
+    // bookkeeping leaked through the projection).
+    expect(events.every((e) => e.type === 'user_prompt')).toBe(true);
+    // Bounded: a single page held enough rendered rows → exactly one fetch.
+    expect(calls()).toBe(1);
+  });
 
-    const loading = chatStore.loadInitial(workspaceId);
-    (chatStore as unknown as { clearLocal: (id: string) => void }).clearLocal(workspaceId);
-    resolveLoad?.({ events: [stale], prevCursor: null });
-    await loading;
-
-    expect(chatStore.getChat(workspaceId).events).toEqual([]);
-    expect(chatStore.getChat(workspaceId).loading).toBe(false);
+  it('never re-fetches more than MAX pages even when rendered rows are sparse', async () => {
+    const id = ws();
+    // A log where rendered rows are RARE (1 per 250 events) so each 200-event
+    // page yields <1 rendered row — the walk is bounded by MAX_RUNNER_PAGES (25)
+    // rather than spinning forever.
+    const pool: MoxxyEvent[] = [];
+    for (let i = 0; i < 10_000; i += 1) {
+      pool.push(
+        i % 250 === 0
+          ? evt('user_prompt', { text: `m${i}`, seq: i, turnId: `t${i}` })
+          : evt('provider_request', { provider: 'p', seq: i, turnId: `t${i}` }),
+      );
+    }
+    const { persistence, calls } = pagerFor(pool);
+    chatStore.setPersistence(persistence);
+    await chatStore.loadInitial(id);
+    // Bounded by MAX_RUNNER_PAGES (25) — the load returns rather than hanging.
+    expect(calls()).toBeLessThanOrEqual(25);
   });
 });

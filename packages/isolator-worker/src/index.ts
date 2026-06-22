@@ -1,9 +1,13 @@
 import { Worker } from 'node:worker_threads';
 import { definePlugin, type Isolator, type Plugin } from '@moxxy/sdk';
 import {
+  BrokerOpLimiter,
+  BROKER_CLIENT_SOURCE,
   checkAllCaps,
+  DEFAULT_MAX_INFLIGHT_BROKER_OPS,
   handleBrokerRequest,
   LOADER_HOOK_SOURCE,
+  SYNTHETIC_CTX_SOURCE,
   type BrokerRequest,
 } from '@moxxy/plugin-security';
 
@@ -80,17 +84,7 @@ function rpc(op, args) {
     parentPort.postMessage({ type: 'broker-request', id, op, args });
   });
 }
-
-const broker = {
-  fs: {
-    readFile: (filePath, opts) => rpc('fs.readFile', [filePath, opts || {}]),
-    writeFile: (filePath, data) => rpc('fs.writeFile', [filePath, data]),
-    readdir: (dirPath) => rpc('fs.readdir', [dirPath]),
-    stat: (filePath) => rpc('fs.stat', [filePath]),
-  },
-  fetch: (url, init) => rpc('fetch', [url, init || {}]),
-  exec: (cmd, args, opts) => rpc('exec', [cmd, args || [], opts || {}]),
-};
+${BROKER_CLIENT_SOURCE}
 
 try {
   const mod = await import(moduleUrl);
@@ -103,18 +97,7 @@ try {
       errorMessage: "worker shim: export '" + exportName + "' from " + moduleUrl + " is " + (typeof fn) + ", expected function",
     });
   } else {
-    const ctx = {
-      sessionId: syntheticCtx.sessionId,
-      turnId: syntheticCtx.turnId,
-      callId: syntheticCtx.callId,
-      cwd: syntheticCtx.cwd,
-      signal: abortController.signal,
-      log: { length: 0, at: () => undefined, slice: () => [], ofType: () => [], byTurn: () => [], toJSON: () => [] },
-      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-      fs: broker.fs,
-      fetch: broker.fetch,
-      exec: broker.exec,
-    };
+    ${SYNTHETIC_CTX_SOURCE}
     const out = await fn(input, ctx);
     parentPort.postMessage({ type: 'result', ok: true, value: out });
   }
@@ -148,6 +131,19 @@ export interface WorkerIsolatorOptions {
   readonly defaultMemMb?: number;
   /** Default wall-clock budget (ms) when caps.timeMs is omitted. Default 60_000. */
   readonly defaultTimeMs?: number;
+  /**
+   * Hard cap on the number of brokered ops (`fs`/`fetch`/`exec`) the parent
+   * will run concurrently on behalf of one worker. Each `broker-request` is
+   * tiny to post but triggers a heavyweight parent-side operation (an open fd,
+   * a socket, a spawned exec child), so a hostile worker can stream cheap
+   * request lines and make the PARENT (the trust boundary) hold thousands of
+   * concurrent handles. Requests beyond this ceiling are rejected back to the
+   * worker (its `rpc` promise rejects) rather than queued or crashing the
+   * parent — degrade, never crash. Default 128 (shared with the subprocess
+   * isolator). Set higher only if a trusted handler legitimately needs more
+   * parallelism.
+   */
+  readonly maxInflightBrokerOps?: number;
 }
 
 /**
@@ -168,6 +164,12 @@ export interface WorkerIsolatorOptions {
  * - **Mediated fetch** — handlers that use `ctx.fetch()` get every URL
  *   re-checked against `caps.net` on the parent side before the
  *   socket is opened.
+ * - **Bounded brokered concurrency** — the parent runs at most
+ *   `maxInflightBrokerOps` (default 128) brokered ops at once per worker;
+ *   excess `broker-request`s are rejected back to the worker instead of
+ *   fanning out unbounded fds / sockets / exec children, so a worker that
+ *   streams cheap request lines can't exhaust host handles (mirrors the
+ *   subprocess isolator).
  *
  * **Direct-import escape is closed (loader hook):** the shim registers
  * an ESM loader hook (`LOADER_HOOK_SOURCE`, `BLOCKED_HANDLER_MODULES`)
@@ -203,6 +205,8 @@ export interface WorkerIsolatorOptions {
 export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator {
   const defaultMemMb = opts.defaultMemMb ?? 256;
   const defaultTimeMs = opts.defaultTimeMs ?? 60_000;
+  const maxInflightBrokerOps =
+    opts.maxInflightBrokerOps ?? DEFAULT_MAX_INFLIGHT_BROKER_OPS;
 
   return {
     name: 'worker',
@@ -221,8 +225,23 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         throw new Error(`[security:worker] ${verdict.reason}`);
       }
 
-      const timeMs = caps.timeMs ?? defaultTimeMs;
-      const memMb = caps.memMb ?? defaultMemMb;
+      // Coerce + clamp the cap declarations (a semi-trusted authoring
+      // surface) before they reach the Worker constructor / setTimeout.
+      // A bad value would otherwise either throw an opaque V8 error
+      // (negative/fractional memMb), silently disable the limit (memMb
+      // === 0 → V8 "unlimited"), or collapse the wall-clock timer
+      // (timeMs <= 0 / NaN → fire-immediately). Reject non-finite values
+      // loudly rather than silently defeating the headline guarantees.
+      const rawTimeMs = Number(caps.timeMs ?? defaultTimeMs);
+      const rawMemMb = Number(caps.memMb ?? defaultMemMb);
+      if (!Number.isFinite(rawTimeMs) || !Number.isFinite(rawMemMb)) {
+        throw new Error(
+          `[security:worker] tool '${call.toolName}' has a non-finite cap ` +
+            `(timeMs=${String(caps.timeMs)}, memMb=${String(caps.memMb)})`,
+        );
+      }
+      const timeMs = Math.max(1, Math.floor(rawTimeMs));
+      const memMb = Math.max(16, Math.floor(rawMemMb));
 
       const workerData = {
         moduleUrl: call.moduleRef.url,
@@ -250,6 +269,22 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
       return new Promise<unknown>((resolve, reject) => {
         const cleanup = new Set<() => void>();
         let settled = false;
+        // Isolator-owned signal handed to in-flight broker ops. It is
+        // aborted on EITHER a host abort OR a budget timeout, so a
+        // brokered fetch/exec started during the graceful grace window
+        // (when the host `signal` is NOT yet aborted on the timeout path)
+        // is still promptly cancelled instead of running un-cancellable
+        // for up to the grace period beyond the budget.
+        const brokerAbort = new AbortController();
+        const onHostAbortLink = (): void => brokerAbort.abort();
+        signal.addEventListener('abort', onHostAbortLink, { once: true });
+        cleanup.add(() => signal.removeEventListener('abort', onHostAbortLink));
+        // Bound the parent-side fan-out of brokered ops per worker. Each
+        // broker-request is a tiny post but pins a real fd / socket / exec
+        // child until it settles, so a flood of request lines is a
+        // resource-exhaustion vector. Past the ceiling, reject the request
+        // back to the worker rather than fanning out unbounded work.
+        const brokerLimiter = new BrokerOpLimiter(maxInflightBrokerOps);
         // True once we've hard-terminated (or scheduled the immediate,
         // non-graceful terminate). While settled-but-not-yet-terminated
         // (the graceful abort grace window) we keep servicing brokered
@@ -257,8 +292,15 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         // it already holds — `handleBrokerRequest` still cap-checks
         // every op, so this grants no new authority.
         let terminated = false;
+        // Detach the persistent 'message' listener once the worker is
+        // actually torn down so its closure (caps/call/the cleanup set)
+        // is released. Removal is deferred to hardTerminate rather than
+        // finish() because the grace window still needs to service
+        // brokered flush requests after the promise has settled.
+        let detachMessage: () => void = () => {};
         const hardTerminate = (): void => {
           terminated = true;
+          detachMessage();
           // Swallow a terminate() rejection: a faulted terminate must not
           // surface as an unhandled rejection (which Node's default policy can
           // turn into a process kill). The settled/terminated guards already
@@ -283,6 +325,12 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
           cleanup.clear();
           action();
           if (graceful) {
+            // Cancel in-flight + newly-started broker ops on the
+            // graceful (timeout / host-abort) path. On a timeout the host
+            // `signal` is NOT aborted, so without this a broker op kicked
+            // off during the grace window would keep running past the
+            // budget; the isolator-owned signal cancels it.
+            brokerAbort.abort();
             // Best-effort: wake ctx.signal, then terminate after a
             // short grace period. If postMessage throws (worker
             // already gone) just terminate.
@@ -331,32 +379,89 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         signal.addEventListener('abort', onAbort, { once: true });
         cleanup.add(() => signal.removeEventListener('abort', onAbort));
 
-        worker.on('message', (msg: WorkerMessage) => {
+        const onMessage = (msg: WorkerMessage): void => {
           if (msg.type === 'broker-request') {
             // Service brokered ops until the worker is actually
             // terminated — including during the abort grace window so a
             // cooperative handler can flush. Every op is still
-            // cap-checked by `handleBrokerRequest`.
+            // cap-checked by `handleBrokerRequest`, and runs under the
+            // isolator-owned `brokerAbort.signal` so a timeout cancels
+            // it even though the host `signal` isn't aborted.
             if (terminated) return;
+            // Bound concurrency: a hostile worker can post cheap
+            // broker-request lines faster than the parent settles them,
+            // each pinning a real fd / socket / exec child. Past the
+            // ceiling, reject the request back to the worker (its `rpc`
+            // promise rejects) instead of fanning out unbounded work.
+            if (!brokerLimiter.tryAcquire()) {
+              const overflow = {
+                type: 'broker-response' as const,
+                id: msg.id,
+                ok: false as const,
+                errorName: 'Error',
+                errorMessage: `[security:worker] too many concurrent brokered ops (limit ${brokerLimiter.limit})`,
+              };
+              try {
+                worker.postMessage(overflow);
+              } catch {
+                // Worker torn down; the response is moot.
+              }
+              return;
+            }
             void handleBrokerRequest(msg, {
               caps,
               cwd: call.cwd,
-              signal,
-            }).then((response) => {
-              if (!terminated) worker.postMessage(response);
-            });
+              signal: brokerAbort.signal,
+            })
+              .then((response) => {
+                if (terminated) return;
+                try {
+                  worker.postMessage(response);
+                } catch {
+                  // Worker torn down mid-flight (TOCTOU between the
+                  // `terminated` check and postMessage on a torn-down
+                  // port). Dropping the response is safe — the call has
+                  // already settled or is about to.
+                }
+              })
+              .finally(() => {
+                brokerLimiter.release();
+              });
             return;
           }
           if (settled) return;
-          // type === 'result' — the terminal message
-          if (msg.ok) {
-            finish(() => resolve(msg.value));
-          } else {
-            const e = new Error(msg.errorMessage);
-            e.name = msg.errorName;
-            if (msg.errorStack) e.stack = msg.errorStack;
-            finish(() => reject(e));
+          if (msg.type === 'result') {
+            // The terminal message.
+            if (msg.ok) {
+              finish(() => resolve(msg.value));
+            } else {
+              const e = new Error(msg.errorMessage);
+              e.name = msg.errorName;
+              if (msg.errorStack) e.stack = msg.errorStack;
+              finish(() => reject(e));
+            }
+            return;
           }
+          // Unknown / forward-compat message type — ignore rather than
+          // coercing it into a spurious rejection.
+        };
+        worker.on('message', onMessage);
+        detachMessage = () => worker.off('message', onMessage);
+
+        // A message that fails to deserialize on the parent side (a
+        // non-structured-cloneable value) emits 'messageerror', NOT
+        // 'message'. Without this the terminal result would be silently
+        // dropped and the caller would block for the full budget.
+        worker.once('messageerror', (e) => {
+          finish(() =>
+            reject(
+              e instanceof Error
+                ? e
+                : new Error(
+                    `[security:worker] message from '${call.toolName}' failed to deserialize: ${String(e)}`,
+                  ),
+            ),
+          );
         });
 
         worker.once('error', (e) => {
@@ -364,11 +469,15 @@ export function createWorkerIsolator(opts: WorkerIsolatorOptions = {}): Isolator
         });
 
         worker.once('exit', (code) => {
-          if (!settled && code !== 0) {
+          // A terminal `result` is the only legitimate way to settle, so
+          // a worker that exits before producing one (even cleanly via
+          // process.exit(0)) is a protocol violation — reject now rather
+          // than stalling the caller until the budget timer fires.
+          if (!settled) {
             finish(() =>
               reject(
                 new Error(
-                  `[security:worker] worker for '${call.toolName}' exited with code ${code}`,
+                  `[security:worker] worker for '${call.toolName}' exited (code ${code}) before producing a result`,
                 ),
               ),
             );

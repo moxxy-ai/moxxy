@@ -25,6 +25,7 @@ import {
   type CompactToolMap,
 } from './pair-events.js';
 import type {
+  CollaborationBlock,
   LiveToolBlockData,
   SkillScopeBlock,
   SubagentBlock,
@@ -108,6 +109,16 @@ const subagentEvent = (subtype: string, payload: Record<string, unknown>): Plugi
   type: 'plugin_event',
   source: 'plugin',
   pluginId: asPluginId(SUBAGENT_PLUGIN_ID),
+  subtype,
+  payload,
+});
+
+const COLLAB_PLUGIN_ID = '@moxxy/mode-collaborative';
+const collabEvent = (subtype: string, payload: Record<string, unknown>): PluginEvent => ({
+  ...base(),
+  type: 'plugin_event',
+  source: 'plugin',
+  pluginId: asPluginId(COLLAB_PLUGIN_ID),
   subtype,
   payload,
 });
@@ -229,7 +240,7 @@ describe('pairToolEvents — orphan tool call at a turn boundary', () => {
     const tc = asToolCall(blocks[0]);
     expect(tc.outcome).toMatchObject({ type: 'denied' });
     // The late result falls through to a generic event block.
-    const last = blocks[blocks.length - 1];
+    const last = blocks[blocks.length - 1]!;
     expect(last.kind).toBe('event');
   });
 });
@@ -298,7 +309,7 @@ describe('pairToolEvents — skill grouping', () => {
     expect(firstScope.children).toHaveLength(1);
     expect(isSettled(firstScope)).toBe(true);
 
-    expect(blocks[1].kind).toBe('event');
+    expect(blocks[1]!.kind).toBe('event');
 
     const contScope = asScope(blocks[2]);
     // Continuation carries the SAME skill event through to the grouping.
@@ -390,7 +401,7 @@ describe('pairToolEvents — compact-tool live aggregation', () => {
     const live = asLive(blocks[0]);
     expect(live.closed).toBe(true);
     expect(isSettled(live)).toBe(true);
-    expect(blocks[1].kind).toBe('event');
+    expect(blocks[1]!.kind).toBe('event');
   });
 });
 
@@ -645,5 +656,141 @@ describe('pairToolEvents — file-edit tools', () => {
     // A plain string result (e.g. bash) is not a file diff.
     const plain = pairToolEvents([toolRequest('b1', 'bash'), toolResult('b1', 'ok')]);
     expect(isFileDiffResult(asToolCall(plain[0]).outcome)).toBe(false);
+  });
+});
+
+describe('pairToolEvents — open live aggregate sealed by a subagent/collab start', () => {
+  const asLiveBlock = (b: unknown): LiveToolBlockData => {
+    const block = b as LiveToolBlockData;
+    expect(block.kind).toBe('live-tools');
+    return block;
+  };
+
+  it('seals the open live block when a subagent starts mid-aggregation, keeping order', () => {
+    // A compact read opens a live block; a subagent_started arrives before the
+    // run closes; a later compact read must open a FRESH live block BELOW the
+    // subagent group — never accrete into the one above it (out-of-order).
+    const blocks = pairToolEvents(
+      [
+        toolRequest('r1', 'read', { file_path: '/a.ts' }),
+        toolResult('r1'),
+        subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'a' }),
+        subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn' }),
+        toolRequest('r2', 'read', { file_path: '/b.ts' }),
+        toolResult('r2'),
+      ],
+      compactMap,
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(['live-tools', 'subagent-group', 'live-tools']);
+    // First live block was sealed (closed) before the subagent and holds only r1.
+    const first = asLiveBlock(blocks[0]);
+    expect(first.closed).toBe(true);
+    expect(first.calls.map((c) => c.request.callId)).toEqual(['r1']);
+    // r2 landed in the second, separate live block below the agents.
+    const second = asLiveBlock(blocks[2]);
+    expect(second.calls.map((c) => c.request.callId)).toEqual(['r2']);
+  });
+
+  it('seals the open live block when a collab run starts mid-aggregation', () => {
+    const blocks = pairToolEvents(
+      [
+        toolRequest('r1', 'read', { file_path: '/a.ts' }),
+        toolResult('r1'),
+        collabEvent('collab_started', { task: 'build', parallel: false }),
+        toolRequest('r2', 'read', { file_path: '/b.ts' }),
+        toolResult('r2'),
+      ],
+      compactMap,
+    );
+    expect(blocks.map((b) => b.kind)).toEqual(['live-tools', 'collab', 'live-tools']);
+    expect(asLiveBlock(blocks[0]).closed).toBe(true);
+  });
+});
+
+describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
+  it('ignores a late subagent_completed bearing a stale id from an earlier turn', () => {
+    const blocks = pairToolEvents([
+      subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'a' }),
+      subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn', text: 'first' }),
+      userPrompt('next turn'),
+      // A stray completion reusing the prior turn's childSessionId must NOT
+      // resurrect/mutate the earlier (already-settled) block.
+      subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn', text: 'STALE' }),
+    ]);
+    const group = asSubagentGroup(blocks[0]);
+    expect(group.agents[0]!.finalPreview).toBe('first');
+    // The stale event produced no new block (no matching started block post-clear).
+    expect(blocks.filter((b) => b.kind === 'subagent-group')).toHaveLength(1);
+  });
+});
+
+describe('blocksEquivalent — collab content edits + subagent stopReason', () => {
+  const foldCollab = (events: MoxxyEvent[]): CollaborationBlock =>
+    pairToolEvents(events).find((b) => b.kind === 'collab') as CollaborationBlock;
+
+  it('re-renders when a task title/detail edit preserves status + array length', () => {
+    const start = collabEvent('collab_started', { task: 'x', parallel: false });
+    const open = collabEvent('collab_board_update', {
+      item: { id: 't1', title: 'old', status: 'claimed', owner: 'a', detail: 'before' },
+    });
+    const edited = collabEvent('collab_board_update', {
+      item: { id: 't1', title: 'new', status: 'claimed', owner: 'a', detail: 'after' },
+    });
+    const a = foldCollab([start, open]);
+    const b = foldCollab([start, open, edited]);
+    expect(a.tasks).toHaveLength(1);
+    expect(b.tasks).toHaveLength(1);
+    expect(a.tasks[0]!.status).toBe(b.tasks[0]!.status); // status unchanged
+    // Content changed though — comparator must NOT skip the re-render.
+    expect(blocksEquivalent(a, b)).toBe(false);
+  });
+
+  it('re-renders when a contract title/owner edit preserves status + version', () => {
+    const start = collabEvent('collab_started', { task: 'x', parallel: false });
+    const open = collabEvent('collab_contract_published', {
+      contract: { id: 'c1', title: 'old', owner: 'a', status: 'published', version: 1 },
+    });
+    const edited = collabEvent('collab_contract_changed', {
+      contract: { id: 'c1', title: 'new', owner: 'b', status: 'published', version: 1 },
+    });
+    const a = foldCollab([start, open]);
+    const b = foldCollab([start, open, edited]);
+    expect(blocksEquivalent(a, b)).toBe(false);
+  });
+
+  it('subagent: differs when only stopReason changes', () => {
+    const a = asSubagent(
+      pairToolEvents([
+        subagentEvent('subagent_started', { childSessionId: 'cs1', label: 'a' }),
+        subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn' }),
+      ])[0],
+    );
+    // Clone with ONLY stopReason changed so every other compared field is
+    // identical — isolating the stopReason signal the comparator must catch.
+    const b: SubagentBlock = { ...a, toolCalls: [...a.toolCalls], stopReason: 'max_tokens' };
+    expect(a.completedAtMs).toBe(b.completedAtMs);
+    expect(a.stopReason).not.toBe(b.stopReason);
+    expect(blocksEquivalent(a, b)).toBe(false);
+  });
+});
+
+describe('pairToolEvents — collab_completed malformed counts fall back to roster', () => {
+  it('derives done/total from the roster when payload counts are malformed', () => {
+    const blocks = pairToolEvents([
+      collabEvent('collab_started', { task: 'x', parallel: false }),
+      collabEvent('collab_roster_confirmed', {
+        roster: [
+          { id: 'a', name: 'A' },
+          { id: 'b', name: 'B' },
+        ],
+      }),
+      collabEvent('collab_agent_done', { agentId: 'a', summary: 'ok' }),
+      // Buggy coordinator emits non-array/non-number counts.
+      collabEvent('collab_completed', { done: { weird: true }, total: 'two' }),
+    ]);
+    const collab = blocks.find((b) => b.kind === 'collab') as CollaborationBlock;
+    // Derived: 1 of 2 agents done — meaningful, not null/null.
+    expect(collab.doneCount).toBe(1);
+    expect(collab.totalCount).toBe(2);
   });
 });

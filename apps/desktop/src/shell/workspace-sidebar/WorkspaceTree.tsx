@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Icon } from '@moxxy/desktop-ui';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { SectionHeader } from './SectionHeader';
+import { useMenuKeyboard } from '../useMenuKeyboard';
 
 /**
  * The whole workspace rail as one tree: every workspace is a collapsible
@@ -182,7 +183,19 @@ function FolderRow({
     <div
       data-testid={`desk-row-${desk.id}`}
       data-collapsed={collapsed}
+      // The row body is the primary action (toggle collapse). Make it a real
+      // keyboard-activatable control: a focusable button-role that fires on
+      // Enter/Space, so the tree is navigable without a pointer.
+      role="button"
+      tabIndex={0}
+      aria-label={`${collapsed ? 'expand' : 'collapse'} workspace ${desk.name}`}
       onClick={onToggle}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
       onFocusCapture={() => setHot(true)}
@@ -210,8 +223,12 @@ function FolderRow({
       <button
         type="button"
         data-testid={`desk-toggle-${desk.id}`}
-        aria-label={`${collapsed ? 'expand' : 'collapse'} workspace ${desk.name}`}
-        aria-expanded={!collapsed}
+        // The row itself is now the accessible toggle (role=button + key
+        // handler), so the chevron is a redundant visual affordance for mouse
+        // users — keep it clickable but out of the tab order and hidden from
+        // assistive tech to avoid a duplicate tab stop / double announcement.
+        tabIndex={-1}
+        aria-hidden
         onClick={(e) => {
           e.stopPropagation();
           onToggle();
@@ -325,7 +342,20 @@ function SessionRow({
       <div
         data-testid={`session-row-${s.id}`}
         data-active={active}
+        // The session row is the routing unit; make it keyboard-selectable
+        // (Enter/Space) and focusable so screen-reader / keyboard users can
+        // pick a session, not just pointer users.
+        role="button"
+        tabIndex={0}
+        aria-label={`open session ${s.name}`}
+        aria-current={active ? 'true' : undefined}
         onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
         onMouseEnter={() => setHot(true)}
         onMouseLeave={() => setHot(false)}
         onFocusCapture={() => setHot(true)}
@@ -473,7 +503,10 @@ function RowMenu({
   readonly deleteLabel: 'Delete' | 'Remove';
 }): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // Focus the first item on open + restore focus to the trigger on close, with
+  // ArrowUp/Down/Home/End/Tab handling inside the popover. The same ref is
+  // attached to the portaled menu container below.
+  const menuRef = useMenuKeyboard<HTMLDivElement>(open);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
   useEffect(() => {

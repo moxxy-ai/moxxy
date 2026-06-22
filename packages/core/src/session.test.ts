@@ -72,6 +72,30 @@ describe('Session', () => {
     expect(s.signal.aborted).toBe(true);
   });
 
+  it('close() still runs plugin onShutdown when surface teardown rejects', async () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    const onShutdown = vi.fn();
+    s.pluginHost.registerStatic(
+      definePlugin({ name: 'p', version: '0.0.0', hooks: { onShutdown } }),
+    );
+    // A flaky native surface (PTY/browser) throwing during teardown must not
+    // pre-empt the plugin shutdown hooks — those are how plugins flush state.
+    vi.spyOn(s.surfaces, 'closeAll').mockRejectedValue(new Error('PTY teardown blew up'));
+
+    await expect(s.close()).resolves.toBeUndefined();
+    expect(onShutdown).toHaveBeenCalledTimes(1);
+    expect(s.signal.aborted).toBe(true);
+  });
+
+  it('appContext env is a frozen, stable snapshot (reused across calls)', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    const a = s.appContext();
+    const b = s.appContext();
+    // Memoized: the same frozen object is handed out, not a fresh clone each call.
+    expect(a.env).toBe(b.env);
+    expect(Object.isFrozen(a.env)).toBe(true);
+  });
+
   it('close() is idempotent', async () => {
     const s = new Session({ cwd: '/tmp', silent: true });
     const onShutdown = vi.fn();

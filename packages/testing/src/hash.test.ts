@@ -47,4 +47,45 @@ describe('hashRequest', () => {
     } as never);
     expect(withExtra).toBe(withoutExtra);
   });
+
+  it('ignores temperature / maxTokens by default but folds them in when asked', () => {
+    const a = { model: 'm', system: 's', messages: [], temperature: 0.1, maxTokens: 100 };
+    const b = { model: 'm', system: 's', messages: [], temperature: 0.9, maxTokens: 4000 };
+    expect(hashRequest(a as never)).toBe(hashRequest(b as never));
+    expect(hashRequest(a as never, { includeSamplingParams: true })).not.toBe(
+      hashRequest(b as never, { includeSamplingParams: true }),
+    );
+  });
+
+  it('folds tool inputSchema into the hash only under includeToolSchemas', () => {
+    const a = {
+      model: 'm',
+      messages: [],
+      tools: [{ name: 't', description: 'd', inputSchema: { type: 'object', extra: 1 } }],
+    };
+    const b = {
+      model: 'm',
+      messages: [],
+      tools: [{ name: 't', description: 'd', inputSchema: { type: 'string' } }],
+    };
+    expect(hashRequest(a as never)).toBe(hashRequest(b as never));
+    expect(hashRequest(a as never, { includeToolSchemas: true })).not.toBe(
+      hashRequest(b as never, { includeToolSchemas: true }),
+    );
+  });
+
+  it('does not throw on an unserializable tool inputSchema even under includeToolSchemas', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(() =>
+      hashRequest(
+        {
+          model: 'm',
+          messages: [],
+          tools: [{ name: 't', description: 'd', inputSchema: circular }],
+        } as never,
+        { includeToolSchemas: true },
+      ),
+    ).not.toThrow();
+  });
 });

@@ -3,6 +3,15 @@ import { zodToJsonSchema } from '@moxxy/sdk';
 
 type CacheControl = { type: 'ephemeral' };
 
+/** Media types Anthropic's Messages API accepts for `image`/`document` blocks. */
+const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+const DOCUMENT_MEDIA_TYPES: ReadonlySet<string> = new Set(['application/pdf']);
+
 export interface AnthropicMessageInput {
   role: 'user' | 'assistant';
   content: Array<AnthropicContentBlock>;
@@ -77,16 +86,22 @@ export function toAnthropicMessages(
     const wantCache = cacheIdx?.has(i) ?? false;
 
     if (msg.role === 'system') {
-      const textBlock = msg.content.find((c) => c.type === 'text');
-      if (textBlock && textBlock.type === 'text') {
-        system = system ? `${system}\n\n${textBlock.text}` : textBlock.text;
+      // Join ALL text blocks of a system message (not just the first) so a
+      // multi-block system prompt isn't silently truncated; mirrors the
+      // cross-message join below.
+      const text = msg.content
+        .filter((c): c is Extract<ContentBlock, { type: 'text' }> => c.type === 'text')
+        .map((c) => c.text)
+        .join('\n\n');
+      if (text) {
+        system = system ? `${system}\n\n${text}` : text;
       }
       return;
     }
 
     if (msg.role === 'user') {
       flushUser();
-      const content = msg.content.map(toAnthropicBlock);
+      const content = mapBlocks(msg.content);
       if (wantCache) markCache(content[content.length - 1]);
       out.push({ role: 'user', content });
       return;
@@ -94,7 +109,7 @@ export function toAnthropicMessages(
 
     if (msg.role === 'assistant') {
       flushUser();
-      const content = msg.content.map(toAnthropicBlock);
+      const content = mapBlocks(msg.content);
       if (wantCache) markCache(content[content.length - 1]);
       out.push({ role: 'assistant', content });
       return;
@@ -123,7 +138,17 @@ export function toAnthropicMessages(
   return { system, messages: out };
 }
 
-function toAnthropicBlock(block: ContentBlock): AnthropicContentBlock {
+/** Translate a message's blocks, dropping any that translate to nothing. */
+function mapBlocks(blocks: ReadonlyArray<ContentBlock>): AnthropicContentBlock[] {
+  const out: AnthropicContentBlock[] = [];
+  for (const b of blocks) {
+    const t = toAnthropicBlock(b);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+function toAnthropicBlock(block: ContentBlock): AnthropicContentBlock | null {
   switch (block.type) {
     case 'text':
       return { type: 'text', text: block.text };
@@ -137,12 +162,29 @@ function toAnthropicBlock(block: ContentBlock): AnthropicContentBlock {
         is_error: block.isError,
       };
     case 'image':
+      // Reject unsupported media types locally (degrade to a placeholder, as
+      // audio does) rather than uploading bytes that 400 deep in the SDK. A
+      // resumed session or hostile channel can supply an out-of-allow-list
+      // type; the documented Anthropic image set is png/jpeg/gif/webp.
+      if (!IMAGE_MEDIA_TYPES.has(block.mediaType)) {
+        return {
+          type: 'text',
+          text: `[image attachment dropped: ${block.mediaType} not a supported image type]`,
+        };
+      }
       return {
         type: 'image',
         source: { type: 'base64', media_type: block.mediaType, data: block.data },
       };
     case 'document':
       // Native document support (PDF). Claude reads text + figures/layout.
+      // Documented Anthropic document set is application/pdf only.
+      if (!DOCUMENT_MEDIA_TYPES.has(block.mediaType)) {
+        return {
+          type: 'text',
+          text: `[document attachment dropped: ${block.mediaType} not a supported document type]`,
+        };
+      }
       return {
         type: 'document',
         source: { type: 'base64', media_type: block.mediaType, data: block.data },
@@ -161,15 +203,19 @@ function toAnthropicBlock(block: ContentBlock): AnthropicContentBlock {
     case 'reasoning':
       // Replayed verbatim so Anthropic accepts an interleaved-thinking tool-use
       // continuation. `redacted` → the opaque encrypted blob; otherwise the
-      // signed thinking block (projection only forwards reasoning that carries a
-      // signature or encrypted blob, so the text fallback below is unreachable).
+      // signed thinking block. Drop an unsigned/unredacted reasoning block
+      // rather than degrading it to a stray assistant text block: Anthropic
+      // rejects an unsigned thinking block, and emitting it as text could leak
+      // raw reasoning into assistant output or 400 a tool-use turn. The
+      // translator stays self-consistent without depending on the upstream
+      // projection invariant (maintained in a different package).
       if (block.redacted && block.encrypted) {
         return { type: 'redacted_thinking', data: block.encrypted };
       }
       if (block.signature) {
         return { type: 'thinking', thinking: block.text, signature: block.signature };
       }
-      return { type: 'text', text: block.text };
+      return null;
   }
 }
 

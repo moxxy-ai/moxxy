@@ -1,5 +1,39 @@
 # @moxxy/ipc-server-ws
 
+## 0.1.28
+
+### Patch Changes
+
+- Updated dependencies [b19d401]
+  - @moxxy/sdk@0.16.0
+  - @moxxy/desktop-ipc-contract@0.10.3
+  - @moxxy/runner@0.2.16
+
+## 0.1.27
+
+### Patch Changes
+
+- Updated dependencies [92fecb8]
+  - @moxxy/sdk@0.15.2
+  - @moxxy/desktop-ipc-contract@0.10.2
+  - @moxxy/runner@0.2.15
+
+## 0.1.26
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+  - @moxxy/desktop-ipc-contract@0.10.1
+  - @moxxy/runner@0.2.14
+
+## 0.1.25
+
+### Patch Changes
+
+- Updated dependencies [f070207]
+  - @moxxy/desktop-ipc-contract@0.10.0
+
 ## 0.1.24
 
 ### Patch Changes

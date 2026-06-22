@@ -127,6 +127,15 @@ export const MAX_REDRAFTS = 3;
 export const SUBAGENT_MAX_ITERATIONS = 40;
 
 /**
+ * Per-finding character cap when a prior round's findings are embedded as
+ * context into EACH follow-up subagent's prompt. The same blob is duplicated
+ * across every sibling subagent and re-sent every round, so an uncapped
+ * multi-KB finding grows the embedded context multiplicatively. The full
+ * untruncated text is still used for the single synthesis turn.
+ */
+export const SUBAGENT_PRIOR_FINDING_MAX_CHARS = 1500;
+
+/**
  * Tools each subagent is allowed to call. Constrained to read-only web +
  * filesystem reads — no edits, no shell, no git, so a runaway subagent
  * can't damage the working tree. WebSearch / WebFetch may be exposed

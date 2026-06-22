@@ -115,6 +115,46 @@ describe('createJsonFileStore', () => {
     expect(leftovers).toEqual([]);
   });
 
+  it('keeps the in-memory cache consistent with disk when persist throws', async () => {
+    const s = store();
+    await s.mutate((items) => [...items, { id: 'a', n: 1 }]);
+
+    // A persist failure (BigInt can't JSON-serialize) must NOT advance the
+    // cache to the un-written phantom state — otherwise the next successful
+    // mutate would commit the failed write's mutation.
+    await expect(
+      s.mutate(() => [{ id: 'phantom', n: 1n as unknown as number }]),
+    ).rejects.toThrow();
+
+    // read() must still see the last durably-written state, not the phantom.
+    expect(await s.read()).toEqual([{ id: 'a', n: 1 }]);
+    expect(await s.get('phantom')).toBeNull();
+
+    // The next good mutate serializes from the last-good baseline (no phantom).
+    await s.mutate((items) => [...items, { id: 'b', n: 2 }]);
+    expect(await s.read()).toEqual([{ id: 'a', n: 1 }, { id: 'b', n: 2 }]);
+    const onDisk = JSON.parse(await readFile(file, 'utf8')) as { items: Item[] };
+    expect(onDisk.items).toEqual([{ id: 'a', n: 1 }, { id: 'b', n: 2 }]);
+  });
+
+  it('coalesces concurrent cold reads into a single load (no clobbering)', async () => {
+    await mkdir(join(dir, 'sub'), { recursive: true });
+    await writeFile(file, JSON.stringify({ version: 1, items: [{ id: 'a', n: 1 }] }), 'utf8');
+
+    let loadCalls = 0;
+    const s = createJsonFileStore<Item>({
+      file,
+      load: (raw) => {
+        loadCalls++;
+        return lenientLoad(raw);
+      },
+    });
+    // A burst of cold concurrent reads must share one load, not fan out into N.
+    const results = await Promise.all([s.read(), s.read(), s.read(), s.read()]);
+    for (const r of results) expect(r).toEqual([{ id: 'a', n: 1 }]);
+    expect(loadCalls).toBe(1);
+  });
+
   it('leaves the prior file intact when the atomic rename fails mid-write', async () => {
     const s = store();
     await s.mutate((items) => [...items, { id: 'a', n: 1 }]);

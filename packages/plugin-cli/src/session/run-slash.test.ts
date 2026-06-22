@@ -98,6 +98,31 @@ describe('runSlash /goal', () => {
   });
 });
 
+describe('runSlash dispatch safety', () => {
+  it('does not throw and reports unknown for an empty / whitespace command', () => {
+    const notices: Array<string | null> = [];
+    expect(() =>
+      runSlash('', { ...baseDeps(), setSystemNotice: (n) => notices.push(n) }),
+    ).not.toThrow();
+    expect(() =>
+      runSlash('   ', { ...baseDeps(), setSystemNotice: (n) => notices.push(n) }),
+    ).not.toThrow();
+    expect(() =>
+      runSlash('/', { ...baseDeps(), setSystemNotice: (n) => notices.push(n) }),
+    ).not.toThrow();
+    expect(notices.every((n) => typeof n === 'string' && /unknown command/.test(n))).toBe(true);
+  });
+
+  it('matches channel-local commands case-insensitively (/Tools === /tools)', () => {
+    const overlays: unknown[] = [];
+    runSlash('/Tools', {
+      ...baseDeps(),
+      setOverlay: (o) => overlays.push(typeof o === 'function' ? o(null) : o),
+    } as unknown as SlashDeps);
+    expect(overlays).toContainEqual({ kind: 'tools' });
+  });
+});
+
 function baseDeps(): SlashDeps {
   return {
     session: {

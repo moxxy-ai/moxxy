@@ -1,9 +1,9 @@
 /**
  * Pure pairing-URL helpers: host advertisement + the connect-URL the QR carries.
  *
- * These are split out of `tunnel.ts` (which also depends on the heavyweight
- * cloudflared/ngrok tunnel providers) so a host that only needs to BUILD a
- * pairing URL — e.g. the desktop main, which exposes the gateway over its own
+ * These are split out of `tunnel.ts` (which pulls in the proxy tunnel provider)
+ * so a host that only needs to BUILD a pairing URL — e.g. the desktop main,
+ * which exposes the gateway over its own
  * WebSocket bridge — can import them without pulling the tunnel-provider deps.
  * The `qr.ts` / channel code re-export through `tunnel.ts` for back-compat.
  *
@@ -118,14 +118,19 @@ export function buildConnectUrl(opts: {
   localHost: string;
   port: number;
   token: string;
+  /** Agent public-key fingerprint for the E2E (proxy) path — pinned by the app. */
+  fingerprint?: string;
 }): string {
   const t = encodeURIComponent(opts.token);
+  const fp = opts.fingerprint ? `&fp=${encodeURIComponent(opts.fingerprint)}` : '';
   if (opts.tunnelUrl) {
     const u = new URL(opts.tunnelUrl);
     const scheme = u.protocol === 'https:' ? 'wss' : 'ws';
-    return `${scheme}://${u.host}/?t=${t}`;
+    // Preserve the routing path (e.g. `/mobile`) the relay routes on.
+    const path = u.pathname === '/' ? '/' : `${u.pathname.replace(/\/$/, '')}/`;
+    return `${scheme}://${u.host}${path}?t=${t}${fp}`;
   }
-  return `ws://${opts.localHost}:${opts.port}/?t=${t}`;
+  return `ws://${opts.localHost}:${opts.port}/?t=${t}${fp}`;
 }
 
 /**

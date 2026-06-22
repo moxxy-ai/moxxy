@@ -6,7 +6,7 @@
  * promote; a conflict leaves the offending branch for inspection.
  */
 
-import { pathsConflict, type BoardItem } from '@moxxy/plugin-collab';
+import type { BoardItem } from '@moxxy/plugin-collab';
 import { collabBranch, stagingBranch, worktreePath } from './constants.js';
 import {
   addWorktree,
@@ -17,6 +17,13 @@ import {
   removeWorktree,
 } from './worktrees.js';
 
+/** Normalize a claim/file path for prefix comparison — must mirror plugin-collab's
+ *  `normPath` (the basis of `pathsConflict`) so ownership resolution is unchanged:
+ *  backslashes → '/', strip a leading './', strip trailing slashes. */
+function normClaimPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
 export interface IntegrateInput {
   readonly repoCwd: string;
   readonly runId: string;
@@ -25,6 +32,11 @@ export interface IntegrateInput {
   readonly worktrees: ReadonlyMap<string, string>;
   readonly board: ReadonlyArray<BoardItem>;
   readonly mergePolicy: 'auto-into-branch' | 'stage-only';
+  /** When true, the merged result is left on the staging branch for the user to
+   *  verify (build/test) before they promote it — auto-promotion is suppressed
+   *  even under `auto-into-branch`. Was previously dead config that silently
+   *  no-op'd; now it actually gates promotion. */
+  readonly verifyGate?: boolean;
 }
 
 export interface IntegrateResult {
@@ -36,7 +48,7 @@ export interface IntegrateResult {
 }
 
 export async function integrate(input: IntegrateInput): Promise<IntegrateResult> {
-  const { repoCwd, runId, baseSha, doneAgentIds, worktrees, board, mergePolicy } = input;
+  const { repoCwd, runId, baseSha, doneAgentIds, worktrees, board, mergePolicy, verifyGate } = input;
   const branchName = stagingBranch(runId);
   const merged: string[] = [];
   const conflicts: Array<{ agentId: string; files: ReadonlyArray<string> }> = [];
@@ -48,13 +60,24 @@ export async function integrate(input: IntegrateInput): Promise<IntegrateResult>
     if (wt) await commitAll(wt, `moxxy-collab: ${id}`);
   }
 
-  // Ownership resolver from board file-claims.
-  const claims: Array<{ owner: string; path: string }> = [];
+  // Ownership resolver from board file-claims. Pre-normalize each claim path ONCE
+  // (built before the merge loop, reused across every agent) so the per-conflicted
+  // -file lookup compares pre-normalized strings instead of re-running `normPath`
+  // on both sides for every claim on every call — the per-comparison allocation
+  // that made this O(N·F·C) on the critical integration path. Board order is kept,
+  // so first-claim-wins ownership is identical to the previous pathsConflict scan.
+  const normClaims: Array<{ owner: string; norm: string }> = [];
   for (const item of board) {
-    if (item.owner && item.paths) for (const p of item.paths) claims.push({ owner: item.owner, path: p });
+    if (!item.owner || !item.paths) continue;
+    for (const p of item.paths) normClaims.push({ owner: item.owner, norm: normClaimPath(p) });
   }
-  const ownerOf = (file: string): string | undefined =>
-    claims.find((c) => pathsConflict(file, c.path))?.owner;
+  const ownerOf = (file: string): string | undefined => {
+    const f = normClaimPath(file);
+    for (const c of normClaims) {
+      if (f === c.norm || f.startsWith(`${c.norm}/`) || c.norm.startsWith(`${f}/`)) return c.owner;
+    }
+    return undefined;
+  };
 
   const staging = worktreePath(runId, '__staging__');
   await addWorktree({ repoCwd, path: staging, branch: branchName, baseSha });
@@ -71,7 +94,10 @@ export async function integrate(input: IntegrateInput): Promise<IntegrateResult>
   }
 
   let promoted = false;
-  if (mergePolicy === 'auto-into-branch' && merged.length > 0) {
+  // `verifyGate` holds the merged result on the staging branch so the user can
+  // build/test it before promoting — so even under auto-into-branch we don't
+  // advance their branch automatically when the gate is on.
+  if (mergePolicy === 'auto-into-branch' && merged.length > 0 && !verifyGate) {
     promoted = await promoteStaging(repoCwd, branchName);
   }
 

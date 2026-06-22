@@ -190,6 +190,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
       name: '@moxxy/plugin-subagents',
       plugin: buildSubagentsPlugin({
         getAgent: (name) => session.agents.get(name),
+        // Wire the live parent tool snapshot so a child that neither the caller
+        // nor its kind restricts is defaulted to the parent's tools MINUS
+        // dispatch_agent — cutting unbounded recursive fan-out (8^N sessions).
+        // Same snapshot the plugins-admin entry uses below.
+        getToolNames: () => session.tools.list().map((t) => t.name),
       }),
     },
     // Runtime plugin management — exposes install_plugin / uninstall_plugin
@@ -293,7 +298,16 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // every boot. Pairs with the `add-provider` skill which walks the
     // model through gathering baseURL + models + key.
     (() => {
-      const { plugin, api } = buildProviderAdminPluginWithApi({ providerRegistry: session.providers });
+      const { plugin, api } = buildProviderAdminPluginWithApi({
+        providerRegistry: session.providers,
+        // Rebuild the ACTIVE provider's instance after a configure()/provider_add
+        // replace() drops its cached instance — otherwise getActive() throws on
+        // the next turn. Resolve credentials via the same boot-installed resolver
+        // the runner's setActive path uses (installed by activateProvider; read
+        // lazily here since it's set after plugins are built).
+        resolveActiveConfig: (name) =>
+          session.credentialResolver ? session.credentialResolver(name) : {},
+      });
       // Stash the api on the session so the desktop (via the runner's
       // `provider.configure`) can edit a stored provider without going
       // through the model. Mirrors the mcpAdmin stash below.

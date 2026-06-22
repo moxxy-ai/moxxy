@@ -72,12 +72,28 @@ export function isToolDisplay(x: unknown): x is ToolDisplay {
 }
 
 export function isFileDiffDisplay(x: unknown): x is FileDiffDisplay {
-  return (
-    typeof x === 'object' &&
-    x !== null &&
-    (x as { kind?: unknown }).kind === 'file-diff' &&
-    Array.isArray((x as { hunks?: unknown }).hunks)
-  );
+  if (typeof x !== 'object' || x === null) return false;
+  const d = x as {
+    kind?: unknown;
+    path?: unknown;
+    added?: unknown;
+    removed?: unknown;
+    hunks?: unknown;
+  };
+  if (d.kind !== 'file-diff') return false;
+  // Validate the load-bearing shape, not just `kind` + a `hunks` array: this
+  // guard decides whether a tool result is TRUSTED as a structured diff (the
+  // model is then shown only `forModel`, and channels render the payload). A
+  // malformed object with a bogus path / non-numeric counts / a non-array hunk
+  // must be rejected, not silently rendered.
+  if (typeof d.path !== 'string') return false;
+  if (typeof d.added !== 'number' || typeof d.removed !== 'number') return false;
+  if (!Array.isArray(d.hunks)) return false;
+  for (const hunk of d.hunks) {
+    if (typeof hunk !== 'object' || hunk === null) return false;
+    if (!Array.isArray((hunk as { lines?: unknown }).lines)) return false;
+  }
+  return true;
 }
 
 /** Human summary, e.g. "Added 10 lines, removed 1 line". */

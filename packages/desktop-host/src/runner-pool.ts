@@ -19,7 +19,6 @@ import path from 'node:path';
 import { platformSocket } from '@moxxy/runner';
 
 import { RunnerSupervisor } from './runner-supervisor';
-import { seedChatIntoSession } from './chat-log';
 
 /** Workspace id used for the "no workspace bound" runner. Stable across
  *  runs so the same socket is reused. */
@@ -70,17 +69,6 @@ export class RunnerPool extends EventEmitter {
 
   private async createSupervisor(id: string, cwd: string | null): Promise<RunnerSupervisor> {
     const socketPath = socketFor(id);
-    // Migrate a legacy / localStorage-only chat into the runner's authoritative
-    // log BEFORE the runner resumes this session id, so the runner owns its full
-    // history (else continuing the chat would strand the old history in the
-    // NDJSON mirror). Idempotent + non-destructive — skips a session the runner
-    // already owns and leaves the NDJSON file intact. Best-effort: a failed seed
-    // must not block opening the workspace (NDJSON stays the read fallback).
-    try {
-      await seedChatIntoSession(id);
-    } catch {
-      /* best-effort migration; the NDJSON read fallback still covers this chat */
-    }
     // Pass the workspace id as the runner's sticky session id so each
     // workspace resumes its own conversation + model context across app
     // restarts (the runner persists to ~/.moxxy/sessions/<id>.jsonl and
@@ -176,6 +164,15 @@ export function socketFor(id: string, platform: NodeJS.Platform = process.platfo
       platformSocket('serve', path.join(homedir(), '.moxxy', 'serve.sock'), platform)
     );
   }
+  // Defense-in-depth: on unix the id is interpolated into a real filesystem
+  // path (`serve-${id}.sock`), so a future caller passing a renderer-supplied id
+  // (the renderer is untrusted per security.ts) with `/`, `\`, or `..` could
+  // escape the sockets dir. Windows pipe names are already sanitized inside
+  // platformSocket(), so this only gates the path-segment branch. Reject any id
+  // that isn't a single safe path segment before it reaches the filesystem.
+  if (platform !== 'win32' && !isSafeSocketSegment(id)) {
+    throw new Error(`Refusing to build a socket path for an unsafe workspace id: ${JSON.stringify(id)}`);
+  }
   // Workspace-bound sockets sit under ~/.moxxy/desktop/sockets/ on unix so a
   // single deleted workspace's stale .sock doesn't pollute the home dir's top
   // level; on Windows they become `\\.\pipe\moxxy-serve-<id>`.
@@ -184,4 +181,11 @@ export function socketFor(id: string, platform: NodeJS.Platform = process.platfo
     path.join(homedir(), '.moxxy', 'desktop', 'sockets', `serve-${id}.sock`),
     platform,
   );
+}
+
+/** A workspace id that is safe to interpolate into a filesystem socket path:
+ *  one non-empty segment of word chars / dash / dot, never `.`/`..`, no path
+ *  separators or NUL. UUIDs (the only ids DeskStore mints) satisfy this. */
+function isSafeSocketSegment(id: string): boolean {
+  return /^[A-Za-z0-9_.-]+$/.test(id) && id !== '.' && id !== '..';
 }

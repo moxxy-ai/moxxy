@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useDesks } from '@moxxy/client-core';
 import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
@@ -38,7 +38,12 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
   const collapsed = useSidebarCollapsed();
   const desks = useDesks();
   const foldedDesks = useWorkspaceCollapsed();
-  const unread = new Set(useUnreadWorkspaces());
+  // useUnreadWorkspaces returns a reference-stable array (the store caches it
+  // until unread actually changes), so this Set is only re-allocated when the
+  // unread set really changes — not on every sidebar re-render — keeping a
+  // stable prop identity for WorkspaceTree.
+  const unreadIds = useUnreadWorkspaces();
+  const unread = useMemo(() => new Set(unreadIds), [unreadIds]);
   const [busy, setBusy] = useState(false);
   /** Desk with a session-create in flight; null when idle. */
   const [sessionBusyDeskId, setSessionBusyDeskId] = useState<string | null>(null);

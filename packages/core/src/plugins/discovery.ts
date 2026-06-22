@@ -10,6 +10,37 @@ import type { Logger } from '../logger.js';
  */
 const MAX_NODE_MODULES_WALK_DEPTH = 8;
 
+/**
+ * Cap on simultaneous fs handles opened while fanning out manifest reads /
+ * scoped-dir scans. A hoisted monorepo can have thousands of packages;
+ * an uncapped `Promise.all` opens that many fds at once and hits EMFILE/ENFILE,
+ * which `readPluginManifest` would then swallow as "no plugin" — silently
+ * dropping real plugins under fd pressure. Bounding it keeps discovery
+ * deterministic.
+ */
+const DISCOVERY_CONCURRENCY = 32;
+
+/** Map `items` through `fn` with at most `limit` in flight, preserving order. */
+async function mapWithConcurrency<T, R>(
+  items: ReadonlyArray<T>,
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      const item = items[i]!;
+      out[i] = await fn(item, i);
+    }
+  };
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  return out;
+}
+
 export interface DiscoveryOptions {
   readonly cwd: string;
   readonly logger: Logger;
@@ -40,8 +71,8 @@ export async function discoverPlugins(opts: DiscoveryOptions): Promise<ReadonlyA
       seen.add(pkgPath);
       return true;
     });
-    const manifests = await Promise.all(
-      uniquePaths.map((pkgPath) => readPluginManifest(pkgPath, opts.logger)),
+    const manifests = await mapWithConcurrency(uniquePaths, DISCOVERY_CONCURRENCY, (pkgPath) =>
+      readPluginManifest(pkgPath, opts.logger),
     );
     for (const manifest of manifests) {
       if (manifest) out.push(manifest);
@@ -66,11 +97,15 @@ async function listPackageDirs(root: string): Promise<string[]> {
   const entries: import('node:fs').Dirent[] = await fs
     .readdir(root, { withFileTypes: true })
     .catch((): import('node:fs').Dirent[] => []);
-  // Resolve each top-level entry to its contributed package dirs in parallel
-  // (scoped `@org` dirs need their own readdir), then flatten in entry order so
-  // the result matches the prior sequential walk.
-  const perEntry = await Promise.all(
-    entries.map(async (entry): Promise<string[]> => {
+  // Resolve each top-level entry to its contributed package dirs with bounded
+  // concurrency (scoped `@org` dirs need their own readdir), then flatten in
+  // entry order so the result matches the prior sequential walk. Bounding the
+  // scoped readdirs avoids opening one fd per `@org` dir all at once on a large
+  // hoisted node_modules.
+  const perEntry = await mapWithConcurrency(
+    entries,
+    DISCOVERY_CONCURRENCY,
+    async (entry): Promise<string[]> => {
       if (!entry.isDirectory() && !entry.isSymbolicLink()) return [];
       const full = path.join(root, entry.name);
       if (entry.name.startsWith('@')) {
@@ -83,7 +118,7 @@ async function listPackageDirs(root: string): Promise<string[]> {
       }
       if (entry.name !== '.bin' && entry.name !== '.pnpm') return [full];
       return [];
-    }),
+    },
   );
   return perEntry.flat();
 }
@@ -96,7 +131,20 @@ async function readPluginManifest(
   let pkg: { name?: string; version?: string; moxxy?: unknown };
   try {
     pkg = JSON.parse(await fs.readFile(pkgJsonPath, 'utf8'));
-  } catch {
+  } catch (err) {
+    // A missing package.json (ENOENT) is the common, expected "not a package"
+    // case — stay silent. Any other errno (EMFILE/ENFILE under fd pressure,
+    // EACCES, a malformed JSON SyntaxError) means a plugin may have been DROPPED
+    // for a non-structural reason, so surface it instead of swallowing it
+    // identically to "no package.json".
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code !== 'ENOENT') {
+      logger.warn('discovery: could not read package.json', {
+        path: pkgJsonPath,
+        ...(code ? { code } : {}),
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
     return null;
   }
   if (!pkg.moxxy) return null;

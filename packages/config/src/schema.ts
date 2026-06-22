@@ -42,12 +42,14 @@ export const permissionsConfigSchema = z.object({
 
 export const securityConfigSchema = z.object({
   /**
-   * Master toggle. When false (the default), `@moxxy/plugin-security`
+   * Master toggle. When omitted or false (the default), `@moxxy/plugin-security`
    * is a no-op even if registered — every tool runs exactly as it does
    * without the plugin. Per-tool `isolation: { ... }` declarations
-   * remain as documentation but are not enforced.
+   * remain as documentation but are not enforced. Optional so a partial
+   * `security:` block (e.g. only `isolator`) validates and config_set can
+   * write one field at a time; consumers default it to false.
    */
-  enabled: z.boolean(),
+  enabled: z.boolean().optional(),
   /**
    * Name of the Isolator implementation to use as default. Phase 1
    * ships `none` (passthrough) and `inproc` (cap validation + timeout).
@@ -72,14 +74,29 @@ export const securityConfigSchema = z.object({
    * Useful for hardening once every in-use tool has been audited.
    */
   requireDeclaration: z.boolean().optional(),
+  /**
+   * Tighten the in-process input cap-check from best-effort to fail-closed.
+   * By default the fs/net checks only inspect string values under a recognized
+   * key name (`file`, `path`, `url`, …), so a path/URL carried by an
+   * unrecognized field (`config`, `manifest`, `webhook`) is not checked. With
+   * `strict: true`, any string value that is unambiguously an absolute path or a
+   * bare http(s) URL is treated as in-scope-required regardless of key name, so
+   * an unrecognized carrier fails closed. Consumed by `@moxxy/plugin-security`
+   * (`SecurityPluginConfig.strict`); without this field the loader's schema would
+   * silently strip a user's `security.strict: true` and the hardening would be
+   * lost. Defaults to false at the consumer.
+   */
+  strict: z.boolean().optional(),
 });
 
 export const embeddingsConfigSchema = z.object({
   /**
    * 'tfidf' (default, zero deps) | 'openai' (text-embedding-3-*)
    * | 'transformers' (local, @huggingface/transformers) | 'none' (disable).
+   * Optional so a partial `embeddings:` block (e.g. only `model`) validates and
+   * config_set can write one field at a time; consumers default it to 'tfidf'.
    */
-  provider: z.enum(['tfidf', 'openai', 'transformers', 'none']),
+  provider: z.enum(['tfidf', 'openai', 'transformers', 'none']).optional(),
   model: z.string().optional(),
   dimensions: z.number().int().positive().optional(),
   apiKey: z.string().optional(),

@@ -99,7 +99,14 @@ export function toResponsesInput(messages: ReadonlyArray<ProviderMessage>): Resp
     }
     if (msg.role === 'user') {
       const content = contentBlocksToInputText('user', msg.content);
-      if (content.length > 0) out.push({ type: 'message', role: 'user', content });
+      if (content.length > 0) {
+        out.push({ type: 'message', role: 'user', content });
+      } else if (msg.content.length > 0) {
+        // The message carried blocks but none translated (unhandled block types):
+        // keep the turn with an empty input_text so we don't silently drop it
+        // from the request and lose conversational context.
+        out.push({ type: 'message', role: 'user', content: [{ type: 'input_text', text: '' }] });
+      }
       continue;
     }
     if (msg.role === 'assistant') {

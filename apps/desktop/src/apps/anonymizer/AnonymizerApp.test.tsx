@@ -2,7 +2,7 @@
  * Component tests for the redesigned anonymizer flow (Import → Settings →
  * Output). The redaction engine is real (`@moxxy/anonymizer`); only the host
  * boundaries are stubbed:
- *   - the NER Worker (loads a ~109 MB model) → a no-op fake, so the on-device
+ *   - the NER Worker (loads a ~300 MB model) → a no-op fake, so the on-device
  *     name pass simply yields nothing and structured redaction still runs.
  *   - the desktop IPC api → a fake, so Save routes without a native dialog.
  *
@@ -126,5 +126,25 @@ describe('AnonymizerApp redesigned flow', () => {
     render(<AnonymizerApp onExit={onExit} />);
     fireEvent.click(screen.getByRole('button', { name: /Apps/i }));
     expect(onExit).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Send to chat" hands the redacted text + a title to sendToSession', () => {
+    const sendToSession = vi.fn();
+    render(<AnonymizerApp onExit={vi.fn()} sendToSession={sendToSession} />);
+    paste(SAMPLE);
+    fireEvent.click(screen.getByTestId('anon-send-chat'));
+
+    expect(sendToSession).toHaveBeenCalledTimes(1);
+    const payload = sendToSession.mock.calls[0]?.[0];
+    expect(payload.text).toContain('[EMAIL]');
+    expect(payload.text).not.toContain('a@b.com');
+    expect(payload.title).toMatch(/Redacted document/);
+    expect(payload.meta).toMatchObject({ source: 'anonymizer' });
+  });
+
+  it('"Send to chat" is hidden when the capability was not granted', () => {
+    render(<AnonymizerApp onExit={vi.fn()} />);
+    paste(SAMPLE);
+    expect(screen.queryByTestId('anon-send-chat')).not.toBeInTheDocument();
   });
 });

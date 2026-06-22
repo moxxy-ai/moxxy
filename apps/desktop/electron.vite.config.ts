@@ -35,11 +35,22 @@ const ORT_SERVE_BASE = '/ort/';
 function transformersDistDir(): string {
   const require = createRequire(import.meta.url);
   // The package's `exports` map doesn't expose `./package.json`, so resolve the
-  // package entry itself — every conditional export lands in `dist/`, so its
-  // dirname IS the dist dir (where the ORT artifacts live). Robust to pnpm's
-  // symlink layout.
+  // package entry itself. Historically every conditional export landed in
+  // `dist/`, so its dirname IS the dist dir (where the ORT artifacts live). But
+  // that's an internal-layout invariant — pin the REAL dir by verifying the ORT
+  // files actually live where we inferred, and probe a couple of fallbacks if a
+  // future version flattens the entry out of `dist/`. Failing loudly here beats
+  // the silent CDN fallback the whole module exists to prevent.
   const entry = require.resolve('@huggingface/transformers');
-  return path.dirname(entry);
+  const entryDir = path.dirname(entry);
+  const candidates = [entryDir, path.join(entryDir, 'dist'), path.join(entryDir, '..', 'dist')];
+  for (const dir of candidates) {
+    if (ORT_WASM_FILES.every((f) => existsSync(path.join(dir, f)))) return dir;
+  }
+  // None matched — return the historical guess so the downstream existsSync
+  // check throws a precise, file-named error rather than silently serving the
+  // wrong directory.
+  return entryDir;
 }
 
 /**

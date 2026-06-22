@@ -39,6 +39,38 @@ import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
+/** One archived collaboration run (mirrors `@moxxy/mode-collaborative`'s
+ *  CollabRunRecord; the main process reads `~/.moxxy/collab/runs/*.json`). */
+export interface CollabRunSummary {
+  readonly runId: string;
+  readonly task: string;
+  readonly startedAtMs: number;
+  readonly finishedAtMs: number;
+  readonly outcome: 'completed' | 'aborted' | 'failed';
+  readonly parallel: boolean;
+  readonly gitRepo: boolean;
+  readonly agents: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly role: string;
+    readonly status: string;
+    readonly subtask: string;
+    readonly doneSummary?: string;
+  }>;
+  readonly doneCount: number;
+  readonly totalCount: number;
+  readonly board?: ReadonlyArray<{ readonly id: string; readonly title: string; readonly status: string; readonly owner?: string }>;
+  readonly contracts?: ReadonlyArray<{ readonly id: string; readonly title: string; readonly owner: string; readonly status: string; readonly version: number }>;
+  readonly messageCount?: number;
+  readonly merge?: {
+    readonly merged: ReadonlyArray<string>;
+    readonly promoted: boolean;
+    readonly conflicts: number;
+    readonly stagingBranch?: string;
+  };
+  readonly brief?: string;
+}
+
 /**
  * Every invokable IPC command the renderer can call. The preload
  * surface is built mechanically from this; misnaming a command in the
@@ -254,6 +286,19 @@ export interface IpcCommands {
     readonly task?: string;
     readonly startedAtMs?: number;
   }>;
+  /** End the active collaboration: abort its coordinator turn (whose finally
+   *  tears the team down + archives) and force-release the global single-flight
+   *  lock so a new one can start — even if the holder is a stale/crashed run. */
+  'collab.end': (args: { workspaceId?: string }) => Promise<{
+    readonly ended: boolean;
+    readonly abortedTurns: number;
+    readonly clearedTask?: string;
+  }>;
+  /** Archived past collaborations (newest first), read from
+   *  `~/.moxxy/collab/runs`. Powers the Collaborate tab's run history. */
+  'collab.history': (args?: { limit?: number }) => Promise<
+    ReadonlyArray<CollabRunSummary>
+  >;
   /** Forward an audio blob to the runner's active transcriber.
    *  Audio must be base64-encoded; returns the recognised text. */
   'session.transcribe': (args: {
@@ -365,42 +410,19 @@ export interface IpcCommands {
   /** Detach an open surface instance. */
   'surface.close': (args: { workspaceId: string; surfaceId: string }) => Promise<void>;
 
-  // ---- Chat transcript log (main-process append-only NDJSON) ------------
-  /** Append committed runner events to the workspace's durable log.
-   *  Append-only: never re-serialises old events. */
-  'chat.append': (args: {
-    workspaceId: string;
-    events: ReadonlyArray<MoxxyEvent>;
-  }) => Promise<void>;
-  /** Load a page of events ending at `before` (a line-index cursor; null
-   *  = the tail). Returns the page oldest-first plus `prevCursor` to
-   *  request the next-older page (null when the start is reached). */
-  'chat.loadSegment': (args: {
-    workspaceId: string;
-    before: number | null;
-    limit: number;
-  }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null }>;
+  // ---- Chat transcript history (read from the runner's authoritative log) ---
   /** Page the workspace's history from the RUNNER's authoritative log
-   *  (`session.loadHistory`, protocol v10) instead of the NDJSON mirror.
-   *  `before` is a `seq` cursor (NOT the line-index cursor `chat.loadSegment`
-   *  uses); the page is RAW events (includes non-rendered events like
-   *  `assistant_chunk`), so the renderer filters with `isRenderedEvent` and
-   *  pages until it has enough rendered rows. Returns `null` when the runner
-   *  can't serve it — no connected runner for the workspace, or a `<v10`
-   *  runner — so the caller falls back to `chat.loadSegment` (NDJSON). */
+   *  (`session.loadHistory`, protocol v10) — the sole chat-history source now
+   *  that the NDJSON mirror is retired. `before` is a `seq` cursor; the page is
+   *  RAW events (includes non-rendered events like `assistant_chunk`), so the
+   *  renderer filters with `isRenderedEvent` and pages until it has enough
+   *  rendered rows. Returns `null` when the runner can't serve it (no connected
+   *  runner for the workspace). */
   'chat.loadHistory': (args: {
     workspaceId: string;
     before: number | null;
     limit: number;
   }) => Promise<{ events: ReadonlyArray<MoxxyEvent>; prevCursor: number | null } | null>;
-  /** Truncate a workspace's log (Clear conversation). */
-  'chat.clearLog': (args: { workspaceId: string }) => Promise<void>;
-  /** One-time migration: the renderer hands up the events it parsed from
-   *  the legacy localStorage blobs; the main process seeds the NDJSON
-   *  logs. Idempotent — skips workspaces whose log already exists. */
-  'chat.migrate': (args: {
-    workspaces: ReadonlyArray<{ workspaceId: string; events: ReadonlyArray<MoxxyEvent> }>;
-  }) => Promise<void>;
 
   // Workflows
   'workflows.list': () => Promise<ReadonlyArray<WorkflowSummary>>;

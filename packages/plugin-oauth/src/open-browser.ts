@@ -22,13 +22,35 @@ export async function openInBrowser(url: string): Promise<void> {
       // which would otherwise break the `&` escaping (see below).
       ...(verbatim ? { windowsVerbatimArguments: true } : {}),
     });
-    child.once('error', reject);
+    // Settle exactly once. An early spawn `error` rejects AND clears the pending
+    // 50ms timer (else it would fire a stray resolve later and hold a live timer
+    // handle on the event loop). After we've resolved, a LATE async spawn error
+    // must NOT be left unhandled: an 'error' event with no listener is fatal in
+    // Node (it re-throws as an uncaught exception). So we keep an error listener
+    // attached for the child's whole lifetime — it rejects before settle, and
+    // harmlessly swallows after.
+    let settled = false;
+    const onError = (err: Error): void => {
+      if (settled) return; // post-resolve late error: swallow, never crash
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    }, 50);
+    // Don't let the 50ms settle-timer keep the process alive on its own.
+    timer.unref?.();
+    // `on` (not `once`): the listener stays for the child's lifetime so any late
+    // 'error' is always handled (a listenerless 'error' would crash the process).
+    child.on('error', onError);
     // `unref` so a misbehaving opener process can't keep the moxxy
     // process alive past its own lifetime.
     child.unref();
     // Resolve after spawn — we never want to wait for the browser to
     // close. A 50ms tick is enough to surface spawn-time errors.
-    setTimeout(resolve, 50);
   });
 }
 

@@ -13,13 +13,24 @@ import type {
   RedactResult,
 } from './types.js';
 
-/** Human-facing label per category (also the pseudonym/hash prefix). */
+/** Coarse human-facing label per category. A span's specific {@link PiiSpan.subtype}
+ *  (e.g. `PESEL`, `NHS`) overrides this so output stays precise. */
 const LABELS: Record<PiiCategory, string> = {
   email: 'EMAIL',
   phone: 'PHONE',
   creditCard: 'CARD',
   ssn: 'SSN',
   nationalId: 'ID',
+  taxId: 'TAX_ID',
+  healthId: 'HEALTH_ID',
+  passport: 'PASSPORT',
+  driverLicense: 'LICENSE',
+  postalCode: 'POSTCODE',
+  bankAccount: 'BANK',
+  crypto: 'CRYPTO',
+  deviceId: 'DEVICE',
+  vehicleId: 'VEHICLE',
+  secret: 'SECRET',
   ipv4: 'IP',
   ipv6: 'IP',
   mac: 'MAC',
@@ -32,6 +43,12 @@ const LABELS: Record<PiiCategory, string> = {
   custom: 'REDACTED',
 };
 
+/** The label to emit for a span: its specific subtype when present, else the
+ *  coarse category label. */
+function labelFor(span: PiiSpan): string {
+  return span.subtype ?? LABELS[span.category];
+}
+
 function emptyCounts(): Record<PiiCategory, number> {
   return {
     email: 0,
@@ -39,6 +56,16 @@ function emptyCounts(): Record<PiiCategory, number> {
     creditCard: 0,
     ssn: 0,
     nationalId: 0,
+    taxId: 0,
+    healthId: 0,
+    passport: 0,
+    driverLicense: 0,
+    postalCode: 0,
+    bankAccount: 0,
+    crypto: 0,
+    deviceId: 0,
+    vehicleId: 0,
+    secret: 0,
     ipv4: 0,
     ipv6: 0,
     mac: 0,
@@ -62,20 +89,20 @@ export function redact(text: string, opts: RedactOptions = {}): RedactResult {
 
   // Compute the replacement string per span LEFT-TO-RIGHT so pseudonym numbers
   // follow reading order, ...
-  const counters = new Map<PiiCategory, number>();
-  const memo = new Map<string, string>(); // `${category}:${lower(value)}` → token
+  const counters = new Map<string, number>(); // label → next index
+  const memo = new Map<string, string>(); // `${label}:${lower(value)}` → token
   const replacementFor = (span: PiiSpan): string => {
-    const label = LABELS[span.category];
+    const label = labelFor(span);
     if (mode === 'label') return `[${label}]`;
-    const key = `${span.category}:${span.value.toLowerCase()}`;
+    const key = `${label}:${span.value.toLowerCase()}`;
     const existing = memo.get(key);
     if (existing) return existing;
     let token: string;
     if (mode === 'hash') {
       token = `[${label}:${shortHash(span.value.toLowerCase(), opts.hashSalt ?? '')}]`;
     } else {
-      const n = (counters.get(span.category) ?? 0) + 1;
-      counters.set(span.category, n);
+      const n = (counters.get(label) ?? 0) + 1;
+      counters.set(label, n);
       token = `${label}_${n}`;
     }
     memo.set(key, token);

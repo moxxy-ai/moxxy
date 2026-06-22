@@ -140,7 +140,12 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
       defineTool({
         name: 'memory_forget',
         description: 'Delete a memory by name. Use only when the memory is incorrect or no longer relevant.',
-        inputSchema: z.object({ name: z.string().min(1) }),
+        // Slug-only name: the inproc isolator does NOT enforce the fs.write glob,
+        // so this Zod guard is the sole defense against a path-traversal `name`
+        // (e.g. '../../vault') reaching fs.unlink. Mirror memory_save's regex.
+        inputSchema: z.object({
+          name: z.string().min(1).max(120).regex(/^[a-z0-9][a-z0-9-]*$/, 'name must be slug-like'),
+        }),
         permission: { action: 'prompt' },
         isolation: {
           capabilities: {
@@ -158,7 +163,8 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
         name: 'memory_update',
         description: 'Update an existing memory in place. createdAt is preserved; updatedAt bumps.',
         inputSchema: z.object({
-          name: z.string().min(1),
+          // Slug-only: see memory_forget — the schema is the only traversal guard.
+          name: z.string().min(1).max(120).regex(/^[a-z0-9][a-z0-9-]*$/, 'name must be slug-like'),
           description: z.string().min(1).max(280).optional(),
           body: z.string().min(1).max(4000).optional(),
           tags: z.array(z.string().min(1)).optional(),

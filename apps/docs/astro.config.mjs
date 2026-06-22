@@ -37,7 +37,6 @@ export default defineConfig({
           autogenerate: { directory: 'packages' },
         },
       ],
-      customCss: [],
     }),
   ],
 });

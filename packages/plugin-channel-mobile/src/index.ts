@@ -17,8 +17,14 @@ function asNumber(v: unknown): number | undefined {
 function asString(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
-function asTunnel(v: unknown): 'localhost' | 'cloudflared' | 'ngrok' | undefined {
-  return v === 'cloudflared' || v === 'ngrok' || v === 'localhost' ? v : undefined;
+// Pass any string through; `normalizeTunnelChoice` validates it against the
+// tunnel-provider registry and falls back to `localhost` for an unknown name,
+// so a registered third provider is a valid config value without editing here.
+function asTunnel(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined;
+}
+function asBoolean(v: unknown): boolean | undefined {
+  return typeof v === 'boolean' ? v : undefined;
 }
 function pickExpoOptions(opts: Record<string, unknown>) {
   return {
@@ -42,6 +48,7 @@ export const mobileChannelDef = defineChannel({
       token: asString(deps.options?.token),
       tunnel: asTunnel(deps.options?.tunnel),
       expo: pickExpoOptions((deps.options ?? {}) as Record<string, unknown>),
+      allowQueryToken: asBoolean(deps.options?.allowQueryToken),
       logger: deps.logger,
     }),
   isAvailable: async () => ({ ok: true }),

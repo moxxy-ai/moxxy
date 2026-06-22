@@ -3,6 +3,9 @@ import { splitConnectUrl } from '@moxxy/client-transport-ws';
 export interface PairingQrTarget {
   readonly gatewayUrl: string;
   readonly code: string;
+  /** Agent fingerprint from the QR (`?fp=`) when the gateway is exposed through
+   *  the E2E proxy relay; threaded into the transport so it pins + handshakes. */
+  readonly fingerprint?: string;
 }
 
 export function parsePairingQrPayload(raw: string): PairingQrTarget {
@@ -20,5 +23,6 @@ function parseBridgeConnectUrl(raw: string): PairingQrTarget | null {
   return {
     gatewayUrl: split.url.replace(/\/$/, ''),
     code: split.token.trim(),
+    ...(split.fingerprint?.trim() ? { fingerprint: split.fingerprint.trim() } : {}),
   };
 }

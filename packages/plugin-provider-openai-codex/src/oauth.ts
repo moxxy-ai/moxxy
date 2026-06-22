@@ -69,6 +69,18 @@ export function buildAuthorizeUrl(redirectUri: string, pkce: PkceCodes, state: s
 }
 
 /**
+ * Hard cap on the base64url payload segment we'll decode + JSON.parse. A
+ * legitimate OAuth id_token/access_token JWT payload is a few hundred bytes to
+ * a couple KiB; 64 KiB is far beyond any real claim set. The cap is defense in
+ * depth: although the token reaches us over TLS from the issuer, a hostile or
+ * MITM'd token endpoint — or a tampered persisted vault entry replayed back in
+ * — could otherwise hand us a multi-megabyte/gigabyte segment that we'd
+ * base64-decode and `JSON.parse` in full. Over the cap we degrade to
+ * `undefined` (callers already treat a missing account-id claim as fine).
+ */
+const MAX_JWT_SEGMENT_CHARS = 64 * 1024;
+
+/**
  * JWT-claim extraction — header.payload.signature with base64url-encoded
  * segments. We never verify the signature: the access_token is only ever
  * sent back to the issuer (or its API gateway), so trust is rooted in the
@@ -77,13 +89,19 @@ export function buildAuthorizeUrl(redirectUri: string, pkce: PkceCodes, state: s
  * for the per-request header.
  */
 export function parseJwtClaims(jwt: string): Record<string, unknown> | undefined {
+  if (typeof jwt !== 'string') return undefined;
   const parts = jwt.split('.');
   if (parts.length !== 3) return undefined;
+  const payload = parts[1]!;
+  // Bound the decode: never allocate/parse an oversized payload segment.
+  if (payload.length > MAX_JWT_SEGMENT_CHARS) return undefined;
   try {
-    return JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as Record<
-      string,
-      unknown
-    >;
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as unknown;
+    // Guard against a payload that parses to a non-object (e.g. `"5"`, `[]`,
+    // `null`): downstream callers index it as a claim bag, so reject anything
+    // that isn't a plain object rather than returning a surprising value.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    return parsed as Record<string, unknown>;
   } catch {
     return undefined;
   }

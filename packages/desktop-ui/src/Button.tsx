@@ -1,9 +1,11 @@
 /**
  * Button primitives — the resting inline style + the right global className for
- * each look the desktop uses. Hover/active/disabled/focus are all handled by
- * the app's global CSS (`button`, `.btn-cta`, `.btn-outline`, `.btn-chip`,
- * `.btn-ghost`, `.btn-icon` in styles.css), so a primitive that emits the
- * matching className inherits every interaction state for free.
+ * each look the desktop uses. Hover/active styling comes from the app's global
+ * CSS (`.btn-cta`, `.btn-outline`, `.btn-chip`, `.btn-ghost`, `.btn-icon` in
+ * styles.css), so a primitive that emits the matching className inherits those.
+ * The package itself ships the keyboard-focus ring + disabled affordance (via an
+ * injected `.moxxy-btn` rule) so a host that does NOT load the desktop's CSS
+ * (the advertised future web channel) still gets an accessible focus indicator.
  *
  * `variant` picks the look; `style`/`className` are merged last so a call site
  * can still tweak padding, swap a background (e.g. a red destructive action),
@@ -13,6 +15,42 @@ import type { ButtonHTMLAttributes, CSSProperties } from 'react';
 
 export type ButtonVariant = 'primary' | 'cta' | 'secondary' | 'chip' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'lg';
+
+// Marker class carried by every primitive button so the package can ship its
+// own keyboard-focus ring + disabled affordance, instead of relying on each
+// host app's global CSS (a future web channel gets these for free). The rules
+// are low-specificity so a host's variant styling still wins where it overlaps.
+const MARKER = 'moxxy-btn';
+const BTN_STYLE_ID = 'moxxy-btn-states';
+
+function ensureButtonStates(): void {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(BTN_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = BTN_STYLE_ID;
+  style.textContent = [
+    `.${MARKER}{cursor:pointer;}`,
+    `.${MARKER}:focus-visible{outline:2px solid var(--color-primary-strong,#2563eb);outline-offset:2px;}`,
+    `.${MARKER}:disabled{opacity:0.55;cursor:not-allowed;}`,
+  ].join('');
+  document.head.appendChild(style);
+}
+
+// Inject eagerly on module load (idempotent + SSR-safe) so the focus ring is
+// present before the first button paints.
+ensureButtonStates();
+
+// ReferenceError-safe dev check — `process` may be undefined in a bare browser
+// bundle (the advertised future web channel), so reach it via globalThis and
+// don't touch it unguarded. (@types/node isn't a dep of this UI-only package.)
+function isDev(): boolean {
+  try {
+    const proc = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process;
+    return proc?.env?.NODE_ENV !== 'production';
+  } catch {
+    return false;
+  }
+}
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /**
@@ -85,7 +123,7 @@ export function Button({
     ...v.style,
     ...style,
   };
-  const cls = [v.className, className].filter(Boolean).join(' ') || undefined;
+  const cls = [MARKER, v.className, className].filter(Boolean).join(' ');
   return <button type={type} className={cls} style={merged} {...rest} />;
 }
 
@@ -105,8 +143,23 @@ export function IconButton({
   className,
   style,
   type = 'button',
+  children,
   ...rest
 }: IconButtonProps): JSX.Element {
+  // Icon-only buttons announce as an empty button to screen readers unless they
+  // carry an accessible name. Nudge call sites in dev when none is present.
+  if (isDev()) {
+    const labelled =
+      Boolean(rest['aria-label']) ||
+      Boolean(rest['aria-labelledby']) ||
+      Boolean(rest.title) ||
+      hasTextContent(children);
+    if (!labelled) {
+      console.warn(
+        '[IconButton] missing accessible name: pass aria-label, aria-labelledby, title, or text children.',
+      );
+    }
+  }
   const merged: CSSProperties = {
     width: size,
     height: size,
@@ -120,6 +173,20 @@ export function IconButton({
       : {}),
     ...style,
   };
-  const cls = ['btn-icon', className].filter(Boolean).join(' ');
-  return <button type={type} className={cls} style={merged} {...rest} />;
+  const cls = [MARKER, 'btn-icon', className].filter(Boolean).join(' ');
+  return (
+    <button type={type} className={cls} style={merged} {...rest}>
+      {children}
+    </button>
+  );
+}
+
+// True only when children carry a non-whitespace string (an SVG-only child is
+// invisible to AT, so it doesn't count as an accessible name).
+function hasTextContent(children: React.ReactNode): boolean {
+  if (children == null || children === false) return false;
+  if (typeof children === 'string') return children.trim().length > 0;
+  if (typeof children === 'number') return true;
+  if (Array.isArray(children)) return children.some(hasTextContent);
+  return false;
 }

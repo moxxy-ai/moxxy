@@ -19,6 +19,7 @@ export * from './chatModel.js';
 export * from './chatStore.js';
 export * from './chatPersistence.js';
 export * from './askStore.js';
+export * from './composerDraftStore.js';
 
 // Hooks.
 export * from './useChat.js';

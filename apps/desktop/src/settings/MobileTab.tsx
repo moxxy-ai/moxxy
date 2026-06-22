@@ -13,16 +13,21 @@
  * invalidating the old QR and kicking every connected device.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { useMobileGateway } from '@moxxy/client-core';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { Section, Switch } from './settings-primitives';
 
 /** Render a connect URL as a scannable QR (SVG). Pure-JS via the `qrcode`
- *  package's `toString` — no canvas, builds cleanly in the renderer. */
+ *  package's `toString` — no canvas, builds cleanly in the renderer. The SVG
+ *  is wrapped in an <img> data URL rather than injected via
+ *  dangerouslySetInnerHTML: an <img>-referenced SVG runs in the browser's
+ *  restricted mode (no scripts, no external fetches), so even a compromised
+ *  `qrcode` package cannot inject executable markup into the privileged
+ *  renderer DOM. */
 function QrCode({ value }: { readonly value: string }): JSX.Element {
-  const [svg, setSvg] = useState<string | null>(null);
+  const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -30,7 +35,7 @@ function QrCode({ value }: { readonly value: string }): JSX.Element {
     setFailed(false);
     QRCode.toString(value, { type: 'svg', margin: 1, width: 220 })
       .then((markup) => {
-        if (alive) setSvg(markup);
+        if (alive) setSrc(`data:image/svg+xml;utf8,${encodeURIComponent(markup)}`);
       })
       .catch(() => {
         if (alive) setFailed(true);
@@ -50,7 +55,6 @@ function QrCode({ value }: { readonly value: string }): JSX.Element {
   return (
     <div
       data-testid="mobile-qr"
-      aria-label="Pairing QR code"
       style={{
         width: 220,
         height: 220,
@@ -64,32 +68,71 @@ function QrCode({ value }: { readonly value: string }): JSX.Element {
         alignItems: 'center',
         justifyContent: 'center',
       }}
-      // The SVG is generated locally from a string we built — not user/network
-      // content — so it carries no injection risk.
-      dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
-    />
+    >
+      {src && (
+        <img
+          src={src}
+          alt="Pairing QR code"
+          width={200}
+          height={200}
+          style={{ display: 'block' }}
+        />
+      )}
+    </div>
   );
 }
 
 export function MobileTab(): JSX.Element {
   const { status, loading, busy, error, setEnabled, rotateToken } = useMobileGateway();
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  // Reset timers cleared on unmount so a closed panel can't setState after
+  // teardown (and the timers are released).
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>();
+  const failedTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(
+    () => () => {
+      clearTimeout(copiedTimer.current);
+      clearTimeout(failedTimer.current);
+    },
+    [],
+  );
 
   const copyUrl = (): void => {
     if (!status.connectUrl) return;
-    void navigator.clipboard
-      .writeText(status.connectUrl)
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => undefined);
+    setCopyFailed(false);
+    const ok = (): void => {
+      setCopied(true);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 1500);
+    };
+    const fail = (): void => {
+      setCopyFailed(true);
+      clearTimeout(failedTimer.current);
+      failedTimer.current = setTimeout(() => setCopyFailed(false), 4000);
+    };
+    // The Clipboard API can reject in a packaged renderer (permission / focus /
+    // insecure-context). Surface the failure instead of swallowing it, so the
+    // user knows to select the URL manually rather than paste a stale value.
+    try {
+      const p = navigator.clipboard?.writeText(status.connectUrl);
+      if (p && typeof p.then === 'function') p.then(ok, fail);
+      else ok();
+    } catch {
+      fail();
+    }
   };
+
+  // Which pairing path is live drives the copy + the security warning. A remote
+  // `wss://` connectUrl means the E2E proxy relay is up (off-LAN, encrypted, the
+  // relay sees only ciphertext); a `ws://` URL is the LAN fallback (plaintext,
+  // same-network only) shown when the relay was unreachable.
+  const remote = !!status.connectUrl && status.connectUrl.startsWith('wss://');
 
   return (
     <Section
       title="Mobile gateway"
-      description="Pair the moxxy mobile app to drive this desktop from your phone. Scan the QR in the app to connect over your local network."
+      description="Pair the moxxy mobile app to drive this desktop from your phone. Scan the QR in the app — it connects securely over the internet through the moxxy relay, or falls back to your local network if the relay is unreachable."
     >
       <div
         style={{
@@ -124,17 +167,29 @@ export function MobileTab(): JSX.Element {
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text)' }}>
               Enable mobile gateway
             </div>
-            <div style={{ marginTop: 2, fontSize: 12, color: 'var(--color-text-dim)' }}>
+            {/* Announce status transitions (starting/listening/off) to screen
+                readers — the LAN bridge can take a moment to start. */}
+            <div
+              role="status"
+              aria-live="polite"
+              style={{ marginTop: 2, fontSize: 12, color: 'var(--color-text-dim)' }}
+            >
               {loading
                 ? 'Checking…'
-                : status.enabled
-                  ? `Listening on ${status.host}:${status.port}`
-                  : 'Off — your phone cannot connect.'}
+                : busy
+                  ? status.enabled
+                    ? 'Stopping…'
+                    : 'Starting…'
+                  : status.enabled
+                    ? `Listening on ${status.host}:${status.port}`
+                    : 'Off — your phone cannot connect.'}
             </div>
           </div>
           <Switch
             on={status.enabled}
             label={`${status.enabled ? 'Disable' : 'Enable'} mobile gateway`}
+            disabled={busy}
+            busy={busy}
             onClick={() => {
               if (!busy) void setEnabled(!status.enabled);
             }}
@@ -147,8 +202,40 @@ export function MobileTab(): JSX.Element {
           </p>
         )}
 
-        {/* Security warning — only meaningful (and shown) when the gateway is on. */}
-        {status.enabled && (
+        {/* Security warning — only meaningful (and shown) when the gateway is on.
+            Two flavours: the unencrypted-LAN fallback (load-bearing — passive
+            interception is possible) and the E2E-encrypted relay path (milder —
+            no interception, but the QR/token still grants full control). */}
+        {status.enabled && remote && (
+          <div
+            role="note"
+            data-testid="mobile-proxy-note"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 9,
+              padding: '10px 14px',
+              border: '1px solid color-mix(in oklab, var(--color-amber, #d97706) 30%, transparent)',
+              background: 'color-mix(in oklab, var(--color-amber, #d97706) 8%, transparent)',
+              borderRadius: 12,
+              fontSize: 12.5,
+              lineHeight: 1.5,
+              color: 'var(--color-text)',
+            }}
+          >
+            <Icon name="lock" size={15} style={{ marginTop: 1, flexShrink: 0 }} />
+            <span>
+              <strong>Reachable from anywhere over an end-to-end-encrypted link.</strong> The
+              connection runs through the moxxy relay, which only ever sees ciphertext — your phone
+              and this desktop verify each other directly (the QR pins this machine&apos;s key), so
+              the relay cannot read your traffic or impersonate the desktop. But anyone who obtains
+              the QR / pairing token can still drive moxxy on this machine: send prompts, run tools,
+              read your workspaces. Keep the code private, turn the gateway off when you are done, and
+              use <em>Regenerate code</em> if it may have leaked.
+            </span>
+          </div>
+        )}
+        {status.enabled && !remote && (
           <div
             role="alert"
             data-testid="mobile-lan-warning"
@@ -167,13 +254,13 @@ export function MobileTab(): JSX.Element {
           >
             <Icon name="lock" size={15} style={{ marginTop: 1, flexShrink: 0 }} />
             <span>
-              <strong>This exposes your desktop on the local network over an unencrypted
-              connection.</strong> Traffic uses plain <code>ws://</code> (no TLS), so anyone on the
-              same network can passively intercept the pairing token and everything you send and
-              receive — they do not even need the QR code to do it. Once they have the token they
-              can drive moxxy on this machine: send prompts, run tools, read your workspaces. Only
-              enable this on networks you trust, turn the gateway off when you are done, and use{' '}
-              <em>Regenerate code</em> if a token may have leaked.
+              <strong>The relay is unreachable, so this exposes your desktop on the local network
+              over an unencrypted connection.</strong> Traffic uses plain <code>ws://</code> (no
+              TLS), so anyone on the same network can passively intercept the pairing token and
+              everything you send and receive — they do not even need the QR code to do it. Once they
+              have the token they can drive moxxy on this machine: send prompts, run tools, read your
+              workspaces. Only enable this on networks you trust, turn the gateway off when you are
+              done, and use <em>Regenerate code</em> if a token may have leaked.
             </span>
           </div>
         )}
@@ -213,6 +300,15 @@ export function MobileTab(): JSX.Element {
                   {copied ? 'Copied' : 'Copy'}
                 </Button>
               </div>
+              {copyFailed && (
+                <span
+                  role="status"
+                  data-testid="mobile-copy-failed"
+                  style={{ fontSize: 11.5, color: 'var(--color-red)' }}
+                >
+                  Copy failed — select the URL above and copy it manually.
+                </span>
+              )}
             </div>
 
             <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -228,6 +324,7 @@ export function MobileTab(): JSX.Element {
                 variant="secondary"
                 data-testid="mobile-regenerate"
                 disabled={busy}
+                aria-busy={busy || undefined}
                 onClick={() => {
                   if (!busy) void rotateToken();
                 }}

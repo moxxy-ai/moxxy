@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { CameraPermissionState } from '../pairingUi';
-import { buildPairingUiState } from '../pairingUi';
+import { buildPairingUiState, maskPairingCode } from '../pairingUi';
 import { MobileIcon } from './MobileIcon';
 
 interface ConnectionSettingsProps {
@@ -82,7 +82,7 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
             />
             <View style={styles.codeCard}>
               <Text style={styles.codeEyebrow}>Pairing code</Text>
-              <Text style={styles.codeText}>{props.code || '------'}</Text>
+              <Text style={styles.codeText}>{maskPairingCode(props.code)}</Text>
             </View>
             <View style={styles.buttonRow}>
               <Pressable

@@ -87,6 +87,41 @@ describe('RequirementRegistry', () => {
     expect(check.issues[0]).toMatchObject({ code: 'not_ready' });
   });
 
+  it('does not report version_mismatch for a non-plugin kind carrying a version', () => {
+    // `version` is only resolvable for the plugin kind. A version on any other
+    // kind used to compare against an always-undefined target.version and emit a
+    // permanent spurious version_mismatch ("(unknown)") even though the target
+    // was present and active.
+    const { requirements, providers } = makeRequirements();
+    providers.register(
+      defineProvider({
+        name: 'openai-codex',
+        models: [],
+        createClient: () => ({ name: 'openai-codex', models: [], stream: async function* () {}, countTokens: async () => 0 }),
+      }),
+    );
+    providers.setActive('openai-codex');
+
+    const check = requirements.check([
+      { kind: 'provider', name: 'openai-codex', state: 'active', version: '1.0.0' },
+    ]);
+
+    expect(check.ready).toBe(true);
+    expect(check.issues).toEqual([]);
+  });
+
+  it('still honors a version mismatch for the plugin kind', () => {
+    const { requirements } = makeRequirements();
+    requirements.registerPlugin('@moxxy/plugin-example', '2.0.0');
+
+    const check = requirements.check([
+      { kind: 'plugin', name: '@moxxy/plugin-example', version: '1.0.0' },
+    ]);
+
+    expect(check.ready).toBe(false);
+    expect(check.issues[0]).toMatchObject({ code: 'version_mismatch' });
+  });
+
   it('isReady checks a single named target without composing per-def requirements', () => {
     const { requirements, transcribers } = makeRequirements();
     transcribers.register(

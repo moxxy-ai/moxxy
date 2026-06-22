@@ -68,5 +68,5 @@ before the next API call goes out — the CLI's setup wires this for you.
 
 ## See also
 
-- [Provider OAuth login guide](../guides/provider-oauth-login).
-- [@moxxy/plugin-oauth](./plugin-oauth) — the generic OAuth client.
+- [Provider OAuth login guide](../guides/provider-oauth-login.md).
+- [@moxxy/plugin-oauth](./plugin-oauth.md) — the generic OAuth client.

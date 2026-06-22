@@ -18,6 +18,47 @@ export interface FilterInput {
   readonly body: Buffer;
 }
 
+/**
+ * Hard caps on regex matching. The `matches` source is set by the agent/user
+ * (semi-trusted) but is exercised against fully untrusted request data on the
+ * pre-ACK hot path, so a catastrophic-backtracking pattern (`(a+)+$`) plus a
+ * crafted value can pin the single Node event loop. We can't run a true
+ * bounded engine without a dependency (re2), so we shrink the worst case:
+ * reject over-long patterns (already enforced at trigger-create/load time via
+ * the store schema), only match against a bounded prefix of the value, and
+ * cache the compiled RegExp so a delivery storm never recompiles per request.
+ */
+export const MAX_REGEX_SOURCE_LEN = 512;
+export const MAX_MATCH_VALUE_LEN = 4096;
+
+const regexCache = new Map<string, RegExp | null>();
+const REGEX_CACHE_MAX = 256;
+
+/**
+ * Compile + cache a user-supplied filter regex. Returns `null` for a pattern
+ * that is too long or uncompilable — the caller treats that as "no match"
+ * (refusing the delivery beats crashing the dispatcher). The cache is bounded;
+ * the oldest entry is dropped on overflow so a parade of distinct patterns
+ * can't grow it without limit.
+ */
+function compileMatcher(source: string): RegExp | null {
+  if (regexCache.has(source)) return regexCache.get(source)!;
+  let compiled: RegExp | null = null;
+  if (source.length <= MAX_REGEX_SOURCE_LEN) {
+    try {
+      compiled = new RegExp(source);
+    } catch {
+      compiled = null;
+    }
+  }
+  if (regexCache.size >= REGEX_CACHE_MAX) {
+    const oldest = regexCache.keys().next();
+    if (!oldest.done) regexCache.delete(oldest.value);
+  }
+  regexCache.set(source, compiled);
+  return compiled;
+}
+
 function asString(v: unknown): string | null {
   if (v == null) return null;
   if (typeof v === 'string') return v;
@@ -69,13 +110,14 @@ function ruleMatches(rule: FilterRule, input: FilterInput, parsed: ParsedBody): 
   if (value === null) return false;
   if (rule.equals && rule.equals.includes(value)) return true;
   if (rule.matches) {
-    try {
-      if (new RegExp(rule.matches).test(value)) return true;
-    } catch {
-      // Bad regex acts as "no match" — refusing the delivery beats
-      // crashing the dispatcher.
-      return false;
-    }
+    const re = compileMatcher(rule.matches);
+    // Bad/over-long regex acts as "no match" — refusing the delivery beats
+    // crashing the dispatcher.
+    if (!re) return false;
+    // Match against a bounded prefix only: untrusted payload data can never
+    // make the backtracking cost scale with an attacker-chosen input length.
+    const bounded = value.length > MAX_MATCH_VALUE_LEN ? value.slice(0, MAX_MATCH_VALUE_LEN) : value;
+    if (re.test(bounded)) return true;
   }
   return false;
 }

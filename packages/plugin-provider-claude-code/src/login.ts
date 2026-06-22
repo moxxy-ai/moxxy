@@ -104,7 +104,9 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
     // Non-fatal — the user can open the URL surfaced above by hand.
   }
 
-  const entered = (await ctx.prompt(CODE_PROMPT)).trim();
+  // The authorization code is a single-use, exchangeable credential — mask it
+  // so it doesn't echo into scrollback / screen-share, matching the token paste.
+  const entered = (await ctx.prompt(CODE_PROMPT, { mask: true })).trim();
   if (!entered) {
     throw new MoxxyError({
       code: 'AUTH_DENIED',
@@ -112,7 +114,10 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
       context: { provider: CLAUDE_CODE_PROVIDER_ID },
     });
   }
-  // Anthropic returns `code#state`; verify the state to defeat CSRF.
+  // Anthropic returns `code#state`, but often shows just the bare code, so the
+  // state check below is best-effort: it only fires when a state was pasted.
+  // The real CSRF/code-injection defense is PKCE — the `code_verifier` binds
+  // the code to this client session, so a foreign code fails the exchange.
   const hash = entered.indexOf('#');
   const code = hash >= 0 ? entered.slice(0, hash) : entered;
   const returnedState = hash >= 0 ? entered.slice(hash + 1) : '';
@@ -127,9 +132,12 @@ export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAu
   const { tokenSet, accountEmail } = await exchangeClaudeCode(code, returnedState || state, verifier);
   await persistClaudeTokens(ctx.vault, tokenSet, accountEmail);
   ctx.write(`\nSigned in to Claude${accountEmail ? ` as ${accountEmail}` : ''}.\n`);
+  // Omit `expiresAt` when the credential never expires (setup-token paste, or a
+  // token response without `expires_in`). Surfacing `0` would read as "epoch =
+  // already expired" to the CLI status renderer, which only checks `!== undefined`.
   return {
     ...(accountEmail ? { accountId: accountEmail } : {}),
-    expiresAt: tokenSet.expiresAt ?? 0,
+    ...(tokenSet.expiresAt !== undefined ? { expiresAt: tokenSet.expiresAt } : {}),
   };
 }
 
@@ -146,7 +154,9 @@ export async function claudeStatus(ctx: ProviderAuthContext): Promise<ProviderOA
   if (!stored) return null;
   return {
     accountId: stored.extras.account_email ?? null,
-    expiresAt: stored.tokenSet.expiresAt ?? 0,
+    // Omit when absent — a stored setup-token has no expiry, and `0` would be
+    // mis-rendered as "expired" (the CLI only treats `!== undefined` as set).
+    ...(stored.tokenSet.expiresAt !== undefined ? { expiresAt: stored.tokenSet.expiresAt } : {}),
     vaultKey: `oauth/${CLAUDE_CODE_PROVIDER_ID}/*`,
   };
 }
@@ -253,6 +263,26 @@ interface ClaudeExchangeResult {
   readonly accountEmail?: string;
 }
 
+/**
+ * Anthropic's OAuth endpoints (both `claude.ai/oauth/authorize` and the token
+ * endpoint) intermittently return a transient HTTP 500 — the *same* request
+ * then succeeds on retry. So retry 5xx/429/network failures with a short
+ * backoff before giving up. 4xx (bad/expired/already-used code, invalid_grant)
+ * is deterministic and surfaced immediately, never retried.
+ */
+const TOKEN_POST_MAX_ATTEMPTS = 3;
+const TOKEN_POST_BACKOFF_MS = [600, 1800] as const;
+/**
+ * Per-attempt deadline on the token POST. Node's `fetch` has NO default
+ * timeout, so a half-open TCP socket (server accepts but never responds — a
+ * stalled edge node, a black-holing proxy, a captive portal that keeps the
+ * connection alive) would hang the whole login/refresh indefinitely. Bound
+ * each attempt; a timeout aborts the request and is classed as a transient
+ * network error, so the retry loop tries again and ultimately surfaces the
+ * "endpoint kept failing" hint instead of wedging forever.
+ */
+const TOKEN_POST_TIMEOUT_MS = 30_000;
+
 /** Test seam so the exchange/refresh can run against a fake fetch. */
 let fetchImpl: typeof fetch = fetch;
 export function __setClaudeFetch(f: typeof fetch): void {
@@ -271,15 +301,11 @@ export function __setClaudeSleep(f: (ms: number) => Promise<void>): void {
   sleepImpl = f;
 }
 
-/**
- * Anthropic's OAuth endpoints (both `claude.ai/oauth/authorize` and the token
- * endpoint) intermittently return a transient HTTP 500 — the *same* request
- * then succeeds on retry. So retry 5xx/429/network failures with a short
- * backoff before giving up. 4xx (bad/expired/already-used code, invalid_grant)
- * is deterministic and surfaced immediately, never retried.
- */
-const TOKEN_POST_MAX_ATTEMPTS = 3;
-const TOKEN_POST_BACKOFF_MS = [600, 1800] as const;
+/** Test seam to shrink the per-attempt network deadline (default {@link TOKEN_POST_TIMEOUT_MS}). */
+let timeoutMs = TOKEN_POST_TIMEOUT_MS;
+export function __setClaudeTimeoutMs(ms: number): void {
+  timeoutMs = ms;
+}
 
 async function exchangeClaudeCode(
   code: string,
@@ -338,6 +364,9 @@ async function postClaudeToken(body: Record<string, string>): Promise<ClaudeExch
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(body),
+        // Bound a hung connection so it surfaces as a retryable network error
+        // (TimeoutError) rather than blocking the login/refresh forever.
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
       transient = `network error (${err instanceof Error ? err.message : String(err)})`;
@@ -345,7 +374,22 @@ async function postClaudeToken(body: Record<string, string>): Promise<ClaudeExch
     }
 
     if (res.ok) {
-      const json = (await res.json()) as Record<string, unknown>;
+      // A captive portal / proxy / misbehaving edge can return 200 with an HTML
+      // or empty body, or a JSON primitive/array. Treat any of these as a
+      // transient and retry rather than letting a raw SyntaxError escape the
+      // retry/classify path.
+      let parsed: unknown;
+      try {
+        parsed = await res.json();
+      } catch {
+        transient = 'HTTP 200 with non-JSON body';
+        continue;
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        transient = 'HTTP 200 with malformed token response';
+        continue;
+      }
+      const json = parsed as Record<string, unknown>;
       return { tokenSet: parseTokenResponse(json), ...extractAccountEmail(json) };
     }
 

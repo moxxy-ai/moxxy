@@ -20,9 +20,9 @@ The user wants you to commit something to long-term memory so it's available in 
 1. **Distill** what the user just said into 1–2 sentences. If the original was a long ramble, summarize. If it was already terse, keep it.
 2. **Check existing memories** with `memory_recall(query)` for similar entries. If a related entry exists, prefer `memory_update` over creating a new one — don't fragment.
 3. **Save** with `memory_save({ name, type, description, body, tags })`:
-   - `name`: slug, ≤60 chars, kebab-case
-   - `description`: one sentence, ≤120 chars — this is what shows in the index
-   - `body`: ≤30 lines; the actual content
+   - `name`: slug, kebab-case — aim for ≤60 chars (`memory_save` hard cap 120)
+   - `description`: one sentence — aim for ≤120 chars (hard cap 280); this is what shows in the index
+   - `body`: keep it tight (~≤30 lines); the actual content
    - `tags`: optional, lowercase keywords for cross-cutting topics
 
 4. **Confirm** briefly: "Saved as `<name>`."

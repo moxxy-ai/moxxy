@@ -68,4 +68,15 @@ describe('aggregate', () => {
     const spans = aggregate([tok('B-PER', 'Sam'), tok('B-PER', 'Sam')], text);
     expect(spans.map((s) => s.start)).toEqual([0, 12]);
   });
+
+  it('rejoins SentencePiece (XLM-R) sub-words that decode WITHOUT a marker', () => {
+    // XLM-RoBERTa decodes each sub-word independently, so an agglutinated Polish
+    // surname 'Kowalski' arrives as bare parts ['Kowal','ski'] with NO '##' marker
+    // and NO separator in the source text. The whole name must still be recovered
+    // (a `+`-separator part match would drop 'ski' and leak the surname).
+    const text = 'pacjent Anna Kowalski zgłosił';
+    const tokens: NerToken[] = [tok('B-PER', 'Anna'), tok('I-PER', 'Kowal'), tok('I-PER', 'ski')];
+    const spans = aggregate(tokens, text);
+    expect(spans).toEqual([{ category: 'person', start: 8, end: 21, value: 'Anna Kowalski' }]);
+  });
 });

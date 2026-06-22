@@ -229,7 +229,11 @@ function ChangedRow({
     >
       <span
         className="mono"
-        aria-hidden
+        // Spell the status out for screen-reader / color-blind users — the
+        // terse code + hue alone aren't an accessible signal.
+        role="img"
+        aria-label={statusLabel(file.status)}
+        title={statusLabel(file.status)}
         style={{ width: 18, flexShrink: 0, color: statusColor(file.status), fontSize: 10.5 }}
       >
         {file.status.trim() || '•'}
@@ -250,5 +254,17 @@ function statusColor(status: string): string {
   if (s.includes('D')) return '#f7768e';
   if (s.includes('A')) return '#9ece6a';
   return '#7aa2f7';
+}
+
+/** A spoken label for a git short-status code (the color alone isn't accessible). */
+function statusLabel(status: string): string {
+  const s = status.trim();
+  if (!s) return 'Changed';
+  if (s.includes('?')) return 'Untracked';
+  if (s.includes('D')) return 'Deleted';
+  if (s.includes('A')) return 'Added';
+  if (s.includes('R')) return 'Renamed';
+  if (s.includes('M')) return 'Modified';
+  return `Status ${s}`;
 }
 

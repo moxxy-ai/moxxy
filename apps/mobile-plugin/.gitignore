@@ -1,6 +1,0 @@
-node_modules/
-mobile/node_modules/
-.expo/
-mobile/.expo/
-dist/
-coverage/

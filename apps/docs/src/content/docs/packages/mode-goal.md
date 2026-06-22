@@ -38,5 +38,5 @@ Switch interactively with `/mode goal`.
 
 ## See also
 
-- [Modes guide](../guides/modes) — comparison + switching.
-- [Sub-agents](../guides/subagents) — `dispatch_agent({ mode: 'goal' })`.
+- [Modes guide](../guides/modes.md) — comparison + switching.
+- [Sub-agents](../guides/subagents.md) — `dispatch_agent({ mode: 'goal' })`.

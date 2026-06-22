@@ -38,6 +38,11 @@ import { buildMobileWorkspaceSessionRecords } from '../mobileWorkspaceSessions';
 import { emptyMobileState, type MobileState } from '../protocol';
 import { normalizeSessionCommandResult, type SessionCommandResult } from '../sessionCommandResult';
 import { textOf } from '../utils/record';
+import { useThrottledValue } from './useThrottledValue';
+
+/** Live-stream coalescing window (~25fps). Bounds how often a token stream
+ *  rebuilds the transcript + reconciles the list + auto-scrolls. */
+const STREAM_THROTTLE_MS = 40;
 
 function useDisconnectedGatewayStoreValue(pairing: PairingState) {
   const sendFrame = useCallback(() => undefined, []);
@@ -243,6 +248,14 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const activeProvider = phaseInfo.activeProvider ?? modelSelector.activeProvider ?? null;
   const modeBadge = modelSelector.activeModeBadge;
 
+  // Throttle the live token stream so the heavy transcript rebuild + list
+  // reconciliation + auto-scroll run at a bounded rate instead of once per chunk.
+  const throttledStreamingText = useThrottledValue(
+    coreChat.streamingText,
+    STREAM_THROTTLE_MS,
+    (text) => text === '',
+  );
+
   const state = useMemo<MobileState>(() => {
     const desks = coreDesks.desks;
     const ownerDesk = deskForWorkspace(desks, workspaceId) ?? activeDesk ?? null;
@@ -278,7 +291,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
       }),
       pendingAsks: pendingAsks.filter((ask) => ask.workspaceId === workspaceId) as unknown as ReadonlyArray<Record<string, unknown>>,
       chatEvents: coreChat.events as unknown as ReadonlyArray<Record<string, unknown>>,
-      streamingText: coreChat.streamingText,
+      streamingText: throttledStreamingText,
       sending: coreChat.sending,
       activeTurnId: coreChat.activeTurnId,
       queue: queuedTurns as unknown as ReadonlyArray<Record<string, unknown>>,
@@ -306,7 +319,7 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     coreChat.compacting,
     coreChat.events,
     coreChat.sending,
-    coreChat.streamingText,
+    throttledStreamingText,
     pendingAsks,
     queuedTurns,
     transcription,

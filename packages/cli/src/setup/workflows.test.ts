@@ -388,11 +388,12 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       expect(result.status).toBe('paused');
       expect(result.runId).toBe('RUN1');
       expect(typeof session.workflows!.resume).toBe('function');
-      // Resuming a run with no checkpoint on disk fails cleanly (rather than
-      // hanging) — proves the resume path reaches resumeWorkflowRun.
+      // Resuming a run with no checkpoint on disk fails fast: with no
+      // identifiable workflow name the in-flight guard can't protect it, so the
+      // runner refuses rather than proceeding unguarded (or hanging).
       const resumed = await session.workflows!.resume!('UNKNOWN', 'reply');
       expect(resumed.ok).toBe(false);
-      expect(resumed.error ?? '').toMatch(/no paused workflow run/);
+      expect(resumed.error ?? '').toMatch(/no resumable run/);
     } finally {
       integration.stop();
     }
@@ -449,6 +450,223 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       await fs.writeFile(path.join(watchedDir, 'note.txt'), 'hello');
 
       await vi.waitFor(() => expect(runs).toContain('on-touch'), { timeout: 4000, interval: 50 });
+    } finally {
+      integration.stop();
+    }
+  });
+
+  it('stop() cancels a pending fileChanged debounce so it does not fire after teardown', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-stopdebounce-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    const watchedDir = path.join(cwd, 'watched');
+    await fs.mkdir(watchedDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, 'on-touch.yaml'),
+      [
+        'name: on-touch',
+        'description: fires on file change',
+        'on:',
+        `  fileChanged: ${path.join(watchedDir, '**', '*.txt').replace(/\\/g, '/')}`,
+        'delivery:',
+        '  inbox: false',
+        'steps:',
+        '  - id: s1',
+        '    prompt: hi',
+        '',
+      ].join('\n'),
+    );
+
+    const session = new Session({ cwd, logger: silentLogger });
+    const runs: string[] = [];
+    session.workflowExecutors.register({
+      name: 'stub',
+      run: async (workflow) => {
+        runs.push(workflow.name);
+        return { ok: true, steps: [], output: '' };
+      },
+    });
+    const integration = buildWorkflowsIntegration({
+      session,
+      scheduleStore: new ScheduleStore({ file: path.join(cwd, 'sched.json') }),
+    });
+    session.pluginHost.registerStatic(integration.plugin);
+    await session.dispatcher.dispatchInit(session.appContext());
+
+    // Touch a matching file to schedule the 600ms debounce, then tear down
+    // immediately — well within the debounce window. The pending timer must be
+    // cleared so runNow never fires after stop().
+    await fs.writeFile(path.join(watchedDir, 'note.txt'), 'hello');
+    integration.stop();
+
+    // Wait past the debounce window; the run must NOT have fired.
+    await new Promise((r) => setTimeout(r, 900));
+    expect(runs).toEqual([]);
+  });
+
+  it('a malformed schedule does NOT poison syncing of other workflows', async () => {
+    // The workflow schema accepts an arbitrary string `runAt` and any `cron`.
+    // A bad one ('tomorrow' → Date.parse NaN, with no cron) used to reach
+    // scheduleStore.syncWorkflowSchedule with neither field → ZodError thrown
+    // mid-loop → every workflow after it silently never got synced (and the
+    // throw broke boot). The sync must skip the bad one and sync the rest.
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-badsched-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    // "a-bad" sorts before "b-good" so a mid-loop throw on the bad one would
+    // strand the good one.
+    await fs.writeFile(
+      path.join(projectDir, 'a-bad.yaml'),
+      [
+        'name: a-bad',
+        'description: garbage runAt, no cron',
+        'on:',
+        '  schedule:',
+        '    runAt: tomorrow',
+        'delivery:',
+        '  inbox: false',
+        'steps:',
+        '  - id: s1',
+        '    prompt: hi',
+        '',
+      ].join('\n'),
+    );
+    await fs.writeFile(
+      path.join(projectDir, 'b-good.yaml'),
+      [
+        'name: b-good',
+        'description: valid cron',
+        'on:',
+        '  schedule:',
+        "    cron: '0 9 * * *'",
+        'delivery:',
+        '  inbox: false',
+        'steps:',
+        '  - id: s1',
+        '    prompt: hi',
+        '',
+      ].join('\n'),
+    );
+
+    const session = new Session({ cwd, logger: silentLogger });
+    session.workflowExecutors.register({ name: 'stub', run: async () => ({ ok: true, steps: [], output: '' }) });
+    const scheduleStore = new ScheduleStore({ file: path.join(cwd, 'sched.json') });
+    const integration = buildWorkflowsIntegration({ session, scheduleStore });
+    session.pluginHost.registerStatic(integration.plugin);
+    try {
+      // onReady → syncSchedules: must NOT throw despite the malformed runAt.
+      await session.dispatcher.dispatchInit(session.appContext());
+
+      const entries = await scheduleStore.list();
+      const byWorkflow = new Map(
+        entries.filter((e) => e.source === 'workflow').map((e) => [e.workflowName, e]),
+      );
+      // The valid workflow got synced...
+      expect(byWorkflow.get('b-good')?.cron).toBe('0 9 * * *');
+      // ...and the malformed one was skipped, not scheduled with garbage.
+      expect(byWorkflow.has('a-bad')).toBe(false);
+    } finally {
+      integration.stop();
+    }
+  });
+
+  it('sweeps stale *.jsonl run records on boot (unbounded-growth guard)', async () => {
+    // Every runWorkflow appends a `<ulid>.jsonl` run record under
+    // ~/.moxxy/workflow-runs/ and nothing else removes them — over months of
+    // scheduled runs they grow without bound. onReady must call sweepStaleRecords.
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-sweeprec-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+
+    // Plant one stale (>30d old) and one fresh run record.
+    const recordsDir = path.join(process.env.MOXXY_HOME, 'workflow-runs');
+    await fs.mkdir(recordsDir, { recursive: true });
+    const stale = path.join(recordsDir, 'old-run.jsonl');
+    const fresh = path.join(recordsDir, 'new-run.jsonl');
+    await fs.writeFile(stale, '{}\n');
+    await fs.writeFile(fresh, '{}\n');
+    // Backdate the stale record well past the 30d TTL.
+    const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000);
+    await fs.utimes(stale, old, old);
+
+    const session = new Session({ cwd, logger: silentLogger });
+    session.workflowExecutors.register({ name: 'stub', run: async () => ({ ok: true, steps: [], output: '' }) });
+    const integration = buildWorkflowsIntegration({
+      session,
+      scheduleStore: new ScheduleStore({ file: path.join(cwd, 'sched.json') }),
+    });
+    session.pluginHost.registerStatic(integration.plugin);
+    try {
+      await session.dispatcher.dispatchInit(session.appContext());
+      // The sweep is fire-and-forget in onReady; wait for the stale record to go.
+      await vi.waitFor(async () => {
+        const remaining = await fs.readdir(recordsDir);
+        expect(remaining).toContain('new-run.jsonl'); // fresh kept
+        expect(remaining).not.toContain('old-run.jsonl'); // stale swept
+      });
+    } finally {
+      integration.stop();
+    }
+  });
+
+  it('drops an invalid schedule.timeZone but still syncs the (system-local) cron', async () => {
+    // The internal workflow→scheduler bridge passes timeZone through unvalidated.
+    // A non-IANA zone reaching the scheduler makes `nextFireTime` return null —
+    // the entry is NEVER due, a silently non-firing schedule. The sync must drop
+    // the bad zone (cron falls back to system-local) and warn, NOT pass it on.
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-badtz-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, 'tz-wf.yaml'),
+      [
+        'name: tz-wf',
+        'description: valid cron, garbage timezone',
+        'on:',
+        '  schedule:',
+        "    cron: '0 9 * * *'",
+        '    timeZone: Mars/Phobos',
+        'delivery:',
+        '  inbox: false',
+        'steps:',
+        '  - id: s1',
+        '    prompt: hi',
+        '',
+      ].join('\n'),
+    );
+
+    const session = new Session({ cwd, logger: silentLogger });
+    session.workflowExecutors.register({ name: 'stub', run: async () => ({ ok: true, steps: [], output: '' }) });
+    const scheduleStore = new ScheduleStore({ file: path.join(cwd, 'sched.json') });
+    const integration = buildWorkflowsIntegration({ session, scheduleStore });
+    session.pluginHost.registerStatic(integration.plugin);
+    try {
+      await session.dispatcher.dispatchInit(session.appContext());
+
+      const entry = (await scheduleStore.list()).find(
+        (e) => e.source === 'workflow' && e.workflowName === 'tz-wf',
+      );
+      // The cron synced (workflow still fires)...
+      expect(entry?.cron).toBe('0 9 * * *');
+      // ...but the garbage timeZone was dropped, not persisted (which would have
+      // made the entry permanently never-due).
+      expect(entry?.timeZone).toBeUndefined();
     } finally {
       integration.stop();
     }

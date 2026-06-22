@@ -135,6 +135,42 @@ describe('PermissionEngine', () => {
     expect(e.check(call('Bash', { cmd: 'rm -rf /' }))).toBeNull();
   });
 
+  it('bounds a pathological pattern + long model input so the check cannot hang (ReDoS guard)', () => {
+    // The permission check runs author-supplied patterns over MODEL-controlled
+    // input on the synchronous critical path of every tool call. A catastrophic
+    // pattern plus a long input string would otherwise pin the event loop. The
+    // candidate is truncated before `.test`, so the worst case is bounded.
+    const e = new PermissionEngine({
+      allow: [{ name: 'Bash', inputMatches: { cmd: '(a+)+$' } }],
+      deny: [],
+    });
+    // 200k of 'a' followed by a non-matching char is the classic ReDoS trigger;
+    // unbounded this never returns. Bounded, it completes effectively instantly.
+    const evil = 'a'.repeat(200_000) + '!';
+    const start = Date.now();
+    const decision = e.check(call('Bash', { cmd: evil }));
+    const elapsed = Date.now() - start;
+    // No catastrophic backtracking: must return well under a second.
+    expect(elapsed).toBeLessThan(1000);
+    // After truncation to 8 KB the trailing '!' is dropped, so '(a+)+$' matches
+    // the all-'a' prefix — the decision is well-defined, not a hang.
+    expect(decision?.mode).toBe('allow');
+  });
+
+  it('truncates the candidate to the match cap before a glob name test', () => {
+    // The glob `prefix-*` becomes `^prefix-.*$`. With the candidate length-capped
+    // at 8 KB, a name longer than that still matches the prefix glob (the tail is
+    // dropped) and the check returns promptly rather than scanning a huge string.
+    const e = new PermissionEngine({
+      allow: [{ name: 'prefix-*' }],
+      deny: [],
+    });
+    const start = Date.now();
+    const decision = e.check(call('prefix-' + 'x'.repeat(100_000)));
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(decision?.mode).toBe('allow');
+  });
+
   it('loads policy from disk and handles ENOENT', async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
     const file = path.join(tmp, 'permissions.json');
@@ -144,6 +180,30 @@ describe('PermissionEngine', () => {
     await fs.writeFile(file, JSON.stringify({ allow: [{ name: 'Read' }], deny: [] }));
     const e2 = await PermissionEngine.load(file);
     expect(e2.check(call('Read'))?.mode).toBe('allow');
+  });
+
+  it('throws on a corrupt (non-ENOENT) policy file rather than silently loading empty rules', async () => {
+    // Security-critical: a present-but-unparseable policy file MUST fail loud, not
+    // degrade to the empty `{ allow: [], deny: [] }` policy. Silently emptying it
+    // would drop every user deny rule (fail-OPEN) — a truncated mid-write or
+    // hand-corrupted file would then let denied tool calls through. ENOENT
+    // (no file at all) is the only "absent → empty" case; corruption throws.
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-perm-'));
+    try {
+      // (a) Non-JSON garbage.
+      const badJson = path.join(tmp, 'bad.json');
+      await fs.writeFile(badJson, '{ this is not json', 'utf8');
+      await expect(PermissionEngine.load(badJson)).rejects.toBeInstanceOf(Error);
+
+      // (b) Valid JSON but schema-invalid (allow is not an array of rules) — a
+      // shape a naive `try { parse } catch { empty }` would also have to reject,
+      // or it would silently discard the deny rules in a malformed file.
+      const badShape = path.join(tmp, 'shape.json');
+      await fs.writeFile(badShape, JSON.stringify({ allow: 'oops', deny: [{ name: 'Bash' }] }), 'utf8');
+      await expect(PermissionEngine.load(badShape)).rejects.toBeInstanceOf(Error);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
   });
 
   it('persists addAllow', async () => {

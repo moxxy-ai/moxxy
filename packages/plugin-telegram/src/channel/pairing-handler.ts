@@ -10,8 +10,9 @@ import {
   type PairingDecision,
   type PairingState,
 } from '../pairing.js';
+import { parseChatId, TELEGRAM_AUTHORIZED_CHAT_KEY } from '../keys.js';
 
-const AUTHORIZED_CHAT_KEY = 'telegram_authorized_chat_id';
+const AUTHORIZED_CHAT_KEY = TELEGRAM_AUTHORIZED_CHAT_KEY;
 
 /** Fires when /start lands in `pair` mode and a code is DM'd to the chat. */
 export interface PairingIssuedEvent {
@@ -53,9 +54,13 @@ export class PairingHandler {
 
   async loadAuthorized(): Promise<void> {
     const authorizedRaw = await this.opts.vault.get(AUTHORIZED_CHAT_KEY);
-    this.state = createPairingState({
-      authorizedChatId: authorizedRaw ? Number(authorizedRaw) : null,
-    });
+    const authorizedChatId = parseChatId(authorizedRaw);
+    if (authorizedChatId == null && authorizedRaw) {
+      this.opts.logger?.warn('telegram pairing: stored chat id is not a number — treating as unpaired', {
+        raw: authorizedRaw,
+      });
+    }
+    this.state = createPairingState({ authorizedChatId });
   }
 
   isAuthorized(chatId: number): boolean {

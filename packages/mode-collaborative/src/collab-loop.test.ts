@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { getEventListeners } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ModeContext, MoxxyEvent } from '@moxxy/sdk';
 import type { CollaborationHub } from '@moxxy/plugin-collab';
 import { runCollaborative, sleep, type CollabDeps } from './collab-loop.js';
+import { listRunRecords } from './archive.js';
 import { resolveCollabConfig } from './config.js';
 import type { Supervisor } from './peer-supervisor.js';
 import { git } from './worktrees.js';
@@ -14,13 +15,20 @@ const IDENT = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const cleanups: Array<() => void> = [];
 
 beforeEach(() => {
-  // Isolate the global single-flight lock to a temp file so the e2e runs never
-  // touch (or get blocked by) a real ~/.moxxy collaboration lock.
+  // Isolate the global single-flight lock AND the moxxy home (the run archive
+  // writes under ~/.moxxy/collab/runs) to temp dirs so the e2e runs never touch
+  // — or get blocked by — the developer's real ~/.moxxy.
   const lockDir = mkdtempSync(join(tmpdir(), 'mc-loop-lock-'));
+  const homeDir = mkdtempSync(join(tmpdir(), 'mc-loop-home-'));
   process.env.MOXXY_COLLAB_LOCK = join(lockDir, 'active.lock');
+  const prevHome = process.env.MOXXY_HOME;
+  process.env.MOXXY_HOME = homeDir;
   cleanups.push(() => {
     delete process.env.MOXXY_COLLAB_LOCK;
+    if (prevHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = prevHome;
     rmSync(lockDir, { recursive: true, force: true });
+    rmSync(homeDir, { recursive: true, force: true });
   });
 });
 
@@ -98,6 +106,43 @@ function fakeSupervisor(hub: CollaborationHub): Supervisor {
     stop: async () => undefined,
     shutdownAll: async () => undefined,
     stderrOf: () => [],
+    hasExited: () => false,
+  };
+}
+
+/** Like {@link fakeSupervisor}, but `failingId` is spawned and then reports its
+ *  process exited WITHOUT ever marking done — simulating a crash / a turn that
+ *  ended without collab_done. Exercises the coordinator's fail-fast path. */
+function partiallyFailingSupervisor(hub: CollaborationHub, failingId: string): Supervisor {
+  const exited = new Set<string>();
+  return {
+    spawn({ entry, cwd }) {
+      if (entry.role === 'architect') {
+        mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+        writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# Contracts\n');
+        writeFileSync(
+          join(cwd, '.moxxy-collab', 'roster.json'),
+          JSON.stringify([
+            { id: 'backend', name: 'Backend', role: 'implementer', subtask: 'build the API', ownedPaths: ['api.ts'] },
+            { id: 'flaky', name: 'Flaky', role: 'implementer', subtask: 'a doomed task', ownedPaths: ['flaky.ts'] },
+          ]),
+        );
+        hub.state.markDone('architect', 'design done');
+      } else if (entry.id === failingId) {
+        // No file, no done — the process simply dies.
+        exited.add(entry.id);
+      } else {
+        const file = `${entry.id}.ts`;
+        writeFileSync(join(cwd, file), `export const ${entry.id} = true;\n`);
+        hub.state.boardClaim(entry.id, [file]);
+        hub.state.markDone(entry.id, `${entry.id} done`);
+      }
+      return { socket: 'fake.sock' };
+    },
+    stop: async () => undefined,
+    shutdownAll: async () => undefined,
+    stderrOf: () => ['boom: simulated crash'],
+    hasExited: (id) => exited.has(id),
   };
 }
 
@@ -132,15 +177,167 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
     expect(existsSync(join(repo, 'api.test.ts'))).toBe(true);
     // the agreed contracts landed too
     expect(existsSync(join(repo, '.moxxy-collab', 'CONTRACTS.md'))).toBe(true);
+    // the coordinator distilled a shared brief (goal + summary) into the scaffold,
+    // and wrote the full conversation to the on-demand recall file
+    const briefPath = join(repo, '.moxxy-collab', 'BRIEF.md');
+    expect(existsSync(briefPath)).toBe(true);
+    expect(readFileSync(briefPath, 'utf8')).toContain('build the thing');
+    expect(existsSync(join(repo, '.moxxy-collab', 'CONVERSATION.md'))).toBe(true);
+    expect(subtypes).toContain('collab_brief_written');
 
     // final synthesis names both agents
     const finalMsg = events.filter((e) => e.type === 'assistant_message').pop() as { content: string } | undefined;
     expect(finalMsg?.content).toContain('backend');
     expect(finalMsg?.content).toContain('tests');
+
+    // the run was archived (durable history) with the right outcome + brief
+    const runs = listRunRecords();
+    expect(runs.length).toBe(1);
+    expect(runs[0]!.outcome).toBe('completed');
+    expect(runs[0]!.doneCount).toBe(2);
+    expect(runs[0]!.totalCount).toBe(2);
+    expect(runs[0]!.brief).toContain('build the thing');
+    expect(runs[0]!.agents.map((a) => a.id)).toContain('backend');
   });
 
-  it('falls back to sequential when the workspace is not a git repo', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'mc-nogit-'));
+  it('carries the architect-proposed roles (a cross-functional team, not all implementers)', async () => {
+    const repo = await initRepo();
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# C\n');
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                { id: 'writer', name: 'Writer', role: 'writer', subtask: 'docs', ownedPaths: ['intro.md'] },
+                { id: 'dev', name: 'Dev', role: 'developer', subtask: 'code', ownedPaths: ['app.ts'] },
+                // an agent that tries to claim the reserved architect role → coerced to implementer
+                { id: 'sneaky', name: 'Sneaky', role: 'architect', subtask: 'x', ownedPaths: ['x.ts'] },
+              ]),
+            );
+            hub.state.markDone('architect', 'done');
+          } else {
+            const f = `${entry.id}.ts`;
+            writeFileSync(join(cwd, f), `export const ${entry.id}=1;\n`);
+            hub.state.boardClaim(entry.id, [f]);
+            hub.state.markDone(entry.id, `${entry.id} done`);
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const proposed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_roster_proposed',
+    ) as { payload: { roster: Array<{ id: string; role: string }> } };
+    const byId = Object.fromEntries(proposed.payload.roster.map((r) => [r.id, r.role]));
+    expect(byId.writer).toBe('writer');
+    expect(byId.dev).toBe('developer');
+    // the reserved 'architect' role is coerced to 'implementer'
+    expect(byId.sneaky).toBe('implementer');
+  });
+
+  it('passes each peer its architect-authored charter (capped) and keeps it OUT of the committed tree', async () => {
+    const repo = await initRepo();
+    const { ctx } = fakeCtx();
+    const spawned: Array<{ id: string; charterFile?: string; content: string | null }> = [];
+    const longCharter = 'You are the WRITER. '.repeat(200); // >2000 chars → must be capped
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd, charterFile }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# C\n');
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                { id: 'writer', name: 'Writer', role: 'writer', subtask: 'docs', ownedPaths: ['intro.md'], charter: longCharter },
+              ]),
+            );
+            hub.state.markDone('architect', 'done');
+          } else {
+            spawned.push({
+              id: entry.id,
+              charterFile,
+              content: charterFile ? readFileSync(charterFile, 'utf8') : null,
+            });
+            writeFileSync(join(cwd, 'intro.md'), '# intro\n');
+            hub.state.boardClaim(entry.id, ['intro.md']);
+            hub.state.markDone(entry.id, 'done');
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const writer = spawned.find((s) => s.id === 'writer')!;
+    expect(writer.charterFile).toBeTruthy();
+    expect(writer.content).toContain('You are the WRITER.');
+    // capped at 2000 (+ trailing newline)
+    expect(writer.content!.trimEnd().length).toBeLessThanOrEqual(2000);
+    // the charter lives in the run dir, NOT the committed scaffold/worktree
+    expect(existsSync(join(repo, '.moxxy-collab', 'charter-writer.md'))).toBe(false);
+    expect(writer.charterFile).not.toContain(repo);
+  });
+
+  it('does NOT hang on a failed agent: surfaces it and completes with the others', async () => {
+    const repo = await initRepo();
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false, wallClockMs: 60_000 }),
+      createSupervisor: (_opts, hub) => partiallyFailingSupervisor(hub, 'flaky'),
+    };
+
+    // The whole run must finish well under the wall-clock (the old code would
+    // have polled the full 60s for the never-done 'flaky' agent).
+    const started = Date.now();
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+    expect(Date.now() - started).toBeLessThan(20_000);
+
+    const subtypes = events
+      .filter((e) => e.type === 'plugin_event')
+      .map((e) => (e as { subtype: string }).subtype);
+    // The failed agent was surfaced, not silently swallowed.
+    expect(subtypes).toContain('collab_agent_failed');
+    expect(subtypes).toContain('collab_completed');
+
+    const failed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_agent_failed',
+    ) as { payload: { id: string; stderr: ReadonlyArray<string> } };
+    expect(failed.payload.id).toBe('flaky');
+    expect(failed.payload.stderr.join('\n')).toContain('simulated crash');
+
+    // The healthy agent's work still integrated; the completion counts 1/2 done.
+    expect(existsSync(join(repo, 'backend.ts'))).toBe(true);
+    const completed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_completed',
+    ) as { payload: { done: string[]; total: number } };
+    expect(completed.payload.done).toEqual(['backend']);
+    expect(completed.payload.total).toBe(2);
+  });
+
+  it('GIT-FIRST: auto-inits a plain folder and runs git-parallel (worktrees + merge)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-plain-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const { ctx, events } = fakeCtx();
     const deps: CollabDeps = {
@@ -151,12 +348,63 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
 
     for await (const _ of runCollaborative(ctx, deps)) void _;
 
+    const exec = events.find((e) => (e as { subtype?: string }).subtype === 'collab_exec_mode') as {
+      payload: { mode: string };
+    };
+    expect(exec.payload.mode).toBe('git-parallel');
+    // the folder is now a git repo, and the work was integrated into it
+    expect(existsSync(join(dir, '.git'))).toBe(true);
+    expect(existsSync(join(dir, 'api.ts'))).toBe(true);
+    expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
+  });
+
+  it('NO GIT: runs cwd-parallel (all agents in the shared workspace, lock-coordinated)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-nogit-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: dir,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      detectGit: async () => ({ installed: false, repo: false }), // force the no-git path
+      createSupervisor: (_opts, hub) => fakeSupervisor(hub),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const subtypes = events
+      .filter((e) => e.type === 'plugin_event')
+      .map((e) => (e as { subtype: string }).subtype);
+    const exec = events.find((e) => (e as { subtype?: string }).subtype === 'collab_exec_mode') as {
+      payload: { mode: string };
+    };
+    expect(exec.payload.mode).toBe('cwd-parallel');
+    // it is NOT the old sequential fallback, and there is no git repo
+    expect(subtypes).not.toContain('collab_fallback_sequential');
+    expect(existsSync(join(dir, '.git'))).toBe(false);
+    // edits land directly in the shared workspace
+    expect(existsSync(join(dir, 'api.ts'))).toBe(true);
+    expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
+    expect(subtypes).toContain('collab_completed');
+  });
+
+  it('SEQUENTIAL (explicit): one agent at a time in the shared workspace', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-seq-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: dir,
+      concurrencyOverride: 'sequential',
+      detectGit: async () => ({ installed: false, repo: false }),
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false, concurrency: 'sequential' }),
+      createSupervisor: (_opts, hub) => fakeSupervisor(hub),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
     const subtypes = events
       .filter((e) => e.type === 'plugin_event')
       .map((e) => (e as { subtype: string }).subtype);
     expect(subtypes).toContain('collab_fallback_sequential');
-    expect(subtypes).toContain('collab_completed');
-    // sequential edits land directly in the shared workspace
     expect(existsSync(join(dir, 'api.ts'))).toBe(true);
     expect(existsSync(join(dir, 'api.test.ts'))).toBe(true);
   });
@@ -214,12 +462,99 @@ describe('collaborative coordinator (end-to-end, fake agents + real git)', () =>
         stop: async () => undefined,
         shutdownAll: async () => undefined,
         stderrOf: () => [],
+        hasExited: () => false,
       }),
     };
 
     for await (const _ of runCollaborative(ctx, deps)) void _;
 
     expect(spawnedModels).toEqual(['gpt-5.4-mini']);
+  });
+
+  it('degrades to a clean collab_failed event when a layer throws (no unhandled rejection)', async () => {
+    const repo = await initRepo();
+    const { ctx, events } = fakeCtx();
+    const boom = 'simulated git failure';
+    const deps: CollabDeps = {
+      cwd: repo,
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: () => ({
+        // Throw on the very first spawn (the architect). The old code had only a
+        // finally, so this rejected the generator as an unhandled error; now it
+        // must surface as a graceful collab_failed + assistant message.
+        spawn() {
+          throw new Error(boom);
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    // The iterator must NOT reject — it completes after emitting the failure.
+    await expect(
+      (async () => {
+        for await (const _ of runCollaborative(ctx, deps)) void _;
+      })(),
+    ).resolves.toBeUndefined();
+
+    const subtypes = events
+      .filter((e) => e.type === 'plugin_event')
+      .map((e) => (e as { subtype: string }).subtype);
+    expect(subtypes).toContain('collab_failed');
+    const failed = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_failed',
+    ) as { payload: { message: string } };
+    expect(failed.payload.message).toContain(boom);
+    // The run was still archived, with a 'failed' outcome.
+    const runs = listRunRecords();
+    expect(runs.length).toBe(1);
+    expect(runs[0]!.outcome).toBe('failed');
+  });
+
+  it('cwd-parallel pre-seeds ownedPaths as locks and surfaces an overlap', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mc-overlap-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const { ctx, events } = fakeCtx();
+    const deps: CollabDeps = {
+      cwd: dir,
+      detectGit: async () => ({ installed: false, repo: false }),
+      config: resolveCollabConfig(undefined, { requireRosterApproval: false }),
+      createSupervisor: (_opts, hub) => ({
+        spawn({ entry, cwd }) {
+          if (entry.role === 'architect') {
+            mkdirSync(join(cwd, '.moxxy-collab'), { recursive: true });
+            writeFileSync(join(cwd, '.moxxy-collab', 'CONTRACTS.md'), '# C\n');
+            writeFileSync(
+              join(cwd, '.moxxy-collab', 'roster.json'),
+              JSON.stringify([
+                { id: 'a', name: 'A', role: 'writer', subtask: 'x', ownedPaths: ['shared.md'] },
+                { id: 'b', name: 'B', role: 'writer', subtask: 'y', ownedPaths: ['shared.md'] }, // overlap!
+              ]),
+            );
+            hub.state.markDone('architect', 'done');
+          } else {
+            writeFileSync(join(cwd, `${entry.id}.md`), '1');
+            hub.state.markDone(entry.id, 'done');
+          }
+          return { socket: 'fake.sock' };
+        },
+        stop: async () => undefined,
+        shutdownAll: async () => undefined,
+        stderrOf: () => [],
+        hasExited: () => false,
+      }),
+    };
+
+    for await (const _ of runCollaborative(ctx, deps)) void _;
+
+    const overlap = events.find(
+      (e) => (e as { subtype?: string }).subtype === 'collab_ownership_overlap',
+    ) as { payload: { id: string; ownedBy: string } } | undefined;
+    expect(overlap).toBeTruthy();
+    expect(overlap!.payload.id).toBe('b');
+    expect(overlap!.payload.ownedBy).toBe('a');
   });
 });
 

@@ -30,6 +30,23 @@ const PANE_TITLE: Record<RailPane, string> = {
   browser: 'Browser',
 };
 
+/**
+ * Agent tool name → the rail pane that showcases that tool's work, colocated
+ * with the panes themselves so adding a surface-backed pane is a single edit
+ * here (the auto-reveal in {@link useAgentSurfaceReveal} reads this seam rather
+ * than carrying its own copy). When the surface set becomes runner-contributed
+ * this can be swapped for a registry lookup without touching call sites.
+ */
+const TOOL_PANE: Readonly<Record<string, RailPane>> = {
+  browser_session: 'browser',
+  terminal: 'terminal',
+};
+
+/** The rail pane a given agent tool should reveal, or undefined if none. */
+export function railPaneForTool(toolName: string): RailPane | undefined {
+  return TOOL_PANE[toolName];
+}
+
 interface Props {
   /** Active pane, or null when the rail is collapsed. */
   readonly pane: RailPane | null;
@@ -78,7 +95,28 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
           aria-valuemin={RAIL_MIN_WIDTH}
           aria-valuemax={RAIL_MAX_WIDTH}
           aria-valuenow={width}
+          tabIndex={0}
           onPointerDown={startDrag}
+          // Keyboard resize: the separator advertises slider semantics, so it
+          // must be operable without a pointer. The rail grows leftward, so
+          // ArrowLeft widens and ArrowRight narrows; Home/End jump to the
+          // clamped extremes. setRailWidth already clamps to [MIN, MAX].
+          onKeyDown={(e) => {
+            const step = e.shiftKey ? 40 : 16;
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              setRailWidth(width + step);
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              setRailWidth(width - step);
+            } else if (e.key === 'Home') {
+              e.preventDefault();
+              setRailWidth(RAIL_MAX_WIDTH);
+            } else if (e.key === 'End') {
+              e.preventDefault();
+              setRailWidth(RAIL_MIN_WIDTH);
+            }
+          }}
           title="Drag to resize"
           style={{
             // Sit just inside the rail's left edge. The rail clips horizontal

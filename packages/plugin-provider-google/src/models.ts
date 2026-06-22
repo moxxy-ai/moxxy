@@ -6,20 +6,30 @@ import type { ModelDescriptor } from '@moxxy/sdk';
  * OpenAI-compatibility endpoint, so these stream through the shared
  * {@link import('@moxxy/plugin-provider-openai').OpenAIProvider}. The Gemini 3
  * and 2.5 families all carry a 1M-token context window and are natively
- * multimodal (image input). An unlisted model id still works — it's passed
- * straight through to the endpoint; the catalog only drives context-window
- * budgets and capability gating.
+ * multimodal (image input).
+ *
+ * An unlisted model id still works for raw inference — it's passed straight
+ * through to the endpoint — but it loses Gemini-correct budgeting: the
+ * descriptor lookup misses, so context-window/capability gating falls back to
+ * the host's miss-path default instead of the 1M window asserted here.
+ *
+ * supportsDocuments is intentionally NOT set: although Gemini natively accepts
+ * PDFs on its own API (via `inline_data`), the OpenAI-compatibility surface
+ * does not honor the OpenAI `file`/`file_data` content part the shared
+ * translate layer emits for `document` blocks. Asserting it would make the
+ * desktop ship raw PDF bytes the endpoint rejects/ignores — losing the
+ * document entirely with no fallback. Leaving it unset keeps the safe
+ * extracted-text path. Images ride `image_url` data URLs, which the compat
+ * endpoint does accept, so supportsImages stays true.
  */
 export const geminiModels: ReadonlyArray<ModelDescriptor> = [
-  // Gemini 3 family: current frontier. Reasoning models that natively accept
-  // PDF document input (supportsDocuments) so the desktop ships raw bytes
-  // instead of degrading to extracted text.
-  { id: 'gemini-3-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gemini-3-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  // Gemini 3 family: current frontier. Reasoning models.
+  { id: 'gemini-3-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsReasoning: true },
+  { id: 'gemini-3-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsReasoning: true },
 
   // Gemini 2.5 family: widely available, strong price/performance. pro/flash
-  // are reasoning models; all three take native PDFs.
-  { id: 'gemini-2.5-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gemini-2.5-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gemini-2.5-flash-lite', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  // are reasoning models.
+  { id: 'gemini-2.5-pro', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsReasoning: true },
+  { id: 'gemini-2.5-flash', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsReasoning: true },
+  { id: 'gemini-2.5-flash-lite', contextWindow: 1_000_000, maxOutputTokens: 65_536, supportsTools: true, supportsStreaming: true, supportsImages: true },
 ];

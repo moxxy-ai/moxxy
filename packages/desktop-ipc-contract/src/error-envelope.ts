@@ -38,10 +38,16 @@ export function encodeIpcError(err: MoxxyIpcError): string {
 }
 
 /** Recover an envelope from a rejected invoke()'s message, or null if the
- *  string isn't one of ours (renderer side). Electron prefixes the message,
- *  so we search for the marker rather than expecting it at index 0. */
+ *  string isn't one of ours (renderer side). Electron prefixes the message with
+ *  `Error invoking remote method '…': Error: `, so the marker is either at the
+ *  start (a raw cross-process hop) or anchored right after that `Error: ` /
+ *  `: ` prefix. We require the marker to start the message OR be immediately
+ *  preceded by `: ` rather than matching it ANYWHERE: a free `indexOf` lets a
+ *  handler error whose message merely QUOTES untrusted text containing the
+ *  marker spoof a `code`, which the renderer then branches on (e.g. hiding an
+ *  affordance on a forged `not-supported`). */
 export function decodeIpcError(message: string): MoxxyIpcError | null {
-  const at = message.indexOf(IPC_ERROR_PREFIX);
+  const at = locateMarker(message);
   if (at < 0) return null;
   try {
     const parsed = JSON.parse(message.slice(at + IPC_ERROR_PREFIX.length)) as MoxxyIpcError;
@@ -52,4 +58,18 @@ export function decodeIpcError(message: string): MoxxyIpcError | null {
     /* trailing text wasn't valid JSON — not our envelope */
   }
   return null;
+}
+
+/** Index of the marker only when it begins the string or is anchored right
+ *  after Electron's `: ` prefix; -1 otherwise. Walks each occurrence so a later,
+ *  properly-anchored marker is still found even if an earlier unanchored
+ *  substring also contains the literal. */
+function locateMarker(message: string): number {
+  let from = 0;
+  for (;;) {
+    const at = message.indexOf(IPC_ERROR_PREFIX, from);
+    if (at < 0) return -1;
+    if (at === 0 || message.startsWith(': ', at - 2)) return at;
+    from = at + 1;
+  }
 }

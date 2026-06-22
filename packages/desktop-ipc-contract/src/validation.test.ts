@@ -85,20 +85,6 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
-  it('bounds chat.migrate workspaces + events', () => {
-    expect(() =>
-      validateIpcInput('chat.migrate', { workspaces: [{ workspaceId: 'w1', events: [] }] }),
-    ).not.toThrow();
-    expect(() =>
-      validateIpcInput('chat.migrate', { workspaces: [{ workspaceId: '', events: [] }] }),
-    ).toThrow();
-    expect(() =>
-      validateIpcInput('chat.migrate', {
-        workspaces: [{ workspaceId: 'w1', events: Array.from({ length: 10_001 }, () => ({})) }],
-      }),
-    ).toThrow();
-  });
-
   it('bounds desks.rename name', () => {
     expect(() => validateIpcInput('desks.rename', { id: 'd1', name: 'New name' })).not.toThrow();
     expect(() => validateIpcInput('desks.rename', { id: 'd1', name: '' })).toThrow();

@@ -131,7 +131,16 @@ export class MemoryStore {
   }
 
   get(name: string): Promise<MemoryEntry | null> {
-    return readEntry(this.fileFor(name));
+    // fileFor() throws synchronously on a traversal/separator name; surface it
+    // as a rejected promise so callers see one consistent (async) failure mode
+    // instead of an exception thrown before the promise is even constructed.
+    let file: string;
+    try {
+      file = this.fileFor(name);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+    return readEntry(file);
   }
 
   save(
@@ -181,8 +190,11 @@ export class MemoryStore {
    * the store holds more entries than the cap; nothing is ever evicted.
    */
   async capStatus(): Promise<{ count: number; max: number; over: boolean }> {
-    const rows = await this.rows();
-    return { count: rows.size, max: this.maxMemories, over: rows.size > this.maxMemories };
+    // Read the index-row cache under the mutex: writeEntry/forget mutate it
+    // while holding the same lock, so a concurrent capStatus() outside the lock
+    // could observe a half-updated map or trigger a redundant disk hydration.
+    const size = await this.mutex.run(async () => (await this.rows()).size);
+    return { count: size, max: this.maxMemories, over: size > this.maxMemories };
   }
 
   /** The actual entry write. NOT serialized — callers hold the mutex. */
@@ -243,7 +255,17 @@ export class MemoryStore {
   }
 
   private fileFor(name: string): string {
-    return path.join(this.dir, `${name}.md`);
+    // Belt-and-suspenders containment: the tool schemas restrict `name` to a
+    // slug, but the store is a public API and the inproc isolator can't enforce
+    // the fs glob — so refuse any name that escapes the memory dir (traversal,
+    // absolute path, or embedded separators) rather than unlink/read outside it.
+    const root = path.resolve(this.dir);
+    const resolved = path.resolve(root, `${name}.md`);
+    // The resolved file must live DIRECTLY in `root` (no nested or escaped path).
+    if (path.dirname(resolved) !== root) {
+      throw new Error(`invalid memory name: ${name}`);
+    }
+    return resolved;
   }
 
   /** Hydrate the index-row cache from disk once, then serve it from memory.

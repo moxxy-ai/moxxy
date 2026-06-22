@@ -54,6 +54,19 @@ function scopeDefaultPath(scope: Scope, cwd: string): string {
   return scope === 'user' ? USER_YAML() : path.join(cwd, 'moxxy.config.yaml');
 }
 
+/**
+ * True when a resolved project-scope target lives ABOVE cwd. The upward walk
+ * (findScopePath → findUpward) can resolve a config file in an ancestor dir, so
+ * a write/init may silently mutate a parent monorepo's or home-dir config. We
+ * surface this in the tool result so the operator can see the edit left the
+ * project root rather than discovering it after the fact. User scope is always
+ * the explicit ~/.moxxy path, so it never counts as an ancestor write.
+ */
+function isOutsideCwd(target: string, cwd: string): boolean {
+  const rel = path.relative(path.resolve(cwd), path.resolve(target));
+  return rel.startsWith('..') || path.isAbsolute(rel);
+}
+
 async function readDoc(filePath: string): Promise<{ doc: import('yaml').Document.Parsed; text: string }> {
   const text = await fs.readFile(filePath, 'utf8').catch(() => '');
   const yamlMod = (await import('yaml')) as typeof import('yaml');
@@ -64,6 +77,16 @@ async function readDoc(filePath: string): Promise<{ doc: import('yaml').Document
 function parseDotPath(p: string): Array<string | number> {
   if (!p) return [];
   return p.split('.').map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg));
+}
+
+// True only when `cursor` is a plain object or array that has `seg` as an OWN
+// (not inherited) property. Keeps config_get's dot-path traversal inside the
+// parsed config instead of letting it climb the prototype chain or index into
+// scalar values.
+function isIndexableOwn(cursor: unknown, seg: string | number): boolean {
+  if (cursor === null || typeof cursor !== 'object') return false;
+  if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') return false;
+  return Object.prototype.hasOwnProperty.call(cursor, seg);
 }
 
 function parseValue(raw: string): unknown {
@@ -131,7 +154,11 @@ export function buildConfigPlugin(
           const segs = parseDotPath(dotPath);
           let cursor: unknown = parsed;
           for (const seg of segs) {
-            if (cursor === null || cursor === undefined) return null;
+            // Only descend into a plain object or array, and only into an OWN
+            // property — otherwise a path like `constructor.prototype.toString`
+            // would walk the prototype chain and leak built-ins, and indexing a
+            // string value would return characters by number.
+            if (!isIndexableOwn(cursor, seg)) return null;
             cursor = (cursor as Record<string | number, unknown>)[seg];
           }
           return cursor ?? null;
@@ -185,6 +212,7 @@ export function buildConfigPlugin(
 
             return {
               path: target,
+              outsideCwd: scope === 'project' && isOutsideCwd(target, cwd),
               previousSize: text.length,
               newSize: candidate.length,
               runtime,
@@ -213,7 +241,13 @@ export function buildConfigPlugin(
         handler: async ({ scope }) =>
           writeMutex.run(async () => {
             const existing = await findScopePath(scope, cwd);
-            if (existing) return { path: existing, created: false };
+            if (existing) {
+              return {
+                path: existing,
+                created: false,
+                outsideCwd: scope === 'project' && isOutsideCwd(existing, cwd),
+              };
+            }
             const target = scopeDefaultPath(scope, cwd);
             await fs.mkdir(path.dirname(target), { recursive: true });
             const template = `# moxxy config (${scope} scope)
@@ -224,7 +258,11 @@ provider:
 mode: default
 `;
             await writeFileAtomic(target, template);
-            return { path: target, created: true };
+            return {
+              path: target,
+              created: true,
+              outsideCwd: scope === 'project' && isOutsideCwd(target, cwd),
+            };
           }),
       }),
       defineTool({

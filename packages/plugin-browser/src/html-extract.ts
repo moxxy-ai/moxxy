@@ -14,11 +14,30 @@ const SCRIPT_RE = /<script\b[^>]*>[\s\S]*?<\/script>/gi;
 const STYLE_RE = /<style\b[^>]*>[\s\S]*?<\/style>/gi;
 
 /**
+ * Hard ceiling on the HTML fed to the regex extractors. web_fetch caps the raw
+ * body at up to 20MB (maxBytes), but the lazy `[\s\S]*?` passes here run
+ * SYNCHRONOUSLY on the runner event loop — a multi-MB adversarial page with
+ * many unmatched open tags could block it. Truncating to a generous 4MB bounds
+ * that worst case while still covering virtually every real article.
+ */
+const MAX_EXTRACT_INPUT = 4 * 1024 * 1024;
+
+/** Bound the regex-extractor input so a hostile, oversized page can't stall the
+ *  event loop. Cuts at a tag boundary when one is near the limit to avoid
+ *  splitting an entity/tag mid-token. */
+function capInput(html: string): string {
+  if (html.length <= MAX_EXTRACT_INPUT) return html;
+  const slice = html.slice(0, MAX_EXTRACT_INPUT);
+  const lastLt = slice.lastIndexOf('<');
+  return lastLt > MAX_EXTRACT_INPUT - 1024 ? slice.slice(0, lastLt) : slice;
+}
+
+/**
  * Minimal HTML → plain text. Strips <script>, <style>, comments, and tags.
  * Collapses whitespace. Decodes the common HTML entities.
  */
 export function htmlToPlainText(html: string, opts: ExtractOptions = {}): string {
-  let body = sliceBySelector(html, opts.selector);
+  let body = sliceBySelector(capInput(html), opts.selector);
   body = body.replace(COMMENT_RE, '');
   body = body.replace(SCRIPT_RE, '');
   body = body.replace(STYLE_RE, '');
@@ -34,7 +53,7 @@ export function htmlToPlainText(html: string, opts: ExtractOptions = {}): string
  * paragraphs. Falls through to plain-text rules for unknown structure.
  */
 export function htmlToMarkdown(html: string, opts: ExtractOptions = {}): string {
-  let body = sliceBySelector(html, opts.selector);
+  let body = sliceBySelector(capInput(html), opts.selector);
   body = body.replace(COMMENT_RE, '');
   body = body.replace(SCRIPT_RE, '');
   body = body.replace(STYLE_RE, '');

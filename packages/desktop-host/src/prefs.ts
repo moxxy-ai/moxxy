@@ -10,10 +10,9 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { createMutex } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { moxxyHome, writeFileAtomic } from '@moxxy/sdk/server';
 import type { DesktopPrefs } from '@moxxy/desktop-ipc-contract';
 
 const DEFAULTS: DesktopPrefs = {
@@ -27,7 +26,9 @@ const DEFAULTS: DesktopPrefs = {
 };
 
 function prefsPath(): string {
-  return path.join(homedir(), '.moxxy', 'desktop', 'prefs.json');
+  // moxxyHome() honors $MOXXY_HOME so desktop prefs relocate with the rest of
+  // the moxxy state instead of stranding under a stale ~/.moxxy.
+  return path.join(moxxyHome(), 'desktop', 'prefs.json');
 }
 
 /** Serializes update read-merge-write cycles. The read+write are split by an

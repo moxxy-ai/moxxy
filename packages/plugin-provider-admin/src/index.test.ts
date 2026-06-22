@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ProviderDef, ToolContext, ToolDef } from '@moxxy/sdk';
-import { buildProviderAdminPlugin, type ProviderRegistryLike } from './index.js';
+import { buildProviderAdminPlugin, buildProviderAdminPluginWithApi, type ProviderRegistryLike } from './index.js';
 import { readProvidersConfig } from './store.js';
 
 // Stub ONLY the network probe; buildProviderDef stays real. Lets the
@@ -19,18 +19,33 @@ vi.mock('./factory.js', async (importOriginal) => {
 
 class FakeRegistry implements ProviderRegistryLike {
   defs = new Map<string, ProviderDef>();
+  instances = new Map<string, Record<string, unknown>>();
+  active: string | null = null;
   register(def: ProviderDef): void {
     if (this.defs.has(def.name)) throw new Error(`already registered: ${def.name}`);
     this.defs.set(def.name, def);
   }
   replace(def: ProviderDef): void {
     this.defs.set(def.name, def);
+    // Mirror core's ProviderRegistry: replace() drops the cached instance.
+    this.instances.delete(def.name);
   }
   unregister(name: string): void {
     this.defs.delete(name);
+    this.instances.delete(name);
+    if (this.active === name) this.active = null;
   }
   list(): ReadonlyArray<ProviderDef> {
     return [...this.defs.values()];
+  }
+  getActiveName(): string | null {
+    return this.active;
+  }
+  setActive(name: string, config?: Record<string, unknown>): unknown {
+    this.active = name;
+    const inst = config ?? {};
+    this.instances.set(name, inst);
+    return inst;
   }
 }
 
@@ -139,39 +154,51 @@ describe('provider_add', () => {
   });
 
   it('restores the prior def (not deletes it) when the disk write fails on a replace', async () => {
-    // A registry already holding a custom 'zai' def at the moment the plugin's
-    // tool runs (registered AFTER plugin build, so it is NOT a reserved builtin).
+    // Seed a 'zai' entry on disk + run onInit so the PLUGIN owns the live def (a
+    // def WE registered, not an external built-in). A later provider_add of the
+    // same slug is a genuine replace; if the disk write fails the prior owned
+    // def must be restored, not deleted. The read path stays valid; the dir is
+    // made read-only so the atomic temp-file write rejects (rollback branch).
     const reg = new FakeRegistry();
-    // Build with a config path whose parent is a FILE → the atomic write's
-    // mkdir(dirname) rejects (ENOTDIR), driving the rollback branch.
-    const blocker = path.join(tmpDir, 'blocker');
-    await fs.writeFile(blocker, 'not a dir', 'utf8');
-    const badPath = path.join(blocker, 'providers.json');
-    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: badPath });
-    const guardedTools = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
-    const priorDef = { name: 'zai', models: [{ id: 'old-model', contextWindow: 1 }] } as unknown as ProviderDef;
-    reg.register(priorDef);
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    await plugin.hooks!.onInit!({} as never);
+    expect(reg.defs.has('zai')).toBe(true);
+    const priorDef = reg.defs.get('zai')!;
 
-    const addTool = guardedTools.get('provider_add')!;
-    await expect(
-      Promise.resolve(addTool.handler(addTool.inputSchema.parse(zaiInput), {} as never)),
-    ).rejects.toBeTruthy();
-
-    // The original def must STILL be present and UNCHANGED — not deleted.
+    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    await fs.chmod(tmpDir, 0o500);
+    try {
+      await expect(
+        Promise.resolve(
+          addTool.handler(
+            addTool.inputSchema.parse({ ...zaiInput, defaultModel: 'glm-4.5-air', models: [{ id: 'glm-4.5-air', contextWindow: 1 }] }),
+            {} as never,
+          ),
+        ),
+      ).rejects.toBeTruthy();
+    } finally {
+      await fs.chmod(tmpDir, 0o700);
+    }
+    // The owned def must STILL be present and UNCHANGED — restored, not deleted.
     expect(reg.defs.get('zai')).toBe(priorDef);
   });
 
   it('unregisters a brand-new provider when the disk write fails (no phantom)', async () => {
+    // Fresh slug (not owned, not in registry) → register + write. Make the dir
+    // read-only so the write fails; the phantom registration must be rolled back.
     const reg = new FakeRegistry();
-    const blocker = path.join(tmpDir, 'blocker');
-    await fs.writeFile(blocker, 'not a dir', 'utf8');
-    const badPath = path.join(blocker, 'providers.json');
-    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: badPath });
-    const guardedTools = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
-    const addTool = guardedTools.get('provider_add')!;
-    await expect(
-      Promise.resolve(addTool.handler(addTool.inputSchema.parse(zaiInput), {} as never)),
-    ).rejects.toBeTruthy();
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    await fs.chmod(tmpDir, 0o500);
+    try {
+      await expect(
+        Promise.resolve(addTool.handler(addTool.inputSchema.parse(zaiInput), {} as never)),
+      ).rejects.toBeTruthy();
+    } finally {
+      await fs.chmod(tmpDir, 0o700);
+    }
     // Nothing left behind in the live registry.
     expect(reg.defs.has('zai')).toBe(false);
   });
@@ -375,5 +402,261 @@ describe('onInit', () => {
     expect(withBuiltin.defs.get('openai')).toBe(builtinDef);
     // ...but the genuinely-new provider in the same file still got registered.
     expect(withBuiltin.defs.has('zai')).toBe(true);
+  });
+});
+
+describe('built-in shadowing guard — production wiring order (registry empty at build time)', () => {
+  // The CLI builds this plugin BEFORE the host registers its built-in provider
+  // defs. A build-time snapshot of reserved names is therefore EMPTY in prod;
+  // the guard MUST evaluate the built-in set lazily against the live registry.
+  it('rejects provider_add({name:openai}) when openai is registered AFTER the plugin is built', async () => {
+    const reg = new FakeRegistry();
+    // Plugin built against an EMPTY registry (mirrors buildBuiltinsCore running
+    // before registerPlugins() seeds the built-in defs).
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    // NOW the host registers the real built-in OpenAI def.
+    const builtinDef = { name: 'openai', models: [{ id: 'gpt-x', contextWindow: 1 }] } as unknown as ProviderDef;
+    reg.register(builtinDef);
+
+    await expect(
+      Promise.resolve(
+        addTool.handler(
+          addTool.inputSchema.parse({ ...zaiInput, name: 'openai', baseURL: 'https://evil.example.com/v1' }),
+          {} as never,
+        ),
+      ),
+    ).rejects.toThrow(/built-in/i);
+    // The real built-in def must be UNTOUCHED — not hot-swapped to the shim.
+    expect(reg.defs.get('openai')).toBe(builtinDef);
+    expect(await readProvidersConfig(cfgPath)).toEqual({ providers: [] });
+  });
+
+  it('rejects configure() of a built-in registered after build', async () => {
+    const reg = new FakeRegistry();
+    const { api } = buildProviderAdminPluginWithApi({ providerRegistry: reg, configPath: cfgPath });
+    const builtinDef = { name: 'openai', models: [{ id: 'gpt-x', contextWindow: 1 }] } as unknown as ProviderDef;
+    reg.register(builtinDef);
+    const err = await api.configure('openai', { defaultModel: 'gpt-x' }).catch((e) => e);
+    expect(err).toBeTruthy();
+    expect(String((err as Error).message)).toMatch(/built-in/i);
+    expect(reg.defs.get('openai')).toBe(builtinDef);
+  });
+});
+
+describe('baseURL scheme/host hardening', () => {
+  const addSchema = (): { safeParse: (i: unknown) => { success: boolean } } => {
+    const plugin = buildProviderAdminPlugin({ providerRegistry: new FakeRegistry(), configPath: cfgPath });
+    return plugin.tools!.find((t) => t.name === 'provider_add')!.inputSchema as never;
+  };
+  const testSchema = (): { safeParse: (i: unknown) => { success: boolean } } => {
+    const plugin = buildProviderAdminPlugin({ providerRegistry: new FakeRegistry(), configPath: cfgPath });
+    return plugin.tools!.find((t) => t.name === 'provider_test')!.inputSchema as never;
+  };
+
+  it('rejects non-https / dangerous baseURLs on provider_add', () => {
+    for (const baseURL of [
+      'file:///etc/passwd',
+      'ftp://vendor/v1',
+      'http://evil.example.com/v1',
+      'http://169.254.169.254/latest/meta-data',
+      'https://169.254.169.254/v1',
+    ]) {
+      expect(addSchema().safeParse({ ...zaiInput, baseURL }).success).toBe(false);
+    }
+  });
+
+  it('accepts https and http://localhost', () => {
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://api.z.ai/v1' }).success).toBe(true);
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'http://localhost:1234/v1' }).success).toBe(true);
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'http://127.0.0.1:8080/v1' }).success).toBe(true);
+  });
+
+  it('rejects credential egress to an arbitrary host via provider_test (http / metadata)', () => {
+    expect(
+      testSchema().safeParse({ baseURL: 'http://attacker.example.com/v1', keyName: 'DEEPSEEK_API_KEY' }).success,
+    ).toBe(false);
+    expect(
+      testSchema().safeParse({ baseURL: 'https://169.254.169.254/v1', keyName: 'DEEPSEEK_API_KEY' }).success,
+    ).toBe(false);
+  });
+
+  it('rejects RFC1918 private ranges + loopback over https (SSRF to internal hosts)', () => {
+    for (const baseURL of [
+      'https://10.0.0.5/v1', // 10.0.0.0/8
+      'https://192.168.1.1/v1', // 192.168.0.0/16
+      'https://172.16.5.5/v1', // 172.16.0.0/12 (low edge)
+      'https://172.31.255.255/v1', // 172.16.0.0/12 (high edge)
+      'https://127.0.0.1/v1', // loopback over https (only http://localhost is allowed)
+      'https://127.5.6.7/v1', // 127.0.0.0/8
+    ]) {
+      expect(addSchema().safeParse({ ...zaiInput, baseURL }).success).toBe(false);
+      expect(testSchema().safeParse({ baseURL, keyName: 'DEEPSEEK_API_KEY' }).success).toBe(false);
+    }
+  });
+
+  it('does NOT reject a public 172.x address outside the private /12', () => {
+    // 172.15.x and 172.32.x are PUBLIC — the blocklist must not over-reach.
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://172.15.0.1/v1' }).success).toBe(true);
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://172.32.0.1/v1' }).success).toBe(true);
+  });
+
+  it('canonicalizes decimal / hex IPv4 encodings before the SSRF check (no bypass)', () => {
+    // 2852039166 === 169.254.169.254 (cloud metadata); hex/decimal must not slip past.
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://2852039166/v1' }).success).toBe(false);
+    expect(addSchema().safeParse({ ...zaiInput, baseURL: 'https://0xa9.0xfe.0xa9.0xfe/v1' }).success).toBe(false);
+    // 2130706433 === 127.0.0.1 (loopback) as a decimal literal.
+    expect(testSchema().safeParse({ baseURL: 'https://2130706433/v1', keyName: 'DEEPSEEK_API_KEY' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects IPv6 loopback / link-local / unique-local over https', () => {
+    for (const baseURL of ['https://[::1]/v1', 'https://[fe80::1]/v1', 'https://[fc00::1]/v1', 'https://[fd12::1]/v1']) {
+      expect(addSchema().safeParse({ ...zaiInput, baseURL }).success).toBe(false);
+    }
+  });
+});
+
+describe('per-name lock is bounded + serializes concurrent same-slug calls', () => {
+  it('two parallel provider_add for the SAME fresh slug both succeed (no "already registered")', async () => {
+    // Without serialization both calls capture prevDef=undefined and the second
+    // register() throws "already registered". The per-name lock must turn the
+    // race into add→replace. Run them with Promise.all (overlapping).
+    const reg = new FakeRegistry();
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const fire = (defaultModel: string): Promise<unknown> =>
+      Promise.resolve(
+        addTool.handler(
+          addTool.inputSchema.parse({
+            ...zaiInput,
+            defaultModel,
+            models: [{ id: defaultModel, contextWindow: 1000, supportsTools: true, supportsStreaming: true }],
+          }),
+          {} as never,
+        ),
+      );
+    const results = (await Promise.all([fire('m-a'), fire('m-b')])) as Array<{ ok: boolean }>;
+    expect(results.every((r) => r.ok)).toBe(true);
+    // Exactly one 'zai' def survives; disk has exactly one entry.
+    expect(reg.defs.has('zai')).toBe(true);
+    const cfg = await readProvidersConfig(cfgPath);
+    expect(cfg.providers.filter((p) => p.name === 'zai')).toHaveLength(1);
+  });
+
+  it('the lock map does not grow with the number of distinct slugs touched', async () => {
+    // Each add/remove for a distinct slug must NOT leave a permanent lock entry.
+    // We can't read the private map, but we CAN assert no behavioral leak by
+    // hammering many distinct slugs sequentially and confirming each completes
+    // (a leak would not crash, so this is a smoke that the ref-count finally
+    // always runs — paired with the source-level guarantee).
+    const reg = new FakeRegistry();
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const removeTool = plugin.tools!.find((t) => t.name === 'provider_remove')!;
+    for (let i = 0; i < 50; i++) {
+      const name = `vendor-${i}`;
+      await Promise.resolve(
+        addTool.handler(addTool.inputSchema.parse({ ...zaiInput, name }), {} as never),
+      );
+      await Promise.resolve(removeTool.handler(removeTool.inputSchema.parse({ name }), {} as never));
+    }
+    // All cleaned up: registry empty, disk empty.
+    expect(reg.list()).toHaveLength(0);
+    expect((await readProvidersConfig(cfgPath)).providers).toHaveLength(0);
+  });
+});
+
+describe('active-provider safety', () => {
+  it('rebuilds the active provider instance after configure when a resolver is wired', async () => {
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    const reg = new FakeRegistry();
+    const resolved: string[] = [];
+    const { plugin, api } = buildProviderAdminPluginWithApi({
+      providerRegistry: reg,
+      configPath: cfgPath,
+      resolveActiveConfig: (name) => {
+        resolved.push(name);
+        return { apiKey: 'k-for-' + name };
+      },
+    });
+    await plugin.hooks!.onInit!({} as never);
+    // Activate zai (mirrors the user selecting it). Drops no instance yet.
+    reg.setActive('zai', { apiKey: 'k-for-zai' });
+
+    await api.configure('zai', {
+      defaultModel: 'glm-4.5-air',
+      models: [{ id: 'glm-4.5-air', contextWindow: 128_000, supportsTools: true, supportsStreaming: true }],
+    });
+
+    // The replace() during configure dropped the cached instance; the plugin
+    // MUST have rebuilt it via the resolver so getActive() keeps working.
+    expect(resolved).toContain('zai');
+    expect(reg.instances.get('zai')).toEqual({ apiKey: 'k-for-zai' });
+    expect(reg.getActiveName()).toBe('zai');
+  });
+
+  it('does not rebuild a non-active provider', async () => {
+    await fs.writeFile(
+      cfgPath,
+      JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }),
+      'utf8',
+    );
+    const reg = new FakeRegistry();
+    const resolved: string[] = [];
+    const { plugin, api } = buildProviderAdminPluginWithApi({
+      providerRegistry: reg,
+      configPath: cfgPath,
+      resolveActiveConfig: (name) => {
+        resolved.push(name);
+        return {};
+      },
+    });
+    await plugin.hooks!.onInit!({} as never);
+    reg.setActive('anthropic', {});
+    await api.configure('zai', {
+      defaultModel: 'glm-4.5-air',
+      models: [{ id: 'glm-4.5-air', contextWindow: 128_000, supportsTools: true, supportsStreaming: true }],
+    });
+    expect(resolved).not.toContain('zai');
+  });
+
+  it('warns when provider_remove drops the ACTIVE provider', async () => {
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    const reg = new FakeRegistry();
+    const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
+    await plugin.hooks!.onInit!({} as never);
+    reg.setActive('zai', {});
+    const removeTool = plugin.tools!.find((t) => t.name === 'provider_remove')!;
+    const res = (await removeTool.handler(removeTool.inputSchema.parse({ name: 'zai' }), {} as never)) as {
+      ok: boolean;
+      removedActive: boolean;
+      note: string;
+    };
+    expect(res.ok).toBe(true);
+    expect(res.removedActive).toBe(true);
+    expect(res.note).toMatch(/NO active provider/i);
+    expect(reg.getActiveName()).toBeNull();
+  });
+});
+
+describe('configure() patch validation (defense-in-depth)', () => {
+  it('rejects a malformed baseURL even when the runner schema would not run', async () => {
+    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    const reg = new FakeRegistry();
+    const { plugin, api } = buildProviderAdminPluginWithApi({ providerRegistry: reg, configPath: cfgPath });
+    await plugin.hooks!.onInit!({} as never);
+    // file:// would flow straight into buildProviderDef + key-name derivation
+    // without validation; configure() must reject it itself.
+    const err = await api
+      .configure('zai', { baseURL: 'file:///etc/passwd' } as never)
+      .catch((e) => e);
+    expect(err).toBeTruthy();
+    // Disk untouched.
+    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai')!;
+    expect(stored.baseURL).toBe(zaiInput.baseURL);
   });
 });

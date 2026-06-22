@@ -90,79 +90,92 @@ export const screenshotTool = defineTool({
       captureArgs.push('-R', `${region.x},${region.y},${region.width},${region.height}`);
     }
     captureArgs.push(captureTmp);
-    const cap = await runProcess('screencapture', captureArgs, {
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-      timeoutMs: 15_000,
-    });
-    if (cap.exitCode !== 0) {
-      const cause = procFailureCause(cap, 15_000);
-      throw new MoxxyError({
-        code: 'TOOL_ERROR',
-        message: cause
-          ? `screencapture ${cause}`
-          : `screencapture failed (exit ${cap.exitCode}): ${cap.stderr.trim() || '(no stderr — likely Screen Recording permission missing — grant in System Settings → Privacy & Security)'}`,
-        context: { tool: 'computer_screenshot', exitCode: cap.exitCode, timedOut: cap.timedOut ? 1 : 0 },
-      });
-    }
-
-    // Resize + format-convert in one sips call. `-Z N` fits within N
-    // on the longest edge while preserving aspect ratio. Output ext
-    // picks the format; format options apply when JPEG.
-    const outExt = fmt === 'jpeg' ? 'jpg' : 'png';
-    const outTmp = path.join(
-      os.tmpdir(),
-      `moxxy-screencap-${process.pid}-${Date.now()}-${uniq}-out.${outExt}`,
-    );
-    const sipsArgs = [
-      '-Z',
-      String(dim),
-      '--setProperty',
-      'format',
-      fmt,
-    ];
-    if (fmt === 'jpeg') {
-      sipsArgs.push('--setProperty', 'formatOptions', String(q));
-    }
-    sipsArgs.push(captureTmp, '--out', outTmp);
-    const sip = await runProcess('sips', sipsArgs, {
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-      timeoutMs: 15_000,
-    });
-    // Clean up the original PNG either way.
-    await fs.rm(captureTmp, { force: true });
-    if (sip.exitCode !== 0) {
-      await fs.rm(outTmp, { force: true });
-      const cause = procFailureCause(sip, 15_000);
-      throw new MoxxyError({
-        code: 'TOOL_ERROR',
-        message: cause
-          ? `sips resize/convert ${cause}`
-          : `sips resize/convert failed (exit ${sip.exitCode}): ${sip.stderr.trim() || '(no error message)'}`,
-        context: { tool: 'computer_screenshot', exitCode: sip.exitCode, timedOut: sip.timedOut ? 1 : 0 },
-      });
-    }
-
+    // Guarantee the original PNG (potentially several MB for a Retina full
+    // screen) is removed on EVERY exit path — success, throw, or a spawn
+    // reject (e.g. `sips` not on PATH) / mid-capture timeout that may have
+    // left a partial file. Without this, those failure paths leak the temp
+    // file in os.tmpdir() permanently and accumulate over repeated failures.
     try {
-      const bytes = await fs.readFile(outTmp);
-      if (bytes.length > MAX_BYTES) {
+      const cap = await runProcess('screencapture', captureArgs, {
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+        timeoutMs: 15_000,
+      });
+      if (cap.exitCode !== 0) {
+        const cause = procFailureCause(cap, 15_000);
         throw new MoxxyError({
           code: 'TOOL_ERROR',
-          message:
-            `screenshot exceeded ${MAX_BYTES} bytes after compression (got ${bytes.length}). ` +
-            `Lower maxDim (currently ${dim}) or quality (currently ${q}), or pass a smaller region.`,
-          context: { tool: 'computer_screenshot', byteLength: bytes.length },
+          message: cause
+            ? `screencapture ${cause}`
+            : `screencapture failed (exit ${cap.exitCode}): ${cap.stderr.trim() || '(no stderr — likely Screen Recording permission missing — grant in System Settings → Privacy & Security)'}`,
+          context: { tool: 'computer_screenshot', exitCode: cap.exitCode, timedOut: cap.timedOut ? 1 : 0 },
         });
       }
-      return {
-        mediaType: fmt === 'jpeg' ? ('image/jpeg' as const) : ('image/png' as const),
-        base64: bytes.toString('base64'),
-        byteLength: bytes.length,
-        maxDim: dim,
-        format: fmt,
-        ...(fmt === 'jpeg' ? { quality: q } : {}),
-      };
+
+      // Resize + format-convert in one sips call. `-Z N` fits within N
+      // on the longest edge while preserving aspect ratio. Output ext
+      // picks the format; format options apply when JPEG.
+      const outExt = fmt === 'jpeg' ? 'jpg' : 'png';
+      const outTmp = path.join(
+        os.tmpdir(),
+        `moxxy-screencap-${process.pid}-${Date.now()}-${uniq}-out.${outExt}`,
+      );
+      const sipsArgs = [
+        '-Z',
+        String(dim),
+        '--setProperty',
+        'format',
+        fmt,
+      ];
+      if (fmt === 'jpeg') {
+        sipsArgs.push('--setProperty', 'formatOptions', String(q));
+      }
+      sipsArgs.push(captureTmp, '--out', outTmp);
+      const sip = await runProcess('sips', sipsArgs, {
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+        timeoutMs: 15_000,
+      });
+      if (sip.exitCode !== 0) {
+        await fs.rm(outTmp, { force: true });
+        const cause = procFailureCause(sip, 15_000);
+        throw new MoxxyError({
+          code: 'TOOL_ERROR',
+          message: cause
+            ? `sips resize/convert ${cause}`
+            : `sips resize/convert failed (exit ${sip.exitCode}): ${sip.stderr.trim() || '(no error message)'}`,
+          context: { tool: 'computer_screenshot', exitCode: sip.exitCode, timedOut: sip.timedOut ? 1 : 0 },
+        });
+      }
+
+      try {
+        const bytes = await fs.readFile(outTmp);
+        if (bytes.length > MAX_BYTES) {
+          throw new MoxxyError({
+            code: 'TOOL_ERROR',
+            message:
+              `screenshot exceeded ${MAX_BYTES} bytes after compression (got ${bytes.length}). ` +
+              `Lower maxDim (currently ${dim}) or quality (currently ${q}), or pass a smaller region.`,
+            context: { tool: 'computer_screenshot', byteLength: bytes.length },
+          });
+        }
+        // The `{ mediaType, base64 }` pair is load-bearing, not decorative: the
+        // SDK's tool_result projection keys off exactly this shape to emit a
+        // provider `image` ContentBlock so the model SEES the pixels. Returning
+        // the bytes inside a stringified blob (the JSON.stringify fallback path)
+        // would reach the model as base64 TEXT it cannot decode. Extra fields
+        // are diagnostic only and ignored by the image projection.
+        return {
+          mediaType: fmt === 'jpeg' ? ('image/jpeg' as const) : ('image/png' as const),
+          base64: bytes.toString('base64'),
+          byteLength: bytes.length,
+          maxDim: dim,
+          format: fmt,
+          ...(fmt === 'jpeg' ? { quality: q } : {}),
+        };
+      } finally {
+        await fs.rm(outTmp, { force: true });
+      }
     } finally {
-      await fs.rm(outTmp, { force: true });
+      await fs.rm(captureTmp, { force: true });
     }
   },
 });

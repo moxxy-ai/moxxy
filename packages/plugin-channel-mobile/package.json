@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-channel-mobile",
   "private": true,
-  "version": "0.1.25",
+  "version": "0.2.0",
   "description": "Mobile channel: serves the moxxy IPC contract over an authenticated WebSocket (via @moxxy/ipc-server-ws), backed by the runner's single Session, so the Expo app reuses @moxxy/client-core. Runs standalone (`moxxy mobile`) or alongside other channels (`moxxy serve --all`).",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,6 +14,10 @@
     "./pairing": {
       "types": "./dist/pairing.d.ts",
       "import": "./dist/pairing.js"
+    },
+    "./e2e-proxy": {
+      "types": "./dist/e2e-proxy.d.ts",
+      "import": "./dist/e2e-proxy.js"
     }
   },
   "files": [
@@ -29,17 +33,20 @@
   "dependencies": {
     "@moxxy/core": "workspace:*",
     "@moxxy/desktop-ipc-contract": "workspace:*",
+    "@moxxy/e2e": "workspace:*",
     "@moxxy/ipc-server-ws": "workspace:*",
-    "@moxxy/plugin-channel-web": "workspace:*",
+    "@moxxy/plugin-tunnel-proxy": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "@moxxy/workspace-registry": "workspace:*",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "ws": "catalog:"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
     "@types/qrcode": "^1.5.5",
+    "@types/ws": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -75,7 +75,7 @@ moxxy service install scheduler
 The poller wakes on its interval, runs each due `ScheduleEntry` in an
 isolated session, and (with channel hints like `--channel telegram`)
 delivers results via the configured channel's send tool. See
-[Scheduler](./scheduler).
+[Scheduler](./scheduler.md).
 
 ## HTTP
 
@@ -85,7 +85,7 @@ moxxy service install http
 curl -H "Authorization: Bearer $MOXXY_HTTP_TOKEN" http://localhost:3737/v1/health
 ```
 
-See [HTTP channel](./http-channel) for the endpoint shape.
+See [HTTP channel](./http-channel.md) for the endpoint shape.
 
 ## `moxxy serve` — one process, everything on
 

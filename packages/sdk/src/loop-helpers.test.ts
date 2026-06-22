@@ -191,6 +191,78 @@ describe('projectMessagesFromLog', () => {
       expect(block.content).not.toContain('before');
     }
   });
+
+  it('projects an image-shaped tool result as an image block, not stringified text', () => {
+    // A screenshot/clipboard tool returns { mediaType, base64 }. The model must
+    // SEE the pixels (image block), not a giant base64 string JSON-stringified
+    // into the tool_result text.
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'screenshot' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: 'c1', name: 'screenshot', input: {} }),
+      event(2, {
+        type: 'tool_result',
+        turnId: t1,
+        source: 'tool',
+        callId: 'c1',
+        ok: true,
+        output: { mediaType: 'image/png', base64: 'AAAABBBB' },
+      }),
+    ]);
+
+    const messages = projectMessagesFromLog({ log });
+    const toolResult = messages.find((m) => m.role === 'tool_result')!;
+    // tool_result block (satisfies the tool_use pairing) + the image block.
+    const imageBlock = toolResult.content.find((b) => b.type === 'image');
+    expect(imageBlock).toEqual({ type: 'image', mediaType: 'image/png', data: 'AAAABBBB' });
+    const resultBlock = toolResult.content.find((b) => b.type === 'tool_result');
+    expect(resultBlock).toMatchObject({ type: 'tool_result', toolUseId: 'c1' });
+    // The base64 bytes must NOT be stringified into the tool_result text.
+    if (resultBlock && resultBlock.type === 'tool_result') {
+      expect(resultBlock.content).not.toContain('AAAABBBB');
+    }
+  });
+
+  it('accepts the provider-native image shape { type:image, mediaType, data }', () => {
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'grab' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: 'c1', name: 'grab', input: {} }),
+      event(2, {
+        type: 'tool_result',
+        turnId: t1,
+        source: 'tool',
+        callId: 'c1',
+        ok: true,
+        output: { type: 'image', mediaType: 'image/jpeg', data: 'ZZZZ' },
+      }),
+    ]);
+
+    const messages = projectMessagesFromLog({ log });
+    const toolResult = messages.find((m) => m.role === 'tool_result')!;
+    expect(toolResult.content.find((b) => b.type === 'image')).toEqual({
+      type: 'image',
+      mediaType: 'image/jpeg',
+      data: 'ZZZZ',
+    });
+  });
+
+  it('does not treat a failed/error tool result as an image', () => {
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'grab' }),
+      event(1, { type: 'tool_call_requested', turnId: t1, source: 'model', callId: 'c1', name: 'grab', input: {} }),
+      event(2, {
+        type: 'tool_result',
+        turnId: t1,
+        source: 'tool',
+        callId: 'c1',
+        ok: false,
+        output: { mediaType: 'image/png', base64: 'AAAA' },
+      }),
+    ]);
+
+    const messages = projectMessagesFromLog({ log });
+    const toolResult = messages.find((m) => m.role === 'tool_result')!;
+    expect(toolResult.content.some((b) => b.type === 'image')).toBe(false);
+  });
 });
 
 function reader(events: ReadonlyArray<MoxxyEvent>): EventLogReader {

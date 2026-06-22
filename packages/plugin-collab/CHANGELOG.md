@@ -1,5 +1,111 @@
 # @moxxy/plugin-collab
 
+## 0.3.3
+
+### Patch Changes
+
+- Updated dependencies [b19d401]
+  - @moxxy/sdk@0.16.0
+  - @moxxy/runner@0.2.16
+
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [92fecb8]
+  - @moxxy/sdk@0.15.2
+  - @moxxy/runner@0.2.15
+
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+  - @moxxy/runner@0.2.14
+
+## 0.3.0
+
+### Minor Changes
+
+- f50a306: feat(collaborative): coordinator-authored role charters (proper, task-suited roles)
+
+  Every peer ran the SAME generic prompt and only a role LABEL was injected — so a
+  "designer" and a "developer" behaved identically. Now the ARCHITECT authors, per
+  roster agent, a tailored CHARTER (persona + responsibilities + quality bar +
+  collaboration + definition-of-done) suited to THIS task, and each peer runs with
+  that charter as part of its system prompt — proper roles created for the task,
+  not pre-configured.
+
+  - RosterEntry gains an optional `charter`; the architect prompt asks for a 4-8
+    sentence charter per agent.
+  - The charter is written to the run dir (NOT the workspace/worktree, so it's
+    never committed), passed to the peer by PATH via a new `MOXXY_COLLAB_CHARTER_FILE`
+    env (never the body), and read at boot into the STATIC system-prompt prefix
+    (cached once, not re-billed per turn).
+  - Safety: the charter is LLM-authored, so it is sanitised (NUL-stripped, capped
+    at 2000 chars) and APPENDED after the authoritative shared rules (never the
+    sole prompt); the roster-approval dialog shows a clipped charter preview — the
+    human gate on injected system-prompt text.
+
+  Tests: charter carried + capped + written outside the committed tree + passed to
+  the peer; peerPromptWithCharter appends-not-replaces; architect prompt asks for a
+  charter.
+
+## 0.2.0
+
+### Minor Changes
+
+- b226696: feat(collaborative): dynamic, cross-functional roles (not a pool of identical implementers)
+
+  The roster could only ever be `architect | implementer`, and `readRoster`
+  force-overwrote every proposed role to `'implementer'` — so the architect's
+  team was always a flat pool of clones, the opposite of the "a PM, a designer,
+  some developers, a QA, a writer" vision.
+
+  - `AgentRole` is now open (`'architect'` stays reserved for the coordinator's
+    planner; any other label is a free-form team function).
+  - `readRoster` carries the architect's proposed `role` (sanitised; a proposed
+    `'architect'` is coerced to `'implementer'` since that's reserved) instead of
+    hardcoding `'implementer'`.
+  - The architect prompt now tells it to assemble the RIGHT team for the
+    deliverable (developer/designer/pm/qa/writer/researcher/editor/…), not to
+    default everyone to "implementer". The peer prompt + seeded turn now lead with
+    the agent's role so a writer writes, a designer designs, a QA reviews.
+
+  Roles flow straight into the existing roster/archive/UI, which already render
+  `role`. Adds tests that proposed roles are carried and the reserved role coerced.
+
+## 0.1.7
+
+### Patch Changes
+
+- a2cb758: fix(collaborative): stop the 30-minute hang, the spawn crash, and worktree leaks
+
+  Agentic-collaborative mode could freeze for the full wall-clock (30 min) or take
+  down the whole runner. Three root causes, fixed:
+
+  - **30-minute hang.** A spawned agent only reported a terminal hub status when it
+    called `collab_done`. Every other way a turn can end (provider error, iteration
+    cap, idle, stuck-loop) left the process idling as `connected`, so the
+    coordinator polled the full wall-clock before giving up. Peers now report a new
+    terminal `failed` status when their turn ends without `collab_done`, and the
+    coordinator adds a short **boot deadline** plus reacts to an observed child
+    exit — so failures surface in seconds, not after 30 minutes.
+  - **Coordinator crash on a bad spawn.** The peer `spawn()` had no `'error'`
+    listener, so a failed spawn became an uncaught exception. It is now captured as
+    a normal exit + diagnostic.
+  - **Leaks.** Worktrees and the run's socket dir are now cleaned up on every exit
+    path (abort, 0-done, conflict), not just integrate()'s happy path. The
+    sequential fallback now awaits a peer's real exit before starting the next, so
+    two agents never edit the shared workspace at once.
+
+  A `failed` agent also releases its file locks (like a crash), and agents now
+  self-report `working` while a turn is in flight. Adds a deterministic
+  fail-fast coordinator test and a real-process integration test that spawns the
+  actual `moxxy agent` binary and asserts it registers and reports a terminal
+  status (no LLM required).
+
 ## 0.1.6
 
 ### Patch Changes

@@ -37,16 +37,38 @@ export function FilterSelect<Id extends string>({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const labelId = useId();
 
+  // The index (into `options`) of the currently-focused option row. -1 = none
+  // yet (set when the panel opens). Roving focus moves this; the matching row
+  // gets `tabIndex=0` and is programmatically focused.
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  // Index of the first focusable (non-disabled) option, or -1 if none.
+  const firstSelectableIndex = (): number => options.findIndex((o) => !o.disabled);
+
+  // Close the panel and return focus to the trigger so keyboard users aren't
+  // dumped at the top of the document (Escape, outside-key close).
+  const closeAndRestore = (): void => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
   // Dismiss on outside-click / Escape — the shared anchored-dropdown pattern.
+  // (Escape restores focus to the trigger; outside-click does not, since the
+  // user is already interacting elsewhere.)
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent): void => {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeAndRestore();
+      }
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -54,6 +76,26 @@ export function FilterSelect<Id extends string>({
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
+  }, [open]);
+
+  // On open, point roving focus at the first selected option (or the first
+  // selectable one) and move DOM focus onto it; reset when the panel closes.
+  useEffect(() => {
+    if (!open) {
+      setActiveIndex(-1);
+      return;
+    }
+    const firstSelected = options.findIndex((o) => !o.disabled && selected.has(o.id));
+    const target = firstSelected >= 0 ? firstSelected : firstSelectableIndex();
+    setActiveIndex(target);
+    if (target >= 0) {
+      // The option rows mount in the same commit as `open` flips true, so the
+      // ref is populated by the time this layout-adjacent effect runs.
+      optionRefs.current[target]?.focus();
+    }
+    // Only re-seed when the panel transitions open; selection changes while open
+    // must not steal focus back to the top.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const selectable = options.filter((o) => !o.disabled);
@@ -65,6 +107,44 @@ export function FilterSelect<Id extends string>({
     if (next.has(id)) next.delete(id);
     else next.add(id);
     onChange(next);
+  };
+
+  // Move roving focus to the next/previous SELECTABLE option, wrapping at the
+  // ends and skipping disabled rows. No-op if no option is focusable.
+  const moveActive = (dir: 1 | -1): void => {
+    if (selectable.length === 0) return;
+    const n = options.length;
+    let i = activeIndex;
+    for (let step = 0; step < n; step++) {
+      i = (i + dir + n) % n;
+      if (!options[i]?.disabled) {
+        setActiveIndex(i);
+        optionRefs.current[i]?.focus();
+        return;
+      }
+    }
+  };
+
+  const onOptionKeyDown = (e: React.KeyboardEvent, o: FilterOption<Id>): void => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        moveActive(1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        moveActive(-1);
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (!o.disabled) toggle(o.id);
+        break;
+      // Escape is handled by the document-level listener (which also restores
+      // trigger focus), so it isn't duplicated here.
+      default:
+        break;
+    }
   };
 
   const setAll = (on: boolean): void => {
@@ -82,6 +162,7 @@ export function FilterSelect<Id extends string>({
       style={{ position: 'relative', zIndex: open ? 50 : undefined, alignSelf: 'flex-start' }}
     >
       <button
+        ref={triggerRef}
         type="button"
         data-testid={testId}
         aria-haspopup="listbox"
@@ -197,14 +278,34 @@ export function FilterSelect<Id extends string>({
           </div>
 
           <div style={{ overflowY: 'auto', padding: 4 }}>
-            {options.map((o) => {
+            {options.map((o, i) => {
               const checked = selected.has(o.id);
               return (
-                <label
+                // role="option" makes each row an ARIA listbox option. Roving
+                // tabindex: only the active row is in the tab order (0); the
+                // rest are -1 and reached via Arrow keys. Disabled rows are
+                // never focusable.
+                <div
                   key={o.id}
+                  ref={(el) => {
+                    optionRefs.current[i] = el;
+                  }}
                   data-testid={`${testId}-opt-${o.id}`}
                   className="row-button"
+                  role="option"
+                  aria-selected={checked}
                   aria-disabled={o.disabled}
+                  tabIndex={o.disabled || i !== activeIndex ? -1 : 0}
+                  onClick={(e) => {
+                    if (o.disabled) return;
+                    setActiveIndex(i);
+                    // A click landing on the mirror checkbox already toggles via
+                    // its onChange; toggling again here would cancel it out
+                    // (double-toggle). Row-body clicks (target ≠ the input) are
+                    // the only ones this handler toggles.
+                    if ((e.target as HTMLElement).tagName !== 'INPUT') toggle(o.id);
+                  }}
+                  onKeyDown={(e) => onOptionKeyDown(e, o)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -215,6 +316,9 @@ export function FilterSelect<Id extends string>({
                     fontSize: 13,
                     cursor: o.disabled ? 'not-allowed' : 'pointer',
                     opacity: o.disabled ? 0.55 : 1,
+                    // Drop the default focus outline-offset push; the row already
+                    // reads as focused via the focus-visible outline on itself.
+                    outlineOffset: -2,
                   }}
                 >
                   <span
@@ -243,14 +347,21 @@ export function FilterSelect<Id extends string>({
                       {o.hint}
                     </span>
                   )}
+                  {/* Visually-hidden native checkbox mirroring `aria-selected`.
+                      Kept (rather than aria-hidden) so the row still exposes a
+                      checkbox to AT/test queries; the row's own click/keys drive
+                      toggling, and roving focus stays on the row, so this input
+                      is out of the tab order (tabIndex=-1). onChange handles the
+                      programmatic .click() RTL fires. */}
                   <input
                     type="checkbox"
                     checked={checked}
                     disabled={o.disabled}
+                    tabIndex={-1}
                     onChange={() => toggle(o.id)}
                     style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }}
                   />
-                </label>
+                </div>
               );
             })}
           </div>

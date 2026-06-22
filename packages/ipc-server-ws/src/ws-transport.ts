@@ -16,6 +16,7 @@
  */
 
 import type { IncomingMessage } from 'node:http';
+import type { Socket } from 'node:net';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 
 import { MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk/server';
@@ -25,6 +26,34 @@ import { checkWsAuth, checkWsOrigin } from './auth.js';
 const DEFAULT_MAX_CONNECTIONS = 8;
 const DEFAULT_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 const DEFAULT_BUFFER_STALL_GRACE_MS = 10_000;
+/** How long a `verifyClient` slot reservation may sit unclaimed before it is
+ *  reconciled (released). `ws.completeUpgrade` can bail AFTER `verifyClient`
+ *  passes — a peer that FIN'd mid-handshake, or a server mid-close — without
+ *  ever emitting `'connection'`; without this fallback those reservations would
+ *  leak monotonically and permanently brick the connection cap. */
+const RESERVATION_RECONCILE_MS = 10_000;
+/** Hard ceiling above which a slow reader is evicted immediately, regardless of
+ *  the grace window — bounds a peer that perpetually rides just over the soft
+ *  limit (resetting the grace clock each drain) from pinning memory forever. */
+const SLOW_READER_HARD_MULTIPLIER = 4;
+/** Cap on the length of an attacker-controlled value written to the host log. */
+const MAX_LOGGED_ORIGIN_LEN = 128;
+
+/**
+ * Make an untrusted header value safe to log: bound its length and drop control
+ * characters (newlines/escapes) so a flood of crafted-Origin upgrades can't
+ * inject into or balloon the host's logs.
+ */
+function sanitizeForLog(value: unknown): string {
+  let out = '';
+  for (const ch of String(value ?? '')) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) continue;
+    out += ch;
+    if (out.length >= MAX_LOGGED_ORIGIN_LEN) break;
+  }
+  return out;
+}
 
 /**
  * The eviction policy, kept pure so it's unit-testable: report the socket's
@@ -34,13 +63,21 @@ const DEFAULT_BUFFER_STALL_GRACE_MS = 10_000;
  */
 export class SlowReaderGuard {
   private stalledSinceMs: number | null = null;
+  private readonly hardLimitBytes: number;
 
   constructor(
     private readonly limitBytes: number = DEFAULT_MAX_BUFFERED_BYTES,
     private readonly graceMs: number = DEFAULT_BUFFER_STALL_GRACE_MS,
-  ) {}
+  ) {
+    this.hardLimitBytes = limitBytes * SLOW_READER_HARD_MULTIPLIER;
+  }
 
   check(bufferedAmount: number, nowMs: number): 'ok' | 'terminate' {
+    // A peer that perpetually hovers just over the soft limit resets the grace
+    // clock on every transient drain and could otherwise sustain ~limit bytes of
+    // backlog indefinitely. A hard ceiling well above the limit evicts it at
+    // once, regardless of grace, so the memory bound actually holds.
+    if (bufferedAmount > this.hardLimitBytes) return 'terminate';
     if (bufferedAmount <= this.limitBytes) {
       this.stalledSinceMs = null;
       return 'ok';
@@ -78,21 +115,43 @@ class WsTransport implements Transport {
 
   send(frame: unknown): void {
     if (this.ws.readyState !== this.ws.OPEN) return;
-    if (this.guard.check(this.ws.bufferedAmount, Date.now()) === 'terminate') {
-      console.warn(
-        `[moxxy] ws bridge: evicting slow reader (${this.ws.bufferedAmount} bytes unread past grace)`,
-      );
-      // Eviction is intentionally lossy for the dropped frame — including a
-      // JSON-RPC RESPONSE frame. `send` returns no failure signal, but
-      // `terminate()` fires the socket's `'close'`, which flows through
-      // `emitClose` → `onClose`; the peer (JsonRpcPeer) rejects every pending
-      // request on close, so a caller awaiting the dropped response is recovered
-      // via that close + reconnect rather than left dangling. Do not assume
-      // `send` reliably delivers responses.
-      this.ws.terminate();
-      return;
-    }
+    if (this.evictIfStalled()) return;
+    // NOTE: `JSON.stringify` throws synchronously on a BigInt/circular frame. We
+    // deliberately let that throw propagate to the caller rather than swallow it
+    // here: on the request/response path `JsonRpcPeer.dispatchRequest` catches it
+    // and converts it into an error reply (so the requester is answered, not left
+    // hanging), and on the broadcast/notify fan-out `WebSocketCommandBus.broadcast`
+    // already wraps each `notify` so one bad payload can't abort delivery to the
+    // rest. Swallowing here would break the response path (silent no-reply).
     this.ws.send(JSON.stringify(frame));
+  }
+
+  /**
+   * Re-consult the slow-reader guard out of band (a periodic sweep), so a peer
+   * that stalls with a large backlog and then goes idle — no further sends to
+   * re-trigger the per-send check — is still evicted instead of pinning its
+   * multi-megabyte buffer for the connection's lifetime.
+   */
+  checkBackpressure(): void {
+    if (this.ws.readyState !== this.ws.OPEN) return;
+    this.evictIfStalled();
+  }
+
+  /** Returns true and terminates the socket if the guard's verdict is to evict. */
+  private evictIfStalled(): boolean {
+    if (this.guard.check(this.ws.bufferedAmount, Date.now()) !== 'terminate') return false;
+    console.warn(
+      `[moxxy] ws bridge: evicting slow reader (${this.ws.bufferedAmount} bytes unread past grace)`,
+    );
+    // Eviction is intentionally lossy for the dropped frame — including a
+    // JSON-RPC RESPONSE frame. `send` returns no failure signal, but
+    // `terminate()` fires the socket's `'close'`, which flows through
+    // `emitClose` → `onClose`; the peer (JsonRpcPeer) rejects every pending
+    // request on close, so a caller awaiting the dropped response is recovered
+    // via that close + reconnect rather than left dangling. Do not assume
+    // `send` reliably delivers responses.
+    this.ws.terminate();
+    return true;
   }
 
   onFrame(handler: (frame: unknown) => void): void {
@@ -161,7 +220,7 @@ export interface WebSocketBridgeServer extends TransportServer {
   /**
    * Replace the Origin allow-list on the LIVE server. Needed because some
    * allowed origins are only known after the listener is up — a tunnel
-   * (cloudflared/ngrok) URL is assigned once the tunnel opens, and iOS React
+   * (the proxy relay) URL is assigned once the tunnel opens, and iOS React
    * Native clients present that URL's https origin at the upgrade. Affects
    * future handshakes only; established connections stay up (unlike
    * `rotateAuthToken`, nothing is being revoked on the additive path).
@@ -184,13 +243,28 @@ export async function createWebSocketTransportServer(
   const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   let currentToken = opts.authToken;
   let currentAllowedOrigins: readonly string[] = opts.allowedOrigins ?? [];
-  // `connections` counts ESTABLISHED sockets; `pending` counts upgrades that
-  // passed `verifyClient` (the authoritative admission gate) but haven't reached
-  // the `'connection'` event yet. The cap is checked against the SUM so two
-  // near-simultaneous handshakes can't both slip through reading the same
+  // `connections` counts ESTABLISHED sockets; `reservations` holds one entry per
+  // upgrade that passed `verifyClient` (the authoritative admission gate) but
+  // hasn't yet reached the `'connection'` event, keyed by the underlying TCP
+  // socket so the right slot is released. The cap is checked against the SUM so
+  // two near-simultaneous handshakes can't both slip through reading the same
   // pre-increment count — otherwise the live total transiently exceeds the cap.
+  //
+  // The reservation MUST self-heal: `ws.completeUpgrade` can bail AFTER
+  // `verifyClient` passes (peer FIN'd mid-handshake, or the server is mid-close)
+  // WITHOUT ever emitting `'connection'`. We release immediately on the socket's
+  // own `'close'` (so an aborted handshake frees its slot at once), and arm a
+  // bounded timer as a backstop in case that event is somehow missed — without
+  // this a leaked reservation would monotonically brick the connection cap.
   let connections = 0;
-  let pending = 0;
+  const reservations = new Map<Socket, { timer: ReturnType<typeof setTimeout> }>();
+  const releaseReservation = (socket: Socket): void => {
+    const entry = reservations.get(socket);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    reservations.delete(socket);
+  };
+  const liveTransports = new Set<WsTransport>();
 
   const wss = new WebSocketServer({
     host,
@@ -198,21 +272,32 @@ export async function createWebSocketTransportServer(
     maxPayload: opts.maxPayloadBytes ?? 64 * 1024 * 1024,
     verifyClient: (info: { req: IncomingMessage }) => {
       if (!checkWsOrigin(info.req, currentAllowedOrigins)) {
+        // The Origin header is unbounded and fully attacker-controlled; truncate
+        // and strip control chars so a crafted-Origin upgrade flood can't write
+        // huge/injected strings into the host's logs (log injection/amplification).
         console.warn(
-          `[moxxy] ws bridge: rejected browser-origin upgrade (Origin: ${String(info.req.headers.origin)})`,
+          `[moxxy] ws bridge: rejected browser-origin upgrade (Origin: ${sanitizeForLog(info.req.headers.origin)})`,
         );
         return false;
       }
-      if (connections + pending >= maxConnections) {
+      if (connections + reservations.size >= maxConnections) {
         console.warn(`[moxxy] ws bridge: rejected upgrade — connection cap (${maxConnections}) reached`);
         return false;
       }
       const ok = checkWsAuth(info.req, currentToken, { allowQueryToken: opts.allowQueryToken });
       // Reserve the slot at the moment of admission so a concurrent upgrade sees
       // it taken. The reservation is converted to an established connection in
-      // the `'connection'` handler; an admitted upgrade that never connects
-      // (handshake aborted after auth) is reconciled by the close path below.
-      if (ok) pending += 1;
+      // the `'connection'` handler (which releases it); a reservation whose
+      // handshake aborts is released on the socket's `'close'`, with a timer as
+      // a backstop. Key by the TCP socket so each path releases the right slot.
+      if (ok) {
+        const socket = info.req.socket;
+        releaseReservation(socket); // defensive: never double-reserve one socket
+        const timer = setTimeout(() => releaseReservation(socket), RESERVATION_RECONCILE_MS);
+        if (typeof timer === 'object' && typeof timer.unref === 'function') timer.unref();
+        reservations.set(socket, { timer });
+        socket.once('close', () => releaseReservation(socket));
+      }
       return ok;
     },
     // When the client offers subprotocols (the moxxy.bearer.* convention),
@@ -222,19 +307,22 @@ export async function createWebSocketTransportServer(
   });
 
   const connectionHandlers: Array<(t: Transport) => void> = [];
-  wss.on('connection', (ws: WebSocket) => {
-    // Convert the verifyClient reservation into an established connection.
-    if (pending > 0) pending -= 1;
+  wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+    // Convert this socket's verifyClient reservation into an established
+    // connection (releasing it so its backstop timer can't fire).
+    releaseReservation(req.socket);
     connections += 1;
     opts.onClientCountChange?.(connections);
-    ws.once('close', () => {
-      connections -= 1;
-      opts.onClientCountChange?.(connections);
-    });
     const transport = new WsTransport(
       ws,
       new SlowReaderGuard(opts.maxBufferedBytes, opts.bufferStallGraceMs),
     );
+    liveTransports.add(transport);
+    ws.once('close', () => {
+      connections -= 1;
+      opts.onClientCountChange?.(connections);
+      liveTransports.delete(transport);
+    });
     for (const handler of connectionHandlers) handler(transport);
   });
 
@@ -243,9 +331,36 @@ export async function createWebSocketTransportServer(
     wss.once('listening', resolve);
   });
 
-  // Report the ACTUAL bound port — `opts.port` may be 0 (ephemeral).
+  // Report the ACTUAL bound port — `opts.port` may be 0 (ephemeral). A
+  // non-object address after a successful `'listening'` is unreachable in
+  // practice, but falling back to `opts.port` (possibly 0) would silently
+  // advertise an unusable `ws://host:0` connect target — fail loudly instead.
   const bound = wss.address();
-  const boundPort = typeof bound === 'object' && bound !== null ? bound.port : opts.port;
+  if (typeof bound !== 'object' || bound === null || typeof bound.port !== 'number') {
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
+    throw new Error('createWebSocketTransportServer: could not determine bound port');
+  }
+  const boundPort = bound.port;
+
+  // After startup, a server-level error (EMFILE/ENFILE on accept under fd
+  // exhaustion, an underlying socket error surfaced to the WSS) must NOT become
+  // an uncaught exception — Node throws on an `'error'` event with no listener,
+  // which would take down the whole host for an optional surface.
+  wss.on('error', (err: Error) => {
+    console.error('[moxxy] ws bridge: server error', err);
+  });
+
+  // Drive slow-reader eviction independently of send cadence: a peer that stalls
+  // with a large backlog and then goes idle would never re-trigger the per-send
+  // check and would pin its buffer for the connection's lifetime.
+  const graceMs = opts.bufferStallGraceMs ?? DEFAULT_BUFFER_STALL_GRACE_MS;
+  const sweep = setInterval(
+    () => {
+      for (const transport of liveTransports) transport.checkBackpressure();
+    },
+    Math.max(1000, Math.floor(graceMs / 2)),
+  );
+  if (typeof sweep === 'object' && typeof sweep.unref === 'function') sweep.unref();
 
   return {
     address: `ws://${host}:${boundPort}`,
@@ -266,6 +381,9 @@ export async function createWebSocketTransportServer(
       // `wss.close` only stops the listener; it waits for clients to leave on
       // their own. Quit is quit — terminate them so close resolves promptly
       // instead of burning the host's shutdown timeout.
+      clearInterval(sweep);
+      for (const { timer } of reservations.values()) clearTimeout(timer);
+      reservations.clear();
       return new Promise<void>((resolve) => {
         for (const client of wss.clients) client.terminate();
         wss.close(() => resolve());

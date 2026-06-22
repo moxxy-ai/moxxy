@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -18,11 +18,25 @@ const ERROR_RESET_MS = 3000;
 export function useAttachments(options: { readonly disabled?: boolean } = {}) {
   const [attachments, setAttachments] = useState<ReadonlyArray<PromptAttachment>>([]);
   const [error, setError] = useState<string | null>(null);
+  // Track the auto-clear timer so rapid failures don't stack timers and a
+  // pending clear can't fire setError after unmount.
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fail = useCallback((message: string) => {
     setError(message);
-    setTimeout(() => setError(null), ERROR_RESET_MS);
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = setTimeout(() => {
+      errorTimerRef.current = null;
+      setError(null);
+    }, ERROR_RESET_MS);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    },
+    [],
+  );
 
   const addAttachment = useCallback((attachment: PromptAttachment) => {
     setAttachments((current) => {

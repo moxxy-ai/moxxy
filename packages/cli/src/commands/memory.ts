@@ -56,7 +56,7 @@ export async function runMemoryCommand(argv: ParsedArgv): Promise<number> {
         process.stdout.write('(no memories)\n');
         return 0;
       }
-      const stats = await Promise.all(entries.map(statOf));
+      const stats = await mapBounded(entries, statOf);
       const byType = groupByType(stats);
       const totalSize = stats.reduce((sum, s) => sum + s.size, 0);
       process.stdout.write(
@@ -114,8 +114,14 @@ export async function runMemoryCommand(argv: ParsedArgv): Promise<number> {
         return 2;
       }
       const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+      // Snapshot once: list + stat a SINGLE time and act on that snapshot for
+      // both the preview and the delete. Re-listing/re-statting between preview
+      // and delete (the old --yes path) is a TOCTOU window — a concurrent
+      // session (the running agent writing memory) could let a freshly-written
+      // entry slip into the stale set, or a rename could shift the cutoff filter
+      // between the two passes. One snapshot keeps preview and delete consistent.
       const entries = await store.list();
-      const stats = await Promise.all(entries.map(statOf));
+      const stats = await mapBounded(entries, statOf);
       const stale = stats.filter((s) => s.updatedAt.getTime() < cutoff);
       if (stale.length === 0) {
         process.stdout.write(`(no entries older than ${days}d)\n`);
@@ -130,8 +136,17 @@ export async function runMemoryCommand(argv: ParsedArgv): Promise<number> {
         }
         return 0;
       }
-      for (const s of stale) await store.forget(s.entry.frontmatter.name);
-      process.stdout.write(`deleted ${stale.length} stale entries\n`);
+      // Print exactly which entries are being removed on the destructive path
+      // too (not just the dry run) so the user can see what was deleted.
+      let deleted = 0;
+      for (const s of stale) {
+        const removed = await store.forget(s.entry.frontmatter.name);
+        if (removed) {
+          deleted += 1;
+          process.stdout.write(`  removed ${s.entry.frontmatter.name}\n`);
+        }
+      }
+      process.stdout.write(`deleted ${deleted} stale entries\n`);
       return 0;
     }
     case 'path': {
@@ -142,6 +157,28 @@ export async function runMemoryCommand(argv: ParsedArgv): Promise<number> {
       printError(`unknown 'memory' subcommand: ${sub}\n${HELP}`);
       return 2;
   }
+}
+
+/**
+ * Map over `items` with a bounded number of in-flight async ops. The
+ * audit/prune paths fan out one fs.stat per memory entry; a user with
+ * thousands of entries doing `await Promise.all(entries.map(statOf))` issues
+ * thousands of simultaneous syscalls/handles and hits EMFILE on a low `ulimit
+ * -n`, failing the curation tool exactly when memory is large enough to need
+ * it. Process in fixed-size chunks instead. Order is preserved.
+ */
+export async function mapBounded<T, R>(
+  items: ReadonlyArray<T>,
+  fn: (item: T) => Promise<R>,
+  limit = 64,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    const results = await Promise.all(chunk.map(fn));
+    for (let j = 0; j < results.length; j += 1) out[i + j] = results[j]!;
+  }
+  return out;
 }
 
 interface MemoryStat {

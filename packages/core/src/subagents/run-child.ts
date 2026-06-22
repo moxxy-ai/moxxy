@@ -46,9 +46,10 @@ import {
 } from './events.js';
 import { buildFilteredToolRegistry } from './tools.js';
 import {
-  getRetainedChild,
+  claimRetainedChild,
   registerRetainedChild,
   releaseRetainedChild,
+  unclaimRetainedChild,
   type RetainedChildSession,
 } from './registry.js';
 
@@ -86,10 +87,13 @@ export async function runChildTurn(args: {
   if ('failure' in resolved) return resolved.failure;
   const { strategy, strategyName } = resolved;
 
+  // `undefined` means "inherit the full parent registry"; a present-but-empty
+  // array means "deny all" (least-privilege). Collapsing the two would turn an
+  // explicit [] into full tool inheritance — the opposite of the caller's intent.
   const toolRegistry: ToolRegistry =
-    spec.allowedTools && spec.allowedTools.length > 0
-      ? buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools))
-      : parentSession.tools;
+    spec.allowedTools === undefined
+      ? parentSession.tools
+      : buildFilteredToolRegistry(parentSession.tools, new Set(spec.allowedTools));
 
   const childModel = await resolveChildModel(rt, spec, label, childSessionId);
 
@@ -122,7 +126,7 @@ export async function runChildTurn(args: {
   });
 
   if (retainSession) {
-    registerRetainedChild({
+    const evicted = registerRetainedChild({
       label,
       childSessionId,
       childTurnId,
@@ -133,10 +137,39 @@ export async function runChildTurn(args: {
       strategyName,
       parentSession,
       parentTurnId,
+      tokensUsed: capture.tokensUsed,
     });
+    // A capped/TTL-expired paused child is now unreachable: its `continue()`
+    // will fail. Surface that on the EVICTED child's own parent log (best-effort
+    // — a warning append must never take this spawn down) so the operator who
+    // started it isn't left waiting on a resume that can no longer happen.
+    await warnEvicted(evicted);
   }
 
   return capture.result;
+}
+
+/**
+ * Emit a `subagent_warning` on each evicted child's OWN parent log so the
+ * operator who spawned a now-unreachable paused child sees why its `continue()`
+ * will fail. Best-effort: a warning-append reject (or a since-closed parent
+ * session) must never propagate out of the spawn that triggered the eviction.
+ */
+async function warnEvicted(evicted: ReadonlyArray<RetainedChildSession>): Promise<void> {
+  for (const e of evicted) {
+    try {
+      await emitSubagentWarning(
+        e.parentSession,
+        e.parentTurnId,
+        e.label,
+        e.childSessionId,
+        `retained subagent "${e.label}" was evicted before resume ` +
+          `(retention cap or TTL reached); its continue() will no longer work`,
+      );
+    } catch {
+      // A closed/failing parent log must not abort the spawn that evicted it.
+    }
+  }
 }
 
 export async function continueChildTurn(args: {
@@ -144,42 +177,58 @@ export async function continueChildTurn(args: {
   prompt: string;
   label?: string;
 }): Promise<SubagentResult> {
-  const retained = getRetainedChild(args.childSessionId);
+  // Claim-then-run: atomically remove the entry from the registry and mark it
+  // busy so a racing continue()/release() for the same id can't observe the
+  // live entry and drive strategy.run over the same childLog/childCtx in
+  // parallel (interleaved appends, double-seeded prompts, double release).
+  const retained = claimRetainedChild(args.childSessionId);
   if (!retained) {
     throw new Error(`no retained subagent session for "${String(args.childSessionId)}"`);
   }
 
-  await retained.childLog.append({
-    type: 'user_prompt',
-    sessionId: retained.childSessionId,
-    turnId: retained.childTurnId,
-    source: 'user',
-    text: args.prompt,
-  });
+  try {
+    await retained.childLog.append({
+      type: 'user_prompt',
+      sessionId: retained.childSessionId,
+      turnId: retained.childTurnId,
+      source: 'user',
+      text: args.prompt,
+    });
 
-  const rt: SubagentRuntime = {
-    parentSession: retained.parentSession,
-    parentTurnId: retained.parentTurnId,
-    parentSignal: retained.childCtx.signal,
-    parentModel: retained.childCtx.model,
-  };
+    const rt: SubagentRuntime = {
+      parentSession: retained.parentSession,
+      parentTurnId: retained.parentTurnId,
+      // Re-derive the resume signal from the still-live owning session rather
+      // than reusing the possibly-already-aborted per-turn signal captured at
+      // first-turn spawn time (which would cancel the resume before any work).
+      parentSignal: retained.parentSession.signal,
+      parentModel: retained.childCtx.model,
+    };
 
-  const capture = await executeChildLoop({
-    rt,
-    spec: retained.spec,
-    label: args.label ?? retained.label,
-    childSessionId: retained.childSessionId,
-    childTurnId: retained.childTurnId,
-    childLog: retained.childLog,
-    childCtx: retained.childCtx,
-    strategy: retained.strategy,
-    strategyName: retained.strategyName,
-    emitCompleted: true,
-    skipStartEvent: true,
-  });
+    const capture = await executeChildLoop({
+      rt,
+      spec: retained.spec,
+      label: args.label ?? retained.label,
+      childSessionId: retained.childSessionId,
+      childTurnId: retained.childTurnId,
+      childLog: retained.childLog,
+      childCtx: retained.childCtx,
+      strategy: retained.strategy,
+      strategyName: retained.strategyName,
+      emitCompleted: true,
+      skipStartEvent: true,
+      // Carry forward the cost accumulated across prior turns so the deferred
+      // subagent_completed reports the retained session's cumulative usage, not
+      // just this last continue's delta.
+      priorTokensUsed: retained.tokensUsed ?? 0,
+    });
 
-  releaseRetainedChild(args.childSessionId);
-  return capture.result;
+    return capture.result;
+  } finally {
+    // The entry was already removed by the claim; just drop the busy marker so
+    // a future continue() (if the session were re-registered) isn't blocked.
+    unclaimRetainedChild(args.childSessionId);
+  }
 }
 
 async function executeChildLoop(args: {
@@ -194,7 +243,8 @@ async function executeChildLoop(args: {
   strategyName: string;
   emitCompleted: boolean;
   skipStartEvent?: boolean;
-}): Promise<{ result: SubagentResult }> {
+  priorTokensUsed?: number;
+}): Promise<{ result: SubagentResult; tokensUsed: number }> {
   const {
     rt,
     spec,
@@ -207,6 +257,7 @@ async function executeChildLoop(args: {
     strategyName,
     emitCompleted,
     skipStartEvent,
+    priorTokensUsed = 0,
   } = args;
   const { parentSession, parentTurnId } = rt;
 
@@ -214,7 +265,7 @@ async function executeChildLoop(args: {
     text: '',
     stopReason: 'end_turn' as StopReason,
     error: null as string | null,
-    tokensUsed: 0,
+    tokensUsed: priorTokensUsed,
   };
 
   const unsubCapture = childLog.subscribe((e) => {
@@ -280,7 +331,7 @@ async function executeChildLoop(args: {
     );
   }
 
-  return { result };
+  return { result, tokensUsed: capture.tokensUsed };
 }
 
 async function resolveStrategy(
@@ -296,23 +347,26 @@ async function resolveStrategy(
   const exact = parentSession.modes.list().find((s) => s.name === requestedStrategy);
   if (exact) return { strategy: exact, strategyName: requestedStrategy };
 
-  // Fall back to the default mode if the model invented a name
-  // (e.g. "react"). Failing the child outright wastes the user's turn —
-  // any reasonable agent task can run on the default mode. We surface the
-  // fallback as a non-fatal warning event so the operator sees it.
-  const fallback = parentSession.modes.list().find((s) => s.name === 'default');
+  // Fall back when the model invented a name (e.g. "react"). Failing the child
+  // outright wastes the user's turn — any reasonable agent task can run on the
+  // session's current strategy. Prefer a mode literally named "default", then
+  // the session's active mode (a host may ship a renamed/alternative default),
+  // surfacing the fallback as a non-fatal warning so the operator sees it.
+  const fallback =
+    parentSession.modes.list().find((s) => s.name === 'default') ??
+    safeActiveMode(parentSession);
   if (fallback) {
     await emitSubagentWarning(
       parentSession,
       parentTurnId,
       label,
       childSessionId,
-      `unknown mode "${requestedStrategy}" — falling back to "default"`,
+      `unknown mode "${requestedStrategy}" — falling back to "${fallback.name}"`,
     );
-    return { strategy: fallback, strategyName: 'default' };
+    return { strategy: fallback, strategyName: fallback.name };
   }
 
-  // No default mode either — that's a config error, not a model mistake.
+  // No fallback mode at all — that's a config error, not a model mistake.
   await emitSubagentStart(parentSession, parentTurnId, label, childSessionId, spec, requestedStrategy);
   const errorMsg = `Subagent failed: unknown mode "${requestedStrategy}" and no fallback available`;
   await emitSubagentCompleted(parentSession, parentTurnId, label, childSessionId, '', 'error', errorMsg, spec.agentType ?? 'default', 0);
@@ -325,6 +379,17 @@ async function resolveStrategy(
       error: { message: errorMsg },
     },
   };
+}
+
+/** `modes.getActive()` throws when no mode is active; treat that as "no fallback". */
+function safeActiveMode(
+  parentSession: SessionRuntime,
+): ReturnType<SessionRuntime['modes']['list']>[number] | undefined {
+  try {
+    return parentSession.modes.getActive();
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -405,15 +470,54 @@ function buildChildContext(
   };
 }
 
+/**
+ * Build an error-bearing {@link SubagentResult} for a spec whose `runChildTurn`
+ * threw during setup (before it could degrade the error into a result itself).
+ * Keeps `spawnAll` total: one result per spec, in input order, never a thrown
+ * batch. The real child id is unknown here (setup failed before it was captured),
+ * so a fresh placeholder id is minted; the result still carries the failing
+ * spec's label and the error message.
+ */
+function spawnFailureResult(spec: SubagentSpec, reason: unknown): SubagentResult {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return {
+    label: spec.label ?? 'subagent',
+    childSessionId: newSessionId(),
+    text: '',
+    stopReason: 'error' as StopReason,
+    error: { message },
+  };
+}
+
 export function createSubagentSpawner(rt: SubagentRuntime): SubagentSpawner {
   return {
     async spawn(spec) {
       return runChildTurn({ rt, spec, retainSession: spec.retainSession === true });
     },
     async spawnAll(specs) {
-      return Promise.all(
-        specs.map((s) => runChildTurn({ rt, spec: s, retainSession: s.retainSession === true })),
+      // Per-child degradation: a single child's PRE-`try` setup throw (no active
+      // provider, a `compactors.getActive()` config error, a log-append reject in
+      // `resolveStrategy`) must NOT reject the whole batch, and must NEVER abort or
+      // orphan its still-running siblings (whose later settlement would otherwise
+      // surface as an `unhandledRejection`). `Promise.all` short-circuits on the
+      // first rejection and leaks the rest — `Promise.allSettled` always waits for
+      // every child and never rejects. Each spec yields exactly one result, in
+      // input order; a setup throw becomes an error-bearing `SubagentResult` so a
+      // fan-out partially succeeds instead of taking the parent turn down with it.
+      const outcomes = await Promise.allSettled(
+        specs.map((spec) =>
+          runChildTurn({ rt, spec, retainSession: spec.retainSession === true }),
+        ),
       );
+      return outcomes.map((outcome, i): SubagentResult => {
+        if (outcome.status === 'fulfilled') return outcome.value;
+        // `specs[i]` is always defined here (i indexes the same array we mapped),
+        // but `noUncheckedIndexedAccess` widens it to `| undefined`; narrow so the
+        // failure result still carries the failing spec's label rather than the
+        // generic fallback.
+        const spec = specs[i];
+        return spawnFailureResult(spec ?? { prompt: '' }, outcome.reason);
+      });
     },
     async continue(args: SubagentContinueArgs) {
       return continueChildTurn(args);

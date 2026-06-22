@@ -37,15 +37,33 @@ export function createStablePrefixCacheStrategy(): CacheStrategyDef {
       // for this call only — they won't recur at the same position next call,
       // so a breakpoint on/after them is a guaranteed-wasted cache write.
       // Place the rolling tail breakpoint on the last STABLE message instead.
-      const volatileTail = Math.max(0, ctx.volatileTailMessageCount ?? 0);
+      // A malformed count (NaN/float/negative) must degrade to caching the true
+      // tail, never to silently dropping the rolling-tail breakpoint entirely.
+      const volatileTail = Math.max(
+        0,
+        Math.trunc(Number.isFinite(ctx.volatileTailMessageCount) ? ctx.volatileTailMessageCount! : 0),
+      );
       const lastIdx = lastNonSystemIndex(messages, messages.length - volatileTail);
       if (lastIdx < 0) return hints; // nothing but a system prompt (or volatile tail) yet
 
       // Long-lived breakpoint at the stable prefix boundary (e.g. the elision
       // high-water mark). Only when it is strictly before the tail — otherwise
-      // the tail breakpoint already covers it.
+      // the tail breakpoint already covers it. Constraints, each defending a
+      // silently-dropped breakpoint the provider would never honor:
+      //   - integer & in range: the Anthropic translator matches the hint's
+      //     messageIndex against integer message positions; a NaN/float/out-of-
+      //     range index matches none and is dropped with no error (same hazard
+      //     the rolling tail normalizes via Math.trunc on the volatile count).
+      //   - non-system role: a cache_control on a system-role message is skipped
+      //     by the translator, exactly as lastNonSystemIndex defends the tail.
       const stableIdx = ctx.stablePrefixMessageIndex;
-      if (stableIdx != null && stableIdx >= 0 && stableIdx < lastIdx) {
+      if (
+        stableIdx != null &&
+        Number.isInteger(stableIdx) &&
+        stableIdx >= 0 &&
+        stableIdx < lastIdx &&
+        messages[stableIdx]?.role !== 'system'
+      ) {
         hints.push({ target: { messageIndex: stableIdx } });
       }
 

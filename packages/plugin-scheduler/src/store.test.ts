@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -46,6 +46,24 @@ describe('ScheduleStore', () => {
     await expect(
       store.create({ name: 'badcron', prompt: 'x', cron: 'not a cron' }),
     ).rejects.toThrow();
+  });
+
+  it('quarantines a corrupt schedules file and resets to empty', async () => {
+    const file = path.join(dir, 'corrupt.json');
+    await writeFile(file, '{ this is not valid json', 'utf8');
+    const warnings: string[] = [];
+    const corruptStore = new ScheduleStore({
+      file,
+      logger: { warn: (msg) => warnings.push(msg) },
+    });
+    // Resets to empty rather than crashing.
+    expect(await corruptStore.list()).toEqual([]);
+    // The bad file is renamed aside (data loss is observable + recoverable),
+    // not silently masked.
+    const files = await readdir(dir);
+    expect(files.some((f) => f.startsWith('corrupt.json.corrupt-'))).toBe(true);
+    expect(files).not.toContain('corrupt.json');
+    expect(warnings.some((w) => w.includes('corrupt'))).toBe(true);
   });
 
   it('update merges patch into an entry', async () => {

@@ -10,6 +10,16 @@ import { materializeEvent } from './factory.js';
 
 export type EventListener = (event: MoxxyEvent) => void | Promise<void>;
 
+/**
+ * Per-listener watchdog for {@link EventLog.append}'s sequential fan-out. A
+ * listener that never resolves (e.g. a persistence sidecar blocked on a stuck fs
+ * handle) would otherwise block `append`'s promise forever and wedge the
+ * appending turn. We bound each awaited listener: if it hasn't settled within
+ * this window we log and continue rather than hang. Well-behaved listeners (the
+ * common case) settle far inside it, so timing is unchanged for them.
+ */
+const LISTENER_TIMEOUT_MS = 30_000;
+
 export class EventLog implements EventLogReader {
   private readonly events: MoxxyEvent[] = [];
   private readonly listeners = new Set<EventListener>();
@@ -135,7 +145,7 @@ export class EventLog implements EventLogReader {
     const snapshot = [...this.listeners];
     for (const fn of snapshot) {
       try {
-        await fn(event);
+        await callListenerBounded(fn, event);
       } catch {
         // Listeners must not block the log; failures are non-fatal here. Hook
         // failures are recorded as ErrorEvents by the dispatcher above this.
@@ -252,5 +262,33 @@ export class EventLog implements EventLogReader {
 
   asReader(): EventLogReader {
     return this;
+  }
+}
+
+/**
+ * Await a listener but give up after {@link LISTENER_TIMEOUT_MS} so a hung
+ * listener can't block the appending turn indefinitely. A synchronous (void)
+ * listener resolves immediately and the timer is cleared before it can fire, so
+ * fast listeners pay nothing. The timer is `unref`'d so it never keeps the
+ * process alive on its own.
+ */
+async function callListenerBounded(fn: EventListener, event: MoxxyEvent): Promise<void> {
+  const result = fn(event);
+  if (!(result instanceof Promise)) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      process.stderr.write(
+        `moxxy: event-log listener exceeded ${LISTENER_TIMEOUT_MS}ms on ${event.type} ` +
+          `(seq ${event.seq}); continuing without it\n`,
+      );
+      resolve();
+    }, LISTENER_TIMEOUT_MS);
+    (timer as { unref?: () => void }).unref?.();
+  });
+  try {
+    await Promise.race([result, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

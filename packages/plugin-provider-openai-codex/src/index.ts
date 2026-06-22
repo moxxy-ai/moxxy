@@ -2,6 +2,7 @@ import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { CodexProvider, type CodexProviderConfig } from './provider.js';
 import { codexModels } from './models.js';
 import { codexLogin, codexLogout, codexStatus } from './login.js';
+import { PLUGIN_VERSION } from './codex/headers.js';
 
 export const openaiCodexProviderDef = defineProvider({
   name: 'openai-codex',
@@ -20,7 +21,7 @@ export const openaiCodexProviderDef = defineProvider({
 
 export const openaiCodexPlugin = definePlugin({
   name: '@moxxy/plugin-provider-openai-codex',
-  version: '0.0.0',
+  version: PLUGIN_VERSION,
   providers: [openaiCodexProviderDef],
 });
 

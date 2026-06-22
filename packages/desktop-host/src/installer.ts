@@ -14,7 +14,7 @@ import { chmodSync, existsSync, readFileSync, statSync } from 'node:fs';
 import path, { dirname } from 'node:path';
 import { type BrowserWindow } from 'electron';
 import type { NodeProbe } from '@moxxy/desktop-ipc-contract';
-import { augmentedPaths, findExecutable, resolveMoxxyCli, spawnCli, spawnPath } from './cli-resolver';
+import { augmentedPaths, findExecutable, resolveMoxxyCli, spawnPath } from './cli-resolver';
 import { sendEvent } from './send-event';
 import { wsEventBus } from './event-bus';
 

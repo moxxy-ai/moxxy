@@ -99,9 +99,13 @@ export class WhisperTranscriber implements Transcriber {
       if (typeof r.language === 'string') result.language = r.language;
       if (typeof r.duration === 'number') result.durationSec = r.duration;
       if (Array.isArray(r.segments)) {
-        result.segments = (r.segments as Array<{ start: number; end: number; text: string }>).map(
-          (s) => ({ start: s.start, end: s.end, text: s.text }),
-        );
+        // The vendor response is untrusted: a malformed/partial `segments`
+        // entry (`null`, a non-object, or one missing the numeric start/end /
+        // string text) would either crash the blind `.start` read or leak a
+        // value that violates the `TranscriptionSegment` type contract.
+        // Validate each element and drop the ones that don't conform rather
+        // than crashing or emitting `{ text: 123 }` downstream.
+        result.segments = sanitizeSegments(r.segments);
       }
       return result;
     }
@@ -172,6 +176,35 @@ function requireTextResponse(response: unknown): { text: string } & Record<strin
     });
   }
   return response as { text: string } & Record<string, unknown>;
+}
+
+/**
+ * Defensively narrow an untrusted `segments` array from a vendor response into
+ * the well-typed `TranscriptionSegment[]` contract. Each element is validated
+ * to be an object carrying finite numeric `start`/`end` and a string `text`;
+ * non-conforming entries (`null`, primitives, NaN/Infinity bounds, missing
+ * fields) are dropped so a hostile/partial response degrades to fewer (or zero)
+ * segments instead of crashing the caller or leaking off-contract values.
+ */
+function sanitizeSegments(
+  raw: readonly unknown[],
+): Array<{ start: number; end: number; text: string }> {
+  const out: Array<{ start: number; end: number; text: string }> = [];
+  for (const seg of raw) {
+    if (!seg || typeof seg !== 'object') continue;
+    const s = seg as { start?: unknown; end?: unknown; text?: unknown };
+    if (
+      typeof s.start !== 'number' ||
+      typeof s.end !== 'number' ||
+      typeof s.text !== 'string' ||
+      !Number.isFinite(s.start) ||
+      !Number.isFinite(s.end)
+    ) {
+      continue;
+    }
+    out.push({ start: s.start, end: s.end, text: s.text });
+  }
+  return out;
 }
 
 export function createWhisperTranscriber(opts: WhisperTranscriberOptions = {}): WhisperTranscriber {

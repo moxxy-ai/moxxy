@@ -179,6 +179,45 @@ describe('WorkspaceTree', () => {
     expect(h.onToggleCollapse).not.toHaveBeenCalled();
   });
 
+  // Accessibility: the row body is the primary action (folder toggle /
+  // session select) and must be keyboard-operable, not a mouse-only <div>.
+  it('makes rows keyboard-activatable (Enter/Space) with button semantics', () => {
+    const h = renderTree();
+    const folder = screen.getByTestId('desk-row-b');
+    const session = screen.getByTestId('session-row-b');
+    // Real button semantics + reachable in the tab order.
+    expect(folder.getAttribute('role')).toBe('button');
+    expect(folder.tabIndex).toBe(0);
+    expect(session.getAttribute('role')).toBe('button');
+    expect(session.tabIndex).toBe(0);
+
+    fireEvent.keyDown(folder, { key: 'Enter' });
+    expect(h.onToggleCollapse).toHaveBeenCalledWith('b');
+    fireEvent.keyDown(session, { key: ' ' });
+    expect(h.onSelectSession).toHaveBeenCalledWith('b');
+  });
+
+  // Accessibility: opening the ⋯ menu must move focus into it (first item) so a
+  // keyboard / screen-reader user can act, and closing must restore focus to
+  // the trigger rather than dropping it to <body>.
+  it('focuses the first menu item on open and restores focus to the trigger on close', () => {
+    renderTree();
+    const trigger = screen.getByLabelText('session actions Fix the login bug');
+    // A real browser focuses a button on click; jsdom doesn't, so focus it
+    // explicitly to mirror the activeElement state the hook captures at open.
+    trigger.focus();
+    fireEvent.click(trigger);
+    const rename = screen.getByLabelText('rename session Fix the login bug');
+    expect(document.activeElement).toBe(rename);
+
+    // ArrowDown moves to the next item (Remove); does not escape the menu.
+    fireEvent.keyDown(rename, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByLabelText('remove session Fix the login bug'));
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(trigger);
+  });
+
   // Regression: the ⋯ menu is anchored inside the row's subtree, and the
   // ActionsOverlay's `transform` traps the menu's z-index in a local
   // stacking context. Without lifting the owning row while its menu is

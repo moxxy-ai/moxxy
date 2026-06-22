@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   fullUrl,
-  installInstructions,
   maskSecret,
   normalizeVerification,
   secretFilePath,
@@ -81,15 +80,6 @@ describe('webhook tool shared helpers', () => {
       expect(supplied.verification.secret).toBe('caller-provided-secret');
       // omitted prefix stays absent
       expect('prefix' in supplied.verification).toBe(false);
-    });
-  });
-
-  describe('installInstructions', () => {
-    it('mentions brew for cloudflared', () => {
-      expect(installInstructions('cloudflared')).toContain('brew install cloudflared');
-    });
-    it('mentions authtoken for ngrok', () => {
-      expect(installInstructions('ngrok')).toContain('add-authtoken');
     });
   });
 });

@@ -7,15 +7,22 @@ import type { TransportServer } from './transport.js';
 
 const servers: TransportServer[] = [];
 let savedEnv: string | undefined;
+let savedMoxxyHome: string | undefined;
 
 beforeEach(() => {
   savedEnv = process.env.MOXXY_RUNNER_SOCKET;
   delete process.env.MOXXY_RUNNER_SOCKET;
+  // The default-home test asserts the `~/.moxxy` fallback, so MOXXY_HOME must be
+  // unset by default; the dedicated test below sets it back.
+  savedMoxxyHome = process.env.MOXXY_HOME;
+  delete process.env.MOXXY_HOME;
 });
 
 afterEach(async () => {
   if (savedEnv === undefined) delete process.env.MOXXY_RUNNER_SOCKET;
   else process.env.MOXXY_RUNNER_SOCKET = savedEnv;
+  if (savedMoxxyHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = savedMoxxyHome;
   await Promise.all(servers.splice(0).map((s) => s.close()));
 });
 
@@ -25,11 +32,24 @@ describe('runnerSocketPath', () => {
     expect(runnerSocketPath()).toBe('/tmp/custom-runner.sock');
   });
 
-  it('defaults to ~/.moxxy/serve.sock on non-Windows', () => {
+  it('defaults to ~/.moxxy/serve.sock on non-Windows when MOXXY_HOME is unset', () => {
     if (process.platform === 'win32') {
       expect(runnerSocketPath()).toContain('pipe');
     } else {
       expect(runnerSocketPath()).toBe(path.join(os.homedir(), '.moxxy', 'serve.sock'));
+    }
+  });
+
+  it('honors $MOXXY_HOME so the runner socket follows the relocated data dir', () => {
+    const altHome = path.join(os.tmpdir(), `moxxy-home-${Math.random().toString(36).slice(2)}`);
+    process.env.MOXXY_HOME = altHome;
+    if (process.platform === 'win32') {
+      // The Windows pipe namespace is flat — the socket is a named pipe, not a
+      // filesystem path, so MOXXY_HOME can't move it.
+      expect(runnerSocketPath()).toContain('pipe');
+    } else {
+      // Lives directly under MOXXY_HOME, NOT under ~/.moxxy.
+      expect(runnerSocketPath()).toBe(path.join(altHome, 'serve.sock'));
     }
   });
 });

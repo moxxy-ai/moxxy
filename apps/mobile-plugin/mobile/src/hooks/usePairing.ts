@@ -45,11 +45,16 @@ export function usePairing(): PairingState {
     rawUrl: string,
     pairingToken?: string | null,
     onTargetStatus?: (status: WsClientStatus) => void,
+    fingerprint?: string | null,
   ) => {
     try {
-      const target = resolveBridgePairingTarget(rawUrl, pairingToken);
+      const target = resolveBridgePairingTarget(rawUrl, pairingToken, fingerprint);
       const current = transportHandleRef.current;
-      if (current?.url === target.url && current.token === target.token) {
+      if (
+        current?.url === target.url &&
+        current.token === target.token &&
+        current.fingerprint === target.fingerprint
+      ) {
         if (current.status() === 'open') {
           setTransportReady(true);
           setError(null);
@@ -64,17 +69,23 @@ export function usePairing(): PairingState {
       current?.close();
       setTransportReady(false);
       let nextHandle: BridgePairingTransportHandle | null = null;
-      const handle = openBridgePairingTransport(target.url, target.token, undefined, (status) => {
-        if (transportHandleRef.current !== nextHandle) return;
-        onTargetStatus?.(status);
-        const open = status === 'open';
-        setTransportReady(open);
-        if (open) {
-          setError(null);
-        } else if (status === 'disconnected') {
-          setError('Mobile bridge disconnected. Re-pair this device to continue.');
-        }
-      });
+      const handle = openBridgePairingTransport(
+        target.url,
+        target.token,
+        undefined,
+        (status) => {
+          if (transportHandleRef.current !== nextHandle) return;
+          onTargetStatus?.(status);
+          const open = status === 'open';
+          setTransportReady(open);
+          if (open) {
+            setError(null);
+          } else if (status === 'disconnected') {
+            setError('Mobile bridge disconnected. Re-pair this device to continue.');
+          }
+        },
+        target.fingerprint,
+      );
       nextHandle = handle;
       transportHandleRef.current = handle;
       return handle;
@@ -145,10 +156,11 @@ export function usePairing(): PairingState {
     targetUrl: string,
     pairingCode: string,
     options: { readonly awaitOpen?: boolean } = {},
+    fingerprint?: string | null,
   ): Promise<boolean> => {
     setError(null);
     const openWaiter = options.awaitOpen ? createPairingOpenWaiter() : null;
-    const handle = configureBridgeTransport(targetUrl, pairingCode, openWaiter?.onStatus);
+    const handle = configureBridgeTransport(targetUrl, pairingCode, openWaiter?.onStatus, fingerprint);
     if (!handle) {
       openWaiter?.cancel();
       return false;
@@ -188,7 +200,7 @@ export function usePairing(): PairingState {
       const target = parsePairingQrPayload(raw);
       setGatewayUrlState(target.gatewayUrl);
       setCode(target.code);
-      const paired = await pairWithCode(target.gatewayUrl, target.code, { awaitOpen: true });
+      const paired = await pairWithCode(target.gatewayUrl, target.code, { awaitOpen: true }, target.fingerprint);
       if (!paired) throw new Error(GATEWAY_CONNECTION_FAILED_MESSAGE);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Invalid Moxxy pairing QR code';

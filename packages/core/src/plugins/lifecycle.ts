@@ -112,6 +112,13 @@ export class HookDispatcherImpl implements HookDispatcher {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const p = Promise.resolve(fn() as Promise<T | undefined | void>);
+      // If the timeout wins the race, `p` is still pending and unobserved; a
+      // slow hook that later rejects would surface as an unhandledRejection
+      // (process-level crash/log spam in strict configs / the desktop main).
+      // Attach a no-op handler so a post-timeout rejection is swallowed too.
+      // (Promise.race still settles on the original `p`, so this doesn't mask
+      // the in-time error path below — that one is observed via the race.)
+      p.catch(() => undefined);
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(
           () => reject(new Error(`Hook ${hook} on ${entry.plugin.name} timed out`)),

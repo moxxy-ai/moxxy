@@ -32,6 +32,16 @@ export interface WorkflowLoadOptions {
   readonly logger?: WorkflowLogger;
 }
 
+/**
+ * Hard ceiling on a single workflow file. The schema caps a workflow at 40
+ * steps, so a real artifact is a few KB; 1 MB is far above any legitimate file.
+ * Discovery runs on every `store.load()` (boot + after every create/update/
+ * delete/toggle), reading each `.yaml` fully into memory before parsing — an
+ * accidental or hostile multi-GB file under `~/.moxxy/workflows/` would
+ * otherwise balloon the process. Over-size files are skipped (warned), not read.
+ */
+export const MAX_WORKFLOW_FILE_BYTES = 1024 * 1024;
+
 export function defaultUserWorkflowsDir(): string {
   return path.join(os.homedir(), '.moxxy', 'workflows');
 }
@@ -77,6 +87,24 @@ async function loadDir(
     }
     if (!entry.isFile() || !/\.ya?ml$/i.test(entry.name)) continue;
     const full = path.join(dir, entry.name);
+    // Bound the read: stat before slurping the whole file into memory so a
+    // pathological/hostile multi-GB `.yaml` is skipped, not loaded. A workflow
+    // is at most 40 steps (schema cap), i.e. a few KB — anything past 1 MB is
+    // not a real artifact.
+    try {
+      const st = await fs.stat(full);
+      if (st.size > MAX_WORKFLOW_FILE_BYTES) {
+        logger?.warn?.('workflow: file too large, skipping', {
+          path: full,
+          size: st.size,
+          max: MAX_WORKFLOW_FILE_BYTES,
+        });
+        continue;
+      }
+    } catch {
+      // stat failed (vanished between readdir and stat) — fall through to the
+      // readFile catch below, which skips it the same way.
+    }
     let raw: string;
     try {
       raw = await fs.readFile(full, 'utf8');

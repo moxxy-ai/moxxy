@@ -44,8 +44,23 @@ export class RpcError extends Error {
   }
 }
 
+/** Options for an outbound {@link JsonRpcPeer.request}. */
+export interface RequestOptions {
+  /**
+   * Reject the request after this many ms if no response frame arrives. Guards
+   * against a peer that stays SOCKET-CONNECTED but never replies (a hung
+   * renderer that doesn't drop the link): without it the pending waiter is only
+   * ever settled by a matching response or a real close, so the caller — and
+   * any turn awaiting it (permission.check / approval.confirm) — hangs forever.
+   */
+  readonly timeoutMs?: number;
+  /** Reject the request (with an AbortError) if this signal fires first — wires
+   *  a turn's abort into the in-flight server->client request. */
+  readonly signal?: AbortSignal;
+}
+
 export class JsonRpcPeer {
-  private nextId = 1;
+  private idCounter = 0;
   private readonly pending = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (err: Error) => void }
@@ -84,14 +99,56 @@ export class JsonRpcPeer {
   }
 
   /** Issue a request and await the typed reply. Rejects with {@link RpcError}. */
-  request<T = unknown>(method: string, params?: unknown): Promise<T> {
+  request<T = unknown>(method: string, params?: unknown, opts: RequestOptions = {}): Promise<T> {
     if (this.closed) return Promise.reject(new RpcError('rpc peer is closed'));
-    const id = this.nextId++;
+    if (opts.signal?.aborted) return Promise.reject(new RpcError('request aborted'));
+    const id = this.nextId();
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let onAbort: (() => void) | undefined;
+      // Settle once: drop the pending entry and tear down the timer/abort wiring
+      // so a late response (or a second trigger) can't double-settle or leak.
+      const settle = (fn: () => void): void => {
+        if (!this.pending.has(id)) return;
+        this.pending.delete(id);
+        if (timer !== undefined) clearTimeout(timer);
+        if (onAbort && opts.signal) opts.signal.removeEventListener('abort', onAbort);
+        fn();
+      };
+      this.pending.set(id, {
+        resolve: (v) => settle(() => resolve(v as T)),
+        reject: (err) => settle(() => reject(err)),
+      });
+      if (opts.timeoutMs !== undefined && opts.timeoutMs > 0) {
+        timer = setTimeout(() => {
+          const waiter = this.pending.get(id);
+          waiter?.reject(new RpcError(`request timed out after ${opts.timeoutMs}ms: ${method}`));
+        }, opts.timeoutMs);
+        if (typeof timer === 'object' && typeof timer.unref === 'function') timer.unref();
+      }
+      if (opts.signal) {
+        onAbort = (): void => {
+          const waiter = this.pending.get(id);
+          waiter?.reject(new RpcError('request aborted'));
+        };
+        opts.signal.addEventListener('abort', onAbort, { once: true });
+      }
       const frame: RpcRequestFrame = { id, method, ...(params !== undefined ? { params } : {}) };
       this.transport.send(frame);
     });
+  }
+
+  /**
+   * Monotonic request id. Wraps before {@link Number.MAX_SAFE_INTEGER} (past
+   * which `++` produces imprecise/duplicate ids) and skips any id still pending,
+   * so a collision with an in-flight waiter is impossible regardless of uptime.
+   */
+  private nextId(): number {
+    do {
+      if (this.idCounter >= Number.MAX_SAFE_INTEGER) this.idCounter = 1;
+      else this.idCounter += 1;
+    } while (this.pending.has(this.idCounter));
+    return this.idCounter;
   }
 
   /** Fire a notification (no reply expected). No-op once closed. */
@@ -129,11 +186,12 @@ export class JsonRpcPeer {
       }
       return;
     }
-    // Response: an id with result/error and no method.
+    // Response: an id with result/error and no method. `resolve`/`reject` route
+    // through `settle`, which drops the pending entry and clears its timer/abort
+    // wiring — so a response that beats the timeout doesn't leak the timer.
     if (typeof f.id === 'number') {
       const waiter = this.pending.get(f.id);
       if (!waiter) return;
-      this.pending.delete(f.id);
       if (f.error) waiter.reject(new RpcError(f.error.message, f.error.data));
       else waiter.resolve(f.result);
     }
@@ -163,7 +221,10 @@ export class JsonRpcPeer {
     if (this.closed) return;
     this.closed = true;
     const failure = err ?? new RpcError('connection closed');
-    for (const waiter of this.pending.values()) waiter.reject(failure);
+    // `reject` routes through each waiter's `settle`, which deletes its own entry
+    // and clears its timer/abort listener — so closing the link can't leak a
+    // pending timer. Snapshot the values first (the loop body mutates the Map).
+    for (const waiter of [...this.pending.values()]) waiter.reject(failure);
     this.pending.clear();
     for (const handler of this.closeHandlers) {
       try {

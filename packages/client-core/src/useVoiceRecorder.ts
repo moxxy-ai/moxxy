@@ -40,6 +40,10 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
 
   const handleRef = useRef<AudioRecordingHandle | null>(null);
   const phaseRef = useRef<VoicePhase>('idle');
+  // Guards async post-await state writes (transcription resolving AFTER the
+  // component unmounts) so we don't setState on a dead tree or fire the
+  // consumer callback at a torn-down composer.
+  const mountedRef = useRef(true);
   // The error→idle reset timer, tracked so it can't fire setState after the
   // component unmounts (and so a rapid second failure doesn't stack timers).
   const errorTimerRef = useRef<number | undefined>(undefined);
@@ -56,6 +60,7 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
 
   const fail = useCallback(
     (reason: string): void => {
+      if (!mountedRef.current) return;
       setErrorReason(reason);
       setPhase('error');
       if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
@@ -89,6 +94,9 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
           audioBase64: result.pcm16Base64,
           mimeType: result.mimeType,
         });
+        // The transcribe round-trip may resolve after unmount — don't deliver
+        // the transcript to a torn-down composer or setState on a dead tree.
+        if (!mountedRef.current) return;
         const trimmed = text?.trim();
         if (trimmed) {
           onTranscriptRef.current(trimmed);
@@ -142,9 +150,12 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     else void start();
   }, [start, stop]);
 
-  // Tear down the mic + cancel the pending error-reset timer on unmount.
+  // Tear down the mic + cancel the pending error-reset timer on unmount, and
+  // mark unmounted so an in-flight transcription's post-await writes bail.
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       handleRef.current?.stop();
       handleRef.current = null;
       if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);

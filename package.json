@@ -15,7 +15,7 @@
     "test": "turbo run test && pnpm run test:scripts",
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:watch": "turbo run test:watch --concurrency=1",
-    "check:deps": "depcruise --config .dependency-cruiser.cjs packages apps/desktop/electron apps/desktop/src apps/mobile-poc/src",
+    "check:deps": "depcruise --config .dependency-cruiser.cjs packages apps/desktop/electron apps/desktop/src",
     "clean": "turbo run clean && rm -rf node_modules .turbo"
   },
   "devDependencies": {

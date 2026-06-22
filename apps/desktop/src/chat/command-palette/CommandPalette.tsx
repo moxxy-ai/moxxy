@@ -166,6 +166,16 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <input
           autoFocus
+          // Combobox semantics: the input drives a roving selection in the
+          // listbox below; aria-activedescendant tells a screen reader which
+          // row is highlighted as the user arrows through.
+          role="combobox"
+          aria-expanded
+          aria-controls="command-palette-list"
+          aria-activedescendant={
+            filtered.length > 0 ? `command-palette-opt-${active}` : undefined
+          }
+          aria-label="Filter actions"
           value={filter}
           onChange={(e) => {
             setFilter(e.target.value);
@@ -196,6 +206,7 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
           }}
         />
         <ul
+          id="command-palette-list"
           role="listbox"
           aria-label="Available actions"
           style={{
@@ -219,6 +230,9 @@ export function CommandPalette({ workspaceId, onClose }: Props): JSX.Element {
               <li key={cmd.name}>
                 <button
                   type="button"
+                  id={`command-palette-opt-${i}`}
+                  role="option"
+                  aria-selected={i === active}
                   onClick={() => onSelect(cmd)}
                   onMouseEnter={() => setActive(i)}
                   disabled={running}

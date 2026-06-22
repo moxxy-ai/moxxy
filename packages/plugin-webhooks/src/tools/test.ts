@@ -1,4 +1,5 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
+import { shouldFire } from '../filter.js';
 import { renderPrompt } from '../template.js';
 import type { ResolvedToolDeps } from './shared.js';
 
@@ -8,8 +9,10 @@ export function defineWebhookTestTool(deps: ResolvedToolDeps): ToolDef {
     name: 'webhook_test',
     description:
       'Fire a webhook trigger right now with a synthetic body + headers, bypassing the ' +
-      'HTTP listener and signature verification. Filters DO still apply. Use this to ' +
-      "validate the prompt + tools without waiting for the external system's first POST.",
+      'HTTP listener and signature verification. Filters DO still apply — a synthetic ' +
+      'delivery the filters would drop returns `{ ok: true, filtered: true }` WITHOUT ' +
+      'firing the prompt, exactly as a real delivery would. Use this to validate the ' +
+      "prompt + tools (and the filters) without waiting for the external system's first POST.",
     inputSchema: z.object({
       id: z.string().min(1),
       body: z.string().default('{}'),
@@ -19,10 +22,24 @@ export function defineWebhookTestTool(deps: ResolvedToolDeps): ToolDef {
     handler: async ({ id, body, headers }) => {
       const trigger = await store.get(id);
       if (!trigger) throw new Error(`no trigger with id "${id}"`);
+      const bodyBuf = Buffer.from(body, 'utf8');
+      // Apply the trigger's filters exactly as the live HTTP path does (server.ts):
+      // the tool advertises "Filters DO still apply", so a synthetic delivery the
+      // filters would drop must NOT fire — otherwise the test reports a false
+      // positive and the agent ships a trigger that never fires in production.
+      if (!shouldFire(trigger.filters, { headers, body: bodyBuf })) {
+        return {
+          ok: true,
+          filtered: true,
+          fired: false,
+          inboxPath: null,
+          text: '',
+        };
+      }
       const prompt = renderPrompt({
         trigger,
         headers,
-        body: Buffer.from(body, 'utf8'),
+        body: bodyBuf,
         method: 'POST',
         path: `/webhook/${trigger.id}`,
         firedAt: new Date(),
@@ -30,6 +47,8 @@ export function defineWebhookTestTool(deps: ResolvedToolDeps): ToolDef {
       const outcome = await dispatcher.fire(trigger, prompt, null);
       return {
         ok: outcome.ok,
+        filtered: false,
+        fired: true,
         inboxPath: outcome.inboxPath ?? null,
         ...(outcome.error ? { error: outcome.error } : {}),
         text: outcome.text.slice(0, 4000),

@@ -159,4 +159,57 @@ describe('PluginHost register/unregister lockstep (REGISTRY_KINDS)', () => {
       expect(byKind[kind.kind]!.list().length, `${kind.kind} should be empty after unload`).toBe(0);
     }
   });
+
+  it('unloading a discovered plugin whose isolator was REFUSED keeps the trusted builtin', async () => {
+    const { host, byKind } = makeHost();
+    const isolators = byKind.isolator as IsolatorRegistry;
+    // A trusted builtin owns the name "worker".
+    const trustedWorker: Isolator = { name: 'worker', strength: 'none', run: async (_c, h) => h(undefined) };
+    host.registerStatic(definePlugin({ name: 'builtin-sec', isolators: [trustedWorker] }));
+    expect(isolators.get('worker')).toBe(trustedWorker);
+
+    // A discovered (untrusted) plugin tries to shadow "worker"; the registry
+    // refuses, so the plugin never owned it. Unloading the discovered plugin
+    // must NOT delete the trusted impl.
+    const rogueWorker: Isolator = { name: 'worker', strength: 'none', run: async (_c, h) => h(undefined) };
+    host.registerDiscovered(
+      definePlugin({ name: 'rogue', isolators: [rogueWorker] }),
+      { entry: './index.js', packageName: '@rogue/pkg', packageVersion: '1.0.0', packagePath: '/tmp/rogue' },
+    );
+    expect(isolators.get('worker')).toBe(trustedWorker); // refused, not shadowed
+
+    await host.unload('@rogue/pkg');
+    // The trusted worker must survive the rogue plugin's unload.
+    expect(isolators.get('worker')).toBe(trustedWorker);
+    expect(isolators.has('worker')).toBe(true);
+  });
+
+  it('a mid-load collision in a discovered plugin whose isolator was REFUSED does not delete the trusted builtin', () => {
+    const { host, byKind } = makeHost();
+    const isolators = byKind.isolator as IsolatorRegistry;
+    const tools = byKind.tool as ToolRegistryImpl;
+    const trustedWorker: Isolator = { name: 'worker', strength: 'none', run: async (_c, h) => h(undefined) };
+    host.registerStatic(definePlugin({ name: 'builtin-sec', isolators: [trustedWorker] }));
+    // Another plugin owns tool "dup".
+    host.registerStatic(
+      definePlugin({ name: 'first', tools: [defineTool({ name: 'dup', description: '', inputSchema: z.any(), handler: () => null })] }),
+    );
+
+    // A discovered plugin: its isolator "worker" is refused (untrusted shadow),
+    // then its tool "dup" collides → applyPlugin throws and rolls back. The
+    // rollback must NOT unregister "worker" (the plugin never owned it).
+    const rogue = definePlugin({
+      name: 'rogue',
+      isolators: [{ name: 'worker', strength: 'none', run: async (_c, h) => h(undefined) } as Isolator],
+      tools: [defineTool({ name: 'dup', description: '', inputSchema: z.any(), handler: () => null })],
+    });
+    expect(() =>
+      host.registerDiscovered(rogue, { entry: './index.js', packageName: '@rogue/pkg', packageVersion: '1.0.0', packagePath: '/tmp/rogue' }),
+    ).toThrow(/already registered/);
+    // Trusted worker untouched; first plugin's tool untouched.
+    expect(isolators.get('worker')).toBe(trustedWorker);
+    expect(tools.has('dup')).toBe(true);
+    // No half-loaded record for the rogue.
+    expect(host.list().map((p) => p.name).sort()).toEqual(['builtin-sec', 'first']);
+  });
 });

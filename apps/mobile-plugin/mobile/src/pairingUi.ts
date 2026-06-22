@@ -32,3 +32,14 @@ export function buildPairingUiState(input: PairingUiInput): PairingUiState {
       : 'Point your camera at the gateway QR, then tap Scan QR code.',
   };
 }
+
+/**
+ * Mask the pairing code (it IS the bearer token) for on-screen display so it
+ * isn't fully shoulder-surfable. Keeps a short recognizable prefix; the user
+ * pasted/scanned the full value, so they don't need to re-read it here.
+ */
+export function maskPairingCode(code: string): string {
+  if (!code) return '------';
+  if (code.length <= 4) return '•'.repeat(code.length);
+  return `${code.slice(0, 4)}${'•'.repeat(8)}`;
+}

@@ -177,6 +177,12 @@ async function runSelfHostedChannel(
   const shutdown = async (): Promise<void> => {
     if (stopping) return;
     stopping = true;
+    // Force-exit backstop (matches serve.ts / run-tui.ts): if a handle.stop()
+    // or session.close() wedges (a stuck channel event loop, a plugin
+    // onShutdown that never resolves), never strand the process holding the
+    // runner socket + bound ports — a second Ctrl-C is swallowed by `stopping`.
+    const force = setTimeout(() => process.exit(0), 4000);
+    force.unref?.();
     await webHandle?.stop('SIGINT').catch(() => undefined);
     await runnerServer?.close().catch(() => undefined);
     await handle.stop('SIGINT');

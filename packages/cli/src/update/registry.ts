@@ -28,7 +28,10 @@ export async function fetchLatest(
   opts: FetchLatestOpts = {},
 ): Promise<string | null> {
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const url = `${REGISTRY}/${pkg}/latest`;
+  // Encode the whole package name (incl. the scope slash) so an arbitrary or
+  // attacker-influenced `pkg` can't inject path traversal / a query string /
+  // another host segment into the registry URL. npm accepts `@scope%2Fname`.
+  const url = `${REGISTRY}/${encodeURIComponent(pkg)}/latest`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   try {

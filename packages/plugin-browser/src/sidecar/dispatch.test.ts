@@ -279,6 +279,22 @@ describe('sidecar dispatch protocol methods (against a pre-seeded handle)', () =
     expect(((await dispatch(state, req('close'))) as Ok).ok).toBe(true);
   });
 
+  it.each([
+    ['setviewport', { width: 1e9, height: 100 }],
+    ['setviewport', { width: 100, height: 1e9 }],
+    ['capture', { x: 0, y: 0, width: 100_000, height: 10 }],
+    ['capture', { x: 0, y: 0, width: 10, height: 100_000 }],
+  ])('%s with an over-limit dimension returns badParams without launching a browser', async (method, params) => {
+    // state.handle stays null so reaching ensurePlaywright (a real Playwright
+    // import) would fail loudly — the dimension clamp must fire first.
+    const state: SidecarState = { handle: null, pendingInstallNotice: null };
+    const reply = (await dispatch(state, req(method, params))) as Err;
+    expect(reply.ok).toBe(false);
+    expect(reply.error.kind).toBe('runtime');
+    expect(reply.error.message).toMatch(/<=|must be/);
+    expect(state.handle).toBeNull();
+  });
+
   it('click requires a selector', async () => {
     const { handle } = makeFakeHandle();
     const state: SidecarState = { handle, pendingInstallNotice: null };

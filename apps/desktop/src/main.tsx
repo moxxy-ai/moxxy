@@ -7,6 +7,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { DeepLinkBridge } from './lib/useDeepLink';
 import { OAuthTransferBridge } from './lib/oauthTransfer';
 import { bootClient } from './lib/boot';
+import { LOOPBACK_PORTS_ALT } from '../electron/loopback-ports';
 import './styles.css';
 
 // Install the shared client's transport + platform capabilities before the
@@ -26,8 +27,15 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 // stay allowed for the dev (Vite) origin + the file:// fallback path. Pair this
 // with the SAME origins added to the Clerk dashboard's allowed origins /
 // redirect URLs (the server-side check — see docs/desktop-clerk-loopback-subdomain.md).
-const REDIRECT_ORIGINS =
-  /^(https:\/\/desktop\.moxxy\.ai|http:\/\/(127\.0\.0\.1|localhost)):(51789|51790|51791|51792)$/;
+//
+// These ports MUST stay in lockstep with the main process's loopback server —
+// they are the same serving origin. The port list now lives in ONE shared
+// module (../electron/loopback-ports) that both the main process and this
+// renderer import, so the two ends can't drift; a mismatch would silently
+// strand OAuth on the hosted portal.
+const REDIRECT_ORIGINS = new RegExp(
+  `^(https://desktop\\.moxxy\\.ai|http://(127\\.0\\.0\\.1|localhost)):(?:${LOOPBACK_PORTS_ALT})$`,
+);
 
 // Reactive view of the app theme. `useTheme()` (mounted once in App, inside
 // the provider) owns the `data-theme` attribute on <html> — observing that

@@ -45,6 +45,13 @@ export function SpectroBackground({
     ro.observe(canvas);
 
     const draw = (): void => {
+      // Pause the per-frame analyser read + canvas paint while the widget is
+      // backgrounded — rAF is already throttled when hidden, but skipping the
+      // work entirely avoids wasted EMA/paint on every tick the OS still grants.
+      if (document.hidden) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
       raf = requestAnimationFrame(draw);
       analyser.getByteFrequencyData(data);
       const w = canvas.clientWidth;

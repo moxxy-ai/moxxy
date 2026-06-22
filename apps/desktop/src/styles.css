@@ -521,7 +521,19 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; }
+  /* Keyframe animations are already short-circuited everywhere, but inline
+   * `transition` declarations (the Switch knob slide, chevron rotations, the
+   * rail width/opacity fades, checkbox fills, …) are set per-component and
+   * can't all be edited individually. Collapse every transition + animation to
+   * an effectively-instant duration so the end state still renders — we don't
+   * disable them outright, which would skip transitionend/animationend handlers
+   * some components rely on. The `!important` overrides the inline durations. */
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* --- Streaming cursor (assistant tail) ------------------------- */

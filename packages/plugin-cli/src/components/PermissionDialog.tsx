@@ -3,6 +3,20 @@ import { Text, useInput } from 'ink';
 import type { PendingToolCall, PermissionDecision } from '@moxxy/sdk';
 import { Colors } from '../theme.js';
 import { Modal } from './Modal.js';
+import { redactSecrets } from './redact.js';
+
+/** Stringify tool input for the prompt, redacting secret-named fields and
+ *  capping length. Never throws — a circular/unserializable input falls back
+ *  to a safe marker. Length-capping is not redaction: a key/token in the args
+ *  would otherwise be printed verbatim on the exact surface where the user is
+ *  deciding whether to allow the call. */
+export function previewToolInput(input: unknown): string {
+  try {
+    return JSON.stringify(redactSecrets(input)).slice(0, 200);
+  } catch {
+    return '[unserializable]';
+  }
+}
 
 export interface PermissionDialogProps {
   readonly call: PendingToolCall;
@@ -40,7 +54,7 @@ export const PermissionDialog: React.FC<PermissionDialogProps> = ({
         Tool: <Text bold>{call.name}</Text>
         {toolDescription ? <Text dimColor> — {toolDescription}</Text> : null}
       </Text>
-      <Text dimColor>Input: {JSON.stringify(call.input).slice(0, 200)}</Text>
+      <Text dimColor>Input: {previewToolInput(call.input)}</Text>
       <Text>
         <Text>[y]</Text>
         <Text dimColor> allow once · </Text>

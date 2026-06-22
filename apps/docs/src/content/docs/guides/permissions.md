@@ -60,7 +60,7 @@ moxxy -p "..." --allow-all                    # everything (use with care)
 
 For the HTTP channel, set `channels.http.allowedTools` in your config
 — the channel refuses to start without it. See
-[HTTP channel](./http-channel).
+[HTTP channel](./http-channel.md).
 
 ## Plugin-level overrides
 

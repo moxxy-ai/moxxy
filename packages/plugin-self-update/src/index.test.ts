@@ -221,6 +221,29 @@ describe('failed build / load auto-rollback + escalation', () => {
   });
 });
 
+describe('tier-1 serialization', () => {
+  it('refuses a second begin while a non-terminal txn for the same target is open', async () => {
+    const moxxy = await makeMoxxyDir();
+    const host = new FakeHost(moxxy);
+    const t = tools(host.deps());
+    const ctx = makeCtx();
+
+    const first = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'dup' }, ctx)) as {
+      txnId: string;
+    };
+    // Second begin on the SAME target must refuse (state is still 'open').
+    await expect(t.self_update_begin!.handler({ kind: 'plugin', name: 'dup' }, ctx)).rejects.toThrow(
+      /already in progress/,
+    );
+    // A different target is unaffected.
+    await expect(t.self_update_begin!.handler({ kind: 'plugin', name: 'other' }, ctx)).resolves.toBeTruthy();
+
+    // After the first is rolled back, a fresh begin on the same target is allowed.
+    await t.self_update_rollback!.handler({ txnId: first.txnId }, ctx);
+    await expect(t.self_update_begin!.handler({ kind: 'plugin', name: 'dup' }, ctx)).resolves.toBeTruthy();
+  });
+});
+
 describe('rollback', () => {
   it('deletes a committed new plugin and reloads', async () => {
     const moxxy = await makeMoxxyDir();

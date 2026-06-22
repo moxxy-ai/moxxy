@@ -33,10 +33,14 @@ export async function discoverSkills(opts: SkillLoadOptions = {}): Promise<Reado
   return [...seenNames.values()];
 }
 
+/** Cap directory recursion so a pathologically deep (or hostile) skills tree can't blow the stack at boot. */
+const MAX_SKILL_DIR_DEPTH = 8;
+
 async function loadDir(
   dir: string,
   scope: SkillScope,
   logger?: Logger,
+  depth = 0,
 ): Promise<ReadonlyArray<DiscoveredSkill>> {
   let entries: import('node:fs').Dirent[];
   try {
@@ -47,7 +51,14 @@ async function loadDir(
   const out: DiscoveredSkill[] = [];
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      out.push(...(await loadDir(path.join(dir, entry.name), scope, logger)));
+      if (depth >= MAX_SKILL_DIR_DEPTH) {
+        logger?.warn('skill: directory too deep, not recursing', {
+          path: path.join(dir, entry.name),
+          maxDepth: MAX_SKILL_DIR_DEPTH,
+        });
+        continue;
+      }
+      out.push(...(await loadDir(path.join(dir, entry.name), scope, logger, depth + 1)));
       continue;
     }
     if (!entry.isFile() || !entry.name.endsWith('.md')) continue;

@@ -1,5 +1,91 @@
 # @moxxy/sdk
 
+## 0.16.0
+
+### Minor Changes
+
+- b19d401: Self-hosted **proxy** tunnel — a private replacement for ngrok/cloudflared.
+
+  A locally-running agent is exposed at `https://<uuid>.proxy.moxxy.ai` via a
+  self-hosted relay it dials outbound. Identity is a per-install Ed25519 keypair
+  (no account, no login — the headless CLI works): `uuid = base32(sha256(pubkey))`,
+  ownership proven by signing a relay challenge. One agent multiplexes several
+  local services under its subdomain via path routing (`/mobile`, `/web`,
+  `/webhook`).
+
+  The mobile pairing path is **end-to-end encrypted inside the tunnel**
+  (`@moxxy/e2e`): the QR carries the agent's public-key fingerprint (`?fp=`), the
+  app pins it and runs a signed-ephemeral-ECDH handshake + XChaCha20-Poly1305
+  framing, and the bearer token rides encrypted — so the relay (which terminates
+  the outer TLS) sees only ciphertext it can neither read nor forge, and cannot
+  impersonate the agent.
+
+  The desktop **Settings → Mobile** "Start mobile" toggle now opens the same E2E
+  proxy path: enabling the gateway exposes it at `wss://<uuid>.proxy.moxxy.ai/mobile`
+  (QR + pinned fingerprint) so a phone can pair from anywhere, not just the same
+  Wi-Fi. If the relay is unreachable it falls back to the LAN URL; `MOXXY_MOBILE_NO_PROXY=1`
+  forces LAN-only. (`openMobileProxyTunnel` is exported from
+  `@moxxy/plugin-channel-mobile/e2e-proxy`, shared by the CLI channel and the desktop.)
+
+  **Breaking (`@moxxy/sdk`):** `proxy` is now the sole tunnel provider —
+  `cloudflared`/`ngrok` and the `spawnCliTunnel` / `isCliTunnelAvailable` helpers
+  (plus `SpawnCliTunnelOptions` / `CliTunnelHandle`) were removed. `TunnelOpenOptions`
+  gains an optional `label` for path-routed multiplexing. The web preview and the
+  webhooks listener now expose themselves through the proxy relay; the
+  `webhook_tunnel_start` tool no longer takes a `kind`.
+
+  The relay server itself lives in a separate private repo (not published).
+
+## 0.15.2
+
+### Patch Changes
+
+- 92fecb8: Close the cross-package hardening items deferred from the repo-wide sweep, with
+  regression tests:
+
+  - **Bugs:** `countNodes()` recursion → iterative (no RangeError on a deep AST);
+    subagent `spawnAll` now settles all children (one child's setup failure no
+    longer orphans its siblings); the runner socket path honors `$MOXXY_HOME`; the
+    computer-control screenshot tool result is projected as a provider image block
+    so the model can actually see screenshots; `MoxxyRequirement.version` narrowed
+    to the plugin kind; `CompactorDef.compact` signature aligned; `isFileDiffDisplay`
+    validation tightened.
+  - **DRY:** `sleepWithAbort` / `nextBackoffMs` extracted into `@moxxy/sdk` (shared by
+    the default and goal modes); the isolator shim + broker-op concurrency limiter
+    single-sourced in `@moxxy/plugin-security` and applied to both isolators; desktop
+    loopback ports hoisted to one module; a shared collab-store helper extracted.
+  - **Accessibility / contract:** a global `prefers-reduced-motion` rule for inline
+    transitions; real ARIA roles + roving focus + Escape + focus-restore on the
+    anonymizer filter dropdown; zod schemas for the collab IPC channels.
+
+## 0.15.1
+
+### Patch Changes
+
+- e762d40: Repo-wide worst-case hardening (audit-driven). A pessimistic re-audit of every
+  package/app scored security, performance, code-quality, extensibility (+a11y on
+  UI surfaces) and cataloged 757 findings; this resolves the high+medium+clear-low
+  set with regression tests for the failure paths. Highlights:
+
+  - **Security:** email-detector ReDoS made linear (bounded local-part + label
+    count + windowed scan); IPv4-mapped-IPv6 SSRF bypass closed; `memory_*` and
+    workflow `runId` path-traversal sanitized; cross-host redirects no longer
+    replay `Authorization`/body; webhook filter-regex ReDoS bounded; capability
+    isolation now also covers tools registered after `onInit`; recursive subagent
+    fan-out capped.
+  - **Robustness (no happy-path assumptions):** unbounded child/stdout/socket/grep
+    buffers bounded (OOM); missing `'error'` listeners + per-call timeouts + abort
+    wiring added across the WS transport, runner JSON-RPC, isolators, browser
+    sidecar, MCP boot, and provider streams; stale-name/out-of-order resolves,
+    malformed-JSON tool input, and corrupt on-disk caches now degrade instead of
+    crashing.
+  - **Accessibility:** real focus traps + focus restoration + ARIA/`aria-modal` +
+    keyboard navigation + Escape across desktop modals/sheets, the shared
+    `desktop-ui` Modal, the workflow canvas, and the TUI.
+  - **Quality:** dead code removed (incl. the committed `apps/docs/.astro` cache),
+    per-workflow schedule-sync isolation, scheduler invalid-timezone resilience,
+    and worst-case regression tests throughout.
+
 ## 0.15.0
 
 ### Minor Changes

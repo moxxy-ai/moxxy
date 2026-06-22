@@ -31,6 +31,7 @@ export type {
   PluginUnregisteredEvent,
   ModeIterationEvent,
   CompactionEvent,
+  ElisionEvent,
   ProviderRequestEvent,
   ProviderResponseEvent,
   ErrorEvent,
@@ -174,17 +175,11 @@ export type {
   ViewRendererDef,
 } from './view-renderer.js';
 export { VIEW_PRIMITIVES, VIEW_COMPONENTS, DEFAULT_VIEW_TAGS, isSafeViewUrl, countNodes } from './view-renderer.js';
-export type {
-  TunnelProviderDef,
-  TunnelHandle,
-  TunnelOpenOptions,
-  SpawnCliTunnelOptions,
-  CliTunnelHandle,
-} from './tunnel.js';
-// Node-runtime helpers (spawnCliTunnel/isCliTunnelAvailable, writeFileAtomic*,
-// moxxyHome/moxxyPath, readRequestBody/bearerTokenMatches, channel-auth) are
-// exported from the './server' subpath, NOT the main barrel — they statically
-// reach node:* builtins and would break a browser/RN bundle. See ./server.ts.
+export type { TunnelProviderDef, TunnelHandle, TunnelOpenOptions } from './tunnel.js';
+// Node-runtime helpers (writeFileAtomic*, moxxyHome/moxxyPath,
+// readRequestBody/bearerTokenMatches, channel-auth) are exported from the
+// './server' subpath, NOT the main barrel — they statically reach node:*
+// builtins and would break a browser/RN bundle. See ./server.ts.
 export { isRetryableError, toFriendlyError, zodToJsonSchema, estimateTextTokens, type StopReason } from './provider-utils.js';
 export type { WriteFileAtomicOptions } from './fs-utils.js';
 export { createMutex, type Mutex } from './mutex.js';
@@ -225,6 +220,8 @@ export {
   buildSystemPromptWithSkills,
   createStuckLoopDetector,
   stableHash,
+  sleepWithAbort,
+  nextBackoffMs,
   type CollectedToolUse,
   type StreamResult,
   type ProjectMessagesOptions,

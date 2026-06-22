@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { moxxyHome } from '@moxxy/sdk/server';
-import { finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
+import { detectCoreInstall, finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
 import { parseArgv, type ParsedArgv } from './argv.js';
 import { runPromptCommand } from './commands/prompt.js';
 import { runTuiCommand } from './commands/tui.js';
@@ -226,8 +226,22 @@ async function main(): Promise<number> {
 
   // Reaching this point means the (possibly overlaid) core code imported
   // cleanly, so commit any staged Tier-2 core patch. Best-effort — never
-  // block boot on it.
-  await finalizeStagedCoreUpdate(moxxyHome()).catch(() => undefined);
+  // block boot on it. A persistently-failing finalize would otherwise strand a
+  // staged update with zero signal; surface it under MOXXY_DEBUG so it's at
+  // least observable, while still never blocking boot.
+  //
+  // Resolve the LIVE @moxxy/core install (from this module's location) and pass
+  // it through so finalize's boot-time safety nets actually run in production:
+  // reconcile an overlay interrupted mid-swap, and refuse to commit an overlay
+  // that never recorded a complete apply. detectCoreInstall returns null in
+  // layouts it can't resolve (e.g. a dev checkout far from node_modules), in
+  // which case finalize stays best-effort exactly as before.
+  await finalizeStagedCoreUpdate(moxxyHome(), detectCoreInstall(import.meta.url)).catch((err: unknown) => {
+    if (isDebugEnabled()) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`finalizeStagedCoreUpdate failed: ${msg}\n`);
+    }
+  });
 
   const handler = COMMANDS[argv.command];
   if (handler) return handler(argv);

@@ -139,6 +139,16 @@ describe('CollaborationHub over a real socket', () => {
     expect((await tests.boardClaim(['src/api/routes.ts'])).ok).toBe(true);
   });
 
+  it('rejects a malformed empty-paths claim over the wire (no junk lock)', async () => {
+    const { hub, socketPath } = await startHub();
+    const backend = await CollabHubClient.connect(socketPath, 'backend');
+    cleanups.push(() => backend.close());
+    // A malformed RPC with no paths must not mint a pathless lock on the board.
+    const res = await backend.boardClaim([] as string[]);
+    expect(res.ok).toBe(false);
+    expect(hub.state.boardItems()).toHaveLength(0);
+  });
+
   it('serves contracts and peer-read across connections', async () => {
     const { hub, socketPath } = await startHub();
     void hub;
@@ -154,6 +164,62 @@ describe('CollaborationHub over a real socket', () => {
     expect(content).toContain('backend:src/api/routes.ts');
     const { files } = await tests.peerFiles('backend');
     expect(files[0]?.path).toBe('backend/file.ts');
+  });
+
+  it('rejects a peer-read for an agent id that is not in the roster', async () => {
+    const { socketPath } = await startHub();
+    const tests = await CollabHubClient.connect(socketPath, 'tests');
+    cleanups.push(() => tests.close());
+
+    // The injected reader maps an agentId onto a worktree path, so the hub must
+    // reject an unknown target BEFORE the reader's filesystem access is invoked.
+    await expect(tests.peerRead('../../etc', 'passwd')).rejects.toThrow(/unknown agent/);
+    await expect(tests.peerFiles('ghost')).rejects.toThrow(/unknown agent/);
+    await expect(tests.peerDiff('ghost')).rejects.toThrow(/unknown agent/);
+    // a real roster id still works
+    const { content } = await tests.peerRead('backend', 'src/x.ts');
+    expect(content).toContain('backend:src/x.ts');
+  });
+
+  it('rejects registering as an unknown agent or one already connected', async () => {
+    const { socketPath } = await startHub();
+    // unknown roster id → rejected
+    await expect(CollabHubClient.connect(socketPath, 'ghost')).rejects.toThrow(/unknown agent/);
+
+    const backend = await CollabHubClient.connect(socketPath, 'backend');
+    cleanups.push(() => backend.close());
+    // a second live connection cannot impersonate the same id
+    await expect(CollabHubClient.connect(socketPath, 'backend')).rejects.toThrow(/already connected/);
+  });
+
+  it('frees the id on disconnect so an honest reconnect can re-register', async () => {
+    const { socketPath } = await startHub();
+    const first = await CollabHubClient.connect(socketPath, 'backend');
+    first.close();
+    // give the hub a tick to observe the close before reconnecting
+    const reconnect = await new Promise<CollabHubClient>((resolve, reject) => {
+      const tryConnect = (n: number): void => {
+        CollabHubClient.connect(socketPath, 'backend').then(resolve, (e) =>
+          n > 0 ? setTimeout(() => tryConnect(n - 1), 10) : reject(e),
+        );
+      };
+      tryConnect(20);
+    });
+    cleanups.push(() => reconnect.close());
+    expect((await reconnect.roster()).self).toBe('backend');
+  });
+
+  it('rejects a terminal/coordinator-only status from a peer', async () => {
+    const { hub, socketPath } = await startHub();
+    const backend = await CollabHubClient.connect(socketPath, 'backend');
+    cleanups.push(() => backend.close());
+    // 'done' / 'crashed' / 'killed' must not be settable via collab.status — they
+    // would release the agent's own locks or desync allDone().
+    await expect(backend.setStatus('crashed' as 'working')).rejects.toThrow(/not settable/);
+    await expect(backend.setStatus('done' as 'working')).rejects.toThrow(/not settable/);
+    // a legitimate self-status still works
+    await backend.setStatus('working');
+    expect(hub.state.rosterView().agents.find((a) => a.id === 'backend')?.status).toBe('working');
   });
 
   it('marks a peer crashed when its connection drops before done', async () => {

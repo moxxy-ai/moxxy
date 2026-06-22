@@ -74,6 +74,11 @@ export function useImageAttachments(
     return pasted;
   };
 
+  const resetPending = (): void => {
+    imageAttachmentsRef.current.clear();
+    nextImageIdRef.current = 1;
+  };
+
   const resolveAttachments = async (
     text: string,
     activeDescriptor: { supportsImages?: boolean } | null,
@@ -81,8 +86,18 @@ export function useImageAttachments(
     activeModel: string,
   ): Promise<UserPromptAttachment[] | { error: string }> => {
     const referencedIds = extractImagePlaceholders(text);
-    if (referencedIds.length === 0) return [];
+    // Clear the per-prompt map up front so a submit that references NO
+    // placeholders (e.g. the user pasted an image then deleted the
+    // `[Image #N]` text, or sent a slash command) still releases any
+    // eagerly-decoded base64 buffers instead of retaining them for the whole
+    // session and letting nextImageIdRef climb forever.
+    if (referencedIds.length === 0) {
+      resetPending();
+      return [];
+    }
     if (activeDescriptor && activeDescriptor.supportsImages !== true) {
+      // Keep the pending map intact: the user can switch to a vision model
+      // via /model and resubmit the same placeholders without re-pasting.
       return {
         error: `${providerName}:${activeModel} doesn't accept images — switch to a vision-capable model via /model`,
       };
@@ -94,8 +109,7 @@ export function useImageAttachments(
       const att = await pending;
       if (att) attachments.push(att);
     }
-    imageAttachmentsRef.current.clear();
-    nextImageIdRef.current = 1;
+    resetPending();
     return attachments;
   };
 

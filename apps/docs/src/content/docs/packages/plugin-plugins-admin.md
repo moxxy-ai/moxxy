@@ -62,5 +62,5 @@ The same machinery backs the `moxxy plugins` command
 
 ## See also
 
-- [CLI](./cli) — `moxxy plugins` subcommands.
-- [Authoring a plugin](../guides/authoring-a-plugin).
+- [CLI](./cli.md) — `moxxy plugins` subcommands.
+- [Authoring a plugin](../guides/authoring-a-plugin.md).

@@ -42,9 +42,20 @@ export function subcommandForCommand(commandName: string): string | undefined {
   return COMMAND_STEPPERS[commandName]?.subcommand;
 }
 
+/**
+ * Shell-style quote a value for the runner's single-string arg parser. The
+ * value can carry a SECRET (`vault set <key> <value>`), so corruption here can
+ * silently mangle a stored credential. We:
+ *   - leave only the safe allow-list bare, and require the FIRST char to not be
+ *     `-` so a value like `--flag` is always quoted and can't be parsed as an
+ *     option (internal `-`, as in `sk-abc`, stays bare);
+ *   - otherwise wrap in double quotes, escaping BACKSLASHES FIRST and then
+ *     quotes, so a trailing `\` (e.g. `a\` → `"a\\"`) round-trips instead of
+ *     the parser reading `\"` as an escaped quote and eating the next token.
+ */
 export function quote(v: string): string {
-  if (/^[A-Za-z0-9_\-./@]+$/.test(v)) return v;
-  return `"${v.replace(/"/g, '\\"')}"`;
+  if (/^[A-Za-z0-9_./@][A-Za-z0-9_\-./@]*$/.test(v)) return v;
+  return `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 /** Convert "vault set" / "mode use" → "Vault set" / "Mode use" for

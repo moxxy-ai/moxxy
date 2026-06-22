@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { discoverWorkflows } from './loader.js';
+import { discoverWorkflows, MAX_WORKFLOW_FILE_BYTES } from './loader.js';
 
 const VALID_YAML = `name: keeper
 description: a valid workflow
@@ -44,5 +44,38 @@ describe('discoverWorkflows: per-file read robustness', () => {
     // The valid workflow survives; the vanished one is skipped, not fatal.
     expect(found.map((f) => f.workflow.name)).toEqual(['keeper']);
     expect(warnings.some((w) => w?.path === gonePath)).toBe(true);
+  });
+
+  it('skips an oversized workflow file without reading it into memory', async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wf-loader-big-'));
+    await fs.writeFile(path.join(dir, 'keeper.yaml'), VALID_YAML);
+    // A pathological/hostile file past the per-file ceiling. Pad with a YAML
+    // comment so it stays valid-shaped but huge — it must be skipped by size,
+    // never slurped + parsed.
+    const bigPath = path.join(dir, 'huge.yaml');
+    const filler = `# ${'x'.repeat(64 * 1024)}\n`;
+    let big = VALID_YAML.replace('keeper', 'huge');
+    while (big.length <= MAX_WORKFLOW_FILE_BYTES) big += filler;
+    await fs.writeFile(bigPath, big);
+
+    // Guard against an accidental regression where the file is read anyway.
+    const realReadFile = fs.readFile.bind(fs);
+    const readPaths: string[] = [];
+    vi.spyOn(fs, 'readFile').mockImplementation(((p: Parameters<typeof fs.readFile>[0], ...rest: unknown[]) => {
+      if (typeof p === 'string') readPaths.push(p);
+      return (realReadFile as (...a: unknown[]) => Promise<unknown>)(p, ...rest);
+    }) as typeof fs.readFile);
+
+    const warnings: Array<Record<string, unknown> | undefined> = [];
+    const found = await discoverWorkflows({
+      userDir: dir,
+      logger: { warn: (_m, meta) => warnings.push(meta) },
+    });
+
+    // Only the small valid workflow is discovered; the oversized one is dropped.
+    expect(found.map((f) => f.workflow.name)).toEqual(['keeper']);
+    // The oversized file was never read into memory (skipped at the stat gate).
+    expect(readPaths).not.toContain(bigPath);
+    expect(warnings.some((w) => w?.path === bigPath && typeof w?.size === 'number')).toBe(true);
   });
 });

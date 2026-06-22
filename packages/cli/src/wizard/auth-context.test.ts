@@ -58,6 +58,48 @@ describe('buildProviderAuthContext stdin prompt (u30-2)', () => {
     expect(await p2).toBe('charlie');
   });
 
+  it('a second login over the SAME stream tears down the first reader (no listener leak/interleave)', async () => {
+    // The production GUI-host path defaults to process.stdin; a second login in
+    // the same process would otherwise attach a SECOND readline interface to the
+    // same stream — both listening for 'line', stealing each other's input and
+    // leaking the first's listener for the process lifetime.
+    const shared = new PassThrough();
+    const ctx1 = buildProviderAuthContext(fakeVault(), {
+      headless: true,
+      promptMode: 'stdin',
+      write: () => {},
+      stdin: shared,
+    });
+    const p1 = ctx1.prompt!('first?');
+    // Force ctx1 to create its reader (it does so lazily on first prompt).
+    await new Promise((r) => setImmediate(r));
+    // readline attaches a 'data' listener to the input stream while reading;
+    // a leaked second reader would add another and never remove the first.
+    const after1 = shared.listenerCount('data');
+    expect(after1).toBeGreaterThan(0);
+
+    // Second login over the same stream: must tear down ctx1's reader so only
+    // one interface listens — the first prompt resolves as '' (cancellation).
+    const ctx2 = buildProviderAuthContext(fakeVault(), {
+      headless: true,
+      promptMode: 'stdin',
+      write: () => {},
+      stdin: shared,
+    });
+    const p2 = ctx2.prompt!('second?');
+    await new Promise((r) => setImmediate(r));
+
+    // The abandoned first prompt is resolved (not left hanging) ...
+    expect(await p1).toBe('');
+    // ... and the input-stream listener count did not grow across the two
+    // logins (the prior reader was torn down, not leaked alongside the new one).
+    expect(shared.listenerCount('data')).toBeLessThanOrEqual(after1);
+
+    // The live (second) context reads its own input correctly — no interleave.
+    shared.write('charlie\n');
+    expect(await p2).toBe('charlie');
+  });
+
   it('a line that arrives before the prompt is queued, not dropped', async () => {
     const stdin = new PassThrough();
     const ctx = buildProviderAuthContext(fakeVault(), {

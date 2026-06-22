@@ -2,7 +2,7 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api, getTransportRevision, subscribeTransport } from './transport.js';
 import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
-import { createIpcPersistence, migrateLegacyChats } from './chatPersistence.js';
+import { createIpcPersistence } from './chatPersistence.js';
 import { wireAskBridge } from './askStore.js';
 import { toErrorMessage } from './errors.js';
 import { desksStore } from './useDesks.js';
@@ -67,7 +67,17 @@ async function sendImmediate(
       type: 'send_failed',
       message: toErrorMessage(e),
     });
+    // A failed send produces NO turn_complete, so the queue drainer would never
+    // fire — keep the queue moving by sending the next item now. Otherwise every
+    // remaining queued message strands behind the failure with no retry.
+    drainNext(workspaceId);
   }
+}
+
+/** Pop the next queued turn for a workspace and fire it (no-op when empty). */
+function drainNext(workspaceId: string): void {
+  const next = chatStore.shiftQueue(workspaceId);
+  if (next) void sendImmediate(workspaceId, next.prompt, next.attachments, next.inlineAttachments);
 }
 
 /** Sessions the desk registry auto-named — the ones whose sidebar title is
@@ -106,10 +116,9 @@ export function ChatStoreBridge(): null {
   const transportRevision = useSyncExternalStore(subscribeTransport, getTransportRevision);
 
   useEffect(() => {
-    // Wire the durable NDJSON backend, then drain any legacy localStorage
-    // transcripts into it (one-time, idempotent).
+    // Wire the runner-history backend (the renderer pages transcript history
+    // from the runner's authoritative log).
     chatStore.setPersistence(createIpcPersistence());
-    void migrateLegacyChats();
     const offEvent = api().subscribe(
       'runner.event',
       ({ workspaceId, event }: { workspaceId: string; event: MoxxyEvent }) => {
@@ -134,11 +143,15 @@ export function ChatStoreBridge(): null {
         turnId: string;
         error: string | null;
       }) => {
+        // A background/hidden turn (e.g. AI skill drafting) runs as a real
+        // runner turn and still emits turn_complete here — but draining the
+        // user's pending queue on its completion would fire a queued prompt out
+        // of band (possibly while a real foreground turn is still in flight).
+        // dispatch() clears the hidden flag, so capture it BEFORE dispatching.
+        const wasHidden = chatStore.isHidden(turnId);
         chatStore.dispatch(workspaceId, { type: 'turn_complete', turnId, error });
-        const next = chatStore.shiftQueue(workspaceId);
-        if (next) {
-          void sendImmediate(workspaceId, next.prompt, next.attachments, next.inlineAttachments);
-        }
+        if (wasHidden) return;
+        drainNext(workspaceId);
       },
     );
     const offModel = api().subscribe(
@@ -168,6 +181,12 @@ export function ChatStoreBridge(): null {
       offAutoApprove();
       offChatCleared();
       offAsk();
+      // Cancel a pending title-refresh so it can't fire an IPC round-trip after
+      // the bridge (and the view) has torn down.
+      if (titleRefreshTimer) {
+        clearTimeout(titleRefreshTimer);
+        titleRefreshTimer = null;
+      }
     };
   }, [transportRevision]);
   return null;

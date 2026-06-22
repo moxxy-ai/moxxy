@@ -22,8 +22,8 @@ import {
   type RemoteSession,
   type RunnerServer,
 } from '@moxxy/runner';
-import { existsSync, unlinkSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import { probeSession, setupSessionWithConfig, type BootStep } from '../setup.js';
 
 /** Best-effort recovery for "I had an older `moxxy serve` running
@@ -31,28 +31,66 @@ import { probeSession, setupSessionWithConfig, type BootStep } from '../setup.js
  *  holding the socket, then unlink the socket file so the next
  *  spawn binds cleanly. macOS / Linux only — lsof on Windows is
  *  out of scope here. */
-async function killStaleRunnerAt(socketPath: string): Promise<void> {
-  if (!existsSync(socketPath)) return;
-  const pid = await new Promise<number | null>((resolve) => {
+/**
+ * Read the PID holding `socketPath` via `lsof -t`, BOUNDED by `timeoutMs`.
+ * `lsof` can hang (a stalled NFS mount, a host with a huge FD table) — and the
+ * caller runs precisely when the user is already stranded by a stale runner, so
+ * an unbounded read here would let the recovery itself wedge `moxxy tui`
+ * forever. On timeout (or any error / non-numeric output) we kill the child and
+ * resolve `null`; the caller then just unlinks the stale socket without killing
+ * anything. Exported for failure-path testing.
+ */
+export async function readSocketHolderPid(
+  socketPath: string,
+  timeoutMs = 3000,
+): Promise<number | null> {
+  return new Promise<number | null>((resolve) => {
     if (process.platform === 'win32') return resolve(null);
     let out = '';
+    let settled = false;
+    let child: ReturnType<typeof spawn> | null = null;
+    const finish = (value: number | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child?.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
+      finish(null);
+    }, timeoutMs);
+    timer.unref?.();
     try {
-      const child = spawn('lsof', ['-t', socketPath], {
+      child = spawn('lsof', ['-t', socketPath], {
         stdio: ['ignore', 'pipe', 'ignore'],
       });
-      child.stdout.on('data', (b) => {
+      child.stdout?.on('data', (b) => {
         out += b.toString();
       });
-      child.on('error', () => resolve(null));
+      child.on('error', () => finish(null));
       child.on('close', () => {
         const parsed = parseInt(out.trim().split('\n')[0] ?? '', 10);
-        resolve(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+        finish(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
       });
     } catch {
-      resolve(null);
+      finish(null);
     }
   });
-  if (pid && pid !== process.pid) {
+}
+
+async function killStaleRunnerAt(socketPath: string): Promise<void> {
+  if (!existsSync(socketPath)) return;
+  const pid = await readSocketHolderPid(socketPath);
+  // Only kill a PID we can positively identify as a moxxy runner. A stale
+  // socket file plus a recycled PID (the OS reassigned it to an unrelated
+  // process) or a racy lsof read would otherwise make us SIGKILL an arbitrary
+  // user process. If we can't confirm it's ours, leave it alone and just
+  // unlink the stale socket below.
+  if (pid && pid !== process.pid && (await looksLikeMoxxyRunner(pid))) {
     try {
       process.kill(pid, 'SIGTERM');
     } catch {
@@ -72,6 +110,33 @@ async function killStaleRunnerAt(socketPath: string): Promise<void> {
     unlinkSync(socketPath);
   } catch {
     /* may already be gone */
+  }
+}
+
+/**
+ * Best-effort: does this PID's command line look like a moxxy runner? Used to
+ * gate the SIGKILL in {@link killStaleRunnerAt} so we never kill an unrelated
+ * process that happens to have been assigned a recycled PID. Conservative:
+ * returns false (don't kill) on any uncertainty.
+ */
+export async function looksLikeMoxxyRunner(pid: number): Promise<boolean> {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    if (process.platform === 'linux') {
+      // /proc/<pid>/cmdline is NUL-separated argv.
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ');
+      return /moxxy/i.test(cmdline) || /\bserve\b/.test(cmdline);
+    }
+    // macOS (and other POSIX): ask ps for the full command of just this PID.
+    const r = spawnSync('ps', ['-p', String(pid), '-o', 'command='], {
+      encoding: 'utf8',
+      timeout: 2000,
+    });
+    if (r.status !== 0 || !r.stdout) return false;
+    const cmd = r.stdout.trim();
+    return /moxxy/i.test(cmd) || /\bserve\b/.test(cmd);
+  } catch {
+    return false;
   }
 }
 import { argvToSetupOptions, hasBoolFlag, stringFlag } from '../argv-helpers.js';
@@ -174,9 +239,6 @@ async function runAttachedTui(argv: ParsedArgv, tuiOpts: RunTuiOpts): Promise<nu
     force.unref?.();
     await remote.close().catch(() => undefined);
   };
-  const onSignal = (): void => void shutdown().then(() => process.exit(0));
-  process.once('SIGINT', onSignal);
-  process.once('SIGTERM', onSignal);
 
   const instance = render(
     React.createElement(InteractiveSession, {
@@ -191,6 +253,19 @@ async function runAttachedTui(argv: ParsedArgv, tuiOpts: RunTuiOpts): Promise<nu
       resumed: true,
     }),
   );
+
+  // Funnel every exit trigger (signal / runner loss) through unmount() so the
+  // `finally` below is the single place that runs shutdown + lets the process
+  // exit — no racing `process.exit(0)` against the natural waitUntilExit path.
+  // An unref'd force-timer is a backstop if unmount somehow doesn't settle.
+  const onSignal = (): void => {
+    if (shuttingDown) return;
+    const force = setTimeout(() => process.exit(0), 4000);
+    force.unref?.();
+    instance.unmount();
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
 
   // If the runner goes away, the session is gone - tear down the UI and tell
   // the user to reattach rather than leaving a frozen screen.

@@ -60,6 +60,21 @@ describe('attribute coercion', () => {
     hasErr('<view><heading level="5">x</heading></view>', /must be ≤ 3/);
   });
 
+  it('rejects JS numeric-literal syntax (hex/binary/octal/exponent) — only plain decimals', () => {
+    // `Number()` would silently turn these into surprising values: `0x4`→4 (a
+    // human reads hex 16), `0b100`→4, `1e1`→10. The agent must get a clear error
+    // instead of a guessed value that doesn't match what it typed.
+    hasErr('<view><grid cols="0x4"></grid></view>', /must be a number/);
+    hasErr('<view><grid cols="0b100"></grid></view>', /must be a number/);
+    hasErr('<view><grid cols="0o7"></grid></view>', /must be a number/);
+    hasErr('<view><grid cols="1e1"></grid></view>', /must be a number/);
+    hasErr('<view><grid cols="Infinity"></grid></view>', /must be a number/);
+    // Plain decimals (incl. whitespace-padded, signed, fractional) still coerce.
+    expect(find(ok('<view><grid cols="  3  "></grid></view>').root, 'grid')!.props.cols).toBe(3);
+    expect(find(ok('<view><image src="/x" w="1.5" /></view>').root, 'image')!.props.w).toBe(1.5);
+    expect(find(ok('<view><image src="/x" w="-2" /></view>').root, 'image')!.props.w).toBe(-2);
+  });
+
   it('validates each enum attribute', () => {
     ok('<view><stack gap="lg" align="center"></stack></view>');
     ok('<view><row justify="between"></row></view>');
@@ -85,6 +100,23 @@ describe('text + entities + comments', () => {
   it('decodes entities and collapses whitespace', () => {
     const doc = ok('<view><text>a &amp; b   &lt;tag&gt;  &quot;q&quot;</text></view>');
     expect(firstText(find(doc.root, 'text')!)).toBe('a & b <tag> "q"');
+  });
+
+  it('decodes decimal + hex numeric character references in text', () => {
+    const doc = ok('<view><text>&#x3C;&#60; &#9731; &#x263A;</text></view>');
+    expect(firstText(find(doc.root, 'text')!)).toBe('<< ☃ ☺');
+  });
+
+  it('decodes entities in a single pass — a double-encoded ampersand is not re-decoded', () => {
+    // `&amp;#58;` must become the literal `&#58;`, not `:` (which a chained
+    // replace of `&amp;`-then-`&#58;` would wrongly produce).
+    const doc = ok('<view><text>a &amp;#58; b</text></view>');
+    expect(firstText(find(doc.root, 'text')!)).toBe('a &#58; b');
+  });
+
+  it('leaves an out-of-range / malformed numeric reference as literal text', () => {
+    const doc = ok('<view><text>&#xZZ; &#999999999; ok</text></view>');
+    expect(firstText(find(doc.root, 'text')!)).toBe('&#xZZ; &#999999999; ok');
   });
 
   it('drops whitespace-only text nodes', () => {
@@ -161,6 +193,19 @@ describe('security rejections', () => {
     hasErr('<view><link href="vbscript:x">y</link></view>', /disallowed URL scheme/);
     hasErr('<view><image src="data:text/html,<script>" />\n</view>', /disallowed URL scheme/);
     hasErr('<view><link href="ftp://x">y</link></view>', /disallowed URL scheme/);
+  });
+
+  it('numeric-entity-obfuscated scheme is decoded then rejected (no relative-URL bypass)', () => {
+    // A browser decodes `&#58;`/`&#x3a;` to `:` at click time, so the parser
+    // must too BEFORE the scheme check — otherwise `javascript&#58;alert(1)`
+    // looks like a harmless relative URL here yet executes as javascript: in the
+    // shared view. (Named-only entity decoding missed these → live click-XSS.)
+    hasErr('<view><link href="javascript&#58;alert(1)">x</link></view>', /disallowed URL scheme/);
+    hasErr('<view><link href="javascript&#x3a;alert(1)">x</link></view>', /disallowed URL scheme/);
+    hasErr('<view><link href="java&#115;cript:alert(1)">x</link></view>', /disallowed URL scheme/);
+    hasErr('<view><image src="data&#58;text/html,x" /></view>', /disallowed URL scheme/);
+    // A double-encoded ampersand must NOT be re-decoded into a live scheme.
+    ok('<view><link href="https://x/?a&amp;#58;b">y</link></view>');
   });
 });
 
@@ -251,5 +296,40 @@ describe('large / deep documents', () => {
     for (let i = 0; i < 40; i++) inner = `<stack>${inner}</stack>`;
     const doc = ok(`<view>${inner}</view>`);
     expect(firstText(doc.root)).toBe('deep');
+  });
+
+  it('rejects nesting past the depth cap instead of overflowing the stack', () => {
+    let inner = '<text>deep</text>';
+    for (let i = 0; i < 1000; i++) inner = `<stack>${inner}</stack>`;
+    const r = parse(`<view>${inner}</view>`);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((e) => /view nesting too deep/.test(e.message))).toBe(true);
+  });
+});
+
+describe('brace attribute values', () => {
+  it('strips outer braces and treats the inner text as the literal value', () => {
+    const doc = ok('<view><text>{plain}</text><image src="/x.png" alt={hello} /></view>');
+    expect(find(doc.root, 'image')!.props.alt).toBe('hello');
+  });
+
+  it('runs the URL-scheme check on the de-braced value (no { } bypass)', () => {
+    // The braces must NOT classify `{javascript:…}` as a harmless relative URL.
+    hasErr('<view><link href={javascript:alert(1)}>x</link></view>', /disallowed URL scheme/);
+    ok('<view><link href={https://ok.test/}>x</link></view>');
+  });
+});
+
+describe('component allow-list / expander coverage', () => {
+  it('rejects a component-flagged tag that has no registered expander', () => {
+    const allow = [
+      { tag: 'view', attrs: {}, allowedChildren: 'any' as const },
+      { tag: 'widget', attrs: {}, allowedChildren: 'none' as const, component: true },
+    ];
+    const r = parseView('<view><widget /></view>', allow);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.some((e) => /no registered expander/.test(e.message))).toBe(true);
   });
 });

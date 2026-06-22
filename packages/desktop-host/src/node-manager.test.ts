@@ -7,6 +7,8 @@ import {
   nodeArchive,
   managedNodeBinDir,
   activateManagedNode,
+  isAllowedDownloadHost,
+  psSingleQuote,
 } from './node-manager';
 
 describe('nodeArchive', () => {
@@ -111,5 +113,41 @@ describe('managedNodeBinDir / activateManagedNode', () => {
     activateManagedNode(userData);
     const count = (process.env.PATH ?? '').split(delimiter).filter((p) => p === binDir).length;
     expect(count).toBe(1);
+  });
+});
+
+describe('isAllowedDownloadHost — redirect host pinning', () => {
+  it('permits nodejs.org and its subdomains only', () => {
+    expect(isAllowedDownloadHost('nodejs.org')).toBe(true);
+    expect(isAllowedDownloadHost('NODEJS.ORG')).toBe(true);
+    expect(isAllowedDownloadHost('cdn.nodejs.org')).toBe(true);
+  });
+
+  it('rejects any off-host redirect target (would defeat the SHASUMS check)', () => {
+    // An on-path attacker could redirect BOTH the archive and the checksum to a
+    // matched (archive, checksum) pair on a host they control; pinning forbids it.
+    expect(isAllowedDownloadHost('evil.example')).toBe(false);
+    expect(isAllowedDownloadHost('nodejs.org.evil.example')).toBe(false);
+    expect(isAllowedDownloadHost('notnodejs.org')).toBe(false);
+    expect(isAllowedDownloadHost('127.0.0.1')).toBe(false);
+    expect(isAllowedDownloadHost('')).toBe(false);
+  });
+});
+
+describe('psSingleQuote — PowerShell single-quote escaping', () => {
+  it('doubles embedded apostrophes so a path can never break out of the quote', () => {
+    // A Windows account name with an apostrophe (O'Brien) would otherwise
+    // terminate the single-quoted literal and inject arbitrary PowerShell.
+    expect(psSingleQuote("C:\\Users\\O'Brien\\AppData\\node.zip")).toBe(
+      "C:\\Users\\O''Brien\\AppData\\node.zip",
+    );
+    expect(psSingleQuote("'; Remove-Item C:\\ -Recurse; '")).toBe(
+      "''; Remove-Item C:\\ -Recurse; ''",
+    );
+  });
+
+  it('leaves an injection-free path untouched', () => {
+    const p = 'C:\\Users\\alice\\AppData\\node-v22.zip';
+    expect(psSingleQuote(p)).toBe(p);
   });
 });

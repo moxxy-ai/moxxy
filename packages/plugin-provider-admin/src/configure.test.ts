@@ -126,17 +126,18 @@ describe('buildProviderAdminPluginWithApi.configure', () => {
   });
 
   it('rolls back the live def to the prior registration when the disk write fails', async () => {
-    // The entry is readable on disk AND already live in the registry, but the
-    // write target is made unwritable so upsertStoredProvider rejects after the
-    // live replace() — driving the rollback branch (restore the prior def).
+    // The entry is readable on disk AND already live in the registry (owned by
+    // the plugin via onInit), but the write target is made unwritable so
+    // upsertStoredProvider rejects after the live replace() — driving the
+    // rollback branch (restore the prior owned def).
     await seedZai();
     const reg = new FakeRegistry();
-    const priorDef = {
-      name: 'zai',
-      models: [{ id: 'glm-4.6', contextWindow: 1 }],
-    } as unknown as ProviderDef;
-    reg.register(priorDef);
-    const { api } = build(reg);
+    const { plugin, api } = build(reg);
+    // onInit registers + CLAIMS OWNERSHIP of 'zai' (so configure treats it as a
+    // runtime-registered provider, not a reserved built-in).
+    await plugin.hooks!.onInit!({} as never);
+    const priorDef = reg.defs.get('zai')!;
+    expect(priorDef).toBeTruthy();
 
     // Read still works (file present), but the dir is read-only so the atomic
     // write's temp-file create / rename fails.

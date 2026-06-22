@@ -112,6 +112,60 @@ export function isValidCron(expr: string): boolean {
   }
 }
 
+// Calendar maximum day-of-month per month (1-12). February uses 29 to allow
+// leap-year Feb 29 fires; non-leap years are then handled by the normal walk.
+const MAX_DOM_BY_MONTH: Record<number, number> = {
+  1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30,
+  7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31,
+};
+
+/**
+ * Cheap, zone-independent structural-impossibility check. Some cron
+ * expressions can never fire because their day-of-month is larger than every
+ * candidate month allows (e.g. `0 0 30 2 *` — Feb never has a 30th, or
+ * `0 0 31 4 *` — April has no 31st). Without this, an explicit-IANA-zone walk
+ * for such an expression advances minute-by-minute through the full 366-day cap
+ * (~527k `Intl.formatToParts` calls, ~2s of blocked event loop) only to return
+ * null. The DOM/DOW OR-semantics quirk means this is only safe to declare
+ * impossible when DOW is unrestricted (`*`): if DOW is restricted the day can
+ * still match via the weekday arm regardless of DOM. We check exactly the case
+ * the walk is slowest on — a restricted DOM whose smallest value exceeds the
+ * largest day any selected month can hold — and bail to "no fire" instantly.
+ */
+function isStructurallyImpossible(cron: ParsedCron): boolean {
+  // OR-semantics: a restricted DOW can satisfy the day on its own, so DOM being
+  // unreachable does not make the expression impossible. Only decide when DOW
+  // is unrestricted (every weekday allowed) and DOM is restricted.
+  if (cron.dow.restricted || !cron.dom.restricted) return false;
+  const minDom = Math.min(...cron.dom.values);
+  let maxAllowed = 0;
+  for (const month of cron.month.values) {
+    const cap = MAX_DOM_BY_MONTH[month] ?? 31;
+    if (cap > maxAllowed) maxAllowed = cap;
+  }
+  // If the smallest requested day-of-month is larger than the biggest day any
+  // selected month can ever hold, no instant can match — impossible.
+  return minDom > maxAllowed;
+}
+
+/**
+ * Whether `tz` is an IANA zone the runtime's `Intl` accepts. A non-IANA
+ * string (e.g. 'PST', 'Mars/Phobos') makes `Intl.DateTimeFormat` throw a
+ * RangeError. `nextFireTime` would otherwise inherit that throw deep inside
+ * the poller tick (outside its per-entry try/catch), aborting evaluation of
+ * every schedule positioned after the bad one. We reject the zone at the
+ * trust boundary instead. `undefined`/'local' mean system-local (always ok).
+ */
+export function isValidTimeZone(tz: string | undefined): boolean {
+  if (tz === undefined || tz === 'local') return true;
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Minute-precision walk forward from `after` (exclusive) until every
  * field matches. Operates in the caller-supplied IANA timezone via
@@ -125,6 +179,20 @@ export function nextFireTime(
   timeZone?: string,
 ): Date | null {
   const cron = parseCron(expr);
+  // Defense in depth: a malformed/legacy timeZone that slipped past the
+  // trust-boundary validation would make `Intl.DateTimeFormat` throw deep in
+  // the walk — outside the poller's per-entry guard, which would abort every
+  // later schedule's evaluation. Treat an unusable zone as "no reachable fire"
+  // (null) so the entry is simply never due, matching how callers handle null.
+  if (!isValidTimeZone(timeZone)) return null;
+  // Bail instantly on a structurally-impossible expression (e.g. Feb 30,
+  // Apr 31) BEFORE the walk. For an explicit IANA zone the walk would
+  // otherwise advance minute-by-minute through the full 366-day cap (~527k
+  // `Intl.formatToParts` calls, ~2s of blocked event loop) just to return
+  // null — a self-inflicted DoS one typo'd skill could trigger every time its
+  // baseline changes. This check is calendar-fact-only, so it is correct in
+  // any zone.
+  if (isStructurallyImpossible(cron)) return null;
   // Start at after + 1 minute, zero seconds.
   const start = new Date(after.getTime() + 60_000);
   start.setSeconds(0, 0);

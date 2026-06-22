@@ -169,4 +169,27 @@ describe('parseManifest', () => {
     expect(parseManifest(JSON.stringify({ ...manifest, runnerProtocol: 1.5 }))).toBeNull();
     expect(parseManifest(JSON.stringify({ ...manifest, runnerProtocol: 'four' }))).toBeNull();
   });
+
+  it('rejects a files map with an unsafe path key at parse time (before extraction)', () => {
+    const { manifest } = signed();
+    const hash = 'a'.repeat(64);
+    // Paths the stager's safeRelPath would reject must fail at PARSE, not deep in
+    // extraction: traversal, absolute, and backslash-bearing keys.
+    expect(parseManifest(JSON.stringify({ ...manifest, files: { '../escape.js': hash } }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, files: { '/abs.js': hash } }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, files: { 'a/../b.js': hash } }))).toBeNull();
+    expect(parseManifest(JSON.stringify({ ...manifest, files: { 'a\\b.js': hash } }))).toBeNull();
+    // A plain nested path still parses.
+    expect(
+      parseManifest(JSON.stringify({ ...manifest, files: { 'dist/main/index.js': hash } }))?.files,
+    ).toEqual({ 'dist/main/index.js': hash });
+  });
+
+  it('rejects a files map with an absurd number of entries (bounded at parse)', () => {
+    const { manifest } = signed();
+    const hash = 'a'.repeat(64);
+    const huge: Record<string, string> = {};
+    for (let i = 0; i < 10_001; i++) huge[`dist/f${i}.js`] = hash;
+    expect(parseManifest(JSON.stringify({ ...manifest, files: huge }))).toBeNull();
+  });
 });

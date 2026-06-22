@@ -379,7 +379,15 @@ function AssistantMessage({
             onPress={() => actions.copyText ? onCopyMessage?.(message.id, actions.copyText) : undefined}
           />
         </View>
-        <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
+        {message.streaming ? (
+          // While streaming, render the growing text as plain Text. Running the
+          // cached markdown parser on every chunk is O(n^2) over the message and
+          // pollutes the shared block cache (one entry per partial text, evicting
+          // settled messages). Markdown is parsed once, below, when it settles.
+          <Text style={sx('mt-1 text-[15px] leading-6 text-text')}>{message.text}</Text>
+        ) : (
+          <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
+        )}
         {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
           <Text style={sx('mt-1 text-[10px] font-bold uppercase text-dim')}>stop: {message.stopReason.replace(/_/g, ' ')}</Text>
         ) : null}
@@ -1027,6 +1035,23 @@ function MobileMarkdownTable({
   );
 }
 
+// Markdown links come from assistant/relay-sourced text and the user only sees
+// the label, not the target. Only open standard web/mail schemes so an injected
+// or compromised reply can't trigger out-of-app actions (tel:/sms:/custom app
+// deep links) via a link the user can't inspect.
+const ALLOWED_LINK_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+
+function openMarkdownLink(rawUrl: string): void {
+  let scheme: string;
+  try {
+    scheme = new URL(rawUrl).protocol.toLowerCase();
+  } catch {
+    return; // unparseable / relative — ignore
+  }
+  if (!ALLOWED_LINK_SCHEMES.has(scheme)) return;
+  void Linking.openURL(rawUrl);
+}
+
 function MobileInlineText({
   style,
   tokens,
@@ -1066,9 +1091,7 @@ function MobileInlineToken({ token }: { readonly token: InlineTok }) {
   return (
     <Text
       accessibilityRole="link"
-      onPress={() => {
-        void Linking.openURL(token.url);
-      }}
+      onPress={() => openMarkdownLink(token.url)}
       style={{ color: '#db2777', fontWeight: '800', textDecorationLine: 'underline' }}
     >
       {token.label}

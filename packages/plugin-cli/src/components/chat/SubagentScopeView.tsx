@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { Colors, Glyphs } from '../../theme.js';
 import { DotColors, formatElapsed, truncate, type SubagentBlock } from '@moxxy/chat-model';
+import { MOTION_ENABLED } from '../motion.js';
 
 export const SubagentScopeView: React.FC<{ scope: SubagentBlock }> = ({ scope }) => {
   const [now, setNow] = useState(() => Date.now());
   const running = scope.completedAtMs == null && scope.error == null;
   useEffect(() => {
-    if (!running) return;
+    if (!running || !MOTION_ENABLED) return; // skip per-second ticking for reduced-motion / non-TTY
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [running]);

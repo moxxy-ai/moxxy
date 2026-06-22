@@ -33,27 +33,55 @@ export function toposortPluginManifests(
   const order: ResolvedPluginManifest[] = [];
   const visited = new Set<string>();
   const onStack = new Set<string>();
-  const stack: string[] = [];
+  // Path of names from the current root, mirroring the old recursion stack so a
+  // detected cycle reports the same participating names.
+  const path: string[] = [];
 
-  const visit = (name: string): void => {
-    if (visited.has(name)) return;
-    if (onStack.has(name)) {
-      const startIdx = stack.indexOf(name);
-      throw new PluginCycleError(stack.slice(startIdx).concat(name));
+  // Explicit-stack iterative DFS (instead of recursion) so a pathological deep
+  // linear dependency chain — depth is plugin-author/package-controlled via
+  // package.json#moxxy.requirements — can't overflow the call stack and turn a
+  // load-time ordering concern into a process crash.
+  type Frame = { name: string; deps: ReadonlyArray<string>; next: number };
+
+  const visitRoot = (root: string): void => {
+    if (visited.has(root)) return;
+    const rootManifest = byPackage.get(root);
+    if (!rootManifest) return; // unknown dep — leave for readiness gate
+
+    const stack: Frame[] = [{ name: root, deps: pluginDeps(rootManifest.requirements), next: 0 }];
+    onStack.add(root);
+    path.push(root);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      if (!frame) break;
+      if (frame.next < frame.deps.length) {
+        const dep = frame.deps[frame.next++];
+        if (dep === undefined) continue;
+        if (visited.has(dep)) continue;
+        if (onStack.has(dep)) {
+          const startIdx = path.indexOf(dep);
+          throw new PluginCycleError(path.slice(startIdx).concat(dep));
+        }
+        const depManifest = byPackage.get(dep);
+        if (!depManifest) continue; // unknown dep — leave for readiness gate
+        onStack.add(dep);
+        path.push(dep);
+        stack.push({ name: dep, deps: pluginDeps(depManifest.requirements), next: 0 });
+        continue;
+      }
+      // All deps emitted → post-order emit this frame, same as the recursive
+      // version pushed after its dependency loop.
+      const done = stack.pop()!;
+      onStack.delete(done.name);
+      path.pop();
+      visited.add(done.name);
+      const manifest = byPackage.get(done.name);
+      if (manifest) order.push(manifest);
     }
-    const manifest = byPackage.get(name);
-    if (!manifest) return; // unknown dep — leave for readiness gate
-
-    onStack.add(name);
-    stack.push(name);
-    for (const dep of pluginDeps(manifest.requirements)) visit(dep);
-    onStack.delete(name);
-    stack.pop();
-    visited.add(name);
-    order.push(manifest);
   };
 
-  for (const m of manifests) visit(m.packageName);
+  for (const m of manifests) visitRoot(m.packageName);
   return order;
 }
 

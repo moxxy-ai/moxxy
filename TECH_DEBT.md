@@ -21,6 +21,47 @@ It's dead weight — ~21 MB of orphan that nonetheless rides every Tier-1 hot-up
 bundle. Follow-up: stop Vite resolving that internal `new URL` (e.g. a resolve alias /
 `assetsInclude` exclusion) so only `dist/ort/` ships. `apps/desktop/electron.vite.config.ts`.
 
+**Accrued 2026-06-19 (anonymizer PII dictionary + multilingual NER).** The region-aware
+detector dictionary (`@moxxy/anonymizer`) and the English→multilingual NER swap
+**retired** the long-standing "`nationalId` declared but no detector" gap and the
+English-only name detection. New debt/follow-ups accrued by that work:
+- **NER Polish recall is unproven.** `tjruesch/xlm-roberta-base-ner-hrl-onnx` reaches
+  Polish via XLM-R cross-lingual transfer, NOT Polish gold fine-tuning. It degrades
+  gracefully (a model/runtime failure yields `[]`, structured redaction still runs), but
+  Polish PER/LOC recall needs a real-Polish-document eval harness before we lean on it;
+  `jiting/xlm-roberta-base-ner-hrl_onnx` (AFL-3.0) is the drop-in fallback if it underperforms.
+- **Crypto + secret checksums are structural-only.** Base58Check (BTC), Keccak-256/EIP-55
+  (ETH) and CRC32 (GitHub) would need a crypto dep or hand-rolled crypto, which breaks the
+  zero-dependency offline guarantee — so those detectors validate shape only. Acceptable
+  (both are opt-in / very-low-FP prefixes), but a pure-JS SHA-256/Keccak/CRC32 in `hash.ts`
+  would let them validate properly.
+- **No HIPAA Safe-Harbor profile.** `regions` defaults to ALL with category toggles; a
+  proper per-jurisdiction profile (PL/UK/US/HIPAA) would force-enable the right set —
+  including the opt-in `date` detector + an age-90+/date-shift rule and a generic
+  context-gated unique-id fallback (medical record numbers have no fixed format) — to
+  credibly claim Safe-Harbor coverage. `apps/desktop/src/apps/anonymizer/`.
+- **Context window is a flat 48 chars.** Keyword-gated detectors miss a label that sits a
+  line or two away (e.g. `Numer Identyfikacji Podatkowej` far above the digits). Consider a
+  per-detector window or line-aware context. `packages/anonymizer/src/dictionary.ts`.
+
+**Accrued 2026-06-19 (browser / clipboard image attachments).** Fixed THE
+"screenshot attached but never sent" bug: byte-sourced images (clipboard paste,
+drag-drop, browser-surface capture) are persisted to `os.tmpdir()` by
+`session.saveImageAttachment`, but the `session.runTurn` provenance gate
+(`authorizeAttachments`) only trusts picker paths or paths under the workspace
+cwd — and the save handler, unlike `session.pickAttachment`, never remembered the
+temp path it wrote. Every such image was silently dropped at send. The save
+handler now remembers its temp path (`packages/desktop-host/src/ipc/session.ts`),
+covered by `session.test.ts`. New debt logged on sight:
+- **Dropped attachments are invisible to the user.** When `authorizeAttachments`
+  rejects a path, or `buildAttachments` skips a file (oversized / unreadable /
+  binary), the only signal is a `console.warn` in the main process — the chip
+  stays in the composer and the prompt sends without it, so the user believes it
+  went. The renderer already surfaces a transient `attachError` for paste-time
+  failures; the dropped-at-send path should round-trip a similar notice (e.g.
+  `session.runTurn` returning the dropped names so the composer can flag them).
+  `packages/desktop-host/src/ipc/session.ts`, `attachments.ts`.
+
 **Last refreshed:** 2026-06-09 (second pass) — **journal repair + audit intake.** PRs #113
 and #115 rebuilt this file from a branch cut before #107/#108 merged, silently resurrecting
 two entries those PRs had retired (P1 #2's growth defect, P2 #6 mode-loop scaffolding) and
@@ -66,6 +107,88 @@ through the global ask/permission surface instead of being stashed as local
 Workflows-panel state, so workflow questions remain visible across Chat /
 Workflows / Collaborate / Apps navigation. The iOS app plist also declares the
 background modes used by the local Live Activity + notification refresh path.
+
+---
+
+## 2026-06-19 — Repo-wide pessimistic hardening sweep (audit → fix → verify → elevate)
+
+A fresh, deliberately pessimistic re-audit scored **every** package/app (71
+packages, 87 audit units) on security / performance / code-quality / extensibility
+(+ accessibility on UI surfaces) under a worst-case lens — malformed input, races,
+partial failure, OOM, hostile data, resource leaks, silent error-swallowing. It
+cataloged **757 findings (88 high / 299 medium / 370 low)**; full per-unit detail
+lives in `.claude/audits/scan-2026-06-19/` (not committed — working artifacts).
+
+**Resolved in this sweep (gate green: build/typecheck/test/lint/deps):**
+
+- **All 88 high + 291 medium + 320 low** findings whose fix is local to a package
+  were applied, **with worst-case regression tests** (84 units gained tests).
+  Adversarial per-unit verification then caught 14 fixes that compiled-but-didn't-
+  close-their-finding or shipped a RED test (e.g. the email ReDoS "fix" was still
+  quadratic; `provider-admin`/`subagents`/`self-update` safety nets were left
+  dormant because the CLI wiring didn't pass the new options; the anthropic error
+  `stopReason` was clobbered by a trailing `message_delta`) — **all re-fixed**.
+- A real regression introduced mid-sweep was caught and fixed: tightening
+  `scheduleEntrySchema.id` to `min(1)` made the workflow bridge's `id: ''` sentinel
+  throw inside `syncWorkflowSchedule`, silently stranding **every** workflow
+  schedule. `syncWorkflowSchedule` now mints the id (`packages/plugin-scheduler/
+  src/store.ts`).
+- Dead code removed, incl. the committed **`apps/docs/.astro`** generated cache
+  (now git-ignored). Closes the dead-`.astro` techDebt item.
+
+**Follow-up status (both the elevate pass and the cross-package items are now done):**
+
+- **Elevate pass — COMPLETE.** All **87 of 87** audit units have had the second
+  "elevate to 10" pass (the budget reset, the remaining 54 units ran: +115 gaps
+  closed, 50 units gained more tests). No unit is missing the pass.
+- **Cross-package deferred items — CLOSED (the actionable set).** The bounded,
+  high-value cross-package gaps are now fixed *with regression tests* (separate
+  follow-up PR off main):
+  - **Real bugs:** `sdk/view-renderer.ts countNodes()` recursion → iterative (no
+    RangeError on a deep AST); `core` `subagents/run-child.ts spawnAll`
+    `Promise.all` → `allSettled` (one child's setup throw no longer orphans
+    siblings); `runner` `runnerSocketPath()` now honors `$MOXXY_HOME`; the
+    `computer-control` screenshot tool returns an image-shaped result that
+    `project-messages` now projects as a provider **image** block (the model can
+    finally see screenshots — was the HIGH "screenshot-not-seen"); narrowed
+    `MoxxyRequirement.version` to the `plugin` kind; aligned `CompactorDef.compact`
+    signature; tightened `isFileDiffDisplay` validation.
+  - **DRY:** `sleepWithAbort` / `nextBackoffMs` extracted into `@moxxy/sdk` and
+    consumed by `mode-default` + `mode-goal`; the isolator `SHIM_SOURCE` + the
+    broker-op concurrency limiter single-sourced in `@moxxy/plugin-security` and
+    applied to **both** isolators; desktop `LOOPBACK_PORTS` hoisted to one module;
+    a shared collab-store helper extracted and imported by the IPC handlers.
+  - **A11y / contract:** a global `prefers-reduced-motion` rule disabling inline
+    CSS transitions; real ARIA roles + roving focus + Enter/Space/Escape +
+    focus-restore on the anonymizer `FilterSelect`; zod schemas for the collab IPC
+    channels (`collab.history` / `active` / `end`; `git.diff` already bounded).
+
+**Genuinely remaining — resolved by engineering decision, NOT silent debt:**
+
+1. **node-gyp / `@electron/rebuild` modernization** — owner decision (2026-06-18):
+   keep the working pinned config; a blind bump bricks the native build and only a
+   packaged `electron-builder` run can verify it. Gated on a `verify-desktop-packaged`
+   run; not a tail-end edit.
+2. **`ClientSession` → minimal `SessionLike` retype** + the matching
+   **`setPermissionResolver(null)` overload across `sdk`/`core`/`runner`** — these
+   belong to the runner/thin-client split (a deliberate architectural PR with a
+   possible RUNNER_PROTOCOL bump). The mobile channel's dispose path is already
+   **fail-closed (deny)** in-package, so the gap is mitigated, not open.
+3. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login`
+   boot a full session and never `close()`) — a correct fix must drain persistence
+   before exit; a focused PR, not a mechanical edit.
+4. **"Could be configurable" extension seams** (subagent retention constants,
+   discovery concurrency, a `credentialResolver` capability, a per-owner browser
+   sidecar registry, a warm subprocess pool) — consciously **YAGNI / net-negative
+   now**: each adds surface + risk for no current behavior win, and the warm-pool
+   idea is in direct tension with the per-call full-isolation guarantee. Recorded
+   here so they're a *choice*, not an oversight; revisit only when a concrete need
+   appears.
+
+Items 1–3 are planned-PR architectural work (each needs its own focused change and,
+for #1, owner-gated hardware verification). Item 4 is a documented design stance.
+Every concrete bug, security, correctness, DRY, a11y, and contract-validation
+finding from the sweep is fixed and tested. There is no hidden hole.
 
 ---
 
@@ -119,43 +242,18 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
 2. **`ClientSession` → minimal `SessionLike` retyping** — a deliberate architectural
    item that belongs to the runner/thin-client split (see [[runner-thin-client]]);
    net-new refactor work for a focused PR, not a tail-end edit.
-3. **Dual on-disk history consolidation** — likewise a designed, deferred decision
-   (the NDJSON store is the renderer's only history source under `replay:'none'`;
-   consolidating means migrating to paged runner-log reads, with real counter-risks).
-   **Runner-side foundation landed (2026-06-18):** runner protocol v10 adds the
-   paged `session.loadHistory` ({ before, limit } → { events, prevCursor }) backed
-   by a core paged-JSONL reader (`readSessionEventPage`/`pageEvents`), and the
-   runner now seals stream-without-seal turns into a REAL `assistant_message` so
-   its log is the complete authoritative history (no more renderer-only synth).
-   The client method is version-gated (`requireServerProtocol(10)`); against an
-   older runner it throws an actionable error the renderer can catch to fall back
-   to NDJSON, and the desktop FLOOR was deliberately NOT raised.
-   **Renderer migration landed (2026-06-18):** the desktop now READS history from
-   the runner — IPC `chat.loadHistory` proxies to the workspace's `RemoteSession`
-   and returns `null` (→ NDJSON fallback) for a `<v10`/disconnected runner or a
-   legacy-only chat; `ChatPersistence.loadHistory` + a chat-store "page-until-K-
-   rendered" cursor walk the runner's RAW pages and filter with `isRenderedEvent`,
-   with the source pinned per slot so the runner `seq` and NDJSON line cursors
-   never mix. A GOLDEN render-equivalence test pins runner-stream+filter ==
-   NDJSON across stream-without-seal / reasoning / tool / compaction / multi-page
-   fixtures. **Legacy migration landed (2026-06-18, the keystone):** core
-   `seedSessionLog` + the runner pool's `seedChatIntoSession` migrate a chat whose
-   history lived ONLY in the NDJSON mirror into the runner's authoritative log,
-   BEFORE that workspace's runner resumes its session id — so the runner owns
-   every chat (a legacy chat is no longer stranded when continued). Idempotent +
-   non-destructive (skips a session the runner already owns; NDJSON left intact).
-   **Single-source landed (2026-06-18):** (a) `chat.append` is runtime-gated on
-   the attached runner version — a v10+ runner owns the log so the NDJSON
-   double-WRITE is skipped (a `<v10` runner still mirrors); (b) desktop
-   `FLOOR_RUNNER_PROTOCOL` raised 9 → 10; (c) `migrateAllChatsToSessions` eagerly
-   migrates EVERY remaining NDJSON-only chat into the runner at startup, so the
-   runner is the single source of truth for ALL chats (not just opened ones).
-   **The dual-history consolidation is functionally COMPLETE** — the runner is
-   authoritative, the NDJSON store is frozen (not written, not the source of
-   truth). Its files + read-fallback code remain only as a safety net.
-   **Only cleanup left (deliberately deferred, gated on packaged-desktop
-   live-verify — destructive + self-update-sensitive):** physically delete the
-   NDJSON files + remove the read-fallback / chat-log / chat.* IPC.
+3. **Dual on-disk history consolidation — RESOLVED 2026-06-18.** The runner's
+   authoritative log is now the SOLE chat-history store; the desktop's NDJSON
+   mirror is fully retired. Shipped across PRs #251 (runner v10
+   `session.loadHistory` + paged reader + log-completeness seal), #261 (renderer
+   reads from the runner + `projectRunnerWindow` reconstruction), #266 (seed
+   legacy chats into the runner before resume), #270 (stop the double-write,
+   FLOOR 9→10), #271 (eager migrate-all), and the final retirement (remove the
+   NDJSON read-fallback / double-write / `chat.append`·`loadSegment`·`clearLog`·
+   `migrate` IPC / `chat-log` / `seedSessionLog` / the legacy localStorage
+   migration; only `chat.loadHistory` remains). "Clear"/delete reset only the
+   runner log. Legacy NDJSON-only chats not previously migrated are intentionally
+   dropped (owner decision: "jump from legacy").
 4. **One-shot CLI exit hygiene** (`moxxy -p` / `schedule run` / `doctor` / `login` /
    `init` boot a full session and never `close()`) — minor; a correct fix must drain
    persistence before exit (premature exit would drop the last event).
@@ -163,6 +261,42 @@ that must not be rushed, because rushing it would *lower* quality, not raise it:
 Items 2–4 are genuine, tracked debt deferred *by engineering judgment* (they need a
 planned PR each); item 1 is an owner decision. None is hidden, and none should be
 blind-merged. This is the standing-job baseline, not a claim of a frozen zero.
+
+---
+
+## 2026-06-19 — Desktop apps: "Send to chat" (send output back to the session)
+
+Desktop apps can now hand a payload to the user's active session instead of
+copy+paste. Shared core `composerDraftStore` + `sendToSession()` in
+`@moxxy/client-core` (review-in-composer: prefill the composer + switch to chat,
+the user reviews and sends); the built-in anonymizer gained a **Send to chat**
+button (opt-in via `DesktopAppDef.canSendToSession`); and a forward-looking
+`session.send` capability (permission + bridge method + client sugar) was added to
+`@moxxy/desktop-app-sdk` for sandboxed apps.
+
+**Retired:** the SDK's `BridgeMethods`/`BridgeServices` exhaustiveness was only
+half-enforced — the host gate's `_never` switch guaranteed every method had a
+*case*, but nothing guaranteed every method had a *home* (a main service OR a
+documented renderer-dispatch). `session.send` is the first renderer-dispatched
+method; it's now modelled explicitly (`RENDERER_DISPATCHED_METHODS` +
+`isRendererDispatched`), the gate refuses it defensively, and a runtime partition
+test (`bridge-host.test.ts`) asserts main-services and renderer-dispatched methods
+are disjoint and jointly cover every `BridgeMethod`. Closes the latent "a method
+with no service silently falls through" gap.
+
+**New debt logged on sight:**
+- **`RENDERER_DISPATCHED_METHODS` is a manually-maintained disjointness contract.**
+  The set in `bridge.ts` and the `BridgeServices` keys in `bridge-host.ts` must stay
+  disjoint + jointly exhaustive; today that's enforced by a runtime test, not the
+  type system. A type-level partition (or generating the services-key list from the
+  method map) would make a drifting addition a compile error. Low priority while the
+  method set is tiny.
+- **`session.send` is defined but not yet reachable by sandboxed apps.** The SDK
+  capability + host gate are in place, but the renderer iframe runtime / postMessage↔
+  IPC relay that would dispatch `session.send` for a third-party app does not exist
+  yet (the sandboxed-app platform is still foundation-only — `dispatchBridge`/
+  `discoverApps` are unwired). Only the built-in anonymizer path ships working
+  end-to-end. Wiring the relay is a separate, larger piece of work.
 
 ---
 
@@ -381,6 +515,36 @@ two deferred `@moxxy/plugin-workflows` items are now resolved.
   `EmptyHero` logo). **Fix:** swap the inline block for `<SearchBox value={query}
   onChange={setQuery} placeholder="Search skills…" />` and delete the duplicate.
   Left out of this PR to keep it a pure empty-state alignment.
+
+## 2026-06-17 — self-hosted proxy tunnel (replaces ngrok/cloudflared)
+
+- **Retired: "unify tunnel subprocess management" (cloudflared/ngrok).** The
+  cloudflared/ngrok `TunnelProviderDef`s, the shared `spawnCliTunnel` /
+  `isCliTunnelAvailable` SDK helpers, and the webhooks `TunnelKind` machinery are
+  all gone — `proxy` (native Node, `@moxxy/plugin-tunnel-proxy`, dialing the
+  self-hosted relay) is the sole tunnel provider. No subprocesses to unify.
+- **New: the relay is the SOLE remote path — no fallback.** Mobile pairing, the
+  web/UI preview, and webhook ingress all depend on the relay being up; a lapsed
+  wildcard cert breaks every one at once. Needs uptime monitoring + a quick
+  redeploy story (deploy scripts exist in the private `proxy-relay` repo). Decide
+  whether to keep a hidden emergency escape hatch.
+- **New: relay is single-instance.** Horizontal scaling needs a shared
+  `uuid→instance` registry (Redis) + sticky routing; fine for a personal relay,
+  not for many users.
+- **Resolved (web preview) / partial (generic): path-prefix under multi-target.**
+  The relay strips `/<target>` from the first ingress request line. The web
+  channel is now **base-path-aware** (injects `<base href="/web/">` + a client
+  `__MOXXY_BASE__` global, and base-strips inbound paths tolerantly), so the
+  browser preview works whether or not the relay stripped a given request — no
+  keep-alive gap. Mobile (single WS upgrade) and webhook POSTs (one request) are
+  fine on the first-line strip alone. **Still open:** a *future arbitrary* HTTP
+  app served via proxy that ISN'T base-path-aware would need full L7 path
+  rewriting in the relay (keep-alive-aware) — only build that if such an app
+  appears.
+- **Spike outcome:** E2E crypto uses `@noble` (curves/ciphers/hashes) — pure JS,
+  RN-safe; signed-ephemeral-ECDH + XChaCha20-Poly1305 (not literal Noise). RN
+  needs `react-native-get-random-values` + a `TextDecoder` polyfill at app entry
+  (logged for the mobile app).
 
 ## 2026-06-17 — desktop native build (node-gyp) is brittle against runner-image churn
 

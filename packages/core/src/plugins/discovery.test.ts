@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { silentLogger } from '../logger.js';
 import { discoverPlugins } from './discovery.js';
 import { createPluginLoader } from './loader.js';
@@ -85,6 +85,24 @@ describe('discoverPlugins + createPluginLoader (end-to-end)', () => {
     expect(manifests.find((m) => m.packageName === 'plain-pkg')).toBeUndefined();
   });
 
+  it('rejects a plugin entry that escapes its package directory (path traversal)', async () => {
+    const pkgRoot = path.join(cwd, 'node_modules', '@acme', 'mox-thing');
+    await fs.mkdir(pkgRoot, { recursive: true });
+    await fs.writeFile(
+      path.join(pkgRoot, 'package.json'),
+      JSON.stringify({
+        name: '@acme/mox-thing',
+        version: '1.0.0',
+        moxxy: { plugin: { entry: '../../../../../../tmp/evil.js' } },
+      }),
+    );
+    const manifests = await discoverPlugins({ cwd, logger: silentLogger });
+    const ours = manifests.find((m) => m.packageName === '@acme/mox-thing')!;
+    expect(ours).toBeDefined();
+    const loader = createPluginLoader({ cwd });
+    await expect(loader.load(ours)).rejects.toThrow(/escapes its package directory/);
+  });
+
   it('rejects entries that do not export a moxxy plugin object', async () => {
     const pkgRoot = path.join(cwd, 'node_modules', '@acme', 'mox-thing');
     await makePkg(pkgRoot, {
@@ -97,6 +115,46 @@ describe('discoverPlugins + createPluginLoader (end-to-end)', () => {
     const ours = manifests.find((m) => m.packageName === '@acme/mox-thing')!;
     const loader = createPluginLoader({ cwd });
     await expect(loader.load(ours)).rejects.toThrow(/did not export a valid Plugin/);
+  });
+
+  it('stays silent on a missing package.json but warns on a non-ENOENT read failure', async () => {
+    // A directory with NO package.json (ENOENT) is the common "not a package"
+    // case — must not warn.
+    const emptyDir = path.join(cwd, 'node_modules', 'no-pkgjson');
+    await fs.mkdir(emptyDir, { recursive: true });
+    // A directory whose package.json is malformed JSON (SyntaxError, not ENOENT)
+    // means a plugin may have been dropped for a non-structural reason → warn,
+    // not swallow it identically to "no package.json".
+    const badDir = path.join(cwd, 'node_modules', 'bad-pkgjson');
+    await fs.mkdir(badDir, { recursive: true });
+    await fs.writeFile(path.join(badDir, 'package.json'), '{ this is not json');
+
+    const warn = vi.fn();
+    const logger = { ...silentLogger, warn };
+    const manifests = await discoverPlugins({ cwd, logger });
+    expect(manifests.find((m) => m.packageName === 'no-pkgjson')).toBeUndefined();
+    expect(manifests.find((m) => m.packageName === 'bad-pkgjson')).toBeUndefined();
+    // Exactly the malformed one warned; the missing one did not.
+    const warnedPaths = warn.mock.calls.map((c) => String((c[1] as { path?: string })?.path ?? ''));
+    expect(warnedPaths.some((p) => p.includes('bad-pkgjson'))).toBe(true);
+    expect(warnedPaths.some((p) => p.includes('no-pkgjson'))).toBe(false);
+  });
+
+  it('discovers all plugins even when there are more than the concurrency cap', async () => {
+    // Bounding fd concurrency must not DROP plugins — create well over the cap
+    // and assert every one is found.
+    const count = 80;
+    for (let i = 0; i < count; i++) {
+      const pkgRoot = path.join(cwd, 'node_modules', `mox-bulk-${i}`);
+      await fs.mkdir(pkgRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(pkgRoot, 'package.json'),
+        JSON.stringify({ name: `mox-bulk-${i}`, version: '1.0.0', moxxy: { plugin: { entry: './index.mjs' } } }),
+      );
+    }
+    const manifests = await discoverPlugins({ cwd, logger: silentLogger });
+    const found = manifests.filter((m) => m.packageName.startsWith('mox-bulk-'));
+    expect(found).toHaveLength(count);
   });
 
   it('walks up parent dirs to find node_modules', async () => {

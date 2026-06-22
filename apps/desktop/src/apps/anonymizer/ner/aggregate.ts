@@ -68,13 +68,17 @@ function findAligned(text: string, surface: string, from: number): { start: numb
     }
   }
   // 2) The tokenizer normalizes the surface (diacritic stripping, hyphen/
-  //    apostrophe → space, WordPiece spacing), so the literal needle can be
-  //    absent even though the entity is present. Match the surface's word PARTS
-  //    separated by any run of non-word chars, anchored on word boundaries, so a
-  //    span is recovered (and redacted) instead of silently dropped.
+  //    apostrophe → space, WordPiece/SentencePiece spacing), so the literal
+  //    needle can be absent even though the entity is present. Match the
+  //    surface's word PARTS separated by ZERO-or-more non-word chars, anchored on
+  //    word boundaries, so a span is recovered (and redacted) instead of silently
+  //    dropped. The separator is `*` (not `+`) because SentencePiece models
+  //    (XLM-R) decode each sub-word independently with no marker — an
+  //    agglutinated surname like `Kowalski` arrives as parts ['Kowal','ski'] with
+  //    NO separator between them, and `+` would fail to rejoin it (→ name leak).
   const parts = surface.split(/[^\p{L}\p{N}]+/u).filter(Boolean).map(escapeRegExp);
   if (parts.length > 0) {
-    const re = new RegExp(`(?<![\\p{L}\\p{N}])${parts.join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'iu');
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${parts.join('[^\\p{L}\\p{N}]*')}(?![\\p{L}\\p{N}])`, 'iu');
     const m = re.exec(text.slice(from));
     if (m && m.index != null) {
       return { start: from + m.index, end: from + m.index + m[0].length };
@@ -88,7 +92,7 @@ function findAligned(text: string, surface: string, from: number): { start: numb
   //    offsets line up.
   const foldedText = stripDiacritics(text);
   if (foldedText !== text && foldedText.length === text.length) {
-    const re = new RegExp(`(?<![\\p{L}\\p{N}])${parts.join('[^\\p{L}\\p{N}]+')}(?![\\p{L}\\p{N}])`, 'iu');
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${parts.join('[^\\p{L}\\p{N}]*')}(?![\\p{L}\\p{N}])`, 'iu');
     const m = re.exec(foldedText.slice(from));
     if (m && m.index != null) {
       return { start: from + m.index, end: from + m.index + m[0].length };

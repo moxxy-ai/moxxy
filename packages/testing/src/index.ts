@@ -15,5 +15,5 @@ export {
   type RecordedProviderOptions,
 } from './record-replay.js';
 
-export { hashRequest } from './hash.js';
+export { hashRequest, type HashRequestOptions } from './hash.js';
 export { createFakeSession, type FakeSessionOptions } from './session-helpers.js';

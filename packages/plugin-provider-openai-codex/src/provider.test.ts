@@ -378,6 +378,67 @@ describe('CodexProvider.stream', () => {
     expect(err!.retryable).toBe(false);
   });
 
+  it('aborts a stalled request via the internal idle watchdog (no caller signal needed)', async () => {
+    // Backend accepts the POST but never sends headers/body. With no caller
+    // AbortSignal, the internal idle watchdog must fire and abort the fetch so
+    // the turn surfaces an error instead of hanging forever.
+    const fakeFetch = vi.fn((_u: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const sig = init?.signal;
+        if (sig) {
+          sig.addEventListener('abort', () => reject(sig.reason ?? new Error('aborted')), {
+            once: true,
+          });
+        }
+      });
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+      idleTimeoutMs: 20,
+    });
+
+    const events = await collect(provider.stream(baseRequest()));
+    const err = events.find((e) => e.type === 'error');
+    expect(err).toBeDefined();
+    // It did not hang — the watchdog aborted and we got a terminal error event.
+    expect(events.some((e) => e.type === 'message_end')).toBe(false);
+  });
+
+  it('caps the buffered error-response body instead of holding a hostile multi-MB body', async () => {
+    const huge = 'E'.repeat(5 * 1024 * 1024); // 5 MiB error body
+    const fakeFetch = vi.fn(async () => new Response(huge, { status: 400 }));
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+    const events = await collect(provider.stream(baseRequest()));
+    const err = events.find((e) => e.type === 'error') as { message: string } | undefined;
+    expect(err).toBeDefined();
+    // The message includes only a bounded slice of the body, not all 5 MiB.
+    expect(err!.message.length).toBeLessThan(4096);
+    expect(err!.message).toMatch(/returned 400/);
+  });
+
+  it('countTokens does not stringify base64 payloads and stays bounded for a large image', async () => {
+    const provider = new CodexProvider({ tokens: makeTokens() });
+    const bigImage = 'A'.repeat(4 * 1024 * 1024); // 4 MiB of base64
+    const withImage = await provider.countTokens({
+      model: 'gpt-5.3-codex',
+      messages: [
+        { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: bigImage }] },
+      ],
+    });
+    const textOnly = await provider.countTokens({
+      model: 'gpt-5.3-codex',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    });
+    // A 4 MiB base64 image must NOT be counted as ~1M tokens (4MiB/4) — the
+    // estimate stays a small flat per-block charge.
+    expect(withImage).toBeLessThan(1000);
+    expect(withImage).toBeGreaterThan(textOnly);
+  });
+
   it('errors clearly when no tokens are configured', async () => {
     const provider = new CodexProvider({}); // no tokens
     const events = await collect(provider.stream(baseRequest()));

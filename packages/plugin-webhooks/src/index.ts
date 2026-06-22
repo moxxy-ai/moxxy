@@ -1,6 +1,7 @@
 import { definePlugin, type Plugin } from '@moxxy/sdk';
 import {
   defaultWebhookConfigFile,
+  isLoopbackHost,
   WebhookConfigStore,
   type WebhookConfig,
   type WebhookConfigStoreOptions,
@@ -36,14 +37,13 @@ import {
   type WebhookVerification,
 } from './store.js';
 import { shouldFire, type FilterInput } from './filter.js';
+import { RateLimiter, type RateLimitOptions } from './rate-limit.js';
 import { describeTrigger, redactVerification } from './describe.js';
 import { renderPrompt, type TemplateContext } from './template.js';
 import {
-  isTunnelCliAvailable,
   startTunnel,
-  webhookTunnelProviders,
+  WEBHOOK_TUNNEL_LABEL,
   type RunningTunnel,
-  type TunnelKind,
   type TunnelStartOptions,
 } from './tunnel.js';
 import { buildWebhookTools, defaultWebhookSecretsDir, type WebhooksToolDeps } from './tools.js';
@@ -67,6 +67,7 @@ export {
   WebhookDispatcher,
   WebhookServer,
   DeliveryDedupeCache,
+  RateLimiter,
   defaultWebhookInboxDir,
   // Verification + templating
   verifyDelivery,
@@ -74,8 +75,7 @@ export {
   renderPrompt,
   // Tunnel
   startTunnel,
-  isTunnelCliAvailable,
-  webhookTunnelProviders,
+  WEBHOOK_TUNNEL_LABEL,
   // Tools
   buildWebhookTools,
   defaultWebhookSecretsDir,
@@ -99,9 +99,9 @@ export {
   type VerificationInput,
   type VerificationResult,
   type RunningTunnel,
-  type TunnelKind,
   type TunnelStartOptions,
   type WebhooksToolDeps,
+  type RateLimitOptions,
 };
 
 export interface BuildWebhooksPluginOptions {
@@ -126,6 +126,12 @@ export interface BuildWebhooksPluginOptions {
   readonly listenerOverride?: { readonly host?: string; readonly port?: number };
   /** Max accepted body size (bytes). Default 1MB. */
   readonly maxBodyBytes?: number;
+  /**
+   * Sustained requests/second admitted per trigger before verify/parse work.
+   * Default 20/s. 0 or negative disables admission control (not recommended on
+   * a non-loopback bind).
+   */
+  readonly ratePerSec?: number;
 }
 
 export interface BuiltWebhooksPlugin {
@@ -183,6 +189,33 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
         const cfg = await config.get();
         const host = opts.listenerOverride?.host ?? cfg.host;
         const port = opts.listenerOverride?.port ?? cfg.port;
+        if (!isLoopbackHost(host)) {
+          // Surface the open-auth triggers if the store is readable, but never
+          // let a warning-path store read abort listener init (the delivery
+          // path already handles an unreadable store on its own).
+          let openAuth: WebhookTrigger[] = [];
+          try {
+            openAuth = (await store.list()).filter(
+              (t) => t.enabled && t.verification.type === 'none',
+            );
+          } catch {
+            /* fall back to the generic warning below */
+          }
+          opts.logger?.warn?.(
+            'webhooks: binding a NON-LOOPBACK host — the unauthenticated POST surface is ' +
+              'reachable from other machines on the network',
+            {
+              host,
+              port,
+              ...(openAuth.length > 0
+                ? {
+                    unauthenticatedTriggers: openAuth.map((t) => t.name),
+                    severity: 'critical: any host on the network can fire these triggers',
+                  }
+                : {}),
+            },
+          );
+        }
         serverInstance = new WebhookServer({
           host,
           port,
@@ -190,6 +223,7 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
           dispatcher,
           ...(opts.logger ? { logger: opts.logger } : {}),
           ...(opts.maxBodyBytes !== undefined ? { maxBodyBytes: opts.maxBodyBytes } : {}),
+          ...(opts.ratePerSec !== undefined ? { ratePerSec: opts.ratePerSec } : {}),
         });
         try {
           serverHandle = await serverInstance.start();

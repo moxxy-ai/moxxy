@@ -236,4 +236,44 @@ describe('withCredentialLock', () => {
     expect(await fs.readdir(dir)).toEqual(['lock-test-held.lock']);
     await fs.rm(dir, { recursive: true, force: true });
   });
+
+  it('stale takeover leaves no `.stale-*` temp litter (rename target is cleaned up)', async () => {
+    // The rename-based takeover moves the stale lock to a unique temp then rm()s
+    // it. A dropped cleanup would accumulate `<lock>.stale-<pid>-<rand>` files in
+    // the lock dir forever. Assert the dir holds nothing but the caller's own
+    // (already-released) lock — i.e. zero temp residue.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-lockstaletmp-'));
+    const lockPath = path.join(dir, 'lock-test-staletmp.lock');
+    await fs.writeFile(lockPath, '424242 crashed\n');
+    const old = new Date(Date.now() - 300_000);
+    await fs.utimes(lockPath, old, old);
+
+    await withCredentialLock('lock-test-staletmp', async () => {}, {
+      dir,
+      staleMs: 60_000,
+      pollMs: 5,
+      waitMs: 500,
+    });
+    const left = await fs.readdir(dir);
+    expect(left.filter((f) => f.includes('.stale-'))).toEqual([]);
+    expect(left).toEqual([]); // own lock released too
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+});
+
+describe('isAuthRejection — gates the rotation-race retry', () => {
+  it('is true only for deterministic credential-rejection codes', async () => {
+    const { MoxxyError } = await import('@moxxy/sdk');
+    const { isAuthRejection } = await import('./credential-lock.js');
+    for (const code of ['AUTH_INVALID', 'AUTH_DENIED', 'AUTH_EXPIRED', 'PROVIDER_BAD_REQUEST']) {
+      expect(isAuthRejection(new MoxxyError({ code: code as never, message: 'x' }))).toBe(true);
+    }
+    // Transient / unrelated failures must NOT trigger the single-use-token retry.
+    for (const code of ['NETWORK_ABORTED', 'INTERNAL', 'PROVIDER_UNKNOWN_RESPONSE', 'OAUTH_FLOW_TIMEOUT']) {
+      expect(isAuthRejection(new MoxxyError({ code: code as never, message: 'x' }))).toBe(false);
+    }
+    expect(isAuthRejection(new Error('plain'))).toBe(false);
+    expect(isAuthRejection(undefined)).toBe(false);
+    expect(isAuthRejection('invalid_grant')).toBe(false);
+  });
 });

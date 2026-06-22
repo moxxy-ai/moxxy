@@ -40,7 +40,13 @@ export {
 } from './template.js';
 
 export { dagExecutor, DAG_EXECUTOR_NAME, resumeWorkflowRun } from './executor/dag.js';
-export { runWorkflow, defaultRunRecordDir, type RunWorkflowOptions } from './engine.js';
+export {
+  runWorkflow,
+  defaultRunRecordDir,
+  sweepStaleRecords,
+  DEFAULT_RUN_RECORD_TTL_MS,
+  type RunWorkflowOptions,
+} from './engine.js';
 export {
   WorkflowRunStore,
   defaultWorkflowRunStore,

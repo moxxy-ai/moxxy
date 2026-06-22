@@ -1,6 +1,7 @@
 import {
   defineCompactor,
   definePlugin,
+  toolResultBytes,
   type CompactContext,
   type CompactorDef,
   type EventLogReader,
@@ -33,8 +34,16 @@ const SUMMARY_SYSTEM_PROMPT =
   'Do not editorialize, do not invent details, output ONLY the summary text.';
 
 export function createSummarizeCompactor(opts: SummarizeOptions = {}): CompactorDef {
-  const thresholdRatio = opts.thresholdRatio ?? 0.75;
-  const keepRecent = opts.keepRecentTurns ?? 3;
+  // Clamp untrusted options so a programmatic caller can't disable compaction
+  // (NaN ratio → threshold never trips → context overflows) or compact away the
+  // active turn (keepRecent <= 0). Mirrors the elision helper's `Math.max(2, …)`
+  // floor and the config schema's min on the analogous elision keepRecentTurns.
+  const thresholdRatio = Number.isFinite(opts.thresholdRatio)
+    ? Math.min(0.99, Math.max(0.1, opts.thresholdRatio!))
+    : 0.75;
+  const keepRecent = Number.isFinite(opts.keepRecentTurns)
+    ? Math.max(1, Math.floor(opts.keepRecentTurns!))
+    : 3;
 
   return defineCompactor({
     name: 'summarize-old-turns',
@@ -72,19 +81,33 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
           sessionId: firstEvent.sessionId,
           turnId: lastEvent.turnId,
           source: 'compactor',
+          // An EMPTY [from, to] window that can never alias a live seq, so the
+          // dispatcher's tokensSaved<=0 / empty-summary discard is defense in
+          // depth rather than the sole guard against marking seq 0 compacted.
           compactor: 'summarize-old-turns',
-          replacedRange: [0, 0],
+          replacedRange: [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
           summary: '',
           tokensSaved: 0,
         };
       }
-      const compactThrough = turnIds[turnIds.length - keepRecent - 1] ?? turnIds[0];
-      const from = startIdx;
-      let to = from;
-      for (let i = from; i < events.length; i++) {
-        if (events[i]!.turnId === compactThrough) to = i;
+      // Compact the OLDEST (turnIds.length - keepRecent) unique turns, but only
+      // the CONTIGUOUS LEADING RUN of them: `replacedRange` is an inclusive
+      // [from, to] seq interval and projection treats EVERY seq inside it as
+      // compacted, so the range must never engulf a kept event. Turn order is
+      // NOT guaranteed contiguous for mirrors/partial views (CompactionEvent
+      // docs warn seq ≠ arrayIndex); under interleaved turnIds (A,B,A) the old
+      // last-match scan swept the intervening kept B into the range, dropping it
+      // from projection. Stopping at the first kept event keeps each emitted
+      // range honest; any trailing old turns are picked up on the next call once
+      // the high-water mark advances.
+      const toCompact = new Set(turnIds.slice(0, turnIds.length - keepRecent));
+      const slice: MoxxyEvent[] = [];
+      for (const e of tail) {
+        if (!toCompact.has(e.turnId)) break;
+        slice.push(e);
       }
-      const slice = events.slice(from, to + 1);
+      // The leading run is non-empty: `tail[0]`'s turnId is `turnIds[0]`, which
+      // is always in `toCompact` (turnIds.length > keepRecent ≥ 1).
       const sliceFirst = slice[0]!;
       const sliceLast = slice[slice.length - 1]!;
       const text = slice
@@ -94,6 +117,10 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
       const summary = opts.summary
         ? await opts.summary(text)
         : ((await providerSummary(text, ctx)) ?? fallbackDigest(text));
+      // Final abort gate: if the turn was cancelled while the summary was being
+      // produced (incl. via a custom `opts.summary`), don't rewrite history the
+      // user is abandoning — let the dispatcher no-op / the caller surface it.
+      if (ctx?.signal?.aborted) throwAbort();
       // Honest accounting: tokens saved = what the replaced events would have
       // cost the context minus what the summary costs (chars/4, matching
       // `estimateContextTokens`'s heuristic) — NOT the old fabricated
@@ -117,11 +144,17 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
 
 /**
  * Ask the session's own provider to write the summary. Returns null when no
- * provider/model is available or the call fails — callers fall back to the
- * labeled digest truncation.
+ * provider/model is available or the call genuinely fails — callers fall back to
+ * the labeled digest truncation. A turn CANCELLATION, however, must NOT degrade
+ * to a lossy fallback that silently rewrites history the user is trying to
+ * abandon: when `ctx.signal` is aborted the AbortError is re-thrown so
+ * `compact()` propagates it (the auto dispatcher then no-ops; the manual caller
+ * surfaces it) instead of producing a truncated digest with tokensSaved > 0.
  */
 async function providerSummary(text: string, ctx?: CompactContext): Promise<string | null> {
   if (!ctx?.provider) return null;
+  // Already cancelled before we even start — don't fabricate a fallback digest.
+  if (ctx.signal?.aborted) throwAbort();
   const provider = ctx.provider;
   const model = ctx.model ?? provider.models[0]?.id;
   if (!model) return null;
@@ -143,14 +176,41 @@ async function providerSummary(text: string, ctx?: CompactContext): Promise<stri
       maxTokens: SUMMARY_MAX_TOKENS,
       ...(ctx.signal ? { signal: ctx.signal } : {}),
     })) {
+      // Stop consuming (and accumulating `out`) the moment the turn is
+      // cancelled, even if the provider keeps yielding — the final abort gate
+      // in compact() will then no-op rather than rewrite abandoned history.
+      if (ctx.signal?.aborted) throwAbort();
       if (event.type === 'text_delta') out += event.delta;
-      if (event.type === 'error') return null;
+      if (event.type === 'error') {
+        // An `error` event during an aborted turn is the cancellation, not a
+        // transient provider failure — propagate rather than degrade.
+        if (ctx.signal?.aborted) throwAbort();
+        return null;
+      }
     }
     const trimmed = out.trim();
     return trimmed.length > 0 ? trimmed : null;
-  } catch {
+  } catch (err) {
+    // Distinguish a user/turn cancellation (re-throw) from a transient provider
+    // failure (fall back). Re-throw if the thrown error is an abort OR the
+    // signal fired mid-stream.
+    if (isAbort(err) || ctx.signal?.aborted) throw err instanceof Error ? err : abortError();
     return null;
   }
+}
+
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+}
+
+function abortError(): Error {
+  const e = new Error('summarize-old-turns: compaction aborted');
+  e.name = 'AbortError';
+  return e;
+}
+
+function throwAbort(): never {
+  throw abortError();
 }
 
 function describeEvent(e: MoxxyEvent): string | null {
@@ -160,7 +220,12 @@ function describeEvent(e: MoxxyEvent): string | null {
     case 'assistant_message':
       return `[assistant] ${e.content.slice(0, 200)}`;
     case 'tool_call_requested':
-      return `[tool_use] ${e.name}(${JSON.stringify(e.input).slice(0, 80)})`;
+      // `e.input` is `unknown`: a no-arg call yields `undefined` (whose
+      // JSON.stringify is the JS value `undefined`, not a string), and a
+      // circular ref / BigInt makes JSON.stringify throw — either of which would
+      // otherwise abort the whole compaction. Coalesce + guard so a malformed
+      // tool input degrades to a marker instead of crashing the turn.
+      return `[tool_use] ${e.name}(${safeJsonStr(e.input).slice(0, 80)})`;
     case 'tool_result':
       return `[tool_result ${e.ok ? 'ok' : 'err'}] ${
         typeof e.output === 'string' ? e.output.slice(0, 120) : ''
@@ -171,19 +236,36 @@ function describeEvent(e: MoxxyEvent): string | null {
 }
 
 /** Characters this event contributes to the projected context — what the
- *  summary actually replaces. Mirrors the SDK estimate's per-event costing. */
+ *  summary actually replaces. Must mirror the SDK estimate's per-event costing
+ *  (`eventChars` in compactor-helpers.ts) so `tokensSaved` reflects the REAL
+ *  context delta, not a divergent local guess. In particular:
+ *    - user_prompt counts inlined file/stdin attachment text (it costs real
+ *      prompt tokens), so a compacted prompt that carried a large pasted file
+ *      isn't under-credited;
+ *    - tool_result routes through the shared `toolResultBytes`, which sizes a
+ *      rich `ToolDisplayResult` (file diff) by its short `forModel` string —
+ *      not the bulky `display` payload `JSON.stringify` would have measured,
+ *      which previously over-credited savings for diff results. */
 function contextChars(e: MoxxyEvent): number {
   switch (e.type) {
-    case 'user_prompt':
-      return e.text.length;
+    case 'user_prompt': {
+      let n = e.text.length;
+      for (const att of e.attachments ?? []) {
+        if (att.kind === 'file' || att.kind === 'stdin') n += att.content.length;
+      }
+      return n;
+    }
     case 'assistant_message':
       return e.content.length;
     case 'tool_call_requested':
       return e.name.length + safeJsonLen(e.input);
     case 'tool_result':
+      // Match `eventChars`'s error costing exactly (message + a small fixed
+      // overhead for the "[error] " framing), and otherwise size the payload
+      // through the shared `toolResultBytes` so a rich `ToolDisplayResult` is
+      // measured by its `forModel` string, not its bulky `display` field.
       if (e.error) return (e.error.message?.length ?? 0) + 12;
-      if (typeof e.output === 'string') return e.output.length;
-      return safeJsonLen(e.output);
+      return toolResultBytes(e.output);
     default:
       return 0;
   }
@@ -194,6 +276,16 @@ function safeJsonLen(v: unknown): number {
     return JSON.stringify(v ?? '').length;
   } catch {
     return 0;
+  }
+}
+
+/** JSON.stringify that always returns a string (never the JS `undefined`) and
+ *  never throws on circular refs / BigInt — used for the digest line. */
+function safeJsonStr(v: unknown): string {
+  try {
+    return JSON.stringify(v ?? {}) ?? '{}';
+  } catch {
+    return '[unserializable]';
   }
 }
 

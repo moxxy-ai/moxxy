@@ -189,4 +189,53 @@ describe('buildSessionConfigApplier', () => {
     expect(r.applied).toEqual([]);
     expect(r.pending).toEqual([]);
   });
+
+  it('object-valued context fields are diffed structurally, not by reference', async () => {
+    // A re-parsed config yields fresh references for elision/reasoning even when
+    // the value is identical; we must NOT re-report them as applied each save.
+    const initial = {
+      context: {
+        elision: { enabled: true, keepRecentTurns: 4 },
+        reasoning: { effort: 'high' as const },
+      },
+    };
+    const apply = buildSessionConfigApplier(makeSession(), initial);
+    // Deep-equal but reference-distinct value (what a reload produces).
+    const r = await apply({
+      context: {
+        elision: { enabled: true, keepRecentTurns: 4 },
+        reasoning: { effort: 'high' as const },
+      },
+    });
+    expect(r.applied).not.toContain('elision');
+    expect(r.applied).not.toContain('reasoning');
+  });
+
+  it('a genuine change to a context object IS applied', async () => {
+    const apply = buildSessionConfigApplier(makeSession(), {
+      context: { elision: { enabled: true, keepRecentTurns: 4 } },
+    });
+    const r = await apply({ context: { elision: { enabled: true, keepRecentTurns: 8 } } });
+    expect(r.applied).toContain('elision');
+  });
+
+  it('nested channels/permissions records are diffed structurally (no spurious pending)', async () => {
+    const cfg = {
+      channels: { telegram: { token: 'abc', allow: ['me'] } },
+      permissions: { allow: [{ name: 'Read' }, { name: 'Bash', inputMatches: { command: '^ls' } }] },
+    };
+    const apply = buildSessionConfigApplier(makeSession(), cfg);
+    // Reference-distinct deep clone — must produce no pending lines.
+    const r = await apply(JSON.parse(JSON.stringify(cfg)));
+    expect(r.pending.some((p) => p.startsWith('channels'))).toBe(false);
+    expect(r.pending.some((p) => p.startsWith('permissions'))).toBe(false);
+  });
+
+  it('a real channels change IS surfaced as pending', async () => {
+    const apply = buildSessionConfigApplier(makeSession(), {
+      channels: { telegram: { token: 'abc' } },
+    });
+    const r = await apply({ channels: { telegram: { token: 'def' } } });
+    expect(r.pending.some((p) => p.startsWith('channels'))).toBe(true);
+  });
 });

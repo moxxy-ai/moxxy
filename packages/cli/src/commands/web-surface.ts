@@ -29,8 +29,7 @@ export interface CoAttachWebOptions {
  * governs the shared session (we don't install the web channel's).
  *
  * Tunnel policy (no env): an explicit `channels.web.tunnel` wins; otherwise a
- * remote primary (Telegram) auto-selects cloudflared when installed and prompts
- * to install it when not; local primaries stay on the localhost URL.
+ * remote primary (Telegram) auto-selects the proxy relay; local primaries stay on the localhost URL.
  */
 export async function coAttachWebSurface(opts: CoAttachWebOptions): Promise<ChannelHandle | null> {
   const { primary, session, vault, config } = opts;
@@ -72,19 +71,18 @@ async function resolveTunnel(
   // or configured tunnel. Only auto-select here when nothing chose otherwise
   // (active is still the seeded localhost) AND the primary is remote.
   const activeName = session.tunnelProviders.getActive()?.name ?? 'localhost';
-  if (activeName === 'localhost' && REMOTE_CHANNELS.has(primary) && session.tunnelProviders.list().some((p) => p.name === 'cloudflared')) {
+  if (activeName === 'localhost' && REMOTE_CHANNELS.has(primary) && session.tunnelProviders.list().some((p) => p.name === 'proxy')) {
     try {
-      session.tunnelProviders.setActive('cloudflared');
+      session.tunnelProviders.setActive('proxy');
     } catch {
       /* keep localhost */
     }
   }
 
   const active = session.tunnelProviders.getActive();
-  if (active?.name === 'cloudflared' && active.isAvailable && !(await active.isAvailable())) {
+  if (active?.name === 'proxy' && active.isAvailable && !(await active.isAvailable())) {
     write(
-      `  note: cloudflared isn't installed, so built views can't be opened from ${primary}.\n` +
-        `        install it to share them remotely:  brew install cloudflared\n` +
+      `  note: the proxy relay isn't reachable, so built views can't be opened from ${primary}.\n` +
         `        (falling back to the local URL for now)\n`,
     );
     session.tunnelProviders.setActive('localhost');

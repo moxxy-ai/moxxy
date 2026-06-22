@@ -44,8 +44,6 @@ describe('@moxxy/sdk package root', () => {
   // re-export on the main barrel is caught (see .dependency-cruiser.cjs
   // `no-node-builtins-in-renderer`).
   const NODE_ONLY_VALUE_EXPORTS = [
-    'spawnCliTunnel',
-    'isCliTunnelAvailable',
     'writeFileAtomic',
     'writeFileAtomicSync',
     'moxxyHome',

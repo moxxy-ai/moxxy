@@ -29,6 +29,11 @@ export const APP_PERMISSIONS = [
    *  only. (On-device NER needs no permission: an app runs its own model from
    *  its own installed assets, fetched same-origin inside its sandbox.) */
   'anonymizer.engine',
+  /** Push a payload into the user's ACTIVE chat composer (review-in-composer):
+   *  the text is prefilled into the composer and the chat view is shown; the
+   *  user reviews/edits it and presses Send. The app cannot make the agent act
+   *  on its own — nothing reaches the model without the user pressing Send. */
+  'session.send',
 ] as const;
 
 export type AppPermission = (typeof APP_PERMISSIONS)[number];
@@ -45,4 +50,5 @@ export const PERMISSION_LABELS: Readonly<Record<AppPermission, string>> = {
   'documents.open': 'Open documents you choose (reads only what you pick)',
   'documents.save': 'Save its output to a location you choose',
   'anonymizer.engine': 'Detect & redact personal data on your device (offline)',
+  'session.send': 'Send text into your active chat (you review it before sending)',
 };

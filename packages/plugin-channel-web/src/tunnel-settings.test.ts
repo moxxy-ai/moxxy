@@ -17,8 +17,7 @@ describe('tunnel-settings', () => {
     for (const a of ['none', 'None', 'local', 'off', 'loopback', 'LOOPBACK']) {
       expect(normalizeTunnelName(a)).toBe('localhost');
     }
-    expect(normalizeTunnelName('Cloudflared')).toBe('cloudflared');
-    expect(normalizeTunnelName('ngrok')).toBe('ngrok');
+    expect(normalizeTunnelName('Proxy')).toBe('proxy');
   });
 
   it('returns undefined / {} when the file is missing', () => {
@@ -27,14 +26,14 @@ describe('tunnel-settings', () => {
   });
 
   it('round-trips a written setting (normalized)', async () => {
-    await writeTunnelSetting('cloudflared', file);
-    expect(readTunnelSetting(file)).toBe('cloudflared');
+    await writeTunnelSetting('proxy', file);
+    expect(readTunnelSetting(file)).toBe('proxy');
     await writeTunnelSetting('none', file);
     expect(readTunnelSetting(file)).toBe('localhost');
   });
 
   it('tolerates a corrupt file', async () => {
-    await writeTunnelSetting('ngrok', file);
+    await writeTunnelSetting('proxy', file);
     // overwrite with garbage
     rmSync(file);
     expect(readTunnelSetting(file)).toBeUndefined();

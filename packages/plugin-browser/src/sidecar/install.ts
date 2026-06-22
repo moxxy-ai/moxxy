@@ -67,10 +67,23 @@ export interface InstallPlaywrightOptions {
  * triggers this) but is invoked in the RUNNER process — `rootDir`'s node_modules
  * is the one the sidecar later imports `playwright` from.
  */
+/** Pin the npm install to this range so the one-click installer fetches a
+ *  vetted, deterministic version (matching the package's `playwright`
+ *  peerDependency) rather than whatever "latest" resolves to. */
+const PLAYWRIGHT_VERSION_RANGE = '^1.40.0';
+
 export async function installPlaywrightPackage(opts: InstallPlaywrightOptions): Promise<void> {
   const which = opts.browser ?? 'chromium';
-  opts.onProgress?.(`Installing the playwright npm package into ${opts.rootDir}…`);
-  await runProcess('npm', ['install', '--no-fund', '--no-audit', 'playwright'], opts);
+  opts.onProgress?.(
+    `Installing the playwright npm package (${PLAYWRIGHT_VERSION_RANGE}) into ${opts.rootDir}…`,
+  );
+  // `--save-exact false` keeps the range; the explicit version pin (vs bare
+  // "playwright") stops a hijacked registry "latest" from being pulled.
+  await runProcess(
+    'npm',
+    ['install', '--no-fund', '--no-audit', `playwright@${PLAYWRIGHT_VERSION_RANGE}`],
+    opts,
+  );
   opts.onProgress?.(`Downloading the ${which} browser engine (~150MB, one-time)…`);
   await runProcess('npx', ['playwright', 'install', which], opts);
   opts.onProgress?.('Playwright installed.');
@@ -169,20 +182,67 @@ async function launchOnce(browserType: BrowserType, headless: boolean): Promise<
  * passed through untouched so ordinary page loads don't pay a DNS round-trip
  * per subresource.
  *
- * Residual risk (also stated in the browser_session tool description):
- * SUBRESOURCE requests (img/fetch/script) from a loaded page are NOT
- * filtered. The browser's same-origin policy stops the page reading those
- * responses, but blind request side effects against internal services remain
- * possible. Filtering every request was judged disproportionate for now.
+ * Residual risk: by default SUBRESOURCE requests (img/fetch/script) from a
+ * loaded page are NOT filtered — a hostile page can fire blind GET/POSTs at
+ * internal services as side effects (the browser's same-origin policy stops it
+ * READING the responses, but the request still lands). Opt into filtering every
+ * request — at the cost of a (cached) DNS resolution per distinct host — by
+ * setting `MOXXY_BROWSER_FILTER_SUBRESOURCES=1`.
  */
 async function installNavigationSsrfGuard(context: PlaywrightHandle['context']): Promise<void> {
-  if (typeof context.route !== 'function') return; // loose projection: tolerate stubs without route()
+  if (typeof context.route !== 'function') {
+    // Loose projection: tests pass a stub without route(). But a REAL Playwright
+    // context always has route(), so if a production context ever reaches here
+    // the in-page navigation guard is silently absent — make that loud on stderr
+    // (the parent forwards it to the logger) instead of failing open invisibly.
+    process.stderr.write(
+      'moxxy-browser: WARNING context.route() unavailable — in-page navigation SSRF guard NOT installed\n',
+    );
+    return;
+  }
+  const filterSubresources = process.env.MOXXY_BROWSER_FILTER_SUBRESOURCES === '1';
+  // Cache per-host guard verdicts so the opt-in subresource path doesn't pay a
+  // DNS round-trip per request (pages fire dozens at the same few hosts).
+  // Bounded so a page referencing thousands of distinct hosts can't grow it
+  // without limit (oldest entries evicted; re-resolved on next sight).
+  const verdictCache = new Map<string, boolean>();
+  const MAX_VERDICT_CACHE = 2048;
+  const remember = (host: string, blocked: boolean): void => {
+    if (verdictCache.size >= MAX_VERDICT_CACHE) {
+      const oldest = verdictCache.keys().next().value;
+      if (oldest !== undefined) verdictCache.delete(oldest);
+    }
+    verdictCache.set(host, blocked);
+  };
   await context.route('**/*', async (route) => {
     const request = route.request();
-    if (!request.isNavigationRequest()) return route.continue();
+    const isNav = request.isNavigationRequest();
+    if (!isNav && !filterSubresources) return route.continue();
+    const url = request.url();
+    let host = '';
     try {
-      await assertPublicUrl(request.url(), 'browser_session navigation');
+      host = new URL(url).host;
     } catch {
+      // Unparseable URL — only the navigation path needs a hard verdict.
+      if (isNav) return route.abort('blockedbyclient');
+      return route.continue();
+    }
+    // Navigations are always re-checked live (cheap, and the cache is keyed by
+    // host so a vetted host stays vetted). Subresources consult the cache first.
+    const cached = !isNav ? verdictCache.get(host) : undefined;
+    if (cached === true) return route.abort('blockedbyclient');
+    if (cached === false) return route.continue();
+    try {
+      // fail-closed: an unresolvable name must not navigate the browser (whose
+      // resolver may differ from node:dns).
+      await assertPublicUrl(
+        url,
+        isNav ? 'browser_session navigation' : 'browser_session subresource',
+        { failClosed: true },
+      );
+      remember(host, false);
+    } catch {
+      remember(host, true);
       return route.abort('blockedbyclient');
     }
     return route.continue();

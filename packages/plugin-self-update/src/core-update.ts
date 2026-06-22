@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, promises as fs, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, promises as fs, readFileSync, realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeFileAtomic } from '@moxxy/sdk/server';
@@ -19,6 +19,16 @@ import { newTxnId } from './transaction.js';
 
 const SCOPE = '@moxxy/';
 const BUILD_TIMEOUT_MS = 12 * 60_000;
+/**
+ * Cap on the child-process output we retain in memory. A long, model-triggered
+ * `pnpm build/typecheck/test` (turbo fan-out, a looping test, a tool dumping a
+ * large file) can emit hundreds of MB; holding it all in the LIVE process would
+ * OOM-kill the host mid-update. Callers only ever read the trailing ~1.5KB, so a
+ * sliding tail is lossless for them.
+ */
+const MAX_RUN_OUTPUT_BYTES = 512 * 1024;
+/** A full git commit sha — the source-pin must compare exact 40-hex shas, never a prefix. */
+const FULL_SHA_RE = /^[0-9a-f]{40}$/;
 
 export function shortName(pkg: string): string {
   return pkg.startsWith(SCOPE) ? pkg.slice(SCOPE.length) : pkg;
@@ -36,23 +46,59 @@ export function run(
   timeoutMs = BUILD_TIMEOUT_MS,
 ): Promise<RunResult> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, [...args], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = '';
-    const onData = (d: Buffer): void => {
-      output += d.toString('utf8');
-    };
+    // `detached` puts the child in its own process group so a timeout can kill
+    // the WHOLE subtree (pnpm/turbo/vitest fan out to many grandchildren that
+    // SIGKILL on the immediate child would orphan).
+    const child = spawn(cmd, [...args], { cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const tail = new TailBuffer(MAX_RUN_OUTPUT_BYTES);
+    const onData = (d: Buffer): void => tail.push(d);
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
-    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
-    child.on('error', (err) => {
+    const timer = setTimeout(() => killTree(child), timeoutMs);
+    let settled = false;
+    const finish = (r: RunResult): void => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve({ code: -1, output: `${cmd} failed to start: ${err.message}` });
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ code: code ?? -1, output });
-    });
+      child.stdout.off('data', onData);
+      child.stderr.off('data', onData);
+      resolve(r);
+    };
+    child.on('error', (err) => finish({ code: -1, output: `${cmd} failed to start: ${err.message}` }));
+    child.on('close', (code) => finish({ code: code ?? -1, output: tail.toString() }));
   });
+}
+
+/**
+ * Bounded sliding-tail accumulator: keeps at most `cap` bytes of the most recent
+ * output. Once the cap is exceeded it trims from the front so memory stays
+ * O(cap) regardless of how much the child emits.
+ */
+class TailBuffer {
+  private buf = '';
+  constructor(private readonly cap: number) {}
+  push(d: Buffer): void {
+    this.buf += d.toString('utf8');
+    if (this.buf.length > this.cap) this.buf = this.buf.slice(this.buf.length - this.cap);
+  }
+  toString(): string {
+    return this.buf;
+  }
+}
+
+/** SIGKILL a detached child's whole process group, tolerating an already-dead group. */
+function killTree(child: { pid?: number; kill: (s: NodeJS.Signals) => boolean }): void {
+  try {
+    if (child.pid != null) process.kill(-child.pid, 'SIGKILL');
+    else child.kill('SIGKILL');
+  } catch {
+    // ESRCH: the group already exited. Fall back to the direct kill just in case.
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
 }
 
 function trunc(s: string, n = 1500): string {
@@ -69,11 +115,27 @@ export interface CoreInstallInfo {
 }
 
 /**
+ * Memoize the resolution per `fromUrl`: the live install root cannot move
+ * underneath a running process, yet detectCoreInstall is called from many tool
+ * handlers (preflight/begin/verify/apply/rollback) and does synchronous blocking
+ * I/O (readFileSync + an existsSync walk). Caching keeps that off the hot path.
+ * `null` results are cached too so repeated misses stay cheap.
+ */
+const coreInstallCache = new Map<string, CoreInstallInfo | null>();
+
+/**
  * Resolve the live `@moxxy/core` install to learn its version, the commit it
  * was published from (npm writes `gitHead` on publish), and the on-disk root
  * to overlay into.
  */
 export function detectCoreInstall(fromUrl: string): CoreInstallInfo | null {
+  if (coreInstallCache.has(fromUrl)) return coreInstallCache.get(fromUrl) ?? null;
+  const info = detectCoreInstallUncached(fromUrl);
+  coreInstallCache.set(fromUrl, info);
+  return info;
+}
+
+function detectCoreInstallUncached(fromUrl: string): CoreInstallInfo | null {
   try {
     // `require.resolve('@moxxy/core')` is unreliable — core's `exports` map has
     // no "." main. Instead locate the `@moxxy` scope dir by walking up from the
@@ -210,6 +272,41 @@ export async function listCoreTxns(moxxyDir: string): Promise<ReadonlyArray<Core
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/**
+ * Count core-txn dirs whose `journal.json` is present but unparseable. A corrupt
+ * (or hand-edited / half-written) journal would silently VANISH from
+ * listCoreTxns — making the begin serialization guard fail OPEN and let a second
+ * concurrent core txn clobber the shared repoDir. The guard uses this to instead
+ * fail CLOSED. A missing journal.json (a dir mid-create) is NOT corruption and
+ * is ignored.
+ */
+export async function countCorruptCoreTxns(moxxyDir: string): Promise<number> {
+  let ids: string[];
+  try {
+    ids = (await fs.readdir(coreTxnRoot(moxxyDir), { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    return 0;
+  }
+  let corrupt = 0;
+  for (const id of ids) {
+    const file = path.join(coreTxnDir(moxxyDir, id), 'journal.json');
+    let raw: string;
+    try {
+      raw = await fs.readFile(file, 'utf8');
+    } catch {
+      continue; // no journal yet — not corruption.
+    }
+    try {
+      JSON.parse(raw);
+    } catch {
+      corrupt++;
+    }
+  }
+  return corrupt;
+}
+
 // ── provisioning ────────────────────────────────────────────────────────────────
 export interface ProvisionResult {
   readonly ok: boolean;
@@ -250,8 +347,11 @@ export async function provisionWorkspace(opts: {
     const fetched = await run('git', ['fetch', 'origin', ref], dir);
     if (fetched.code === 0) await run('git', ['checkout', '--force', ref], dir);
   }
+  // Resolve the pinned ref to a full sha so a short/abbreviated gitHead can't
+  // prefix-match a DIFFERENT commit and defeat the source-equals-binary pin.
+  const refFull = (await run('git', ['rev-parse', ref], dir)).output.trim();
   const head = (await run('git', ['rev-parse', 'HEAD'], dir)).output.trim();
-  if (!head.startsWith(ref) && !ref.startsWith(head)) {
+  if (!FULL_SHA_RE.test(head) || !FULL_SHA_RE.test(refFull) || head !== refFull) {
     return {
       ok: false,
       message: `source mismatch: clone HEAD ${head.slice(0, 10)} ≠ installed gitHead ${ref.slice(0, 10)}`,
@@ -360,6 +460,17 @@ export async function detectNewDeps(
 /**
  * Swap each package's freshly-built `dist/` into the live install, keeping the
  * previous dist as a snapshot for rollback. Renames are atomic on the same fs.
+ *
+ * Crash-atomicity across packages: a multi-package overlay must not leave the
+ * install with a NEW core dist but an OLD cli dist (a version-skewed, possibly
+ * non-bootable combo) if the process is killed mid-loop. So we work in phases:
+ *   1. validate every package + snapshot every old dist,
+ *   2. stage every new dist (`dist.new`) — nothing live is touched yet,
+ *   3. write a `pending.json` intent recording the full set + staged paths,
+ *   4. swap all dists in a tight loop, then write `applied.json`.
+ * If the process dies between 3 and the final `applied.json`, a leftover
+ * `pending.json` lets {@link reconcileOverlay} (run on boot) complete or undo
+ * the partial set instead of stranding a mixed core.
  */
 export async function overlayPackages(opts: {
   readonly repo: string;
@@ -367,26 +478,48 @@ export async function overlayPackages(opts: {
   readonly pkgNames: ReadonlyArray<string>;
   readonly snapshotDir: string;
 }): Promise<{ ok: boolean; message: string; applied: string[] }> {
-  const applied: string[] = [];
   await fs.mkdir(opts.snapshotDir, { recursive: true });
+
+  // Phase 1 + 2: validate, snapshot old, stage new. No live dist is swapped yet,
+  // so a failure here leaves the install untouched (only orphaned dist.new dirs).
+  const planned: { pkgName: string; destDist: string; staged: string }[] = [];
   for (const pkgName of opts.pkgNames) {
     const repoPkg = await findRepoPkgDir(opts.repo, pkgName);
-    if (!repoPkg) return { ok: false, message: `package not found in clone: ${pkgName}`, applied };
+    if (!repoPkg) {
+      await cleanupStaged(planned);
+      return { ok: false, message: `package not found in clone: ${pkgName}`, applied: [] };
+    }
     const srcDist = path.join(repoPkg, 'dist');
-    if (!(await exists(srcDist))) return { ok: false, message: `no built dist for ${pkgName}`, applied };
-
+    if (!(await exists(srcDist))) {
+      await cleanupStaged(planned);
+      return { ok: false, message: `no built dist for ${pkgName}`, applied: [] };
+    }
     const destPkg = path.join(opts.install.scopeDir, shortName(pkgName));
     const destDist = path.join(destPkg, 'dist');
-
-    // Snapshot the current dist for rollback.
     if (await exists(destDist)) {
       await fs.cp(destDist, path.join(opts.snapshotDir, shortName(pkgName)), { recursive: true });
     }
-    // Stage the new dist on the same fs, then swap atomically.
-    const staged = path.join(destPkg, `dist.new`);
+    const staged = path.join(destPkg, 'dist.new');
     await fs.rm(staged, { recursive: true, force: true });
     await fs.cp(srcDist, staged, { recursive: true });
-    const bak = path.join(destPkg, `dist.bak`);
+    planned.push({ pkgName, destDist, staged });
+  }
+
+  // Phase 3: record the intent so an interrupted phase-4 swap is reconcilable.
+  await writeFileAtomic(
+    path.join(opts.snapshotDir, 'pending.json'),
+    JSON.stringify(
+      { packages: planned.map((p) => p.pkgName), at: new Date().toISOString() },
+      null,
+      2,
+    ),
+  );
+
+  // Phase 4: swap each staged dist into place. Atomic per package; the pending
+  // marker covers the (tiny) window where the set is only partially swapped.
+  const applied: string[] = [];
+  for (const { pkgName, destDist, staged } of planned) {
+    const bak = `${destDist}.bak`;
     await fs.rm(bak, { recursive: true, force: true });
     if (await exists(destDist)) await fs.rename(destDist, bak);
     await fs.rename(staged, destDist);
@@ -397,7 +530,49 @@ export async function overlayPackages(opts: {
     path.join(opts.snapshotDir, 'applied.json'),
     JSON.stringify({ packages: applied, at: new Date().toISOString() }, null, 2),
   );
+  // The swap completed; the pending intent is now satisfied.
+  await fs.rm(path.join(opts.snapshotDir, 'pending.json'), { force: true }).catch(() => undefined);
   return { ok: true, message: `overlaid ${applied.length} package(s)`, applied };
+}
+
+/** Remove any staged `dist.new` dirs from an aborted overlay plan. */
+async function cleanupStaged(
+  planned: ReadonlyArray<{ staged: string }>,
+): Promise<void> {
+  for (const { staged } of planned) {
+    await fs.rm(staged, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * Reconcile an overlay that was interrupted between intent and completion. If a
+ * `pending.json` exists without a matching `applied.json`, the swap loop may
+ * have run partially (some live dists new, some old) and left orphaned
+ * `dist.new`/`dist.bak`. Restoring from the snapshot returns every package to
+ * its pre-overlay dist so the install is internally consistent again; the caller
+ * marks the txn rolled_back. No-op when the overlay completed cleanly.
+ */
+export async function reconcileOverlay(opts: {
+  readonly install: CoreInstallInfo;
+  readonly pkgNames: ReadonlyArray<string>;
+  readonly snapshotDir: string;
+}): Promise<{ reconciled: boolean }> {
+  const pendingFile = path.join(opts.snapshotDir, 'pending.json');
+  if (!(await exists(pendingFile))) return { reconciled: false };
+  if (await exists(path.join(opts.snapshotDir, 'applied.json'))) {
+    // The full set landed; the pending marker is just stale. Clear it.
+    await fs.rm(pendingFile, { force: true }).catch(() => undefined);
+    return { reconciled: false };
+  }
+  await restoreOverlay(opts);
+  // Drop any orphaned staging dirs from the interrupted swap.
+  for (const pkgName of opts.pkgNames) {
+    const destPkg = path.join(opts.install.scopeDir, shortName(pkgName));
+    await fs.rm(path.join(destPkg, 'dist.new'), { recursive: true, force: true }).catch(() => undefined);
+    await fs.rm(path.join(destPkg, 'dist.bak'), { recursive: true, force: true }).catch(() => undefined);
+  }
+  await fs.rm(pendingFile, { force: true }).catch(() => undefined);
+  return { reconciled: true };
 }
 
 /** Reverse an overlay: restore each package's dist from the snapshot. */
@@ -420,20 +595,77 @@ async function exists(p: string): Promise<boolean> {
 }
 
 // ── boot-time finalize ────────────────────────────────────────────────────────────
+/** Whether the snapshot dir holds a consistent, fully-applied overlay for `pkgNames`. */
+async function overlayApplied(
+  snapshotDir: string,
+  pkgNames: ReadonlyArray<string>,
+): Promise<boolean> {
+  try {
+    const applied = JSON.parse(
+      await fs.readFile(path.join(snapshotDir, 'applied.json'), 'utf8'),
+    ) as { packages?: string[] };
+    const got = new Set(applied.packages ?? []);
+    return pkgNames.every((p) => got.has(p));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Called early on every CLI boot. Reaching this point means the (possibly
- * overlaid) core code imported successfully, so any `staged_restart` txn is
- * committed. Best-effort; the primary defense against a bad patch is the
- * pre-overlay build+typecheck+test in verify.
+ * overlaid) core code imported successfully, so a cleanly-applied
+ * `staged_restart` txn is committed. The primary defense against a bad patch is
+ * the pre-overlay build+typecheck+test in verify; this adds two boot-time
+ * safety nets when an `install` is supplied:
+ *  - reconcile an overlay interrupted mid-swap (partial dist set) by restoring
+ *    the snapshot, and mark that txn rolled_back rather than committing a mixed
+ *    core that merely imported far enough to reach this hook;
+ *  - refuse to commit unless `applied.json` records every journal package, so an
+ *    inconsistent overlay keeps its rollback snapshot instead of GC-ing it.
+ * Without `install` it stays best-effort (commits any staged txn) for callers
+ * that cannot resolve the live install.
  */
-export async function finalizeStagedCoreUpdate(moxxyDir: string): Promise<ReadonlyArray<string>> {
+export async function finalizeStagedCoreUpdate(
+  moxxyDir: string,
+  install?: CoreInstallInfo | null,
+  keepTerminal = 5,
+): Promise<ReadonlyArray<string>> {
   const committed: string[] = [];
   for (const j of await listCoreTxns(moxxyDir)) {
     if (j.state !== 'staged_restart') continue;
+    const snapDir = path.join(coreTxnDir(moxxyDir, j.txnId), 'snapshot');
+
+    if (install) {
+      const recon = await reconcileOverlay({
+        install,
+        pkgNames: j.packages,
+        snapshotDir: snapDir,
+      }).catch(() => ({ reconciled: false }));
+      if (recon.reconciled) {
+        j.state = 'rolled_back';
+        await writeCoreJournal(moxxyDir, j).catch(() => undefined);
+        continue;
+      }
+      if (!(await overlayApplied(snapDir, j.packages))) {
+        // The overlay never recorded a complete apply — restore and back out
+        // rather than commit (and then GC) a possibly-broken core.
+        await restoreOverlay({ install, pkgNames: j.packages, snapshotDir: snapDir }).catch(
+          () => undefined,
+        );
+        j.state = 'rolled_back';
+        await writeCoreJournal(moxxyDir, j).catch(() => undefined);
+        continue;
+      }
+    }
+
     j.state = 'committed';
     await writeCoreJournal(moxxyDir, j).catch(() => undefined);
     committed.push(j.txnId);
   }
+  // Reclaim disk: every core txn parks a full pre-overlay dist snapshot, so old
+  // terminal txns would otherwise accumulate unbounded. Boot is the safe, single
+  // place to prune (all staged txns above are now terminal). Best-effort.
+  await gcCoreTxns(moxxyDir, keepTerminal).catch(() => undefined);
   return committed;
 }
 
@@ -441,12 +673,72 @@ export function newCoreTxnId(now: Date = new Date()): string {
   return `core-${newTxnId(now)}`;
 }
 
-/** Resolve a clone-relative path, refusing anything that escapes the repo. */
+/**
+ * Prune old terminal core transactions. Each core txn parks a full pre-overlay
+ * `dist` snapshot of every patched package (tens of MB), and nothing else ever
+ * deletes them — left unbounded they accumulate on disk across every
+ * apply/rollback cycle. Keep only the most recent `keep` terminal
+ * (committed / rolled_back) txns; never touch a non-terminal one (an open /
+ * provisioned / verified / staged_restart txn whose snapshot finalize or a
+ * rollback may still need). Best-effort: a failed delete is ignored.
+ */
+export async function gcCoreTxns(moxxyDir: string, keep: number): Promise<void> {
+  const all = await listCoreTxns(moxxyDir);
+  const terminal = all.filter((j) => j.state === 'committed' || j.state === 'rolled_back');
+  for (const j of terminal.slice(Math.max(0, keep))) {
+    await fs.rm(coreTxnDir(moxxyDir, j.txnId), { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * Resolve a clone-relative path, refusing anything that escapes the repo —
+ * including via a symlink. `path.resolve` collapses literal `..`, but the clone
+ * is git-controlled and can contain symlinks, and core_write/core_edit follow
+ * them (fs.writeFile/readFile dereference), so a path that textually stays inside
+ * the repo but traverses a symlink could read or clobber files outside the clone
+ * (the live install, ~/.ssh, …). We therefore (1) keep the cheap textual gate,
+ * then (2) re-check against the realpath of the repo root and reject if any
+ * existing component of the target is a symlink.
+ */
 export function safeRepoPath(repo: string, rel: string): string {
-  const resolved = path.resolve(repo, rel);
   const root = path.resolve(repo);
+  const resolved = path.resolve(repo, rel);
   if (resolved !== root && !resolved.startsWith(root + path.sep)) {
     throw new Error(`path escapes the provisioned repo: ${rel}`);
   }
-  return resolved;
+
+  // Resolve the repo root through any symlinks once; everything must stay under it.
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    // Repo root not provisioned yet — the textual gate is the best we can do.
+    return resolved;
+  }
+
+  // The portion *inside* the repo is the path relative to the (textual) root —
+  // computed from `resolved`, NOT by re-resolving `rel` against realRoot. An
+  // absolute `rel` (legitimately repo-prefixed) makes `path.resolve(realRoot,
+  // rel)` ignore realRoot, and when the root traverses a symlink (e.g. macOS
+  // /var→/private/var, or a symlinked $HOME) the relative diff is then all `..`
+  // and a valid in-repo absolute path is wrongly rejected. Anchoring the
+  // already-validated in-repo segments onto realRoot avoids that.
+  const relParts = path.relative(root, resolved).split(path.sep).filter(Boolean);
+  if (relParts.some((p) => p === '..')) {
+    throw new Error(`path escapes the provisioned repo: ${rel}`);
+  }
+  let cur = realRoot;
+  for (const part of relParts) {
+    cur = path.join(cur, part);
+    let st;
+    try {
+      st = lstatSync(cur);
+    } catch {
+      break; // component doesn't exist yet (the file we're about to create) — stop.
+    }
+    if (st.isSymbolicLink()) {
+      throw new Error(`path traverses a symlink, refusing: ${rel}`);
+    }
+  }
+  return path.join(realRoot, ...relParts);
 }

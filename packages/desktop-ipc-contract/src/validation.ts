@@ -10,7 +10,22 @@
  */
 
 import { z } from 'zod';
+import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
+
+/** Single source of truth for the runtime attachment-kind enum. It is tied to
+ *  the SDK's `UserPromptAttachment.kind` union by the assertion below, so if the
+ *  SDK adds/removes a kind this stops compiling instead of silently drifting
+ *  (the Zod enum would otherwise reject legit payloads with no typecheck link). */
+const USER_PROMPT_ATTACHMENT_KINDS = ['stdin', 'file', 'image', 'document', 'audio'] as const;
+// Compile-time bidirectional check: the tuple's members exactly cover the union.
+type _AttachmentKindsCover = UserPromptAttachment['kind'] extends
+  (typeof USER_PROMPT_ATTACHMENT_KINDS)[number]
+  ? (typeof USER_PROMPT_ATTACHMENT_KINDS)[number] extends UserPromptAttachment['kind']
+    ? true
+    : never
+  : never;
+const _attachmentKindsCover: _AttachmentKindsCover = true;
 
 /** Mirror of the main-process provider-name guard: a strict slug so a
  *  provider name can't inject a CLI flag or traverse the vault keyspace. */
@@ -24,12 +39,16 @@ const httpUrl = z
   .string()
   .refine((s) => {
     try {
-      const p = new URL(s).protocol;
-      return p === 'http:' || p === 'https:';
+      const u = new URL(s);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+      // Reject embedded credentials: `https://accounts.google.com@evil/...`
+      // opened in the default browser is a phishing primitive, and the validator
+      // is the documented choke point in front of shell.openExternal.
+      return u.username === '' && u.password === '';
     } catch {
       return false;
     }
-  }, 'must be an http(s) URL');
+  }, 'must be an http(s) URL without embedded credentials');
 
 /** Skill names map to files under ~/.moxxy/skills — forbid traversal and
  *  absolute paths, allow nested folders. */
@@ -57,6 +76,36 @@ const MAX_AUDIO_BASE64 = 40_000_000;
 /** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
  *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
 const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
+/** Aggregate ceiling across ALL inline-attachment entries on one runTurn so the
+ *  per-entry cap × 8 entries can't sum to ~96 MB of base64 (~72 MB decoded) that
+ *  the host must buffer + decode at once. Bounds the single-call blast radius;
+ *  the per-CONNECTION budget across N concurrent bearer-holding peers is a
+ *  cross-package gateway concern (see deferred). 24 MB ≈ ~18 MB decoded — two
+ *  full 9 MB picks, which is the practical mobile ceiling. */
+const MAX_INLINE_ATTACHMENTS_TOTAL = 24_000_000;
+/** Strict base64 shape (optional `=` padding). Shared between the transcribe
+ *  guard and the inline-attachment guard so a non-base64 string never reaches a
+ *  `Buffer.from(x,'base64')` / provider decoder, which silently drops invalid
+ *  chars and decodes a partial/garbage buffer. Empty matches (the size bound,
+ *  not emptiness, is the host guard). */
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+/** Strict base64 (optional `=` padding) — MUST match the transcribe handler's
+ *  own `BASE64_RE` (packages/desktop-host/src/ipc/session.ts) so the contract
+ *  rejects the same malformed payload one hop EARLIER. Empty is allowed (the
+ *  size bound, not emptiness, is what guards the host here). */
+const base64 = z.string().max(MAX_AUDIO_BASE64).regex(BASE64_RE, 'must be base64');
+
+/** Inline-attachment kinds whose `content` is base64-encoded BYTES (vs. the
+ *  text kinds `stdin`/`file`, which carry inline UTF-8). For these the renderer-
+ *  /remote-supplied `content` is decoded host-side (mobile path) or handed to a
+ *  provider as image/document/audio data (`project-messages.ts`), so a malformed
+ *  base64 string would decode to garbage — reject it at the boundary, one hop
+ *  before any decoder, exactly as `session.transcribe` does for `audioBase64`. */
+const BASE64_ATTACHMENT_KINDS: ReadonlySet<UserPromptAttachment['kind']> = new Set([
+  'image',
+  'document',
+  'audio',
+]);
 
 /** Slash-command name — a registry slug, never a path or shell text. */
 const commandName = z
@@ -111,7 +160,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'provider.login.answer': z.object({ loginId, value: z.string().max(8192) }),
   'provider.login.cancel': z.object({ loginId }),
   'session.transcribe': z.object({
-    audioBase64: z.string().max(MAX_AUDIO_BASE64),
+    audioBase64: base64,
     mimeType: z.string().max(128).optional(),
   }),
   // Read-only snapshots and the abort RPC are reachable over the remote (WS)
@@ -152,17 +201,43 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       .max(64)
       .optional(),
     // Inline attachments cross the wire as payload (remote/mobile clients) —
-    // bound both the entry count and per-entry content size.
+    // bound the entry count, the per-entry content size, AND (below) the sum of
+    // all entries so 8 × the per-entry cap can't force ~72 MB of transient decode.
     inlineAttachments: z
       .array(
         z.object({
-          kind: z.enum(['stdin', 'file', 'image', 'document', 'audio']),
+          kind: z.enum(USER_PROMPT_ATTACHMENT_KINDS),
           content: z.string().max(MAX_INLINE_ATTACHMENT_CONTENT),
           name: z.string().max(1024).optional(),
           mediaType: z.string().max(128).optional(),
         }),
       )
       .max(8)
+      .superRefine((entries, ctx) => {
+        let total = 0;
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i]!;
+          // Binary kinds (image/document/audio) carry base64 bytes that get
+          // decoded host-side / by the provider — a non-base64 string would
+          // decode to garbage, so reject it here (text kinds carry UTF-8 and
+          // are intentionally unconstrained beyond the size cap).
+          if (BASE64_ATTACHMENT_KINDS.has(e.kind) && !BASE64_RE.test(e.content)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [i, 'content'],
+              message: `inline ${e.kind} attachment content must be base64`,
+            });
+          }
+          total += e.content.length;
+          if (total > MAX_INLINE_ATTACHMENTS_TOTAL) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `inline attachments exceed the ${MAX_INLINE_ATTACHMENTS_TOTAL}-char aggregate cap`,
+            });
+            return;
+          }
+        }
+      })
       .optional(),
   }),
   // Runs an arbitrary registered slash command — the audit flagged this as the
@@ -204,6 +279,19 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     workspaceId: z.string().min(1).max(256),
     path: z.string().min(1).max(4096),
     force: z.boolean().optional(),
+  }),
+  // Git (Files-changed pane + diff viewer) shells out to `git` with the
+  // renderer-supplied workspaceId, and git.diff additionally with a renderer
+  // path that reaches `git diff --no-index -- <devNull> <path>` for untracked
+  // files. They touch a child process + the filesystem, so they get the same
+  // boundary check as the sibling workspace.* commands (the cwd-scoping authz
+  // lives handler-side; this caps the shape so a hostile renderer can't OOM/
+  // smuggle an oversized argument across).
+  'git.isRepo': z.object({ workspaceId: z.string().min(1).max(256) }),
+  'git.status': z.object({ workspaceId: z.string().min(1).max(256) }),
+  'git.diff': z.object({
+    workspaceId: z.string().min(1).max(256),
+    path: z.string().min(1).max(4096),
   }),
   'settings.fetchProviderModels': z.object({ provider: providerName }),
   // Session config mutation — pin the effort to the known enum so a renderer
@@ -278,39 +366,24 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'mobileGateway.status': z.undefined(),
   'mobileGateway.rotateToken': z.undefined(),
   'mobileGateway.setEnabled': z.object({ enabled: z.boolean() }).strict(),
-  'chat.append': z.object({
-    workspaceId: z.string().min(1).max(256),
-    events: z.array(z.unknown()).max(10_000),
-  }),
-  'chat.loadSegment': z.object({
-    workspaceId: z.string().min(1).max(256),
-    before: z.number().int().nonnegative().nullable(),
-    limit: z.number().int().positive().max(1000),
-  }),
-  // Same shape as chat.loadSegment, but `before` is a runner `seq` cursor and
-  // the page is RAW events; the runner itself re-validates and caps at its own
-  // MAX_HISTORY_PAGE_LIMIT (2000), so bound the renderer's raw-window request to
-  // that ceiling.
+  // `before` is a runner `seq` cursor; the page is RAW events. The runner itself
+  // re-validates and caps at its own MAX_HISTORY_PAGE_LIMIT (2000), so bound the
+  // renderer's raw-window request to that ceiling.
   'chat.loadHistory': z.object({
     workspaceId: z.string().min(1).max(256),
     before: z.number().int().nonnegative().nullable(),
     limit: z.number().int().positive().max(2000),
   }),
-  'chat.clearLog': z.object({ workspaceId: z.string().min(1).max(256) }),
-  // chat.migrate writes the supplied events straight into per-workspace NDJSON
-  // logs on disk, so it's a filesystem-touching command: bound both the number
-  // of workspaces and the events per workspace, and lock the workspaceId to a
-  // non-empty bounded slug so it can't traverse out of the log directory.
-  'chat.migrate': z.object({
-    workspaces: z
-      .array(
-        z.object({
-          workspaceId: z.string().min(1).max(256),
-          events: z.array(z.unknown()).max(10_000),
-        }),
-      )
-      .max(100),
-  }),
+  // Collaboration control. All three touch the on-disk collab store
+  // (~/.moxxy/collab/{active.lock,runs}) — a filesystem-touching surface — so
+  // each gets the boundary check the module header promises:
+  //   - active: no-arg → pin the payload to "nothing" so no args smuggle across;
+  //   - history: a positive, bounded page size (matching the handler's 200
+  //     ceiling) so a hostile renderer can't push a non-integer/NaN/huge window;
+  //   - end: an optional, bounded workspace slug (the target runner to abort).
+  'collab.active': z.undefined(),
+  'collab.history': z.object({ limit: z.number().int().positive().max(200) }).partial().optional(),
+  'collab.end': z.object({ workspaceId: optionalWorkspace }).optional(),
   // Vault writes are security-sensitive: lock the key name to a safe slug
   // (letters/digits + . _ / - , no traversal) and bound the secret size.
   'settings.vaultSet': z.object({

@@ -38,6 +38,43 @@ export interface WorkflowRunCheckpoint {
   readonly parentTurnId?: string;
 }
 
+/**
+ * Canonical ulid shape (Crockford base32, 26 chars). `runId` reaches `load`/
+ * `remove` straight from the operator/UI across the IPC/WS/mobile trust
+ * boundary, so it is untrusted: anything but a real ulid (e.g.
+ * `../../../etc/passwd`) is rejected before it touches the filesystem,
+ * defeating path traversal through `path.join`.
+ */
+const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
+/**
+ * Resolve `<dir>/<runId>.json` only for a syntactically valid ulid, and assert
+ * the result stays inside `dir` (belt-and-suspenders against any future shape
+ * change). Returns null for an invalid id or an escaping path.
+ */
+function checkpointFile(dir: string, runId: string): string | null {
+  if (!ULID_RE.test(runId)) return null;
+  const file = path.join(dir, `${runId}.json`);
+  const root = path.resolve(dir) + path.sep;
+  if (!path.resolve(file).startsWith(root)) return null;
+  return file;
+}
+
+/** Minimal structural guard for a deserialized checkpoint (corrupt/tampered file). */
+function isValidCheckpoint(value: unknown): value is WorkflowRunCheckpoint {
+  if (!value || typeof value !== 'object') return false;
+  const c = value as Record<string, unknown>;
+  const wf = c.workflow as { steps?: unknown } | undefined;
+  return (
+    !!wf &&
+    typeof wf === 'object' &&
+    Array.isArray(wf.steps) &&
+    !!c.states &&
+    typeof c.states === 'object' &&
+    typeof c.pendingStepId === 'string'
+  );
+}
+
 export class WorkflowRunStore {
   constructor(private readonly dir = moxxyPath('workflow-runs', 'active')) {}
 
@@ -53,17 +90,22 @@ export class WorkflowRunStore {
   }
 
   async load(runId: string): Promise<WorkflowRunCheckpoint | null> {
-    const file = path.join(this.dir, `${runId}.json`);
+    const file = checkpointFile(this.dir, runId);
+    if (!file) return null;
     try {
       const raw = await fs.readFile(file, 'utf8');
-      return JSON.parse(raw) as WorkflowRunCheckpoint;
+      const parsed: unknown = JSON.parse(raw);
+      // A corrupt/truncated/tampered checkpoint must not crash resume — return
+      // null so callers surface the structured "no paused run" failure shape.
+      return isValidCheckpoint(parsed) ? parsed : null;
     } catch {
       return null;
     }
   }
 
   async remove(runId: string): Promise<void> {
-    const file = path.join(this.dir, `${runId}.json`);
+    const file = checkpointFile(this.dir, runId);
+    if (!file) return;
     try {
       await fs.unlink(file);
     } catch {

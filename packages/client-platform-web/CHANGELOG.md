@@ -1,5 +1,49 @@
 # @moxxy/client-platform-web
 
+## 0.1.29
+
+### Patch Changes
+
+- Updated dependencies [b19d401]
+  - @moxxy/sdk@0.16.0
+  - @moxxy/client-core@0.10.2
+
+## 0.1.28
+
+### Patch Changes
+
+- Updated dependencies [92fecb8]
+  - @moxxy/sdk@0.15.2
+  - @moxxy/client-core@0.10.1
+
+## 0.1.27
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+- Updated dependencies [e762d40]
+  - @moxxy/client-core@0.10.0
+  - @moxxy/sdk@0.15.1
+
+## 0.1.26
+
+### Patch Changes
+
+- Updated dependencies [668bd96]
+  - @moxxy/client-core@0.9.0
+
+## 0.1.25
+
+### Patch Changes
+
+- @moxxy/client-core@0.8.8
+
+## 0.1.24
+
+### Patch Changes
+
+- @moxxy/client-core@0.8.7
+
 ## 0.1.23
 
 ### Patch Changes

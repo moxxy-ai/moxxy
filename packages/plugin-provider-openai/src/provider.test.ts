@@ -73,11 +73,82 @@ describe('OpenAIProvider.stream', () => {
     expect(last).toMatchObject({ type: 'message_end', stopReason: 'tool_use' });
   });
 
+  it('surfaces an error (not a silent drop) when a backend streams tool arguments with no function name', async () => {
+    // Non-conforming OpenAI-compatible backend: argument deltas for an index
+    // but function.name is never sent. The call must not be swallowed.
+    const fake = fakeOpenAI([
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: '{"path":"/x"}' } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    ]);
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
+    expect(events.some((e) => e.type === 'tool_use_end')).toBe(false);
+    const err = events.find((e) => e.type === 'error');
+    expect(err).toMatchObject({ retryable: false });
+    expect((err as { message: string }).message).toMatch(/no function name/i);
+    expect(events[events.length - 1]).toMatchObject({ type: 'message_end', stopReason: 'error' });
+  });
+
+  it('surfaces an error (not a malformed _rawPartial input) when tool arguments are truncated/invalid JSON', async () => {
+    const fake = fakeOpenAI([
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'Read', arguments: '{"path":' } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    ]);
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
+    // No tool_use_end carrying a salvaged junk object.
+    expect(events.some((e) => e.type === 'tool_use_end')).toBe(false);
+    const err = events.find((e) => e.type === 'error');
+    expect(err).toMatchObject({ retryable: false });
+    expect((err as { message: string }).message).toMatch(/malformed|truncated/i);
+    expect(events[events.length - 1]).toMatchObject({ type: 'message_end', stopReason: 'error' });
+  });
+
+  it('recovers a named tool call whose start was never emitted (name only, no args delta)', async () => {
+    // An entry created with a name but where the start somehow was not flushed
+    // mid-stream is still surfaced at flush time rather than dropped.
+    const fake = fakeOpenAI([
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_9', function: { name: 'Glob', arguments: '{"pattern":"*.ts"}' } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    ]);
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
+    expect(events.find((e) => e.type === 'tool_use_start')).toMatchObject({ id: 'call_9', name: 'Glob' });
+    expect(events.find((e) => e.type === 'tool_use_end')).toMatchObject({ id: 'call_9', input: { pattern: '*.ts' } });
+  });
+
+  it('does not mutate a tool-call id after tool_use_start (a re-echoed id must not orphan the start)', async () => {
+    // A non-conforming backend re-sends a DIFFERENT id on a later delta for the
+    // same index. Once tool_use_start fired with the first id, that id is the
+    // dispatcher's correlation key — _delta/_end must keep using it, not the
+    // late one, or the tool result is dropped silently.
+    const fake = fakeOpenAI([
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_A', function: { name: 'Read', arguments: '{"p":' } }] } }] },
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_B', function: { arguments: '1}' } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    ]);
+    const p = new OpenAIProvider({ client: fake as never });
+    const events = [];
+    for await (const e of p.stream({ model: 'gpt-4o-mini', messages: [] })) events.push(e);
+    const start = events.find((e) => e.type === 'tool_use_start') as { id: string };
+    const end = events.find((e) => e.type === 'tool_use_end') as { id: string; input: unknown };
+    const deltas = events.filter((e) => e.type === 'tool_use_delta') as Array<{ id: string }>;
+    expect(start.id).toBe('call_A');
+    expect(end.id).toBe('call_A');
+    // Every delta correlates to the started id, not the re-echoed one.
+    for (const d of deltas) expect(d.id).toBe('call_A');
+    expect(end.input).toEqual({ p: 1 });
+  });
+
   it('maps OpenAI finish_reason values to moxxy stop reasons', async () => {
     const cases: Array<[string, string]> = [
       ['stop', 'end_turn'],
       ['length', 'max_tokens'],
       ['tool_calls', 'tool_use'],
+      ['function_call', 'tool_use'],
       ['content_filter', 'error'],
     ];
     for (const [reason, expected] of cases) {
@@ -301,6 +372,39 @@ describe('OpenAIProvider.stream', () => {
       messages: [{ role: 'user', content: [{ type: 'text', text: 'hello world' }] }],
     });
     expect(n).toBeGreaterThan(0);
+  });
+
+  it('countTokens does not stringify or over-count multi-MB base64 image/document blocks', async () => {
+    const p = new OpenAIProvider({ client: fakeOpenAI([]) as never });
+    // ~3MB base64 blob — JSON.stringify-ing this and counting its length would
+    // produce ~750k tokens. With the fixed per-block charge it stays bounded.
+    const bigData = 'A'.repeat(3_000_000);
+    const n = await p.countTokens({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'describe this' },
+            { type: 'image', mediaType: 'image/png', data: bigData },
+            { type: 'document', mediaType: 'application/pdf', data: bigData },
+          ],
+        },
+      ],
+    });
+    // Must reflect the text + a small constant per rich block, NOT the blob size.
+    expect(n).toBeGreaterThan(0);
+    expect(n).toBeLessThan(10_000);
+  });
+
+  it('configures an explicit timeout on the default client (no SDK 10-minute default)', () => {
+    // No injected client → real OpenAI ctor; assert the timeout is bounded.
+    const p = new OpenAIProvider({ apiKey: 'sk-test', timeoutMs: 5_000 });
+    const client = (p as unknown as { client: { timeout?: number } }).client;
+    expect(client.timeout).toBe(5_000);
+    const dflt = new OpenAIProvider({ apiKey: 'sk-test' });
+    const dfltClient = (dflt as unknown as { client: { timeout?: number } }).client;
+    expect(dfltClient.timeout).toBeLessThan(600_000);
   });
 
   it('delivers hook-injected req.system as a system message after the leading system prompt', async () => {

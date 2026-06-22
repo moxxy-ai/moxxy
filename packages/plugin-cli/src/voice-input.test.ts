@@ -32,6 +32,31 @@ process.stdout.write(Buffer.from([1, 2, 3, 4]), () => {
   return executable;
 }
 
+/** Fake ffmpeg that streams many small PCM chunks until told to quit, so we
+ *  can exercise the capture-byte ceiling (the cutoff writes 'q' to stdin). */
+async function makeFakeFfmpegStreaming(): Promise<string> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'moxxy-ffmpeg-stream-'));
+  tempDirs.push(dir);
+  const executable = path.join(dir, 'ffmpeg');
+  await writeFile(
+    executable,
+    `#!/usr/bin/env node
+let stop = false;
+process.stdin.on('data', () => { stop = true; });
+process.stdin.resume();
+const tick = () => {
+  if (stop) { process.exit(0); return; }
+  // 8 bytes per tick.
+  process.stdout.write(Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]), () => setTimeout(tick, 1));
+};
+tick();
+`,
+    { mode: 0o755 },
+  );
+  await chmod(executable, 0o755);
+  return executable;
+}
+
 async function makeFakeFfmpegVersion(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'moxxy-ffmpeg-version-'));
   tempDirs.push(dir);
@@ -118,6 +143,26 @@ describe('startVoiceRecording', () => {
     await expect(startVoiceRecording({ command: '/definitely/missing/ffmpeg', platform: 'darwin' }))
       .rejects
       .toThrow(/ffmpeg/i);
+  });
+
+  it('bounds the captured PCM at the byte ceiling and stops ffmpeg (no unbounded buffer)', async () => {
+    const executable = await makeFakeFfmpegStreaming();
+
+    const recording = await startVoiceRecording({
+      command: executable,
+      platform: 'darwin',
+      stopTimeoutMs: 2_000,
+      // Tiny ceiling so the runaway stream is cut off almost immediately.
+      maxCaptureBytes: 64,
+    });
+
+    const pcm = await recording.stop();
+
+    // Buffering halted at/under the ceiling rather than growing without bound,
+    // and the fake ffmpeg actually exited (stop() resolved instead of timing
+    // out into a SIGKILL with an empty buffer).
+    expect(pcm.byteLength).toBeGreaterThan(0);
+    expect(pcm.byteLength).toBeLessThanOrEqual(64);
   });
 });
 

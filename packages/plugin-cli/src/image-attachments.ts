@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 
@@ -61,9 +62,15 @@ export function detectPastedImagePath(pasted: string): DetectedImagePath | null 
   if (!/^(?:\/|~\/|[A-Za-z]:\\)/.test(candidate)) return null;
   const ext = path.extname(candidate).toLowerCase();
   if (!IMAGE_EXTENSIONS.has(ext)) return null;
-  const expanded = candidate.startsWith('~/')
-    ? path.join(process.env.HOME ?? '', candidate.slice(2))
-    : candidate;
+  let expanded = candidate;
+  if (candidate.startsWith('~/')) {
+    // Use os.homedir() (not $HOME, which is unset in some daemon/CI/Windows
+    // contexts) and bail rather than silently producing a bare relative path
+    // that would later read an unintended file under process.cwd().
+    const home = homedir();
+    if (!home) return null;
+    expanded = path.join(home, candidate.slice(2));
+  }
   const mediaType = MEDIA_TYPE_BY_EXT[ext];
   if (!mediaType) return null;
   return { absPath: expanded, mediaType, name: path.basename(expanded) };

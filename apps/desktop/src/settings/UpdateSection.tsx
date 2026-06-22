@@ -15,6 +15,7 @@
  * and only orchestrates + reflects status via `runUpdateAll`.
  */
 
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@moxxy/client-core';
 import { useAppUpdate } from '@moxxy/client-core';
 import { Section } from './settings-primitives';
@@ -287,13 +288,7 @@ export function UpdateSection(): JSX.Element {
                         )
                         .join('\n')}
                 </pre>
-                <button
-                  type="button"
-                  style={{ ...primaryBtn(false), background: 'var(--color-card-border-strong)' }}
-                  onClick={() => void navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)).catch(() => undefined)}
-                >
-                  Copy diagnostics
-                </button>
+                <CopyDiagnostics diagnostics={diagnostics} />
               </div>
             ) : (
               <p style={{ margin: 0, fontSize: 11.5, color: 'var(--color-text-dim)' }}>Loading…</p>
@@ -302,6 +297,65 @@ export function UpdateSection(): JSX.Element {
         </details>
       </div>
     </Section>
+  );
+}
+
+/** Copy the boot-log diagnostics JSON to the clipboard, surfacing the outcome.
+ *  The packaged-renderer Clipboard API can reject (permission / focus /
+ *  insecure-context) or even throw synchronously; swallowing that left the user
+ *  believing the copy worked. Announce success/failure via an aria-live region
+ *  so a screen reader hears it, and on failure tell the user to select the log
+ *  text above and copy it manually. */
+function CopyDiagnostics({ diagnostics }: { readonly diagnostics: unknown }): JSX.Element {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+  // Clear the reset timer on unmount so a closed disclosure / navigated-away
+  // panel can't setState after teardown (and the timer is released).
+  const resetTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
+
+  const copy = (): void => {
+    const reset = (ms: number): void => {
+      clearTimeout(resetTimer.current);
+      resetTimer.current = setTimeout(() => setStatus('idle'), ms);
+    };
+    const ok = (): void => {
+      setStatus('copied');
+      reset(1500);
+    };
+    const fail = (): void => {
+      setStatus('failed');
+      reset(4000);
+    };
+    try {
+      const p = navigator.clipboard?.writeText(JSON.stringify(diagnostics, null, 2));
+      if (p && typeof p.then === 'function') p.then(ok, fail);
+      else ok();
+    } catch {
+      fail();
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <button
+        type="button"
+        data-testid="copy-diagnostics"
+        style={{ ...primaryBtn(false), background: 'var(--color-card-border-strong)' }}
+        onClick={copy}
+      >
+        {status === 'copied' ? 'Copied' : 'Copy diagnostics'}
+      </button>
+      {/* Announce the copy outcome to screen readers; on failure, point the user
+          at the selectable log text above so they are never left guessing. */}
+      <span role="status" aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+        {status === 'copied' ? 'Diagnostics copied to clipboard.' : ''}
+      </span>
+      {status === 'failed' && (
+        <span data-testid="copy-diagnostics-failed" style={{ fontSize: 11.5, color: 'var(--color-red)' }}>
+          Copy failed — select the log text above and copy it manually.
+        </span>
+      )}
+    </div>
   );
 }
 

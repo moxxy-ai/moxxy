@@ -7,6 +7,7 @@ import {
   buildWorkflowsPlugin,
   defaultUserWorkflowsDir,
   defaultWorkflowRunStore,
+  sweepStaleRecords,
 } from '@moxxy/plugin-workflows';
 import {
   activeModel,
@@ -110,6 +111,19 @@ export function buildWorkflowsIntegration(args: {
         })
         .catch((err) =>
           logger?.warn?.('workflows: checkpoint sweep failed', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      // Sweep stale `*.jsonl` run records too (every runWorkflow appends one and
+      // nothing else removes them — over months of scheduled runs they grow
+      // without bound and slow `/workflows inspect`). Distinct dir from the
+      // checkpoint sweep above (`workflow-runs/*.jsonl`, not `.../active/*.json`).
+      void sweepStaleRecords()
+        .then((n) => {
+          if (n > 0) logger?.info?.('workflows: swept stale run records', { count: n });
+        })
+        .catch((err) =>
+          logger?.warn?.('workflows: run-record sweep failed', {
             err: err instanceof Error ? err.message : String(err),
           }),
         );

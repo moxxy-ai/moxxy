@@ -100,7 +100,12 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        run: pnpm test
+        # Cap turbo's package-level parallelism on the 4-vCPU runner: each
+        # package's vitest already spawns per-core workers, so the default
+        # fan-out oversubscribes CPU and makes timing-sensitive perf guards
+        # (e.g. anonymizer's O(n²)-redaction regression test) flake. Two packages
+        # at a time keeps total workers near core count without hiding regressions.
+        run: pnpm exec turbo run test --concurrency=2 && pnpm run test:scripts
 
       - name: Dependency invariants
         run: pnpm check:deps

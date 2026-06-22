@@ -191,6 +191,117 @@ describe('handleVoiceMessage', () => {
     });
   });
 
+  it('rejects an oversized upload before downloading it', async () => {
+    const session = makeSession();
+    session.transcribers.register(
+      defineTranscriber({
+        name: 't',
+        createClient: () => ({ name: 't', transcribe: async () => ({ text: 'x' }) }),
+      }),
+    );
+    session.transcribers.setActive('t');
+    const { ctx, replies, getFile } = fakeCtx({
+      voice: { file_id: 'f', file_size: 50 * 1024 * 1024 },
+    });
+    const runUserTurn = vi.fn();
+    const fetchAudio = vi.fn();
+    await handleVoiceMessage(
+      ctx,
+      { session, busy: false },
+      baseDeps(),
+      { runUserTurn, fetchAudio },
+    );
+    expect(replies.some((r) => /too large/.test(r))).toBe(true);
+    expect(getFile).not.toHaveBeenCalled();
+    expect(fetchAudio).not.toHaveBeenCalled();
+    expect(runUserTurn).not.toHaveBeenCalled();
+  });
+
+  it('rejects a body that exceeds the cap after download (Content-Length)', async () => {
+    const session = makeSession();
+    session.transcribers.register(
+      defineTranscriber({
+        name: 't',
+        createClient: () => ({ name: 't', transcribe: async () => ({ text: 'x' }) }),
+      }),
+    );
+    session.transcribers.setActive('t');
+    const { ctx, replies } = fakeCtx({ voice: { file_id: 'f' } });
+    const runUserTurn = vi.fn();
+    await handleVoiceMessage(
+      ctx,
+      { session, busy: false },
+      baseDeps(),
+      {
+        runUserTurn,
+        fetchAudio: vi.fn(async () => ({
+          ok: true,
+          headers: { get: (n: string) => (n === 'content-length' ? String(99 * 1024 * 1024) : null) },
+          arrayBuffer: async () => new ArrayBuffer(0),
+        })),
+      },
+    );
+    expect(replies.some((r) => /too large/.test(r))).toBe(true);
+    expect(runUserTurn).not.toHaveBeenCalled();
+  });
+
+  it('passes an AbortSignal to the fetch and reports a timeout abort', async () => {
+    const session = makeSession();
+    session.transcribers.register(
+      defineTranscriber({
+        name: 't',
+        createClient: () => ({ name: 't', transcribe: async () => ({ text: 'x' }) }),
+      }),
+    );
+    session.transcribers.setActive('t');
+    const { ctx, replies } = fakeCtx({ voice: { file_id: 'f' } });
+    const runUserTurn = vi.fn();
+    let sawSignal = false;
+    const fetchAudio = vi.fn(async (_url: string, init?: { signal?: AbortSignal }) => {
+      sawSignal = init?.signal instanceof AbortSignal;
+      // Simulate the AbortController firing mid-download.
+      const err = new Error('aborted');
+      (init?.signal as AbortSignal | undefined)?.dispatchEvent?.(new Event('abort'));
+      throw err;
+    });
+    await handleVoiceMessage(
+      ctx,
+      { session, busy: false },
+      baseDeps(),
+      { runUserTurn, fetchAudio },
+    );
+    expect(sawSignal).toBe(true);
+    expect(replies.some((r) => /Failed to download|timed out/.test(r))).toBe(true);
+    expect(runUserTurn).not.toHaveBeenCalled();
+  });
+
+  it('replies (not throws) when getFile itself fails', async () => {
+    const session = makeSession();
+    session.transcribers.register(
+      defineTranscriber({
+        name: 't',
+        createClient: () => ({ name: 't', transcribe: async () => ({ text: 'x' }) }),
+      }),
+    );
+    session.transcribers.setActive('t');
+    const { ctx, replies } = fakeCtx({ voice: { file_id: 'f' } });
+    // Override getFile to throw.
+    (ctx.api as unknown as { getFile: () => Promise<never> }).getFile = vi.fn(async () => {
+      throw new Error('network down');
+    });
+    const runUserTurn = vi.fn();
+    await expect(
+      handleVoiceMessage(
+        ctx,
+        { session, busy: false },
+        baseDeps(),
+        { runUserTurn, fetchAudio: okFetch(new Uint8Array([1])) },
+      ),
+    ).resolves.toBeUndefined();
+    expect(replies.some((r) => /Could not look up/.test(r))).toBe(true);
+    expect(runUserTurn).not.toHaveBeenCalled();
+  });
+
   it('handles uploaded audio (message:audio) with its own mime_type', async () => {
     const session = makeSession();
     const transcribe = vi.fn(async () => ({ text: 'recorded earlier' }));

@@ -3,7 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Defense-in-depth, mirrors the HTTP CSP header in channel.ts serveFile.
+         Scripts are 'self' only (no inline); the inline <style> below needs
+         style-src 'unsafe-inline'; connect-src permits the surface WebSocket. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
     <title>moxxy</title>
+    <!--moxxy:base-->
     <style>
       :root {
         --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --line: #2a2f3a;
@@ -149,10 +158,21 @@
       .v-diff-gap .v-diff-mark { color: var(--muted); }
       .v-diff-trunc { padding: 4px 10px; color: var(--warn); font-size: 12px;
         border-top: 1px solid var(--line); background: var(--panel2); }
+      /* Screen-reader-only: present in the a11y tree (live-region announcements)
+         but visually removed. Standard clip pattern, no layout impact. */
+      .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0;
+        margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+      /* Respect a user's reduced-motion preference: stop the infinite spinner
+         and skeleton shimmer (vestibular safety) and neutralize transitions. */
+      @media (prefers-reduced-motion: reduce) {
+        .v-spin { animation: none; }
+        .v-skel-row { animation: none; background: var(--panel2); }
+        * { transition: none !important; scroll-behavior: auto !important; }
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
-    <script src="/app.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>

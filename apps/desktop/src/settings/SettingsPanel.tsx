@@ -10,20 +10,90 @@ import { PreferencesTab } from './PreferencesTab';
 import { SearchBox } from './settings-primitives';
 import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
 
-type Tab = 'providers' | 'mcp' | 'skills' | 'vault' | 'mobile' | 'preferences';
+type SettingsSlice = ReturnType<typeof useSettings>;
 
-const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
-  { id: 'providers', label: 'Providers' },
-  { id: 'mcp', label: 'MCP' },
-  { id: 'skills', label: 'Skills' },
-  { id: 'vault', label: 'Vault' },
-  { id: 'mobile', label: 'Mobile' },
-  { id: 'preferences', label: 'Preferences' },
+/** Context every tab's `render` receives — the settings slice plus the shared
+ *  search query so each descriptor owns its own filtering. */
+interface TabContext {
+  readonly s: SettingsSlice;
+  readonly query: string;
+  readonly setQuery: (v: string) => void;
+}
+
+/** A single source of truth for the settings tabs: its id/label, whether it
+ *  reads the runner-backed slice (`standalone` = render outside the shared
+ *  loading/error chrome), and how it renders. Adding a tab is one entry here —
+ *  the nav, the standalone set, and per-tab filtering all derive from it. */
+interface TabDescriptor {
+  readonly id: string;
+  readonly label: string;
+  readonly standalone: boolean;
+  readonly render: (ctx: TabContext) => JSX.Element;
+}
+
+function filtered<T extends { name: string }>(items: ReadonlyArray<T>, query: string): ReadonlyArray<T> {
+  const q = query.trim().toLowerCase();
+  return q ? items.filter((i) => i.name.toLowerCase().includes(q)) : items;
+}
+
+const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
+  {
+    id: 'providers',
+    label: 'Providers',
+    standalone: false,
+    render: ({ s, query, setQuery }) => (
+      <ProvidersTab
+        providers={filtered(s.providers, query)}
+        onToggle={s.setProviderEnabled}
+        onConfigure={s.configureProvider}
+        onSetKey={s.setProviderKey}
+        onRefresh={s.refresh}
+        search={<SearchBox value={query} onChange={setQuery} placeholder="Search providers…" />}
+      />
+    ),
+  },
+  {
+    id: 'mcp',
+    label: 'MCP',
+    standalone: false,
+    render: ({ s, query, setQuery }) => (
+      <McpTab
+        servers={filtered(s.mcp, query)}
+        onToggle={s.toggleMcp}
+        onRefresh={s.refresh}
+        search={<SearchBox value={query} onChange={setQuery} placeholder="Search MCP servers…" />}
+      />
+    ),
+  },
+  {
+    id: 'skills',
+    label: 'Skills',
+    standalone: false,
+    render: ({ s }) => <SkillsView s={s} />,
+  },
+  {
+    id: 'vault',
+    label: 'Vault',
+    standalone: false,
+    render: ({ s, query, setQuery }) => (
+      <VaultTab
+        vault={filtered(s.vault, query)}
+        search={<SearchBox value={query} onChange={setQuery} placeholder="Search vault…" />}
+        onAdd={s.setVaultKey}
+        onRemove={s.removeVaultKey}
+      />
+    ),
+  },
+  { id: 'mobile', label: 'Mobile', standalone: true, render: () => <MobileTab /> },
+  { id: 'preferences', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
 ];
 
-// Tabs that don't read the runner-backed settings slice — render them outside
-// the shared loading / error chrome (like Preferences / Mobile).
-const STANDALONE_TABS: ReadonlySet<Tab> = new Set<Tab>(['preferences', 'mobile']);
+type Tab = (typeof TAB_DESCRIPTORS)[number]['id'];
+
+const TABS: ReadonlyArray<{ id: Tab; label: string }> = TAB_DESCRIPTORS.map(({ id, label }) => ({
+  id,
+  label,
+}));
 
 /**
  * Tabbed settings panel — providers, MCP servers, skills, vault. Each tab
@@ -51,11 +121,9 @@ export function SettingsPanel({
   const s = useSettings();
   const [tab, setTab] = useState<Tab>('providers');
   const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
 
-  const providers = q ? s.providers.filter((p) => p.name.toLowerCase().includes(q)) : s.providers;
-  const mcp = q ? s.mcp.filter((m) => m.name.toLowerCase().includes(q)) : s.mcp;
-  const vault = q ? s.vault.filter((v) => v.name.toLowerCase().includes(q)) : s.vault;
+  const active = TAB_DESCRIPTORS.find((d) => d.id === tab) ?? TAB_DESCRIPTORS[0]!;
+  const ctx: TabContext = { s, query, setQuery };
 
   return (
     <>
@@ -90,12 +158,12 @@ export function SettingsPanel({
         }}
       >
 
-      {/* Preferences + Mobile are independent of the runner-backed settings
-          slice — render them without the shared loading / error chrome below. */}
-      {tab === 'preferences' && <PreferencesTab />}
-      {tab === 'mobile' && <MobileTab />}
+      {/* Standalone tabs (Preferences / Mobile) are independent of the
+          runner-backed settings slice — render them without the shared
+          loading / error chrome below. */}
+      {active.standalone && active.render(ctx)}
 
-      {!STANDALONE_TABS.has(tab) && s.error && (
+      {!active.standalone && s.error && (
         <div
           role="alert"
           style={{
@@ -116,42 +184,14 @@ export function SettingsPanel({
         </div>
       )}
 
-      {STANDALONE_TABS.has(tab) ? null : s.loading ? (
+      {active.standalone ? null : s.loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Skeleton.Card />
           <Skeleton.Card />
           <Skeleton.Card />
         </div>
       ) : (
-        <>
-          {tab === 'providers' && (
-            <ProvidersTab
-              providers={providers}
-              onToggle={s.setProviderEnabled}
-              onConfigure={s.configureProvider}
-              onSetKey={s.setProviderKey}
-              onRefresh={s.refresh}
-              search={<SearchBox value={query} onChange={setQuery} placeholder="Search providers…" />}
-            />
-          )}
-          {tab === 'mcp' && (
-            <McpTab
-              servers={mcp}
-              onToggle={s.toggleMcp}
-              onRefresh={s.refresh}
-              search={<SearchBox value={query} onChange={setQuery} placeholder="Search MCP servers…" />}
-            />
-          )}
-          {tab === 'skills' && <SkillsView s={s} />}
-          {tab === 'vault' && (
-            <VaultTab
-              vault={vault}
-              search={<SearchBox value={query} onChange={setQuery} placeholder="Search vault…" />}
-              onAdd={s.setVaultKey}
-              onRemove={s.removeVaultKey}
-            />
-          )}
-        </>
+        active.render(ctx)
       )}
       </div>
     </>

@@ -1,12 +1,44 @@
 import {
-  countNodes,
   defineTool,
   definePlugin,
   z,
   type Plugin,
   type ViewDoc,
+  type ViewNode,
+  type ToolContext,
   type ViewRendererDef,
 } from '@moxxy/sdk';
+
+/**
+ * Hard ceiling on the validated AST size. The zod `spec` cap (20k chars) only
+ * bounds the *source* — rich components (e.g. `results`) expand at parse time
+ * into many primitives, and a swapped-in custom renderer is not bound by core's
+ * parse-depth cap at all. The full AST is JSON-serialized into the tool_result,
+ * round-trips back into model context, and is streamed verbatim to every
+ * web-surface client, so it must be bounded independently of the source length.
+ */
+const MAX_VIEW_NODES = 2_000;
+
+/**
+ * Iterative (stack-safe) node count. Unlike the recursive `countNodes` in the
+ * SDK, this cannot overflow the call stack on a pathologically deep AST that a
+ * custom renderer might return (core's default parser caps depth, but a
+ * swapped-in renderer need not). Short-circuits once `limit` is exceeded so a
+ * huge tree is rejected without walking all of it.
+ */
+function countNodesBounded(root: ViewNode, limit: number): number {
+  const stack: ViewNode[] = [root];
+  let count = 0;
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    count++;
+    if (count > limit) return count;
+    if (node.kind === 'element') {
+      for (const child of node.children) stack.push(child);
+    }
+  }
+  return count;
+}
 
 /**
  * A live view surface the tool can query for the public URL + the next view id
@@ -55,31 +87,93 @@ export function buildViewPlugin(opts: BuildViewPluginOptions): Plugin {
         .optional()
         .describe('Plain-text summary shown on channels that cannot render views.'),
     }),
-    handler: (input): PresentViewResult => {
+    handler: (input, ctx?: ToolContext): PresentViewResult => {
+      // Short-circuit a cancelled turn before the heaviest work (parse + count
+      // + AST serialization on a near-20k spec). ctx is optional only so unit
+      // tests can call the handler bare; the registry always supplies it.
+      if (ctx?.signal?.aborted) {
+        return { ok: false, rendered: false, errors: [{ message: 'aborted' }] };
+      }
       const renderer = opts.getRenderer();
       if (!renderer) {
         return { ok: false, rendered: false, errors: [{ message: 'no active view renderer' }] };
       }
-      const result = renderer.parse(input.spec);
-      if (!result.ok) {
-        return { ok: false, rendered: false, errors: result.errors.map((e) => ({ message: e.message, line: e.line })) };
+      // `renderer.parse` is a caller-supplied closure: core's default renderer
+      // never throws (it wraps everything, even a RangeError, into a structured
+      // result), but a swapped-in custom renderer carries no such guarantee. A
+      // throw here would surface as a generic turn-level error instead of a
+      // structured tool result, so guard it like every other external closure.
+      let result: ReturnType<ViewRendererDef['parse']>;
+      try {
+        result = renderer.parse(input.spec);
+      } catch (e) {
+        const message = e instanceof Error && e.message ? e.message : 'view renderer failed';
+        return { ok: false, rendered: false, errors: [{ message }] };
       }
-      const surface = opts.getSurface?.() ?? null;
-      const viewId = surface?.nextViewId();
+      if (!result.ok) {
+        // `errors` may be malformed (custom renderer); degrade to a single
+        // generic error rather than throwing on a non-iterable `.map`.
+        const errs = Array.isArray(result.errors)
+          ? result.errors.map((e) => ({ message: e?.message ?? 'parse error', line: e?.line }))
+          : [{ message: 'view renderer reported a parse failure' }];
+        return { ok: false, rendered: false, errors: errs };
+      }
+      // A custom renderer can return `ok:true` with a missing/null doc or root;
+      // reject with an honest message instead of letting the count below crash
+      // and report "too deeply nested".
+      const root = result.doc?.root;
+      if (root == null || (root.kind !== 'element' && root.kind !== 'text')) {
+        return { ok: false, rendered: false, errors: [{ message: 'view renderer returned a malformed AST' }] };
+      }
+      // Bound the AST independently of the source length. countNodesBounded is
+      // iterative so a deep tree from a custom renderer cannot overflow the
+      // stack; we still wrap defensively so the handler can never throw.
+      let nodeCount: number;
+      try {
+        nodeCount = countNodesBounded(root, MAX_VIEW_NODES);
+      } catch {
+        return { ok: false, rendered: false, errors: [{ message: 'view too deeply nested' }] };
+      }
+      if (nodeCount > MAX_VIEW_NODES) {
+        return {
+          ok: false,
+          rendered: false,
+          errors: [{ message: `view too large (${nodeCount}+ nodes; max ${MAX_VIEW_NODES})` }],
+        };
+      }
+      // The surface closures are caller-supplied and read mutable shared state
+      // (web channel minter); never let a fault there turn a successful parse
+      // into a turn-level throw — degrade to the documented parsed-only result.
+      let surface: ViewSurface | null = null;
+      let viewId: string | undefined;
+      try {
+        surface = opts.getSurface?.() ?? null;
+        viewId = surface?.nextViewId();
+        // An empty-string id is a minter fault, not "no surface": treat the
+        // surface as absent rather than claiming rendered:true with no id.
+        if (surface != null && (viewId == null || viewId === '')) {
+          surface = null;
+          viewId = undefined;
+        }
+      } catch {
+        surface = null;
+        viewId = undefined;
+      }
       return {
         ok: true,
         rendered: surface != null,
         ...(surface?.url ? { url: surface.url } : {}),
-        ...(viewId ? { viewId } : {}),
-        nodeCount: countNodes(result.doc.root),
+        ...(viewId != null ? { viewId } : {}),
+        nodeCount,
         ast: result.doc,
       };
     },
   });
 
+  // No hardcoded `version`: it only ever drifts from package.json. The real
+  // package version is captured from the resolved plugin manifest at load time.
   return definePlugin({
     name: '@moxxy/plugin-view',
-    version: '0.0.0',
     tools: [presentView],
   });
 }

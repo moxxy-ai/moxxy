@@ -2,7 +2,7 @@ import { defineChannel, defineTool, definePlugin, z, type Plugin } from '@moxxy/
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { Api } from 'grammy';
 import { TelegramChannel } from './channel.js';
-import { TELEGRAM_AUTHORIZED_CHAT_KEY, TELEGRAM_TOKEN_KEY } from './keys.js';
+import { TELEGRAM_AUTHORIZED_CHAT_KEY, TELEGRAM_TOKEN_KEY, parseChatId } from './keys.js';
 import { runTelegramWizard } from './setup-wizard.js';
 import { runPairFlow } from './pair-flow.js';
 
@@ -133,7 +133,7 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
                 JSON.stringify(
                   {
                     tokenConfigured: hasToken,
-                    authorizedChatId: authorized ? Number(authorized) : null,
+                    authorizedChatId: parseChatId(authorized),
                   },
                   null,
                   2,
@@ -168,7 +168,7 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
           const authorized = await opts.vault.get(AUTHORIZED_CHAT_KEY);
           return {
             tokenConfigured: hasToken,
-            authorizedChatId: authorized ? Number(authorized) : null,
+            authorizedChatId: parseChatId(authorized),
           };
         },
       }),
@@ -194,8 +194,7 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
             );
           }
           const targetChat =
-            chatId ??
-            (await opts.vault.get(AUTHORIZED_CHAT_KEY).then((v) => (v ? Number(v) : null)));
+            chatId ?? parseChatId(await opts.vault.get(AUTHORIZED_CHAT_KEY));
           if (!targetChat) {
             throw new Error(
               'no authorized chat — run `moxxy channels telegram pair` first or pass `chatId` explicitly',

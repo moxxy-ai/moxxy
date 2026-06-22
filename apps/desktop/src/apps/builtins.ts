@@ -15,6 +15,7 @@ registerDesktopApp({
   offline: true,
   requiresInstall: true,
   installSummary:
-    'Downloads a ~110 MB on-device model for detecting names. After install it runs fully offline.',
+    'Downloads a ~300 MB multilingual on-device model for detecting names (Polish, English & more). After install it runs fully offline.',
+  canSendToSession: true,
   Component: AnonymizerApp,
 });

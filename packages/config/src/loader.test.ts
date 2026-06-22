@@ -70,6 +70,26 @@ describe('loadConfig', () => {
     await expect(loadConfig({ cwd: tmp, skipUser: true })).rejects.toThrow(/default-export/);
   });
 
+  it('reloads a rewritten .mjs config freshly even on rapid successive loads', async () => {
+    // The first import is plain (single module-registry entry, no per-load
+    // cache-buster → no leak); subsequent reloads append a monotonic-counter
+    // buster so back-to-back reloads in the same millisecond can't return the
+    // stale cached module. Use .mjs so it goes through importJsConfig, not jiti.
+    const file = path.join(tmp, 'moxxy.config.mjs');
+    await fs.writeFile(file, `export default { mode: 'default' };`);
+    const first = await loadConfig({ cwd: tmp, skipUser: true });
+    expect(first.config.mode).toBe('default');
+
+    await fs.writeFile(file, `export default { mode: 'goal' };`);
+    // Two reloads with no delay between them (same-ms risk).
+    const [a, b] = await Promise.all([
+      loadConfig({ cwd: tmp, skipUser: true }),
+      loadConfig({ cwd: tmp, skipUser: true }),
+    ]);
+    expect(a.config.mode).toBe('goal');
+    expect(b.config.mode).toBe('goal');
+  });
+
   it('resolves each .ts config\'s relative imports against ITS OWN dir (jiti cache keyed by cwd)', async () => {
     // Two projects in two dirs, each with a .ts config that imports a sibling
     // module. A jiti instance binds its resolution base to the dir it was

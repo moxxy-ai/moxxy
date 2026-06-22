@@ -4,11 +4,19 @@
  * diff library — git already produced the unified text; we just style it.
  */
 
+/** Cap the DOM nodes materialized for a single diff. The server already caps
+ *  `git.diff`, but a near-cap diff (many thousands of lines) rendered as one
+ *  styled <div> per line can still briefly freeze the rail. Beyond this we stop
+ *  and show a truncation note rather than mount unbounded nodes. */
+const MAX_DIFF_LINES = 4000;
+
 export function DiffView({ diff }: { readonly diff: string }): JSX.Element {
   if (!diff.trim()) {
     return <Empty>No changes.</Empty>;
   }
-  const lines = diff.split('\n');
+  const allLines = diff.split('\n');
+  const truncated = allLines.length > MAX_DIFF_LINES;
+  const lines = truncated ? allLines.slice(0, MAX_DIFF_LINES) : allLines;
   return (
     <pre
       className="mono"
@@ -29,6 +37,11 @@ export function DiffView({ diff }: { readonly diff: string }): JSX.Element {
           {line || ' '}
         </div>
       ))}
+      {truncated && (
+        <div style={{ color: 'var(--color-text-dim)', padding: '8px 0' }}>
+          … diff truncated ({allLines.length - MAX_DIFF_LINES} more lines)
+        </div>
+      )}
     </pre>
   );
 }

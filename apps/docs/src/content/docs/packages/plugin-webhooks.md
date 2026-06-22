@@ -133,7 +133,7 @@ Override the root with `$MOXXY_HOME`.
 
 ## See also
 
-- [Webhooks guide](../guides/webhooks) — end-to-end setup for a
+- [Webhooks guide](../guides/webhooks.md) — end-to-end setup for a
   non-technical user.
-- [Running as a service](../guides/running-as-a-service) — keep the
+- [Running as a service](../guides/running-as-a-service.md) — keep the
   listener alive across reboots via `moxxy serve --background`.

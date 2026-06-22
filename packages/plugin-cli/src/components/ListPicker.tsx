@@ -87,6 +87,9 @@ export const ListPicker: React.FC<ListPickerProps> = ({
   const [activeTabId, setActiveTabId] = useState<string | undefined>(defaultTabId);
   const [query, setQuery] = useState('');
   const [cursor, setCursor] = useState(0);
+  // Brief feedback when Enter lands on an empty/filtered-to-nothing list so
+  // the keystroke isn't a silent no-op (reads as a frozen UI otherwise).
+  const [noSelectNotice, setNoSelectNotice] = useState(false);
 
   const activeTab = useMemo(
     () => (hasTabs ? tabs!.find((t) => t.id === activeTabId) ?? tabs![0]! : null),
@@ -118,6 +121,13 @@ export const ListPicker: React.FC<ListPickerProps> = ({
   useEffect(() => {
     if (cursor >= filtered.length) setCursor(Math.max(0, filtered.length - 1));
   }, [filtered.length, cursor]);
+  // Drop the "no selectable item" notice as soon as the user types/edits or a
+  // match appears, so it only marks the dead Enter that triggered it.
+  useEffect(() => {
+    if (noSelectNotice) setNoSelectNotice(false);
+    // Only react to query / match-set changes — not to the notice toggle itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, filtered.length]);
 
   // Default the cursor to the `current` option on first render so the
   // user lands on their active choice instead of the top of the list.
@@ -149,6 +159,7 @@ export const ListPicker: React.FC<ListPickerProps> = ({
     if (key.return) {
       const picked = filtered[cursor];
       if (picked) onSelect(picked.id);
+      else setNoSelectNotice(true); // Enter on an empty list: acknowledge the keystroke
       return;
     }
     if (hasTabs && (key.leftArrow || key.rightArrow)) {
@@ -219,8 +230,12 @@ export const ListPicker: React.FC<ListPickerProps> = ({
       ) : null}
       <Box flexDirection="column">
         {filtered.length === 0 ? (
-          <Text dimColor>
-            {query ? `(no options match "${query}")` : '(no options)'}
+          <Text {...(noSelectNotice ? { color: Colors.busy } : { dimColor: true })}>
+            {noSelectNotice
+              ? 'nothing to select — clear the filter or press Esc'
+              : query
+                ? `(no options match "${query}")`
+                : '(no options)'}
           </Text>
         ) : null}
         {moreAbove > 0 ? <Text dimColor>{`  ↑ ${moreAbove} more`}</Text> : null}

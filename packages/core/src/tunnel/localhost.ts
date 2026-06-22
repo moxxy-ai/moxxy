@@ -3,7 +3,7 @@ import { defineTunnelProvider } from '@moxxy/sdk';
 /**
  * The default tunnel provider: no tunnel at all, just the local URL. Used when
  * the surface and the user share a machine (TUI), or when no real tunnel
- * (cloudflared) is configured/installed.
+ * (the proxy relay) is configured.
  */
 export const localhostTunnel = defineTunnelProvider({
   name: 'localhost',

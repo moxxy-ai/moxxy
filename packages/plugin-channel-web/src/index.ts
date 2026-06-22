@@ -1,13 +1,10 @@
 import { defineChannel, definePlugin, defineTool, z, type Plugin, type TunnelProviderDef } from '@moxxy/sdk';
+import { proxyTunnel } from '@moxxy/plugin-tunnel-proxy';
 import { WebChannel, type WebSurfaceControls } from './channel.js';
-import { cloudflaredTunnel } from './cloudflared.js';
-import { ngrokTunnel } from './ngrok.js';
 import { normalizeTunnelName, readTunnelSetting, writeTunnelSetting } from './tunnel-settings.js';
 
 export { WebChannel, type WebChannelOptions, type WebStartOpts, type WebSurfaceControls } from './channel.js';
 export { EventProjector } from './projector.js';
-export { cloudflaredTunnel } from './cloudflared.js';
-export { ngrokTunnel } from './ngrok.js';
 export { readTunnelSetting, writeTunnelSetting, normalizeTunnelName } from './tunnel-settings.js';
 export { actionPrompt, type ServerFrame, type ClientFrame } from './protocol.js';
 
@@ -37,7 +34,7 @@ export interface BuildWebChannelOptions {
  * Build the web channel plugin. The CLI passes closures over the concrete
  * Session (mirroring the Telegram plugin's vault injection). Contributes:
  *  - the `web` channel (surface + action round-trip),
- *  - the cloudflared + ngrok tunnel providers (registered; `localhost` is the
+ *  - the self-hosted `proxy` tunnel provider (registered; `localhost` is the
  *    core-seeded default),
  *  - `web_set_tunnel` / `web_tunnel_status` tools so the user/agent can switch
  *    the tunnel at runtime — persisted to ~/.moxxy/web.json,
@@ -47,7 +44,7 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
   const def = defineChannel({
     name: 'web',
     description:
-      'Browser surface that renders agent-authored view-spec UIs over a WebSocket and routes form/button actions back into the session. Exposes itself via a tunnel (cloudflared/ngrok) so users on other channels can open it.',
+      'Browser surface that renders agent-authored view-spec UIs over a WebSocket and routes form/button actions back into the session. Exposes itself via the self-hosted proxy relay so users on other channels can open it.',
     create: (deps) => {
       const o = deps.options ?? {};
       return new WebChannel({
@@ -73,7 +70,7 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
         defineTool({
           name: 'web_set_tunnel',
           description:
-            'Choose how the web app surface is exposed: "cloudflared" or "ngrok" (public URL for remote channels like Telegram) or "none"/"localhost" (loopback only). Persisted to ~/.moxxy/web.json and applied immediately if a surface is live. Use when the user asks to change or disable the tunnel.',
+            'Choose how the web app surface is exposed: "proxy" (public URL via the self-hosted relay, for remote channels like Telegram) or "none"/"localhost" (loopback only). Persisted to ~/.moxxy/web.json and applied immediately if a surface is live. Use when the user asks to change or disable the tunnel.',
           inputSchema: z.object({ provider: z.string().min(1) }),
           permission: { action: 'prompt' },
           handler: async ({ provider }) => {
@@ -83,8 +80,7 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
             }
             const available = await tunnels.isAvailable(name);
             if (!available) {
-              const hint = name === 'cloudflared' ? 'install: brew install cloudflared' : 'install ngrok + run `ngrok config add-authtoken …`';
-              return { ok: false, error: `${name} is not available`, hint };
+              return { ok: false, error: `${name} is not available` };
             }
             tunnels.setActive(name);
             await writeTunnelSetting(name, opts.settingsFile);
@@ -105,7 +101,7 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
     name: '@moxxy/plugin-channel-web',
     version: '0.0.0',
     channels: [def],
-    tunnelProviders: [cloudflaredTunnel, ngrokTunnel],
+    tunnelProviders: [proxyTunnel],
     tools,
     hooks: tunnels
       ? {

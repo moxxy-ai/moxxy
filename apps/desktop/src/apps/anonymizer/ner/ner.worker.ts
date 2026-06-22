@@ -1,6 +1,8 @@
 /**
- * On-device NER worker. Runs transformers.js (`Xenova/bert-base-NER`) on the
- * onnxruntime-web WASM backend, entirely offline.
+ * On-device NER worker. Runs transformers.js (`tjruesch/xlm-roberta-base-ner-hrl-onnx`,
+ * a multilingual XLM-RoBERTa NER model) on the onnxruntime-web WASM backend,
+ * entirely offline. XLM-R's 100-language pretraining gives it cross-lingual reach
+ * (Polish, German, French, …), unlike the prior English-only `Xenova/bert-base-NER`.
  *
  * Offline enforcement (defense in depth atop the renderer CSP):
  *   - `remoteHost` points transformers.js at the local `moxxy-app://` scheme, so
@@ -16,8 +18,14 @@
  *     `env.backends.onnx.wasm.wasmPaths` to that LOCAL base below, BEFORE the
  *     pipeline creates the ORT session — ORT then appends the filename and loads
  *     from `'self'`, never the CDN. See {@link ../../../../electron.vite.config.ts}.
- * The heavy work is here so the UI thread never blocks while a ~109 MB model
+ * The heavy work is here so the UI thread never blocks while a ~300 MB model
  * loads and runs.
+ *
+ * Quantisation: on the WASM backend transformers.js defaults to the `q8` dtype,
+ * whose file suffix is `_quantized` — so it requests `onnx/model_quantized.onnx`
+ * (the only ONNX weight we ship) without us passing an explicit `dtype`. (Do NOT
+ * pass `dtype: 'quantized'` — that is not a valid transformers.js dtype and
+ * throws; the equivalent value would be `'q8'`.)
  */
 import { env, pipeline } from '@huggingface/transformers';
 
@@ -68,7 +76,7 @@ if (wasmBackend) {
   wasmBackend.proxy = false;
 }
 
-const MODEL_ID = 'Xenova/bert-base-NER';
+const MODEL_ID = 'tjruesch/xlm-roberta-base-ner-hrl-onnx';
 type NerFn = (
   text: string,
 ) => Promise<Array<{ entity: string; word: string; index: number; score: number }>>;

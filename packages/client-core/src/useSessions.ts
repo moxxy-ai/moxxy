@@ -21,6 +21,7 @@ import { toErrorMessage } from './errors.js';
 import { createPatchStore, runOptimistic, type PatchStore } from './externalStore.js';
 import { connectionStore } from './useConnection.js';
 import { desksStore } from './useDesks.js';
+import { composerDraftStore } from './composerDraftStore.js';
 import type { DeskSession, SessionsOverview } from '@moxxy/desktop-ipc-contract';
 
 export interface UseSessions {
@@ -136,6 +137,9 @@ class SessionsStore {
   remove = async (id: string): Promise<void> => {
     try {
       await api().invoke('sessions.remove', { id });
+      // Forget any composer draft staged for the now-deleted session so it
+      // can't linger in the module-level store (or resurface on id reuse).
+      composerDraftStore.dropWorkspace(id);
       await this.refresh();
       void desksStore.refresh();
       // Removing the foregrounded session leaves the connection store on a

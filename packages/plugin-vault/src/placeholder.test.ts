@@ -108,4 +108,35 @@ describe('containsPlaceholder', () => {
     expect(containsPlaceholder({ a: { b: ['${vault:X}'] } })).toBe(true);
     expect(containsPlaceholder({ a: { b: ['plain'] } })).toBe(false);
   });
+
+  it('does not stack-overflow on a reference cycle', () => {
+    const cyclic: Record<string, unknown> = { a: 'plain' };
+    cyclic.self = cyclic; // legal in-memory cycle
+    expect(() => containsPlaceholder(cyclic)).not.toThrow();
+    expect(containsPlaceholder(cyclic)).toBe(false);
+    cyclic.secret = '${vault:X}';
+    expect(containsPlaceholder(cyclic)).toBe(true);
+  });
+
+  it('throws (rather than overflowing) on pathologically deep input', () => {
+    let node: Record<string, unknown> = { leaf: 'plain' };
+    for (let i = 0; i < 200; i++) node = { nested: node };
+    expect(() => containsPlaceholder(node)).toThrow(/nested too deeply/);
+  });
+});
+
+describe('resolveValue worst-case guards', () => {
+  it('throws a CONFIG_INVALID MoxxyError on a reference cycle instead of overflowing', async () => {
+    const cyclic: Record<string, unknown> = { apiKey: '${vault:API_KEY}' };
+    cyclic.self = cyclic;
+    const err = await resolveValue(cyclic, vault).catch((e) => e);
+    expect(MoxxyError.isMoxxyError(err)).toBe(true);
+    expect((err as MoxxyError).code).toBe('CONFIG_INVALID');
+  });
+
+  it('throws on pathologically deep input rather than blowing the stack', async () => {
+    let node: Record<string, unknown> = { leaf: '${vault:API_KEY}' };
+    for (let i = 0; i < 200; i++) node = { nested: node };
+    await expect(resolveValue(node, vault)).rejects.toThrow(/nested too deeply/);
+  });
 });

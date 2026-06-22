@@ -247,7 +247,7 @@ describe('MobileSessionHost', () => {
       const { session } = fakeSession();
       new MobileSessionHost(bus, session).register();
 
-      const page = (await bus.invoke('chat.loadSegment', {
+      const page = (await bus.invoke('chat.loadHistory', {
         workspaceId: 'archived-session',
         before: null,
         limit: 2,
@@ -284,7 +284,7 @@ describe('MobileSessionHost', () => {
     const { session } = fakeSession();
     new MobileSessionHost(bus, session).register();
 
-    const page = (await bus.invoke('chat.loadSegment', {
+    const page = (await bus.invoke('chat.loadHistory', {
       workspaceId: 'legacy-desk-session',
       before: null,
       limit: 2,
@@ -612,5 +612,98 @@ describe('MobileSessionHost', () => {
     expect(ask?.payload.kind).toBe('permission');
     await bus.invoke('ask.respond', { requestId: ask!.payload.requestId, response: { mode: 'deny' } });
     await expect(verdict).resolves.toEqual({ mode: 'deny' });
+  });
+
+  it('onAllClientsDisconnected aborts the in-flight turn and denies the parked ask (host stays usable)', async () => {
+    const bus = new FakeBus();
+    // A turn that hangs until its abort signal fires, so a disconnect must abort it.
+    const aborts: AbortSignal[] = [];
+    const session = fakeSession({
+      runTurn: vi.fn((_p: string, opts?: { signal?: AbortSignal }) => {
+        if (opts?.signal) aborts.push(opts.signal);
+        return (async function* () {
+          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+        })();
+      }),
+    });
+    const host = new MobileSessionHost(bus, session.session);
+    host.register();
+    host.wire();
+    await bus.invoke('session.runTurn', { prompt: 'hang' });
+    const resolver = session.getPermissionResolver();
+    const verdict = resolver.check({ name: 'web_fetch', input: {} }, {});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(bus.event('ask.request').length).toBe(1);
+
+    host.onAllClientsDisconnected();
+
+    expect(aborts[0]?.aborted).toBe(true);
+    // The parked ask self-denies rather than hanging the runner forever.
+    await expect(verdict).resolves.toEqual({ mode: 'deny' });
+    // NOT disposed: a reconnecting client can still drive the host.
+    const verdict2 = resolver.check({ name: 'web_fetch', input: {} }, {});
+    const ask2 = bus.event('ask.request').at(-1);
+    await bus.invoke('ask.respond', { requestId: ask2!.payload.requestId, response: { mode: 'allow' } });
+    await expect(verdict2).resolves.toEqual({ mode: 'allow' });
+  });
+
+  it('a parked ask self-denies after the timeout instead of hanging the runner', async () => {
+    vi.useFakeTimers();
+    try {
+      const bus = new FakeBus();
+      const { session } = fakeSession();
+      const host = new MobileSessionHost(bus, session, { askTimeoutMs: 1000 });
+      host.register();
+      host.wire();
+      const verdict = host.permissionResolver.check({ name: 'web_fetch', input: {} } as any, {} as any);
+      expect(bus.event('ask.request').length).toBe(1);
+      // No ask.respond ever arrives — the grace elapses.
+      vi.advanceTimersByTime(1000);
+      await expect(verdict).resolves.toEqual({ mode: 'deny' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('caps concurrently parked asks: past the cap a new permission check denies immediately', async () => {
+    const bus = new FakeBus();
+    const { session } = fakeSession();
+    // Disable the timeout so the parked asks stay parked and accumulate.
+    const host = new MobileSessionHost(bus, session, { askTimeoutMs: 0 });
+    host.register();
+    host.wire();
+    const pending: Array<Promise<unknown>> = [];
+    for (let i = 0; i < 256; i++) {
+      pending.push(host.permissionResolver.check({ name: 'web_fetch', input: {} } as any, {} as any));
+    }
+    expect(bus.event('ask.request').length).toBe(256);
+    // The 257th check is over the cap → denied without broadcasting another ask.
+    await expect(
+      host.permissionResolver.check({ name: 'web_fetch', input: {} } as any, {} as any),
+    ).resolves.toEqual({ mode: 'deny' });
+    expect(bus.event('ask.request').length).toBe(256);
+    // Drain the parked promises so the test doesn't leak resolvers.
+    host.dispose();
+    await Promise.all(pending);
+  });
+
+  it('a non-serializable session event does not throw out of the log subscriber', () => {
+    const bus = new FakeBus();
+    const errs: unknown[] = [];
+    // A bus whose broadcast throws on a bad event, mimicking JSON.stringify
+    // blowing up inside notify for a BigInt / circular payload.
+    const throwingBus: CommandBus & EventSink = {
+      handle: () => {},
+      broadcast: (channel: string, payload: unknown) => {
+        if (channel === 'runner.event' && (payload as any)?.event?.bad) throw new TypeError('not serializable');
+        bus.broadcast(channel, payload);
+      },
+    };
+    const { session, emit } = fakeSession();
+    const host = new MobileSessionHost(throwingBus, session, { logErr: (e) => errs.push(e) });
+    host.wire();
+    // Emitting a bad event must not unwind back into the session's emit loop.
+    expect(() => emit({ kind: 'assistant_message', bad: true })).not.toThrow();
+    expect(errs).toHaveLength(1);
   });
 });

@@ -148,6 +148,153 @@ describe('webhook tools', () => {
     });
   });
 
+  describe('webhook_create security warning', () => {
+    it('flags verification:none + empty allowedTools (open prompt-injection with full tools)', async () => {
+      const result = (await call('webhook_create', {
+        name: 'wide-open',
+        prompt: 'do: {body}',
+        verification: { type: 'none' },
+      })) as { securityWarning?: string; guidance: string[] };
+      expect(result.securityWarning).toMatch(/HIGH RISK/);
+      expect(result.guidance.join('\n')).toContain('HIGH RISK');
+    });
+
+    it('does not flag a verification:none trigger that restricts allowedTools', async () => {
+      const result = (await call('webhook_create', {
+        name: 'scoped-open',
+        prompt: 'do: {body}',
+        allowedTools: ['read_file'],
+        verification: { type: 'none' },
+      })) as { securityWarning?: string };
+      expect(result.securityWarning).toBeUndefined();
+    });
+
+    it('does not flag an authenticated trigger even with empty allowedTools', async () => {
+      const result = (await call('webhook_create', {
+        name: 'authed-wide',
+        prompt: 'do: {body}',
+        verification: { type: 'bearer', secret: 'a-strong-secret-here' },
+      })) as { securityWarning?: string };
+      expect(result.securityWarning).toBeUndefined();
+    });
+  });
+
+  describe('webhook_test honors filters', () => {
+    let fireCalls: number;
+
+    beforeEach(() => {
+      fireCalls = 0;
+      const dispatcher = {
+        fire: async () => {
+          fireCalls += 1;
+          return { ok: true, text: 'fired', inboxPath: '/tmp/inbox/x.md' };
+        },
+      } as unknown as WebhookDispatcher;
+      // Re-wire the tools with a fire-counting dispatcher (overrides beforeEach).
+      tools = buildWebhookTools({
+        store,
+        config,
+        dispatcher,
+        tunnelHandle: { current: null },
+        secretsDir,
+      });
+    });
+
+    it('does NOT fire when the synthetic delivery is filtered out (matches live path)', async () => {
+      const created = (await call('webhook_create', {
+        name: 'only-opened',
+        prompt: 'Handle: {body_json}',
+        verification: { type: 'none' },
+        filters: {
+          include: [{ source: 'jsonPath', path: 'action', equals: ['opened'] }],
+          exclude: [],
+        },
+      })) as { trigger: { id: string } };
+
+      const result = (await call('webhook_test', {
+        id: created.trigger.id,
+        body: JSON.stringify({ action: 'closed' }),
+      })) as { ok: boolean; filtered: boolean; fired: boolean };
+
+      expect(result.ok).toBe(true);
+      expect(result.filtered).toBe(true);
+      expect(result.fired).toBe(false);
+      // Critical: the dispatcher must NOT have been invoked — otherwise the test
+      // tool reports a false positive for a trigger that never fires in prod.
+      expect(fireCalls).toBe(0);
+    });
+
+    it('fires when the synthetic delivery passes the filters', async () => {
+      const created = (await call('webhook_create', {
+        name: 'only-opened-2',
+        prompt: 'Handle: {body_json}',
+        verification: { type: 'none' },
+        filters: {
+          include: [{ source: 'jsonPath', path: 'action', equals: ['opened'] }],
+          exclude: [],
+        },
+      })) as { trigger: { id: string } };
+
+      const result = (await call('webhook_test', {
+        id: created.trigger.id,
+        body: JSON.stringify({ action: 'opened' }),
+      })) as { ok: boolean; filtered: boolean; fired: boolean };
+
+      expect(result.filtered).toBe(false);
+      expect(result.fired).toBe(true);
+      expect(fireCalls).toBe(1);
+    });
+
+    it('rejects an unknown id without firing', async () => {
+      await expect(call('webhook_test', { id: 'nope' })).rejects.toThrow(/no trigger/);
+      expect(fireCalls).toBe(0);
+    });
+  });
+
+  describe('webhook_status exposure warning', () => {
+    it('flags a non-loopback bind with an enabled verification:none trigger', async () => {
+      await config.set({ host: '0.0.0.0' });
+      await call('webhook_create', {
+        name: 'open-trigger',
+        prompt: 'x',
+        verification: { type: 'none' },
+      });
+      const status = (await call('webhook_status', {})) as {
+        listener: { loopback: boolean };
+        exposureWarning?: string;
+      };
+      expect(status.listener.loopback).toBe(false);
+      expect(status.exposureWarning).toMatch(/CRITICAL/);
+      expect(status.exposureWarning).toContain('open-trigger');
+    });
+
+    it('does not flag exposure on the default loopback bind', async () => {
+      await call('webhook_create', {
+        name: 'open-but-local',
+        prompt: 'x',
+        verification: { type: 'none' },
+      });
+      const status = (await call('webhook_status', {})) as {
+        listener: { loopback: boolean };
+        exposureWarning?: string;
+      };
+      expect(status.listener.loopback).toBe(true);
+      expect(status.exposureWarning).toBeUndefined();
+    });
+
+    it('downgrades to an informational note on a non-loopback bind with only authed triggers', async () => {
+      await config.set({ host: '0.0.0.0' });
+      await call('webhook_create', {
+        name: 'authed-trigger',
+        prompt: 'x',
+        verification: { type: 'bearer', secret: 'a-strong-secret-here' },
+      });
+      const status = (await call('webhook_status', {})) as { exposureWarning?: string };
+      expect(status.exposureWarning).toBeDefined();
+      expect(status.exposureWarning).not.toMatch(/CRITICAL/);
+    });
+  });
+
   describe('store corruption surfacing', () => {
     it('webhook_list and webhook_create report a storeWarning after a corrupt load', async () => {
       await writeFile(path.join(dir, 'webhooks.json'), 'not json at all', 'utf8');

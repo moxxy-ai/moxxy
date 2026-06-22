@@ -1,6 +1,6 @@
 /**
  * Unit tests for the NER hook's worker lifecycle — specifically the failure
- * path. The hook owns a single Worker (which loads a ~109 MB model); when that
+ * path. The hook owns a single Worker (which loads a ~300 MB model); when that
  * worker dies, `detectNames` MUST short-circuit instead of posting to a dead
  * worker and leaking a forever-pending request per call.
  *

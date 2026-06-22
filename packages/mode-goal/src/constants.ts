@@ -24,12 +24,23 @@ export const GOAL_MAX_ITERATIONS = 150;
 export const GOAL_MAX_NOOP_ITERATIONS = 3;
 
 /**
- * Cumulative token ceiling (input + output across the whole goal run). A second
- * backstop alongside the iteration cap — a few long-context iterations can burn
- * a lot of tokens even under the iteration limit. Generous; the iteration cap
- * is usually the binding guard.
+ * Cumulative token ceiling (full prompt — input + cacheRead + cacheCreation +
+ * output — across the whole goal run). A second backstop alongside the
+ * iteration cap: a few long-context iterations can burn a lot of tokens even
+ * under the iteration limit. Generous; the iteration cap is usually the binding
+ * guard.
  */
 export const GOAL_TOKEN_BUDGET = 4_000_000;
+
+/**
+ * Max consecutive retryable provider errors before goal mode bails with a fatal
+ * error. Goal mode runs unattended with auto-approval, so a sustained retryable
+ * condition (429 / overloaded / transient 5xx / ECONNRESET) must NOT busy-loop
+ * the provider — back off exponentially and give up after this many in a row.
+ * The counter resets on any clean provider call, so a long run can still
+ * recover from transient blips.
+ */
+export const MAX_CONSECUTIVE_RETRIES = 6;
 
 /**
  * Layered on top of any user system prompt for the whole goal run. The framing

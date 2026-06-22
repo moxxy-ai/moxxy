@@ -49,8 +49,12 @@ export function detectInstall(opts: DetectOpts = {}): InstallInfo {
   const p = (installPath ?? '').replace(/\\/g, '/');
 
   // Running from the monorepo source (a dev checkout), not an installed package:
-  // there's nothing to `npm install` — the user updates via git.
-  if (p.includes('/packages/cli/')) {
+  // there's nothing to `npm install` — the user updates via git. Anchor this to
+  // a SOURCE layout that is NOT under node_modules: an installed copy always
+  // resolves through `node_modules/@moxxy/cli/`, so a user whose own project
+  // path merely contains `packages/cli` isn't wrongly told to `git pull`.
+  const installed = p.includes('/node_modules/@moxxy/cli/');
+  if (!installed && /\/packages\/cli\/(?:src|dist)\//.test(p)) {
     return { manager: 'workspace', global: false, pkg: PKG, cmd: [], installPath };
   }
 

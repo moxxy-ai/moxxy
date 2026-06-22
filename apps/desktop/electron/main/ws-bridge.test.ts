@@ -11,6 +11,10 @@ import {
   type WebSocketBridgeOptions,
   type WebSocketBridgeServer,
 } from '@moxxy/ipc-server-ws';
+import type {
+  E2EProxyHandle,
+  OpenMobileProxyOptions,
+} from '@moxxy/plugin-channel-mobile/e2e-proxy';
 import {
   MobileGatewayManager,
   resolveWsBridgeConfig,
@@ -25,6 +29,7 @@ const ENV_KEYS = [
   'MOXXY_WS_PORT',
   'MOXXY_WS_HOST',
   'MOXXY_WS_ALLOW_QUERY_TOKEN',
+  'MOXXY_MOBILE_NO_PROXY',
 ] as const;
 
 let saved: Record<string, string | undefined>;
@@ -184,6 +189,7 @@ function makeRuntime(opts: {
   userData: string;
   startSpy?: (o: unknown) => WebSocketBridgeServer;
   enabledRef?: { value: boolean };
+  openProxyTunnel?: BridgeRuntime['openProxyTunnel'];
 }): {
   rt: BridgeRuntime;
   changes: MobileGatewayStatus[];
@@ -209,6 +215,7 @@ function makeRuntime(opts: {
       return Promise.resolve();
     },
     onChange: (s) => changes.push(s),
+    ...(opts.openProxyTunnel ? { openProxyTunnel: opts.openProxyTunnel } : {}),
   };
   return { rt, changes, startCalls, enabledRef };
 }
@@ -456,6 +463,106 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   }
   expect(predicate()).toBe(true);
 }
+
+// ---- The E2E proxy-relay exposure: when the relay opener is wired, the gateway
+// advertises the remote wss URL (+ pinned fingerprint) and manages the tunnel
+// lifecycle (open on start, re-key on rotate, close on stop) — falling back to
+// the LAN URL when the relay is unreachable. -------------------------------
+/** A fake proxy opener: records the tokens it was opened with + how many handles
+ *  it closed, returning a stable key-derived-style URL across reopens. */
+function makeFakeProxy(url = 'https://uuid123.proxy.moxxy.ai/mobile', fp = 'AGENT_FP') {
+  const tokens: string[] = [];
+  let opens = 0;
+  let closes = 0;
+  const open = (opts: OpenMobileProxyOptions): Promise<E2EProxyHandle> => {
+    opens += 1;
+    tokens.push(opts.token);
+    return Promise.resolve({
+      url,
+      fingerprint: fp,
+      close: () => {
+        closes += 1;
+        return Promise.resolve();
+      },
+    });
+  };
+  return { open, tokens, opens: () => opens, closes: () => closes };
+}
+
+describe('MobileGatewayManager — E2E proxy relay', () => {
+  it('advertises the remote wss URL (+fp) when the relay opener succeeds', async () => {
+    const fake = makeFakeServer();
+    const proxy = makeFakeProxy();
+    const { rt } = makeRuntime({ userData, startSpy: () => fake.server, openProxyTunnel: proxy.open });
+    const mgr = new MobileGatewayManager(rt);
+
+    const status = await mgr.start();
+    // The connectUrl is the remote relay URL with the pinned fingerprint — NOT a
+    // LAN ws:// address.
+    expect(status.connectUrl).toMatch(
+      /^wss:\/\/uuid123\.proxy\.moxxy\.ai\/mobile\/\?t=[0-9a-f]{64}&fp=AGENT_FP$/,
+    );
+    // The opener received the live pairing token.
+    expect(proxy.tokens).toEqual([status.token]);
+    // The relay origin is allow-listed alongside the LAN origins (set post-open).
+    const lastOrigins = fake.originSets.at(-1) ?? [];
+    expect(lastOrigins).toContain('https://uuid123.proxy.moxxy.ai');
+    // The shipped mobile app parser recovers the token + fingerprint from the QR.
+    const parsed = splitConnectUrl(status.connectUrl!);
+    expect(parsed.token).toBe(status.token);
+    expect(parsed.fingerprint).toBe('AGENT_FP');
+  });
+
+  it('falls back to the LAN URL when the relay opener fails', async () => {
+    const fake = makeFakeServer();
+    const failing = (): Promise<E2EProxyHandle> => Promise.reject(new Error('relay down'));
+    const { rt } = makeRuntime({ userData, startSpy: () => fake.server, openProxyTunnel: failing });
+    const mgr = new MobileGatewayManager(rt);
+
+    const status = await mgr.start();
+    expect(status.connectUrl).toMatch(/^ws:\/\/[^/]+:8765\/\?t=[0-9a-f]{64}$/);
+    expect(status.connectUrl).not.toContain('proxy.moxxy.ai');
+  });
+
+  it('MOXXY_MOBILE_NO_PROXY=1 forces LAN-only even when an opener is wired', async () => {
+    process.env.MOXXY_MOBILE_NO_PROXY = '1';
+    const fake = makeFakeServer();
+    const proxy = makeFakeProxy();
+    const { rt } = makeRuntime({ userData, startSpy: () => fake.server, openProxyTunnel: proxy.open });
+    const mgr = new MobileGatewayManager(rt);
+
+    const status = await mgr.start();
+    expect(proxy.opens()).toBe(0);
+    expect(status.connectUrl).toMatch(/^ws:\/\//);
+  });
+
+  it('tears down the proxy tunnel + shim on stop', async () => {
+    const fake = makeFakeServer();
+    const proxy = makeFakeProxy();
+    const { rt } = makeRuntime({ userData, startSpy: () => fake.server, openProxyTunnel: proxy.open });
+    const mgr = new MobileGatewayManager(rt);
+
+    await mgr.start();
+    await mgr.stop();
+    expect(proxy.closes()).toBe(1);
+  });
+
+  it('rotateToken reopens the proxy with the new token (re-keys the E2E shim)', async () => {
+    const fake = makeFakeServer();
+    const proxy = makeFakeProxy();
+    const { rt } = makeRuntime({ userData, startSpy: () => fake.server, openProxyTunnel: proxy.open });
+    const mgr = new MobileGatewayManager(rt);
+
+    const before = await mgr.start();
+    const rotated = await mgr.rotateToken();
+    // The stale shim was torn down and a fresh one opened with the new token, so
+    // a phone paired with the rotated QR isn't rejected by the old-token shim.
+    expect(proxy.closes()).toBe(1);
+    expect(proxy.tokens).toEqual([before.token, rotated.token]);
+    // The uuid is key-derived, so the public URL is stable across the reopen.
+    expect(rotated.connectUrl).toContain('uuid123.proxy.moxxy.ai/mobile/');
+  });
+});
 
 // ---- The critical integration assertion: the QR the desktop emits is EXACTLY
 // what the shipped mobile app accepts. We import the app's own parser and feed

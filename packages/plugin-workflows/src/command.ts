@@ -219,6 +219,9 @@ function statusMark(status: string): string {
   return status === 'completed' ? '✓' : status === 'skipped' ? '–' : status === 'failed' ? '✗' : '·';
 }
 
+/** Cap on candidate run-record files scanned per `/workflows inspect`. */
+const MAX_LAST_RUN_CANDIDATES = 50;
+
 async function readLastRun(dir: string | undefined, name: string): Promise<string | null> {
   if (!dir) return null;
   let files: string[];
@@ -232,7 +235,14 @@ async function readLastRun(dir: string | undefined, name: string): Promise<strin
   // `daily-report` (…-daily-report-…). The stamp is an ISO timestamp, so the
   // filename sort is chronological — walk newest→oldest and pick the first
   // record whose parsed `workflow` field EQUALS the requested name.
-  const candidates = files.filter((f) => f.includes(`-${name}-`) && f.endsWith('.jsonl')).sort().reverse();
+  // Bound the scan: the list is sorted newest→oldest and the first name match is
+  // almost always the answer, so reading more than a handful of candidates is
+  // wasted IO on a directory that only grows (run records are never pruned).
+  const candidates = files
+    .filter((f) => f.includes(`-${name}-`) && f.endsWith('.jsonl'))
+    .sort()
+    .reverse()
+    .slice(0, MAX_LAST_RUN_CANDIDATES);
   for (const file of candidates) {
     try {
       const raw = await fs.readFile(path.join(dir, file), 'utf8');

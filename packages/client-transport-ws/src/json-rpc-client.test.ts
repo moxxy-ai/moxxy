@@ -180,6 +180,92 @@ describe('WsRpcClient', () => {
     );
   });
 
+  it('rejects in-flight requests synchronously on close() (no reliance on onclose)', async () => {
+    const { client, socket } = makeClient();
+    socket.open();
+    // A socket whose close() does NOT fire onclose — some RN/Hermes stacks. The
+    // in-flight request must still settle, not leak forever.
+    socket.close = () => {
+      socket.readyState = 3;
+    };
+    const p = client.request('connection.activeWorkspace');
+    client.close();
+    await expect(p).rejects.toThrow('transport closed');
+  });
+
+  it('rejects new requests once the outbox backlog is full while degraded', async () => {
+    const { client, socket } = makeClient(); // never opened: frames queue
+    // Fill the backlog right up to the cap.
+    const inflight: Promise<unknown>[] = [];
+    for (let i = 0; i < 1000; i++) inflight.push(client.request('session.info', { i }));
+    expect(socket.sent.length).toBe(0); // all queued
+    // The next request is rejected rather than growing the buffer unbounded.
+    await expect(client.request('session.info', { overflow: true })).rejects.toThrow(
+      'transport backlogged',
+    );
+    client.close();
+    await Promise.allSettled(inflight);
+  });
+
+  it('drops a non-string (binary) frame instead of coercing it to garbage', async () => {
+    const { client, socket } = makeClient();
+    socket.open();
+    const p = client.request('connection.activeWorkspace');
+    const req = socket.lastReq();
+    // A misbehaving proxy delivers an ArrayBuffer: must NOT settle the pending
+    // with String()-coerced garbage — the request stays in-flight, and a later
+    // valid string frame still resolves it normally.
+    socket.onmessage?.({ data: new ArrayBuffer(8) });
+    socket.emit({ id: req.id, result: 'ok' });
+    await expect(p).resolves.toBe('ok');
+    client.close();
+  });
+
+  it('does not dispatch a late notification after close()', () => {
+    const { client, socket } = makeClient();
+    socket.open();
+    let got = 0;
+    client.on('runner.turn.complete', () => got++);
+    client.close();
+    // A frame the OS had already buffered arrives on the (now-detached) socket
+    // after the owner closed the transport: it must NOT reach a torn-down owner.
+    socket.emit({ method: 'runner.turn.complete', params: {} });
+    expect(got).toBe(0);
+  });
+
+  it('does not dispatch a frame from a stale dead socket after a drop', () => {
+    vi.useFakeTimers();
+    const { client, instances } = makeClient({ maxReconnectAttempts: 5 });
+    instances[0]!.open();
+    let got = 0;
+    client.on('runner.turn.complete', () => got++);
+    instances[0]!.close(); // link drops; handleClose detaches the dead socket
+    // A stale notification the dead socket buffered must not dispatch into the
+    // reconnecting client.
+    instances[0]!.emit({ method: 'runner.turn.complete', params: {} });
+    expect(got).toBe(0);
+    client.close();
+  });
+
+  it('ignores a late onopen from a stale socket (does not flush into it)', async () => {
+    vi.useFakeTimers();
+    const { client, instances } = makeClient({ maxReconnectAttempts: 5 });
+    const stale = instances[0]!;
+    stale.close(); // drop -> handleClose detaches `stale`
+    expect(stale.onopen).toBeNull(); // handlers detached on the dead socket
+    vi.advanceTimersByTime(60_000);
+    const fresh = instances[1]!;
+    // Queue a frame while the fresh socket is still connecting.
+    const pending = client.request('connection.activeWorkspace');
+    // The fresh socket opens and the queued frame flushes into the LIVE socket,
+    // never into the abandoned stale one.
+    fresh.open();
+    expect(stale.sent).toEqual([]);
+    expect(fresh.sent.length).toBe(1);
+    client.close();
+    await expect(pending).rejects.toThrow('transport closed');
+  });
+
   it('resets the reconnect budget after a successful open', () => {
     vi.useFakeTimers();
     const { client, instances } = makeClient({ maxReconnectAttempts: 1 });

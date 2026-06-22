@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { Colors, Glyphs } from '../../theme.js';
 import { formatElapsed, truncate, type CollaborationBlock } from '@moxxy/chat-model';
+import { MOTION_ENABLED } from '../motion.js';
 
 const MAX_AGENTS = 8;
 const MAX_TASKS = 6;
@@ -14,7 +15,7 @@ export const CollabScopeView: React.FC<{ scope: CollaborationBlock }> = ({ scope
   const [now, setNow] = useState(() => Date.now());
   const running = scope.completedAtMs == null;
   useEffect(() => {
-    if (!running) return;
+    if (!running || !MOTION_ENABLED) return; // skip per-second ticking for reduced-motion / non-TTY
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [running]);

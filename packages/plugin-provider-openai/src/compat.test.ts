@@ -101,6 +101,44 @@ describe('defineOpenAICompatProvider', () => {
     expect(local.validateKey).toBeUndefined();
   });
 
+  it('refuses an empty/missing/whitespace key for an authenticating vendor (no silent OPENAI_API_KEY fallback)', () => {
+    // The OpenAI SDK ctor falls back to process.env.OPENAI_API_KEY when apiKey
+    // is empty; since a compat vendor pins baseURL to its OWN host, that would
+    // exfiltrate the user's real OpenAI credential to the vendor's endpoint on a
+    // merely misconfigured provider. defineOpenAICompatProvider must refuse it
+    // centrally, regardless of the runner's OPENAI_API_KEY env, so each vendor
+    // (xai/google/provider-admin) doesn't have to re-add a guard.
+    const saved = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-real-user-openai-key';
+    try {
+      for (const bad of [{}, { apiKey: undefined }, { apiKey: '' }, { apiKey: '   ' }, { apiKey: 123 }] as Record<
+        string,
+        unknown
+      >[]) {
+        expect(() => def.createClient(bad)).toThrow(/api key/i);
+      }
+      // A real key still constructs fine.
+      expect(() => def.createClient({ apiKey: 'vendor-key' })).not.toThrow();
+    } finally {
+      if (saved === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = saved;
+    }
+  });
+
+  it('does NOT require a key when validate:false (local servers use a placeholder)', () => {
+    const local = defineOpenAICompatProvider({
+      name: 'local',
+      baseURL: 'http://localhost:11434/v1',
+      defaultModel: 'llama3.3',
+      models: TEST_MODELS,
+      validate: false,
+      // Mirrors the real local provider: no config key → placeholder.
+      resolveApiKey: (cfg) => cfg.apiKey ?? 'placeholder',
+    });
+    expect(() => local.createClient({})).not.toThrow();
+    expect(local.createClient({}).name).toBe('local');
+  });
+
   it('uses resolveApiKey / resolveBaseURL hooks for per-call credential fallback', () => {
     const seen: Array<{ apiKey?: string; baseURL?: string }> = [];
     const def2 = defineOpenAICompatProvider({

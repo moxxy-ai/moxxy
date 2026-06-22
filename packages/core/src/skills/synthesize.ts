@@ -84,12 +84,11 @@ export async function synthesizeSkill(
   }
   const frontmatter = parsed.data as Skill['frontmatter'];
 
-  const finalPath = await uniqueFilename(baseDir, slugify(frontmatter.name));
-  await fs.writeFile(finalPath, draft.raw, 'utf8');
+  const finalPath = await writeUniqueSkill(baseDir, slugify(frontmatter.name), draft.raw);
 
   // Derive the skill id from the on-disk filename, not from the LLM-supplied
   // frontmatter name — otherwise synthesizing the same name twice collides
-  // even when uniqueFilename has just bumped the filename to `<slug>-2.md`.
+  // even when writeUniqueSkill has just bumped the filename to `<slug>-2.md`.
   const basename = path.basename(finalPath, '.md');
   const skill: Skill = {
     id: asSkillId(`${scope}/${basename}`),
@@ -100,26 +99,46 @@ export async function synthesizeSkill(
   };
   session.skills.register(skill);
 
-  await session.log.append({
-    type: 'skill_created',
-    sessionId: session.id,
-    turnId: turnId ?? session.startTurn().turnId,
-    source: 'system',
-    skillId: skill.id,
-    name: skill.frontmatter.name,
-    path: finalPath,
-    scope,
-    originatingPrompt: intent,
-  });
+  // The skill file on disk + the live registration are the product; the
+  // skill_created event and the audit JSONL line are telemetry. A failure in
+  // either (listener/persistence reject, EACCES on .meta, read-only fs) must
+  // NOT throw after the skill is already written + registered — that would
+  // surface an error the model retries, orphaning the just-created skill and
+  // duplicating it. Make both best-effort and warn instead.
+  try {
+    await session.log.append({
+      type: 'skill_created',
+      sessionId: session.id,
+      turnId: turnId ?? session.startTurn().turnId,
+      source: 'system',
+      skillId: skill.id,
+      name: skill.frontmatter.name,
+      path: finalPath,
+      scope,
+      originatingPrompt: intent,
+    });
+  } catch (err) {
+    process.stderr.write(
+      `moxxy: synthesize_skill could not emit skill_created for "${skill.frontmatter.name}": ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
 
   const auditPath = opts.auditPath ?? path.join(defaultUserSkillsDir(), '.meta', 'created.jsonl');
-  await appendAudit(auditPath, {
-    slug: path.basename(finalPath, '.md'),
-    ts: new Date().toISOString(),
-    sessionId: String(session.id),
-    originatingPrompt: intent,
-    scope,
-  });
+  try {
+    await appendAudit(auditPath, {
+      slug: path.basename(finalPath, '.md'),
+      ts: new Date().toISOString(),
+      sessionId: String(session.id),
+      originatingPrompt: intent,
+      scope,
+    });
+  } catch (err) {
+    process.stderr.write(
+      `moxxy: synthesize_skill audit append failed (${auditPath}): ` +
+        `${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
 
   return { skill, path: finalPath, scope };
 }
@@ -132,28 +151,62 @@ function slugify(name: string): string {
     .slice(0, 60);
 }
 
-async function uniqueFilename(dir: string, base: string): Promise<string> {
-  let candidate = path.join(dir, `${base}.md`);
-  let n = 2;
-  while (await exists(candidate)) {
-    candidate = path.join(dir, `${base}-${n}.md`);
-    n += 1;
+/**
+ * Pick a unique `<base>[-N].md` name AND create it atomically with the `wx`
+ * flag (fail if exists). Name selection and creation are one step, so two
+ * concurrent synthesizeSkill calls (workflows / self-improver) racing on the
+ * same slug can't both pick the same candidate and have the later writeFile
+ * truncate the earlier skill — the loser gets EEXIST and bumps the suffix.
+ */
+async function writeUniqueSkill(dir: string, base: string, data: string): Promise<string> {
+  let n = 1;
+  // Bound the search so a directory already saturated with `<base>-*.md` (or a
+  // persistent EEXIST race) can't spin forever — surface a clear error instead.
+  const MAX_ATTEMPTS = 1000;
+  for (;;) {
+    const candidate = path.join(dir, n === 1 ? `${base}.md` : `${base}-${n}.md`);
+    try {
+      await fs.writeFile(candidate, data, { encoding: 'utf8', flag: 'wx' });
+      return candidate;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      n += 1;
+      if (n > MAX_ATTEMPTS) {
+        throw new Error(
+          `synthesize_skill: could not find a free filename for "${base}" after ${MAX_ATTEMPTS} attempts`,
+        );
+      }
+    }
   }
-  return candidate;
 }
 
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
+/** Cap the audit JSONL so a long-lived/self-synthesizing install can't grow it without bound. */
+const MAX_AUDIT_LINES = 2000;
 
 async function appendAudit(filePath: string, entry: Record<string, unknown>): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.appendFile(filePath, JSON.stringify(entry) + '\n', 'utf8');
+  await rotateAuditIfNeeded(filePath);
+}
+
+/**
+ * Keep only the most recent {@link MAX_AUDIT_LINES} lines. Best-effort and
+ * non-atomic by design — this file is pure telemetry that nothing reads back
+ * with a bound, so a crash mid-rewrite at worst loses a few audit lines.
+ */
+async function rotateAuditIfNeeded(filePath: string): Promise<void> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, 'utf8');
+  } catch {
+    return;
+  }
+  const lines = raw.split('\n');
+  // Account for the trailing empty element from the final newline.
+  const nonEmpty = lines.filter((l) => l.length > 0);
+  if (nonEmpty.length <= MAX_AUDIT_LINES) return;
+  const kept = nonEmpty.slice(nonEmpty.length - MAX_AUDIT_LINES);
+  await fs.writeFile(filePath, kept.join('\n') + '\n', 'utf8');
 }
 
 export function buildSynthesizeSkillPlugin(

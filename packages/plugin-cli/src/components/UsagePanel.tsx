@@ -173,7 +173,10 @@ function perCallPrompt(events: ReadonlyArray<MoxxyEvent>): number[] {
 function sparkline(series: number[], maxCols = 48): string {
   if (series.length === 0) return '';
   const tail = series.slice(-maxCols);
-  const max = Math.max(...tail, 1);
+  // Use the spread-free peak() helper (not `Math.max(...tail, 1)`) so a
+  // future bump to maxCols can't reintroduce the argument-limit RangeError
+  // peak() was written to avoid — see peak()'s doc comment above.
+  const max = peak(tail, 1);
   return tail
     .map((v) => SPARKS[Math.min(SPARKS.length - 1, Math.round((v / max) * (SPARKS.length - 1)))])
     .join('');

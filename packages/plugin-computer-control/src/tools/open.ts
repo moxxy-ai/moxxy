@@ -36,12 +36,31 @@ export const openTool = defineTool({
         context: { tool: 'computer_open' },
       });
     }
+    // A target/app beginning with '-' (e.g. '-g', '-n', '-W') is parsed by
+    // /usr/bin/open as an OPTION FLAG, not a path/URL/app — silently changing
+    // behavior (open in background, new instance) the user did not approve.
+    // Reject it: no legitimate path/URL/app name starts with a dash, and
+    // spawn is array-form so this is the only argument-injection vector.
+    for (const [field, value] of [
+      ['target', target],
+      ['app', app],
+    ] as const) {
+      if (value !== undefined && value.startsWith('-')) {
+        throw new MoxxyError({
+          code: 'TOOL_ERROR',
+          message: `computer_open: \`${field}\` must not begin with '-' (would be parsed as an option flag)`,
+          context: { tool: 'computer_open', field },
+        });
+      }
+    }
     const args: string[] = [];
     if (app) {
       args.push('-a', app);
     }
+    // `--` ends option parsing so the positional target is treated strictly
+    // as a path/URL operand even if a future change relaxes the guard above.
     if (target) {
-      args.push(target);
+      args.push('--', target);
     }
     const proc = await runProcess('open', args, {
       ...(ctx.signal ? { signal: ctx.signal } : {}),

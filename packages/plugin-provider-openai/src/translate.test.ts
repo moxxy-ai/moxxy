@@ -91,6 +91,34 @@ describe('toOpenAIMessages', () => {
     expect(out[0].content).toBe('hello\nworld');
   });
 
+  it('emits an empty-string (not null) content for an assistant turn with neither text nor tool_calls', () => {
+    // A turn whose only block is reasoning (not replayed to OpenAI) would
+    // otherwise produce { content: null } with no tool_calls — a hard OpenAI
+    // 400. Degrade to '' so the request stays well-formed.
+    const out = toOpenAIMessages([
+      { role: 'assistant', content: [{ type: 'reasoning', text: 'thinking…' }] },
+    ]);
+    expect(out[0]).toEqual({ role: 'assistant', content: '' });
+    expect(out[0].tool_calls).toBeUndefined();
+  });
+
+  it('keeps content:null only when tool_calls are present', () => {
+    const out = toOpenAIMessages([
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'Read', input: { path: '/a' } }] },
+    ]);
+    expect(out[0].content).toBeNull();
+    expect(out[0].tool_calls).toHaveLength(1);
+  });
+
+  it('does not crash on a circular/non-serializable tool_use input — degrades that arg to {}', () => {
+    const circular: Record<string, unknown> = { a: 1 };
+    circular.self = circular;
+    const out = toOpenAIMessages([
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'Bad', input: circular }] },
+    ]);
+    expect(out[0].tool_calls?.[0].function.arguments).toBe('{}');
+  });
+
   it('handles assistant with both text and tool_calls', () => {
     const out = toOpenAIMessages([
       {

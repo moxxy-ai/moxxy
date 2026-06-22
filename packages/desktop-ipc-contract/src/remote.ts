@@ -52,6 +52,14 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // but it must be shared so desktop and mobile show the same bypass state.
   'session.setAutoApprove',
   'session.newSession',
+  // ASSUMPTION (breadth-of-surface): this single entry fans out to the ENTIRE
+  // registered slash-command set — a paired phone can invoke any command by
+  // name (the schema only shape-bounds name+args). The contract can't enumerate
+  // which commands are safe, so remote-reachable slash commands MUST be
+  // side-effect-free at the conversation level; a mutating command (a /vault-,
+  // /mode-, or plugin-provided state mutator) reachable from a phone needs a
+  // per-command capability gate at the registry layer (see needsFollowup), not
+  // just this allow-list entry.
   'session.runCommand',
   // Multi-session conversations: list/create/switch/rename are conversation-
   // scoped — the same trust class as `session.newSession` (already allowed),
@@ -67,13 +75,9 @@ export const REMOTE_ALLOWED_COMMANDS: ReadonlySet<IpcCommandName> = new Set<IpcC
   // Voice input (capability-probed; transcribe fails coded without a transcriber).
   'session.hasTranscriber',
   'session.transcribe',
-  // Per-workspace transcript log (the mobile ChatStoreBridge persists through
-  // these; they're scoped to a workspace's NDJSON log, not host config).
-  'chat.append',
-  'chat.loadSegment',
+  // Read a workspace's transcript history from the runner's authoritative log
+  // (a paired phone may read history, scoped to a workspace, not host config).
   'chat.loadHistory',
-  'chat.clearLog',
-  'chat.migrate',
   // Scheduler: mobile may inspect, pause/resume, and delete existing schedules
   // from the shared scheduler store. Creating/editing prompts remains an
   // agent/desktop-authoring flow so a paired phone cannot write arbitrary new

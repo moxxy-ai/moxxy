@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   defineSurface,
   type SurfaceDataMessage,
@@ -90,6 +90,76 @@ describe('SurfaceHostImpl viewer ref-counting', () => {
     await host.open('terminal'); // ref count 2
     await host.closeAll();
     expect(state.closed).toBe(1);
+  });
+});
+
+describe('SurfaceHostImpl shutdown leak/hang hardening', () => {
+  it('closeAll closes an open() that resolves AFTER teardown (no leaked instance)', async () => {
+    // The open()'s def.open promise resolves only after closeAll has run; the
+    // freshly-created instance must be torn down, not installed as an orphan.
+    let resolveOpen!: () => void;
+    const gate = new Promise<void>((r) => {
+      resolveOpen = r;
+    });
+    const state = { closed: 0, instances: [] as SurfaceInstance[] };
+    const def = defineSurface({
+      kind: 'terminal',
+      open: async () => {
+        await gate;
+        const instance: SurfaceInstance = {
+          id: 'terminal',
+          kind: 'terminal',
+          onData: () => () => {},
+          input: () => {},
+          close: () => {
+            state.closed += 1;
+          },
+        };
+        state.instances.push(instance);
+        return instance;
+      },
+    });
+    const host = makeHost(def);
+
+    const openPromise = host.open('terminal'); // in-flight, parked on the gate
+    const closeAll = host.closeAll(); // sets disposed; awaits the in-flight open
+    resolveOpen(); // open resolves only now, after teardown began
+    await expect(openPromise).rejects.toThrow(/has been closed/);
+    await closeAll;
+
+    // The instance was created — and immediately closed, never installed.
+    expect(state.instances).toHaveLength(1);
+    expect(state.closed).toBe(1);
+    // A stray open() after shutdown is rejected before creating anything.
+    await expect(host.open('terminal')).rejects.toThrow(/has been closed/);
+  });
+
+  it('a wedged instance.close() does not hang closeAll forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const state = { closed: 0 };
+      const def = defineSurface({
+        kind: 'terminal',
+        open: () => ({
+          id: 'terminal',
+          kind: 'terminal',
+          onData: () => () => {},
+          input: () => {},
+          // Never resolves: a wedged PTY/browser teardown.
+          close: () => new Promise<void>(() => {}),
+        }),
+      });
+      const host = makeHost(def);
+      await host.open('terminal');
+
+      const done = host.closeAll();
+      // Without the timeout this would never settle; advance past it.
+      await vi.advanceTimersByTimeAsync(6000);
+      await expect(done).resolves.toBeUndefined();
+      expect(state.closed).toBe(0); // close() never resolved, but we moved on
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -15,6 +15,7 @@ import {
   listTransactions,
   readJournal,
   recordAttempt,
+  resolveTarget,
   restoreSnapshot,
   writeJournal,
   type Journal,
@@ -38,10 +39,12 @@ export {
 export { classify, gatherSignals, type ClassifyResult } from './classify.js';
 export {
   finalizeStagedCoreUpdate,
+  gcCoreTxns,
   listCoreTxns,
   detectCoreInstall,
   readCoreJournal,
   restoreOverlay,
+  reconcileOverlay,
   corePreflight,
   type CoreJournal,
   type CoreInstallInfo,
@@ -93,6 +96,25 @@ function beginTool(deps: SelfUpdateDeps): ToolDef {
     }),
     permission: { action: 'allow' },
     handler: async (input, ctx: ToolContext) => {
+      // Single-flight per target (mirrors the Tier-2 core_begin guard): two
+      // concurrent begins on the same plugin/skill snapshot independently, so a
+      // second begin started after the model already overwrote the artifact
+      // captures the BROKEN state into its own `before/`, and a later rollback
+      // of that txn "restores" garbage. Refuse a new begin while a non-terminal
+      // txn for the same target is open. resolveTarget also validates the name.
+      const target = resolveTarget(deps.moxxyDir, input.kind, input.name);
+      const active = (await listTransactions(deps.moxxyDir)).find(
+        (j) => j.target.path === target.path && (j.state === 'open' || j.state === 'verified'),
+      );
+      if (active) {
+        throw new Error(
+          `a self-update is already in progress for ${input.kind} "${input.name}" ` +
+            `(txn ${active.txnId}, state "${active.state}"). Finish it (self_update_verify → ` +
+            `self_update_apply) or discard it with self_update_rollback({ txnId: "${active.txnId}" }) ` +
+            `before starting another.`,
+        );
+      }
+
       const journal = await beginTransaction({ moxxyDir: deps.moxxyDir, kind: input.kind, name: input.name });
       if (input.kind === 'plugin') {
         journal.registryBefore = deps.snapshot();

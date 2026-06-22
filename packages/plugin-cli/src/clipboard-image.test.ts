@@ -100,6 +100,34 @@ describe('readClipboardImageSync (Linux path)', () => {
   });
 });
 
+describe('Darwin AppleScript path escaping (osascript interpolation safety)', () => {
+  it('escapes backslashes and double-quotes so a hostile path cannot break out of the literal', async () => {
+    const { escapeAppleScriptString } = await loadModule();
+    // Escape order matters: backslash first, then quote.
+    expect(escapeAppleScriptString('a"b\\c')).toBe('a\\"b\\\\c');
+    expect(escapeAppleScriptString('plain/path.png')).toBe('plain/path.png');
+  });
+
+  it('leaves exactly the two wrapping quotes unescaped per POSIX file line', async () => {
+    const { buildDarwinClipboardScript } = await loadModule();
+    // A path containing a `"` would, unescaped, close the AppleScript literal
+    // early and let the trailing text run as code.
+    const evil = '/home/a"; do shell script "rm -rf ~"//x.png';
+    const script = buildDarwinClipboardScript(evil);
+    const posixLines = script.filter((l) => l.includes('POSIX file "'));
+    expect(posixLines.length).toBe(2);
+    for (const line of posixLines) {
+      // Count `"` not preceded by a backslash — a correctly-escaped path
+      // leaves exactly the two literal delimiters.
+      const unescaped = line.match(/(?<!\\)"/g) ?? [];
+      expect(unescaped).toHaveLength(2);
+    }
+    // The injected substring survives only as escaped content, never as a bare
+    // closing quote.
+    expect(script.join('\n')).toContain('a\\";');
+  });
+});
+
 describe('reapStale (u77-2: cache no longer grows unbounded)', () => {
   it('removes stale clip-*.png and keeps recent ones (by embedded timestamp)', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'moxxy-clip-reap-'));

@@ -3,6 +3,36 @@ import type { FileDiffDisplay, ViewDoc } from '@moxxy/sdk';
 import type { ClientFrame, ServerFrame } from '../protocol';
 import { applyView, canGoBack, currentEntry, goBack, initialNav, navigateTo, type NavState } from './view-store';
 
+/** Reconnect backoff bounds for the surface WebSocket. */
+const MIN_RECONNECT_MS = 500;
+const MAX_RECONNECT_MS = 8_000;
+
+/**
+ * The auth token, captured from `?t` at module load — BEFORE the address bar is
+ * cleaned (see stripTokenFromUrl) — so reconnects and the WS handshake keep
+ * working after the visible URL no longer carries it.
+ */
+const CAPTURED_TOKEN: string =
+  typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('t') ?? '' : '';
+
+function readAuthToken(): string {
+  return CAPTURED_TOKEN;
+}
+
+/**
+ * Drop the `?t=…` token from the visible URL (history-replace, no navigation)
+ * once it has been captured, so the bearer token isn't persisted to browser
+ * history / shoulder-surfed from the address bar. The WS still authenticates
+ * from {@link CAPTURED_TOKEN}. Safe no-op when there is no token or no History.
+ */
+export function stripTokenFromUrl(): void {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has('t')) return;
+  url.searchParams.delete('t');
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 /** A prose turn from the user or assistant, mirrored into the transcript. */
 export interface TranscriptText {
   readonly role: 'assistant' | 'user';
@@ -60,13 +90,21 @@ export function useViewSocket(): ViewSocket {
   }, []);
 
   useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get('t') ?? '';
+    // The token is captured ONCE here, before main.tsx may strip `?t` from the
+    // visible address bar (history.replaceState) to keep it out of browser
+    // history. Reconnects reuse this captured copy.
+    const token = readAuthToken();
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws?t=${encodeURIComponent(token)}`);
-    wsRef.current = ws;
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onmessage = (ev: MessageEvent) => {
+    // Base path the surface is served under (e.g. `/web` behind the proxy relay,
+    // `''` locally) — injected into the page by the server.
+    const base = (window as unknown as { __MOXXY_BASE__?: string }).__MOXXY_BASE__ ?? '';
+    const wsUrl = `${proto}://${window.location.host}${base}/ws?t=${encodeURIComponent(token)}`;
+
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let backoffMs = MIN_RECONNECT_MS;
+
+    const handleMessage = (ev: MessageEvent): void => {
       let frame: ServerFrame;
       try {
         frame = JSON.parse(String(ev.data)) as ServerFrame;
@@ -84,9 +122,56 @@ export function useViewSocket(): ViewSocket {
         if (frame.phase === 'done') setStatus(null);
         else if (frame.phase === 'error') setStatus({ text: frame.text || 'error', error: true });
         else setStatus({ text: frame.text || 'working…', error: false });
+      } else if (frame.kind === 'ack') {
+        // A rejected action (e.g. the agent is mid-turn) would otherwise leave
+        // the optimistic "working…" spinner up forever — clear it with a notice.
+        // An accepted action keeps the working status until its turn completes.
+        if (!frame.accepted) {
+          setStatus({
+            text: frame.reason === 'busy' ? 'agent is busy — try again in a moment' : 'action rejected',
+            error: true,
+          });
+        }
       }
     };
-    return () => ws.close();
+
+    const connect = (): void => {
+      if (disposed) return;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      ws.onopen = () => {
+        backoffMs = MIN_RECONNECT_MS;
+        setConnected(true);
+      };
+      ws.onmessage = handleMessage;
+      ws.onclose = () => {
+        wsRef.current = null;
+        setConnected(false);
+        if (disposed) return;
+        // Tunnels (cloudflared/ngrok) and mobile networks drop routinely; the
+        // server also closes all sockets on retunnel/stop. Reconnect with capped
+        // exponential backoff instead of going permanently dead.
+        reconnectTimer = setTimeout(connect, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, MAX_RECONNECT_MS);
+      };
+      // An 'error' that doesn't also fire 'close' would otherwise strand us; the
+      // browser always follows a failed/closed socket with 'close', so the
+      // reconnect is driven from there. The explicit handler just suppresses the
+      // unhandled-error console noise.
+      ws.onerror = () => undefined;
+    };
+
+    connect();
+    return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const ws = wsRef.current;
+      wsRef.current = null;
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+    };
   }, [setNavState]);
 
   const navigate = useCallback(

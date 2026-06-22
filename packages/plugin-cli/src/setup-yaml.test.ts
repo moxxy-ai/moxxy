@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderYaml } from './setup-yaml.js';
+import { renderYaml, yamlScalar } from './setup-yaml.js';
 
 const base = {
   apiKeys: {},
@@ -112,5 +112,68 @@ describe('renderYaml', () => {
     });
     expect(yaml).toContain('apiKey: ${vault:ANTHROPIC_API_KEY}');
     expect(yaml).toMatch(/- openai-codex/);
+  });
+
+  it('keeps the vault placeholder unquoted (loader matches it literally)', () => {
+    const yaml = renderYaml({ ...base, providers: ['anthropic'] });
+    // Must NOT be wrapped in quotes despite containing a `:` — the config
+    // loader recognizes the bare ${vault:...} form.
+    expect(yaml).toContain('apiKey: ${vault:ANTHROPIC_API_KEY}');
+    expect(yaml).not.toContain('apiKey: "${vault:');
+  });
+
+  it('produces VALID yaml even when ids carry YAML-special characters (worst case)', async () => {
+    // Hostile / unexpected ids: a `:` in a model id, a `#` in an embedder, a
+    // leading-dash mode, whitespace + quote in an isolator. None of these can
+    // be allowed to silently corrupt the generated config file.
+    const yaml = renderYaml({
+      apiKeys: {},
+      providers: ['my:provider', 'other'],
+      primary: 'my:provider',
+      model: 'gpt-4 #turbo: "fast"',
+      mode: '-weird mode',
+      embedder: 'em#bed',
+      security: { enabled: true, isolator: 'iso lator"x' },
+    });
+    const yamlMod = (await import('yaml')) as typeof import('yaml');
+    // The whole document must still parse — no thrown YAMLParseError, no
+    // truncated/aliased value.
+    const parsed = yamlMod.parse(yaml);
+    expect(parsed.provider.name).toBe('my:provider');
+    expect(parsed.provider.model).toBe('gpt-4 #turbo: "fast"');
+    expect(parsed.provider.fallbacks).toEqual(['other']);
+    expect(parsed.mode).toBe('-weird mode');
+    expect(parsed.embeddings.provider).toBe('em#bed');
+    expect(parsed.security.isolator).toBe('iso lator"x');
+  });
+});
+
+describe('yamlScalar', () => {
+  it('leaves real catalog ids bare (happy path stays unquoted)', () => {
+    for (const v of ['anthropic', 'claude-sonnet-4-6', 'openai-codex', 'gpt-4.1', 'default', 'a/b', 'x_y', 'v1.2.3+meta']) {
+      expect(yamlScalar(v)).toBe(v);
+    }
+  });
+
+  it('quotes the empty string (a bare empty value parses as null)', () => {
+    expect(yamlScalar('')).toBe('""');
+  });
+
+  it('quotes + escapes values carrying YAML indicators / control chars', () => {
+    expect(yamlScalar('a: b')).toBe('"a: b"');
+    expect(yamlScalar('# comment')).toBe('"# comment"');
+    expect(yamlScalar('-leading')).toBe('"-leading"');
+    expect(yamlScalar('say "hi"')).toBe('"say \\"hi\\""');
+    expect(yamlScalar('back\\slash')).toBe('"back\\\\slash"');
+    expect(yamlScalar('line1\nline2')).toBe('"line1\\nline2"');
+    expect(yamlScalar('tab\there')).toBe('"tab\\there"');
+  });
+
+  it('round-trips every quoted value through a real YAML parser', async () => {
+    const yamlMod = (await import('yaml')) as typeof import('yaml');
+    for (const v of ['a: b', '# c', '-d', 'e "f"', 'g\\h', 'i\nj', '', '{flow}', '[seq]', '*anchor', '&amp', '!tag', '%dir', '@at', ' lead', 'trail ']) {
+      const doc = `k: ${yamlScalar(v)}`;
+      expect(yamlMod.parse(doc).k).toBe(v);
+    }
   });
 });

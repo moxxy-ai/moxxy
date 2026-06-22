@@ -22,6 +22,14 @@
  * backpressure limits apply (see `WebSocketBridgeOptions`). The gateway is OFF
  * by default and only starts on explicit user action.
  *
+ * Beyond the LAN, the gateway also exposes itself through the self-hosted
+ * `proxy` relay with end-to-end encryption (a Noise responder shim in front of
+ * the loopback bridge — the relay only ever sees ciphertext, and the bearer
+ * token never crosses it), so the QR works off the local network. When the
+ * relay is up the advertised connectUrl is the remote `wss://<uuid>.proxy…/mobile`
+ * URL + pinned fingerprint; if the relay is unreachable it falls back to the LAN
+ * URL. `MOXXY_MOBILE_NO_PROXY=1` forces LAN-only.
+ *
  * Hardening defaults (see `WebSocketBridgeOptions`): browser-Origin upgrades
  * are rejected, the legacy `?t=` query credential is off (clients present the
  * token via header/subprotocol; `MOXXY_WS_ALLOW_QUERY_TOKEN=1` re-enables it
@@ -35,7 +43,12 @@ import {
   advertisedHost,
   advertisedOrigins,
   buildConnectUrl,
+  connectUrlOrigin,
 } from '@moxxy/plugin-channel-mobile/pairing';
+import type {
+  E2EProxyHandle,
+  OpenMobileProxyOptions,
+} from '@moxxy/plugin-channel-mobile/e2e-proxy';
 import type { WebSocketBridgeOptions, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
 
@@ -134,6 +147,13 @@ export interface BridgeRuntime {
   readonly writeEnabledPref: (enabled: boolean) => Promise<void>;
   /** Notify listeners (renderer) that the status changed. */
   readonly onChange: (status: MobileGatewayStatus) => void;
+  /**
+   * Open the E2E `proxy` relay exposure for the loopback bridge. Injected (the
+   * main wires `openMobileProxyTunnel` from `@moxxy/plugin-channel-mobile`) so
+   * the relay/crypto stack stays out of this Electron-free module and tests can
+   * substitute a fake. When omitted, the gateway is LAN-only.
+   */
+  readonly openProxyTunnel?: (opts: OpenMobileProxyOptions) => Promise<E2EProxyHandle>;
 }
 
 /**
@@ -150,6 +170,14 @@ export class MobileGatewayManager {
   /** The host the bridge was bound to (wildcard for LAN exposure). */
   private boundHost: string | null = null;
   private boundPort: number | null = null;
+  /**
+   * The end-to-end-encrypted `proxy` relay exposure, when it could be opened.
+   * Present → the advertised connectUrl is the remote `wss://<uuid>.proxy…/mobile`
+   * URL (+ pinned fingerprint) that works off-LAN; null → LAN-only fallback (the
+   * relay was unreachable). The shim it owns terminates Noise in front of the
+   * loopback bridge, so the relay only ever sees ciphertext.
+   */
+  private proxy: E2EProxyHandle | null = null;
   /**
    * Serializes every lifecycle mutation (start/stop/setEnabled/rotate/resume).
    * Concurrent toggles from the Settings tab — a rapid off→on, or a resume
@@ -235,12 +263,22 @@ export class MobileGatewayManager {
       dir: this.rt.userDataDir,
     });
     const host = advertisedHost(this.boundHost ?? '0.0.0.0');
-    const connectUrl = buildConnectUrl({
-      tunnelUrl: null,
-      localHost: host,
-      port: this.boundPort,
-      token,
-    });
+    // When the proxy relay is up, advertise the remote (E2E, off-LAN) URL with
+    // the pinned fingerprint; otherwise fall back to the LAN URL.
+    const connectUrl = this.proxy
+      ? buildConnectUrl({
+          tunnelUrl: this.proxy.url,
+          localHost: host,
+          port: this.boundPort,
+          token,
+          fingerprint: this.proxy.fingerprint,
+        })
+      : buildConnectUrl({
+          tunnelUrl: null,
+          localHost: host,
+          port: this.boundPort,
+          token,
+        });
     const status: MobileGatewayStatus = {
       enabled: true,
       host,
@@ -294,7 +332,54 @@ export class MobileGatewayManager {
     // port (0) resolves to the real one.
     this.server.setAllowedOrigins(advertisedOrigins(host, this.boundPort));
     console.log(`[moxxy] mobile gateway listening on ${this.server.address}`);
+    // Expose it beyond the LAN through the E2E proxy relay (best-effort).
+    await this.openProxy(token);
     return this.status();
+  }
+
+  /**
+   * Try to expose the running bridge through the self-hosted `proxy` relay with
+   * end-to-end encryption, so the QR works off-LAN (`wss://<uuid>.proxy…/mobile`
+   * + pinned fingerprint). Best-effort: a relay that's down/unreachable leaves
+   * the gateway LAN-only (`this.proxy` stays null) rather than failing the start.
+   * Set `MOXXY_MOBILE_NO_PROXY=1` to force LAN-only (no relay dependency).
+   */
+  private async openProxy(token: string): Promise<void> {
+    const open = this.rt.openProxyTunnel;
+    if (!open) return; // host didn't wire the relay stack — LAN-only
+    if (process.env.MOXXY_MOBILE_NO_PROXY === '1') return;
+    if (!this.server || this.boundPort === null) return;
+    try {
+      this.proxy = await open({
+        bridgePort: this.boundPort,
+        bridgeHost: '127.0.0.1',
+        token,
+        logger: {
+          info: (msg, meta) => console.log(`[moxxy] ${msg}`, meta ?? ''),
+          warn: (msg, meta) => console.warn(`[moxxy] ${msg}`, meta ?? ''),
+        },
+      });
+      // iOS RN presents the dialed (relay) origin at the upgrade — allow-list it
+      // alongside the LAN origins so the phone isn't Origin-denied.
+      this.server.setAllowedOrigins([
+        ...advertisedOrigins(this.boundHost ?? '0.0.0.0', this.boundPort),
+        connectUrlOrigin(this.proxy.url),
+      ]);
+      console.log(`[moxxy] mobile gateway proxy relay: ${this.proxy.url}`);
+    } catch (e) {
+      console.warn(
+        '[moxxy] mobile gateway: proxy relay unavailable — pairing is LAN-only:',
+        e instanceof Error ? e.message : e,
+      );
+      this.proxy = null;
+    }
+  }
+
+  /** Tear down the proxy tunnel + E2E shim if open. */
+  private async closeProxy(): Promise<void> {
+    const proxy = this.proxy;
+    this.proxy = null;
+    if (proxy) await proxy.close().catch(() => undefined);
   }
 
   /** Stop the bridge: close the listener + terminate every connected client.
@@ -310,6 +395,9 @@ export class MobileGatewayManager {
     this.server = null;
     this.boundHost = null;
     this.boundPort = null;
+    // Tear the relay tunnel + shim down first so no orphaned control connection
+    // or loopback listener survives the bridge it fronted.
+    await this.closeProxy();
     if (server) {
       try {
         await server.close();
@@ -345,7 +433,20 @@ export class MobileGatewayManager {
       if (!this.server) return this.status();
       // Rotation is coherent with an env-pinned token (no-op + warn) — see
       // rotateWsBridgeToken. status() reads the LIVE accepted token either way.
-      rotateWsBridgeToken(this.rt.userDataDir, this.server);
+      const { rotated } = rotateWsBridgeToken(this.rt.userDataDir, this.server);
+      // The E2E shim checks the bearer against the token it was created with, so
+      // a real rotation must rebuild the proxy with the new token or the relay
+      // path would reject the freshly-paired phone. The uuid is key-derived, so
+      // the public URL is unchanged across the reopen.
+      if (rotated && this.proxy) {
+        const token = resolveChannelToken({
+          envVar: 'MOXXY_WS_TOKEN',
+          fileName: TOKEN_FILE,
+          dir: this.rt.userDataDir,
+        });
+        await this.closeProxy();
+        await this.openProxy(token);
+      }
       const status = this.status();
       this.rt.onChange(status);
       return status;

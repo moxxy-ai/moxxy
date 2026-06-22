@@ -62,7 +62,7 @@ export default definePlugin({
 ```
 
 Hook ordering follows plugin registration order. Use
-[`requirements`](./requirements) to describe availability/readiness, not hook
+[`requirements`](./requirements.md) to describe availability/readiness, not hook
 ordering. `onToolCall` short-circuits on first deny.
 
 ## Requirements
@@ -105,7 +105,7 @@ requirements skip the whole plugin. Tool requirements are checked before the
 handler runs. Providers, modes, compactors, and transcribers check
 requirements before activation.
 
-See [Requirements](./requirements) for the full contract, runtime facts, and
+See [Requirements](./requirements.md) for the full contract, runtime facts, and
 diagnostics behavior.
 
 ## Don't

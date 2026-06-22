@@ -122,6 +122,85 @@ describe('useWorkflowBuilder', () => {
     expect(call?.[1]).not.toHaveProperty('previousName');
   });
 
+  it('a stale getRun (earlier load that resolves last) cannot clobber the newer load', async () => {
+    // Two concurrent loads on one mounted instance: load('a') is slow, load('b')
+    // is fast. Even though 'a' resolves AFTER 'b', the canvas must end up on 'b'
+    // (the last-requested load wins).
+    let yamlA = '';
+    let yamlB = '';
+    {
+      let sa = emptyState('a');
+      sa = addStep(sa, { kind: 'prompt', id: 'a' });
+      sa = updateNode(sa, 'a', { action: 'do a' });
+      yamlA = serialize(sa).yaml;
+      let sb = emptyState('b');
+      sb = addStep(sb, { kind: 'prompt', id: 'b' });
+      sb = updateNode(sb, 'b', { action: 'do b' });
+      yamlB = serialize(sb).yaml;
+    }
+    let resolveA!: (v: unknown) => void;
+    const aGate = new Promise((res) => {
+      resolveA = res;
+    });
+    const invoke = vi.fn(async (cmd: string, args?: unknown) => {
+      if (cmd === 'workflows.validateDraft') return { ok: true, errors: [] };
+      if (cmd === 'workflows.getRun') {
+        const name = (args as { name: string }).name;
+        if (name === 'a') {
+          await aGate; // park load('a') until we release it
+          return { name: 'a', scope: 'user', path: '/a.yaml', yaml: yamlA };
+        }
+        return { name: 'b', scope: 'user', path: '/b.yaml', yaml: yamlB };
+      }
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
+
+    const { result } = renderHook(() => useWorkflowBuilder());
+    let pendingA!: Promise<void>;
+    await act(async () => {
+      pendingA = result.current.load('a'); // slow — parked
+      await result.current.load('b'); // fast — wins
+    });
+    expect(result.current.state.meta.name).toBe('b');
+
+    // Now release the stale load('a'); it must NOT overwrite the canvas.
+    await act(async () => {
+      resolveA(undefined);
+      await pendingA;
+    });
+    expect(result.current.state.meta.name).toBe('b');
+    expect(result.current.state.nodes.map((n) => n.id)).toEqual(['b']);
+  });
+
+  it('a load resolving after unmount does not throw (no dispatch into a dead reducer)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((res) => {
+      release = res;
+    });
+    const yaml = sampleYaml();
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'workflows.validateDraft') return { ok: true, errors: [] };
+      if (cmd === 'workflows.getRun') {
+        await gate;
+        return { name: 'demo', scope: 'user', path: '/x.yaml', yaml };
+      }
+      throw new Error(`unexpected ${cmd}`);
+    });
+    __setApiOverride(fakeApi(invoke as unknown as MoxxyApi['invoke']));
+
+    const { result, unmount } = renderHook(() => useWorkflowBuilder());
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.load('demo');
+    });
+    unmount();
+    await act(async () => {
+      release();
+      await pending; // resolves after unmount — must not throw
+    });
+  });
+
   it('save refuses and surfaces an error when invalid', async () => {
     const invoke = vi.fn(async (cmd: string) => {
       if (cmd === 'workflows.validateDraft') return { ok: false, errors: ['name: bad'] };

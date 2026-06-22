@@ -23,6 +23,34 @@ export { MOXXY_PCM16_24KHZ_MIME };
 const CODEX_TRANSCRIBE_ORIGINATOR = 'Codex Desktop';
 const CODEX_TRANSCRIBE_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+// Deadline for the whole transcribe round-trip. Several callers pass no
+// AbortSignal at all, so without this a half-open proxy / slow-loris peer that
+// accepts the TCP connection but never responds would leave the promise (and
+// the in-flight audio buffer) pending forever.
+const DEFAULT_CODEX_TRANSCRIBE_TIMEOUT_MS = 60_000;
+// The success body is a tiny `{ text }` JSON; error bodies (HTML pages) are the
+// only large ones. Cap the buffered read so a hostile/broken backend can't
+// balloon memory by streaming a multi-GB body before we even inspect it.
+const MAX_CODEX_TRANSCRIBE_BODY_BYTES = 4 * 1024 * 1024;
+// Upper bound on any raw upstream body we embed in a thrown error's cause, so
+// an unmapped status can't smuggle an arbitrarily long (or PII-bearing) body
+// into stack traces / debug logs.
+const MAX_CODEX_ERROR_CAUSE_CHARS = 500;
+
+interface TimeoutHandle {
+  readonly signal: AbortSignal;
+  readonly timedOut: () => boolean;
+  readonly clear: () => void;
+}
+
+/** Merge an optional caller signal with an optional internal one. */
+function combineSignals(
+  a: AbortSignal | undefined,
+  b: AbortSignal | undefined,
+): AbortSignal | undefined {
+  if (a && b) return AbortSignal.any([a, b]);
+  return a ?? b;
+}
 
 export interface CodexOAuthVault {
   get(key: string): Promise<string | null>;
@@ -35,6 +63,8 @@ export interface CodexOAuthTranscriberOptions {
   readonly baseUrl?: string;
   readonly fetch?: typeof fetch;
   readonly sessionIdProvider?: () => string;
+  /** Whole-request deadline in ms; defaults to 60s. `<= 0` disables it. */
+  readonly requestTimeoutMs?: number;
 }
 
 export class CodexOAuthTranscriber implements Transcriber {
@@ -43,18 +73,25 @@ export class CodexOAuthTranscriber implements Transcriber {
   private readonly endpoint: string;
   private readonly fetchImpl: typeof fetch;
   private readonly sessionIdProvider: () => string;
+  private readonly requestTimeoutMs: number;
 
   constructor(opts: CodexOAuthTranscriberOptions) {
     this.vault = opts.vault;
     this.endpoint = buildCodexTranscribeUrl(opts.baseUrl);
     this.fetchImpl = opts.fetch ?? fetch;
     this.sessionIdProvider = opts.sessionIdProvider ?? randomUUID;
+    this.requestTimeoutMs =
+      opts.requestTimeoutMs ?? DEFAULT_CODEX_TRANSCRIBE_TIMEOUT_MS;
   }
 
   async transcribe(
     audio: Uint8Array | ArrayBuffer,
     opts: TranscribeOptions = {},
   ): Promise<TranscriptionResult> {
+    // Empty audio can never yield a transcript: fast-fail before loading tokens
+    // (which may trigger an OAuth refresh) or hitting the network.
+    if (audio.byteLength === 0) return { text: '' };
+
     const tokens = await this.loadTokens();
     const sessionId = this.sessionIdProvider();
     // NB: `opts.language` / `opts.prompt` are intentionally NOT forwarded.
@@ -67,34 +104,90 @@ export class CodexOAuthTranscriber implements Transcriber {
     const form = new FormData();
     form.append('file', new File([upload.bytes], upload.filename, { type: upload.mimeType }));
 
-    let response: Response;
-    try {
-      response = await this.fetchImpl(this.endpoint, {
-        method: 'POST',
-        headers: buildCodexTranscribeHeaders(tokens, sessionId),
-        body: form,
-        signal: opts.signal,
-      });
-    } catch (err) {
-      const network = classifyNetworkError(err, { url: this.endpoint, provider: CODEX_PROVIDER_ID });
-      if (network) throw network;
-      throw err;
-    }
+    // Always race the request against an internal deadline (combined with any
+    // caller signal) so a connection the peer accepts but never answers still
+    // rejects instead of hanging forever. We own the timeout controller so we
+    // can tell our deadline apart from a caller abort and surface NETWORK_TIMEOUT
+    // explicitly (classifyNetworkError keys off `AbortError`, not the
+    // `TimeoutError` an AbortSignal.timeout would raise).
+    //
+    // The single deadline spans BOTH the fetch AND the subsequent body read: a
+    // slow-loris peer can send response *headers* promptly (resolving the fetch
+    // promise) and then dribble the *body* one byte at a time, so capping only
+    // the body SIZE isn't enough — the body read must also abort on the same
+    // deadline. We therefore keep the timer armed through the body read and only
+    // clear it in the outer `finally`.
+    const timeout = this.armTimeout();
+    const signal = combineSignals(opts.signal, timeout?.signal);
 
-    const raw = await response.text();
+    const timedOutError = (err: unknown): MoxxyError =>
+      new MoxxyError({
+        code: 'NETWORK_TIMEOUT',
+        message: `Codex transcription timed out after ${this.requestTimeoutMs}ms.`,
+        context: { provider: CODEX_PROVIDER_ID, url: this.endpoint },
+        cause: err,
+      });
+
+    try {
+      let response: Response;
+      try {
+        response = await this.fetchImpl(this.endpoint, {
+          method: 'POST',
+          headers: buildCodexTranscribeHeaders(tokens, sessionId),
+          body: form,
+          ...(signal ? { signal } : {}),
+        });
+      } catch (err) {
+        if (timeout?.timedOut() && !opts.signal?.aborted) throw timedOutError(err);
+        const network = classifyNetworkError(err, { url: this.endpoint, provider: CODEX_PROVIDER_ID });
+        if (network) throw network;
+        throw err;
+      }
+
+      const raw = await readCappedBody(response, MAX_CODEX_TRANSCRIBE_BODY_BYTES, signal);
+      // A body read that stalled past the deadline aborts via `signal`; surface
+      // it as a timeout (our deadline) or a NETWORK_ABORTED (caller cancelled)
+      // the same way a hung fetch is, instead of silently parsing a truncated body.
+      if (timeout?.timedOut() && !opts.signal?.aborted) throw timedOutError(undefined);
+      if (opts.signal?.aborted) {
+        const aborted = classifyNetworkError(
+          Object.assign(new Error('Request aborted while reading the response body.'), {
+            name: 'AbortError',
+          }),
+          { url: this.endpoint, provider: CODEX_PROVIDER_ID },
+        );
+        if (aborted) throw aborted;
+      }
+      return this.parseResponse(response, raw);
+    } finally {
+      timeout?.clear();
+    }
+  }
+
+  private parseResponse(response: Response, raw: string): TranscriptionResult {
     if (!response.ok) {
+      const summary = summarizeCodexErrorBody(raw);
       const classified = classifyHttpStatus(response.status, {
         provider: CODEX_PROVIDER_ID,
         url: this.endpoint,
-        body: summarizeCodexErrorBody(raw),
+        body: summary,
       });
       if (classified) throw classified;
 
+      // Mirror the classified path: never embed the raw, untruncated body
+      // verbatim into the error cause/context — collapse HTML pages and bound
+      // the length so an unmapped status can't leak an arbitrary body.
+      const summarized = summary?.slice(0, MAX_CODEX_ERROR_CAUSE_CHARS);
       throw new MoxxyError({
         code: 'PROVIDER_BAD_REQUEST',
         message: `Codex transcription returned HTTP ${response.status}.`,
-        context: { provider: CODEX_PROVIDER_ID, url: this.endpoint, status: response.status },
-        ...(raw ? { cause: new Error(raw) } : {}),
+        context: {
+          provider: CODEX_PROVIDER_ID,
+          url: this.endpoint,
+          status: response.status,
+          ...(summarized ? { body: summarized } : {}),
+        },
+        ...(summarized ? { cause: new Error(summarized) } : {}),
       });
     }
 
@@ -166,6 +259,28 @@ export class CodexOAuthTranscriber implements Transcriber {
     return result;
   }
 
+  /**
+   * Arm an internal abort timer for the request deadline. Returns `undefined`
+   * when the timeout is disabled (`<= 0`). The caller MUST `clear()` it once the
+   * response (or rejection) is in hand so a bare timer can't keep the process
+   * alive.
+   */
+  private armTimeout(): TimeoutHandle | undefined {
+    if (!(this.requestTimeoutMs > 0)) return undefined;
+    const controller = new AbortController();
+    let fired = false;
+    const timer = setTimeout(() => {
+      fired = true;
+      controller.abort();
+    }, this.requestTimeoutMs);
+    timer.unref?.();
+    return {
+      signal: controller.signal,
+      timedOut: () => fired,
+      clear: () => clearTimeout(timer),
+    };
+  }
+
   private async loadTokens(): Promise<CodexTokens> {
     try {
       return await ensureFreshCodexTokens(this.vault);
@@ -187,8 +302,49 @@ export class CodexOAuthTranscriber implements Transcriber {
   }
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  // URL() wraps IPv6 literals in brackets.
+  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
 export function buildCodexTranscribeUrl(baseUrl = DEFAULT_CODEX_TRANSCRIBE_BASE_URL): string {
-  const url = new URL(baseUrl);
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch (cause) {
+    throw new MoxxyError({
+      code: 'CONFIG_INVALID',
+      message: `Invalid Codex transcribe base URL: ${baseUrl}`,
+      context: { baseUrl: String(baseUrl) },
+      cause,
+    });
+  }
+
+  // The transcriber attaches a live `Authorization: Bearer <access-token>`
+  // header to this endpoint, so a config-controlled baseUrl must not be able to
+  // redirect that credential to an arbitrary origin. Pin to chatgpt.com over
+  // https, and allow loopback (the test/local seam) over http or https. Reject
+  // everything else as a misconfiguration rather than exfiltrating the token.
+  const loopback = isLoopbackHostname(url.hostname);
+  const httpsChatgpt = url.protocol === 'https:' && url.hostname === 'chatgpt.com';
+  if (!httpsChatgpt && !loopback) {
+    throw new MoxxyError({
+      code: 'CONFIG_INVALID',
+      message:
+        `Refusing to send Codex OAuth credentials to ${url.origin}. ` +
+        'The Codex transcribe base URL must be https://chatgpt.com (or a loopback host for local testing).',
+      context: { baseUrl: String(baseUrl), origin: url.origin },
+    });
+  }
+  if (loopback && url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new MoxxyError({
+      code: 'CONFIG_INVALID',
+      message: `Unsupported scheme for Codex transcribe base URL: ${url.protocol}`,
+      context: { baseUrl: String(baseUrl), protocol: url.protocol },
+    });
+  }
+
   let pathname = url.pathname.replace(/\/+$/, '');
   if (!pathname || pathname === '/') pathname = '';
   if (url.hostname === 'chatgpt.com' && !pathname.endsWith('/backend-api')) {
@@ -215,6 +371,91 @@ function buildCodexTranscribeHeaders(tokens: CodexTokens, sessionId: string): He
   });
   if (tokens.accountId) headers.set('ChatGPT-Account-Id', tokens.accountId);
   return headers;
+}
+
+/**
+ * Read a response body to text, but stop once `maxBytes` have been buffered and
+ * cancel the rest of the stream. A success body is a tiny `{ text }` JSON; only
+ * a hostile/broken backend would stream more, so a tight cap is safe and keeps a
+ * multi-GB body from ballooning memory before we parse/inspect it.
+ *
+ * `signal` carries the same request deadline (and caller abort) the fetch used:
+ * a slow-loris peer that returns headers promptly then dribbles the body would
+ * otherwise hang this read forever (the size cap doesn't help when bytes arrive
+ * slowly, not all at once), so the read also aborts on the deadline. A missing
+ * body, an abort, or a decode/read failure yields whatever was read so far (or
+ * `''`); the caller checks the timeout flag to decide whether to surface it as
+ * NETWORK_TIMEOUT.
+ */
+async function readCappedBody(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<string> {
+  const body = response.body;
+  if (!body) {
+    // No stream (e.g. some fetch polyfills / mocks); fall back to text() — those
+    // bodies are already in memory so there's nothing to cap. Race it against the
+    // deadline so even a polyfill that buffers slowly can't hang us.
+    try {
+      return await abortable(response.text(), signal);
+    } catch {
+      return '';
+    }
+  }
+  const reader = body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let received = 0;
+  let out = '';
+  const onAbort = () => {
+    // Unblock a pending reader.read() on the deadline / caller abort.
+    reader.cancel().catch(() => {});
+  };
+  if (signal) {
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  try {
+    while (received < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        received += value.byteLength;
+        out += decoder.decode(value, { stream: true });
+      }
+    }
+    return out;
+  } catch {
+    return out;
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+    reader.cancel().catch(() => {});
+  }
+}
+
+/**
+ * Reject `promise` as soon as `signal` aborts, so a body that can't be streamed
+ * (e.g. a mock's `text()` that never settles) still honours the deadline. The
+ * underlying work is left to settle/garbage-collect on its own — we only stop
+ * awaiting it.
+ */
+function abortable<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new Error('aborted'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error('aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
 }
 
 function summarizeCodexErrorBody(raw: string): string | undefined {

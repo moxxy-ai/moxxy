@@ -5,9 +5,11 @@ import {
   emitRequestsAndDetectStuck,
   executeToolUses,
   isContextOverflowError,
+  nextBackoffMs,
   projectMessages,
   runCompactionIfNeeded,
   runElisionIfNeeded,
+  sleepWithAbort,
   usageEventFields,
   type ModeContext,
   type MoxxyEvent,
@@ -25,8 +27,35 @@ import {
   GOAL_PLUGIN_ID,
   GOAL_SYSTEM_PROMPT,
   GOAL_TOKEN_BUDGET,
+  MAX_CONSECUTIVE_RETRIES,
   STALL_NUDGE,
 } from './constants.js';
+
+/** Exponential back-off base/cap for the retry schedule (attempt is 1-based). */
+const RETRY_BACKOFF_BASE_MS = 500;
+const RETRY_BACKOFF_CAP_MS = 30_000;
+
+// Abort-aware sleep, injectable for tests so the back-off path runs instantly
+// and deterministically. Production delegates to the SDK's sleepWithAbort: a
+// real timer that clears (and drops its abort listener) when the signal fires,
+// so a pending back-off never outlives a cancelled goal run.
+let sleepImpl = (ms: number, signal: AbortSignal): Promise<void> => sleepWithAbort(ms, signal);
+
+/**
+ * Override the retry back-off sleep (test seam). Returns a restore fn that
+ * callers MUST invoke (in a `finally`) — `sleepImpl` is a module-scoped
+ * singleton shared process-wide, so a leaked override bleeds the fake sleep
+ * into every other turn/test running in the same worker. Test-only.
+ */
+export function __setRetrySleepForTests(
+  fn: (ms: number, signal: AbortSignal) => Promise<void>,
+): () => void {
+  const prev = sleepImpl;
+  sleepImpl = fn;
+  return () => {
+    sleepImpl = prev;
+  };
+}
 
 /**
  * Goal mode driver.
@@ -97,11 +126,28 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
   });
 
   const detector = createStuckLoopDetector();
-  const maxIterations = ctx.maxIterations ?? GOAL_MAX_ITERATIONS;
+  // Coerce a caller/config-supplied bound to a positive integer. A degenerate
+  // value (0, negative, NaN, fractional) would otherwise make the for-loop
+  // never run and fall straight to the "iteration cap reached" fatal — work was
+  // never done, yet the message blames the model. The config schema validates
+  // this as a positive int, but programmatic callers (subagents/workflows)
+  // bypass that schema. Un-coercible (NaN) falls back to the default.
+  const requestedMaxIterations = ctx.maxIterations;
+  const maxIterations =
+    typeof requestedMaxIterations === 'number' && Number.isFinite(requestedMaxIterations)
+      ? Math.max(1, Math.floor(requestedMaxIterations))
+      : GOAL_MAX_ITERATIONS;
   let noop = 0; // consecutive idle (no-tool) iterations
   let totalTokens = 0;
   let reactiveCompactions = 0;
   const MAX_REACTIVE_COMPACTIONS = 2;
+  // Consecutive retryable-error count; reset on any clean provider call. Caps
+  // the busy-loop a sustained retryable condition (429 / overloaded / transient
+  // 5xx / ECONNRESET) would otherwise create — goal mode runs unattended with
+  // auto-approval, so a tight retry loop hammers the provider with nobody
+  // watching. The token budget can't backstop this: a request that errors
+  // before message_end reports no usage, so totalTokens never advances.
+  let consecutiveRetries = 0;
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
     if (ctx.signal.aborted) {
@@ -173,13 +219,28 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
       ...usageEventFields(usage),
     });
 
-    if (usage) totalTokens += (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+    // Tally the FULL prompt of each call. Anthropic reports the cached portion
+    // separately (`inputTokens` is only the non-cached prefix), so on a long
+    // goal run — where the rolling cache breakpoint serves most of the prompt
+    // as cacheRead — counting input+output alone undercounts by a large factor
+    // and the runaway-budget backstop could be exceeded many times over before
+    // it trips. Include both cache fields so the budget reflects real usage.
+    if (usage)
+      totalTokens +=
+        (usage.inputTokens ?? 0) +
+        (usage.cacheReadTokens ?? 0) +
+        (usage.cacheCreationTokens ?? 0) +
+        (usage.outputTokens ?? 0);
 
     if (error) {
-      if (isContextOverflowError(error.message) && reactiveCompactions < MAX_REACTIVE_COMPACTIONS) {
-        reactiveCompactions += 1;
+      const overflow = isContextOverflowError(error.message);
+      if (overflow && reactiveCompactions < MAX_REACTIVE_COMPACTIONS) {
         const compacted = await runCompactionIfNeeded(goalCtx, { force: true });
         if (compacted) {
+          // Only count an attempt that actually compacted — a no-op (overflow
+          // lives in the un-compactable recent tail) must not deny a later,
+          // genuinely compactable overflow its retry.
+          reactiveCompactions += 1;
           yield await ctx.emit({
             type: 'error',
             sessionId: ctx.sessionId,
@@ -191,18 +252,70 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
           continue;
         }
       }
+      // A context overflow that can't be compacted further is fatal regardless
+      // of the provider's `retryable` flag: some providers mark "reduce the
+      // length" errors retryable, but the prompt cannot shrink, so a retry just
+      // re-sends the identical over-budget request and overflows again — a tight
+      // loop bounded only by maxIterations (the request errors before usage is
+      // reported, so the token budget never advances to stop it).
+      const fatal = !error.retryable || overflow;
+      if (fatal) {
+        yield await ctx.emit({
+          type: 'error',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          kind: 'fatal',
+          message: `goal: ${error.message}`,
+        });
+        return;
+      }
+      // Retryable: surface it, then back off before retrying. A persistent
+      // retryable condition (sustained 429 / outage) must NOT busy-loop the
+      // provider — give up with a fatal error after the bounded retry count.
+      // The counter resets on any clean provider call, so a long run can still
+      // recover from transient blips.
+      consecutiveRetries += 1;
       yield await ctx.emit({
         type: 'error',
         sessionId: ctx.sessionId,
         turnId: ctx.turnId,
         source: 'system',
-        kind: error.retryable ? 'retryable' : 'fatal',
+        kind: 'retryable',
         message: `goal: ${error.message}`,
       });
-      if (!error.retryable) return;
+      if (consecutiveRetries >= MAX_CONSECUTIVE_RETRIES) {
+        yield await ctx.emit({
+          type: 'error',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          kind: 'fatal',
+          message:
+            `goal: provider kept returning a retryable error ${consecutiveRetries} times in a row ` +
+            `(last: ${error.message}); giving up rather than hammering the provider.`,
+        });
+        return;
+      }
+      await sleepImpl(
+        nextBackoffMs(consecutiveRetries, RETRY_BACKOFF_BASE_MS, RETRY_BACKOFF_CAP_MS),
+        ctx.signal,
+      );
+      if (ctx.signal.aborted) {
+        yield await ctx.emit({
+          type: 'abort',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'system',
+          reason: 'signal aborted during retry back-off',
+        });
+        return;
+      }
       continue;
     }
+    // Clean provider call — reset the overflow-recovery + retry budgets.
     reactiveCompactions = 0;
+    consecutiveRetries = 0;
 
     // Finalize the reasoning summary for THIS call before any exit decision or
     // tool/assistant emit, so the log order is reasoning → tool_use → text
@@ -225,6 +338,21 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
 
     // Token budget backstop (alongside the iteration cap).
     if (totalTokens > GOAL_TOKEN_BUDGET) {
+      // Persist the budget-exhausting call's assistant text before exiting,
+      // just like every productive iteration does (the assistant emit below
+      // this block is skipped by the `return`). Otherwise the model's last
+      // words vanish from the log, so a resume ("continue from here") loses
+      // that context. We do NOT execute its tool calls — the run is stopping.
+      if (text || stopReason === 'end_turn' || toolUses.length === 0) {
+        yield await ctx.emit({
+          type: 'assistant_message',
+          sessionId: ctx.sessionId,
+          turnId: ctx.turnId,
+          source: 'model',
+          content: text,
+          stopReason,
+        });
+      }
       yield await ctx.emit({
         type: 'plugin_event',
         sessionId: ctx.sessionId,

@@ -37,5 +37,15 @@ export async function startWsBridge(
 ): Promise<WebSocketBridgeServer> {
   const server = await createWebSocketTransportServer(opts);
   server.onConnection((transport) => bus.attach(transport));
-  return server;
+  // Tie the bus's peer lifecycle to the server's: closing the bridge
+  // deterministically drops every peer rather than relying solely on each
+  // transport's close event firing.
+  const serverClose = server.close.bind(server);
+  return {
+    ...server,
+    close(): Promise<void> {
+      bus.closeAll();
+      return serverClose();
+    },
+  };
 }

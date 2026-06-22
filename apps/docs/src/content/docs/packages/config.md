@@ -58,7 +58,7 @@ export default defineConfig({
 
 Any string in the loaded config that matches `${vault:NAME}` is resolved
 against the active `VaultStore` before plugins see it — see
-[@moxxy/plugin-vault](./plugin-vault). The CLI's setup runs this pass
+[@moxxy/plugin-vault](./plugin-vault.md). The CLI's setup runs this pass
 before handing the config to plugins.
 
 ## File precedence

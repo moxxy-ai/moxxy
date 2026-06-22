@@ -26,5 +26,10 @@ export interface CompactContext {
 export interface CompactorDef {
   readonly name: string;
   shouldCompact(log: EventLogReader, budget: TokenBudget): boolean;
-  compact(events: ReadonlyArray<MoxxyEvent>, ctx: CompactContext): Promise<Omit<CompactionEvent, keyof import('./events.js').EventBase> & { ts?: number }>;
+  // `ctx` is optional in the public contract: the dispatcher
+  // (`runCompactionIfNeeded`) always passes one, but impls treat it as optional
+  // (degrading gracefully when provider/model are absent), so a hand-rolled
+  // caller / test invoking `compact(events)` is valid and must not be a
+  // compile error.
+  compact(events: ReadonlyArray<MoxxyEvent>, ctx?: CompactContext): Promise<Omit<CompactionEvent, keyof import('./events.js').EventBase> & { ts?: number }>;
 }

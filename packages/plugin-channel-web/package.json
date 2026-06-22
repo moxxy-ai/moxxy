@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-channel-web",
   "private": true,
-  "version": "0.0.23",
+  "version": "0.1.0",
   "description": "Web surface channel for moxxy: serves a browser app that renders agent-authored view-spec UIs over a WebSocket, and routes form/button actions back into the session as new turns.",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,6 +29,7 @@
     }
   },
   "dependencies": {
+    "@moxxy/plugin-tunnel-proxy": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "ws": "catalog:",
     "zod": "catalog:"

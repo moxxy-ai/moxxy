@@ -1,8 +1,8 @@
 import { promises as fs } from 'node:fs';
-import { type MoxxyConfig, moxxyConfigSchema } from '@moxxy/config';
+import { type PluginSettings, pluginSettingsSchema } from '@moxxy/config';
 import { createMutex } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
-import { parse, stringify } from 'yaml';
+import { type Document, isMap, parseDocument } from 'yaml';
 
 /**
  * Per-instance mutex serializing the read-modify-write of `config.yaml`. The
@@ -32,9 +32,9 @@ export function defaultUserConfigPath(): string {
 export async function loadDisabledPackageNames(
   opts: PluginConfigOptions = {},
 ): Promise<ReadonlySet<string>> {
-  const config = await readUserConfig(opts.configPath ?? defaultUserConfigPath());
+  const plugins = await readPluginsMap(opts.configPath ?? defaultUserConfigPath());
   const disabled = new Set<string>();
-  for (const [packageName, settings] of Object.entries(config.plugins ?? {})) {
+  for (const [packageName, settings] of Object.entries(plugins)) {
     if (settings?.enabled === false) disabled.add(packageName);
   }
   return disabled;
@@ -54,10 +54,15 @@ export async function setPluginEnabled(
 ): Promise<void> {
   const configPath = opts.configPath ?? defaultUserConfigPath();
   await configMutex.run(async () => {
-    const config = await readUserConfig(configPath);
-    const plugins = { ...(config.plugins ?? {}) };
-    plugins[packageName] = { ...(plugins[packageName] ?? {}), enabled };
-    await writeUserConfig(configPath, { ...config, plugins });
+    const doc = await readUserConfigDoc(configPath);
+    // Edit in place on the parsed Document so user comments and any config
+    // keys this package doesn't model are preserved across the round-trip.
+    // Merge into the RAW existing entry (not the validated one) so per-plugin
+    // extras the schema doesn't model survive; validate only the value we set.
+    pluginSettingsSchema.pick({ enabled: true }).parse({ enabled });
+    const existing = readRawPluginEntry(doc, packageName);
+    doc.setIn(['plugins', packageName], { ...existing, enabled });
+    await writeUserConfigDoc(configPath, doc);
   });
 }
 
@@ -67,40 +72,72 @@ export async function clearPluginState(
 ): Promise<void> {
   const configPath = opts.configPath ?? defaultUserConfigPath();
   await configMutex.run(async () => {
-    const config = await readUserConfig(configPath);
-    if (!config.plugins || !(packageName in config.plugins)) return;
-    const plugins = { ...config.plugins };
-    delete plugins[packageName];
-    const next: MoxxyConfig = { ...config };
-    // Express deletion explicitly: omit the `plugins` key entirely when no
-    // entries remain, rather than assigning `undefined` and relying on
-    // yaml.stringify to drop it.
-    if (Object.keys(plugins).length > 0) next.plugins = plugins;
-    else delete next.plugins;
-    await writeUserConfig(configPath, next);
+    const doc = await readUserConfigDoc(configPath);
+    if (!doc.hasIn(['plugins', packageName])) return;
+    doc.deleteIn(['plugins', packageName]);
+    // Drop an emptied `plugins` map rather than leaving a bare `plugins: {}`.
+    const plugins = doc.get('plugins');
+    if (isMap(plugins) && plugins.items.length === 0) doc.delete('plugins');
+    await writeUserConfigDoc(configPath, doc);
   });
 }
 
-async function readUserConfig(configPath: string): Promise<MoxxyConfig> {
+/**
+ * Parse `config.yaml` into a yaml Document, preserving comments and untouched
+ * keys for the write path. A malformed file degrades to an empty document
+ * rather than throwing — mirrors plugin-mcp/config-io's degrade-to-empty so a
+ * single hand-edit typo can't strand every plugin toggle (and the boot-time
+ * disabled-set gate). The bad file is left in place for the user to inspect.
+ */
+async function readUserConfigDoc(configPath: string): Promise<Document> {
   let raw = '';
   try {
     raw = await fs.readFile(configPath, 'utf8');
   } catch (err) {
-    if (isNotFound(err)) return {};
+    if (isNotFound(err)) return parseDocument('');
     throw err;
   }
-  const parsed = parse(raw) ?? {};
-  const result = moxxyConfigSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error(`invalid moxxy user config at ${configPath}: ${result.error.message}`);
+  const doc = parseDocument(raw);
+  if (doc.errors.length > 0) {
+    console.warn(
+      `moxxy: ignoring unparseable user config at ${configPath} (${doc.errors[0]?.message}); ` +
+        'treating as no disabled plugins',
+    );
+    return parseDocument('');
   }
-  return result.data;
+  return doc;
 }
 
-async function writeUserConfig(configPath: string, config: MoxxyConfig): Promise<void> {
-  const result = moxxyConfigSchema.safeParse(config);
-  if (!result.success) throw new Error(`invalid moxxy user config: ${result.error.message}`);
-  await writeFileAtomic(configPath, stringify(result.data));
+async function writeUserConfigDoc(configPath: string, doc: Document): Promise<void> {
+  await writeFileAtomic(configPath, doc.toString());
+}
+
+/**
+ * Read just the validated `plugins` map for the read-only paths. Drops only
+ * the offending row on a bad entry (mirrors plugin-mcp) instead of failing the
+ * whole map, so one malformed plugin setting can't hide the disabled flag of
+ * the others.
+ */
+async function readPluginsMap(configPath: string): Promise<Record<string, PluginSettings>> {
+  const doc = await readUserConfigDoc(configPath);
+  const plugins = doc.get('plugins');
+  if (!isMap(plugins)) return {};
+  const out: Record<string, PluginSettings> = {};
+  for (const [key, entry] of Object.entries(plugins.toJSON() as Record<string, unknown>)) {
+    const parsed = pluginSettingsSchema.safeParse(entry);
+    if (parsed.success) out[key] = parsed.data;
+  }
+  return out;
+}
+
+/** The plugin entry as plain JS (unvalidated), or {} when absent/non-object. */
+function readRawPluginEntry(doc: Document, packageName: string): Record<string, unknown> {
+  const node = doc.getIn(['plugins', packageName], false);
+  if (!isMap(node)) return {};
+  const raw = node.toJSON() as unknown;
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
 }
 
 function isNotFound(err: unknown): boolean {

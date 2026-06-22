@@ -104,12 +104,18 @@ export function enqueueLine(line: string, out: (reply: Reply) => void): Promise<
   try {
     req = JSON.parse(line) as Req;
   } catch {
+    // Wholly unparseable — there's no id to recover, so the parent can't match
+    // this reply; it's best-effort diagnostic output only.
     out({ id: 'unknown', ok: false, error: { message: 'invalid JSON', kind: 'runtime' } });
     return queue;
   }
   if (!req.id || !req.method) {
+    // Echo the request's real id whenever it round-tripped (only `method` was
+    // missing), so the parent can SETTLE the matching pending call instead of
+    // dropping the reply and stranding the caller until its timeout. Fall back
+    // to 'unknown' only when the id genuinely can't be recovered.
     out({
-      id: req.id ?? 'unknown',
+      id: typeof req.id === 'string' && req.id ? req.id : 'unknown',
       ok: false,
       error: { message: 'request requires { id, method }', kind: 'runtime' },
     });

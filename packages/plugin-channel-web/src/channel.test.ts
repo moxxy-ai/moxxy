@@ -1,9 +1,34 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { ClientSession, MoxxyEvent } from '@moxxy/sdk';
-import { freeTcpPortIfMoxxy, WebChannel, type FreePortDeps } from './channel.js';
+import {
+  freeTcpPortIfMoxxy,
+  WebChannel,
+  basePathFromUrl,
+  injectBaseHtml,
+  type FreePortDeps,
+} from './channel.js';
 import type { ServerFrame } from './protocol.js';
 import type { TunnelProviderDef } from '@moxxy/sdk';
+
+describe('base-path helpers', () => {
+  it('derives the base path from a tunnel URL', () => {
+    expect(basePathFromUrl('https://uuid.proxy.moxxy.ai/web')).toBe('/web');
+    expect(basePathFromUrl('https://uuid.proxy.moxxy.ai/web/')).toBe('/web');
+    expect(basePathFromUrl('https://uuid.proxy.moxxy.ai')).toBe('');
+    expect(basePathFromUrl('http://127.0.0.1:4040')).toBe('');
+    expect(basePathFromUrl('not a url')).toBe('');
+  });
+
+  it('injects the base href + client global, leaving root unchanged', () => {
+    const tpl = '<head><!--moxxy:base--></head><body><script src="app.js"></script></body>';
+    const web = injectBaseHtml(tpl, '/web');
+    expect(web).toContain('<base href="/web/" />');
+    expect(web).toContain('window.__MOXXY_BASE__="/web"');
+    expect(injectBaseHtml(tpl, '')).toContain('<base href="/" />');
+    expect(injectBaseHtml(tpl, '')).toContain('window.__MOXXY_BASE__=""');
+  });
+});
 
 const sampleDoc = { root: { kind: 'element', tag: 'view', props: { title: 'hi' }, children: [] } };
 
@@ -189,7 +214,7 @@ describe('WebChannel', () => {
     let published: { url: string; nextViewId: () => string } | null = null;
     const badTunnel: TunnelProviderDef = {
       name: 'bad',
-      open: () => Promise.reject(new Error('cloudflared not installed')),
+      open: () => Promise.reject(new Error('relay unreachable')),
     };
     channel = new WebChannel({
       port: 0,
@@ -204,6 +229,35 @@ describe('WebChannel', () => {
     expect(published).not.toBeNull();
     expect(published!.url).toContain('http://127.0.0.1:');
     expect(published!.url).toContain('?t=tkn');
+  });
+
+  it('opens a WS handshake under the relay base path (proxy /web)', async () => {
+    const token = 'tkn';
+    const webTunnel: TunnelProviderDef = {
+      name: 'proxy',
+      open: () =>
+        Promise.resolve({ url: 'https://uuid.proxy.moxxy.ai/web', close: () => Promise.resolve() }),
+    };
+    channel = new WebChannel({ port: 0, host: '127.0.0.1', authToken: token, getTunnel: () => webTunnel });
+    handle = await channel.start({ session: fakeSession().session });
+    const port = new URL(channel.url).port;
+
+    const openWs = (path: string, t: string) =>
+      new Promise<boolean>((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}${path}?t=${t}`);
+        ws.on('open', () => {
+          resolve(true);
+          ws.close();
+        });
+        ws.on('error', () => resolve(false));
+        ws.on('unexpected-response', () => resolve(false));
+      });
+
+    // Under the base path AND root (relay may or may not strip) both open.
+    expect(await openWs('/web/ws', token)).toBe(true);
+    expect(await openWs('/ws', token)).toBe(true);
+    // Token still gates under the prefix.
+    expect(await openWs('/web/ws', 'wrong')).toBe(false);
   });
 
   it('rejects a view action while a turn is in flight (busy)', async () => {
@@ -329,6 +383,59 @@ describe('WebChannel', () => {
   it('serves 404 for unknown routes', async () => {
     const { base } = await startOn(fakeSession().session);
     expect((await fetch(`${base}/nope`)).status).toBe(404);
+  });
+
+  it('emits defense-in-depth security headers on the index response', async () => {
+    // The headers are unconditional on the index path: they ride the 200 with
+    // the bundle present and the 500 when it's missing (the case under vitest,
+    // which runs from src/ with no built dist/public), so a missing bundle never
+    // serves a page without the clickjacking / referrer-token protections.
+    const { base, token } = await startOn(fakeSession().session);
+    const res = await fetch(`${base}/?t=${token}`);
+    const csp = res.headers.get('content-security-policy') ?? '';
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+  });
+
+  it('bounds the replay set: an unbounded stream of unnamed views collapses to one', async () => {
+    // A pathological agent that presents many UNNAMED views must not leak one
+    // ViewDoc per render, and a late joiner must not receive the whole history.
+    const { session, emit } = fakeSession();
+    const { wsBase, token } = await startOn(session);
+    for (let i = 0; i < 200; i++) {
+      emit({ type: 'tool_call_requested', callId: `u${i}`, name: 'present_view', input: {} });
+      emit({ type: 'tool_result', callId: `u${i}`, ok: true, output: { ast: sampleDoc } });
+    }
+    const { ws, frames, waitFor } = await connect(wsBase, token);
+    await waitFor('view');
+    // Give replay a beat to flush, then assert the late joiner saw exactly ONE
+    // replayed view, not 200.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(frames.filter((f) => f.kind === 'view')).toHaveLength(1);
+    ws.close();
+  });
+
+  it('bounds the replay set across many distinct NAMED views (LRU-capped)', async () => {
+    const { session, emit } = fakeSession();
+    const { wsBase, token } = await startOn(session);
+    for (let i = 0; i < 100; i++) {
+      emit({ type: 'tool_call_requested', callId: `n${i}`, name: 'present_view', input: {} });
+      emit({
+        type: 'tool_result',
+        callId: `n${i}`,
+        ok: true,
+        output: { ast: { root: { kind: 'element', tag: 'view', props: { name: `screen${i}` }, children: [] } } },
+      });
+    }
+    const { ws, frames, waitFor } = await connect(wsBase, token);
+    await waitFor('view');
+    await new Promise((r) => setTimeout(r, 50));
+    // 100 distinct named screens were built, but replay is capped at 32.
+    expect(frames.filter((f) => f.kind === 'view').length).toBeLessThanOrEqual(32);
+    ws.close();
   });
 
   it('clears the published surface on stop', async () => {

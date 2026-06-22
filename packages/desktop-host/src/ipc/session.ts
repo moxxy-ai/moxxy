@@ -23,6 +23,7 @@ import { getSessionModel, setSessionModel } from '../session-models.js';
 import {
   getInProcessPlugins,
   handle,
+  IpcError,
   mustDriver,
   resolveCtx,
   resolveDriver,
@@ -30,6 +31,18 @@ import {
   waitForRemoteSession,
   waitForSessionState,
 } from './shared';
+
+/** Strict base64 (optional `=` padding). `Buffer.from(x, 'base64')` silently
+ *  drops invalid characters and decodes a partial/garbage buffer, so reject a
+ *  malformed payload AT the boundary instead of feeding the transcriber junk. */
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+
+// The collaboration on-disk layout (lock path + runs dir) and the defensive
+// lock parse/liveness probe are the coordinator's contract, owned by
+// `@moxxy/mode-collaborative`'s collab-store. The Collaborate tab reads them
+// straight off disk here (no runner round-trip, so a collaboration in ANY
+// workspace's runner is visible) — importing the SAME helpers the coordinator
+// writes with means the two can't drift apart.
 
 export function registerSessionHandlers(pool: RunnerPool): void {
   // ---- Session (per-workspace) --------------------------------------------
@@ -122,25 +135,93 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // (~/.moxxy/collab/active.lock). Read directly here (no runner round-trip)
     // so the Collaborate tab sees a collaboration running in ANY workspace.
     try {
-      const { readFileSync } = await import('node:fs');
-      const { homedir } = await import('node:os');
-      const { join } = await import('node:path');
-      const lockPath = process.env.MOXXY_COLLAB_LOCK || join(homedir(), '.moxxy', 'collab', 'active.lock');
-      const info = JSON.parse(readFileSync(lockPath, 'utf8')) as {
-        pid: number;
-        sessionId: string;
-        task: string;
-        startedAtMs: number;
-      };
+      const { readCollabLock, isCollabHolderAlive } = await import('@moxxy/mode-collaborative');
+      const info = readCollabLock();
+      // A missing/corrupt lock (or one without a usable pid) → not active.
+      if (!info) return { active: false };
       // Liveness: a dead holder pid means the lock is stale → not active.
-      try {
-        process.kill(info.pid, 0);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'EPERM') return { active: false };
-      }
+      if (!isCollabHolderAlive(info.pid)) return { active: false };
       return { active: true, sessionId: info.sessionId, task: info.task, startedAtMs: info.startedAtMs };
     } catch {
       return { active: false };
+    }
+  });
+  handle('collab.end', async ({ workspaceId }) => {
+    // Abort the coordinator turn (its finally tears the team down + archives),
+    // then force-release the global lock so a new collaboration can start —
+    // covering a stale lock from a crashed run whose coordinator is unreachable.
+    const abortedTurns = resolveDriver(pool, workspaceId)?.abortActiveTurns() ?? 0;
+    let clearedTask: string | undefined;
+    try {
+      // forceReleaseCollabLock removes the lock regardless of holder and returns
+      // the cleared holder (if any) so we can report which task we ended — the
+      // coordinator's own release-side helper, so the unlink path stays identical.
+      const { forceReleaseCollabLock } = await import('@moxxy/mode-collaborative');
+      clearedTask = forceReleaseCollabLock()?.task || undefined;
+    } catch {
+      // best-effort
+    }
+    return { ended: true, abortedTurns, ...(clearedTask ? { clearedTask } : {}) };
+  });
+  handle('collab.history', async (args) => {
+    // Read archived run records straight from ~/.moxxy/collab/runs (self-
+    // describing JSON), newest first — no runner round-trip, spans all workspaces.
+    //
+    // Hardening: the runs dir grows without bound (one file per collaboration),
+    // and the renderer's `limit` is untrusted. Reading + parsing every file
+    // SYNCHRONOUSLY on the Electron main event loop (the old impl) blocks all
+    // other IPC/animation/input. So: (1) all I/O is async (fs/promises +
+    // Promise.all), (2) `limit` is clamped, and (3) we never read more than a
+    // hard ceiling of files — the newest by mtime (a write-time proxy for run
+    // finish), then sort the parsed records by their authoritative `startedAtMs`.
+    try {
+      const { readdir, readFile, stat } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      // The runs dir layout is the coordinator's contract (`collabRunsDir`); the
+      // ASYNC, mtime-bounded scan below stays desktop-side on purpose — the
+      // coordinator's sync `listRunRecords` would block the Electron main event
+      // loop reading every file, which this handler header explicitly avoids.
+      const { collabRunsDir } = await import('@moxxy/mode-collaborative');
+      const dir = collabRunsDir();
+      // Clamp the renderer-supplied limit to a sane window (default 50, max 200);
+      // a non-positive / non-finite value falls back to the default.
+      const requested = Number(args?.limit ?? 50);
+      const limit = Number.isFinite(requested) && requested > 0 ? Math.min(Math.floor(requested), 200) : 50;
+      // Read at most this many files regardless of how large the dir grows — the
+      // newest by mtime. (mtime ordering tracks run-finish ordering, so the
+      // top-N by startedAtMs are within this window.)
+      const MAX_SCAN = 200;
+      const names = (await readdir(dir)).filter((f) => f.endsWith('.json'));
+      const withMtime = await Promise.all(
+        names.map(async (f) => {
+          try {
+            const s = await stat(join(dir, f));
+            return { f, mtimeMs: s.mtimeMs };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const newest = withMtime
+        .filter((e): e is { f: string; mtimeMs: number } => e !== null)
+        .sort((a, b) => b.mtimeMs - a.mtimeMs)
+        .slice(0, MAX_SCAN);
+      const parsed = await Promise.all(
+        newest.map(async ({ f }) => {
+          try {
+            return JSON.parse(await readFile(join(dir, f), 'utf8')) as { startedAtMs?: number };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const records = parsed
+        .filter((r): r is { startedAtMs?: number } => r !== null)
+        .sort((a, b) => (b.startedAtMs ?? 0) - (a.startedAtMs ?? 0))
+        .slice(0, limit);
+      return records as never;
+    } catch {
+      return [];
     }
   });
   handle('session.hasTranscriber', async () => {
@@ -169,6 +250,9 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // path. No round-trip through the runner socket needed (and no
     // RemoteSession.setActive throw to work around).
     const { transcriber } = getInProcessPlugins();
+    if (typeof audioBase64 !== 'string' || !BASE64_RE.test(audioBase64)) {
+      throw new IpcError('invalid-payload', 'audioBase64 is not valid base64');
+    }
     const audio = Buffer.from(audioBase64, 'base64');
     const result = await transcriber.transcribe(
       audio,
@@ -230,10 +314,18 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     await rememberPickedAttachment(picked);
     return picked;
   });
-  handle('session.saveImageAttachment', async ({ dataBase64, mediaType, name }) =>
-    // The renderer can't write files, so a pasted/dropped image's bytes
-    // are stashed to a temp file here; the returned path then rides the
+  handle('session.saveImageAttachment', async ({ dataBase64, mediaType, name }) => {
+    // The renderer can't write files, so a pasted/dropped/captured image's
+    // bytes are stashed to a temp file here; the returned path then rides the
     // same attachment pipeline as a picked file.
-    persistImageBlob(dataBase64, mediaType, name),
-  );
+    const saved = await persistImageBlob(dataBase64, mediaType, name);
+    // Remember the temp path so the later runTurn that references it clears the
+    // provenance gate. The file lives under os.tmpdir() — not the workspace cwd
+    // — and was never handed out by the picker, so without this
+    // authorizeAttachments drops it and the prompt is sent with NO image
+    // (clipboard paste, drag-drop, AND browser-capture screenshots all land
+    // here). Mirrors session.pickAttachment, which remembers its picked path.
+    await rememberPickedAttachment(saved.path);
+    return saved;
+  });
 }

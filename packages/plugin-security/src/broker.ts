@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
 import type { CapabilitySpec } from '@moxxy/sdk';
-import { pathInScope, urlInScope } from './cap-check.js';
+import { pathInScope, urlInScope, expandHomeAndCwd } from './cap-check.js';
 
 /**
  * Hard ceiling on bytes the broker will buffer for a single exec / fetch
@@ -260,8 +260,28 @@ async function canonicalScopeRoots(
   for (const glob of globs) {
     const expanded = expandPattern(glob, cwd);
     const wildcard = expanded.search(/[*?[]/);
+    if (wildcard === -1 && !expanded.endsWith(path.sep)) {
+      // A wildcard-free pattern with no trailing separator denotes exactly ONE
+      // path. Its scope root must be that exact path, canonicalized WITHOUT
+      // following a symlink at its own final component — otherwise a single-file
+      // cap like read:['/work/exact'] where '/work/exact' is a symlink would
+      // resolve to (and thus admit) whatever it points at. Canonicalize the
+      // PARENT chain and re-append the leaf, so a symlinked leaf's realpath
+      // target differs from this root and is rejected.
+      const parent = path.dirname(expanded);
+      const leaf = path.basename(expanded);
+      let parentReal: string;
+      try {
+        parentReal = await fs.realpath(parent);
+      } catch {
+        parentReal = await realpathDeepest(parent);
+      }
+      roots.push(path.join(parentReal, leaf));
+      continue;
+    }
+    // Wildcarded pattern (or a literal dir written with a trailing sep): the
+    // canonical root is the literal directory prefix the glob spans beneath.
     const literal = wildcard === -1 ? expanded : expanded.slice(0, wildcard);
-    // Base = the directory portion of the literal prefix.
     const base = literal.endsWith(path.sep) ? literal.slice(0, -1) : path.dirname(literal);
     const normalized = path.normalize(base || path.sep);
     try {
@@ -275,12 +295,7 @@ async function canonicalScopeRoots(
 
 /** Resolve `$cwd` / `~` / relative globs to an absolute lexical path. */
 function expandPattern(pattern: string, cwd: string): string {
-  if (pattern.startsWith('$cwd')) return path.normalize(cwd + pattern.slice('$cwd'.length));
-  if (pattern.startsWith('~/')) {
-    const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-    return path.normalize(home + pattern.slice(1));
-  }
-  return path.isAbsolute(pattern) ? path.normalize(pattern) : path.resolve(cwd, pattern);
+  return expandHomeAndCwd(pattern, cwd);
 }
 
 /** True when `child` is `root` itself or a descendant of it. */
@@ -414,12 +429,20 @@ async function brokerFetch(
   // allowlist. We re-run `urlInScope` on each Location before following, and
   // cap the hop count so a redirect loop can't spin forever.
   let current = url;
+  let method = init.method ?? 'GET';
+  // Per-hop header/body state. On a CROSS-ORIGIN hop we strip the caller's
+  // sensitive headers so allowlisted host A's `Authorization`/`Cookie` can't
+  // leak to allowlisted host B (an open-redirect on A would otherwise exfil
+  // A's bearer token to a B the hostile handler controls) — matching native
+  // `fetch`'s redirect semantics, which this hand-rolled loop replaces.
+  let headers = init.headers;
+  let body = init.body;
   let res: Response;
   for (let hop = 0; ; hop++) {
     res = await fetch(current, {
-      method: init.method ?? 'GET',
-      ...(init.headers ? { headers: init.headers } : {}),
-      ...(init.body !== undefined ? { body: init.body } : {}),
+      method,
+      ...(headers ? { headers } : {}),
+      ...(body !== undefined ? { body } : {}),
       redirect: 'manual',
       signal,
     });
@@ -427,6 +450,9 @@ async function brokerFetch(
     const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
     if (!location) break;
     if (hop >= MAX_FETCH_REDIRECTS) {
+      // Drain the intermediate body before throwing so its socket returns to
+      // the keep-alive pool instead of being stranded until GC.
+      await res.body?.cancel().catch(() => undefined);
       throw new Error(
         `[broker:fetch] too many redirects (>${MAX_FETCH_REDIRECTS}) starting from '${url}'`,
       );
@@ -436,27 +462,71 @@ async function brokerFetch(
     try {
       next = new URL(location, current).toString();
     } catch {
+      await res.body?.cancel().catch(() => undefined);
       throw new Error(`[broker:fetch] redirect to unparseable Location '${location}'`);
     }
     if (!urlInScope(next, caps.net)) {
+      await res.body?.cancel().catch(() => undefined);
       throw new Error(
         `[broker:fetch] redirect target '${next}' is outside the tool's declared net capability`,
       );
     }
+    // Cross-origin hop: drop credentials the caller set for the previous origin.
+    if (!sameOrigin(current, next)) {
+      headers = stripSensitiveHeaders(headers);
+    }
+    // 301/302/303 → downgrade non-GET/HEAD to GET and drop the body, matching
+    // browser/fetch redirect rules; 307/308 preserve method+body.
+    if ((res.status === 301 || res.status === 302 || res.status === 303) &&
+        method !== 'GET' && method !== 'HEAD') {
+      method = 'GET';
+      body = undefined;
+    }
+    // Intermediate redirect responses are never read by the caller; cancel the
+    // body so undici frees the connection rather than holding it open.
+    await res.body?.cancel().catch(() => undefined);
     current = next;
   }
 
-  const body = await readBodyCapped(res, MAX_BROKER_OUTPUT_BYTES, url);
-  const headers: Record<string, string> = {};
+  const responseBody = await readBodyCapped(res, MAX_BROKER_OUTPUT_BYTES, url);
+  const responseHeaders: Record<string, string> = {};
   res.headers.forEach((v, k) => {
-    headers[k] = v;
+    responseHeaders[k] = v;
   });
   return {
     status: res.status,
     statusText: res.statusText,
-    headers,
-    body,
+    headers: responseHeaders,
+    body: responseBody,
   };
+}
+
+/** Headers that carry credentials and must not survive a cross-origin redirect. */
+const SENSITIVE_REDIRECT_HEADERS: ReadonlyArray<string> = [
+  'authorization',
+  'cookie',
+  'proxy-authorization',
+];
+
+/** True when both URLs share scheme + host + port. Unparseable → not same-origin. */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Return a copy of `headers` with credential-bearing entries removed (case-insensitive). */
+function stripSensitiveHeaders(
+  headers: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!headers) return headers;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (!SENSITIVE_REDIRECT_HEADERS.includes(k.toLowerCase())) out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -504,10 +574,42 @@ interface ExecResult {
 const BROKER_DEFAULT_ENV: ReadonlyArray<string> = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TERM'];
 
 /**
+ * Dynamic-linker / code-injection env variables that a per-call `optsEnv` must
+ * NEVER be able to set on a brokered child. These inject attacker code into ANY
+ * spawned binary regardless of the command allowlist (`LD_PRELOAD` loads a
+ * shared object into the process; the `DYLD_*` family is macOS's equivalent), so
+ * a hostile brokered handler could set `LD_PRELOAD=/tmp/evil.so` and turn an
+ * allowlisted `echo`/`cat` into arbitrary code execution. They have no
+ * legitimate use in a sandboxed broker call, so we strip them unconditionally
+ * from the caller-supplied env. (They could still arrive via the host's own
+ * `process.env` IF the tool explicitly allowlists them in `caps.env`, which is
+ * an authored, auditable choice — only the UNFILTERED per-call path is closed.)
+ *
+ * Matched case-insensitively; `DYLD_*` is matched by prefix to cover the whole
+ * insert/library/framework-path family without enumerating every variant.
+ */
+const INJECTION_ENV_DENY: ReadonlyArray<string> = [
+  'ld_preload',
+  'ld_library_path',
+  'ld_audit',
+];
+const INJECTION_ENV_DENY_PREFIX = 'dyld_';
+
+function isInjectionEnvKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return INJECTION_ENV_DENY.includes(lower) || lower.startsWith(INJECTION_ENV_DENY_PREFIX);
+}
+
+/**
  * Curate the env a brokered subprocess inherits: only the keys in the tool's
  * `caps.env` allowlist (or a minimal default), plus any explicit per-call
  * `env`. Never the full parent `process.env` — that would leak the host's
  * secrets into the child.
+ *
+ * The per-call `optsEnv` may override an allowlisted key's VALUE or add benign
+ * keys, but dynamic-linker / preload variables are stripped from it first (see
+ * {@link isInjectionEnvKey}) so a hostile handler can't smuggle `LD_PRELOAD` /
+ * `DYLD_*` into an allowlisted child and execute arbitrary code that way.
  *
  * Exported so every isolator that spawns a child (e.g. the wasm broker's
  * synchronous `spawnSync`) curates env the same way instead of inheriting
@@ -523,7 +625,13 @@ export function buildBrokerEnv(
     const v = process.env[key];
     if (v !== undefined) env[key] = v;
   }
-  return { ...env, ...(optsEnv ?? {}) };
+  if (optsEnv) {
+    for (const [k, v] of Object.entries(optsEnv)) {
+      if (isInjectionEnvKey(k)) continue; // drop loader-injection vars
+      env[k] = v;
+    }
+  }
+  return env;
 }
 
 async function brokerExec(
@@ -539,11 +647,60 @@ async function brokerExec(
   if (typeof command !== 'string') {
     throw new Error('[broker:exec] expected (command: string) at args[0]');
   }
-  const argv = (args[1] ?? []) as ReadonlyArray<string>;
-  const opts = (args[2] ?? {}) as { cwd?: string; env?: Record<string, string>; timeoutMs?: number };
+  // Validate argv rather than casting: this arrives over the broker wire from a
+  // (potentially hostile) worker/subprocess. A bare string would be spread into
+  // single characters by `spawn(cmd, [...argv])`; a non-string element makes
+  // `spawn` throw an opaque ERR_INVALID_ARG_TYPE. Reject both with a clear error.
+  const argvRaw = args[1] ?? [];
+  if (!Array.isArray(argvRaw) || !argvRaw.every((a) => typeof a === 'string')) {
+    throw new Error('[broker:exec] expected (argv: string[]) at args[1]');
+  }
+  const argv = argvRaw as ReadonlyArray<string>;
+  const optsRaw = args[2] ?? {};
+  if (typeof optsRaw !== 'object' || optsRaw === null || Array.isArray(optsRaw)) {
+    throw new Error('[broker:exec] expected (opts: object) at args[2]');
+  }
+  const opts = optsRaw as { cwd?: unknown; env?: unknown; timeoutMs?: unknown };
+  if (opts.cwd !== undefined && typeof opts.cwd !== 'string') {
+    throw new Error('[broker:exec] expected opts.cwd to be a string');
+  }
+  if (opts.timeoutMs !== undefined && typeof opts.timeoutMs !== 'number') {
+    throw new Error('[broker:exec] expected opts.timeoutMs to be a number');
+  }
+  if (
+    opts.env !== undefined &&
+    (typeof opts.env !== 'object' || opts.env === null || Array.isArray(opts.env))
+  ) {
+    throw new Error('[broker:exec] expected opts.env to be an object');
+  }
+  const execCwd = (opts.cwd as string | undefined) ?? cwd;
+  // A caller-supplied cwd is part of the fs trust boundary: spawning an
+  // allowlisted command (`cat`/`grep`/`ls`) in an out-of-scope directory would
+  // read data outside the tool's declared `fs.read` scope. Require any custom
+  // cwd to sit inside the declared read scope; the broker's own cwd is exempt.
+  if (opts.cwd !== undefined && opts.cwd !== cwd && !pathInScope(opts.cwd as string, caps.fs, cwd, 'read')) {
+    throw new Error(
+      `[broker:exec] cwd '${opts.cwd}' is outside the tool's declared fs.read capability`,
+    );
+  }
+  const optsEnv = opts.env as Record<string, string> | undefined;
+  const timeoutMs = opts.timeoutMs as number | undefined;
 
   // Optional command allowlist. When `caps.commands` is set, the command
-  // basename (or absolute path) must appear in the list.
+  // basename (or the literal command string) must appear in the list.
+  //
+  // For a PATH-FORM command (one containing a separator, e.g. `/tmp/echo` or
+  // `./echo`) the basename alone is forgeable: a symlink/hardlink named after an
+  // allowlisted binary (`/tmp/echo -> /bin/rm`) would pass the basename check yet
+  // execute `rm`. So we ALSO canonicalize the path-form command via realpath and
+  // require the resolved target's basename to be allowlisted too — the link's
+  // disguise can't survive canonicalization. A bare name (no separator) is left
+  // to spawn's PATH resolution; portably canonicalizing that (PATHEXT, multiple
+  // PATH dirs) is a larger change and tracked separately.
+  //
+  // NOTE: allowlisting an interpreter (`node`/`python`/`sh`) grants arbitrary
+  // code execution by design — the allowlist constrains WHICH binary runs, not
+  // what that binary then does. Document interpreters accordingly when declaring.
   const allowlist = caps.commands;
   if (allowlist && allowlist.length > 0) {
     const base = path.basename(command);
@@ -552,16 +709,34 @@ async function brokerExec(
         `[broker:exec] command '${command}' is outside the tool's declared commands allowlist`,
       );
     }
+    // Re-check the canonical target's basename for a path-form command so a
+    // renamed symlink can't smuggle a different binary past the basename gate.
+    if (command.includes(path.sep) || command.includes('/')) {
+      let realBase: string;
+      try {
+        realBase = path.basename(await fs.realpath(command));
+      } catch {
+        // Command path doesn't resolve (missing / dangling link); let spawn
+        // surface the ENOENT rather than masking it as an allowlist denial.
+        realBase = base;
+      }
+      if (realBase !== base && !allowlist.includes(realBase)) {
+        throw new Error(
+          `[broker:exec] command '${command}' resolves to '${realBase}', ` +
+            `which is outside the tool's declared commands allowlist`,
+        );
+      }
+    }
   }
 
   return await new Promise<ExecResult>((resolve, reject) => {
     const child = spawn(command, [...argv], {
-      cwd: opts.cwd ?? cwd,
+      cwd: execCwd,
       // Filter the parent env through the tool's `caps.env` allowlist (or a
       // minimal default) instead of leaking ALL of process.env — which would
       // hand the brokered subprocess every API key/token the host holds. This
       // mirrors the subprocess isolator's own env curation.
-      env: buildBrokerEnv(caps, opts.env),
+      env: buildBrokerEnv(caps, optsEnv),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const outChunks: Buffer[] = [];
@@ -579,14 +754,17 @@ async function brokerExec(
       killTimer = setTimeout(() => child.kill('SIGKILL'), BROKER_KILL_GRACE_MS);
       killTimer.unref?.();
     };
-    const timer = opts.timeoutMs
+    const timer = timeoutMs
       ? setTimeout(() => {
           terminate();
           finish(() =>
-            reject(new Error(`[broker:exec] '${command}' exceeded ${opts.timeoutMs}ms`)),
+            reject(new Error(`[broker:exec] '${command}' exceeded ${timeoutMs}ms`)),
           );
-        }, opts.timeoutMs)
+        }, timeoutMs)
       : null;
+    // Don't let a pending timeout keep the event loop alive — the SIGKILL
+    // escalation (killTimer, already unref'd) still guarantees the child dies.
+    timer?.unref?.();
     const onAbort = (): void => {
       // Settle the promise NOW rather than waiting for 'close' — a trapped child
       // may never emit it. The SIGKILL fallback still guarantees the child dies.

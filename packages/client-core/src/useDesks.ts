@@ -3,6 +3,7 @@ import { api } from './transport.js';
 import { toErrorMessage } from './errors.js';
 import { createPatchStore, runOptimistic, type PatchStore } from './externalStore.js';
 import { connectionStore } from './useConnection.js';
+import { composerDraftStore } from './composerDraftStore.js';
 import type { Desk, DeskSession, DesksOverview } from '@moxxy/desktop-ipc-contract';
 
 export interface UseDesks {
@@ -302,6 +303,9 @@ class DesksStore {
     this.mutationEpoch += 1;
     try {
       await api().invoke('sessions.remove', { id });
+      // Forget any composer draft staged for the now-deleted session so it
+      // can't linger in the module-level store (or resurface on id reuse).
+      composerDraftStore.dropWorkspace(id);
       await this.refresh();
       // Removing the foregrounded session leaves the connection store on a
       // dead id — follow the host's promoted (or freshly-seeded) session.

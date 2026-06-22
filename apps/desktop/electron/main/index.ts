@@ -62,6 +62,12 @@ import type { DeepLinkPayload, MobileGatewayStatus } from '@moxxy/desktop-ipc-co
 import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
 
 import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
+import type {
+  E2EProxyHandle,
+  OpenMobileProxyOptions,
+} from '@moxxy/plugin-channel-mobile/e2e-proxy';
+
+import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
 
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
@@ -134,8 +140,8 @@ let loopbackCert: SelfSignedCert | null = null;
 // Fixed, stable loopback ports — each MUST be allow-listed in the Clerk
 // dashboard (origins are exact-match including the port), and the
 // `certificate-error` trust is scoped to exactly these ports on
-// desktop.moxxy.ai.
-const LOOPBACK_PORTS = [51789, 51790, 51791, 51792] as const;
+// desktop.moxxy.ai. Sourced from the shared `../loopback-ports` module so the
+// renderer's redirect-origin regex (src/main.tsx) can't drift from this list.
 
 // ---- moxxy:// deep-link transport -----------------------------------------
 
@@ -200,7 +206,7 @@ async function createWindow(): Promise<void> {
   // page's CURRENT origin mid-flow, so those origins are allow-listed
   // explicitly (dev: the Vite origin).
   const appOriginPatterns = [
-    new RegExp(`^https://desktop\\.moxxy\\.ai:(?:${LOOPBACK_PORTS.join('|')})$`),
+    new RegExp(`^https://desktop\\.moxxy\\.ai:(?:${LOOPBACK_PORTS_ALT})$`),
     ...(isDev ? [/^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/] : []),
   ];
   lockDownNavigation(mainWindow, {
@@ -395,7 +401,7 @@ async function createWindow(): Promise<void> {
           break;
         }
       }
-      // eslint-disable-next-line no-console
+       
       console.log(
         raw.isEmpty()
           ? `[moxxy] tray: NO icon found, fell back to text label. Tried: ${trayIconCandidates.join(', ')}`
@@ -428,7 +434,7 @@ async function createWindow(): Promise<void> {
       // Surface the failure — silent catch was hiding "icon missing"
       // and "Tray() blew up" alike, leaving the user with no menubar
       // affordance.
-      // eslint-disable-next-line no-console
+       
       console.error('[moxxy] tray init failed:', err);
     }
   }
@@ -633,13 +639,13 @@ app.whenReady().then(async () => {
   // still has 4040 (or the workspace's unix socket) bound.
   const swept = await sweepStaleSockets();
   if (swept.killed.length || swept.removed.length) {
-    // eslint-disable-next-line no-console
+     
     console.log(
       `[moxxy] swept ${swept.removed.length} stale socket(s), killed ${swept.killed.length} orphan pid(s)`,
     );
   }
   for (const err of swept.errors) {
-    // eslint-disable-next-line no-console
+     
     console.warn('[moxxy] sweep:', err);
   }
 
@@ -698,6 +704,17 @@ app.whenReady().then(async () => {
       onChange: (status: MobileGatewayStatus) => {
         if (mainWindow) sendEvent(mainWindow, 'mobileGateway.changed', status);
       },
+      // Expose the bridge off-LAN through the E2E proxy relay (best-effort; the
+      // manager falls back to a LAN URL if the relay is unreachable). Loaded
+      // LAZILY: the E2E stack (`@noble/*`, the tunnel client, and transitively
+      // `ulid`, whose eager init needs the runtime's `require` shim) must NOT be
+      // pulled into the main entry's static import graph — doing so reorders
+      // module init so `ulid` evaluates before that shim and throws "secure
+      // crypto unusable" at boot (the app fails to start). Deferring to a
+      // dynamic import keeps it out of the startup path; it loads only when the
+      // user enables mobile (post app-ready), in a ulid-free lazy chunk.
+      openProxyTunnel: (opts: OpenMobileProxyOptions): Promise<E2EProxyHandle> =>
+        import('@moxxy/plugin-channel-mobile/e2e-proxy').then((m) => m.openMobileProxyTunnel(opts)),
     });
   }
 

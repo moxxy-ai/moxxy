@@ -11,7 +11,7 @@
  * model (or "Default") commits via the parent's onPick.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
 import { Modal } from '@moxxy/desktop-ui';
@@ -38,6 +38,16 @@ export function ProviderModelPicker({
     activeProvider ?? providers[0]?.name ?? '',
   );
   const [adminProviders, setAdminProviders] = useState<ReadonlyArray<string>>([]);
+  // The live-model fetch round-trips to the provider's /v1/models and can
+  // outlive the modal (user closes it / AgentPicker unmounts on workspace
+  // switch); guard the post-await setState so we don't touch a dead component.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     void api()
@@ -76,9 +86,11 @@ export function ProviderModelPicker({
       const ids = await api().invoke('settings.fetchProviderModels', {
         provider: hoveredProvider,
       });
+      if (!mounted.current) return;
       setFetched((cur) => ({ ...cur, [hoveredProvider]: ids }));
       setFetchState({ provider: hoveredProvider, status: 'idle' });
     } catch (e) {
+      if (!mounted.current) return;
       setFetchState({
         provider: hoveredProvider,
         status: 'error',

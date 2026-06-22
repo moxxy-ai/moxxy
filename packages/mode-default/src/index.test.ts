@@ -13,6 +13,23 @@ const retryableErrorReply = (message = 'rate limited (429)'): ReadonlyArray<Prov
   { type: 'message_end', stopReason: 'end_turn' },
 ];
 
+/**
+ * A scripted reply mimicking the real provider stack when the user aborts WHILE
+ * the stream is being consumed: the fetch AbortError is caught and classified
+ * non-retryable with the canonical "operation was aborted" message.
+ */
+const abortDuringStreamReply = (): ReadonlyArray<ProviderEvent> => [
+  { type: 'message_start', model: 'fake' },
+  { type: 'error', message: 'The operation was aborted', retryable: false },
+  { type: 'message_end', stopReason: 'end_turn' },
+];
+
+/** A reply with no text, no tools, and a non-natural stop (truncated to empty). */
+const emptyMaxTokensReply = (): ReadonlyArray<ProviderEvent> => [
+  { type: 'message_start', model: 'fake' },
+  { type: 'message_end', stopReason: 'max_tokens' },
+];
+
 const sessionWith = (provider: FakeProvider): Session => {
   const session = createFakeSession({ provider });
   session.pluginHost.registerStatic(defaultModePlugin);
@@ -355,6 +372,72 @@ describe('defaultMode end-to-end', () => {
     } finally {
       restore();
     }
+  });
+
+  it('emits a clean abort (not a fatal error) when aborted during the provider stream', async () => {
+    // Regression: a cancellation WHILE collectProviderStream is consuming the
+    // stream surfaces as a non-retryable provider error ("operation was
+    // aborted"). The loop must recognize the set abort signal and emit a clean
+    // `abort` event, NOT a `kind: 'fatal'` error that renders as a failed turn.
+    // Abort synchronously at the start of the provider call so the signal is set
+    // by the time collectProviderStream returns the abort-classified error.
+    let abort: () => void = () => {};
+    const provider = new FakeProvider({
+      script: [abortDuringStreamReply()],
+      onRequest: () => abort(),
+    });
+    const session = sessionWith(provider);
+    abort = () => session.abort('test abort mid-stream');
+
+    const events = await collectTurn(session, 'hi');
+    const aborted = events.find((e) => e.type === 'abort');
+    expect(aborted).toBeDefined();
+    if (aborted?.type !== 'abort') throw new Error('expected abort');
+    expect(aborted.reason).toMatch(/provider stream/);
+    // No fatal error event leaked the raw abort message.
+    const fatal = events.filter((e) => e.type === 'error' && e.kind === 'fatal');
+    expect(fatal).toHaveLength(0);
+    // And the raw "operation was aborted" message was never surfaced as an error.
+    const rawAbortError = events.filter(
+      (e) => e.type === 'error' && /operation was aborted/i.test(e.message),
+    );
+    expect(rawAbortError).toHaveLength(0);
+  });
+
+  it('coerces a degenerate maxIterations (0) to at least one iteration instead of an instant fatal', async () => {
+    // Regression: an unvalidated maxIterations of 0 made the loop body never run
+    // and emit a misleading "exceeded maxIterations" fatal. A coerced bound runs
+    // the turn normally.
+    const provider = new FakeProvider({ script: [textReply('hello')] });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'hi', { maxIterations: 0 });
+    // The single iteration ran and produced a normal assistant message.
+    const last = events[events.length - 1];
+    if (last.type !== 'assistant_message') throw new Error('expected assistant_message last');
+    expect(last.content).toBe('hello');
+    // No fatal "exceeded maxIterations" fired on the very first turn.
+    const fatal = events.filter((e) => e.type === 'error' && e.kind === 'fatal');
+    expect(fatal).toHaveLength(0);
+  });
+
+  it('surfaces an empty-completion note when a turn truncates to no text and no tools', async () => {
+    // Regression: a max_tokens completion truncated to nothing emitted only a
+    // blank assistant bubble. Now a retryable note explains why the turn was
+    // empty, alongside the (preserved) empty assistant_message.
+    const provider = new FakeProvider({ script: [emptyMaxTokensReply()] });
+    const session = sessionWith(provider);
+
+    const events = await collectTurn(session, 'hi');
+    const note = events.filter(
+      (e) => e.type === 'error' && e.kind === 'retryable' && /empty completion/i.test(e.message),
+    );
+    expect(note).toHaveLength(1);
+    // The empty assistant_message is still emitted (existing behavior preserved).
+    const assistant = events.filter((e) => e.type === 'assistant_message');
+    expect(assistant).toHaveLength(1);
+    if (assistant[0]?.type !== 'assistant_message') throw new Error('expected assistant_message');
+    expect(assistant[0].content).toBe('');
   });
 
   it('gives up with a fatal error after the bounded retry count, not maxIterations', async () => {

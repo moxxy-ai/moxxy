@@ -219,5 +219,11 @@ const LEGACY_MODE_NAMES: Readonly<Record<string, string>> = {
 
 /** Map a possibly-legacy mode name to its current name (identity if unknown). */
 export function migrateModeName(name: string): string {
-  return LEGACY_MODE_NAMES[name] ?? name;
+  // Own-property check: `name` is externally-sourced (config / preferences /
+  // setMode RPC). A bare `LEGACY_MODE_NAMES[name]` index would resolve inherited
+  // Object.prototype members (`toString`, `constructor`, `__proto__`, …) — all
+  // truthy Functions, so `?? name` would NOT fall through and the function would
+  // return a Function, breaking its `string` contract and shadowing a mode
+  // legitimately named `toString`.
+  return Object.hasOwn(LEGACY_MODE_NAMES, name) ? LEGACY_MODE_NAMES[name]! : name;
 }

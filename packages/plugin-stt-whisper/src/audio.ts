@@ -18,19 +18,27 @@ export { MOXXY_PCM16_24KHZ_MIME };
 
 /** Default filename per MIME type, used to set the upload `filename` so
  *  the vendor's content sniffer routes to the right decoder. Defaults to
- *  `audio.bin` for anything unmapped. */
-export const WHISPER_FILENAME_BY_MIME: Readonly<Record<string, string>> = {
-  'audio/ogg': 'audio.ogg',
-  'audio/opus': 'audio.opus',
-  'audio/mpeg': 'audio.mp3',
-  'audio/mp3': 'audio.mp3',
-  'audio/wav': 'audio.wav',
-  'audio/x-wav': 'audio.wav',
-  'audio/webm': 'audio.webm',
-  'audio/m4a': 'audio.m4a',
-  'audio/mp4': 'audio.mp4',
-  'audio/flac': 'audio.flac',
-};
+ *  `audio.bin` for anything unmapped.
+ *
+ *  The MIME string is caller-supplied and can be fully untrusted (the
+ *  Telegram voice path forwards `media.mime_type` verbatim). A plain object
+ *  literal would let a crafted MIME equal to an inherited member name
+ *  ('constructor', 'toString', '__proto__', …) resolve to a function/object
+ *  instead of `undefined`, defeating the `?? 'audio.bin'` fallback. Using a
+ *  null-prototype map closes that hole; lookups can only hit own keys. */
+export const WHISPER_FILENAME_BY_MIME: Readonly<Record<string, string>> =
+  /* null-prototype: see comment above */ Object.assign(Object.create(null) as Record<string, string>, {
+    'audio/ogg': 'audio.ogg',
+    'audio/opus': 'audio.opus',
+    'audio/mpeg': 'audio.mp3',
+    'audio/mp3': 'audio.mp3',
+    'audio/wav': 'audio.wav',
+    'audio/x-wav': 'audio.wav',
+    'audio/webm': 'audio.webm',
+    'audio/m4a': 'audio.m4a',
+    'audio/mp4': 'audio.mp4',
+    'audio/flac': 'audio.flac',
+  });
 
 export interface NormalizedAudioUpload {
   readonly bytes: Uint8Array;
@@ -57,7 +65,17 @@ export function normalizeWhisperUpload(
   filenamePrefix?: string,
 ): NormalizedAudioUpload {
   const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio);
-  const mt = mimeType || 'audio/wav';
+  // MIME types are case-insensitive (RFC 2045) and may carry a `; codecs=…`
+  // parameter; some callers (Telegram) forward the header verbatim without
+  // normalizing. Canonicalize once so casing/params don't miss the table.
+  //
+  // `mimeType` is *typed* `string | undefined`, but the value crosses a trust
+  // boundary unvalidated: the Telegram path forwards `media.mime_type` from raw
+  // update JSON, which a crafted message could make a number/object/array.
+  // Guard the runtime type so `.toLowerCase()` can't throw on hostile input —
+  // anything non-string degrades to the default rather than crashing the path.
+  const rawMime = typeof mimeType === 'string' ? mimeType : '';
+  const mt = (rawMime || 'audio/wav').toLowerCase().split(';')[0]!.trim();
   if (mt === MOXXY_PCM16_24KHZ_MIME) {
     return {
       bytes: pcm16MonoToWav(bytes, 24_000),
@@ -65,7 +83,11 @@ export function normalizeWhisperUpload(
       filename: rename(filenamePrefix, 'wav') ?? 'audio.wav',
     };
   }
-  const defaultName = WHISPER_FILENAME_BY_MIME[mt] ?? 'audio.bin';
+  // Null-prototype map + string guard: an untrusted MIME can't surface an
+  // inherited member (function/object), so the upload filename is always a
+  // real string and `extOf` never receives a non-string.
+  const mapped = WHISPER_FILENAME_BY_MIME[mt];
+  const defaultName = typeof mapped === 'string' ? mapped : 'audio.bin';
   return {
     bytes,
     mimeType: mt,
@@ -88,7 +110,17 @@ function extOf(filename: string): string {
  * to endpoints that only accept container formats.
  */
 export function pcm16MonoToWav(pcm: Uint8Array | ArrayBuffer, sampleRate = 24_000): Uint8Array {
-  const data = pcm instanceof Uint8Array ? pcm : new Uint8Array(pcm);
+  const raw = pcm instanceof Uint8Array ? pcm : new Uint8Array(pcm);
+  // 16-bit samples are 2 bytes; a trailing odd byte is half a sample and
+  // breaks RIFF even-alignment, so drop it. `subarray` is a view, no copy.
+  const data = raw.byteLength & 1 ? raw.subarray(0, raw.byteLength & ~1) : raw;
+  // The RIFF/data chunk sizes are unsigned 32-bit; >~4GiB would silently
+  // wrap to a tiny size and emit a structurally corrupt WAV. Reject loudly.
+  if (data.byteLength > 0xffffffff - 36) {
+    throw new RangeError(
+      `PCM payload too large for a WAV container (${data.byteLength} bytes; max ${0xffffffff - 36}).`,
+    );
+  }
   const headerBytes = 44;
   const wav = new Uint8Array(headerBytes + data.byteLength);
   const view = new DataView(wav.buffer);

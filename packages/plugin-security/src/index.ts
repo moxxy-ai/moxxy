@@ -9,6 +9,15 @@ import {
   type ToolContext,
 } from '@moxxy/sdk';
 import { IsolatorRegistry } from './registry.js';
+import { checkAllCaps } from './cap-check.js';
+
+/**
+ * Isolator strengths that run the handler IN the host process. For these the
+ * only enforcement we have is the input cap-check; an out-of-process isolator
+ * enforces at the boundary instead, so `onToolCall` must not second-guess it
+ * with a host-side cap-check it never declared.
+ */
+const IN_PROCESS_STRENGTHS: ReadonlySet<string> = new Set(['none', 'inproc']);
 
 /**
  * Mutable view of the tool registry. Matches the surface that
@@ -34,7 +43,9 @@ export {
   pathInScope,
   urlInScope,
   maskEnv,
+  expandHomeAndCwd,
   type CapCheckResult,
+  type CapCheckOptions,
 } from './cap-check.js';
 export {
   handleBrokerRequest,
@@ -46,6 +57,8 @@ export {
   type BrokerResponse,
   type BrokerContext,
 } from './broker.js';
+export { BROKER_CLIENT_SOURCE, SYNTHETIC_CTX_SOURCE } from './shim.js';
+export { BrokerOpLimiter, DEFAULT_MAX_INFLIGHT_BROKER_OPS } from './broker-limiter.js';
 
 /**
  * Runtime config shape consumed by `buildSecurityPlugin`. Mirrors the
@@ -58,6 +71,24 @@ export interface SecurityPluginConfig {
   readonly perTool?: Readonly<Record<string, string>>;
   readonly perPlugin?: Readonly<Record<string, string>>;
   readonly requireDeclaration?: boolean;
+  /**
+   * Tighten the in-process input cap-check from best-effort to fail-closed.
+   *
+   * By DEFAULT the fs/net checks only inspect string values under a recognized
+   * key name (`file`, `path`, `url`, …); a path or URL carried by an
+   * unrecognized field (`config`, `manifest`, `callback`, `webhook`) is NOT
+   * checked, so the call is allowed even though the handler may then do
+   * out-of-scope fs/net. This is a documented best-effort heuristic, not a
+   * guarantee — an out-of-process isolator (worker/subprocess/wasm) is what
+   * actually enforces caps at a boundary.
+   *
+   * With `strict: true`, the cap-check ALSO treats any string value that is
+   * unambiguously an absolute path or a bare `http(s)` URL as in-scope-required
+   * regardless of key name, so an unrecognized carrier fails closed. The shape
+   * test stays tight (single token, no whitespace) so prose strings are not
+   * mis-flagged.
+   */
+  readonly strict?: boolean;
 }
 
 export interface BuildSecurityPluginOptions {
@@ -168,6 +199,25 @@ export function buildSecurityPlugin(opts: BuildSecurityPluginOptions): SecurityP
             `security: tool '${tool.name}' requires isolation '${required}' ` +
             `but configured isolator '${iso.name}' is only '${iso.strength}'`,
         };
+      }
+
+      // Authoritative enforcement for tools that were NOT wrapped at onInit —
+      // MCP tools attached mid-session, hot-reloaded plugins, dynamically
+      // registered tools. wrapDeclaredTools() only runs over the registry once
+      // (onInit), so a tool that appears afterward keeps its raw handler and
+      // would otherwise reach its fs/net work with zero cap enforcement. For an
+      // in-process isolator the cap-check IS the enforcement, so run it here;
+      // an out-of-process isolator enforces at its boundary, so we defer to it.
+      if (!isSecurityWrapped(tool) && IN_PROCESS_STRENGTHS.has(iso.strength)) {
+        const verdict = checkAllCaps(ctx.call.input, tool.isolation.capabilities, ctx.cwd, {
+          strict: cfg.strict === true,
+        });
+        if (!verdict.ok) {
+          return {
+            action: 'deny',
+            reason: `security: ${verdict.reason}`,
+          };
+        }
       }
       return;
     },

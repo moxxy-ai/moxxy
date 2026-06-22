@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { writeFileAtomic, moxxyPath } from '@moxxy/sdk/server';
-import { deriveKey } from './crypto.js';
+import { deriveKeyAsync } from './crypto.js';
 
 const KEYCHAIN_SERVICE = 'moxxy';
 const KEYCHAIN_ACCOUNT = 'vault-master-key';
@@ -57,6 +57,22 @@ export interface CombinedKeySourceOptions {
 export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterKeySource {
   let resolvedName = 'unknown';
   const diskPath = resolveDiskPath(opts.diskKeyPath);
+  // Memoize the env-path scrypt derivation. obtain() is called on every
+  // VaultStore.open(), and scryptSync (N=16384) is a CPU-bound stall of the
+  // single-threaded event loop; without this cache an env-configured process
+  // re-pays the full KDF cost every time a fresh VaultStore opens. Keyed by
+  // (passphrase, salt) so a salt change still re-derives. Single entry — the
+  // env passphrase and the on-disk salt are stable for a process lifetime.
+  let envCache: { passphrase: string; saltB64: string; key: Buffer } | null = null;
+  const deriveEnvKey = async (passphrase: string, salt: Buffer): Promise<Buffer> => {
+    const saltB64 = salt.toString('base64');
+    if (envCache && envCache.passphrase === passphrase && envCache.saltB64 === saltB64) {
+      return envCache.key;
+    }
+    const key = await deriveKeyAsync(passphrase, salt);
+    envCache = { passphrase, saltB64, key };
+    return key;
+  };
 
   const persistKey = async (keyB64: string): Promise<void> => {
     if (!opts.disableKeytar) await tryKeychainSet(keyB64);
@@ -72,7 +88,7 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
       const envValue = process.env[envName];
       if (envValue) {
         resolvedName = `env:${envName}`;
-        return deriveKey(envValue, salt);
+        return await deriveEnvKey(envValue, salt);
       }
 
       if (!opts.disableKeytar) {
@@ -80,8 +96,11 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
         if (fromKeychain) {
           resolvedName = 'keychain';
           // Backfill the disk cache so a future keychain outage doesn't
-          // suddenly force a passphrase prompt.
-          if (diskPath) void tryDiskSet(diskPath, fromKeychain);
+          // suddenly force a passphrase prompt. Awaited (both helpers swallow
+          // their own errors) so the "subsequent runs are silent" guarantee
+          // actually holds before obtain() resolves, and a process that exits
+          // immediately after first open() still persisted the backfill.
+          if (diskPath) await tryDiskSet(diskPath, fromKeychain);
           return Buffer.from(fromKeychain, 'base64');
         }
       }
@@ -91,14 +110,14 @@ export function createCombinedKeySource(opts: CombinedKeySourceOptions): MasterK
         if (fromDisk) {
           resolvedName = `file:${diskPath}`;
           // Backfill the keychain if it became available since the file was written.
-          if (!opts.disableKeytar) void tryKeychainSet(fromDisk);
+          if (!opts.disableKeytar) await tryKeychainSet(fromDisk);
           return Buffer.from(fromDisk, 'base64');
         }
       }
 
       const passphrase = await opts.passphrasePrompt();
       resolvedName = 'passphrase';
-      const key = deriveKey(passphrase, salt);
+      const key = await deriveKeyAsync(passphrase, salt);
       await persistKey(key.toString('base64'));
       return key;
     },

@@ -46,6 +46,49 @@ export type PermissionPolicy = z.infer<typeof permissionPolicySchema>;
 
 const emptyPolicy: PermissionPolicy = { allow: [], deny: [] };
 
+/**
+ * Upper bound on the candidate string a policy regex is tested against. The
+ * permission check sits on the synchronous critical path of EVERY tool call and
+ * runs author-supplied `inputMatches` patterns over MODEL-controlled tool input
+ * (the model proposes the call). A pathological pattern (e.g. `(a+)+$`) over a
+ * long model-supplied string can pin the event loop (ReDoS). No legitimate
+ * permission match needs more than a few KB, so we truncate the candidate first
+ * — bounding the worst-case backtracking work to a fixed input size. Truncation
+ * only affects matches that depend on content past 8 KB, which a permission
+ * pattern should never rely on.
+ */
+const MAX_MATCH_INPUT = 8192;
+
+/**
+ * Bounded cache of compiled regexes keyed by source string. `check()` walks every
+ * rule per tool call and the patterns never change between mutations, so without
+ * a cache a policy with N pattern rules recompiles N `RegExp`s on every one of M
+ * tool calls. Caching keeps `.test` the only per-call work. A `null` value
+ * memoizes an UNCOMPILABLE source so we don't re-throw on every check (the
+ * stderr warning is still emitted per check by the caller, preserving the
+ * documented fail-open/closed surfacing). Bounded to cap memory if a policy ever
+ * carries an unbounded set of distinct patterns; eviction just recompiles.
+ */
+const MAX_REGEX_CACHE = 512;
+const regexCache = new Map<string, RegExp | null>();
+
+function compileRegex(source: string): RegExp | null {
+  const cached = regexCache.get(source);
+  if (cached !== undefined) return cached;
+  let compiled: RegExp | null;
+  try {
+    compiled = new RegExp(source);
+  } catch {
+    compiled = null;
+  }
+  if (regexCache.size >= MAX_REGEX_CACHE) {
+    const oldest = regexCache.keys().next().value;
+    if (oldest !== undefined) regexCache.delete(oldest);
+  }
+  regexCache.set(source, compiled);
+  return compiled;
+}
+
 export class PermissionEngine {
   private policy: PermissionPolicy;
   private policyPath: string | null;
@@ -170,17 +213,15 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
     if (!input || typeof input !== 'object') return false;
     for (const [k, v] of Object.entries(rule.inputMatches)) {
       const candidate = stringifyCandidate(input[k]);
-      let re: RegExp;
-      try {
-        // `inputMatches` values are UNANCHORED regexes by design: `.test` does a
-        // substring/partial match, so the pattern matches if it occurs anywhere
-        // in `candidate`. This is the documented, stable contract (see
-        // PolicyRule.inputMatches) — never wrap it in `^(?:…)$`, as that would
-        // silently break existing permission files. Authors who need a full
-        // match anchor their own pattern with `^…$`.
-        re = new RegExp(v);
-      } catch (err) {
-        warnBadPattern(rule.name, k, v, intent, err);
+      // `inputMatches` values are UNANCHORED regexes by design: `.test` does a
+      // substring/partial match, so the pattern matches if it occurs anywhere
+      // in `candidate`. This is the documented, stable contract (see
+      // PolicyRule.inputMatches) — never wrap it in `^(?:…)$`, as that would
+      // silently break existing permission files. Authors who need a full
+      // match anchor their own pattern with `^…$`.
+      const re = compileRegex(v);
+      if (re === null) {
+        warnBadPattern(rule.name, k, v, intent, regexCompileError(v));
         // Uncompilable pattern: a deny rule must still deny (fail closed),
         // an allow rule must not grant (this field fails to match).
         if (intent === 'deny') continue;
@@ -198,17 +239,36 @@ function matchRule(rule: PolicyRule, call: PendingToolCall, intent: 'allow' | 'd
  * structured field (object/array) is JSON-serialized so a rule can match its
  * shape (e.g. `inputMatches: { args: '"--force"' }`) instead of silently
  * seeing `[object Object]` and never matching. `null`/`undefined` → `''`.
+ *
+ * The result is truncated to {@link MAX_MATCH_INPUT} so a long model-controlled
+ * field can't drive catastrophic regex backtracking on the tool-call hot path
+ * (see MAX_MATCH_INPUT).
  */
 function stringifyCandidate(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'object') {
     try {
-      return JSON.stringify(value) ?? '';
+      return capLength(JSON.stringify(value) ?? '');
     } catch {
-      return String(value);
+      return capLength(String(value));
     }
   }
-  return String(value);
+  return capLength(String(value));
+}
+
+function capLength(s: string): string {
+  return s.length > MAX_MATCH_INPUT ? s.slice(0, MAX_MATCH_INPUT) : s;
+}
+
+/** Re-derive the compile error for an uncompilable source (off the hot path —
+ * only when a rule's pattern is invalid) so `warnBadPattern` keeps its detail. */
+function regexCompileError(source: string): unknown {
+  try {
+    new RegExp(source);
+    return undefined;
+  } catch (err) {
+    return err;
+  }
 }
 
 function warnBadPattern(
@@ -232,8 +292,13 @@ function warnBadPattern(
 function nameMatches(pattern: string, candidate: string): boolean {
   if (pattern === candidate) return true;
   if (pattern.includes('*')) {
-    const re = new RegExp('^' + pattern.split('*').map(escapeRe).join('.*') + '$');
-    return re.test(candidate);
+    // Bound the candidate before the glob-derived `.test` (the glob escapes all
+    // metachars, so the only backtracking risk is sheer input length). The
+    // source is fully escaped, so `compileRegex` always succeeds here; the cache
+    // just avoids recompiling the same glob on every tool call.
+    const source = '^' + pattern.split('*').map(escapeRe).join('.*') + '$';
+    const re = compileRegex(source);
+    return re !== null && re.test(capLength(candidate));
   }
   return false;
 }

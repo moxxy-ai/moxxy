@@ -102,8 +102,15 @@ function scopedSessionView(
     list: () => parent.list().filter((t) => allowed.has(t.name)),
     get: (name) => (allowed.has(name) ? parent.get(name) : undefined),
     has: (name) => allowed.has(name) && parent.has(name),
-    register: (tool) => parent.register(tool),
-    unregister: (name) => parent.unregister(name),
+    // The scoped view is documented as side-effect-free on the shared session.
+    // Delegating register/unregister to the parent would mutate the real
+    // session's tool registry mid-fire (e.g. an MCP-attach tool sneaking a new
+    // tool into concurrent ordinary turns), breaking that isolation claim.
+    // Under a non-empty allow-list, registry MUTATION is refused.
+    register: () => {
+      throw new Error(`Tool registration is not permitted inside webhook trigger '${triggerName}'`);
+    },
+    unregister: () => {},
     execute: (name, input, signal, opts) => {
       if (!allowed.has(name)) return Promise.reject(new Error(denyReason(name)));
       return parent.execute(name, input, signal, opts);

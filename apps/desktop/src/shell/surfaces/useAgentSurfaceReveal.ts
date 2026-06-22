@@ -1,16 +1,6 @@
 import { useEffect } from 'react';
 import { api } from '@moxxy/client-core';
-import type { RailPane } from '../ContextRail';
-
-/**
- * Agent tool → the rail pane that showcases that tool's work. The agent and
- * the user share ONE underlying resource per surface (the Playwright page /
- * the PTY), so opening the pane shows exactly what the tool is doing.
- */
-const TOOL_PANE: Readonly<Record<string, RailPane>> = {
-  browser_session: 'browser',
-  terminal: 'terminal',
-};
+import { railPaneForTool, type RailPane } from '../ContextRail';
 
 /**
  * Auto-reveal the matching rail pane the first time the agent uses its
@@ -34,7 +24,7 @@ export function useAgentSurfaceReveal(
     const revealed = new Set<RailPane>();
     return api().subscribe('runner.event', ({ workspaceId: wid, event }) => {
       if (wid !== workspaceId || event.type !== 'tool_call_requested') return;
-      const pane = TOOL_PANE[event.name];
+      const pane = railPaneForTool(event.name);
       if (!pane || revealed.has(pane)) return;
       revealed.add(pane);
       reveal(pane);

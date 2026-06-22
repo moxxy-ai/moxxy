@@ -71,34 +71,34 @@ const EMPTY_STATE: ElisionState = {
 };
 
 /**
- * Single-slot memo of the most recent {@link computeElisionState} result,
- * keyed on the IDENTITY of the events array it was folded from.
+ * Memo of {@link computeElisionState} results, keyed on the IDENTITY of the
+ * events array each was folded from.
  *
  * The event log is append-only and every held event is immutable (invariant
  * #6: events at/below the HWM never change), so a given snapshot array is a
  * stable, never-mutated value: the same array reference always denotes the
  * same content and therefore the same state. A new turn produces a NEW snapshot
- * array (the live `log.slice()` returns a fresh array each call), so the memo
- * self-invalidates the moment the log changes — there is no way for it to serve
- * a state that is stale for the array it is keyed on.
+ * array (the live `log.slice()` returns a fresh array each call), so a stale
+ * array key simply falls out of use — there is no way for an entry to serve a
+ * state that is stale for the array it is keyed on.
  *
  * Keying on identity (not a content hash of `id`/`seq`/payload) is the only
- * SOUND single-slot choice for a pure fold over an arbitrary array: two
- * logically-different logs can share ids/seqs (e.g. a test that rebuilds the
- * same prefix with different payload, or a re-config), and a content hash that
- * missed a payload field would serve a stale state — a correctness bug. Array
- * identity can never collide across distinct values.
+ * SOUND choice for a pure fold over an arbitrary array: two logically-different
+ * logs can share ids/seqs (e.g. a test that rebuilds the same prefix with
+ * different payload, or a re-config), and a content hash that missed a payload
+ * field would serve a stale state — a correctness bug. Array identity can never
+ * collide across distinct values.
  *
- * The win: callers that re-ask over the SAME snapshot within an iteration
- * (e.g. the elision/compaction gates and the estimate, when they thread the
- * one `log.slice()` array — see `estimateContextTokens`) fold it only once;
- * `WeakMap` would also help a held snapshot survive GC pressure, but a single
- * slot keeps it allocation-free and matches the "one live snapshot at a time"
- * access pattern. Threading a precomputed state is the explicit zero-cost fast
- * path; this memo covers callers that re-pass the same array but can't thread.
+ * A `WeakMap` (rather than a single global slot) survives interleaving: the
+ * runner serves multiple sessions in ONE process, so two sessions' iterations
+ * can alternate; a single slot would evict each other's memo on every call,
+ * serving ~zero hits and re-folding O(events) each time. The WeakMap holds an
+ * entry per live snapshot array and lets it be GC'd once the array is dropped,
+ * so concurrent sessions each keep their own hot snapshot. Threading a
+ * precomputed state stays the explicit zero-cost fast path; this memo covers
+ * callers that re-pass the same array but can't thread.
  */
-let memoEvents: ReadonlyArray<MoxxyEvent> | null = null;
-let memoState: ElisionState | null = null;
+const memo = new WeakMap<ReadonlyArray<MoxxyEvent>, ElisionState>();
 
 /**
  * Derive elision state purely from the log: the active high-water mark + flags
@@ -110,10 +110,10 @@ let memoState: ElisionState | null = null;
  * (and `===` on a cache hit) to a fresh fold.
  */
 export function computeElisionState(events: ReadonlyArray<MoxxyEvent>): ElisionState {
-  if (memoEvents === events && memoState !== null) return memoState;
+  const cached = memo.get(events);
+  if (cached !== undefined) return cached;
   const state = computeElisionStateUncached(events);
-  memoEvents = events;
-  memoState = state;
+  memo.set(events, state);
   return state;
 }
 

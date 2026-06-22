@@ -4,12 +4,12 @@
  *
  * Each workspace owns a {@link Slot} wrapping a {@link ChatRuntime}: an
  * append-only `ChunkedBlockLog` of committed runner events plus the in-flight
- * streaming text. The log is a bounded WINDOW into the durable main-process
- * NDJSON log: on first open we load the most-recent {@link INITIAL_WINDOW}
- * events; scrolling up calls {@link ChatStore.loadOlder} to prepend the
- * preceding page (cursor pagination). New committed events are appended to
- * both the in-memory window and the durable log via the injected
- * {@link ChatPersistence}.
+ * streaming text. The log is a bounded WINDOW into the RUNNER's authoritative
+ * event log: on first open we page the most-recent {@link INITIAL_WINDOW}
+ * rendered events from the runner (via {@link ChatPersistence}); scrolling up
+ * calls {@link ChatStore.loadOlder} to prepend the preceding page (seq-cursor
+ * pagination). The store keeps no durable copy of its own — the runner persists
+ * every event, so live events just update the in-memory window.
  *
  * The state types, empty defaults, and snapshot builder live in `./state`;
  * the provider-response token accounting lives in `./usage`.
@@ -175,6 +175,13 @@ class ChatStore {
     this.hiddenTurns.delete(turnId);
   }
 
+  /** Whether a turn id is a background/hidden turn whose events never enter
+   *  the visible transcript. The queue drainer consults this so a background
+   *  generation completing doesn't pop the user's pending queue. */
+  isHidden(turnId: string): boolean {
+    return this.hiddenTurns.has(turnId);
+  }
+
   /** Toggle the manual-compaction lock for a workspace (composer disable). */
   setCompacting(workspaceId: string, value: boolean): void {
     const slot = this.ensure(workspaceId);
@@ -213,7 +220,11 @@ class ChatStore {
     inlineAttachments?: ReadonlyArray<UserPromptAttachment>,
   ): string {
     const slot = this.ensure(workspaceId);
-    const id = `q-${slot.rt.rev}-${slot.queue.length}`;
+    // Monotonic id — deriving it from rev+length collides after a shiftQueue
+    // (length shrinks while rev is unchanged), which would make dropFromQueue
+    // silently drop a colliding twin and collide React keys.
+    slot.queueSeq += 1;
+    const id = `q-${slot.queueSeq}`;
     const queued: QueuedTurn = {
       id,
       prompt,
@@ -267,16 +278,11 @@ class ChatStore {
   // ---- async loading (cursor pagination) ---------------------------------
 
   /**
-   * Load the most-recent window of a workspace's history on first open.
-   * Idempotent — guarded by `loaded`. Loaded events are prepended (with
-   * id-dedup) so any turn that raced ahead of the load stays newest.
-   *
-   * Prefers the RUNNER's authoritative log (`session.loadHistory`): the first
-   * load decides the slot's {@link Slot.historySource}. When the runner can't
-   * serve it (no connected runner for the workspace, a `<v10` runner, or a
-   * legacy-only chat with no runner session) it falls back to the NDJSON store —
-   * so no transcript goes blank. The two cursor spaces (runner `seq` vs NDJSON
-   * line-index) never mix within a slot.
+   * Load the most-recent window of a workspace's history on first open from the
+   * RUNNER's authoritative log (`session.loadHistory`). Idempotent — guarded by
+   * `loaded`. Loaded events are prepended (with id-dedup) so any turn that raced
+   * ahead of the load stays newest. With no connected runner the transcript is
+   * empty until the runner attaches and streams live events in.
    */
   async loadInitial(workspaceId: string): Promise<void> {
     const slot = this.ensure(workspaceId);
@@ -293,52 +299,43 @@ class ChatStore {
     this.emit();
     const epoch = slot.resetEpoch;
     try {
-      // Prefer the runner, but only adopt it as the source if it actually
-      // yields RENDERED rows. An empty result — no runner backend, a `<v10`
-      // runner, or a legacy-only chat whose runner session resumed EMPTY — falls
-      // through to the NDJSON mirror so its history is never hidden behind an
-      // empty runner session.
-      const runner = this.persistence.loadHistory
-        ? await this.collectRunnerInitial(workspaceId)
-        : null;
+      // History comes SOLELY from the runner's authoritative log. A null/empty
+      // result (no connected runner for this workspace yet) just shows an empty
+      // transcript until the runner attaches and streams live events in. (For the
+      // mobile gateway the runner is the session's persisted log, surfaced via
+      // the same `chat.loadHistory` IPC.)
+      const runner = await this.collectRunnerInitial(workspaceId);
       if (slot.resetEpoch !== epoch) return;
-      if (runner && runner.events.length > 0) {
-        slot.historySource = 'runner';
+      if (runner) {
         this.prependFresh(slot, runner.events);
         slot.oldestCursor = runner.prevCursor;
         slot.hasOlder = runner.prevCursor !== null;
       } else {
-        slot.historySource = 'ndjson';
-        const { events, prevCursor } = await this.persistence.loadSegment(
-          workspaceId,
-          null,
-          INITIAL_WINDOW,
-        );
-        if (slot.resetEpoch !== epoch) return;
-        slot.loaded = events.length > 0 || prevCursor !== null;
-        this.prependFresh(slot, events);
-        slot.oldestCursor = prevCursor;
-        slot.hasOlder = prevCursor !== null;
+        // No connected runner yet (collectRunnerInitial → null). Allow a retry on
+        // the next open so the most-recent-window backfill isn't permanently
+        // skipped for a workspace whose runner attaches just after first open.
+        slot.loaded = false;
       }
     } catch {
       if (slot.resetEpoch === epoch) {
         slot.loaded = false; // allow a retry on the next open
       }
     } finally {
-      if (slot.resetEpoch !== epoch) return;
-      slot.loadingInitial = false;
-      slot.snap = null;
-      this.emit();
+      // Only finalize when no reset raced us (a return inside finally is unsafe).
+      if (slot.resetEpoch === epoch) {
+        slot.loadingInitial = false;
+        slot.snap = null;
+        this.emit();
+      }
     }
   }
 
   /**
    * Pull the newest runner window for {@link loadInitial}, walking past
    * all-non-rendered windows (bounded) so a window that holds no rendered rows
-   * YET doesn't read as "no history". Returns `null` when there is no runner
-   * backend / the runner can't serve the first page; otherwise the accumulated
-   * rendered events (possibly EMPTY — an empty runner log, e.g. a legacy-only
-   * chat) and the cursor for the next older page.
+   * YET doesn't read as "no history". Returns `null` when no runner is connected
+   * for the workspace; otherwise the accumulated rendered events (possibly EMPTY
+   * — a brand-new/empty runner log) and the cursor for the next older page.
    */
   private async collectRunnerInitial(
     workspaceId: string,
@@ -356,46 +353,35 @@ class ChatStore {
     return { events, prevCursor: cursor };
   }
 
-  /** Fetch the page preceding the in-memory window (scroll-up), from whichever
-   *  source {@link loadInitial} settled on for this slot. */
+  /** Fetch the page preceding the in-memory window (scroll-up) from the runner's
+   *  authoritative log. */
   async loadOlder(workspaceId: string): Promise<void> {
     const slot = this.slots.get(workspaceId);
     if (!slot || !slot.hasOlder || slot.loadingOlder || !this.persistence) return;
     slot.loadingOlder = true;
     const epoch = slot.resetEpoch;
     try {
-      if (slot.historySource === 'runner') {
-        const runner = await this.loadRunnerWindow(workspaceId, slot.oldestCursor, OLDER_PAGE);
-        if (slot.resetEpoch !== epoch) return;
-        if (runner) {
-          this.prependFresh(slot, runner.events);
-          slot.oldestCursor = runner.prevCursor;
-          slot.hasOlder = runner.prevCursor !== null;
-        }
-        // runner === null here means the runner dropped mid-scroll; leave the
-        // cursor/hasOlder untouched so a later scroll retries — we never switch
-        // cursor spaces to NDJSON mid-slot (its line-index cursor is unrelated).
-      } else {
-        const { events, prevCursor } = await this.persistence.loadSegment(
-          workspaceId,
-          slot.oldestCursor,
-          OLDER_PAGE,
-        );
-        if (slot.resetEpoch !== epoch) return;
-        this.prependFresh(slot, events);
-        slot.oldestCursor = prevCursor;
-        slot.hasOlder = prevCursor !== null;
+      const runner = await this.loadRunnerWindow(workspaceId, slot.oldestCursor, OLDER_PAGE);
+      if (slot.resetEpoch !== epoch) return;
+      if (runner) {
+        this.prependFresh(slot, runner.events);
+        slot.oldestCursor = runner.prevCursor;
+        slot.hasOlder = runner.prevCursor !== null;
       }
+      // runner === null means the runner dropped mid-scroll; leave the
+      // cursor/hasOlder untouched so a later scroll retries.
     } catch {
       /* leave hasOlder set so the user can retry by scrolling */
     } finally {
-      if (slot.resetEpoch !== epoch) return;
       // Reset snap + emit in finally (like loadInitial) so the error path
       // also notifies subscribers — otherwise loadingOlder flips to false
-      // with no re-render and the spinner/snapshot can wedge.
-      slot.loadingOlder = false;
-      slot.snap = null;
-      this.emit();
+      // with no re-render and the spinner/snapshot can wedge. Guarded by an
+      // `if` (a return inside finally is unsafe) so a reset that raced us wins.
+      if (slot.resetEpoch === epoch) {
+        slot.loadingOlder = false;
+        slot.snap = null;
+        this.emit();
+      }
     }
   }
 
@@ -406,35 +392,43 @@ class ChatStore {
    * has enough rendered rows, reaches the start of history, or the runner stops
    * serving.
    *
-   * Returns `null` (→ caller falls back to NDJSON) when the runner can't serve
-   * the FIRST page — no `loadHistory` backend, no connected runner, or a `<v10`
-   * runner. A `null` on a LATER page (the runner dropped mid-walk) just ends the
-   * window early with whatever rendered rows were gathered, keeping the `seq`
-   * cursor so the next scroll-up can resume.
+   * Returns `null` when the runner can't serve the FIRST page (no connected
+   * runner for the workspace). A `null` on a LATER page (the runner dropped
+   * mid-walk) just ends the window early with whatever rendered rows were
+   * gathered, keeping the `seq` cursor so the next scroll-up can resume.
    */
   private async loadRunnerWindow(
     workspaceId: string,
     before: number | null,
     minRendered: number,
   ): Promise<{ events: MoxxyEvent[]; prevCursor: number | null } | null> {
-    const loadHistory = this.persistence?.loadHistory?.bind(this.persistence);
+    const loadHistory = this.persistence?.loadHistory.bind(this.persistence);
     if (!loadHistory) return null;
     // Accumulate the RAW window (ascending seq) and project it as a whole, so
     // an unsealed-turn reconstruction (projectRunnerWindow) sees a turn's chunks
     // and its terminal row together rather than split per page.
     const raw: MoxxyEvent[] = [];
     let cursor = before;
+    // Count rendered rows INCREMENTALLY (cheap per-page scan) instead of
+    // re-projecting the whole accumulated window each iteration — re-projecting
+    // is O(raw.length), so doing it per page is O(pages² × pageSize) and blocks
+    // the renderer on a long scroll-up. `isRenderedEvent` count is a safe lower
+    // bound on the final projection length (projectRunnerWindow only ever ADDS
+    // synth rows, never drops a rendered event), so crossing `minRendered` here
+    // guarantees the projected window also has at least `minRendered` rows.
+    let renderedCount = 0;
     for (let page = 0; page < MAX_RUNNER_PAGES; page += 1) {
       const result = await loadHistory(workspaceId, cursor, RUNNER_RAW_PAGE);
       if (result === null) {
-        if (page === 0) return null; // runner can't serve → NDJSON fallback
+        if (page === 0) return null; // no connected runner → empty transcript
         break; // dropped mid-walk → return what we have
       }
       // Pages arrive newest-first; prepend each older page ahead of the ones we
       // already have so `raw` stays ascending (oldest-first).
       raw.unshift(...result.events);
+      for (const e of result.events) if (isRenderedEvent(e)) renderedCount += 1;
       cursor = result.prevCursor;
-      if (cursor === null || projectRunnerWindow(raw).length >= minRendered) break;
+      if (cursor === null || renderedCount >= minRendered) break;
     }
     return { events: projectRunnerWindow(raw), prevCursor: cursor };
   }
@@ -518,35 +512,33 @@ class ChatStore {
       return;
     }
 
-    const before = slot.rt.log.length;
     const changed = applyAction(slot.rt, action);
     if (!changed) return;
-    // Persist exactly the events this dispatch committed (dispatch only
-    // ever appends; prepends come from pagination and are already
-    // durable). The tail delta is precisely the new runner events.
-    const added = slot.rt.log.length - before;
-    if (added > 0 && this.persistence) {
-      void this.persistence.append(workspaceId, slot.rt.log.tail(added)).catch(() => {});
-    }
+    // The runner persists every committed event to its authoritative log (the
+    // events streamed in here originate from it), so the store keeps no durable
+    // copy of its own — history is paged back from the runner on next open.
     if (this.activeId === workspaceId) slot.lastSeenRev = slot.rt.rev;
     this.unreadDirty = true;
     this.emit();
   }
 
-  /** Drop one workspace's state + its durable log. */
+  /** Drop one workspace's in-memory state. The runner owns the durable log;
+   *  erasing it is the session-removal flow's job (`sessions.remove`). */
   drop(workspaceId: string): void {
     if (this.slots.delete(workspaceId)) {
       this.unreadDirty = true;
-      void this.persistence?.clear(workspaceId).catch(() => {});
       this.emit();
     }
   }
 
-  /** Reset a workspace's transcript without removing the workspace. */
+  /** Reset a workspace's in-memory transcript without removing the workspace.
+   *  The runner's log is reset separately (the `/new` flow calls
+   *  `session.newSession`). */
   clear(workspaceId: string): void {
     const slot = this.ensure(workspaceId);
+    // The runner's log is reset separately (the `/new` flow calls
+    // `session.newSession`); the old NDJSON mirror clear was retired.
     this.resetSlot(slot);
-    void this.persistence?.clear(workspaceId).catch(() => {});
     this.emit();
   }
 

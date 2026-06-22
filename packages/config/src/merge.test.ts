@@ -47,4 +47,32 @@ describe('mergeConfigs', () => {
       deep: { x: 1, y: 2 },
     });
   });
+
+  it('ignores a literal __proto__ key without corrupting the merged object', () => {
+    // A parsed config (JSON default-export / some YAML) can carry an own
+    // enumerable `__proto__`; assigning it would hit the prototype setter,
+    // silently drop the data AND replace the result's prototype.
+    const malicious = JSON.parse('{"mode":"goal","__proto__":{"polluted":true}}') as Record<
+      string,
+      unknown
+    >;
+    const out = mergeConfigs(malicious as never) as Record<string, unknown>;
+    expect(out.mode).toBe('goal');
+    // No prototype pollution leaked onto Object.prototype.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    // The merged object keeps a plain-object prototype (not corrupted).
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect('polluted' in out).toBe(false);
+  });
+
+  it('ignores literal constructor / prototype keys', () => {
+    const src = JSON.parse('{"mode":"x","constructor":{"bad":1},"prototype":{"bad":2}}') as Record<
+      string,
+      unknown
+    >;
+    const out = mergeConfigs(src as never) as Record<string, unknown>;
+    expect(out.mode).toBe('x');
+    expect(typeof out.constructor).toBe('function');
+    expect('prototype' in out).toBe(false);
+  });
 });

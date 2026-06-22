@@ -95,7 +95,7 @@ Built-in:
 |---|---|---|
 | `none` | 0 | Passthrough — no enforcement. Used when `security.enabled: false` or when an author explicitly opts out. |
 | `inproc` | 1 | In-process. Validates capabilities on entry (`checkAllCaps`) and wraps execution in a `timeMs` deadline + abort. Memory ceiling not enforced. |
-| `worker` | 2 | `worker_threads`-based (shipped in [`@moxxy/isolator-worker`](../../packages/isolator-worker/)). Re-imports the tool's `handlerModule` in a fresh JS thread; enforces `memMb` via `resourceLimits`, `timeMs` + abort via `worker.terminate()`. Requires `handlerModule` to be declared on the tool. |
+| `worker` | 2 | `worker_threads`-based (shipped in [`@moxxy/isolator-worker`](/packages/isolator-worker/)). Re-imports the tool's `handlerModule` in a fresh JS thread; enforces `memMb` via `resourceLimits`, `timeMs` + abort via `worker.terminate()`. Requires `handlerModule` to be declared on the tool. |
 
 Stronger isolators (`worker` / `subprocess` / `vm` / `wasm` / `docker`)
 implement the same `Isolator` interface — no SDK changes when adding
@@ -181,5 +181,5 @@ moxxy security isolators       # list registered isolators with their strength
 ## See also
 
 - `@moxxy/sdk` — `CapabilitySpec`, `Isolator`, `ISOLATION_RANK`.
-- [`moxxy serve`](../guides/running-as-a-service) — pair always-on
+- [`moxxy serve`](../guides/running-as-a-service.md) — pair always-on
   serve with `security.enabled: true` for unattended hardening.

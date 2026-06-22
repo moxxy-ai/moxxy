@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { ModeBadge } from '@moxxy/sdk';
 import { formatElapsed } from '@moxxy/chat-model';
-import { Colors, Glyphs, contextColor, badgeBackground } from '../theme.js';
+import { Colors, Glyphs, contextColor, contextMarker, badgeBackground, badgeMarker } from '../theme.js';
 import { Spinner } from './Spinner.js';
 import { ModeFooter } from './ModeFooter.js';
+import { MOTION_ENABLED } from './motion.js';
 
 export interface StatusLineProps {
   /** Turn-in-flight marker. When set, shows the spinner + elapsed time. */
@@ -141,13 +142,14 @@ const ProviderBadge: React.FC<{ name: string }> = ({ name }) => (
  */
 const ModeBadgePill: React.FC<{ badge: ModeBadge }> = ({ badge }) => (
   <Text backgroundColor={badgeBackground(badge.tone)} color="black" bold>
-    {` ${badge.label} `}
+    {` ${badgeMarker(badge.tone)}${badge.label} `}
   </Text>
 );
 
 const BusyMarker: React.FC<{ startedAt: number }> = ({ startedAt }) => {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
+    if (!MOTION_ENABLED) return; // freeze the elapsed clock for reduced-motion / non-TTY
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -171,7 +173,7 @@ const ContextMeter: React.FC<{ used: number; total: number }> = ({ used, total }
     <Box>
       <Text {...(color ? { color } : {})}>{'█'.repeat(filled)}</Text>
       <Text dimColor>{'░'.repeat(empty)}</Text>
-      <Text {...(color ? { color } : { dimColor: true })}>{` ${pct}%`}</Text>
+      <Text {...(color ? { color } : { dimColor: true })}>{` ${pct}%${contextMarker(pct)}`}</Text>
     </Box>
   );
 };

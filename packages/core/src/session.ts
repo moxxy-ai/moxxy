@@ -196,7 +196,7 @@ export class Session implements ClientSession, SessionRuntime {
     this.viewRenderers.register(defaultViewRenderer);
     this.tunnelProviders = new TunnelProviderRegistry();
     // Seed the no-op localhost provider so the web surface always resolves a
-    // URL; plugins (cloudflared) register/setActive a real tunnel.
+    // URL; plugins (the proxy relay) register/setActive a real tunnel.
     this.tunnelProviders.register(localhostTunnel);
     this.channels = new ChannelRegistryImpl();
     this.surfaceRegistry = new SurfaceRegistryImpl();
@@ -332,8 +332,17 @@ export class Session implements ClientSession, SessionRuntime {
     this.closed = true;
     try {
       // Tear down any open surfaces (PTYs, browser screencasts) before the
-      // plugin shutdown hooks dispose their underlying resources.
-      await this.surfaces.closeAll();
+      // plugin shutdown hooks dispose their underlying resources. Isolated in
+      // its own try/catch: a flaky native surface throwing during teardown must
+      // not pre-empt the plugin shutdown hooks below, which are how plugins
+      // flush state (memory journal, vault, audit logs).
+      try {
+        await this.surfaces.closeAll();
+      } catch (err) {
+        this.logger.warn('surface teardown failed during close', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
       await this.dispatcher.dispatchShutdown(this.appContext());
     } finally {
       // Drop THIS session's retained child sessions (the workflow `awaitInput`
@@ -348,13 +357,25 @@ export class Session implements ClientSession, SessionRuntime {
   }
 
   private closed = false;
+  /**
+   * Memoized one-time snapshot of `process.env`. `appContext()` is called per
+   * dispatched event (hundreds per turn during a streaming reply), per turn,
+   * and on every shutdown — eagerly spreading the whole env each time is
+   * thousands of O(envVars) clones of GC pressure for a value that does not
+   * change over a session's life. Frozen so a plugin can't mutate the shared
+   * snapshot out from under another.
+   */
+  private envSnapshot: Readonly<NodeJS.ProcessEnv> | null = null;
 
   appContext(): AppContext {
+    if (!this.envSnapshot) {
+      this.envSnapshot = Object.freeze({ ...process.env });
+    }
     return {
       sessionId: this.id,
       cwd: this.cwd,
       log: this.log.asReader(),
-      env: { ...process.env },
+      env: this.envSnapshot,
     };
   }
 

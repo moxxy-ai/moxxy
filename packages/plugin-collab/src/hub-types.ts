@@ -12,10 +12,20 @@ export type AgentStatus =
   | 'working' // actively running a turn
   | 'blocked' // waiting on a peer / contract decision
   | 'done' // called collab_done
+  | 'failed' // its turn ended (error / iteration-cap / idle) without calling collab_done
   | 'crashed' // process died unexpectedly
   | 'killed'; // shut down by the coordinator
 
-export type AgentRole = 'architect' | 'implementer';
+/**
+ * An agent's function on the team. `'architect'` is RESERVED for the coordinator's
+ * up-front planner (it runs first + designs the roster); every other agent carries
+ * a free-form role the architect assigns — `'implementer'`, but also `'pm'`,
+ * `'designer'`, `'developer'`, `'qa'`, `'writer'`, `'researcher'`, … — so a team can
+ * be a real cross-functional "company", not just a pool of identical implementers.
+ * The string is display + prompt flavor; the coordinator runs every non-architect
+ * agent through the same peer loop regardless of label.
+ */
+export type AgentRole = 'architect' | 'implementer' | (string & {});
 
 /** What the architect proposes (and the user can edit) before launch. */
 export interface RosterEntry {
@@ -30,6 +40,11 @@ export interface RosterEntry {
   readonly ownedPaths?: ReadonlyArray<string>;
   /** Optional per-agent model override (defaults to the coordinator's). */
   readonly model?: string;
+  /** Architect-authored persona + responsibilities + quality bar + collaboration
+   *  + definition-of-done for THIS agent, suited to this task. Becomes the peer's
+   *  system-prompt prefix. Optional — a missing charter falls back to the generic
+   *  peer prompt. */
+  readonly charter?: string;
 }
 
 /** A roster entry plus live runtime state, held by the hub. */

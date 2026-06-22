@@ -214,6 +214,31 @@ describe('buildAttachments', () => {
     const out = await buildAttachments([{ path: '/no/such/file.txt', name: 'file.txt' }]);
     expect(out).toEqual([]);
   });
+
+  it('does NOT read a huge text file whole — head-excerpt fallback, accurate size note', async () => {
+    // 70 MB > MAX_READ_WHOLE_BYTES (64 MB). A whole-file read + base64 here
+    // would balloon the main process; instead we must peek only the head.
+    const size = 70 * 1024 * 1024;
+    const input = await tmpFile('massive.log', Buffer.alloc(size, 0x41 /* 'A' */));
+    const out = await buildAttachments([input]);
+    expect(out).toHaveLength(1);
+    const att = out[0]!;
+    expect(att.kind).toBe('file');
+    // Only a small preview is inlined (8 KB head + note), never the whole file.
+    expect(att.content.length).toBeLessThan(64 * 1024);
+    expect(att.content).toContain(input.path);
+    // The size note reflects the TRUE size, not the 8 KB head.
+    expect(att.content).toMatch(/~7\d{4} KB/);
+  });
+
+  it('skips a huge binary file instead of slurping it into memory', async () => {
+    // A 70 MB file whose head contains a NUL → binary → skipped from the head
+    // peek, never fully read.
+    const buf = Buffer.alloc(70 * 1024 * 1024, 0x41);
+    buf[10] = 0x00;
+    const out = await buildAttachments([await tmpFile('massive.bin', buf)]);
+    expect(out).toEqual([]);
+  });
 });
 
 describe('parseFileToText', () => {
@@ -262,6 +287,23 @@ describe('parseFileToText', () => {
     const text = await parseFileToText(p);
     expect(text).toContain('café');
     expect(text).toContain('René');
+  });
+
+  it('parses a large control-word-dense RTF in linear time (no O(n^2) slice)', async () => {
+    // ~50k control words. The old `rtf.slice(i)` tail-copy per control word made
+    // this quadratic and could pin a core for seconds; the sticky-regex parse is
+    // linear. The marker prose at the end must still be recovered.
+    const body = '\\b0\\par '.repeat(50_000);
+    const rtf = `{\\rtf1\\ansi\\deff0 ${body} The end name is Zoe Adler.}`;
+    const { path: p } = await tmpFile('huge.rtf', Buffer.from(rtf, 'latin1'));
+    const started = Date.now();
+    const text = await parseFileToText(p);
+    const elapsed = Date.now() - started;
+    expect(text).not.toBeNull();
+    expect(text).toContain('The end name is Zoe Adler.');
+    expect(text).not.toMatch(/\\par|\\b0/);
+    // Generous ceiling — a quadratic parse blows well past this on this input.
+    expect(elapsed).toBeLessThan(2_000);
   });
 
   it('recovers readable prose from a legacy binary .doc (OLE)', async () => {

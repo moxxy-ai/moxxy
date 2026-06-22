@@ -615,22 +615,42 @@ export const permissionAddAllowParamsSchema = z.object({
 });
 
 export const commandRunParamsSchema = z.object({
-  name: z.string(),
-  args: z.string(),
-  channel: z.string(),
+  // `name`/`channel` are short identifiers; `args` is free-form command input
+  // (can be a pasted block) so it gets a generous cap rather than an id-sized
+  // one. All bounded so a hostile client can't stream unbounded strings here.
+  name: z.string().min(1).max(120),
+  args: z.string().max(100_000),
+  channel: z.string().min(1).max(120),
 });
 
+/**
+ * Largest base64-encoded audio clip a single `transcribe` call may carry. Every
+ * other payload field in this file is length-capped so a hostile/buggy same-user
+ * client can't drive an unbounded allocation; the audio blob was the lone
+ * exception. The only prior backstop was the 64 MB NDJSON frame cap — but that
+ * still lets one frame decode to a ~48 MB `Buffer` and hand it to a transcriber.
+ * 32 MB of base64 (~24 MB decoded) comfortably clears any legitimate voice
+ * dictation while bounding the worst case well under the frame cap.
+ */
+export const MAX_TRANSCRIBE_AUDIO_B64_BYTES = 32 * 1024 * 1024;
+/** TTS input is short by nature; bound it like the workflow human-reply field so
+ *  a hostile client can't stream megabytes of text into a synthesizer. */
+export const MAX_SYNTHESIZE_TEXT_BYTES = 100_000;
+/** Small descriptor fields (mime/language/voice/prompt) — generous but bounded,
+ *  matching the 120-char id convention used across this file. */
+const MEDIA_DESCRIPTOR_MAX = 4_000;
+
 export const transcribeParamsSchema = z.object({
-  audio: z.string(),
-  mimeType: z.string().optional(),
-  language: z.string().optional(),
-  prompt: z.string().optional(),
+  audio: z.string().max(MAX_TRANSCRIBE_AUDIO_B64_BYTES),
+  mimeType: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
+  language: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
+  prompt: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
 });
 
 export const synthesizeParamsSchema = z.object({
-  text: z.string(),
-  voice: z.string().optional(),
-  language: z.string().optional(),
+  text: z.string().max(MAX_SYNTHESIZE_TEXT_BYTES),
+  voice: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
+  language: z.string().max(MEDIA_DESCRIPTOR_MAX).optional(),
   rate: z.number().optional(),
 });
 

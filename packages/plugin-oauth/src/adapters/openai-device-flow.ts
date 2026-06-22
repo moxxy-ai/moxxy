@@ -71,12 +71,28 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
           })
         );
       }
-      const data = (await res.json()) as {
-        device_auth_id: string;
-        user_code: string;
+      const data = (await res.json().catch(() => {
+        throw new MoxxyError({
+          code: 'PROVIDER_UNKNOWN_RESPONSE',
+          message: 'device-auth init returned a non-JSON success body',
+          context: { url: initUrl },
+        });
+      })) as {
+        device_auth_id?: unknown;
+        user_code?: unknown;
         interval?: string | number;
         expires_in?: string | number;
       };
+      // Required-field validation: a 200 missing device_auth_id/user_code would
+      // otherwise produce a poll body of `{ device_auth_id: undefined }` that
+      // 403s forever until timeout. Reject clearly instead.
+      if (typeof data.device_auth_id !== 'string' || typeof data.user_code !== 'string') {
+        throw new MoxxyError({
+          code: 'PROVIDER_UNKNOWN_RESPONSE',
+          message: 'device-auth init response missing device_auth_id or user_code',
+          context: { url: initUrl },
+        });
+      }
       // Coerce-then-validate: a malformed server value (e.g. interval:"" or a
       // non-numeric string) parses to NaN, which would poison the poll timing
       // (`setTimeout(_, NaN)` busy-loops; a NaN deadline aborts the flow). Only
@@ -109,10 +125,26 @@ export function openaiDeviceFlow(opts: OpenaiDeviceFlowOpts): DeviceFlowAdapter 
         ...(state.signal ? { signal: state.signal } : {}),
       });
       if (res.ok) {
-        const data = (await res.json()) as {
-          authorization_code: string;
-          code_verifier: string;
+        const data = (await res.json().catch(() => {
+          throw new MoxxyError({
+            code: 'PROVIDER_UNKNOWN_RESPONSE',
+            message: 'device-auth poll returned a non-JSON success body',
+            context: { url: pollUrl },
+          });
+        })) as {
+          authorization_code?: unknown;
+          code_verifier?: unknown;
         };
+        // Required-field validation: without it a 200 omitting these would call
+        // exchangeCodeForToken with undefined, which URLSearchParams coerces to
+        // the literal 'undefined' — a wasted exchange that fails opaquely.
+        if (typeof data.authorization_code !== 'string' || typeof data.code_verifier !== 'string') {
+          throw new MoxxyError({
+            code: 'PROVIDER_UNKNOWN_RESPONSE',
+            message: 'device-auth poll response missing authorization_code or code_verifier',
+            context: { url: pollUrl },
+          });
+        }
         // Two-step: poll returns a server-side authorization_code we
         // exchange via the standard token endpoint. The redirect_uri
         // here is the issuer's device callback — a registered value,

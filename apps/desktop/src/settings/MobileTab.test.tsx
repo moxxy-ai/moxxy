@@ -33,6 +33,17 @@ const ENABLED: MobileGatewayStatus = {
   clientCount: 1,
 };
 
+/** The E2E proxy relay is up — the advertised URL is a remote `wss://` link with
+ *  the pinned fingerprint (the gateway's preferred, encrypted, off-LAN path). */
+const ENABLED_REMOTE: MobileGatewayStatus = {
+  enabled: true,
+  host: '192.168.1.7',
+  port: 8765,
+  connectUrl: 'wss://uuid123.proxy.moxxy.ai/mobile/?t=s3cret&fp=AGENT_FP',
+  token: 's3cret',
+  clientCount: 0,
+};
+
 /** Install a fake transport whose `mobileGateway.status` returns `initial`,
  *  and whose `setEnabled` / `rotateToken` flip a recorded state. */
 function installFakeApi(initial: MobileGatewayStatus): IpcSpy {
@@ -95,10 +106,15 @@ describe('MobileTab', () => {
   it('renders the QR, connect URL, and LAN-exposure warning when enabled', async () => {
     installFakeApi(ENABLED);
     render(<MobileTab />);
-    // The QR renders asynchronously (qrcode.toString is a promise).
+    // The QR renders asynchronously (qrcode.toString is a promise) as an
+    // <img> data URL — never injected as raw SVG markup.
     await waitFor(() => {
-      expect(screen.getByTestId('mobile-qr').querySelector('svg')).toBeTruthy();
+      const img = screen.getByTestId('mobile-qr').querySelector('img');
+      expect(img).toBeTruthy();
+      expect(img!.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
     });
+    // No raw SVG is injected into the DOM (supply-chain hardening).
+    expect(screen.getByTestId('mobile-qr').querySelector('svg')).toBeNull();
     expect(screen.getByTestId('mobile-connect-url').textContent).toBe(
       'ws://192.168.1.7:8765/?t=s3cret',
     );
@@ -110,6 +126,35 @@ describe('MobileTab', () => {
     expect(warning.textContent).toMatch(/intercept/i);
     // Connected-client count surfaces.
     expect(screen.getByText(/1 device connected/i)).toBeTruthy();
+  });
+
+  it('shows the encrypted-relay note (not the LAN warning) for a remote wss URL', async () => {
+    installFakeApi(ENABLED_REMOTE);
+    render(<MobileTab />);
+    await waitFor(() => {
+      expect(screen.getByTestId('mobile-connect-url').textContent).toBe(
+        'wss://uuid123.proxy.moxxy.ai/mobile/?t=s3cret&fp=AGENT_FP',
+      );
+    });
+    // The E2E path shows the milder relay note and NOT the unencrypted-LAN alert.
+    const note = screen.getByTestId('mobile-proxy-note');
+    expect(note.textContent).toMatch(/end-to-end-encrypted/i);
+    expect(note.textContent).toMatch(/relay/i);
+    expect(screen.queryByTestId('mobile-lan-warning')).toBeNull();
+  });
+
+  it('surfaces a copy failure instead of swallowing it', async () => {
+    installFakeApi(ENABLED);
+    // Simulate a packaged-renderer Clipboard rejection (permission/focus).
+    Object.assign(navigator, {
+      clipboard: { writeText: () => Promise.reject(new Error('not allowed')) },
+    });
+    render(<MobileTab />);
+    const copy = await screen.findByRole('button', { name: /copy connect url/i });
+    fireEvent.click(copy);
+    await waitFor(() => {
+      expect(screen.getByTestId('mobile-copy-failed').textContent).toMatch(/copy failed/i);
+    });
   });
 
   it('"Regenerate code" calls mobileGateway.rotateToken', async () => {

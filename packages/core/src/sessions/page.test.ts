@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { pageEvents, readEventPage, restoreEvents, seedSessionLog } from './persistence.js';
+import { pageEvents, readEventPage } from './persistence.js';
 
 const tempDirs: string[] = [];
 
@@ -76,6 +76,23 @@ describe('pageEvents (pure newest-first paging)', () => {
   it('empty log returns no events and a null cursor regardless of before', () => {
     expect(pageEvents([], null, 5)).toEqual({ events: [], prevCursor: null });
     expect(pageEvents([], 3, 5)).toEqual({ events: [], prevCursor: null });
+  });
+
+  it('a non-finite `before` cursor degrades to the newest page (no NaN prevCursor)', () => {
+    const log = makeLog(10);
+    // `pageEvents` is exported public API; a corrupt cursor (NaN / Infinity from
+    // a hand-edited or wire-mangled page request) must not poison the result.
+    // Worst case if unguarded: every `seq < NaN` is false → empty page with
+    // `prevCursor: NaN`, which JSON-serializes to `null` and wedges the walk.
+    for (const bad of [NaN, Infinity, -Infinity, 1.5] as number[]) {
+      const page = pageEvents(log, bad, 3);
+      // Treated as the newest page (before=null) — last `limit` events.
+      expect(page.events.map((e) => e.seq)).toEqual([7, 8, 9]);
+      expect(page.prevCursor).toBe(7);
+      expect(Number.isNaN(page.prevCursor as number)).toBe(false);
+    }
+    // Empty-log path also never emits a NaN cursor for a bad `before`.
+    expect(pageEvents([], NaN, 5)).toEqual({ events: [], prevCursor: null });
   });
 
   it('walking all pages reconstructs the full log exactly once, in order', () => {
@@ -175,43 +192,5 @@ describe('readEventPage (paged JSONL reader)', () => {
     await readEventPage(id, { before: null, limit: 10 }, dir);
     const after = await fs.readFile(path.join(dir, `${id}.jsonl`), 'utf8');
     expect(after).toBe(before);
-  });
-});
-
-describe('seedSessionLog (NDJSON → runner-log migration)', () => {
-  it('writes a fresh session log, re-sequenced to 0..n-1, ids + content preserved', async () => {
-    const dir = await makeTempDir();
-    // Gapped original seqs — as rendered events pulled from the desktop mirror
-    // (which dropped the interleaved chunk/bookend events) would have.
-    const events = [
-      { id: 'a', seq: 3, ts: 0, sessionId: 'sess', turnId: 't0', source: 'user', type: 'user_prompt', text: 'q' },
-      { id: 'b', seq: 7, ts: 1, sessionId: 'sess', turnId: 't0', source: 'model', type: 'assistant_message', content: 'reply' },
-    ] as unknown as MoxxyEvent[];
-    expect(await seedSessionLog('sess', events, dir)).toBe(true);
-    // The runner restores it like any native log: contiguous seqs, ids preserved.
-    const restored = await restoreEvents('sess', dir);
-    expect(restored.map((e) => e.id)).toEqual(['a', 'b']);
-    expect(restored.map((e) => e.seq)).toEqual([0, 1]);
-    expect((restored[1] as { content?: string }).content).toBe('reply');
-  });
-
-  it('never overwrites a NON-EMPTY session the runner already owns', async () => {
-    const dir = await makeTempDir();
-    await writeLog(dir, 'sess', makeLog(2, 'sess')); // the runner already owns it
-    expect(await seedSessionLog('sess', makeLog(5, 'sess'), dir)).toBe(false);
-    const restored = await restoreEvents('sess', dir);
-    expect(restored).toHaveLength(2); // untouched
-  });
-
-  it('seeds OVER a 0-byte session log (the empty file attach leaves on every spawn)', async () => {
-    const dir = await makeTempDir();
-    await writeLog(dir, 'sess', []); // 0-byte file, holds no history
-    expect(await seedSessionLog('sess', makeLog(3, 'sess'), dir)).toBe(true);
-    expect(await restoreEvents('sess', dir)).toHaveLength(3);
-  });
-
-  it('is a no-op for an empty event list', async () => {
-    const dir = await makeTempDir();
-    expect(await seedSessionLog('sess', [], dir)).toBe(false);
   });
 });

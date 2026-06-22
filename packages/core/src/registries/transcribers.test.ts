@@ -67,4 +67,17 @@ describe('TranscriberRegistry', () => {
       expect(r.text).toBe('new');
     });
   });
+
+  it('replacing the ACTIVE def eagerly rebuilds so getActive() never strands (non-buildOnRead)', async () => {
+    const reg = new TranscriberRegistry();
+    reg.register(fake('whisper', 'old'));
+    reg.setActive('whisper');
+    // A hot-reloaded plugin re-registers via replace() WITHOUT calling setActive
+    // again. For a non-buildOnRead registry, getActive() reads the cached
+    // instance directly; dropping it must not leave getActive() throwing.
+    reg.replace(fake('whisper', 'new'));
+    const active = reg.getActive(); // must NOT throw "has no instance"
+    const out = await active.transcribe(new Uint8Array());
+    expect(out.text).toBe('new'); // and it's the NEW def, not the stale one
+  });
 });

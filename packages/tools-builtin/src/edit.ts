@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 import { buildFileDiffDisplay } from './file-diff.js';
-import { resolvePath } from './util.js';
+import { MAX_FILE_BYTES, resolvePath } from './util.js';
 
 export const editTool = defineTool({
   name: 'Edit',
@@ -32,6 +32,19 @@ export const editTool = defineTool({
     // write here would corrupt the user's file for no benefit.
     if (ctx.signal.aborted) {
       throw new MoxxyError({ code: 'ABORTED', message: `Edit aborted before start: ${resolved}` });
+    }
+    // Bound the working set: editing means reading the whole file into the heap,
+    // so refuse a file beyond the cap rather than OOM-ing on a giant blob.
+    try {
+      const st = await fs.stat(resolved);
+      if (st.size > MAX_FILE_BYTES) {
+        throw new MoxxyError({
+          code: 'TOOL_ERROR',
+          message: `Edit: file too large — ${st.size} bytes (max ${MAX_FILE_BYTES}).`,
+        });
+      }
+    } catch (e) {
+      if (e instanceof MoxxyError) throw e;
     }
     const original = await fs.readFile(resolved, 'utf8');
     let updated: string;

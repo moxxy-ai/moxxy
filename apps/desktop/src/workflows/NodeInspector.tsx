@@ -72,13 +72,7 @@ export function NodeInspector({ state, node, dispatch, catalog }: Props): JSX.El
         </button>
       </header>
 
-      <Field label="Step id">
-        <TextInput
-          value={node.id}
-          onChange={(e) => dispatch({ type: 'rename-node', from: node.id, to: e.target.value })}
-          data-testid="field-id"
-        />
-      </Field>
+      <IdField state={state} node={node} dispatch={dispatch} />
       <Field label="Label">
         <TextInput
           value={node.label ?? ''}
@@ -225,6 +219,79 @@ function renderAction(
 }
 
 /**
+ * Step-id editor. Fully-controlled-by-`node.id` would make the field
+ * un-clearable: `renameNode` is a no-op on an empty or already-taken `to`, so
+ * clearing the field to retype snaps straight back to the old id mid-edit. Like
+ * {@link ArgsField}, it keeps a local draft the user types into freely and only
+ * dispatches `rename-node` when the draft is a non-empty, unique id; an inline
+ * hint shows while the draft is invalid. The draft re-seeds whenever the node's
+ * committed id changes (selection change or an accepted rename).
+ */
+function IdField({
+  state,
+  node,
+  dispatch,
+}: {
+  state: BuilderState;
+  node: BuilderNode;
+  dispatch: (a: BuilderAction) => void;
+}): JSX.Element {
+  const [draft, setDraft] = useState(node.id);
+
+  useEffect(() => {
+    setDraft(node.id);
+  }, [node.id]);
+
+  const trimmed = draft.trim();
+  const taken = trimmed !== node.id && state.nodes.some((n) => n.id === trimmed);
+  const invalid = trimmed === '' || taken;
+
+  return (
+    <Field label="Step id">
+      <TextInput
+        value={draft}
+        data-testid="field-id"
+        aria-invalid={invalid || undefined}
+        onChange={(e) => {
+          const next = e.target.value;
+          setDraft(next);
+          const nextTrimmed = next.trim();
+          if (nextTrimmed !== '' && nextTrimmed !== node.id && !state.nodes.some((n) => n.id === nextTrimmed)) {
+            dispatch({ type: 'rename-node', from: node.id, to: nextTrimmed });
+          }
+        }}
+        onBlur={() => setDraft(node.id)}
+      />
+      {invalid && (
+        <span data-testid="field-id-invalid" style={{ ...emptyHint, color: 'var(--color-red)' }}>
+          {trimmed === '' ? 'Id can’t be empty.' : `Id “${trimmed}” is already used.`}
+        </span>
+      )}
+    </Field>
+  );
+}
+
+/** Keys that pollute Object.prototype when spread/assigned downstream. The args
+ *  are serialized into workflow YAML and ultimately spread into a tool
+ *  invocation on the runner; strip them here, at the trust boundary that first
+ *  accepts this free-text, as defense-in-depth. */
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** Recursively drop prototype-pollution keys from a freshly-parsed JSON value. */
+function stripDangerousKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripDangerousKeys);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (DANGEROUS_KEYS.has(k)) continue;
+      out[k] = stripDangerousKeys(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
  * Args (JSON) editor. The textarea is uncontrolled-by-draft: it renders a local
  * string the user types into, parsing on every change and only committing the
  * parsed object when it's valid JSON. This lets the user pass through invalid
@@ -261,7 +328,14 @@ function ArgsField({
           const next = e.target.value;
           setDraft(next);
           try {
-            onChange(JSON.parse(next) as Record<string, unknown>);
+            const parsed = JSON.parse(next) as unknown;
+            // Only commit JSON objects; reject arrays/primitives (args is a map)
+            // and strip prototype-pollution keys before forwarding to the runner.
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              setInvalid(true);
+              return;
+            }
+            onChange(stripDangerousKeys(parsed) as Record<string, unknown>);
             setInvalid(false);
           } catch {
             // Keep the keystrokes in the draft; just don't commit invalid JSON.
@@ -421,6 +495,17 @@ function LoopEditor({
   );
 }
 
+/** Slugify a free-text case id the same way step ids are normalised
+ *  (mirrors `uniqueId`'s slug rule in @moxxy/workflows-builder). Returns '' for
+ *  input that slugs to nothing, so the caller can reject it. */
+function slugCaseId(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+}
+
 function SwitchEditor({
   node,
   options,
@@ -431,6 +516,18 @@ function SwitchEditor({
   dispatch: (a: BuilderAction) => void;
 }): JSX.Element {
   const cases = node.cases ?? {};
+  // Inline "new case id" field. window.prompt() is unsupported in Electron's
+  // renderer (it throws), so the add path is a controlled text input that
+  // dispatches set-case on submit, slugifying + de-duping the id like step ids.
+  const [draft, setDraft] = useState('');
+  const slug = slugCaseId(draft);
+  const duplicate = slug !== '' && Object.prototype.hasOwnProperty.call(cases, slug);
+  const canAdd = slug !== '' && !duplicate;
+  const addCase = (): void => {
+    if (!canAdd) return;
+    dispatch({ type: 'set-case', nodeId: node.id, caseId: slug, targets: [] });
+    setDraft('');
+  };
   return (
     <>
       {Object.entries(cases).map(([caseId, targets]) => (
@@ -439,6 +536,7 @@ function SwitchEditor({
             <span style={fieldLabel}>case · {caseId}</span>
             <button
               type="button"
+              aria-label={`Remove case ${caseId}`}
               onClick={() => dispatch({ type: 'remove-case', nodeId: node.id, caseId })}
               style={pillBtn('var(--color-text-dim)')}
             >
@@ -454,17 +552,37 @@ function SwitchEditor({
           />
         </div>
       ))}
-      <button
-        type="button"
-        data-testid="add-case"
-        onClick={() => {
-          const id = prompt('Case id (e.g. "high")');
-          if (id) dispatch({ type: 'set-case', nodeId: node.id, caseId: id, targets: [] });
-        }}
-        style={pillBtn('var(--color-primary)')}
-      >
-        + Add case
-      </button>
+      <Field label="New case id">
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <TextInput
+            value={draft}
+            placeholder='e.g. "high"'
+            data-testid="add-case-input"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addCase();
+              }
+            }}
+          />
+          <button
+            type="button"
+            data-testid="add-case"
+            disabled={!canAdd}
+            aria-label="Add switch case"
+            onClick={addCase}
+            style={{ ...pillBtn('var(--color-primary)'), opacity: canAdd ? 1 : 0.5 }}
+          >
+            + Add case
+          </button>
+        </div>
+        {duplicate && (
+          <span data-testid="add-case-invalid" style={{ ...emptyHint, color: 'var(--color-red)' }}>
+            A case “{slug}” already exists.
+          </span>
+        )}
+      </Field>
       <TargetPicker
         label="default →"
         options={options}

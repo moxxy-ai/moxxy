@@ -125,6 +125,17 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Caps on untrusted input crossing the file→canvas trust boundary. `hydrateYaml`
+ * feeds this codec a possibly hand-authored / invalid draft, so a pathological
+ * document (a few thousand nested maps/sequences, or a huge file) must surface a
+ * catchable Error the UI can show as a validation banner — never an uncatchable
+ * RangeError that crashes the renderer / mobile JS thread.
+ */
+const MAX_INPUT_BYTES = 2_000_000;
+const MAX_LINES = 100_000;
+const MAX_DEPTH = 200;
+
+/**
  * Parse a workflow-flavoured YAML document into a plain JSON value. Supports
  * the subset this codec emits plus what the host's canonical emitter produces:
  * nested maps, `- ` sequences (scalar, inline-map, and nested), `|` and `|-`
@@ -132,16 +143,25 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * obvious malformations; the server schema is the real arbiter.
  */
 export function fromYaml(text: string): unknown {
+  if (text.length > MAX_INPUT_BYTES) throw new Error('yaml: input too large');
   const lines = stripComments(text)
     .replace(/\r\n/g, '\n')
     .split('\n');
-  const ctx = { lines, i: 0 };
+  if (lines.length > MAX_LINES) throw new Error('yaml: too many lines');
+  const ctx: ParseCtx = { lines, i: 0, depth: 0 };
   return parseBlock(ctx, 0);
 }
 
 interface ParseCtx {
   readonly lines: string[];
   i: number;
+  /** Current container-nesting depth; bounded by {@link MAX_DEPTH}. */
+  depth: number;
+}
+
+/** Increment nesting depth, throwing past the cap to convert stack overflow into a catchable Error. */
+function enter(ctx: ParseCtx): void {
+  if (++ctx.depth > MAX_DEPTH) throw new Error('yaml: nesting too deep');
 }
 
 function stripComments(text: string): string {
@@ -212,6 +232,7 @@ function parseBlock(ctx: ParseCtx, minIndent: number): unknown {
 }
 
 function parseMap(ctx: ParseCtx, indent: number): Record<string, unknown> {
+  enter(ctx);
   const obj: Record<string, unknown> = {};
   while (ctx.i < ctx.lines.length) {
     const line = ctx.lines[ctx.i]!;
@@ -236,6 +257,7 @@ function parseMap(ctx: ParseCtx, indent: number): Record<string, unknown> {
       obj[key] = parseScalar(rest);
     }
   }
+  ctx.depth--;
   return obj;
 }
 
@@ -252,6 +274,7 @@ function parseChild(ctx: ParseCtx, parentIndent: number): unknown {
 }
 
 function parseSequence(ctx: ParseCtx, indent: number): unknown[] {
+  enter(ctx);
   const arr: unknown[] = [];
   while (ctx.i < ctx.lines.length) {
     const line = ctx.lines[ctx.i]!;
@@ -268,15 +291,22 @@ function parseSequence(ctx: ParseCtx, indent: number): unknown[] {
       ctx.i++;
       arr.push(parseChild(ctx, indent));
     } else if (looksLikeKey(after)) {
-      // Inline map: `- key: value` — re-indent the rest as a map child.
+      // Inline map: `- key: value` — re-indent the rest as a map child. This
+      // mutates the shared input line WITHOUT advancing the cursor, relying on
+      // parseMap to consume at least it. Assert that progress so a future change
+      // to parseMap's first-line handling turns a potential infinite loop on
+      // hostile input into a thrown Error instead.
       const itemIndent = indent + 2;
+      const before = ctx.i;
       ctx.lines[ctx.i] = ' '.repeat(itemIndent) + after;
       arr.push(parseMap(ctx, itemIndent));
+      if (ctx.i === before) throw new Error(`yaml: no progress at line ${ctx.i + 1}`);
     } else {
       ctx.i++;
       arr.push(parseScalar(after));
     }
   }
+  ctx.depth--;
   return arr;
 }
 
@@ -337,20 +367,31 @@ function looksLikeKey(s: string): boolean {
   return splitKey(s) !== null;
 }
 
-function parseScalar(token: string): unknown {
+function parseScalar(token: string, depth = 0): unknown {
   const t = token.trim();
   if (t === '[]') return [];
   if (t === '{}') return {};
   if (t === '~' || t === 'null') return null;
   if (t === 'true') return true;
   if (t === 'false') return false;
-  if (/^-?\d+$/.test(t)) return Number.parseInt(t, 10);
+  if (/^-?\d+$/.test(t)) {
+    // Only coerce when the int round-trips losslessly — a value past 2^53 (or
+    // with leading zeros) would be silently mangled, so keep it as the raw
+    // string instead (arbitrary `args` may carry such literals).
+    const n = Number.parseInt(t, 10);
+    return Number.isSafeInteger(n) && String(n) === t ? n : t;
+  }
   if (/^-?\d+\.\d+$/.test(t)) return Number.parseFloat(t);
-  // Flow sequence of scalars: ["a", "b"] / [a, b]
+  // Flow sequence of scalars: ["a", "b"] / [a, b]. This recurses one frame per
+  // nesting level, so a hand-authored `[[[…]]]` would otherwise blow the call
+  // stack with an UNCATCHABLE RangeError — the same trust-boundary DoS the block
+  // parser guards via MAX_DEPTH. Bound the flow recursion identically so the
+  // failure stays a catchable Error the UI can show as a validation banner.
   if (t.startsWith('[') && t.endsWith(']')) {
+    if (depth >= MAX_DEPTH) throw new Error('yaml: flow nesting too deep');
     const inner = t.slice(1, -1).trim();
     if (inner === '') return [];
-    return splitFlow(inner).map((x) => parseScalar(x));
+    return splitFlow(inner).map((x) => parseScalar(x, depth + 1));
   }
   return unquote(t);
 }

@@ -1,5 +1,312 @@
 # @moxxy/desktop
 
+## 0.22.2
+
+### Patch Changes
+
+- Updated dependencies [b19d401]
+  - @moxxy/sdk@0.16.0
+  - @moxxy/plugin-channel-mobile@0.2.0
+  - @moxxy/chat-model@0.3.3
+  - @moxxy/cli@0.14.11
+  - @moxxy/client-core@0.10.2
+  - @moxxy/client-platform-web@0.1.29
+  - @moxxy/desktop-host@0.8.4
+  - @moxxy/desktop-ipc-contract@0.10.3
+  - @moxxy/ipc-server-ws@0.1.28
+  - @moxxy/plugin-stt-whisper-codex@0.0.26
+  - @moxxy/plugin-vault@0.0.26
+  - @moxxy/runner@0.2.16
+  - @moxxy/workflows-builder@0.1.14
+
+## 0.22.1
+
+### Patch Changes
+
+- 92fecb8: Close the cross-package hardening items deferred from the repo-wide sweep, with
+  regression tests:
+
+  - **Bugs:** `countNodes()` recursion → iterative (no RangeError on a deep AST);
+    subagent `spawnAll` now settles all children (one child's setup failure no
+    longer orphans its siblings); the runner socket path honors `$MOXXY_HOME`; the
+    computer-control screenshot tool result is projected as a provider image block
+    so the model can actually see screenshots; `MoxxyRequirement.version` narrowed
+    to the plugin kind; `CompactorDef.compact` signature aligned; `isFileDiffDisplay`
+    validation tightened.
+  - **DRY:** `sleepWithAbort` / `nextBackoffMs` extracted into `@moxxy/sdk` (shared by
+    the default and goal modes); the isolator shim + broker-op concurrency limiter
+    single-sourced in `@moxxy/plugin-security` and applied to both isolators; desktop
+    loopback ports hoisted to one module; a shared collab-store helper extracted.
+  - **Accessibility / contract:** a global `prefers-reduced-motion` rule for inline
+    transitions; real ARIA roles + roving focus + Escape + focus-restore on the
+    anonymizer filter dropdown; zod schemas for the collab IPC channels.
+
+- Updated dependencies [92fecb8]
+  - @moxxy/cli@0.14.10
+  - @moxxy/sdk@0.15.2
+  - @moxxy/chat-model@0.3.2
+  - @moxxy/client-core@0.10.1
+  - @moxxy/client-platform-web@0.1.28
+  - @moxxy/desktop-host@0.8.3
+  - @moxxy/desktop-ipc-contract@0.10.2
+  - @moxxy/ipc-server-ws@0.1.27
+  - @moxxy/plugin-channel-mobile@0.1.28
+  - @moxxy/plugin-stt-whisper-codex@0.0.25
+  - @moxxy/plugin-vault@0.0.25
+  - @moxxy/runner@0.2.15
+  - @moxxy/workflows-builder@0.1.13
+
+## 0.22.0
+
+### Minor Changes
+
+- e762d40: Desktop apps can send their output back to the active session instead of copy+paste. New shared `sendToSession()` + `composerDraftStore` in `@moxxy/client-core` prefill the chat composer and switch to the chat view for the user to review and send. The built-in document anonymizer gains a **Send to chat** button (opt-in per app via `DesktopAppDef.canSendToSession`, enriched with a context line + redaction count). A forward-looking `session.send` capability (permission + bridge method + client sugar) is added to `@moxxy/desktop-app-sdk` for sandboxed apps; it is renderer-dispatched, and the main-process bridge gate refuses it by design.
+
+### Patch Changes
+
+- 21e0d9b: fix(desktop): send pasted / dropped / browser-capture images to the model
+
+  Images that arrive as bytes — a clipboard paste, a drag-drop, or a
+  browser-surface screenshot — are stashed to a temp file under `os.tmpdir()` and
+  then ride the same attachment pipeline as a picked file. But `session.runTurn`'s
+  provenance gate (`authorizeAttachments`) only trusts paths the native picker
+  handed out or paths inside the workspace cwd, and `session.saveImageAttachment`
+  — unlike `session.pickAttachment` — never remembered the temp path it wrote. So
+  every byte-sourced image was silently dropped at send time (only a `console.warn`
+  in the main process) and the prompt reached the model as text only. This was a
+  regression: the provenance gate, added in the PR right after the chat
+  image-paste feature, never vouched for the paste/capture path.
+
+  `session.saveImageAttachment` now remembers the temp path it creates, mirroring
+  `session.pickAttachment`, so pasted / dropped / captured images survive the gate
+  and actually reach the model.
+
+- e762d40: Repo-wide worst-case hardening (audit-driven). A pessimistic re-audit of every
+  package/app scored security, performance, code-quality, extensibility (+a11y on
+  UI surfaces) and cataloged 757 findings; this resolves the high+medium+clear-low
+  set with regression tests for the failure paths. Highlights:
+
+  - **Security:** email-detector ReDoS made linear (bounded local-part + label
+    count + windowed scan); IPv4-mapped-IPv6 SSRF bypass closed; `memory_*` and
+    workflow `runId` path-traversal sanitized; cross-host redirects no longer
+    replay `Authorization`/body; webhook filter-regex ReDoS bounded; capability
+    isolation now also covers tools registered after `onInit`; recursive subagent
+    fan-out capped.
+  - **Robustness (no happy-path assumptions):** unbounded child/stdout/socket/grep
+    buffers bounded (OOM); missing `'error'` listeners + per-call timeouts + abort
+    wiring added across the WS transport, runner JSON-RPC, isolators, browser
+    sidecar, MCP boot, and provider streams; stale-name/out-of-order resolves,
+    malformed-JSON tool input, and corrupt on-disk caches now degrade instead of
+    crashing.
+  - **Accessibility:** real focus traps + focus restoration + ARIA/`aria-modal` +
+    keyboard navigation + Escape across desktop modals/sheets, the shared
+    `desktop-ui` Modal, the workflow canvas, and the TUI.
+  - **Quality:** dead code removed (incl. the committed `apps/docs/.astro` cache),
+    per-workflow schedule-sync isolation, scheduler invalid-timezone resilience,
+    and worst-case regression tests throughout.
+
+- Updated dependencies [e762d40]
+- Updated dependencies [e762d40]
+  - @moxxy/client-core@0.10.0
+  - @moxxy/desktop-host@0.8.2
+  - @moxxy/cli@0.14.9
+  - @moxxy/sdk@0.15.1
+  - @moxxy/client-platform-web@0.1.27
+  - @moxxy/chat-model@0.3.1
+  - @moxxy/desktop-ipc-contract@0.10.1
+  - @moxxy/ipc-server-ws@0.1.26
+  - @moxxy/plugin-channel-mobile@0.1.27
+  - @moxxy/plugin-stt-whisper-codex@0.0.24
+  - @moxxy/plugin-vault@0.0.24
+  - @moxxy/runner@0.2.14
+  - @moxxy/workflows-builder@0.1.12
+
+## 0.21.0
+
+### Minor Changes
+
+- 797f643: feat(anonymizer): region-aware PII dictionary (PL/UK/US) + multilingual on-device NER
+
+  The document anonymizer now _really_ anonymises across markets instead of only
+  catching a handful of English-shaped patterns.
+
+  **Engine (`@moxxy/anonymizer`, still pure + offline + zero-dependency):**
+
+  - A `DICTIONARY` of 47 checksum-backed detectors assembled from official sources
+    and adversarially verified, grouped by market:
+    - **Poland** — PESEL (checksum + embedded birth-date), NIP, REGON, dowód
+      osobisty, passport, NRB bank account (mod-97), driving licence, vehicle reg.
+    - **UK** — National Insurance Number, NHS number, UTR, postcode (BS7666),
+      passport, driving licence, sort code.
+    - **US** — SSN, ITIN, EIN, Medicare MBI, ABA routing, bank account, passport,
+      ZIP.
+    - **Global** — credit card, IBAN (+ per-country length), IMEI, VIN, BTC/ETH
+      wallets, and leaked secrets (AWS / GitHub / Stripe / Google / Slack / OpenAI
+      keys, JWTs, PEM private keys).
+  - New `PiiCategory` buckets (`taxId`, `healthId`, `passport`, `driverLicense`,
+    `postalCode`, `bankAccount`, `crypto`, `deviceId`, `vehicleId`, `secret`) and a
+    `Region` axis; `detect`/`redact` gain `regions` and `detectorIds` options.
+    Spans carry a `subtype` so output is specific (`[PESEL]`, `[NHS]`).
+  - Precision contract: the validator (checksum) is the primary lever; bare-numeric
+    / no-checksum identifiers are context-keyword-gated; weighted-mod validators
+    reject the degenerate all-zeros run.
+
+  **Desktop app:**
+
+  - A **Markets** selector (PL/UK/US; global always on) so a market's ID formats
+    can be scoped without false positives from the others.
+  - The on-device NER model is swapped from English-only `Xenova/bert-base-NER` to
+    multilingual `tjruesch/xlm-roberta-base-ner-hrl-onnx`, so names are detected in
+    Polish and other languages (download ~110 MB → ~300 MB). The span aggregator
+    was made robust to SentencePiece sub-words so agglutinated names (e.g. Polish
+    surnames) are recovered rather than leaked.
+  - Redaction-mode hints now state honestly that only `label` approaches true
+    anonymisation, while `pseudonym`/`hash` are pseudonymisation (still personal
+    data under GDPR).
+
+## 0.20.1
+
+### Patch Changes
+
+- Updated dependencies [0daee68]
+  - @moxxy/cli@0.14.8
+
+## 0.20.0
+
+### Minor Changes
+
+- 668bd96: Desktop apps can send their output back to the active session instead of copy+paste. New shared `sendToSession()` + `composerDraftStore` in `@moxxy/client-core` prefill the chat composer and switch to the chat view for the user to review and send. The built-in document anonymizer gains a **Send to chat** button (opt-in per app via `DesktopAppDef.canSendToSession`, enriched with a context line + redaction count). A forward-looking `session.send` capability (permission + bridge method + client sugar) is added to `@moxxy/desktop-app-sdk` for sandboxed apps; it is renderer-dispatched, and the main-process bridge gate refuses it by design.
+
+### Patch Changes
+
+- Updated dependencies [668bd96]
+  - @moxxy/client-core@0.9.0
+  - @moxxy/desktop-host@0.8.1
+  - @moxxy/client-platform-web@0.1.26
+  - @moxxy/cli@0.14.7
+
+## 0.19.1
+
+### Patch Changes
+
+- Updated dependencies [d71bf6f]
+  - @moxxy/cli@0.14.7
+
+## 0.19.0
+
+### Minor Changes
+
+- 917a700: feat(desktop): redesign the Collaborate feed + task details, deliverables, message cards
+
+  The Collaborate tab showed the team's messages as flat monospace rows
+  (`agent → all · subject: body`) and gave no way to inspect a task or see what
+  the run produced. Redesigned for observability:
+
+  - **Message cards.** Each message is now a card with a coloured author chip
+    (human vs agent), a kind chip derived from the subject (kickoff / progress /
+    done / blocked / directive), a broadcast-vs-DM tag (`📣 all` vs `→ agent`), a
+    timestamp, and the body — so a long run reads like a team channel, and direct
+    messages are visually distinct from broadcasts.
+  - **Tasks → modal.** Task-board rows are clickable and open a modal with status,
+    owner, detail, and the files the item covers.
+  - **Deliverables.** A new rail section lists the distinct files the team
+    claimed/produced; the task view (`CollabTaskView`) now folds `paths` + `detail`
+    from the board stream.
+
+  Adds folding-test coverage for the new task fields.
+
+### Patch Changes
+
+- Updated dependencies [917a700]
+  - @moxxy/chat-model@0.3.0
+  - @moxxy/cli@0.14.6
+  - @moxxy/client-core@0.8.8
+  - @moxxy/client-platform-web@0.1.25
+
+## 0.18.0
+
+### Minor Changes
+
+- f070207: feat(collaborative): run archive/history + an always-available "End & archive"
+
+  Two gaps the user hit: a wedged/finished collaboration couldn't be ended (the
+  "＋ New" button only appeared once a run had completed, so a stuck run — or a
+  stale single-flight lock — left the Collaborate tab with no way forward), and
+  there was no record of past runs at all (the transient run dirs were even left
+  orphaned).
+
+  - **Run archive.** Every run is now persisted as a JSON record under
+    `~/.moxxy/collab/runs/<runId>.json` on EVERY exit path (completed, aborted,
+    failed) — task, brief, roster + per-agent status/summaries, board, contracts,
+    merge result, and timings. New `@moxxy/mode-collaborative` archive API
+    (`listRunRecords` / `readRunRecord` / `writeRunRecord`).
+  - **End & archive.** New `collab.end` IPC aborts the coordinator turn (its
+    finally tears the team down + archives) and force-releases the global lock —
+    so a stuck run or a stale lock can always be cleared. New
+    `forceReleaseCollabLock()` + `SessionDriver.abortActiveTurns()`.
+  - **History view.** New `collab.history` IPC + a Collaborate-tab History list
+    (outcome, task, agent counts, per-run detail with brief + summaries).
+  - The Collaborate header now always offers **End & archive** (while running or
+    while a lock is held) and the "already running" banner gained an inline
+    "end & archive it now" so a wedged run never blocks a fresh start.
+
+  Adds archive + force-release + abort tests, and the coordinator e2e test now
+  asserts the run is archived.
+
+### Patch Changes
+
+- Updated dependencies [f070207]
+- Updated dependencies [b226696]
+  - @moxxy/desktop-ipc-contract@0.10.0
+  - @moxxy/desktop-host@0.8.0
+  - @moxxy/cli@0.14.6
+  - @moxxy/client-core@0.8.7
+  - @moxxy/ipc-server-ws@0.1.25
+  - @moxxy/plugin-channel-mobile@0.1.26
+  - @moxxy/client-platform-web@0.1.24
+
+## 0.17.2
+
+### Patch Changes
+
+- Updated dependencies [8bc25e7]
+  - @moxxy/cli@0.14.5
+
+## 0.17.1
+
+### Patch Changes
+
+- Updated dependencies [a2cb758]
+  - @moxxy/cli@0.14.4
+
+## 0.17.0
+
+### Minor Changes
+
+- eb47732: feat(desktop): retire the NDJSON chat store — the runner's log is the sole chat history
+
+  The final step of the dual-history consolidation. The desktop's NDJSON chat
+  mirror is fully removed; the renderer reads and writes nothing of its own and
+  the runner's authoritative log is the single source of truth for chat history.
+
+  Removed:
+
+  - The renderer's NDJSON read fallback + double-write + per-slot history-source
+    selection (`chat-store`), and the legacy localStorage→NDJSON migration. The
+    store now pages history solely from the runner (`chat.loadHistory`); with no
+    connected runner the transcript is empty until the runner attaches.
+  - The `chat.append` / `chat.loadSegment` / `chat.clearLog` / `chat.migrate` IPC
+    commands + their validation + remote allow-list entries, the desktop host's
+    `chat-log` NDJSON store, the runner-pool/startup seed-migrations, and the now
+    unused `@moxxy/core` `seedSessionLog`. Only `chat.loadHistory` remains.
+  - "Clear conversation" / session deletion now reset/erase only the runner's log
+    (`session.newSession` / `deleteSession`).
+
+  Legacy chats whose history lived ONLY in the old NDJSON mirror are intentionally
+  not migrated (the prior migration PRs moved opened/started chats into the runner;
+  this drops the rest). Active chats are unaffected — the runner has always written
+  their log.
+
 ## 0.16.0
 
 ### Minor Changes

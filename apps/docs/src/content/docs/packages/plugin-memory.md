@@ -66,4 +66,4 @@ turn. See `packages/plugin-memory/src/consolidate.ts`.
 
 ## See also
 
-- [Memory guide](../guides/memory) — manual curation, recall modes.
+- [Memory guide](../guides/memory.md) — manual curation, recall modes.

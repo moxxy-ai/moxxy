@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { MoxxyError, defineTool, z } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 import { buildFileDiffDisplay } from './file-diff.js';
-import { resolvePath } from './util.js';
+import { MAX_FILE_BYTES, resolvePath } from './util.js';
 
 export const writeTool = defineTool({
   name: 'Write',
@@ -32,12 +32,18 @@ export const writeTool = defineTool({
       throw new MoxxyError({ code: 'ABORTED', message: `Write aborted before start: ${resolved}` });
     }
     // Read any existing content first so we can show a real diff (and tell
-    // "create" from "overwrite"). Missing file → create from empty.
+    // "create" from "overwrite"). Missing file → create from empty. Bound the
+    // read so overwriting beside a huge existing blob can't OOM while building
+    // the diff; past the cap we still overwrite but skip the before-content
+    // diff (treat it as a create-style result).
     let before = '';
     let mode: 'create' | 'update' = 'create';
     try {
-      before = await fs.readFile(resolved, 'utf8');
+      const st = await fs.stat(resolved);
       mode = 'update';
+      if (st.size <= MAX_FILE_BYTES) {
+        before = await fs.readFile(resolved, 'utf8');
+      }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }

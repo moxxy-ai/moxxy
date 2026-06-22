@@ -1,5 +1,29 @@
 # @moxxy/runner
 
+## 0.2.16
+
+### Patch Changes
+
+- Updated dependencies [b19d401]
+  - @moxxy/sdk@0.16.0
+  - @moxxy/core@0.5.3
+
+## 0.2.15
+
+### Patch Changes
+
+- Updated dependencies [92fecb8]
+  - @moxxy/sdk@0.15.2
+  - @moxxy/core@0.5.2
+
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies [e762d40]
+  - @moxxy/sdk@0.15.1
+  - @moxxy/core@0.5.1
+
 ## 0.2.13
 
 ### Patch Changes

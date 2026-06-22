@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   STEP_KINDS,
   stepKindMeta,
@@ -146,6 +146,12 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
 
   const byId = useMemo(() => new Map(state.nodes.map((n) => [n.id, n])), [state.nodes]);
 
+  // Arrow-marker ids must be unique per canvas instance: two canvases mounting
+  // at once (or a future split view) would otherwise share DOM ids and all
+  // edges would resolve to the first canvas' markers. `useId` namespaces them.
+  const markerNs = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const markerId = useCallback((kind: BuilderEdge['kind']) => `arrow-${markerNs}-${kind}`, [markerNs]);
+
   /**
    * Topological order index per node (1-based) so the canvas reads as a flow.
    *
@@ -158,9 +164,11 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
    */
   // topoSig is the intended geometry-free dependency; state.nodes (its source)
   // changes on every drag tick and would defeat the memo, so key on the
-  // signature instead. The disable directive must sit DIRECTLY above the
-  // useMemo to apply.
-  const topoSig = topologySignature(state.nodes);
+  // signature instead. Memoize the signature on state.nodes too so the O(V+E)
+  // string build doesn't run on every pan/zoom (set-viewport) or drag tick —
+  // only when the node set/wiring actually changes. The disable directive must
+  // sit DIRECTLY above the dependent useMemo to apply.
+  const topoSig = useMemo(() => topologySignature(state.nodes), [state.nodes]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const order = useMemo(() => topoOrder(state.nodes), [topoSig]);
 
@@ -269,6 +277,12 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
     <div
       ref={surfaceRef}
       data-testid="workflow-canvas"
+      role="application"
+      aria-label="Workflow builder canvas"
+      // Programmatically focusable so the insert menu can restore focus here on
+      // close (not in the Tab order itself — the nodes/handles are the
+      // keyboard-reachable interactive elements).
+      tabIndex={-1}
       onPointerDown={onSurfacePointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -322,7 +336,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             {Object.entries(EDGE_STYLE).map(([kind, s]) => (
               <marker
                 key={kind}
-                id={`arrow-${kind}`}
+                id={markerId(kind as BuilderEdge['kind'])}
                 viewBox="0 0 10 10"
                 refX="9"
                 refY="5"
@@ -344,6 +358,7 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
                 edge={edge}
                 from={from}
                 to={to}
+                markerId={markerId(edge.kind)}
                 onDisconnect={() => disconnectEdge(dispatch, edge, from)}
               />
             );
@@ -370,11 +385,19 @@ export function WorkflowCanvas({ state, dispatch }: Props): JSX.Element {
             isHoverTarget={hoverTarget === node.id}
             onBodyPointerDown={(e) => onBodyPointerDown(e, node)}
             onHandlePointerDown={(e, port) => onHandlePointerDown(e, node, port)}
+            onSelect={() => dispatch({ type: 'select', id: node.id })}
+            onNudge={(dx, dy) => dispatch({ type: 'move-node', id: node.id, x: node.x + dx, y: node.y + dy })}
           />
         ))}
 
         {insertMenu && byId.has(insertMenu.nodeId) && (
-          <InsertNodeMenu menu={insertMenu} zoom={view.zoom} onPick={conn.insertFromMenu} />
+          <InsertNodeMenu
+            menu={insertMenu}
+            zoom={view.zoom}
+            onPick={conn.insertFromMenu}
+            onClose={() => setInsertMenu(null)}
+            restoreFocusRef={surfaceRef}
+          />
         )}
       </div>
 
@@ -519,14 +542,73 @@ function InsertNodeMenu({
   menu,
   zoom,
   onPick,
+  onClose,
+  restoreFocusRef,
 }: {
   readonly menu: InsertMenuState;
   readonly zoom: number;
   readonly onPick: (kind: StepKind) => void;
+  readonly onClose: () => void;
+  readonly restoreFocusRef: React.RefObject<HTMLElement>;
 }): JSX.Element {
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [active, setActive] = useState(0);
+
+  // Focus the first item on open and restore focus to the canvas on close
+  // (focus trap + restoration; WCAG 2.4.3 / menu pattern).
+  useEffect(() => {
+    itemRefs.current[0]?.focus();
+    const surface = restoreFocusRef.current;
+    return () => surface?.focus?.();
+  }, [restoreFocusRef]);
+
+  const focusItem = (i: number): void => {
+    const n = STEP_KINDS.length;
+    const next = ((i % n) + n) % n;
+    setActive(next);
+    itemRefs.current[next]?.focus();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        focusItem(active + 1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        focusItem(active - 1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        focusItem(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        focusItem(STEP_KINDS.length - 1);
+        break;
+      case 'Escape':
+        // Menu-scoped close (the global window listener also handles Escape,
+        // but this keeps focus management local and restores it on close).
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        break;
+      case 'Tab':
+        // A menu is a focus trap: keep arrow keys as the only traversal.
+        e.preventDefault();
+        focusItem(active + (e.shiftKey ? -1 : 1));
+        break;
+    }
+  };
+
   return (
     <div
       data-testid="insert-node-menu"
+      role="menu"
+      aria-label="Insert step"
+      aria-orientation="vertical"
+      onKeyDown={onKeyDown}
       // Own the gesture: a pointerdown/click inside the menu must not pan the
       // canvas, dismiss the menu, or deselect.
       onPointerDown={(e) => e.stopPropagation()}
@@ -562,13 +644,21 @@ function InsertNodeMenu({
       >
         Insert step
       </span>
-      {STEP_KINDS.map((k) => (
+      {STEP_KINDS.map((k, i) => (
         <button
           key={k.kind}
           type="button"
+          role="menuitem"
           data-testid={`insert-add-${k.kind}`}
+          ref={(el) => {
+            itemRefs.current[i] = el;
+          }}
+          // Roving tabindex: only the active item is in the Tab order.
+          tabIndex={i === active ? 0 : -1}
           title={k.description}
+          aria-label={`Insert ${k.label} step`}
           onClick={() => onPick(k.kind)}
+          onFocus={() => setActive(i)}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -637,11 +727,13 @@ function Edge({
   edge,
   from,
   to,
+  markerId,
   onDisconnect,
 }: {
   edge: BuilderEdge;
   from: BuilderNode;
   to: BuilderNode;
+  markerId: string;
   onDisconnect: () => void;
 }): JSX.Element {
   const style = EDGE_STYLE[edge.kind];
@@ -657,6 +749,11 @@ function Edge({
     e.stopPropagation();
     onDisconnect();
   };
+  // A human-readable description of what this edge connects, so the keyboard /
+  // screen-reader path to remove it isn't a bare ✕. `style.label` already names
+  // the kind (then/else/default/body/exit); `needs` reads as a dependency.
+  const kindLabel = label ?? (edge.kind === 'needs' ? 'dependency' : edge.kind);
+  const removeLabel = `Remove ${kindLabel} connection ${edge.from} → ${edge.to}`;
   return (
     <g data-testid={`wf-edge-${edge.id}`}>
       {/* fat invisible hit area so the thin edge is easy to click to delete */}
@@ -676,7 +773,7 @@ function Edge({
         stroke={style.color}
         strokeWidth={2}
         strokeDasharray={style.dash}
-        markerEnd={`url(#arrow-${edge.kind})`}
+        markerEnd={`url(#${markerId})`}
         style={{ pointerEvents: 'none' }}
       />
       {label && (
@@ -697,16 +794,27 @@ function Edge({
           {label}
         </text>
       )}
-      {/* a small ✕ at the midpoint to delete the connection */}
+      {/* A small ✕ at the midpoint to delete the connection. Focusable +
+       *  keyboard-activatable (Enter/Space) with an accessible name, so an
+       *  edge can be removed without a pointer (WCAG 2.1.1). */}
       <g
         data-testid={`wf-edge-remove-${edge.id}`}
+        role="button"
+        tabIndex={0}
+        aria-label={removeLabel}
         transform={`translate(${midX}, ${midY + 8})`}
         style={{ pointerEvents: 'all', cursor: 'pointer' }}
         onClick={onRemove}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onRemove(e);
+          }
+        }}
       >
         <circle r={7} fill="var(--color-bg-card)" stroke={style.color} strokeWidth={1} />
         <path d="M -3 -3 L 3 3 M 3 -3 L -3 3" stroke={style.color} strokeWidth={1.4} />
-        <title>Remove this connection</title>
+        <title>{removeLabel}</title>
       </g>
     </g>
   );
@@ -718,6 +826,10 @@ function edgeColor(isHoverTarget: boolean, selected: boolean, accent: string, er
   return errors > 0 ? 'var(--color-red)' : 'var(--color-border)';
 }
 
+/** World-units a keyboard arrow nudge moves a node (Shift = larger step). */
+const NUDGE_STEP = 8;
+const NUDGE_STEP_LARGE = 40;
+
 function NodeCard({
   node,
   selected,
@@ -728,6 +840,8 @@ function NodeCard({
   isHoverTarget,
   onBodyPointerDown,
   onHandlePointerDown,
+  onSelect,
+  onNudge,
 }: {
   node: BuilderNode;
   selected: boolean;
@@ -738,17 +852,63 @@ function NodeCard({
   isHoverTarget: boolean;
   onBodyPointerDown: (e: React.PointerEvent) => void;
   onHandlePointerDown: (e: React.PointerEvent, port: PortKind) => void;
+  onSelect: () => void;
+  onNudge: (dx: number, dy: number) => void;
 }): JSX.Element {
   const meta = stepKindMeta(node.kind);
   const accent = accentHex(meta.accent);
   const isLoop = node.kind === 'loop';
   const isCondition = node.kind === 'condition';
   const isSwitch = node.kind === 'switch';
+  // The card is the keyboard-reachable handle for its node: Tab to it,
+  // Enter/Space selects, arrows nudge its position. (The inspector's
+  // checkbox-based NeedsPicker/TargetPicker/LoopEditor are the keyboard-
+  // complete authoring path for wiring; this makes selection + nudge operable
+  // without a pointer — WCAG 2.1.1.) Errors are signalled by both a red border
+  // AND a thicker dashed top border, so the state isn't conveyed by color
+  // alone (WCAG 1.4.1).
+  const borderColor = edgeColor(isHoverTarget, selected, accent, errors);
+  const errored = errors > 0 && !isHoverTarget && !selected;
+  const ariaLabel =
+    `${meta.label} step ${node.label || node.id}` +
+    (order != null ? `, position ${order} in execution order` : '') +
+    (errors > 0 ? `, ${errors} validation issue${errors === 1 ? '' : 's'}` : '');
+  const onKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect();
+      return;
+    }
+    const step = e.shiftKey ? NUDGE_STEP_LARGE : NUDGE_STEP;
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault();
+        onNudge(-step, 0);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        onNudge(step, 0);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        onNudge(0, -step);
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        onNudge(0, step);
+        break;
+    }
+  };
   return (
     <div
       data-testid={`wf-node-${node.id}`}
+      role="button"
+      tabIndex={0}
+      aria-label={ariaLabel}
+      aria-pressed={selected}
       onPointerDown={onBodyPointerDown}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={onKeyDown}
       // Double-click on a CARD must not trigger the canvas' zoom reset.
       onDoubleClick={(e) => e.stopPropagation()}
       style={{
@@ -760,13 +920,13 @@ function NodeCard({
         cursor: dragging ? 'grabbing' : 'grab',
         userSelect: 'none',
         background: 'var(--color-bg-card)',
-        borderStyle: 'solid',
-        borderWidth: '2px 2px 2px 5px',
+        borderStyle: errored ? 'dashed dashed dashed solid' : 'solid',
+        borderWidth: errored ? '3px 2px 2px 5px' : '2px 2px 2px 5px',
         // Per-side colors only — mixing the borderColor shorthand with
         // borderLeftColor makes React warn on rerender.
-        borderTopColor: edgeColor(isHoverTarget, selected, accent, errors),
-        borderRightColor: edgeColor(isHoverTarget, selected, accent, errors),
-        borderBottomColor: edgeColor(isHoverTarget, selected, accent, errors),
+        borderTopColor: borderColor,
+        borderRightColor: borderColor,
+        borderBottomColor: borderColor,
         borderLeftColor: accent,
         borderRadius: 'var(--radius-block)',
         boxShadow: isHoverTarget
@@ -911,6 +1071,14 @@ function NodeCard({
   );
 }
 
+/** A non-color glyph that distinguishes a color-coded OUTPUT handle, so the
+ *  then/else/exit ports aren't told apart by hue alone (WCAG 1.4.1). */
+const PORT_GLYPH: Partial<Record<PortKind, string>> = {
+  then: 't',
+  else: 'e',
+  'loop-exit': 'x',
+};
+
 function Handle({
   node,
   port,
@@ -932,10 +1100,12 @@ function Handle({
   onPointerDown?: (e: React.PointerEvent) => void;
 }): JSX.Element {
   const color = PORT_COLOR[port];
+  const glyph = PORT_GLYPH[port];
   return (
     <div
       data-testid={`wf-handle-${node.id}-${port}-${side}`}
       title={title}
+      aria-label={title}
       onPointerDown={
         onPointerDown
           ? (e) => {
@@ -952,6 +1122,13 @@ function Handle({
         [side]: -HANDLE_R,
         width: HANDLE_R * 2,
         height: HANDLE_R * 2,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '0.55rem',
+        fontWeight: 800,
+        lineHeight: 1,
+        color,
         borderRadius: '50%',
         background: input && connecting ? color : 'var(--color-bg-card)',
         border: `2px solid ${color}`,
@@ -959,7 +1136,9 @@ function Handle({
         boxShadow: input && connecting ? `0 0 0 3px color-mix(in oklab, ${color} 40%, transparent)` : 'none',
         zIndex: 4,
       } as React.CSSProperties}
-    />
+    >
+      {glyph}
+    </div>
   );
 }
 
@@ -982,6 +1161,7 @@ function BodyDropHandle({
     <div
       data-testid={`wf-handle-${node.id}-loop-body-left`}
       title="Body — drop a step's output on the LOWER half so it runs INSIDE the loop"
+      aria-label="Loop body drop target — drop a step here so it runs inside the loop"
       onClick={(e) => e.stopPropagation()}
       style={{
         position: 'absolute',

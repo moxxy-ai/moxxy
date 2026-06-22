@@ -1,3 +1,4 @@
+import { MoxxyError } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
 import {
   applescriptTool,
@@ -8,6 +9,9 @@ import {
   screenshotTool,
   typeTool,
 } from './index.js';
+
+/** Minimal ToolContext stub — only `signal` is read by these handlers. */
+const fakeCtx = { signal: new AbortController().signal } as never;
 
 describe('@moxxy/plugin-computer-control schemas', () => {
   it('screenshot accepts an optional region', () => {
@@ -56,6 +60,55 @@ describe('@moxxy/plugin-computer-control schemas', () => {
   it('applescript needs a non-empty script', () => {
     expect(applescriptTool.inputSchema.safeParse({ script: 'return 1' }).success).toBe(true);
     expect(applescriptTool.inputSchema.safeParse({ script: '' }).success).toBe(false);
+  });
+
+  it('open rejects a target/app beginning with "-" (argument-injection guard, darwin only)', async () => {
+    // The guard runs after ensureDarwin, so on non-darwin hosts ensureDarwin
+    // throws first — assert that path too so the test is meaningful everywhere.
+    if (process.platform === 'darwin') {
+      await expect(openTool.handler({ target: '-g' }, fakeCtx)).rejects.toThrow(
+        /must not begin with '-'/,
+      );
+      await expect(openTool.handler({ app: '-n' }, fakeCtx)).rejects.toThrow(
+        /must not begin with '-'/,
+      );
+    } else {
+      await expect(openTool.handler({ target: '-g' }, fakeCtx)).rejects.toBeInstanceOf(MoxxyError);
+    }
+  });
+
+  it('screenshot returns an image-shaped result ({ mediaType, base64 }), never a stringified blob', async () => {
+    // The SDK's tool_result projection emits a provider `image` ContentBlock
+    // ONLY when the result object carries a string `mediaType` + `base64`; any
+    // other shape falls through to JSON.stringify and reaches the model as
+    // undecodable base64 TEXT. Assert the handler honors that contract.
+    if (process.platform === 'darwin') {
+      // On a host without Screen Recording permission (typical CI) the handler
+      // throws a MoxxyError instead of capturing — also acceptable; the ONLY
+      // forbidden outcome is returning a (stringified) blob the model can't see.
+      let result: unknown;
+      try {
+        // Tiny region keeps the capture cheap and well under the byte cap.
+        result = await screenshotTool.handler(
+          { region: { x: 0, y: 0, width: 1, height: 1 } },
+          fakeCtx,
+        );
+      } catch (err) {
+        expect(err).toBeInstanceOf(MoxxyError);
+        return;
+      }
+      // Must be a structured object, NOT a string (a stringified blob).
+      expect(typeof result).toBe('object');
+      expect(result).not.toBeNull();
+      const r = result as { mediaType?: unknown; base64?: unknown };
+      expect(typeof r.mediaType).toBe('string');
+      expect(r.mediaType as string).toMatch(/^image\//);
+      expect(typeof r.base64).toBe('string');
+      expect((r.base64 as string).length).toBeGreaterThan(0);
+    } else {
+      // Non-darwin: ensureDarwin rejects before any capture — still never a blob.
+      await expect(screenshotTool.handler({}, fakeCtx)).rejects.toBeInstanceOf(MoxxyError);
+    }
   });
 
   it('every tool is permission:prompt — never auto-allowed', () => {

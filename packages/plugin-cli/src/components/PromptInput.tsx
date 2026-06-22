@@ -212,7 +212,16 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     };
 
     const onData = (data: Buffer): void => {
-      if (disabledRef.current) return;
+      // Hard-dropping bytes while disabled strands an in-progress
+      // bracketed paste: if `disabled` flips true after PASTE_START but
+      // before PASTE_END, the end marker is never processed, the reducer
+      // stays `inPaste: true`, and after re-enable every keystroke is
+      // silently swallowed into pasteBuffer until a stray 201~ appears.
+      // While disabled we therefore still feed the parser WHEN mid-paste
+      // (so the end marker clears the paste) but suppress dispatching the
+      // resulting buffer mutations — insert/submit must not fire during a
+      // turn. Outside a paste we drop as before.
+      if (disabledRef.current && !stateRef.current.inPaste) return;
       // Snapshot canonical state at start of chunk, then mirror every
       // dispatched action locally so subsequent checks within this
       // chunk (e.g. "does buffer end with `\\` now?") see fresh state.
@@ -220,9 +229,19 @@ export const PromptInput: React.FC<PromptInputProps> = ({
       // by later parser checks without this — the React reducer
       // applies them eventually but the parser's view stays stale.
       let local: State = { ...stateRef.current };
+      const suppressed = disabledRef.current;
       const wrappedDispatch = (action: Action): void => {
-        local = reducer(local, action);
-        dispatch(action);
+        // When draining a stranded paste while disabled, let only the
+        // paste lifecycle through so the reducer's `inPaste` flag clears
+        // — but rewrite the terminal `paste-end` to insert NOTHING so the
+        // dropped-during-turn payload doesn't silently land in the buffer
+        // once the input re-enables. All other mutations are skipped.
+        const effective: Action =
+          suppressed && action.type === 'paste-end' ? { type: 'paste-end', overrideText: '' } : action;
+        local = reducer(local, effective);
+        if (!suppressed || effective.type === 'paste-end' || effective.type === 'paste-start') {
+          dispatch(effective);
+        }
       };
       parseCtx.dispatch = wrappedDispatch;
       parseCtx.slashOpen = slashMatchesRef.current.length > 0;
