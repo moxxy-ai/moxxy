@@ -3,14 +3,12 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('iOS debug bundle fallback', () => {
-  it('loads the embedded JS bundle when a development URL is unavailable', () => {
+  it('prefers the embedded JS bundle before falling back to a development URL', () => {
     const appDelegate = readFileSync(resolve(process.cwd(), 'ios/MoxxyMobileGateway/AppDelegate.swift'), 'utf8');
-    const bundledIndex = appDelegate.indexOf('Bundle.main.url(forResource: "main", withExtension: "jsbundle")');
-    const metroIndex = appDelegate.indexOf('RCTBundleURLProvider.sharedSettings().jsBundleURL');
 
-    expect(metroIndex).toBeGreaterThanOrEqual(0);
-    expect(bundledIndex).toBeGreaterThanOrEqual(0);
-    expect(metroIndex).toBeLessThan(bundledIndex);
+    expect(appDelegate).toContain('bundleURL() ?? bridge.bundleURL');
+    expect(appDelegate).toContain('bundledJSBundleURL() ?? developmentBundleURL()');
+    expect(appDelegate).not.toContain('bridge.bundleURL ?? bundleURL()');
   });
 
   it('does not skip bundling for every Debug build by default', () => {

@@ -1,6 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
+import { Alert } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import type { CameraPermissionState } from '../pairingUi';
+import { describeQrScannerError } from '../qrScannerFeedback';
 import { createQrScanGate } from '../qrScanGate';
 
 export interface QrScannerState {
@@ -56,7 +58,12 @@ export function useQrScanner(onPayload: (raw: string) => Promise<void>): QrScann
     setProcessing(true);
     try {
       await onPayload(raw);
+      scanGateRef.current.reset();
       setOpen(false);
+    } catch (err) {
+      const description = describeQrScannerError(err);
+      scanGateRef.current.reset();
+      Alert.alert(description.title, description.message, [{ text: 'OK' }]);
     } finally {
       setProcessing(false);
     }

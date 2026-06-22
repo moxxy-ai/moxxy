@@ -29,6 +29,66 @@ describe('mobile offline gateway screen layout', () => {
     expect(banner).not.toContain('className=');
   });
 
+  it('keeps the gateway pairing route styled without depending on NativeWind class extraction', async () => {
+    const settingsScreen = await readFile(join(root, 'mobile', 'app', 'settings.tsx'), 'utf8');
+    const shell = await readFile(join(root, 'mobile', 'src', 'components', 'AppShell.tsx'), 'utf8');
+    const frame = await readFile(join(root, 'mobile', 'src', 'components', 'ScreenFrame.tsx'), 'utf8');
+    const topBar = await readFile(join(root, 'mobile', 'src', 'components', 'TopBar.tsx'), 'utf8');
+    const connectionSettings = await readFile(
+      join(root, 'mobile', 'src', 'components', 'ConnectionSettings.tsx'),
+      'utf8',
+    );
+    const qrScanner = await readFile(
+      join(root, 'mobile', 'src', 'components', 'QrScannerSheet.tsx'),
+      'utf8',
+    );
+
+    for (const source of [settingsScreen, shell, frame, topBar, connectionSettings, qrScanner]) {
+      expect(source).toContain('StyleSheet.create');
+      expect(source).not.toContain('className=');
+    }
+
+    expect(connectionSettings).toContain('styles.scanButton');
+    expect(qrScanner).toContain('style={styles.sheet}');
+    expect(frame).toContain('contentContainerStyle={styles.scrollContent}');
+  });
+
+  it('keeps the mobile menu styled without depending on NativeWind class extraction', async () => {
+    const menuSheet = await readFile(
+      join(root, 'mobile', 'src', 'components', 'MobileMenuSheet.tsx'),
+      'utf8',
+    );
+    const workspaceTree = await readFile(
+      join(root, 'mobile', 'src', 'components', 'WorkspaceSessionTree.tsx'),
+      'utf8',
+    );
+
+    for (const source of [menuSheet, workspaceTree]) {
+      expect(source).toContain('StyleSheet.create');
+      expect(source).not.toContain('className=');
+    }
+
+    expect(menuSheet).toContain('styles.sheet');
+    expect(menuSheet).toContain('style={styles.closeButton}');
+    expect(workspaceTree).toContain('styles.sessionButtonActive');
+    expect(workspaceTree).toContain('style={styles.emptyCard}');
+  });
+
+  it('keeps QR scanner controls outside the live camera preview', async () => {
+    const qrScanner = await readFile(
+      join(root, 'mobile', 'src', 'components', 'QrScannerSheet.tsx'),
+      'utf8',
+    );
+
+    expect(qrScanner).toContain("backgroundColor: '#020617'");
+    expect(qrScanner).toContain('style={styles.cameraViewport}');
+    expect(qrScanner).toContain('style={styles.scannerActions}');
+    expect(qrScanner).not.toContain('maxHeight: 390');
+    expect(qrScanner).not.toContain('minHeight: 286');
+    expect(qrScanner).not.toContain('styles.cameraActionArea');
+    expect(qrScanner).not.toContain("position: 'absolute',\n    right: 16");
+  });
+
   it('keeps the chat list padding stable around the fixed mobile header', () => {
     expect(buildChatListContentStyle({ headerHeight: 64 })).toMatchObject({
       flexGrow: 1,
@@ -68,6 +128,7 @@ describe('mobile offline gateway screen layout', () => {
 
   it('renders a branded waiting room instead of the disabled chat composer while offline', async () => {
     const chatScreen = await readFile(join(root, 'mobile', 'app', 'chat.tsx'), 'utf8');
+    const settingsScreen = await readFile(join(root, 'mobile', 'app', 'settings.tsx'), 'utf8');
     const waitingRoom = await readFile(
       join(root, 'mobile', 'src', 'components', 'WaitingRoom.tsx'),
       'utf8',
@@ -84,8 +145,27 @@ describe('mobile offline gateway screen layout', () => {
     expect(chatScreen).toContain("title={showWaitingRoom ? 'Gateway' : 'Chat'}");
     expect(chatScreen).toContain('<WaitingRoom');
     expect(chatScreen).toContain('waitingRoomUi={waitingRoomUi}');
+    expect(chatScreen).toContain('onOpenPairing={openPairing}');
+    expect(chatScreen).toContain('openWaitingRoomPairing({');
+    expect(chatScreen).toContain('navigateToScanner: router.push');
+    expect(chatScreen).toContain('open={showWaitingRoom ? false : chrome.menuOpen}');
+    expect(chatScreen).toContain('showMenuButton={!showWaitingRoom}');
+    expect(chatScreen).toContain('showSessionActions={!showWaitingRoom}');
+    expect(chatScreen).not.toContain('isGatewayPairingAvailable');
+    expect(chatScreen).not.toContain('Turn on Moxxy Mobile gateway');
+    expect(chatScreen).not.toContain('pairingProbePending');
+    expect(settingsScreen).toContain('useLocalSearchParams');
+    expect(settingsScreen).toContain("params.scan !== '1'");
+    expect(settingsScreen).toContain('void qrScanner.openScanner()');
     expect(waitingRoom).toContain('moxxy-mascot-transparent.png');
     expect(waitingRoom).toContain('accessibilityLabel="Moxxy assistant mascot waving"');
+    expect(waitingRoom).toContain('accessibilityLabel="Open gateway pairing and scan QR code"');
+    expect(waitingRoom).toContain('waitingRoomUi.actionLabel');
+    expect(waitingRoom).not.toContain('pairingPending');
+    expect(waitingRoom).not.toContain('Checking gateway...');
+    expect(waitingRoom).not.toContain('disabled={pairingPending}');
+    expect(waitingRoom).toContain('onPress={onOpenPairing}');
+    expect(waitingRoom).toContain('styles.primaryAction');
     expect(waitingRoom).toContain('style={styles.contentStack}');
     expect(waitingRoom).toContain("alignSelf: 'center'");
     expect(waitingRoom).toContain('maxWidth: 430');

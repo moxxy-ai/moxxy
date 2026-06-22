@@ -1,4 +1,5 @@
 export interface WaitingRoomUi {
+  readonly actionLabel: string;
   readonly body: string;
   readonly eyebrow: string;
   readonly steps: ReadonlyArray<string>;
@@ -18,6 +19,7 @@ interface BuildWaitingRoomUiInput {
 export function buildWaitingRoomUi({ paired, status }: BuildWaitingRoomUiInput): WaitingRoomUi {
   if (paired) {
     return {
+      actionLabel: 'Scan QR code',
       body: 'Moxxy is ready on your phone. Keep Moxxy Desktop open and enable Mobile Gateway to continue the same live session.',
       eyebrow: 'Moxxy Mobile',
       status: `Socket status: ${status}`,
@@ -31,6 +33,7 @@ export function buildWaitingRoomUi({ paired, status }: BuildWaitingRoomUiInput):
   }
 
   return {
+    actionLabel: 'Scan QR code',
     body: 'Pair this phone from the desktop app, then your sessions, tools, and live activity will sync here.',
     eyebrow: 'Moxxy Mobile',
     status: 'Not paired yet',

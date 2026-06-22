@@ -1,4 +1,4 @@
-import { Pressable, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { CameraPermissionState } from '../pairingUi';
 import { buildPairingUiState } from '../pairingUi';
 import { MobileIcon } from './MobileIcon';
@@ -34,95 +34,107 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
     scanning: props.qrScanning,
     permission: props.qrPermission,
   });
+
   return (
-    <View className="gap-4">
-      <View className="gap-3 rounded-card border border-cardBorder bg-cardBg p-4 shadow-card">
-        <View className="flex-row items-center justify-between">
-          <Text className="text-[16px] font-bold text-text">Gateway</Text>
-          <View className={`rounded-pill px-2.5 py-1 ${props.transportReady ? 'bg-green/10' : 'bg-amber/10'}`}>
-            <Text className={`text-[11px] font-black ${props.transportReady ? 'text-green' : 'text-amber'}`}>
+    <View style={styles.stack}>
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>Gateway</Text>
+          <View style={[styles.statusPill, props.transportReady ? styles.statusOnline : styles.statusWaiting]}>
+            <Text style={[styles.statusText, props.transportReady ? styles.statusTextOnline : styles.statusTextWaiting]}>
               {pairingUi.statusLabel}
             </Text>
           </View>
         </View>
+
         <Pressable
           accessibilityLabel={pairingUi.scanButtonLabel}
           accessibilityRole="button"
-          className={`min-h-14 flex-row items-center justify-center gap-2 rounded-block ${pairingUi.scanButtonEnabled ? 'bg-primary' : 'bg-cardBorder'}`}
           disabled={!pairingUi.scanButtonEnabled}
           onPress={props.onScanQr}
+          style={[styles.scanButton, !pairingUi.scanButtonEnabled ? styles.buttonDisabled : null]}
         >
           <MobileIcon name="camera" color={pairingUi.scanButtonEnabled ? '#ffffff' : '#94a3b8'} size={21} />
-          <Text className={`text-[14px] font-black ${pairingUi.scanButtonEnabled ? 'text-white' : 'text-dim'}`}>
+          <Text style={[styles.scanButtonText, !pairingUi.scanButtonEnabled ? styles.disabledText : null]}>
             {pairingUi.scanButtonLabel}
           </Text>
         </Pressable>
+
         <Pressable
           accessibilityLabel={pairingUi.manualPairingToggleLabel}
           accessibilityRole="button"
-          className="min-h-11 flex-row items-center justify-between rounded-block border border-cardBorder bg-cardBg px-3"
           onPress={props.onToggleManualPairing}
+          style={styles.secondaryButton}
         >
-          <Text className="text-[13px] font-bold text-muted">{pairingUi.manualPairingToggleLabel}</Text>
-          <Text className="text-[18px] font-black text-primaryStrong">{props.manualPairingOpen ? '-' : '+'}</Text>
+          <Text style={styles.secondaryButtonText}>{pairingUi.manualPairingToggleLabel}</Text>
+          <Text style={styles.secondaryButtonIcon}>{props.manualPairingOpen ? '-' : '+'}</Text>
         </Pressable>
+
         {props.manualPairingOpen || pairingUi.manualPairingVisible ? (
-          <View className="gap-3">
+          <View style={styles.manualStack}>
             <TextInput
               value={props.gatewayUrl}
               onChangeText={props.onGatewayUrlChange}
               autoCapitalize="none"
               autoCorrect={false}
               inputMode="url"
-              className="min-h-11 rounded-block border border-cardBorder bg-cardBg px-3 text-[14px] text-text"
+              style={styles.input}
             />
-            <View className="items-center rounded-card bg-primarySoft px-4 py-4">
-              <Text className="text-[11px] font-black uppercase text-primaryStrong">Pairing code</Text>
-              <Text className="mt-1 text-[34px] font-black text-primaryStrong">{props.code || '------'}</Text>
+            <View style={styles.codeCard}>
+              <Text style={styles.codeEyebrow}>Pairing code</Text>
+              <Text style={styles.codeText}>{props.code || '------'}</Text>
             </View>
-            <View className="flex-row gap-2">
+            <View style={styles.buttonRow}>
               <Pressable
                 accessibilityLabel="Refresh pairing"
                 accessibilityRole="button"
-                className="min-h-11 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg"
                 onPress={props.onRefreshPairing}
+                style={styles.rowButton}
               >
-                <Text className="text-[13px] font-bold text-muted">Refresh pairing</Text>
+                <Text style={styles.rowButtonText}>Refresh pairing</Text>
               </Pressable>
               <Pressable
                 accessibilityLabel="Pair"
                 accessibilityRole="button"
-                className={`min-h-11 flex-1 items-center justify-center rounded-block ${canPair ? 'bg-primary' : 'bg-cardBorder'}`}
-                onPress={props.onPair}
                 disabled={!canPair}
+                onPress={props.onPair}
+                style={[styles.rowButtonPrimary, !canPair ? styles.buttonDisabled : null]}
               >
-                <Text className="text-[13px] font-bold text-white">Pair</Text>
+                <Text style={styles.rowButtonPrimaryText}>Pair</Text>
               </Pressable>
             </View>
           </View>
         ) : null}
+
         {props.error ? (
-          <View className="rounded-block bg-red/10 px-3 py-2">
-            <Text className="text-[13px] font-semibold text-red">{props.error}</Text>
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{props.error}</Text>
           </View>
         ) : null}
+
         {props.token ? (
-          <Pressable accessibilityLabel="Disconnect" accessibilityRole="button" className="min-h-11 items-center justify-center rounded-block bg-red" onPress={props.onDisconnect}>
-            <Text className="text-[13px] font-bold text-white">Disconnect</Text>
+          <Pressable accessibilityLabel="Disconnect" accessibilityRole="button" onPress={props.onDisconnect} style={styles.dangerButton}>
+            <Text style={styles.dangerButtonText}>Disconnect</Text>
           </Pressable>
         ) : null}
       </View>
-      <View className="gap-3 rounded-card border border-cardBorder bg-cardBg p-4 shadow-card">
-        <Text className="text-[16px] font-bold text-text">Runtime</Text>
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Runtime</Text>
         <SettingRow label="Socket" value={props.socketStatus} />
         <SettingRow label="Provider" value={props.activeProvider ?? 'Unknown'} />
         <SettingRow label="Mode" value={props.activeMode ?? 'Unknown'} />
-        <View className="flex-row items-center justify-between">
-          <View className="mr-4 flex-1">
-            <Text className="text-[14px] font-bold text-text">Bypass mode</Text>
-            <Text className="text-[12px] leading-5 text-muted">Auto-approve tool calls for this workspace.</Text>
+        <View style={styles.switchRow}>
+          <View style={styles.switchCopy}>
+            <Text style={styles.switchTitle}>Bypass mode</Text>
+            <Text style={styles.switchDescription}>Auto-approve tool calls for this workspace.</Text>
           </View>
-          <Switch value={props.autoApprove} onValueChange={props.onAutoApproveChange} />
+          <Switch
+            value={props.autoApprove}
+            onValueChange={props.onAutoApproveChange}
+            trackColor={{ false: '#dfe4f0', true: '#f9a8d4' }}
+            thumbColor={props.autoApprove ? '#db2777' : '#ffffff'}
+          />
         </View>
       </View>
     </View>
@@ -131,9 +143,231 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
 
 function SettingRow({ label, value }: { readonly label: string; readonly value: string }) {
   return (
-    <View className="flex-row items-center justify-between border-b border-cardBorder py-2">
-      <Text className="text-[13px] font-semibold text-muted">{label}</Text>
-      <Text className="text-[13px] font-bold text-text">{value}</Text>
+    <View style={styles.settingRow}>
+      <Text style={styles.settingLabel}>{label}</Text>
+      <Text numberOfLines={1} style={styles.settingValue}>
+        {value}
+      </Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  buttonDisabled: {
+    backgroundColor: '#dfe4f0',
+    opacity: 0.76,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 12,
+    padding: 16,
+    shadowColor: '#0f172a',
+    shadowOffset: { height: 16, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 28,
+  },
+  cardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  cardTitle: {
+    color: '#0f172a',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  codeCard: {
+    alignItems: 'center',
+    backgroundColor: '#fce7f3',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  codeEyebrow: {
+    color: '#db2777',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  codeText: {
+    color: '#db2777',
+    fontSize: 34,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  dangerButton: {
+    alignItems: 'center',
+    backgroundColor: '#ef4444',
+    borderRadius: 18,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  dangerButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  disabledText: {
+    color: '#94a3b8',
+  },
+  errorBox: {
+    backgroundColor: '#fee2e2',
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  input: {
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 18,
+    borderWidth: 1,
+    color: '#0f172a',
+    fontSize: 14,
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  manualStack: {
+    gap: 12,
+  },
+  rowButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 18,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  rowButtonPrimary: {
+    alignItems: 'center',
+    backgroundColor: '#db2777',
+    borderRadius: 18,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  rowButtonPrimaryText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  rowButtonText: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  scanButton: {
+    alignItems: 'center',
+    backgroundColor: '#db2777',
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 56,
+  },
+  scanButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  secondaryButtonIcon: {
+    color: '#db2777',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  secondaryButtonText: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  settingLabel: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  settingRow: {
+    alignItems: 'center',
+    borderBottomColor: '#dfe4f0',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  settingValue: {
+    color: '#0f172a',
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    marginLeft: 12,
+    maxWidth: '62%',
+  },
+  stack: {
+    gap: 16,
+  },
+  statusOnline: {
+    backgroundColor: '#dcfce7',
+  },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  statusTextOnline: {
+    color: '#16a34a',
+  },
+  statusTextWaiting: {
+    color: '#d97706',
+  },
+  statusWaiting: {
+    backgroundColor: '#fef3c7',
+  },
+  switchCopy: {
+    flex: 1,
+    marginRight: 16,
+  },
+  switchDescription: {
+    color: '#64748b',
+    fontSize: 12,
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  switchRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  switchTitle: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+});

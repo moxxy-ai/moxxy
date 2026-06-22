@@ -4,13 +4,16 @@ import { ScreenFrame } from '@/components/ScreenFrame';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useQrScanner } from '@/hooks/useQrScanner';
 import { buildPairingUiState } from '@/pairingUi';
-import { View } from 'react-native';
-import { useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { StyleSheet, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
 
 export default function SettingsScreen() {
   const { autoApprove, pairing, permissions, session, socketStatus } = useGatewayStore();
   const qrScanner = useQrScanner(pairing.pairFromQrPayload);
+  const params = useLocalSearchParams<{ scan?: string }>();
   const [manualPairingOpen, setManualPairingOpen] = useState(false);
+  const scanParamHandledRef = useRef(false);
   const pairingUi = buildPairingUiState({
     token: pairing.token,
     transportReady: pairing.transportReady,
@@ -18,8 +21,19 @@ export default function SettingsScreen() {
     permission: qrScanner.permission,
   });
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
+
+  useEffect(() => {
+    if (params.scan !== '1') {
+      scanParamHandledRef.current = false;
+      return;
+    }
+    if (scanParamHandledRef.current) return;
+    scanParamHandledRef.current = true;
+    void qrScanner.openScanner();
+  }, [params.scan, qrScanner.openScanner]);
+
   return (
-    <View className="flex-1">
+    <View style={styles.root}>
       <ScreenFrame
         title="Settings"
         subtitle="Gateway and runtime"
@@ -63,3 +77,9 @@ export default function SettingsScreen() {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});

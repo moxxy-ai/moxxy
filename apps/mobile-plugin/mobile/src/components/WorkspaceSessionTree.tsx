@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WorkspaceMenuSection } from '@/navigation';
 import { buildWorkspaceSessionTreeState } from '@/workspaceSessionTreeUi';
 import { MobileIcon } from './MobileIcon';
@@ -33,40 +33,40 @@ export function WorkspaceSessionTree({
 
   if (tree.sections.length === 0) {
     return (
-      <View className="rounded-card border border-cardBorder bg-cardBg p-5">
-        <Text className="text-[15px] font-bold text-text">{emptyTitle}</Text>
-        <Text className="mt-1 text-[13px] text-muted">{emptySubtitle}</Text>
+      <View style={styles.emptyCard}>
+        <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+        <Text style={styles.emptySubtitle}>{emptySubtitle}</Text>
       </View>
     );
   }
 
   return (
-    <View className={isScreen ? 'gap-1 rounded-card border border-cardBorder bg-cardBg px-2 py-2 shadow-card' : 'gap-1'}>
+    <View style={[styles.treeRoot, isScreen ? styles.treeRootScreen : null]}>
       {tree.sections.map((section) => (
-        <View key={section.id} className={isScreen ? 'py-1' : 'mb-4'}>
-          <View className="flex-row items-center gap-2">
+        <View key={section.id} style={isScreen ? styles.sectionScreen : styles.sectionMenu}>
+          <View style={styles.workspaceRow}>
             <Pressable
               accessibilityLabel={section.toggleAccessibilityLabel}
               accessibilityRole="button"
-              className="min-h-11 min-w-0 flex-1 flex-row items-center gap-2 rounded-block px-1"
+              style={styles.workspaceToggle}
               onPress={() => onToggleWorkspace(section.id)}
             >
-              <View className="h-7 w-6 items-center justify-center" style={{ transform: [{ rotate: section.expanded ? '0deg' : '-90deg' }] }}>
+              <View style={[styles.chevronBox, { transform: [{ rotate: section.expanded ? '0deg' : '-90deg' }] }]}>
                 <MobileIcon name="chevronDown" size={15} strokeWidth={2.55} color="#64748b" />
               </View>
               <MobileIcon name="folder" size={21} strokeWidth={2.2} color={section.color} />
-              <Text className={`min-w-0 flex-1 text-[17px] font-black ${section.active ? 'text-text' : 'text-muted'}`} numberOfLines={1}>
+              <Text style={[styles.workspaceTitle, section.active ? styles.workspaceTitleActive : null]} numberOfLines={1}>
                 {section.title}
               </Text>
-              <View className="min-w-7 items-center rounded-pill bg-appBg px-2 py-0.5">
-                <Text className="text-[10px] font-black text-muted">{section.sessionCountLabel}</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countText}>{section.sessionCountLabel}</Text>
               </View>
             </Pressable>
             {showWorkspaceNewSession && onNewSession ? (
               <Pressable
                 accessibilityLabel={`New session in ${section.title}`}
                 accessibilityRole="button"
-                className="h-10 w-10 items-center justify-center rounded-pill"
+                style={styles.workspaceNewButton}
                 onPress={() => onNewSession(section.id)}
               >
                 <MobileIcon name="plus" size={18} strokeWidth={2.45} color="#db2777" />
@@ -75,23 +75,21 @@ export function WorkspaceSessionTree({
           </View>
 
           {section.expanded ? (
-            <View className="ml-8 border-l border-cardBorder pl-3">
+            <View style={styles.sessionsList}>
               {section.visibleSessions.map((session) => (
                 <Pressable
                   key={session.id}
                   accessibilityLabel={session.accessibilityLabel}
                   accessibilityRole="button"
-                  className={`min-h-12 flex-row items-center gap-2 rounded-block px-3 py-2 ${
-                    session.active ? 'border border-primary bg-primarySoft' : 'border border-transparent'
-                  }`}
+                  style={[styles.sessionButton, session.active ? styles.sessionButtonActive : styles.sessionButtonInactive]}
                   onPress={() => onSelectSession(session.id)}
                 >
-                  <Text className={`min-w-0 flex-1 text-[16px] leading-6 ${session.active ? 'font-black text-text' : 'font-semibold text-muted'}`} numberOfLines={1}>
+                  <Text style={[styles.sessionTitle, session.active ? styles.sessionTitleActive : null]} numberOfLines={1}>
                     {session.title}
                   </Text>
                   {session.statusLabel ? (
-                    <View className="rounded-pill bg-green px-2 py-0.5">
-                      <Text className="text-[10px] font-black text-white">{session.statusLabel}</Text>
+                    <View style={styles.liveBadge}>
+                      <Text style={styles.liveText}>{session.statusLabel}</Text>
                     </View>
                   ) : null}
                 </Pressable>
@@ -101,10 +99,10 @@ export function WorkspaceSessionTree({
             <Pressable
               accessibilityLabel={`Expand workspace ${section.title}`}
               accessibilityRole="button"
-              className="ml-8 min-h-10 justify-center rounded-block border-l border-cardBorder px-4"
+              style={styles.collapsedSummaryButton}
               onPress={() => onToggleWorkspace(section.id)}
             >
-              <Text className="text-[12px] font-bold text-muted">{section.collapsedSummary}</Text>
+              <Text style={styles.collapsedSummaryText}>{section.collapsedSummary}</Text>
             </Pressable>
           )}
         </View>
@@ -113,13 +111,181 @@ export function WorkspaceSessionTree({
         <Pressable
           accessibilityLabel="Create new session"
           accessibilityRole="button"
-          className="mt-2 min-h-12 flex-row items-center justify-center gap-2 rounded-block border border-cardBorder bg-appBg"
+          style={styles.globalNewButton}
           onPress={() => onNewSession()}
         >
           <MobileIcon name="plus" size={17} strokeWidth={2.45} color="#db2777" />
-          <Text className="text-[13px] font-black text-muted">New session</Text>
+          <Text style={styles.globalNewText}>New session</Text>
         </Pressable>
       ) : null}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  chevronBox: {
+    alignItems: 'center',
+    height: 28,
+    justifyContent: 'center',
+    width: 24,
+  },
+  collapsedSummaryButton: {
+    borderColor: '#dfe4f0',
+    borderLeftWidth: 1,
+    justifyContent: 'center',
+    marginLeft: 32,
+    minHeight: 40,
+    paddingHorizontal: 16,
+  },
+  collapsedSummaryText: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  countBadge: {
+    alignItems: 'center',
+    backgroundColor: '#f1f2f9',
+    borderRadius: 999,
+    minWidth: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countText: {
+    color: '#64748b',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  emptyCard: {
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 20,
+  },
+  emptySubtitle: {
+    color: '#64748b',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  emptyTitle: {
+    color: '#0f172a',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  globalNewButton: {
+    alignItems: 'center',
+    backgroundColor: '#f1f2f9',
+    borderColor: '#dfe4f0',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginTop: 8,
+    minHeight: 48,
+  },
+  globalNewText: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  liveBadge: {
+    backgroundColor: '#10b981',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  liveText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  sectionMenu: {
+    marginBottom: 16,
+  },
+  sectionScreen: {
+    paddingVertical: 4,
+  },
+  sessionButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  sessionButtonActive: {
+    backgroundColor: '#fce7f3',
+    borderColor: '#db2777',
+  },
+  sessionButtonInactive: {
+    borderColor: 'transparent',
+  },
+  sessionsList: {
+    borderColor: '#dfe4f0',
+    borderLeftWidth: 1,
+    marginLeft: 32,
+    paddingLeft: 12,
+  },
+  sessionTitle: {
+    color: '#64748b',
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    lineHeight: 24,
+    minWidth: 0,
+  },
+  sessionTitleActive: {
+    color: '#0f172a',
+    fontWeight: '900',
+  },
+  treeRoot: {
+    gap: 4,
+  },
+  treeRootScreen: {
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    shadowColor: '#0f172a',
+    shadowOffset: { height: 10, width: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 22,
+  },
+  workspaceNewButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  workspaceRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  workspaceTitle: {
+    color: '#64748b',
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '900',
+    minWidth: 0,
+  },
+  workspaceTitleActive: {
+    color: '#0f172a',
+  },
+  workspaceToggle: {
+    alignItems: 'center',
+    borderRadius: 14,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 44,
+    minWidth: 0,
+    paddingHorizontal: 4,
+  },
+});

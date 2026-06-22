@@ -14,18 +14,20 @@ import { SessionActionsSheet } from '@/components/SessionActionsSheet';
 import { WaitingRoom } from '@/components/WaitingRoom';
 import { buildFloatingSheetPlacement } from '@/floatingSheetLayout';
 import { buildGoalSheetPlacement } from '@/goalSheetLayout';
-import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
+import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useMessageCopy } from '@/hooks/useMessageCopy';
 import { useMobileChrome } from '@/hooks/useMobileChrome';
 import { useSessionActions } from '@/hooks/useSessionActions';
 import { useWorkspaceCollapse } from '@/hooks/useWorkspaceCollapse';
+import { openWaitingRoomPairing } from '@/pairingFlow';
 import { buildMobileMenuItems, buildWorkspaceMenuSections } from '@/navigation';
 import { buildChatConnectionUi } from '@/chatConnectionUi';
 import { shouldShowPendingActionsSheet } from '@/chatOverlayState';
 import { textOf } from '@/utils/record';
 import { buildWaitingRoomUi, shouldShowWaitingRoom } from '@/waitingRoomUi';
-import { useCallback, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -51,6 +53,7 @@ export default function ChatScreen() {
   const [renameSaving, setRenameSaving] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const chrome = useMobileChrome();
+  const router = useRouter();
   const messageCopy = useMessageCopy();
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
   const connectionUi = buildChatConnectionUi({
@@ -139,6 +142,17 @@ export default function ChatScreen() {
   const connectionBanner = !showWaitingRoom && connectionUi.showConnectionBanner ? (
     <ConnectionBanner paired={pairing.transportReady} connected={connectionUi.bannerConnected} status={socketStatus} />
   ) : null;
+  const openPairing = useCallback(() => {
+    openWaitingRoomPairing({
+      closeMenu: chrome.closeMenu,
+      dismissKeyboard: Keyboard.dismiss,
+      navigateToScanner: router.push,
+    });
+  }, [chrome.closeMenu, router]);
+
+  useEffect(() => {
+    if (showWaitingRoom) chrome.closeMenu();
+  }, [chrome.closeMenu, showWaitingRoom]);
 
   return (
     <AppShell>
@@ -149,7 +163,10 @@ export default function ChatScreen() {
           keyboardVerticalOffset={0}
         >
           {showWaitingRoom ? (
-            <WaitingRoom waitingRoomUi={waitingRoomUi} />
+            <WaitingRoom
+              waitingRoomUi={waitingRoomUi}
+              onOpenPairing={openPairing}
+            />
           ) : (
             <ChatList
               items={chat.items}
@@ -233,7 +250,7 @@ export default function ChatScreen() {
           ) : null}
 
           <MobileMenuSheet
-            open={chrome.menuOpen}
+            open={showWaitingRoom ? false : chrome.menuOpen}
             items={menuItems}
             connected={session.connected}
             sessionLabel={sessionLabel}
@@ -254,6 +271,8 @@ export default function ChatScreen() {
             statusLabel={connectionUi.statusLabel}
             pendingActions={pendingActions}
             title={showWaitingRoom ? 'Gateway' : 'Chat'}
+            showMenuButton={!showWaitingRoom}
+            showSessionActions={!showWaitingRoom}
             onToggleMenu={() => {
               Keyboard.dismiss();
               chrome.toggleMenu();

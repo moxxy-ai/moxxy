@@ -1,5 +1,6 @@
-import { Image, type ImageSourcePropType, StyleSheet, Text, View } from 'react-native';
+import { Image, type ImageSourcePropType, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { WaitingRoomUi } from '../waitingRoomUi';
+import { MobileIcon } from './MobileIcon';
 
 const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
 const fallbackSteps = [
@@ -10,9 +11,10 @@ const fallbackSteps = [
 
 interface WaitingRoomProps {
   readonly waitingRoomUi: WaitingRoomUi;
+  readonly onOpenPairing: () => void;
 }
 
-export function WaitingRoom({ waitingRoomUi }: WaitingRoomProps) {
+export function WaitingRoom({ waitingRoomUi, onOpenPairing }: WaitingRoomProps) {
   const stepItems =
     Array.isArray(waitingRoomUi.steps) && waitingRoomUi.steps.length > 0
       ? waitingRoomUi.steps
@@ -59,6 +61,20 @@ export function WaitingRoom({ waitingRoomUi }: WaitingRoomProps) {
               </View>
             ))}
           </View>
+          <Pressable
+            accessible
+            accessibilityLabel="Open gateway pairing and scan QR code"
+            accessibilityRole="button"
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.primaryAction,
+              pressed ? styles.primaryActionPressed : null,
+            ]}
+            onPress={onOpenPairing}
+          >
+            <MobileIcon name="camera" size={18} strokeWidth={2.4} color="#ffffff" />
+            <Text style={styles.primaryActionText}>{waitingRoomUi.actionLabel}</Text>
+          </Pressable>
         </View>
       </View>
     </View>
@@ -170,6 +186,26 @@ const styles = StyleSheet.create({
   mascot: {
     height: 150,
     width: '100%',
+  },
+  primaryAction: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: '#db2777',
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginTop: 22,
+    minHeight: 50,
+    paddingHorizontal: 18,
+  },
+  primaryActionPressed: {
+    opacity: 0.82,
+  },
+  primaryActionText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
   },
   stepsCard: {
     alignSelf: 'stretch',

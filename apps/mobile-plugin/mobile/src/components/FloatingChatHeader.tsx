@@ -11,6 +11,8 @@ interface FloatingChatHeaderProps {
   readonly onOpenActions: () => void;
   readonly actionsDisabled?: boolean;
   readonly renameDisabled?: boolean;
+  readonly showMenuButton?: boolean;
+  readonly showSessionActions?: boolean;
 }
 
 export function FloatingChatHeader({
@@ -23,11 +25,14 @@ export function FloatingChatHeader({
   onOpenActions,
   actionsDisabled = false,
   renameDisabled = false,
+  showMenuButton = true,
+  showSessionActions = true,
 }: FloatingChatHeaderProps) {
   return (
     <View
       style={styles.header}
     >
+      {showMenuButton ? (
         <Pressable
           accessible
           accessibilityRole="button"
@@ -46,6 +51,7 @@ export function FloatingChatHeader({
             </View>
           ) : null}
         </Pressable>
+      ) : null}
 
         <View style={styles.titleColumn}>
           <Text style={styles.title}>{title}</Text>
@@ -57,6 +63,7 @@ export function FloatingChatHeader({
           </View>
         </View>
 
+      {showSessionActions ? (
         <View style={styles.actions}>
           <Pressable
             accessible
@@ -85,6 +92,7 @@ export function FloatingChatHeader({
             <MobileIcon name="more" size={21} strokeWidth={2.7} color={actionsDisabled ? '#94a3b8' : '#475569'} />
           </Pressable>
         </View>
+      ) : null}
     </View>
   );
 }

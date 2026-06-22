@@ -1,9 +1,17 @@
-import { View, type ViewProps } from 'react-native';
+import { StyleSheet, View, type ViewProps } from 'react-native';
 
-export function AppShell({ children, className = '', ...props }: ViewProps & { readonly className?: string }) {
+export function AppShell({ children, style, ...props }: ViewProps) {
   return (
-    <View {...props} className={`h-screen min-h-screen flex-1 bg-appBg ${className}`}>
+    <View {...props} style={[styles.shell, style]}>
       {children}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  shell: {
+    backgroundColor: '#f3f5fb',
+    flex: 1,
+    minHeight: '100%',
+  },
+});

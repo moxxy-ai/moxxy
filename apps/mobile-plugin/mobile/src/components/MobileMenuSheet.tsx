@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMobileMenuSearch } from '../hooks/useMobileMenuSearch';
 import type { MobileMenuItem, WorkspaceMenuSection } from '../navigation';
 import { MobileIcon } from './MobileIcon';
@@ -69,43 +69,35 @@ export function MobileMenuSheet({
 
   return (
     <Animated.View
-      className="absolute inset-0 z-50 bg-appBg"
-      style={{
-        backgroundColor: '#f1f2f9',
-        bottom: 0,
-        left: 0,
-        opacity: progress,
-        position: 'absolute',
-        right: 0,
-        top: 0,
-        transform: [{ translateX }, { scale }],
-        zIndex: 50,
-      }}
+      style={[
+        styles.sheet,
+        {
+          opacity: progress,
+          transform: [{ translateX }, { scale }],
+        },
+      ]}
     >
-      <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 96, paddingHorizontal: 20, paddingTop: 18 }}>
-        <View className="flex-row items-center justify-between gap-4">
-          <View className="min-w-0 flex-1">
-            <Text className="text-[30px] font-black leading-9 text-text">Moxxy</Text>
-            <View className="mt-1.5 flex-row items-center gap-2">
-              <View className={`h-2 w-2 rounded-pill ${connected ? 'bg-green' : 'bg-amber'}`} />
-              <Text className="text-[12px] font-bold text-muted">{connected ? 'Connected' : 'Waiting'}</Text>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.header}>
+          <View style={styles.titleGroup}>
+            <Text style={styles.title}>Moxxy</Text>
+            <View style={styles.statusRow}>
+              <View style={[styles.statusDot, connected ? styles.statusDotConnected : styles.statusDotWaiting]} />
+              <Text style={styles.statusText}>{connected ? 'Connected' : 'Waiting'}</Text>
             </View>
           </View>
-          <View
-            className="h-12 flex-row items-center gap-3 rounded-pill border border-cardBorder bg-cardBg px-3 shadow-card"
-            style={{ shadowOpacity: 0.12 }}
-          >
-            <Pressable accessibilityLabel="Search sessions" accessibilityRole="button" onPress={search.toggle}>
+          <View style={styles.headerActions}>
+            <Pressable accessibilityLabel="Search sessions" accessibilityRole="button" onPress={search.toggle} style={styles.iconButton}>
               <MobileIcon name="search" size={22} strokeWidth={2.35} color="#0f172a" />
             </Pressable>
-            <View className="h-9 w-9 items-center justify-center rounded-pill bg-primary">
-              <Text className="text-[13px] font-black text-white">MX</Text>
+            <View style={styles.mxBadge}>
+              <Text style={styles.mxText}>MX</Text>
             </View>
           </View>
         </View>
 
         {search.open ? (
-          <View className="mt-5 rounded-pill border border-cardBorder bg-cardBg px-4 py-2 shadow-card" style={{ shadowOpacity: 0.1 }}>
+          <View style={styles.searchBox}>
             <TextInput
               value={search.query}
               onChangeText={search.setQuery}
@@ -113,12 +105,12 @@ export function MobileMenuSheet({
               placeholderTextColor="#94a3b8"
               autoCapitalize="none"
               autoCorrect={false}
-              className="min-h-10 text-[17px] font-semibold text-text"
+              style={styles.searchInput}
             />
           </View>
         ) : null}
 
-        <View className="mt-8 gap-1">
+        <View style={styles.actionList}>
           {items.map((item) => (
             <MenuActionRow
               key={`${item.kind}-${item.label}`}
@@ -129,9 +121,9 @@ export function MobileMenuSheet({
           ))}
         </View>
 
-        <View className="mt-8">
-          <View className="mb-3 flex-row items-center justify-between">
-            <Text className="text-[17px] font-black text-muted">Projects</Text>
+        <View style={styles.projectsSection}>
+          <View style={styles.projectsHeader}>
+            <Text style={styles.projectsTitle}>Projects</Text>
             {autoApprove ? <Pill label="Bypass ON" /> : null}
           </View>
           <View>
@@ -152,23 +144,18 @@ export function MobileMenuSheet({
               />
             ) : null}
             {search.filteredSections.length === 0 ? (
-              <View className="rounded-block border border-cardBorder bg-cardBg px-4 py-4">
-                <Text className="text-[14px] font-bold text-text">No matching sessions</Text>
-                <Text className="mt-1 text-[12px] text-muted">Try a title or workspace path.</Text>
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No matching sessions</Text>
+                <Text style={styles.emptySubtitle}>Try a title or workspace path.</Text>
               </View>
             ) : null}
           </View>
         </View>
       </ScrollView>
 
-      <Pressable
-        accessibilityLabel="Close mobile menu"
-        className="absolute bottom-6 right-5 min-h-12 flex-row items-center gap-3 rounded-pill bg-cardBg px-5 shadow-card"
-        style={{ bottom: 24, minHeight: 52, position: 'absolute', right: 20, shadowOpacity: 0.16 }}
-        onPress={onClose}
-      >
+      <Pressable accessibilityLabel="Close mobile menu" style={styles.closeButton} onPress={onClose}>
         <MobileIcon name="edit" size={21} strokeWidth={2.35} color="#0f172a" />
-        <Text className="text-[18px] font-black text-text">Chat</Text>
+        <Text style={styles.closeText}>Chat</Text>
       </Pressable>
     </Animated.View>
   );
@@ -184,17 +171,14 @@ function MenuActionRow({
   readonly onCommand: (name: string, args?: string) => void;
 }) {
   const content = (
-    <View
-      className="min-h-12 flex-row items-center gap-4 rounded-block"
-      style={{ opacity: item.disabled ? 0.48 : 1, paddingVertical: 6 }}
-    >
-      <View className="h-9 w-9 items-center justify-center">
+    <View style={[styles.actionRow, item.disabled ? styles.actionRowDisabled : null]}>
+      <View style={styles.actionIconBox}>
         <MobileIcon name={item.icon} size={22} strokeWidth={2.25} color={item.disabled ? '#94a3b8' : '#0f172a'} />
       </View>
-      <View className="min-w-0 flex-1">
-        <Text className={`text-[18px] font-bold ${item.disabled ? 'text-muted' : 'text-text'}`}>{item.label}</Text>
+      <View style={styles.actionTextBox}>
+        <Text style={[styles.actionLabel, item.disabled ? styles.actionLabelDisabled : null]}>{item.label}</Text>
         {item.disabled && item.disabledReason ? (
-          <Text className="mt-0.5 text-[12px] font-semibold text-muted" numberOfLines={1}>
+          <Text style={styles.actionDisabledReason} numberOfLines={1}>
             {item.disabledReason}
           </Text>
         ) : null}
@@ -218,7 +202,9 @@ function MenuActionRow({
   if (item.kind === 'link' && item.href) {
     return (
       <Link href={item.href} asChild>
-        <Pressable accessibilityLabel={item.label} accessibilityRole="button" onPress={onClose}>{content}</Pressable>
+        <Pressable accessibilityLabel={item.label} accessibilityRole="button" onPress={onClose}>
+          {content}
+        </Pressable>
       </Link>
     );
   }
@@ -239,8 +225,222 @@ function MenuActionRow({
 
 function Pill({ label }: { readonly label: string }) {
   return (
-    <View className="rounded-pill bg-primarySoft px-3 py-1">
-      <Text className="text-[11px] font-black text-primaryStrong">{label}</Text>
+    <View style={styles.pill}>
+      <Text style={styles.pillText}>{label}</Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  actionDisabledReason: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  actionIconBox: {
+    alignItems: 'center',
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  actionLabel: {
+    color: '#0f172a',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  actionLabelDisabled: {
+    color: '#64748b',
+  },
+  actionList: {
+    gap: 4,
+    marginTop: 30,
+  },
+  actionRow: {
+    alignItems: 'center',
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 16,
+    minHeight: 48,
+    paddingVertical: 6,
+  },
+  actionRowDisabled: {
+    opacity: 0.48,
+  },
+  actionTextBox: {
+    flex: 1,
+    minWidth: 0,
+  },
+  closeButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    bottom: 24,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 52,
+    paddingHorizontal: 20,
+    position: 'absolute',
+    right: 20,
+    shadowColor: '#0f172a',
+    shadowOffset: { height: 16, width: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
+  },
+  closeText: {
+    color: '#0f172a',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  emptyCard: {
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  emptySubtitle: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  emptyTitle: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 16,
+    justifyContent: 'space-between',
+  },
+  headerActions: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    height: 48,
+    paddingHorizontal: 12,
+    shadowColor: '#0f172a',
+    shadowOffset: { height: 10, width: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 22,
+  },
+  iconButton: {
+    alignItems: 'center',
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  mxBadge: {
+    alignItems: 'center',
+    backgroundColor: '#db2777',
+    borderRadius: 999,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  mxText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  pill: {
+    backgroundColor: '#fce7f3',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  pillText: {
+    color: '#be185d',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  projectsHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  projectsSection: {
+    marginTop: 30,
+  },
+  projectsTitle: {
+    color: '#64748b',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 96,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+  },
+  searchBox: {
+    backgroundColor: '#ffffff',
+    borderColor: '#dfe4f0',
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    shadowColor: '#0f172a',
+    shadowOffset: { height: 10, width: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 22,
+  },
+  searchInput: {
+    color: '#0f172a',
+    fontSize: 17,
+    fontWeight: '600',
+    minHeight: 40,
+  },
+  sheet: {
+    backgroundColor: '#f1f2f9',
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 50,
+  },
+  statusDot: {
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  statusDotConnected: {
+    backgroundColor: '#10b981',
+  },
+  statusDotWaiting: {
+    backgroundColor: '#f59e0b',
+  },
+  statusRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+  },
+  statusText: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  title: {
+    color: '#0f172a',
+    fontSize: 30,
+    fontWeight: '900',
+    lineHeight: 36,
+  },
+  titleGroup: {
+    flex: 1,
+    minWidth: 0,
+  },
+});
