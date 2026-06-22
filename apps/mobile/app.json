@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Moxxy Mobile",
-    "slug": "moxxy-mobile-gateway",
+    "slug": "workspaces",
     "scheme": "moxxy-mobile",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
@@ -19,7 +19,7 @@
         "NSLocalNetworkUsageDescription": "Connect to the Moxxy runner on your computer over your local Wi-Fi network.",
         "NSSupportsLiveActivities": true
       },
-      "bundleIdentifier": "com.kamiloxen1.moxxy-mobile-gateway"
+      "bundleIdentifier": "ai.moxxy.workspaces"
     },
     "plugins": [
       "expo-router",
@@ -50,6 +50,13 @@
           "photosPermission": "Allow Moxxy Mobile to attach screenshots and photos to your Moxxy messages."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2a4d11ff-92b2-48e0-99d8-2bab5a637a10"
+      }
+    },
+    "owner": "moxxyai"
   }
 }

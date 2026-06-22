@@ -481,7 +481,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kamiloxen1.moxxy-mobile-gateway";
+				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces";
 				PRODUCT_NAME = MoxxyMobileGateway;
 				SWIFT_OBJC_BRIDGING_HEADER = "MoxxyMobileGateway/MoxxyMobileGateway-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -513,7 +513,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kamiloxen1.moxxy-mobile-gateway";
+				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces";
 				PRODUCT_NAME = MoxxyMobileGateway;
 				SWIFT_OBJC_BRIDGING_HEADER = "MoxxyMobileGateway/MoxxyMobileGateway-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -657,7 +657,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kamiloxen1.moxxy-mobile-gateway.MoxxyLiveActivityExtension";
+				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces.MoxxyLiveActivityExtension";
 				PRODUCT_NAME = MoxxyLiveActivityExtension;
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -683,7 +683,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.kamiloxen1.moxxy-mobile-gateway.MoxxyLiveActivityExtension";
+				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces.MoxxyLiveActivityExtension";
 				PRODUCT_NAME = MoxxyLiveActivityExtension;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;

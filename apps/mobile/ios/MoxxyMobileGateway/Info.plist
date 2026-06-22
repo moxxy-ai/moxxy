@@ -28,7 +28,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>moxxy-mobile</string>
-          <string>com.kamiloxen1.moxxy-mobile-gateway</string>
+          <string>ai.moxxy.workspaces</string>
         </array>
       </dict>
     </array>
