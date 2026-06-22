@@ -12,6 +12,8 @@
  * Pure JS over `@moxxy/e2e` (no Node deps) so it bundles under Metro/RN.
  */
 import {
+  base64urlDecode,
+  base64urlEncode,
   connectInitiator,
   publicKeyFromFingerprint,
   utf8,
@@ -38,13 +40,24 @@ interface BinaryWs {
 }
 
 function toBytes(data: unknown): Uint8Array {
+  // The wire frames are base64url TEXT (see the send path): React Native's
+  // WebSocket reliably delivers/sends text but silently drops binary frames on
+  // iOS, so the encrypted channel rides as text. A text frame arrives as a
+  // string here; decode it. Binary frames are still accepted (a binary-capable
+  // peer — e.g. a Node `ws` client — interoperates unchanged).
+  if (typeof data === 'string') {
+    try {
+      return base64urlDecode(data);
+    } catch {
+      return new Uint8Array(0); // undecodable → the frame opener rejects it
+    }
+  }
   if (data instanceof Uint8Array) return data;
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   if (ArrayBuffer.isView(data)) {
     const view = data as ArrayBufferView;
     return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
   }
-  if (typeof data === 'string') return utf8(data);
   return new Uint8Array(0);
 }
 
@@ -83,7 +96,12 @@ export function makeE2EWebSocketCtor(
       }
 
       const transport: MessageTransport = {
-        send: (bytes) => this.base.send(bytes),
+        // Send each ciphertext frame as a base64url TEXT frame. iOS React
+        // Native's WebSocket silently fails to deliver binary frames, so a
+        // binary ClientHello never reaches the agent shim (the handshake hangs
+        // and the shim reports "transport closed during handshake"). Text frames
+        // are delivered reliably across RN/iOS/Android/browser.
+        send: (bytes) => this.base.send(base64urlEncode(bytes)),
         onMessage: (handler) => {
           this.msgHandler = handler;
           while (this.backlog.length > 0) handler(this.backlog.shift() as Uint8Array);

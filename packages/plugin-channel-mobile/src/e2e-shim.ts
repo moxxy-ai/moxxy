@@ -17,6 +17,8 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { bearerTokenMatches } from '@moxxy/sdk/server';
 import {
+  base64urlDecode,
+  base64urlEncode,
   connectResponder,
   type Identity,
   type MessageTransport,
@@ -58,8 +60,16 @@ function wsTransport(ws: WebSocket): MessageTransport {
   let onMsg: ((b: Uint8Array) => void) | null = null;
   let onClose: (() => void) | null = null;
   const backlog: Uint8Array[] = [];
-  ws.on('message', (data) => {
-    const bytes = rawToBytes(data);
+  ws.on('message', (data, isBinary) => {
+    // Frames ride as base64url TEXT so iOS React Native can deliver them (its
+    // WebSocket silently drops binary frames). A binary-capable peer that still
+    // sends binary (a Node `ws` client) is accepted unchanged.
+    let bytes: Uint8Array;
+    try {
+      bytes = isBinary ? rawToBytes(data) : base64urlDecode(rawTextOf(data));
+    } catch {
+      return; // undecodable frame — drop it (the handshake/opener handles silence)
+    }
     if (onMsg) onMsg(bytes);
     else backlog.push(bytes);
   });
@@ -67,7 +77,8 @@ function wsTransport(ws: WebSocket): MessageTransport {
   ws.on('error', () => onClose?.());
   return {
     send: (bytes) => {
-      if (ws.readyState === ws.OPEN) ws.send(bytes, { binary: true });
+      // Text frame (base64url) — see the inbound note above.
+      if (ws.readyState === ws.OPEN) ws.send(base64urlEncode(bytes));
     },
     onMessage: (handler) => {
       onMsg = handler;
