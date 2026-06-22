@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-channel-http",
   "private": true,
-  "version": "0.0.26",
+  "version": "0.0.27",
   "description": "Request-response HTTP channel for moxxy. POST /v1/turn drives one turn synchronously; POST /v1/turn/stream returns Server-Sent Events. Bearer-token auth + allow-list permission flow (no human in the loop).",
   "type": "module",
   "main": "./dist/index.js",

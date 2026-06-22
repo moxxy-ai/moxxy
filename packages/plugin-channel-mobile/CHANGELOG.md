@@ -1,5 +1,33 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.2.1
+
+### Patch Changes
+
+- 648c966: Mobile app: pair through the self-hosted E2E proxy relay. The pairing flow now
+  recovers the agent fingerprint from the QR (`?fp=`) and threads it into the
+  transport (`makeWsApiHandle({ e2e: { pinnedFingerprint } })`), so a relay QR
+  runs the encrypted handshake instead of failing as a plain `ws://` connection;
+  LAN pairing is unchanged.
+
+  Add EAS deployment for the Expo app: `eas.json` build/submit profiles, a dynamic
+  `app.config.ts` that injects the Expo `owner` + EAS `projectId` from the
+  environment (so the account identity is never committed), and a
+  `Mobile EAS Build` GitHub Actions workflow driven by repo secrets
+  (`EXPO_TOKEN`, `EXPO_OWNER`, `EAS_PROJECT_ID`).
+
+  Remove the retired `apps/mobile-poc` proof-of-concept (superseded by
+  `apps/mobile-plugin/mobile`).
+
+- Updated dependencies [648c966]
+  - @moxxy/sdk@0.16.1
+  - @moxxy/core@0.5.4
+  - @moxxy/desktop-ipc-contract@0.10.4
+  - @moxxy/e2e@0.1.1
+  - @moxxy/ipc-server-ws@0.1.29
+  - @moxxy/plugin-tunnel-proxy@0.1.1
+  - @moxxy/workspace-registry@0.1.1
+
 ## 0.2.0
 
 ### Minor Changes

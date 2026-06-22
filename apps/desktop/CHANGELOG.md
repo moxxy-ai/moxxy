@@ -1,5 +1,71 @@
 # @moxxy/desktop
 
+## 0.22.4
+
+### Patch Changes
+
+- 648c966: Keep collaborative peers on the selected model and keep mobile overlays interactive while turns stream.
+- 648c966: Refresh desktop session lists in realtime when mobile or other remote transports change the active session.
+- 648c966: Fix self-signed desktop certificate generation when random serial numbers contain DER padding bytes.
+- 648c966: Move sidebar rename actions into modal forms and keep session delete behind a destructive confirmation.
+- 648c966: Keep the desktop chat surface in a loading state while a newly selected session's runner is still starting, and keep retrying model/provider metadata until a cold runner exposes it.
+- 648c966: Keep desktop runner spawns on the inherited shell Node before GUI PATH fallbacks, preventing dev and packaged launches from picking an older system Node.
+- 648c966: Stabilize desktop jump-to-latest, keep loaded transcripts visible while large sessions reconnect, and align the mobile session picker with the desktop workspace tree.
+- 648c966: Prevent foreign session events from polluting shared workspace session lists and transcripts.
+- 648c966: Route paused workflow questions through the global ask surface so they remain answerable across desktop and mobile views.
+- 648c966: Synchronize cleared chat transcripts across desktop and mobile clients in realtime.
+- 648c966: Refresh the Mobile gateway device count live when remote clients connect or disconnect.
+- 648c966: Render mobile chat image previews and desktop-compatible markdown formatting.
+- 648c966: Make the full mobile plugin app use the working mobile bridge end to end: Expo web origins are allowed by `moxxy mobile`, QR pairing is WS-only via `ws(s)://...?t=token`, `@moxxy/client-transport-ws` exposes a closeable `makeWsApiHandle`, the standalone bridge exposes desktop-style desks/sessions, Expo Web NativeWind styles now render correctly, and the app now shows/selects real bridge sessions before chatting with the agent.
+
+  Share the workspace/session registry across TUI, Desktop, and Mobile: sessions created outside a known workspace now land in the stable global `Moxxy` workspace, CLI/TUI persistence syncs session metadata into the registry, Desktop reads the same registry, and remote mobile clients can list/switch desks through the safe WS IPC allow-list.
+
+  Harden the shared registry sync so tests and empty probe sessions do not leak into a real user profile: session persistence now honors `MOXXY_HOME`, `readIndex()` backfills missing first prompts from the JSONL log, CLI/TUI waits for a real user prompt before registering a session, stale session cwd values fall back safely, and desktop runner spawn errors no longer crash the main process.
+
+  Keep legacy desktop sessions readable from Mobile by falling back to the desktop chat mirror when a registry session id has no matching core session log.
+
+  Allow the shared chat store to retry loading a session transcript when an earlier read returned an empty page, so switching back to a persisted Desktop/Mobile session can recover history once the host is ready.
+
+  Make session history recovery use the core session JSONL as the canonical source whenever it exists, repairing missing, empty, or partial desktop chat mirrors so older multi-session conversations open with their full transcript on Desktop and Mobile.
+
+- 648c966: Keep mobile-deleted scheduler entries hidden across source syncs, reduce Live Activity completion lag, and ship the mobile app icon.
+- 648c966: Add a mobile Scheduler screen backed by the desktop scheduler store, with list, pause/resume, and delete controls.
+- 648c966: Keep Mobile chat streaming responsive on long sessions by memoizing committed transcript items and virtualizing the chat list.
+- 648c966: Keep mobile subagent/tool details live and forward mobile inline attachments through the desktop host.
+- 648c966: Fix sidebar session action menus so Rename and Delete remain clickable, show renamed sessions immediately in the desktop sidebar, and keep the sidebar profile footer from crashing keyless dev builds.
+- 648c966: Sync desktop/mobile session state, auto-approve, and OpenAI cached-token usage for context meters.
+- 648c966: Synchronize active turns, permission prompts, and model selection across desktop and mobile clients in realtime.
+- 648c966: Preserve optimistic desktop session selection when stale desk broadcasts arrive during runner startup.
+- 648c966: Restore sticky session provider and model when desktop/mobile resumes a session.
+- 648c966: Deduplicate transcript history events by id while loading and appending chat logs.
+- 648c966: Preserve transcript scroll anchoring when older history expands the first visible tool group.
+- 648c966: Stabilize mobile workflow state and route paused workflow runs through the global ask surface.
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+- Updated dependencies [648c966]
+  - @moxxy/cli@0.14.12
+  - @moxxy/plugin-channel-mobile@0.2.1
+  - @moxxy/sdk@0.16.1
+  - @moxxy/chat-model@0.3.4
+  - @moxxy/client-core@0.10.3
+  - @moxxy/client-platform-web@0.1.30
+  - @moxxy/desktop-host@0.8.5
+  - @moxxy/desktop-ipc-contract@0.10.4
+  - @moxxy/ipc-server-ws@0.1.29
+  - @moxxy/plugin-stt-whisper-codex@0.0.27
+  - @moxxy/plugin-vault@0.0.27
+  - @moxxy/runner@0.2.17
+  - @moxxy/workflows-builder@0.1.15
+
 ## 0.22.3
 
 ### Patch Changes
