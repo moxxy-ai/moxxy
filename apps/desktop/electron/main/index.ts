@@ -58,7 +58,10 @@ import type { DeepLinkPayload, MobileGatewayStatus } from '@moxxy/desktop-ipc-co
 import type { WebSocketCommandBus, WebSocketBridgeServer } from '@moxxy/ipc-server-ws';
 
 import { resolveWsBridgeConfig, MobileGatewayManager } from './ws-bridge.js';
-import { openMobileProxyTunnel } from '@moxxy/plugin-channel-mobile/e2e-proxy';
+import type {
+  E2EProxyHandle,
+  OpenMobileProxyOptions,
+} from '@moxxy/plugin-channel-mobile/e2e-proxy';
 
 import { LOOPBACK_PORTS, LOOPBACK_PORTS_ALT } from '../loopback-ports.js';
 
@@ -694,8 +697,16 @@ app.whenReady().then(async () => {
         if (mainWindow) sendEvent(mainWindow, 'mobileGateway.changed', status);
       },
       // Expose the bridge off-LAN through the E2E proxy relay (best-effort; the
-      // manager falls back to a LAN URL if the relay is unreachable).
-      openProxyTunnel: openMobileProxyTunnel,
+      // manager falls back to a LAN URL if the relay is unreachable). Loaded
+      // LAZILY: the E2E stack (`@noble/*`, the tunnel client, and transitively
+      // `ulid`, whose eager init needs the runtime's `require` shim) must NOT be
+      // pulled into the main entry's static import graph — doing so reorders
+      // module init so `ulid` evaluates before that shim and throws "secure
+      // crypto unusable" at boot (the app fails to start). Deferring to a
+      // dynamic import keeps it out of the startup path; it loads only when the
+      // user enables mobile (post app-ready), in a ulid-free lazy chunk.
+      openProxyTunnel: (opts: OpenMobileProxyOptions): Promise<E2EProxyHandle> =>
+        import('@moxxy/plugin-channel-mobile/e2e-proxy').then((m) => m.openMobileProxyTunnel(opts)),
     });
   }
 
