@@ -1,4 +1,4 @@
-# @moxxy/mobile-gateway-app
+# @moxxy/workspaces-app
 
 ## 0.1.2
 
