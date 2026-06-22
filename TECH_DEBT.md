@@ -88,6 +88,23 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-23 — Mobile EAS build: workspace deps' `dist` missing on fresh checkout
+
+**Logged + fixed on sight:** the Expo app (`apps/mobile`) consumes its `@moxxy/*`
+workspace deps from their built `dist/` (their `main`/`exports` point there), but
+`dist/` is git-ignored and EAS only runs `pnpm install` — never builds the
+packages — so Metro on a fresh EAS checkout couldn't resolve `@moxxy/client-core`
+& friends and the iOS bundle failed at ~95%. Fixed with an `eas-build-post-install`
+hook that builds the app's transitive workspace dep closure
+(`pnpm --filter "@moxxy/workspaces-app^..." run build`) after install, before
+bundling. **Breadcrumb for future mobile-build work:** the local repro is
+misleading — deleting `dist/` but leaving the git-ignored `tsconfig.tsbuildinfo`
+makes `tsc` skip emit (false "Done", no output); a real EAS checkout has neither,
+so it builds clean. To reproduce EAS locally, wipe `dist` **and** `*.tsbuildinfo`.
+Considered but rejected: bundling `@moxxy/*` from TS source via a Metro resolver —
+cleaner in theory but leaks a babel-must-transpile-all-shared-TS coupling; the
+dist contract is kept uniform with every other consumer.
+
 ## 2026-06-22 — Mobile NativeWind cleanup
 
 **Retired:** the mobile app no longer depends on NativeWind/Tailwind runtime

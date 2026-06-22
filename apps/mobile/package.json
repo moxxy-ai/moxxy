@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "eas-build-post-install": "pnpm --filter \"@moxxy/workspaces-app^...\" run build"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
