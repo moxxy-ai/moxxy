@@ -1,5 +1,15 @@
 # @moxxy/workspaces-app
 
+## 0.1.3
+
+### Patch Changes
+
+- 9d5eb74: Rebrand the mobile app to "workspaces". Rename the package
+  `@moxxy/mobile-gateway-app` → `@moxxy/workspaces-app`, set the iOS bundle
+  identifier to `ai.moxxy.workspaces` (app.json, the native Xcode project, and the
+  matching bundle-id URL scheme in Info.plist — including the Live Activity
+  extension), and set the Expo slug to `workspaces`.
+
 ## 0.1.2
 
 ### Patch Changes
