@@ -9,6 +9,7 @@ import { ComposerSheet } from '@/components/ComposerSheet';
 import { ConnectingView } from '@/components/ConnectingView';
 import { GoalSheet } from '@/components/GoalSheet';
 import { Onboarding } from '@/components/Onboarding';
+import { ReconnectScreen } from '@/components/ReconnectScreen';
 import { SplashScreen } from '@/components/SplashScreen';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
 import { useHistoryLoading } from '@/hooks/useHistoryLoading';
@@ -30,7 +31,11 @@ export default function HomeScreen() {
   // Splash while reading the persisted gateway; reconnect splash for an
   // already-paired device; onboarding only when there's nothing stored.
   if (store.pairing.hydrating) return <SplashScreen />;
-  if (!store.pairing.transportReady) return store.pairing.token ? <SplashScreen label="Connecting to your Mac…" /> : <Onboarding />;
+  // A paired device reconnects through ReconnectScreen — it spins, then offers a
+  // way to re-pair if the stored gateway is stale (so we never strand the user
+  // on "Connecting to your Mac…" with no escape). Onboarding only when nothing
+  // is stored.
+  if (!store.pairing.transportReady) return store.pairing.token ? <ReconnectScreen pairing={store.pairing} /> : <Onboarding />;
   return <Chat />;
 }
 
