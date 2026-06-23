@@ -3,7 +3,8 @@ import type { WorkspaceMenuSection } from '@/navigation';
 import { buildWorkspaceSessionTreeState } from '@/workspaceSessionTreeUi';
 import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
-import { PressableScale } from './primitives/motion';
+import { Gradient } from './primitives/Gradient';
+import { Appear, PressableScale, PulseDot } from './primitives/motion';
 
 interface WorkspaceSessionTreeProps {
   readonly sections: ReadonlyArray<WorkspaceMenuSection>;
@@ -35,10 +36,15 @@ export function WorkspaceSessionTree({
 
   if (tree.sections.length === 0) {
     return (
-      <View style={styles.emptyCard}>
-        <Text style={styles.emptyTitle}>{emptyTitle}</Text>
-        <Text style={styles.emptySubtitle}>{emptySubtitle}</Text>
-      </View>
+      <Appear from="up" distance={12}>
+        <View style={styles.emptyCard}>
+          <Gradient preset="brand" radius={18} style={styles.emptyBadge}>
+            <MobileIcon name="folder" size={26} strokeWidth={2.3} color="#ffffff" />
+          </Gradient>
+          <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+          <Text style={styles.emptySubtitle}>{emptySubtitle}</Text>
+        </View>
+      </Appear>
     );
   }
 
@@ -51,18 +57,28 @@ export function WorkspaceSessionTree({
               accessibilityLabel={section.toggleAccessibilityLabel}
               accessibilityRole="button"
               scaleTo={0.98}
-              style={styles.workspaceToggle}
+              style={[styles.workspaceToggle, section.active ? styles.workspaceToggleActive : null]}
               onPress={() => onToggleWorkspace(section.id)}
             >
               <View style={[styles.chevronBox, { transform: [{ rotate: section.expanded ? '0deg' : '-90deg' }] }]}>
                 <MobileIcon name="chevronDown" size={15} strokeWidth={2.55} color={mobileInk.soft} />
               </View>
-              <MobileIcon name="folder" size={21} strokeWidth={2.2} color={section.color} />
+              <Gradient
+                preset="brand"
+                radius={10}
+                style={styles.folderTile}
+                stops={[
+                  { offset: 0, color: section.color },
+                  { offset: 1, color: '#db2777' },
+                ]}
+              >
+                <MobileIcon name="folder" size={17} strokeWidth={2.4} color="#ffffff" />
+              </Gradient>
               <Text style={[styles.workspaceTitle, section.active ? styles.workspaceTitleActive : null]} numberOfLines={1}>
                 {section.title}
               </Text>
-              <View style={styles.countBadge}>
-                <Text style={styles.countText}>{section.sessionCountLabel}</Text>
+              <View style={[styles.countBadge, section.active ? styles.countBadgeActive : null]}>
+                <Text style={[styles.countText, section.active ? styles.countTextActive : null]}>{section.sessionCountLabel}</Text>
               </View>
             </PressableScale>
             {showWorkspaceNewSession && onNewSession ? (
@@ -73,7 +89,8 @@ export function WorkspaceSessionTree({
                 style={styles.workspaceNewButton}
                 onPress={() => onNewSession(section.id)}
               >
-                <MobileIcon name="plus" size={18} strokeWidth={2.45} color="#db2777" />
+                <Gradient preset="cta" radius={999} style={StyleSheet.absoluteFill} />
+                <MobileIcon name="plus" size={18} strokeWidth={2.55} color="#ffffff" />
               </PressableScale>
             ) : null}
           </View>
@@ -89,11 +106,17 @@ export function WorkspaceSessionTree({
                   style={[styles.sessionButton, session.active ? styles.sessionButtonActive : styles.sessionButtonInactive]}
                   onPress={() => onSelectSession(session.id)}
                 >
+                  <PulseDot
+                    color={session.statusLabel ? '#10b981' : session.active ? '#db2777' : '#cbd2e1'}
+                    size={8}
+                    pulsing={Boolean(session.statusLabel) || session.active}
+                  />
                   <Text style={[styles.sessionTitle, session.active ? styles.sessionTitleActive : null]} numberOfLines={1}>
                     {session.title}
                   </Text>
                   {session.statusLabel ? (
                     <View style={styles.liveBadge}>
+                      <PulseDot color="#ffffff" size={6} pulsing />
                       <Text style={styles.liveText}>{session.statusLabel}</Text>
                     </View>
                   ) : null}
@@ -121,7 +144,8 @@ export function WorkspaceSessionTree({
           style={styles.globalNewButton}
           onPress={() => onNewSession()}
         >
-          <MobileIcon name="plus" size={17} strokeWidth={2.45} color="#db2777" />
+          <Gradient preset="cta" radius={16} style={StyleSheet.absoluteFill} />
+          <MobileIcon name="plus" size={18} strokeWidth={2.55} color="#ffffff" />
           <Text style={styles.globalNewText}>New session</Text>
         </PressableScale>
       ) : null}
@@ -157,52 +181,79 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
+  countBadgeActive: {
+    backgroundColor: '#db2777',
+  },
   countText: {
     color: mobileInk.soft,
     fontSize: 10,
     fontWeight: '900',
   },
+  countTextActive: {
+    color: '#ffffff',
+  },
+  emptyBadge: {
+    alignItems: 'center',
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 16,
+    width: 56,
+  },
   emptyCard: {
+    alignItems: 'center',
     backgroundColor: mobileGlass.card.fill,
     borderColor: mobileGlass.card.border,
-    borderRadius: 20,
+    borderRadius: 22,
     borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
-    padding: 20,
-    ...mobileElevation.sm,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    ...mobileElevation.md,
   },
   emptySubtitle: {
     color: mobileInk.soft,
-    fontSize: 13,
-    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 6,
+    textAlign: 'center',
   },
   emptyTitle: {
     color: mobileInk.strong,
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+    textAlign: 'center',
+  },
+  folderTile: {
+    alignItems: 'center',
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
   },
   globalNewButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
-    borderRadius: 14,
-    borderWidth: 1,
+    borderRadius: 16,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
-    marginTop: 8,
-    minHeight: 48,
+    marginTop: 12,
+    minHeight: 52,
+    overflow: 'hidden',
   },
   globalNewText: {
-    color: '#db2777',
-    fontSize: 13,
+    color: '#ffffff',
+    fontSize: 14,
     fontWeight: '900',
+    letterSpacing: 0.2,
   },
   liveBadge: {
+    alignItems: 'center',
     backgroundColor: '#10b981',
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    flexDirection: 'row',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
   },
   liveText: {
     color: '#ffffff',
@@ -266,9 +317,10 @@ const styles = StyleSheet.create({
   workspaceNewButton: {
     alignItems: 'center',
     borderRadius: 999,
-    height: 40,
+    height: 38,
     justifyContent: 'center',
-    width: 40,
+    overflow: 'hidden',
+    width: 38,
   },
   workspaceRow: {
     alignItems: 'center',
@@ -290,9 +342,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     flex: 1,
     flexDirection: 'row',
-    gap: 8,
-    minHeight: 44,
+    gap: 10,
+    minHeight: 48,
     minWidth: 0,
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
+  },
+  workspaceToggleActive: {
+    backgroundColor: '#fdf2f8',
   },
 });

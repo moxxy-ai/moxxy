@@ -21,14 +21,22 @@ export function WorkflowAskCard({ ask, onRespond }: WorkflowAskCardProps) {
   return (
     <GlassSheet radius={20} style={styles.sheet}>
       <View style={sx('flex-row items-start gap-3')}>
-        <View style={styles.iconBadge}>
-          <MobileIcon name="workflows" size={17} strokeWidth={2.35} color="#d97706" />
-        </View>
+        <Gradient
+          direction="diagonal"
+          radius={12}
+          stops={[
+            { offset: 0, color: '#fbbf24' },
+            { offset: 1, color: '#d97706' },
+          ]}
+          style={styles.iconBadge}
+        >
+          <MobileIcon name="workflows" size={18} strokeWidth={2.4} color="#ffffff" />
+        </Gradient>
         <View style={sx('min-w-0 flex-1')}>
-          <Text style={sx('text-[15px] font-bold', { color: mobileInk.strong })} numberOfLines={1}>
+          <Text style={sx('text-[15px] font-black', { color: mobileInk.strong })} numberOfLines={1}>
             {textOf(workflow.workflow, 'Workflow')} is waiting
           </Text>
-          <Text style={sx('mt-0.5 text-[12px] leading-4', { color: mobileInk.soft })} numberOfLines={2}>
+          <Text style={sx('mt-0.5 text-[12px] font-semibold leading-4', { color: mobileInk.soft })} numberOfLines={2}>
             {textOf(workflow.label, textOf(workflow.stepId, 'Input required'))}
           </Text>
         </View>
@@ -80,13 +88,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const styles = StyleSheet.create({
   iconBadge: {
     alignItems: 'center',
-    backgroundColor: '#fffbeb',
-    borderColor: 'rgba(245,158,11,0.45)',
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 36,
+    flexShrink: 0,
+    height: 38,
     justifyContent: 'center',
-    width: 36,
+    width: 38,
   },
   input: {
     backgroundColor: 'rgba(248,250,252,0.85)',

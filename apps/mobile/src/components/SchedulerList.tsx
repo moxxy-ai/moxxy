@@ -4,7 +4,7 @@ import type { MobileSchedule } from '../schedulerUi';
 import { buildScheduleAccessibilityLabel } from '../schedulerUi';
 import { MobileIcon } from './MobileIcon';
 import { Gradient } from './primitives/Gradient';
-import { PressableScale, PulseDot } from './primitives/motion';
+import { Appear, PressableScale, PulseDot } from './primitives/motion';
 
 interface SchedulerListProps {
   readonly schedules: ReadonlyArray<MobileSchedule>;
@@ -25,10 +25,24 @@ export function SchedulerList({
 }: SchedulerListProps) {
   return (
     <View style={styles.stack}>
-      <PressableScale style={styles.refreshButton} scaleTo={0.97} onPress={onRefresh} accessibilityRole="button">
-        <MobileIcon name="scheduler" size={18} strokeWidth={2.35} color={mobileInk.muted} />
-        <Text style={styles.refreshText}>{loading ? 'Refreshing scheduler...' : 'Refresh scheduler'}</Text>
-      </PressableScale>
+      <View style={styles.sectionHeader}>
+        <Gradient preset="accent" radius={11} style={styles.sectionIcon}>
+          <MobileIcon name="scheduler" size={17} strokeWidth={2.3} color="#ffffff" />
+        </Gradient>
+        <View style={styles.sectionCopy}>
+          <Text style={styles.sectionTitle}>Scheduler</Text>
+          <Text style={styles.sectionSubtitle}>
+            {loading
+              ? 'Refreshing scheduler...'
+              : schedules.length === 0
+                ? 'No scheduled jobs'
+                : `${schedules.length} scheduled job${schedules.length === 1 ? '' : 's'}`}
+          </Text>
+        </View>
+        <PressableScale style={styles.refreshButton} scaleTo={0.94} onPress={onRefresh} accessibilityRole="button">
+          <MobileIcon name="actions" size={18} strokeWidth={2.4} color="#0891b2" />
+        </PressableScale>
+      </View>
 
       {error ? (
         <View style={styles.errorCard}>
@@ -38,12 +52,17 @@ export function SchedulerList({
       ) : null}
 
       {schedules.length === 0 ? (
-        <View style={styles.card}>
-          <Text style={styles.emptyTitle}>No schedules visible</Text>
-          <Text style={styles.emptyBody}>
-            Cron jobs and one-shot scheduled prompts will appear here after they are created by the agent or desktop.
-          </Text>
-        </View>
+        <Appear from="up" distance={12}>
+          <View style={styles.emptyCard}>
+            <Gradient preset="accent" radius={18} style={styles.emptyBadge}>
+              <MobileIcon name="scheduler" size={26} strokeWidth={2.3} color="#ffffff" />
+            </Gradient>
+            <Text style={styles.emptyTitle}>No schedules visible</Text>
+            <Text style={styles.emptyBody}>
+              Cron jobs and one-shot scheduled prompts will appear here after they are created by the agent or desktop.
+            </Text>
+          </View>
+        </Appear>
       ) : null}
 
       {schedules.map((schedule) => (
@@ -121,6 +140,7 @@ export function SchedulerList({
 function StatusPill({ enabled, label }: { readonly enabled: boolean; readonly label: string }) {
   return (
     <View style={[styles.pill, enabled ? styles.pillGreen : null]}>
+      {enabled ? <PulseDot color="#10b981" size={6} pulsing /> : null}
       <Text style={[styles.pillText, enabled ? styles.pillTextGreen : null]}>{label}</Text>
     </View>
   );
@@ -166,11 +186,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: mobileGlass.card.fill,
     borderColor: mobileGlass.card.border,
-    borderRadius: 18,
+    borderRadius: 20,
     borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
     padding: 16,
-    ...mobileElevation.sm,
+    ...mobileElevation.md,
   },
   cardBody: {
     flex: 1,
@@ -201,16 +221,37 @@ const styles = StyleSheet.create({
   dot: {
     marginTop: 6,
   },
+  emptyBadge: {
+    alignItems: 'center',
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 16,
+    width: 56,
+  },
   emptyBody: {
-    color: mobileInk.muted,
-    fontSize: 13,
-    lineHeight: 20,
-    marginTop: 4,
+    color: mobileInk.soft,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  emptyCard: {
+    alignItems: 'center',
+    backgroundColor: mobileGlass.card.fill,
+    borderColor: mobileGlass.card.border,
+    borderRadius: 22,
+    borderTopColor: mobileGlass.card.hairline,
+    borderWidth: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    ...mobileElevation.md,
   },
   emptyTitle: {
     color: mobileInk.strong,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '900',
+    letterSpacing: -0.3,
+    textAlign: 'center',
   },
   errorBody: {
     color: '#ef4444',
@@ -237,8 +278,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   pill: {
+    alignItems: 'center',
     backgroundColor: 'rgba(241,242,249,0.9)',
     borderRadius: 999,
+    flexDirection: 'row',
+    gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
@@ -255,19 +299,13 @@ const styles = StyleSheet.create({
   },
   refreshButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
-    borderRadius: 14,
+    backgroundColor: 'rgba(236,254,255,0.9)',
+    borderColor: 'rgba(103,232,249,0.5)',
+    borderRadius: 999,
     borderWidth: 1,
-    flexDirection: 'row',
-    gap: 8,
+    height: 40,
     justifyContent: 'center',
-    minHeight: 48,
-  },
-  refreshText: {
-    color: mobileInk.muted,
-    fontSize: 13,
-    fontWeight: '800',
+    width: 40,
   },
   scheduleName: {
     color: mobileInk.strong,
@@ -280,6 +318,34 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
     marginTop: 4,
+  },
+  sectionCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sectionHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 4,
+  },
+  sectionIcon: {
+    alignItems: 'center',
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  sectionSubtitle: {
+    color: mobileInk.soft,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  sectionTitle: {
+    color: mobileInk.strong,
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: -0.2,
   },
   stack: {
     gap: 12,

@@ -31,6 +31,7 @@ interface ConnectionSettingsProps {
 
 export function ConnectionSettings(props: ConnectionSettingsProps) {
   const canPair = props.code.length > 0 && !props.loading;
+  const socketConnected = props.socketStatus.toLowerCase() === 'connected';
   const pairingUi = buildPairingUiState({
     token: props.token,
     transportReady: props.transportReady,
@@ -151,10 +152,20 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Runtime</Text>
-        <SettingRow label="Socket" value={props.socketStatus} />
+        <View style={styles.cardTitleRow}>
+          <Gradient preset="accent" radius={11} style={styles.headerIcon}>
+            <MobileIcon name="settings" size={17} strokeWidth={2.3} color="#ffffff" />
+          </Gradient>
+          <Text style={styles.cardTitle}>Runtime</Text>
+        </View>
+        <SettingRow
+          label="Socket"
+          value={props.socketStatus}
+          dotColor={socketConnected ? '#16a34a' : '#d97706'}
+          pulsing={socketConnected}
+        />
         <SettingRow label="Provider" value={props.activeProvider ?? 'Unknown'} />
-        <SettingRow label="Mode" value={props.activeMode ?? 'Unknown'} />
+        <SettingRow label="Mode" value={props.activeMode ?? 'Unknown'} last />
         <View style={styles.switchRow}>
           <View style={styles.switchCopy}>
             <Text style={styles.switchTitle}>Bypass mode</Text>
@@ -172,13 +183,28 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
   );
 }
 
-function SettingRow({ label, value }: { readonly label: string; readonly value: string }) {
+function SettingRow({
+  label,
+  value,
+  dotColor,
+  pulsing,
+  last,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly dotColor?: string;
+  readonly pulsing?: boolean;
+  readonly last?: boolean;
+}) {
   return (
-    <View style={styles.settingRow}>
+    <View style={[styles.settingRow, last ? styles.settingRowLast : null]}>
       <Text style={styles.settingLabel}>{label}</Text>
-      <Text numberOfLines={1} style={styles.settingValue}>
-        {value}
-      </Text>
+      <View style={styles.settingValueRow}>
+        {dotColor ? <PulseDot color={dotColor} size={8} pulsing={Boolean(pulsing)} /> : null}
+        <Text numberOfLines={1} style={styles.settingValue}>
+          {value}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -359,13 +385,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 10,
+  },
+  settingRowLast: {
+    borderBottomWidth: 0,
   },
   settingValue: {
     color: mobileInk.strong,
     flexShrink: 1,
     fontSize: 13,
     fontWeight: '800',
+  },
+  settingValueRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 1,
+    gap: 8,
     marginLeft: 12,
     maxWidth: '62%',
   },

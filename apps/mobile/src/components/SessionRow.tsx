@@ -47,7 +47,11 @@ export function SessionRow({ workspace, active, onPress }: SessionRowProps) {
             {readOnly ? <Badge label="Archive" /> : null}
           </View>
         </View>
-        {active ? <Text style={styles.activeTag}>Active</Text> : null}
+        {active ? (
+          <View style={styles.activeTag}>
+            <Text style={styles.activeTagText}>Active</Text>
+          </View>
+        ) : null}
       </View>
     </PressableScale>
   );
@@ -74,9 +78,16 @@ function formatDate(value: string): string {
 
 const styles = StyleSheet.create({
   activeTag: {
-    color: '#db2777',
-    fontSize: 11,
+    backgroundColor: '#db2777',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  activeTagText: {
+    color: '#ffffff',
+    fontSize: 10,
     fontWeight: '900',
+    letterSpacing: 0.3,
   },
   badge: {
     backgroundColor: 'rgba(241,242,249,0.9)',
@@ -108,13 +119,13 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: mobileGlass.card.fill,
     borderColor: mobileGlass.card.border,
-    borderRadius: 18,
+    borderRadius: 20,
     borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
-    minHeight: 64,
+    minHeight: 68,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    ...mobileElevation.sm,
+    paddingVertical: 14,
+    ...mobileElevation.md,
   },
   cardActive: {
     backgroundColor: '#fdf2f8',
