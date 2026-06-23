@@ -148,15 +148,16 @@ describe('mobile offline gateway screen layout', () => {
     expect(unpairedUi.steps).toContain('Open Moxxy Desktop on your Mac.');
     expect(chatScreen).toContain('showWaitingRoom ?');
     expect(chatScreen).toContain('!showWaitingRoom ? (');
-    expect(chatScreen).toContain("title={showWaitingRoom ? 'Gateway' : 'Chat'}");
+    // The chat header only renders for the actual chat — the bare "Gateway /
+    // Offline" bar is gone from the waiting room (it has its own status pill).
+    expect(chatScreen).toContain('title="Chat"');
+    expect(chatScreen).not.toContain("'Gateway'");
     expect(chatScreen).toContain('<WaitingRoom');
     expect(chatScreen).toContain('waitingRoomUi={waitingRoomUi}');
     expect(chatScreen).toContain('onOpenPairing={openPairing}');
     expect(chatScreen).toContain('openWaitingRoomPairing({');
     expect(chatScreen).toContain('navigateToScanner: router.push');
     expect(chatScreen).toContain('open={showWaitingRoom ? false : chrome.menuOpen}');
-    expect(chatScreen).toContain('showMenuButton={!showWaitingRoom}');
-    expect(chatScreen).toContain('showSessionActions={!showWaitingRoom}');
     expect(chatScreen).not.toContain('isGatewayPairingAvailable');
     expect(chatScreen).not.toContain('Turn on Moxxy Mobile gateway');
     expect(chatScreen).not.toContain('pairingProbePending');

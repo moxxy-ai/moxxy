@@ -266,26 +266,26 @@ export default function ChatScreen() {
             onClose={chrome.closeMenu}
           />
 
-          <FloatingChatHeader
-            connected={session.connected}
-            statusLabel={connectionUi.statusLabel}
-            pendingActions={pendingActions}
-            title={showWaitingRoom ? 'Gateway' : 'Chat'}
-            showMenuButton={!showWaitingRoom}
-            showSessionActions={!showWaitingRoom}
-            onToggleMenu={() => {
-              Keyboard.dismiss();
-              chrome.toggleMenu();
-            }}
-            onRenameSession={openRename}
-            onOpenActions={() => {
-              Keyboard.dismiss();
-              composer.setActionsOpen(false);
-              sessionActions.openSheet();
-            }}
-            actionsDisabled={!session.connected}
-            renameDisabled={!canEditSession}
-          />
+          {!showWaitingRoom ? (
+            <FloatingChatHeader
+              connected={session.connected}
+              statusLabel={connectionUi.statusLabel}
+              pendingActions={pendingActions}
+              title="Chat"
+              onToggleMenu={() => {
+                Keyboard.dismiss();
+                chrome.toggleMenu();
+              }}
+              onRenameSession={openRename}
+              onOpenActions={() => {
+                Keyboard.dismiss();
+                composer.setActionsOpen(false);
+                sessionActions.openSheet();
+              }}
+              actionsDisabled={!session.connected}
+              renameDisabled={!canEditSession}
+            />
+          ) : null}
 
           <SessionActionsSheet
             open={sessionActions.open}
