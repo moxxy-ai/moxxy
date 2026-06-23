@@ -11,6 +11,9 @@ interface ChatComposerProps {
   readonly text: string;
   readonly inputResetKey: number;
   readonly sending: boolean;
+  /** Whether a turn is in flight (agent working), so the button becomes Stop for
+   *  the whole run — not just the brief send round-trip. */
+  readonly running: boolean;
   readonly compacting: boolean;
   readonly autoApprove: boolean;
   readonly readOnly?: boolean;
@@ -32,6 +35,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const ui = buildComposerUiState({
     text: props.text,
     sending: props.sending,
+    running: props.running,
     compacting: props.compacting,
     actionsOpen: false,
     autoApprove: props.autoApprove,
@@ -39,7 +43,7 @@ export function ChatComposer(props: ChatComposerProps) {
     voicePhase: props.voicePhase,
     readOnly: props.readOnly,
   });
-  const canPressSend = props.sending || ui.canSubmit;
+  const canPressSend = props.running || ui.canSubmit;
   const recording = ui.voiceTone === 'recording';
   const transcribing = props.voicePhase === 'transcribing';
   const placeholder = transcribing
@@ -104,11 +108,11 @@ export function ChatComposer(props: ChatComposerProps) {
           )}
 
           <Pressable
-            accessibilityLabel={props.sending ? 'Stop response' : 'Send message'}
+            accessibilityLabel={props.running ? 'Stop response' : 'Send message'}
             accessibilityRole="button"
             disabled={!canPressSend}
             hitSlop={6}
-            onPress={props.sending ? props.onAbort : props.onSubmit}
+            onPress={props.running ? props.onAbort : props.onSubmit}
             style={sx('items-center justify-center rounded-full', { backgroundColor: sendBackground, height: 38, marginLeft: 2, width: 38 })}
           >
             <MobileIcon name={ui.sendIcon} size={ui.sendIcon === 'send' ? 19 : 15} strokeWidth={2.6} color={sendIconColor} />
