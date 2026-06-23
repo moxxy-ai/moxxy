@@ -1,5 +1,14 @@
 # @moxxy/plugin-provider-claude-code
 
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [0d6df6e]
+  - @moxxy/sdk@0.17.0
+  - @moxxy/plugin-oauth@0.0.28
+  - @moxxy/plugin-provider-anthropic@0.2.5
+
 ## 0.1.23
 
 ### Patch Changes

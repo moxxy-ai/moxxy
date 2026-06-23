@@ -1,5 +1,12 @@
 # @moxxy/cli
 
+## 0.14.14
+
+### Patch Changes
+
+- Updated dependencies [0d6df6e]
+  - @moxxy/sdk@0.17.0
+
 ## 0.14.13
 
 ### Patch Changes
