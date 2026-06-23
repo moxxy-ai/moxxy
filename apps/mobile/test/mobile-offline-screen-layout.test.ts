@@ -174,16 +174,18 @@ describe('mobile offline gateway screen layout', () => {
     expect(waitingRoom).toContain('styles.primaryAction');
     expect(waitingRoom).toContain('style={styles.contentStack}');
     expect(waitingRoom).toContain("alignSelf: 'center'");
-    expect(waitingRoom).toContain('maxWidth: 430');
-    expect(waitingRoom).toContain('style={styles.stepsCard}');
-    expect(waitingRoom).toContain('minHeight: 198');
     expect(waitingRoom).toContain("width: '100%'");
     expect(waitingRoom).toContain('paddingHorizontal: 22');
     expect(waitingRoom).not.toContain('paddingVertical: 14');
-    expect(waitingRoom).toContain('instructionItemSpaced');
-    expect(waitingRoom).toContain('marginTop: 14');
-    expect(waitingRoom).toContain('marginRight: 14');
-    expect(waitingRoom).toContain('height: 30');
+    // Fresh layout: a status pill, a floating mascot on a gradient stage disc,
+    // a prominent gradient CTA, and a vertical stepper with gradient nodes +
+    // a connector line — rendered in a ScrollView so it never clips.
+    expect(waitingRoom).toContain('style={styles.statusPill}');
+    expect(waitingRoom).toContain('style={styles.heroDisc}');
+    expect(waitingRoom).toContain('style={styles.stepNode}');
+    expect(waitingRoom).toContain('styles.stepConnector');
+    expect(waitingRoom).toContain('How to pair');
+    expect(waitingRoom).toContain('ScrollView');
     expect(waitingRoom).toContain('stepItems');
     expect(waitingRoom).toContain('waitingRoomUi.steps.length > 0');
     expect(waitingRoom).not.toContain('stepsCopy');
