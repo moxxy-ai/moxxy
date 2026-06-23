@@ -47,7 +47,8 @@ A workflow is a DAG of steps. Schema:
 - steps: array of steps, each with:
     - id: slug, unique
     - label: short human title (match the user's language when possible)
-    - EXACTLY ONE action: skill | prompt | tool | workflow | bridge | condition | switch | loop
+    - EXACTLY ONE action: skill | prompt | tool | workflow | echo | bridge | condition | switch | loop
+    - echo: a template string rendered VERBATIM as the step output — NO agent turn. Use it for pure formatting/delivery steps (e.g. emit an already-written result with \`echo: "{{ steps.write_x.output }}"\`). PREFER echo over a prompt step when the step only needs to pass through / format existing content — a prompt step there burns a model call and can re-interpret or loop on the content.
     - bridge: instruction — logic step; agent returns JSON with vars (extract/transform data); optional format: plain
     - condition: instruction + then: [step ids] + else: [step ids] — agent returns JSON branch then|else
     - switch: instruction + cases: { <caseId>: [step ids], ... } + optional default: [step ids] — agent returns JSON branch matching a case id
