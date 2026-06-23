@@ -45,10 +45,12 @@ describe('mobile navigation architecture', () => {
     }
   });
 
-  it('gates the chat home behind onboarding until paired', () => {
+  it('gates the chat home on a stored pairing, not on the connection', () => {
     const index = read('app/index.tsx');
     const onboarding = read('src/components/Onboarding.tsx');
-    expect(index).toContain('store.pairing.transportReady');
+    // The shell renders once a gateway is stored (token), regardless of whether
+    // the transport is currently connected — no full-screen connection loader.
+    expect(index).toContain('store.pairing.token');
     // Onboarding must use the SHARED store pairing (not a private usePairing
     // instance) so a successful scan advances the home-screen gate.
     expect(onboarding).toContain('const { pairing } = useGatewayStore()');
@@ -64,8 +66,12 @@ describe('mobile navigation architecture', () => {
     expect(index).toContain('<ChatComposer');
     expect(index).toContain('<ChatDrawer');
     expect(index).toContain('<ComposerSheet');
-    // Connected → transcript; reconnecting → branded loading view.
-    expect(index).toContain('<ConnectingView');
+    // The transcript always renders; when the bridge is down it carries an
+    // inline connection banner + sheet instead of a full-screen loader.
+    expect(index).toContain('connectionBanner=');
+    expect(index).toContain('<ConnectionSheet');
+    expect(index).not.toContain('<ConnectingView');
+    expect(index).not.toContain('<SplashScreen');
     expect(index).not.toContain('className=');
   });
 

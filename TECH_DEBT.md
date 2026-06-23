@@ -88,6 +88,24 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-23 — Mobile: connection loaders removed (no more trap)
+
+**Retired:** the mobile app gated its *entire* UI behind the gateway transport —
+`app/index.tsx` returned a full-screen spinner (`SplashScreen` / a short-lived
+`ReconnectScreen` band-aid) whenever `transportReady` was false, and the drawer
+(the only path to Account / re-pair) was mounted inside the connected-only chat.
+Since the desktop gateway is on-demand + off by default, a paired phone routinely
+sat on "Connecting to your Mac…" forever with zero reachable config. Replaced with
+a token-gated shell that always renders + one derived `connectionState` model
+driving an inline status/banner + an always-reachable Connection sheet, plus a
+non-destructive `usePairing.reconnect()` (and foreground re-arm). Deleted
+`SplashScreen`, `ReconnectScreen`, `ConnectingView`, `reconnectUi`, and the
+now-superseded `chatConnectionUi` (+ their tests). **Residual:** the manual
+paste-a-link pairing path (Onboarding only) still looks racy (`loadPairing` stores
+without connecting) — verify/​fix when touching pairing next. Connection recovery
+needs a real-device pass (StrictMode double-mount WS-handle close, the desktop #211
+lesson).
+
 ## 2026-06-23 — Mobile chat redesign + dark theme
 
 **Retired:** the mobile app was light-only, with light-theme hex hard-coded across

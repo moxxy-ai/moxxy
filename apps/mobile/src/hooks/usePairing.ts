@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { splitConnectUrl, type WsClientStatus } from '@moxxy/client-transport-ws';
 import { parsePairingQrPayload } from '../pairingQr';
 import { createPairingOpenWaiter } from '../pairingOpenWaiter';
@@ -31,6 +32,10 @@ export interface PairingState {
   readonly loadPairing: () => Promise<void>;
   readonly pair: () => Promise<void>;
   readonly pairFromQrPayload: (raw: string) => Promise<void>;
+  /** Non-destructive re-arm of the bridge to the stored gateway. Use when the
+   *  link dropped or the Mac gateway came back — keeps the stored pairing intact
+   *  (unlike {@link disconnect}, which forgets it). No-op if already open. */
+  readonly reconnect: () => void;
   readonly disconnect: () => void;
 }
 
@@ -220,6 +225,24 @@ export function usePairing(): PairingState {
     }
   }, [pairWithCode]);
 
+  const reconnect = useCallback(() => {
+    if (transportReady || !token || !storedUrl) return;
+    // Clear any prior "disconnected" error so the UI shows "Connecting…" again
+    // immediately; configureBridgeTransport re-asserts it if this attempt fails.
+    setError(null);
+    configureBridgeTransport(storedUrl, token, undefined, storedFingerprint);
+  }, [configureBridgeTransport, storedFingerprint, storedUrl, token, transportReady]);
+
+  // Re-arm the bridge whenever the app returns to the foreground while paired
+  // but not connected — so opening the app after enabling the Mac gateway (or
+  // after the link dropped in the background) reconnects without any tap.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') reconnect();
+    });
+    return () => subscription.remove();
+  }, [reconnect]);
+
   const disconnect = useCallback(() => {
     transportHandleRef.current?.close();
     transportHandleRef.current = null;
@@ -243,6 +266,7 @@ export function usePairing(): PairingState {
     loadPairing,
     pair,
     pairFromQrPayload,
+    reconnect,
     disconnect,
   };
 }

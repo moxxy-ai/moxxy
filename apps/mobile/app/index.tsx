@@ -6,12 +6,12 @@ import { ChatHeader } from '@/components/ChatHeader';
 import { ChatList, type ChatWelcome } from '@/components/ChatList';
 import { CompactContextSheet } from '@/components/CompactContextSheet';
 import { ComposerSheet } from '@/components/ComposerSheet';
-import { ConnectingView } from '@/components/ConnectingView';
+import { ConnectionBanner } from '@/components/ConnectionBanner';
+import { ConnectionSheet } from '@/components/ConnectionSheet';
 import { GoalSheet } from '@/components/GoalSheet';
 import { Onboarding } from '@/components/Onboarding';
-import { ReconnectScreen } from '@/components/ReconnectScreen';
-import { SplashScreen } from '@/components/SplashScreen';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
+import { buildConnectionState } from '@/connectionState';
 import { useHistoryLoading } from '@/hooks/useHistoryLoading';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
@@ -23,20 +23,24 @@ import { buildWorkspaceMenuSections } from '@/navigation';
 import { shouldShowPendingActionsSheet } from '@/chatOverlayState';
 import { textOf } from '@/utils/record';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Keyboard, PanResponder, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function HomeScreen() {
   const store = useGatewayStore();
-  // Splash while reading the persisted gateway; reconnect splash for an
-  // already-paired device; onboarding only when there's nothing stored.
-  if (store.pairing.hydrating) return <SplashScreen />;
-  // A paired device reconnects through ReconnectScreen — it spins, then offers a
-  // way to re-pair if the stored gateway is stale (so we never strand the user
-  // on "Connecting to your Mac…" with no escape). Onboarding only when nothing
-  // is stored.
-  if (!store.pairing.transportReady) return store.pairing.token ? <ReconnectScreen pairing={store.pairing} /> : <Onboarding />;
+  // No blocking gateway loader. A neutral backdrop only while the persisted
+  // gateway is read from storage (sub-second); onboarding when nothing is
+  // stored; otherwise the full shell — connected or not. Connection state is
+  // shown inline inside the shell, never as a screen that traps the user.
+  if (store.pairing.hydrating) return <Backdrop />;
+  if (!store.pairing.token) return <Onboarding />;
   return <Chat />;
+}
+
+function Backdrop() {
+  const { colors } = useTheme();
+  return <View style={sx('flex-1', { backgroundColor: colors.appBg })} />;
 }
 
 function Chat() {
@@ -48,10 +52,13 @@ function Chat() {
     composer,
     goals,
     modelSelector,
+    pairing,
     permissions,
     session,
     sessions,
   } = useGatewayStore();
+  const router = useRouter();
+  const [connectionSheetOpen, setConnectionSheetOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
@@ -124,35 +131,49 @@ function Chat() {
     () => (session.connected && !session.readOnly ? { title: 'Hey, moxxy is here', subtitle: 'Ask anything, automate a workflow, or pick up a past chat from the menu.' } : null),
     [session.connected, session.readOnly],
   );
+  // Single source of truth for how the shell presents the connection. Drives the
+  // header status, and (when the bridge is down) the inline banner — never a
+  // full-screen loader.
+  const connection = buildConnectionState({
+    hasToken: Boolean(pairing.token),
+    transportReady: pairing.transportReady,
+    sessionConnected: session.connected,
+    readOnly: session.readOnly,
+    error: pairing.error,
+  });
 
   return (
     <View style={sx('flex-1', { backgroundColor: colors.appBg })}>
       <SafeAreaView style={sx('flex-1')} edges={['top']}>
         <ChatHeader
           title={chatTitle}
-          subtitle={session.connected ? workspaceName : 'Connecting…'}
-          connected={session.connected}
+          subtitle={connection.online ? workspaceName : connection.headerLabel}
+          connected={connection.online}
           pendingActions={pendingActions}
           onMenu={() => { Keyboard.dismiss(); chrome.toggleMenu(); }}
           onRename={openRename}
           renameDisabled={!canEditSession}
+          onStatusPress={() => { Keyboard.dismiss(); setConnectionSheetOpen(true); }}
         />
 
-        {session.connected ? (
-          <ChatList
-            items={chat.items}
-            sending={chat.sending}
-            hasOlder={chat.hasOlder}
-            welcome={welcome}
-            loading={historyLoading}
-            bottomInset={composerBottom + 72 + (composer.attachments.length > 0 ? 66 : 0)}
-            onLoadOlder={chat.loadOlder}
-            copiedMessageId={messageCopy.copiedMessageId}
-            onCopyMessage={messageCopy.copyMessage}
-          />
-        ) : (
-          <ConnectingView workspaceName={workspaceName} />
-        )}
+        <ChatList
+          items={chat.items}
+          sending={chat.sending}
+          hasOlder={chat.hasOlder}
+          welcome={welcome}
+          loading={historyLoading}
+          bottomInset={composerBottom + 72 + (composer.attachments.length > 0 ? 66 : 0)}
+          connectionBanner={connection.showBanner ? (
+            <ConnectionBanner
+              banner={connection.banner}
+              onReconnect={pairing.reconnect}
+              onOpenSettings={() => setConnectionSheetOpen(true)}
+            />
+          ) : undefined}
+          onLoadOlder={chat.loadOlder}
+          copiedMessageId={messageCopy.copiedMessageId}
+          onCopyMessage={messageCopy.copyMessage}
+        />
 
         {showPendingActionsSheet ? (
           <View style={overlayStyle}>
@@ -190,6 +211,13 @@ function Chat() {
         <View {...edgePan.panHandlers} style={{ bottom: 0, left: 0, position: 'absolute', top: 0, width: 24, zIndex: 20 }} />
       </SafeAreaView>
 
+      <ConnectionSheet
+        open={connectionSheetOpen}
+        onClose={() => setConnectionSheetOpen(false)}
+        state={connection}
+        pairing={pairing}
+        onOpenSettings={() => router.push('/account')}
+      />
       <RenameSessionSheet open={renameOpen} value={renameDraft} error={renameError} saving={renameSaving} onChange={setRenameDraft} onCancel={() => setRenameOpen(false)} onSubmit={submitRename} />
       <CompactContextSheet open={compact.confirmOpen} compacting={chat.compacting} onCancel={compact.cancelCompact} onConfirm={compact.confirmCompact} />
       <GoalSheet open={goals.open} objective={goals.objective} canStart={goals.canStart} onObjectiveChange={goals.setObjective} onStart={goals.startGoal} onClose={() => goals.setOpen(false)} />

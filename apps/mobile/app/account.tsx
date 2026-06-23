@@ -13,8 +13,10 @@ export default function AccountScreen() {
   const router = useRouter();
   const { session, pairing, autoApprove, socketStatus, gatewayConnected } = useGatewayStore();
   const qrScanner = useQrScanner(pairing.pairFromQrPayload);
-  const paired = pairing.transportReady;
-  const subtitle = gatewayConnected ? 'Connected to your gateway' : paired ? 'Reconnecting…' : 'Not paired yet';
+  // "Paired" = a gateway is stored, even if currently offline. (transportReady
+  // means *connected*, which is a different thing.)
+  const hasToken = Boolean(pairing.token);
+  const subtitle = gatewayConnected ? 'Connected to your gateway' : hasToken ? 'Reconnecting…' : 'Not paired yet';
 
   return (
     <View style={sx('flex-1', { backgroundColor: colors.appBg })}>
@@ -38,7 +40,7 @@ export default function AccountScreen() {
         <Card>
           <View style={sx('flex-row items-center justify-between', { gap: 12, marginBottom: 14 })}>
             <Text style={sx('text-[15px] font-bold text-text')}>Gateway</Text>
-            <Pill label={gatewayConnected ? 'Connected' : 'Not paired'} tone={gatewayConnected ? 'success' : 'warn'} />
+            <Pill label={gatewayConnected ? 'Connected' : hasToken ? 'Offline' : 'Not paired'} tone={gatewayConnected ? 'success' : hasToken ? 'danger' : 'warn'} />
           </View>
           <ListRow icon="gateway" iconTone={gatewayConnected ? 'success' : 'neutral'} title="Gateway URL" subtitle={pairing.gatewayUrl || '—'} showChevron={false} />
           {pairing.error ? (
@@ -47,8 +49,9 @@ export default function AccountScreen() {
             </View>
           ) : null}
           <View style={sx({ gap: 10, marginTop: 16 })}>
-            <Button label={paired ? 'Re-pair' : 'Scan QR code'} variant={paired ? 'secondary' : 'primary'} icon="camera" onPress={() => void qrScanner.openScanner()} />
-            {paired ? <Button label="Disconnect" variant="danger" icon="power" onPress={() => pairing.disconnect()} /> : null}
+            {hasToken && !gatewayConnected ? <Button label="Reconnect" icon="refresh" onPress={() => pairing.reconnect()} /> : null}
+            <Button label={hasToken ? 'Re-pair' : 'Scan QR code'} variant={hasToken ? 'secondary' : 'primary'} icon="camera" onPress={() => void qrScanner.openScanner()} />
+            {hasToken ? <Button label="Disconnect" variant="danger" icon="power" onPress={() => pairing.disconnect()} /> : null}
           </View>
         </Card>
 
