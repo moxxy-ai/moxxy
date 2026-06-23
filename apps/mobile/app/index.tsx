@@ -11,7 +11,6 @@ import { GoalSheet } from '@/components/GoalSheet';
 import { Onboarding } from '@/components/Onboarding';
 import { SplashScreen } from '@/components/SplashScreen';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
-import { buildGoalSheetPlacement } from '@/goalSheetLayout';
 import { useHistoryLoading } from '@/hooks/useHistoryLoading';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
@@ -72,7 +71,6 @@ function Chat() {
   const historyLoading = useHistoryLoading(sessions.activeWorkspaceId, chat.items.length, activeEventCount);
   const sessionActions = useSessionActions({ workspaceId: sessions.activeWorkspaceId, readOnly: session.readOnly || !session.connected, onRunCommand: composer.runCommand });
   const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
-  const goalPlacement = buildGoalSheetPlacement({ screenHeight, topSafeArea: safeArea.top, keyboardHeight });
   const overlayBottom = (keyboardHeight > 0 ? keyboardHeight : safeArea.bottom) + 150;
   const overlayStyle = { bottom: overlayBottom, left: 12, maxHeight: screenHeight * 0.5, position: 'absolute' as const, right: 12, zIndex: 40 };
   const showPendingActionsSheet = shouldShowPendingActionsSheet({
@@ -142,7 +140,7 @@ function Chat() {
             hasOlder={chat.hasOlder}
             welcome={welcome}
             loading={historyLoading}
-            bottomInset={composerBottom + 72}
+            bottomInset={composerBottom + 72 + (composer.attachments.length > 0 ? 66 : 0)}
             onLoadOlder={chat.loadOlder}
             copiedMessageId={messageCopy.copiedMessageId}
             onCopyMessage={messageCopy.copyMessage}
@@ -154,11 +152,6 @@ function Chat() {
         {showPendingActionsSheet ? (
           <View style={overlayStyle}>
             <AskSheet asks={permissions.pendingAsks} permissions={permissions.pendingPermissions} maxHeight={screenHeight * 0.5} onAskResponse={permissions.respondAsk} onPermissionDecision={permissions.decidePermission} />
-          </View>
-        ) : null}
-        {goals.open ? (
-          <View style={{ left: 12, maxHeight: goalPlacement.maxHeight, position: 'absolute', right: 12, top: goalPlacement.top, zIndex: 40 }}>
-            <GoalSheet objective={goals.objective} canStart={goals.canStart} maxHeight={goalPlacement.maxHeight} inputMaxHeight={goalPlacement.inputMaxHeight} onObjectiveChange={goals.setObjective} onStart={goals.startGoal} onClose={() => goals.setOpen(false)} />
           </View>
         ) : null}
         {/* Composer floats over the transcript so content scrolls under the
@@ -176,8 +169,10 @@ function Chat() {
             readOnly={session.readOnly}
             voicePhase={composer.voicePhase}
             voiceError={composer.voiceError}
-            attachmentCount={composer.attachments.length}
+            attachments={composer.attachments}
+            attachmentError={composer.attachmentError}
             accentBorder={autoApprove.enabled ? colors.primary : modelSelector.modeUi.modeRows.find((m) => m.active)?.id === 'goal' ? colors.amber : undefined}
+            onRemoveAttachment={composer.removeAttachment}
             onTextChange={composer.setText}
             onSubmit={composer.submit}
             onAbort={composer.abort}
@@ -192,6 +187,7 @@ function Chat() {
 
       <RenameSessionSheet open={renameOpen} value={renameDraft} error={renameError} saving={renameSaving} onChange={setRenameDraft} onCancel={() => setRenameOpen(false)} onSubmit={submitRename} />
       <CompactContextSheet open={compact.confirmOpen} compacting={chat.compacting} onCancel={compact.cancelCompact} onConfirm={compact.confirmCompact} />
+      <GoalSheet open={goals.open} objective={goals.objective} canStart={goals.canStart} onObjectiveChange={goals.setObjective} onStart={goals.startGoal} onClose={() => goals.setOpen(false)} />
 
       <ComposerSheet
         open={optionsOpen}
