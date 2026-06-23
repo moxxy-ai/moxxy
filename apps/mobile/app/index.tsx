@@ -224,6 +224,10 @@ function Chat() {
         onSelectSession={sessions.selectWorkspace}
         onNewSession={sessions.newSession}
         onClose={chrome.closeMenu}
+        onRenameSession={sessions.renameSession}
+        onRemoveSession={sessions.removeSession}
+        onRenameWorkspace={sessions.renameWorkspace}
+        onRemoveWorkspace={sessions.removeWorkspace}
       />
     </View>
   );

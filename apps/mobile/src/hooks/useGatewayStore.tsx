@@ -328,7 +328,12 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   ]);
 
   const session = useSessionSnapshot(state);
-  const sessions = useSessions(state, sendFrame, { renameSession: coreDesks.renameSession });
+  const sessions = useSessions(state, sendFrame, {
+    renameSession: coreDesks.renameSession,
+    removeSession: coreDesks.removeSession,
+    renameWorkspace: coreDesks.rename,
+    removeWorkspace: coreDesks.remove,
+  });
   const permissions = usePermissions(state, sendFrame);
   const chatTranscript = useChatTranscript(state);
   const compact = useCompactContext({

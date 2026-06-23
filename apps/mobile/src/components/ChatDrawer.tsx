@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Alert, Animated, PanResponder, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -8,8 +8,14 @@ import { useMobileMenuSearch } from '../hooks/useMobileMenuSearch';
 import { useWorkspaceCollapse } from '../hooks/useWorkspaceCollapse';
 import { buildWorkspaceSessionTreeState } from '../workspaceSessionTreeUi';
 import type { WorkspaceMenuSection } from '../navigation';
-import { Glass } from '@/ui/kit';
+import { BottomSheet, Button, Glass, SheetGroup, SheetRow } from '@/ui/kit';
 import { MobileIcon, type MobileIconName } from './MobileIcon';
+
+interface MenuTarget {
+  readonly kind: 'session' | 'workspace';
+  readonly id: string;
+  readonly name: string;
+}
 
 interface ChatDrawerProps {
   readonly open: boolean;
@@ -18,9 +24,13 @@ interface ChatDrawerProps {
   readonly onSelectSession: (id: string) => void;
   readonly onNewSession: (workspaceId?: string) => void;
   readonly onClose: () => void;
+  readonly onRenameSession: (id: string, name: string) => Promise<void> | void;
+  readonly onRemoveSession: (id: string) => Promise<void> | void;
+  readonly onRenameWorkspace: (id: string, name: string) => Promise<void> | void;
+  readonly onRemoveWorkspace: (id: string) => Promise<void> | void;
 }
 
-export function ChatDrawer({ open, connected, workspaceSections, onSelectSession, onNewSession, onClose }: ChatDrawerProps) {
+export function ChatDrawer({ open, connected, workspaceSections, onSelectSession, onNewSession, onClose, onRenameSession, onRemoveSession, onRenameWorkspace, onRemoveWorkspace }: ChatDrawerProps) {
   const { colors } = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -28,6 +38,9 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
   const closedX = -(panelWidth + 24);
   const tx = useRef(new Animated.Value(open ? 0 : closedX)).current;
   const [rendered, setRendered] = useState(open);
+  const [menu, setMenu] = useState<MenuTarget | null>(null);
+  const [renameTarget, setRenameTarget] = useState<MenuTarget | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
   const search = useMobileMenuSearch(workspaceSections);
   // Expand only the workspace that holds the active session; collapse the rest.
   const collapse = useWorkspaceCollapse(workspaceSections, 1);
@@ -35,6 +48,32 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
   panelWidthRef.current = panelWidth;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  const confirmDelete = (target: MenuTarget) => {
+    const isWorkspace = target.kind === 'workspace';
+    Alert.alert(
+      isWorkspace ? 'Delete workspace?' : 'Delete chat?',
+      isWorkspace ? `"${target.name}" and its chats will be removed.` : `"${target.name}" will be removed.`,
+      [
+        { style: 'cancel', text: 'Cancel' },
+        {
+          style: 'destructive',
+          text: 'Delete',
+          onPress: () => {
+            if (isWorkspace) void onRemoveWorkspace(target.id);
+            else void onRemoveSession(target.id);
+          },
+        },
+      ],
+    );
+  };
+  const submitRename = () => {
+    const name = renameDraft.trim();
+    if (!renameTarget || !name) return;
+    if (renameTarget.kind === 'workspace') void onRenameWorkspace(renameTarget.id, name);
+    else void onRenameSession(renameTarget.id, name);
+    setRenameTarget(null);
+  };
 
   useEffect(() => {
     if (open) {
@@ -127,6 +166,8 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
                         accessibilityLabel={section.toggleAccessibilityLabel}
                         accessibilityState={{ expanded: section.expanded }}
                         onPress={() => collapse.toggleWorkspace(section.id)}
+                        onLongPress={() => setMenu({ id: section.id, kind: 'workspace', name: section.title })}
+                        delayLongPress={300}
                         style={({ pressed }) => sx('flex-1 flex-row items-center rounded-card px-2', { backgroundColor: pressed ? colors.sidebarBgHover : 'transparent', gap: 8, minHeight: 44 })}
                       >
                         <MobileIcon name={section.expanded ? 'chevronDown' : 'chevronRight'} size={18} strokeWidth={2.6} color={section.expanded ? colors.primary : colors.sidebarTextDim} />
@@ -151,6 +192,8 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
                             accessibilityRole="button"
                             accessibilityLabel={s.accessibilityLabel}
                             onPress={() => { onSelectSession(s.id); onClose(); }}
+                            onLongPress={() => setMenu({ id: s.id, kind: 'session', name: s.title })}
+                            delayLongPress={300}
                             style={({ pressed }) => sx('flex-row items-center rounded-card px-3', { backgroundColor: s.active ? colors.sidebarBgActive : pressed ? colors.sidebarBgHover : 'transparent', gap: 8, minHeight: 42, paddingLeft: 12 })}
                           >
                             <Text style={sx(`flex-1 text-[14px] ${s.active ? 'font-bold' : 'font-medium'} text-sidebarText`)} numberOfLines={1}>{s.title}</Text>
@@ -175,6 +218,55 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
           </SafeAreaView>
         </Glass>
       </Animated.View>
+
+      <BottomSheet open={menu !== null} onClose={() => setMenu(null)} title={menu?.kind === 'workspace' ? 'Workspace' : 'Chat'}>
+        <View style={{ paddingBottom: 8, paddingHorizontal: 16 }}>
+          <SheetGroup>
+            <SheetRow
+              icon="edit"
+              iconTone="brand"
+              label={menu?.kind === 'workspace' ? 'Rename workspace' : 'Rename chat'}
+              onPress={() => {
+                if (menu) {
+                  setRenameDraft(menu.name);
+                  setRenameTarget(menu);
+                }
+                setMenu(null);
+              }}
+            />
+            <SheetRow
+              icon="trash"
+              iconTone="danger"
+              label={menu?.kind === 'workspace' ? 'Delete workspace' : 'Delete chat'}
+              accent={colors.red}
+              divider
+              onPress={() => {
+                const target = menu;
+                setMenu(null);
+                if (target) confirmDelete(target);
+              }}
+            />
+          </SheetGroup>
+        </View>
+      </BottomSheet>
+
+      <BottomSheet open={renameTarget !== null} onClose={() => setRenameTarget(null)} title={renameTarget?.kind === 'workspace' ? 'Rename workspace' : 'Rename chat'} avoidKeyboard>
+        <View style={{ gap: 14, paddingBottom: 8, paddingHorizontal: 16 }}>
+          <TextInput
+            accessibilityLabel="Name"
+            value={renameDraft}
+            onChangeText={setRenameDraft}
+            placeholder="Name"
+            placeholderTextColor={colors.textDim}
+            autoCapitalize="sentences"
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={submitRename}
+            style={sx('rounded-2xl px-4 text-[16px] font-semibold text-text', { backgroundColor: colors.inputSoft, borderColor: colors.cardBorder, borderWidth: 1, minHeight: 50 })}
+          />
+          <Button label="Save" onPress={submitRename} />
+        </View>
+      </BottomSheet>
     </View>
   );
 }
