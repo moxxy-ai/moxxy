@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Switch, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
 import type { ModelSelectorUiState } from '../modelSelector';
 import type { ModeSelectorUiState } from '../modeSelector';
 import type { MobileSessionActionRow } from '../sessionActions';
-import { BottomSheet, Button, SheetGroup, SheetRow } from '@/ui/kit';
+import { BottomSheet, Button, SheetGroup, SheetRow, Toggle } from '@/ui/kit';
 import { MobileIcon } from './MobileIcon';
 
 type Page = 'main' | 'model' | 'mode' | 'actions';
@@ -64,6 +64,13 @@ export function ComposerSheet(props: ComposerSheetProps) {
     close();
     fn();
   };
+  // The image/file pickers present a native UI; iOS drops the presentation if
+  // it fires while this sheet's Modal is still dismissing, so defer past the
+  // close animation.
+  const runDeferred = (fn: () => void) => () => {
+    close();
+    setTimeout(fn, 380);
+  };
   const goActions = () => {
     props.actions.load();
     setPage('actions');
@@ -93,8 +100,8 @@ export function ComposerSheet(props: ComposerSheetProps) {
       {page === 'main' ? (
         <ScrollView style={{ maxHeight: pageHeight }} contentContainerStyle={{ gap: 14, paddingBottom: 8, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
           <SheetGroup>
-            <SheetRow icon="camera" iconTone="brand" label="Photo or screenshot" chevron onPress={run(props.onPickImage)} />
-            <SheetRow icon="folder" iconTone="info" label="File from phone" chevron divider onPress={run(props.onPickFile)} />
+            <SheetRow icon="camera" iconTone="brand" label="Photo or screenshot" chevron onPress={runDeferred(props.onPickImage)} />
+            <SheetRow icon="folder" iconTone="info" label="File from phone" chevron divider onPress={runDeferred(props.onPickFile)} />
           </SheetGroup>
           <SheetGroup>
             <SheetRow icon="agent" iconTone="brand" label="Model" value={props.modelUi.chipLabel} chevron disabled={props.modelUi.disabled} onPress={() => setPage('model')} />
@@ -108,15 +115,8 @@ export function ComposerSheet(props: ComposerSheetProps) {
               iconTone={props.autoApprove ? 'success' : 'neutral'}
               label="Auto-approve tool calls"
               divider
-              trailing={
-                <Switch
-                  value={props.autoApprove}
-                  onValueChange={props.onToggleAutoApprove}
-                  trackColor={{ false: colors.cardBorderStrong, true: colors.primary }}
-                  thumbColor={colors.white}
-                  ios_backgroundColor={colors.inputSoft}
-                />
-              }
+              onPress={props.onToggleAutoApprove}
+              trailing={<Toggle value={props.autoApprove} onValueChange={props.onToggleAutoApprove} />}
             />
             <SheetRow icon="refresh" iconTone="neutral" label="Compact context" chevron divider onPress={run(props.onCompact)} />
             <SheetRow icon="plus" iconTone="neutral" label="New chat" chevron divider onPress={run(props.onNewSession)} />

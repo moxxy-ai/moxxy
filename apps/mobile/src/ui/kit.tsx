@@ -44,17 +44,19 @@ export function BottomSheet({
   const progress = useRef(new Animated.Value(0)).current;
   const heightRef = useRef(360);
 
+  // translateY runs on the JS driver so the grabber pan can `setValue` it live
+  // and track the finger; opacity stays on the native driver.
   useEffect(() => {
     if (open) {
       setRendered(true);
       translateY.setValue(heightRef.current);
       Animated.parallel([
-        Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 14, useNativeDriver: true }),
+        Animated.spring(translateY, { toValue: 0, bounciness: 3, speed: 14, useNativeDriver: false }),
         Animated.timing(progress, { toValue: 1, duration: 200, useNativeDriver: true }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(translateY, { toValue: heightRef.current, duration: 200, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: heightRef.current, duration: 200, useNativeDriver: false }),
         Animated.timing(progress, { toValue: 0, duration: 180, useNativeDriver: true }),
       ]).start(({ finished }) => {
         if (finished) setRendered(false);
@@ -64,13 +66,14 @@ export function BottomSheet({
 
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 3,
       onPanResponderMove: (_e, g) => {
-        if (g.dy > 0) translateY.setValue(g.dy);
+        translateY.setValue(Math.max(0, g.dy));
       },
       onPanResponderRelease: (_e, g) => {
         if (g.dy > 90 || g.vy > 0.6) onClose();
-        else Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 16, useNativeDriver: true }).start();
+        else Animated.spring(translateY, { toValue: 0, bounciness: 4, speed: 16, useNativeDriver: false }).start();
       },
     }),
   ).current;
@@ -93,8 +96,8 @@ export function BottomSheet({
         <Animated.View onLayout={onLayout} style={{ transform: [{ translateY }] }}>
           <Glass radius={28} intensity={80} heavy>
             <SafeAreaView edges={['bottom']}>
-              <View {...pan.panHandlers} style={sx('items-center', { paddingBottom: 6, paddingTop: 10 })}>
-                <View style={sx('rounded-full', { backgroundColor: colors.textDim, height: 5, opacity: 0.5, width: 40 })} />
+              <View {...pan.panHandlers} style={sx('items-center', { paddingBottom: 10, paddingTop: 12 })}>
+                <View style={sx('rounded-full', { backgroundColor: colors.textDim, height: 5, opacity: 0.6, width: 44 })} />
               </View>
               {title ? <Text style={sx('px-5 pb-2 text-[13px] font-black uppercase tracking-wide text-dim')}>{title}</Text> : null}
               <View>{children}</View>
@@ -198,6 +201,46 @@ export function SheetRow({
   );
 }
 
+/** A glassmorphism (iOS-26 style) on/off toggle — a frosted blur track that
+ *  fills with the brand tint when on, and a floating frosted thumb. Sized and
+ *  centered predictably (the native iOS Switch breaks vertical centering). */
+export function Toggle({ value, onValueChange, disabled = false }: { readonly value: boolean; readonly onValueChange: (value: boolean) => void; readonly disabled?: boolean }) {
+  const { colors } = useTheme();
+  const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.timing(anim, { toValue: value ? 1 : 0, duration: 180, useNativeDriver: true }).start();
+  }, [value, anim]);
+  const translateX = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 22] });
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
+      hitSlop={6}
+      onPress={() => onValueChange(!value)}
+      style={{ opacity: disabled ? 0.5 : 1 }}
+    >
+      <Glass radius={15} intensity={24} style={{ borderColor: colors.glassBorder, borderWidth: 1, height: 30, justifyContent: 'center', overflow: 'hidden', width: 52 }}>
+        <Animated.View pointerEvents="none" style={[StyleSheetAbsoluteFill, { backgroundColor: colors.primary, borderRadius: 15, opacity: anim }]} />
+        <Animated.View style={[{ left: 3, position: 'absolute' }, { transform: [{ translateX }] }]}>
+          <View
+            style={sx('rounded-full', {
+              backgroundColor: colors.white,
+              elevation: 3,
+              height: 24,
+              shadowColor: '#000',
+              shadowOffset: { height: 1, width: 0 },
+              shadowOpacity: 0.25,
+              shadowRadius: 2.5,
+              width: 24,
+            })}
+          />
+        </Animated.View>
+      </Glass>
+    </Pressable>
+  );
+}
+
 /* ------------------------------------------------------------------- Glass */
 
 /** iOS-26 "liquid glass" material — a translucent blur with a hairline light
@@ -209,12 +252,16 @@ export function Glass({
   radius = 0,
   intensity = 60,
   heavy = false,
+  borderColor,
+  borderWidth = 1,
 }: {
   readonly children?: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
   readonly radius?: number;
   readonly intensity?: number;
   readonly heavy?: boolean;
+  readonly borderColor?: string;
+  readonly borderWidth?: number;
 }) {
   const { colors, scheme } = useTheme();
   return (
@@ -226,7 +273,7 @@ export function Glass({
     >
       <View
         style={[
-          { backgroundColor: heavy ? colors.glassHeavy : colors.glassFill, borderColor: colors.glassBorder, borderRadius: radius, borderWidth: 1 },
+          { backgroundColor: heavy ? colors.glassHeavy : colors.glassFill, borderColor: borderColor ?? colors.glassBorder, borderRadius: radius, borderWidth },
           StyleSheetAbsoluteFill,
         ]}
         pointerEvents="none"

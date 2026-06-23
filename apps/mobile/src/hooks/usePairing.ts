@@ -22,6 +22,9 @@ export interface PairingState {
   readonly token: string | null;
   readonly code: string;
   readonly loading: boolean;
+  /** True while the persisted gateway (token/url/fingerprint) is still being
+   *  read from storage — show a splash instead of flashing onboarding. */
+  readonly hydrating: boolean;
   readonly error: string | null;
   readonly transportReady: boolean;
   readonly setGatewayUrl: (value: string) => void;
@@ -233,6 +236,7 @@ export function usePairing(): PairingState {
     token,
     code,
     loading: tokenLoading || urlLoading,
+    hydrating: tokenLoading || urlLoading || fingerprintLoading,
     error,
     transportReady,
     setGatewayUrl,

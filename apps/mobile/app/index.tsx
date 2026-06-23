@@ -9,6 +9,7 @@ import { ComposerSheet } from '@/components/ComposerSheet';
 import { ConnectingView } from '@/components/ConnectingView';
 import { GoalSheet } from '@/components/GoalSheet';
 import { Onboarding } from '@/components/Onboarding';
+import { SplashScreen } from '@/components/SplashScreen';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
 import { buildGoalSheetPlacement } from '@/goalSheetLayout';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
@@ -26,7 +27,10 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function HomeScreen() {
   const store = useGatewayStore();
-  if (!store.pairing.transportReady) return <Onboarding />;
+  // Splash while reading the persisted gateway; reconnect splash for an
+  // already-paired device; onboarding only when there's nothing stored.
+  if (store.pairing.hydrating) return <SplashScreen />;
+  if (!store.pairing.transportReady) return store.pairing.token ? <SplashScreen label="Connecting to your Mac…" /> : <Onboarding />;
   return <Chat />;
 }
 
@@ -162,6 +166,7 @@ function Chat() {
             voiceError={composer.voiceError}
             attachmentCount={composer.attachments.length}
             hidden={composerHidden}
+            accentBorder={autoApprove.enabled ? colors.primary : modelSelector.modeUi.modeRows.find((m) => m.active)?.id === 'goal' ? colors.amber : undefined}
             onChangeHidden={setComposerHidden}
             onTextChange={composer.setText}
             onSubmit={composer.submit}

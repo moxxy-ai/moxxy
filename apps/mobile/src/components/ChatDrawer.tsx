@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Animated, PanResponder, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -25,19 +25,42 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
   const router = useRouter();
   const { width } = useWindowDimensions();
   const panelWidth = Math.min(370, Math.round(width * 0.9));
-  const progress = useRef(new Animated.Value(open ? 1 : 0)).current;
+  const closedX = -(panelWidth + 24);
+  const tx = useRef(new Animated.Value(open ? 0 : closedX)).current;
   const [rendered, setRendered] = useState(open);
   const search = useMobileMenuSearch(workspaceSections);
   // Expand only the workspace that holds the active session; collapse the rest.
   const collapse = useWorkspaceCollapse(workspaceSections, 1);
+  const panelWidthRef = useRef(panelWidth);
+  panelWidthRef.current = panelWidth;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
-    if (open) setRendered(true);
-    Animated.timing(progress, { duration: open ? 220 : 160, toValue: open ? 1 : 0, useNativeDriver: true }).start(({ finished }) => {
-      if (finished && !open) setRendered(false);
-    });
+    if (open) {
+      setRendered(true);
+      Animated.spring(tx, { bounciness: 2, speed: 16, toValue: 0, useNativeDriver: false }).start();
+    } else {
+      Animated.timing(tx, { duration: 200, toValue: -(panelWidthRef.current + 24), useNativeDriver: false }).start(({ finished }) => {
+        if (finished) setRendered(false);
+      });
+    }
     if (!open) search.close();
-  }, [open, progress]);
+  }, [open, tx]);
+
+  // Drag the panel left to close, tracking the finger.
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => g.dx < -6 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderMove: (_e, g) => {
+        tx.setValue(Math.min(0, g.dx));
+      },
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx < -panelWidthRef.current * 0.33 || g.vx < -0.4) onCloseRef.current();
+        else Animated.spring(tx, { bounciness: 4, speed: 16, toValue: 0, useNativeDriver: false }).start();
+      },
+    }),
+  ).current;
 
   const searching = search.query.trim().length > 0;
   const collapsedIds = searching ? [] : collapse.collapsedWorkspaceIds;
@@ -47,7 +70,7 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
   );
 
   if (!rendered) return null;
-  const translateX = progress.interpolate({ inputRange: [0, 1], outputRange: [-panelWidth - 24, 0] });
+  const scrimOpacity = tx.interpolate({ inputRange: [closedX, 0], outputRange: [0, 1] });
 
   const go = (path: '/apps' | '/account') => () => {
     onClose();
@@ -56,11 +79,11 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
 
   return (
     <View style={sx('absolute z-50', { bottom: 0, left: 0, right: 0, top: 0 })}>
-      <Animated.View style={[sx('absolute', { bottom: 0, left: 0, right: 0, top: 0 }), { opacity: progress }]}>
+      <Animated.View style={[sx('absolute', { bottom: 0, left: 0, right: 0, top: 0 }), { opacity: scrimOpacity }]}>
         <Pressable accessibilityLabel="Close menu" accessibilityRole="button" onPress={onClose} style={sx('flex-1', { backgroundColor: colors.overlay })} />
       </Animated.View>
 
-      <Animated.View style={[sx('absolute', { bottom: 0, left: 0, top: 0, width: panelWidth }), { transform: [{ translateX }] }]}>
+      <Animated.View {...pan.panHandlers} style={[sx('absolute', { bottom: 0, left: 0, top: 0, width: panelWidth }), { transform: [{ translateX: tx }] }]}>
         <Glass heavy intensity={80} style={sx('flex-1', { borderRightColor: colors.glassBorder, borderRightWidth: 1 })}>
           <SafeAreaView style={sx('flex-1')} edges={['top', 'bottom', 'left']}>
             <View style={sx('flex-row items-center justify-between px-3 pt-2', { gap: 8 })}>

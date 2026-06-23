@@ -27,6 +27,7 @@ interface ChatComposerProps {
   readonly voiceError: string | null;
   readonly attachmentCount: number;
   readonly hidden: boolean;
+  readonly accentBorder?: string;
   readonly onChangeHidden: (hidden: boolean) => void;
   readonly onTextChange: (value: string) => void;
   readonly onSubmit: () => void;
@@ -102,7 +103,7 @@ export function ChatComposer(props: ChatComposerProps) {
       </View>
 
       <Animated.View style={{ opacity: boxOpacity }} pointerEvents={props.hidden ? 'none' : 'auto'}>
-      <Glass radius={28} intensity={70}>
+      <Glass radius={28} intensity={70} borderColor={props.accentBorder} borderWidth={props.accentBorder ? 1.6 : 1}>
         {props.voiceError ? (
           <Text style={sx('px-4 pt-2 text-[12px] font-semibold text-red')}>{props.voiceError}</Text>
         ) : null}

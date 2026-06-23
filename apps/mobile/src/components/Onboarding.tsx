@@ -120,7 +120,7 @@ function OnboardingCarousel({ onDone }: { readonly onDone: () => void }) {
 
 const STEPS = [
   'Open Moxxy Desktop on your Mac.',
-  'Open the Mobile tab in the sidebar and enable the gateway.',
+  'Enable the gateway on Moxxy Desktop.',
   'Scan the QR code it shows.',
 ] as const;
 
