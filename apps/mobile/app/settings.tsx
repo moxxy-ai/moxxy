@@ -44,7 +44,6 @@ export default function SettingsScreen() {
           gatewayUrl={pairing.gatewayUrl}
           token={pairing.token}
           transportReady={pairing.transportReady}
-          code={pairing.code}
           loading={pairing.loading}
           error={pairing.error}
           autoApprove={autoApprove.enabled}
@@ -57,7 +56,6 @@ export default function SettingsScreen() {
           onGatewayUrlChange={pairing.setGatewayUrl}
           onScanQr={() => void qrScanner.openScanner()}
           onToggleManualPairing={() => setManualPairingOpen((open) => !open)}
-          onRefreshPairing={pairing.loadPairing}
           onPair={pairing.pair}
           onDisconnect={pairing.disconnect}
           onAutoApproveChange={autoApprove.setAutoApprove}

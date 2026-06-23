@@ -191,8 +191,26 @@ export function usePairing(): PairingState {
   }, [configureBridgeTransport, setStoredUrl, setToken]);
 
   const pair = useCallback(async () => {
-    await pairWithCode(gatewayUrl, code);
-  }, [code, gatewayUrl, pairWithCode]);
+    // Manual pairing is now a single step: paste the full ws:// / wss:// URL
+    // printed by Moxxy Desktop (it already carries the `?t=` token and, for
+    // wss://, the `?fp=` fingerprint). Extract the token from the URL and
+    // connect — no separate "refresh → code" hop.
+    setError(null);
+    try {
+      const split = splitConnectUrl(gatewayUrl);
+      if (!split.token) {
+        setGatewayUrlState(split.url);
+        setError('Paste the full ws:// or wss:// URL from Moxxy Desktop — it includes the access token (?t=…).');
+        return;
+      }
+      const target = resolveBridgePairingTarget(gatewayUrl);
+      setGatewayUrlState(target.url);
+      const paired = await pairWithCode(target.url, target.token, { awaitOpen: true }, target.fingerprint);
+      if (!paired) setError(GATEWAY_CONNECTION_FAILED_MESSAGE);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid Moxxy mobile bridge URL.');
+    }
+  }, [gatewayUrl, pairWithCode]);
 
   const pairFromQrPayload = useCallback(async (raw: string) => {
     setError(null);

@@ -1,6 +1,6 @@
 import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { CameraPermissionState } from '../pairingUi';
-import { buildPairingUiState, maskPairingCode } from '../pairingUi';
+import { buildPairingUiState } from '../pairingUi';
 import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
 import { Gradient } from './primitives/Gradient';
@@ -10,7 +10,6 @@ interface ConnectionSettingsProps {
   readonly gatewayUrl: string;
   readonly token: string | null;
   readonly transportReady: boolean;
-  readonly code: string;
   readonly loading: boolean;
   readonly error: string | null;
   readonly autoApprove: boolean;
@@ -23,14 +22,13 @@ interface ConnectionSettingsProps {
   readonly onGatewayUrlChange: (value: string) => void;
   readonly onScanQr: () => void;
   readonly onToggleManualPairing: () => void;
-  readonly onRefreshPairing: () => void;
   readonly onPair: () => void;
   readonly onDisconnect: () => void;
   readonly onAutoApproveChange: (value: boolean) => void;
 }
 
 export function ConnectionSettings(props: ConnectionSettingsProps) {
-  const canPair = props.code.length > 0 && !props.loading;
+  const canPair = props.gatewayUrl.trim().length > 0 && !props.loading;
   const socketConnected = props.socketStatus.toLowerCase() === 'connected';
   const pairingUi = buildPairingUiState({
     token: props.token,
@@ -94,41 +92,32 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
 
         {props.manualPairingOpen || pairingUi.manualPairingVisible ? (
           <View style={styles.manualStack}>
+            <Text style={styles.manualHint}>
+              Paste the full ws:// or wss:// URL from Moxxy Desktop — it already includes the access token.
+            </Text>
             <TextInput
               value={props.gatewayUrl}
               onChangeText={props.onGatewayUrlChange}
               autoCapitalize="none"
               autoCorrect={false}
               inputMode="url"
+              multiline
+              placeholder="wss://…?t=…"
               placeholderTextColor={mobileInk.faint}
               style={styles.input}
             />
-            <View style={styles.codeCard}>
-              <Text style={styles.codeEyebrow}>Pairing code</Text>
-              <Text style={styles.codeText}>{maskPairingCode(props.code)}</Text>
-            </View>
-            <View style={styles.buttonRow}>
-              <PressableScale
-                accessibilityLabel="Refresh pairing"
-                accessibilityRole="button"
-                scaleTo={0.97}
-                onPress={props.onRefreshPairing}
-                style={styles.rowButton}
-              >
-                <Text style={styles.rowButtonText}>Refresh pairing</Text>
-              </PressableScale>
-              <PressableScale
-                accessibilityLabel="Pair"
-                accessibilityRole="button"
-                disabled={!canPair}
-                scaleTo={0.97}
-                onPress={props.onPair}
-                style={[styles.rowButtonPrimary, !canPair ? styles.rowButtonDisabled : null]}
-              >
-                {canPair ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
-                <Text style={[styles.rowButtonPrimaryText, !canPair ? styles.disabledText : null]}>Pair</Text>
-              </PressableScale>
-            </View>
+            <PressableScale
+              accessibilityLabel="Pair gateway"
+              accessibilityRole="button"
+              disabled={!canPair}
+              scaleTo={0.97}
+              onPress={props.onPair}
+              style={[styles.pairButton, !canPair ? styles.pairButtonDisabled : null]}
+            >
+              {canPair ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
+              <MobileIcon name="gateway" size={18} strokeWidth={2.3} color={canPair ? '#ffffff' : mobileInk.faint} />
+              <Text style={[styles.pairButtonText, !canPair ? styles.disabledText : null]}>Pair gateway</Text>
+            </PressableScale>
           </View>
         ) : null}
 
@@ -210,10 +199,6 @@ function SettingRow({
 }
 
 const styles = StyleSheet.create({
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
   card: {
     backgroundColor: mobileGlass.card.fill,
     borderColor: mobileGlass.card.border,
@@ -244,28 +229,6 @@ const styles = StyleSheet.create({
     height: 28,
     justifyContent: 'center',
     width: 28,
-  },
-  codeCard: {
-    alignItems: 'center',
-    backgroundColor: '#fdf2f8',
-    borderColor: 'rgba(249,168,212,0.55)',
-    borderRadius: 18,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  codeEyebrow: {
-    color: '#db2777',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  codeText: {
-    color: '#db2777',
-    fontSize: 34,
-    fontWeight: '900',
-    marginTop: 4,
   },
   dangerButton: {
     alignItems: 'center',
@@ -302,43 +265,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: mobileInk.strong,
     fontSize: 14,
-    minHeight: 44,
+    lineHeight: 20,
+    minHeight: 64,
     paddingHorizontal: 12,
+    paddingVertical: 10,
+    textAlignVertical: 'top',
+  },
+  manualHint: {
+    color: mobileInk.soft,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 19,
   },
   manualStack: {
     gap: 12,
   },
-  rowButton: {
+  pairButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
     borderRadius: 14,
-    borderWidth: 1,
-    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: 50,
+    overflow: 'hidden',
   },
-  rowButtonDisabled: {
+  pairButtonDisabled: {
     backgroundColor: '#dfe4f0',
     opacity: 0.76,
   },
-  rowButtonPrimary: {
-    alignItems: 'center',
-    borderRadius: 14,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 44,
-    overflow: 'hidden',
-  },
-  rowButtonPrimaryText: {
+  pairButtonText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '900',
-  },
-  rowButtonText: {
-    color: mobileInk.muted,
-    fontSize: 13,
-    fontWeight: '800',
   },
   scanButton: {
     alignItems: 'center',
