@@ -13,35 +13,32 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 import type { RunnerPool } from '../runner-pool';
 import { cwdForSession, type DeskStore } from '../desks';
 import { broadcastHostEvent } from '../event-bus';
-import { withSessionTitles } from '../session-titles';
 import { handle } from './shared';
 
 export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void {
   // ---- Desks --------------------------------------------------------------
 
-  handle('desks.list', async () => {
-    const list = await desks.list();
-    const active = await desks.getActive();
-    // Auto-named sessions ("Session N") are displayed under their first
-    // prompt — derived here at list time, never written back (see
-    // ../session-titles).
-    return { desks: await withSessionTitles(list), activeId: active?.id ?? null };
-  });
+  // The registry derives the full session list (names, first prompts, …) from
+  // the per-session files, so handlers return it as-is — no list-time title pass.
+  handle('desks.list', async () => desks.overview());
   handle('desks.create', async ({ name, cwd }) => {
     const created = await desks.create({ name, cwd });
     await broadcastDesksChanged(desks);
     return created;
   });
   handle('desks.remove', async ({ id }) => {
-    // The pool is keyed by SESSION id (a desk can hold several), so tear down
-    // every one of the removed desk's session runners — not just one entry.
-    const removed = await desks.remove(id);
-    for (const session of removed?.sessions ?? []) {
+    // Tear down every one of the desk's session runners BEFORE the registry
+    // erases their files — a dying runner must not re-write a file we just
+    // deleted (single-source: erasing the file IS the deletion, and it is what
+    // makes the removal stick across a restart). The pool is keyed by SESSION id.
+    const overview = await desks.listSessions(id);
+    for (const session of overview.sessions) {
       await pool.remove(session.id);
     }
     // Defensive: also drop a pool entry keyed by the bare desk id (the
     // pre-multi-session key; normally identical to the first session's id).
     await pool.remove(id);
+    await desks.remove(id);
     const active = await desks.getActive();
     if (active?.activeSessionId) {
       await pool.getOrCreate(active.activeSessionId, cwdForSession(active, active.activeSessionId));
@@ -81,10 +78,5 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
 }
 
 async function broadcastDesksChanged(desks: DeskStore): Promise<void> {
-  const list = await desks.list();
-  const active = await desks.getActive();
-  broadcastHostEvent('desks.changed', {
-    desks: await withSessionTitles(list),
-    activeId: active?.id ?? null,
-  });
+  broadcastHostEvent('desks.changed', await desks.overview());
 }

@@ -1,810 +1,265 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   cwdForSession,
   MOXXY_WORKSPACE_ID,
   WorkspaceRegistry,
-  syncSessionIndexIntoRegistry,
   type WorkspaceSessionSource,
 } from './index';
 
-let tmp: string;
-let registryPath: string;
+let home: string;
+let sessionsDir: string;
+let originalHome: string | undefined;
 
 beforeEach(() => {
-  tmp = mkdtempSync(path.join(os.tmpdir(), 'workspace-registry-'));
-  registryPath = path.join(tmp, 'desks.json');
+  home = mkdtempSync(path.join(os.tmpdir(), 'wsreg-'));
+  sessionsDir = path.join(home, 'sessions');
+  mkdirSync(sessionsDir, { recursive: true });
+  originalHome = process.env.MOXXY_HOME;
+  process.env.MOXXY_HOME = home;
 });
 
-function meta(input: {
+afterEach(() => {
+  if (originalHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = originalHome;
+  rmSync(home, { recursive: true, force: true });
+});
+
+/** Write a session's single metadata file (`<id>.json`) + its event log. */
+function writeSession(input: {
   id: string;
   cwd: string;
-  firstPrompt?: string | null;
-  eventCount?: number;
   source?: WorkspaceSessionSource;
-}) {
-  return {
+  groupId?: string | null;
+  title?: string | null;
+  firstPrompt?: string | null;
+  startedAt?: string;
+  realizeCwd?: boolean;
+}): void {
+  const startedAt = input.startedAt ?? '2026-06-23T10:00:00.000Z';
+  // cli/tui sessions only surface when their cwd exists on disk, so realize it
+  // (unless a test is exercising the missing-cwd path).
+  if (input.realizeCwd !== false) mkdirSync(input.cwd, { recursive: true });
+  const meta = {
+    version: 1,
     id: input.id,
     cwd: input.cwd,
-    startedAt: '2026-06-12T10:00:00.000Z',
-    lastActivity: '2026-06-12T10:05:00.000Z',
-    eventCount: input.eventCount ?? 0,
+    startedAt,
+    lastActivity: startedAt,
+    eventCount: input.firstPrompt ? 1 : 0,
     firstPrompt: input.firstPrompt ?? null,
-    provider: 'anthropic',
-    model: 'claude-sonnet',
+    provider: null,
+    model: null,
+    ...(input.source ? { source: input.source } : {}),
+    ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
+    ...(input.title !== undefined ? { title: input.title } : {}),
   };
+  writeFileSync(path.join(sessionsDir, `${input.id}.json`), JSON.stringify(meta), 'utf8');
+  writeFileSync(path.join(sessionsDir, `${input.id}.jsonl`), '', 'utf8');
 }
 
-describe('WorkspaceRegistry session registration', () => {
-  it('creates the global Moxxy workspace when no cwd matches a known workspace', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
+const registry = (): WorkspaceRegistry => new WorkspaceRegistry();
 
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-1', cwd: tmp, firstPrompt: 'hello from outside', eventCount: 2 }),
-      'tui',
-    );
+describe('WorkspaceRegistry — derived session list', () => {
+  it('groups a session into the desk whose cwd contains it', async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'Project', cwd: path.join(home, 'project') });
+    writeSession({ id: 's1', cwd: path.join(home, 'project'), firstPrompt: 'hello', source: 'cli' });
 
-    const [desk] = await registry.list();
-    expect(desk?.id).toBe(MOXXY_WORKSPACE_ID);
-    expect(desk?.name).toBe('Moxxy');
-    expect(desk?.activeSessionId).toBe('session-1');
-    expect(desk?.sessions).toHaveLength(1);
-    expect(desk?.sessions[0]).toMatchObject({
-      id: 'session-1',
-      cwd: tmp,
-      firstPrompt: 'hello from outside',
-      eventCount: 2,
-      provider: 'anthropic',
-      model: 'claude-sonnet',
-      source: 'tui',
-    });
+    const fresh = (await reg.list()).find((d) => d.id === desk.id)!;
+    expect(fresh.sessions.map((s) => s.id)).toContain('s1');
   });
 
-  it('assigns sessions to the existing workspace whose cwd contains the session cwd', async () => {
-    const projectRoot = path.join(tmp, 'project');
-    const sessionCwd = path.join(projectRoot, 'packages', 'cli');
-    mkdirSync(sessionCwd, { recursive: true });
-    const registry = new WorkspaceRegistry(registryPath);
-    const desk = await registry.create({ name: 'Project', cwd: projectRoot });
+  it('routes an unmatched session to the Moxxy workspace', async () => {
+    const reg = registry();
+    writeSession({ id: 'lonely', cwd: home, firstPrompt: 'outside any desk', source: 'tui' });
 
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-2', cwd: sessionCwd, firstPrompt: 'inside project', eventCount: 1 }),
-      'cli',
-    );
-
-    expect((await registry.deskForSession('session-2'))?.id).toBe(desk.id);
+    const desks = await reg.list();
+    const moxxy = desks.find((d) => d.id === MOXXY_WORKSPACE_ID);
+    expect(moxxy?.sessions.map((s) => s.id)).toEqual(['lonely']);
   });
 
-  it('chooses the longest matching workspace for nested workspace paths', async () => {
-    const root = path.join(tmp, 'repo');
-    const nested = path.join(root, 'apps', 'desktop');
-    const sessionCwd = path.join(nested, 'src');
-    mkdirSync(sessionCwd, { recursive: true });
-    const registry = new WorkspaceRegistry(registryPath);
-    await registry.create({ name: 'Repo', cwd: root });
-    const nestedDesk = await registry.create({ name: 'Desktop', cwd: nested });
-
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-3', cwd: sessionCwd, firstPrompt: 'nested project', eventCount: 1 }),
-      'desktop',
-    );
-
-    expect((await registry.deskForSession('session-3'))?.id).toBe(nestedDesk.id);
-  });
-
-  it('updates an existing session instead of duplicating it', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
-    await registry.registerSessionFromMeta(meta({ id: 'session-4', cwd: tmp }), 'tui');
-
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-4', cwd: tmp, firstPrompt: 'hello from tui', eventCount: 3 }),
-      'tui',
-    );
-
-    const moxxy = (await registry.list()).find((desk) => desk.id === MOXXY_WORKSPACE_ID);
-    expect(moxxy?.sessions.filter((session) => session.id === 'session-4')).toHaveLength(1);
-    expect(moxxy?.sessions[0]).toMatchObject({
-      firstPrompt: 'hello from tui',
-      eventCount: 3,
-    });
-  });
-
-  it('refreshes stale imported names when a sanitized first prompt changes', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-stale-title', cwd: tmp, firstPrompt: 'foreign syrup title', eventCount: 4 }),
-      'cli',
-    );
-
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-stale-title', cwd: tmp, firstPrompt: 'real matching title', eventCount: 2 }),
-      'cli',
-    );
-
-    const moxxy = (await registry.list()).find((desk) => desk.id === MOXXY_WORKSPACE_ID);
-    expect(moxxy?.sessions[0]).toMatchObject({
-      id: 'session-stale-title',
-      name: 'real matching title',
-      firstPrompt: 'real matching title',
-    });
-  });
-
-  it('does not overwrite a manually renamed session when metadata refreshes', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-manual-title', cwd: tmp, firstPrompt: 'initial prompt', eventCount: 1 }),
-      'cli',
-    );
-    await registry.renameSession('session-manual-title', 'My hand-picked title');
-
-    await registry.registerSessionFromMeta(
-      meta({ id: 'session-manual-title', cwd: tmp, firstPrompt: 'new prompt', eventCount: 2 }),
-      'cli',
-    );
-
-    const moxxy = (await registry.list()).find((desk) => desk.id === MOXXY_WORKSPACE_ID);
-    expect(moxxy?.sessions[0]).toMatchObject({
-      id: 'session-manual-title',
-      name: 'My hand-picked title',
-      firstPrompt: 'new prompt',
-    });
-  });
-
-  it('does not rename a resumed visible session from a partial fresh runner meta', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
-    await registry.registerSessionFromMeta(
-      {
-        ...meta({ id: 'resumed-session', cwd: tmp, firstPrompt: 'cześć', eventCount: 37 }),
-        startedAt: '2026-06-12T10:00:00.000Z',
-        lastActivity: '2026-06-12T10:05:00.000Z',
-      },
-      'cli',
-    );
-
-    await registry.registerSessionFromMeta(
-      {
-        ...meta({
-          id: 'resumed-session',
-          cwd: tmp,
-          firstPrompt: 'QA ping po fixie sesji: odpowiedz tylko OK.',
-          eventCount: 2,
-        }),
-        startedAt: '2026-06-17T20:40:00.000Z',
-        lastActivity: '2026-06-17T20:40:10.000Z',
-      },
-      'desktop',
-    );
-
-    const [desk] = await registry.list();
-    expect(desk?.sessions[0]).toMatchObject({
-      id: 'resumed-session',
-      name: 'cześć',
-      firstPrompt: 'cześć',
-      eventCount: 37,
-      lastActivity: '2026-06-17T20:40:10.000Z',
-      source: 'desktop',
-    });
-  });
-
-  it('preserves the latest active session when stale metadata refreshes are saved late', async () => {
-    const staleDoc = {
-      version: 3,
-      activeId: 'desk-a',
-      desks: [
-        {
-          id: 'desk-a',
-          name: 'A',
-          cwd: tmp,
-          color: '#3b82f6',
-          createdAt: 111,
-          sessions: [
-            {
-              id: 'old-session',
-              name: 'Old',
-              createdAt: 111,
-              cwd: tmp,
-              source: 'desktop' as const,
-            },
-            {
-              id: 'new-session',
-              name: 'New',
-              createdAt: 222,
-              cwd: tmp,
-              source: 'desktop' as const,
-            },
-          ],
-          activeSessionId: 'old-session',
-        },
-      ],
-    };
-    const latestDoc = {
-      ...staleDoc,
-      desks: [
-        {
-          ...staleDoc.desks[0]!,
-          activeSessionId: 'new-session',
-        },
-      ],
-    };
-    let loadCount = 0;
-    let savedDoc: unknown = null;
-    class RacingRegistry extends WorkspaceRegistry {
-      override async load(): Promise<unknown> {
-        loadCount += 1;
-        return structuredClone(staleDoc);
-      }
-
-      protected override async loadActivePointerSnapshot(): Promise<unknown> {
-        return {
-          activeId: latestDoc.activeId,
-          desks: latestDoc.desks.map((desk) => ({
-            id: desk.id,
-            activeSessionId: desk.activeSessionId,
-          })),
-        };
-      }
-
-      override async save(doc: unknown): Promise<void> {
-        savedDoc = structuredClone(doc);
-      }
-    }
-
-    await new RacingRegistry(registryPath).registerSessionFromMeta(
-      meta({ id: 'old-session', cwd: tmp, firstPrompt: 'Old updated', eventCount: 9 }),
-      'desktop',
-    );
-
-    const saved = savedDoc as typeof staleDoc;
-    expect(loadCount).toBe(1);
-    expect(saved.desks[0]?.activeSessionId).toBe('new-session');
-  });
-
-  it('keeps an activated mobile live session before it has a first prompt', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
-
-    await registry.registerSessionFromMeta(meta({ id: 'mobile-live', cwd: tmp }), 'mobile', {
-      activate: true,
+  it('honors an explicit groupId over cwd', async () => {
+    const reg = registry();
+    const a = await reg.create({ name: 'A', cwd: path.join(home, 'a') });
+    const b = await reg.create({ name: 'B', cwd: path.join(home, 'b') });
+    // cwd is under A, but groupId pins it to B.
+    writeSession({
+      id: 'pinned',
+      cwd: path.join(home, 'a'),
+      groupId: b.id,
+      firstPrompt: 'pinned to B',
+      source: 'cli',
     });
 
-    const [desk] = await registry.list();
-    expect(desk?.activeSessionId).toBe('mobile-live');
-    expect(desk?.sessions).toEqual([
-      expect.objectContaining({
-        id: 'mobile-live',
-        name: 'Current session',
-        source: 'mobile',
-        firstPrompt: null,
-      }),
-    ]);
+    const desks = await reg.list();
+    expect(desks.find((d) => d.id === a.id)!.sessions.some((s) => s.id === 'pinned')).toBe(false);
+    expect(desks.find((d) => d.id === b.id)!.sessions.some((s) => s.id === 'pinned')).toBe(true);
   });
 
-  it('keeps an activated mobile live session even when an empty core log already exists', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    const sessionsDir = path.join(home, 'sessions');
-    mkdirSync(sessionsDir, { recursive: true });
-    process.env.MOXXY_HOME = home;
-    try {
-      writeFileSync(path.join(sessionsDir, 'mobile-live.jsonl'), '', 'utf8');
-      const registry = new WorkspaceRegistry(registryPath);
+  it('shows empty desktop/mobile sessions but hides empty cli/tui ones', async () => {
+    const reg = registry();
+    await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    writeSession({ id: 'fresh-desktop', cwd: path.join(home, 'proj'), source: 'desktop' });
+    writeSession({ id: 'fresh-cli', cwd: path.join(home, 'proj'), source: 'cli' });
 
-      await registry.registerSessionFromMeta(meta({ id: 'mobile-live', cwd: tmp }), 'mobile', {
-        activate: true,
-      });
+    const ids = (await reg.list()).flatMap((d) => d.sessions.map((s) => s.id));
+    expect(ids).toContain('fresh-desktop');
+    expect(ids).not.toContain('fresh-cli');
+  });
 
-      const [desk] = await registry.list();
-      expect(desk?.activeSessionId).toBe('mobile-live');
-      expect(desk?.sessions.map((session) => session.id)).toEqual(['mobile-live']);
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
+  it('hides a cli session whose cwd no longer exists', async () => {
+    const reg = registry();
+    writeSession({ id: 'stale', cwd: path.join(home, 'gone'), firstPrompt: 'stale', source: 'cli', realizeCwd: false });
+    expect((await reg.list()).flatMap((d) => d.sessions)).toEqual([]);
+  });
+
+  it('names a session: title > first prompt > placeholder', async () => {
+    const reg = registry();
+    await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    writeSession({ id: 'renamed', cwd: path.join(home, 'proj'), title: 'My deep dive', firstPrompt: 'hi', source: 'cli' });
+    writeSession({ id: 'prompted', cwd: path.join(home, 'proj'), firstPrompt: 'explain the build', source: 'cli' });
+    writeSession({ id: 'blank', cwd: path.join(home, 'proj'), source: 'desktop' });
+
+    const byId = new Map(
+      (await reg.list()).flatMap((d) => d.sessions).map((s) => [s.id, s.name]),
+    );
+    expect(byId.get('renamed')).toBe('My deep dive');
+    expect(byId.get('prompted')).toBe('explain the build');
+    expect(byId.get('blank')).toBe('New session');
   });
 });
 
-describe('WorkspaceRegistry session-index sync', () => {
-  it('imports only user-visible sessions with an existing cwd', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    const sessionsDir = path.join(home, 'sessions');
-    const liveCwd = path.join(tmp, 'project');
-    mkdirSync(sessionsDir, { recursive: true });
-    mkdirSync(liveCwd, { recursive: true });
-    process.env.MOXXY_HOME = home;
-    try {
-      writeSessionMeta(sessionsDir, {
-        ...meta({ id: 'empty-session', cwd: liveCwd }),
-        eventCount: 0,
-        firstPrompt: null,
-      });
-      writeSessionMeta(sessionsDir, {
-        ...meta({ id: 'event-only-session', cwd: liveCwd }),
-        eventCount: 3,
-        firstPrompt: null,
-      });
-      writeSessionMeta(sessionsDir, {
-        ...meta({ id: 'stale-session', cwd: path.join(tmp, 'gone'), firstPrompt: 'stale' }),
-        eventCount: 1,
-      });
-      writeSessionMeta(sessionsDir, {
-        ...meta({ id: 'visible-session', cwd: liveCwd, firstPrompt: 'real prompt' }),
-        eventCount: 2,
-      });
-
-      const registry = new WorkspaceRegistry(registryPath);
-      await syncSessionIndexIntoRegistry(registry, 'cli');
-
-      const desks = await registry.list();
-      const sessions = desks.flatMap((desk) => desk.sessions);
-      expect(sessions.map((session) => session.id)).toEqual(['visible-session']);
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
+describe('WorkspaceRegistry — desk + session mutations', () => {
+  it('create seeds a first session (id === desk id) that shows immediately', async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    expect(desk.sessions.map((s) => s.id)).toEqual([desk.id]);
+    expect(desk.activeSessionId).toBe(desk.id);
   });
 
-  it('syncs visible session metadata in one registry load', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    const sessionsDir = path.join(home, 'sessions');
-    const liveCwd = path.join(tmp, 'project');
-    mkdirSync(sessionsDir, { recursive: true });
-    mkdirSync(liveCwd, { recursive: true });
-    process.env.MOXXY_HOME = home;
-    class CountingRegistry extends WorkspaceRegistry {
-      loadCount = 0;
-
-      override async load(): Promise<unknown> {
-        this.loadCount += 1;
-        return super.load();
-      }
-    }
-    try {
-      for (const id of ['visible-a', 'visible-b', 'visible-c']) {
-        writeSessionMeta(sessionsDir, {
-          ...meta({ id, cwd: liveCwd, firstPrompt: `prompt ${id}` }),
-          eventCount: 2,
-        });
-      }
-      const registry = new CountingRegistry(registryPath);
-
-      await syncSessionIndexIntoRegistry(registry, 'cli');
-
-      const body = JSON.parse(readFileSync(registryPath, 'utf8')) as {
-        desks?: Array<{ sessions?: Array<{ id: string }> }>;
-      };
-      expect(registry.loadCount).toBe(1);
-      expect(
-        body.desks
-          ?.flatMap((desk) => desk.sessions ?? [])
-          .map((session) => session.id)
-          .sort(),
-      ).toEqual(['visible-a', 'visible-b', 'visible-c']);
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
+  it('createSession adds a session under the desk and foregrounds it', async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    const { session } = await reg.createSession(desk.id, 'Second');
+    const fresh = (await reg.list()).find((d) => d.id === desk.id)!;
+    expect(fresh.sessions.map((s) => s.id)).toContain(session.id);
+    expect(fresh.activeSessionId).toBe(session.id);
+    expect(fresh.sessions.find((s) => s.id === session.id)!.name).toBe('Second');
   });
 
-  it('does not import a session whose visible prompt belongs to another session id', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    const sessionsDir = path.join(home, 'sessions');
-    const liveCwd = path.join(tmp, 'project');
-    mkdirSync(sessionsDir, { recursive: true });
-    mkdirSync(liveCwd, { recursive: true });
-    process.env.MOXXY_HOME = home;
-    try {
-      writeSessionMeta(sessionsDir, {
-        ...meta({ id: 'foreign-only-session', cwd: liveCwd, firstPrompt: 'foreign syrup' }),
-        eventCount: 1,
-      });
-      writeFileSync(
-        path.join(sessionsDir, 'foreign-only-session.jsonl'),
-        JSON.stringify({
-          id: 'event-foreign',
-          type: 'user_prompt',
-          text: 'foreign syrup',
-          seq: 0,
-          ts: 1,
-          turnId: 'turn-1',
-          sessionId: 'other-session',
-          source: 'user',
-        }) + '\n',
-      );
+  it('renameSession persists a title that the derived name reflects', async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    await reg.renameSession(desk.id, 'Renamed');
+    const fresh = (await reg.list()).find((d) => d.id === desk.id)!;
+    expect(fresh.sessions.find((s) => s.id === desk.id)!.name).toBe('Renamed');
+  });
 
-      const registry = new WorkspaceRegistry(registryPath);
-      await syncSessionIndexIntoRegistry(registry, 'cli');
+  it('removeSession deletes the session for good — it never reappears (resurrection regression)', async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    const { session } = await reg.createSession(desk.id, 'Doomed');
 
-      expect((await registry.list()).flatMap((desk) => desk.sessions)).toEqual([]);
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
+    await reg.removeSession(session.id);
+
+    // Gone now AND on a fresh registry instance (i.e. survives a "restart").
+    expect((await reg.list()).flatMap((d) => d.sessions).some((s) => s.id === session.id)).toBe(false);
+    expect((await registry().list()).flatMap((d) => d.sessions).some((s) => s.id === session.id)).toBe(false);
+  });
+
+  it("removeSession of a desk's last session seeds a fresh replacement", async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    await reg.removeSession(desk.id);
+    const fresh = (await reg.list()).find((d) => d.id === desk.id)!;
+    expect(fresh.sessions).toHaveLength(1);
+    expect(fresh.sessions[0]!.id).not.toBe(desk.id);
+  });
+
+  it('remove erases every session in the desk (workspace deletion sticks)', async () => {
+    const reg = registry();
+    const desk = await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    const { session } = await reg.createSession(desk.id);
+
+    await reg.remove(desk.id);
+
+    const desks = await registry().list();
+    expect(desks.some((d) => d.id === desk.id)).toBe(false);
+    // The sessions' files are gone, so they can't resurface under Moxxy either.
+    const allIds = desks.flatMap((d) => d.sessions.map((s) => s.id));
+    expect(allIds).not.toContain(desk.id);
+    expect(allIds).not.toContain(session.id);
+  });
+
+  it('moveSession re-homes a session into another desk', async () => {
+    const reg = registry();
+    const a = await reg.create({ name: 'A', cwd: path.join(home, 'a') });
+    const b = await reg.create({ name: 'B', cwd: path.join(home, 'b') });
+
+    await reg.moveSession(a.id, b.id);
+
+    const desks = await reg.list();
+    expect(desks.find((d) => d.id === a.id)!.sessions.some((s) => s.id === a.id)).toBe(false);
+    expect(desks.find((d) => d.id === b.id)!.sessions.some((s) => s.id === a.id)).toBe(true);
+  });
+
+  it('setActiveSession foregrounds the owning desk', async () => {
+    const reg = registry();
+    const a = await reg.create({ name: 'A', cwd: path.join(home, 'a') });
+    const b = await reg.create({ name: 'B', cwd: path.join(home, 'b') });
+    await reg.setActive(a.id);
+
+    await reg.setActiveSession(b.id);
+
+    expect((await reg.getActive())?.id).toBe(b.id);
   });
 });
 
-describe('WorkspaceRegistry compatibility', () => {
-  it('reads a v2 desks document and persists it as version 3', async () => {
+describe('WorkspaceRegistry — overlay persistence (no migration)', () => {
+  it('keeps desk definitions from an existing doc and ignores any embedded sessions', async () => {
+    // An older-shape doc with embedded sessions[]: desk defs carry over, the
+    // embedded sessions are ignored (sessions derive from the session files).
+    mkdirSync(path.join(home, 'desktop'), { recursive: true });
+    mkdirSync(path.join(home, 'legacy'), { recursive: true });
     writeFileSync(
-      registryPath,
-      JSON.stringify({
-        version: 2,
-        activeId: 'desk-a',
-        desks: [
-          {
-            id: 'desk-a',
-            name: 'A',
-            cwd: path.join(tmp, 'a'),
-            color: '#3b82f6',
-            createdAt: 111,
-            sessions: [{ id: 'session-a', name: 'Session 1', createdAt: 111 }],
-            activeSessionId: 'session-a',
-          },
-        ],
-      }),
-    );
-
-    const registry = new WorkspaceRegistry(registryPath);
-    await registry.rename('desk-a', 'Renamed');
-
-    const body = JSON.parse(readFileSync(registryPath, 'utf8'));
-    expect(body.version).toBe(3);
-    expect(body.desks[0].sessions).toHaveLength(1);
-    expect(body.desks[0].activeSessionId).toBe('session-a');
-  });
-
-  it('drops polluted v2 CLI sessions that have no user-visible prompt', async () => {
-    const deskCwd = path.join(tmp, 'a');
-    mkdirSync(deskCwd, { recursive: true });
-    writeFileSync(
-      registryPath,
-      JSON.stringify({
-        version: 2,
-        activeId: 'desk-a',
-        desks: [
-          {
-            id: 'desk-a',
-            name: 'A',
-            cwd: deskCwd,
-            color: '#3b82f6',
-            createdAt: 111,
-            sessions: [
-              {
-                id: 'placeholder',
-                name: 'Current session',
-                createdAt: 111,
-                cwd: deskCwd,
-                source: 'cli',
-                firstPrompt: null,
-                eventCount: 5,
-              },
-              {
-                id: 'real',
-                name: 'Real prompt',
-                createdAt: 222,
-                cwd: deskCwd,
-                source: 'cli',
-                firstPrompt: 'Real prompt',
-                eventCount: 5,
-              },
-            ],
-            activeSessionId: 'placeholder',
-          },
-        ],
-      }),
-    );
-
-    const registry = new WorkspaceRegistry(registryPath);
-    const [desk] = await registry.list();
-
-    expect(desk?.sessions.map((session) => session.id)).toEqual(['real']);
-    expect(desk?.activeSessionId).toBe('real');
-  });
-
-  it('keeps a visible imported session when its sidecar meta is temporarily empty', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    const sessionsDir = path.join(home, 'sessions');
-    const deskCwd = path.join(tmp, 'a');
-    mkdirSync(sessionsDir, { recursive: true });
-    mkdirSync(deskCwd, { recursive: true });
-    process.env.MOXXY_HOME = home;
-    writeSessionMeta(sessionsDir, {
-      ...meta({ id: 'visible-existing', cwd: deskCwd, firstPrompt: null }),
-      eventCount: 0,
-    });
-    writeFileSync(
-      registryPath,
+      path.join(home, 'desktop', 'desks.json'),
       JSON.stringify({
         version: 3,
-        activeId: 'desk-a',
+        activeId: 'legacy-desk',
         desks: [
           {
-            id: 'desk-a',
-            name: 'A',
-            cwd: deskCwd,
-            color: '#3b82f6',
-            createdAt: 111,
-            sessions: [
-              {
-                id: 'fallback',
-                name: 'Fallback',
-                createdAt: 111,
-                cwd: deskCwd,
-                source: 'cli',
-                firstPrompt: 'Fallback',
-                eventCount: 1,
-              },
-              {
-                id: 'visible-existing',
-                name: 'cześć',
-                createdAt: 222,
-                cwd: deskCwd,
-                source: 'cli',
-                firstPrompt: 'cześć',
-                eventCount: 37,
-              },
-            ],
-            activeSessionId: 'visible-existing',
+            id: 'legacy-desk',
+            name: 'Legacy',
+            cwd: path.join(home, 'legacy'),
+            color: '#abcabc',
+            createdAt: 1,
+            activeSessionId: 'ghost',
+            sessions: [{ id: 'ghost', name: 'Should be ignored', createdAt: 1 }],
           },
         ],
       }),
+      'utf8',
     );
 
-    try {
-      const [desk] = await new WorkspaceRegistry(registryPath).list();
-
-      expect(desk?.sessions.map((session) => session.id)).toContain('visible-existing');
-      expect(desk?.activeSessionId).toBe('visible-existing');
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
-  });
-
-  it('drops inactive empty mobile sessions but preserves the active live one', async () => {
-    const deskCwd = path.join(tmp, 'a');
-    mkdirSync(deskCwd, { recursive: true });
-    writeFileSync(
-      registryPath,
-      JSON.stringify({
-        version: 3,
-        activeId: 'desk-a',
-        desks: [
-          {
-            id: 'desk-a',
-            name: 'A',
-            cwd: deskCwd,
-            color: '#3b82f6',
-            createdAt: 111,
-            sessions: [
-              {
-                id: 'old-mobile',
-                name: 'Current session',
-                createdAt: 111,
-                cwd: deskCwd,
-                source: 'mobile',
-                firstPrompt: null,
-                eventCount: 0,
-              },
-              {
-                id: 'live-mobile',
-                name: 'Current session',
-                createdAt: 222,
-                cwd: deskCwd,
-                source: 'mobile',
-                firstPrompt: null,
-                eventCount: 0,
-              },
-            ],
-            activeSessionId: 'live-mobile',
-          },
-        ],
-      }),
-    );
-
-    const [desk] = await new WorkspaceRegistry(registryPath).list();
-
-    expect(desk?.sessions.map((session) => session.id)).toEqual(['live-mobile']);
-    expect(desk?.activeSessionId).toBe('live-mobile');
-  });
-
-  it('uses the desktop chat mirror first prompt for legacy placeholder session names', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    const chatsDir = path.join(home, 'chats');
-    const deskCwd = path.join(tmp, 'a');
-    mkdirSync(chatsDir, { recursive: true });
-    mkdirSync(deskCwd, { recursive: true });
-    process.env.MOXXY_HOME = home;
-    writeFileSync(
-      path.join(chatsDir, 'desk-a.jsonl'),
-      JSON.stringify({
-        id: 'event-1',
-        type: 'user_prompt',
-        text: 'Cześć Moxie, przeanalizuj mi stronę',
-        seq: 0,
-        ts: 1,
-        turnId: 'turn-1',
-        sessionId: 'desk-a',
-        source: 'user',
-      }) + '\n',
-    );
-    writeFileSync(
-      registryPath,
-      JSON.stringify({
-        version: 2,
-        activeId: 'desk-a',
-        desks: [
-          {
-            id: 'desk-a',
-            name: 'A',
-            cwd: deskCwd,
-            color: '#3b82f6',
-            createdAt: 111,
-            sessions: [
-              {
-                id: 'desk-a',
-                name: 'Current session',
-                createdAt: 111,
-                cwd: deskCwd,
-                source: 'desktop',
-              },
-            ],
-            activeSessionId: 'desk-a',
-          },
-        ],
-      }),
-    );
-
-    try {
-      const [desk] = await new WorkspaceRegistry(registryPath).list();
-
-      expect(desk?.sessions[0]?.name).toBe('Cześć Moxie, przeanalizuj mi stronę');
-      expect(desk?.sessions[0]?.firstPrompt).toBe('Cześć Moxie, przeanalizuj mi stronę');
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
-  });
-
-  it('ignores a legacy chat mirror first prompt from another session id', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    const chatsDir = path.join(home, 'chats');
-    const deskCwd = path.join(tmp, 'a');
-    mkdirSync(chatsDir, { recursive: true });
-    mkdirSync(deskCwd, { recursive: true });
-    process.env.MOXXY_HOME = home;
-    writeFileSync(
-      path.join(chatsDir, 'session-a.jsonl'),
-      [
-        {
-          id: 'event-foreign',
-          type: 'user_prompt',
-          text: 'foreign syrup prompt',
-          seq: 0,
-          ts: 1,
-          turnId: 'turn-1',
-          sessionId: 'other-session',
-          source: 'user',
-        },
-        {
-          id: 'event-real',
-          type: 'user_prompt',
-          text: 'real session prompt',
-          seq: 1,
-          ts: 2,
-          turnId: 'turn-2',
-          sessionId: 'session-a',
-          source: 'user',
-        },
-      ].map((event) => JSON.stringify(event)).join('\n') + '\n',
-    );
-    writeFileSync(
-      registryPath,
-      JSON.stringify({
-        version: 2,
-        activeId: 'desk-a',
-        desks: [
-          {
-            id: 'desk-a',
-            name: 'A',
-            cwd: deskCwd,
-            color: '#3b82f6',
-            createdAt: 111,
-            sessions: [
-              {
-                id: 'session-a',
-                name: 'Current session',
-                createdAt: 111,
-                cwd: deskCwd,
-                source: 'desktop',
-              },
-            ],
-            activeSessionId: 'session-a',
-          },
-        ],
-      }),
-    );
-
-    try {
-      const [desk] = await new WorkspaceRegistry(registryPath).list();
-
-      expect(desk?.sessions[0]?.name).toBe('real session prompt');
-      expect(desk?.sessions[0]?.firstPrompt).toBe('real session prompt');
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
-  });
-
-  it('resolves a session cwd before falling back to the workspace cwd', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
-    const desk = await registry.create({ name: 'Project', cwd: path.join(tmp, 'project') });
-    const nestedCwd = path.join(tmp, 'project', 'nested');
-    mkdirSync(nestedCwd, { recursive: true });
-    const { session } = await registry.createSession(desk.id, 'Nested', {
-      cwd: nestedCwd,
-    });
-    const [savedDesk] = await registry.list();
-
-    expect(cwdForSession(savedDesk!, session.id)).toBe(session.cwd);
-    expect(cwdForSession(savedDesk!, savedDesk!.sessions[0]!.id)).toBe(desk.cwd);
-  });
-
-  it('falls back to the workspace cwd when a session cwd no longer exists', async () => {
-    const registry = new WorkspaceRegistry(registryPath);
-    const desk = await registry.create({ name: 'Project', cwd: path.join(tmp, 'project') });
-    mkdirSync(desk.cwd, { recursive: true });
-    const { session } = await registry.createSession(desk.id, 'Stale', {
-      cwd: path.join(tmp, 'deleted'),
-    });
-    const [savedDesk] = await registry.list();
-
-    expect(cwdForSession(savedDesk!, session.id)).toBe(desk.cwd);
-  });
-
-  it('falls back to a managed Moxxy cwd when the workspace cwd no longer exists', async () => {
-    const original = process.env.MOXXY_HOME;
-    const home = path.join(tmp, 'home');
-    process.env.MOXXY_HOME = home;
-    const missingDeskCwd = path.join(tmp, 'deleted-workspace');
-    const desk = {
-      id: 'desk-a',
-      name: 'Deleted',
-      cwd: missingDeskCwd,
-      color: '#3b82f6',
-      createdAt: 111,
-      sessions: [
-        {
-          id: 'session-a',
-          name: 'Stale',
-          createdAt: 111,
-          cwd: path.join(tmp, 'deleted-session'),
-          source: 'cli' as const,
-        },
-      ],
-      activeSessionId: 'session-a',
-    };
-    try {
-      const resolved = cwdForSession(desk, 'session-a');
-
-      expect(resolved).not.toBe(missingDeskCwd);
-      expect(resolved).toBe(path.join(home, 'workspaces', 'moxxy'));
-    } finally {
-      if (original === undefined) delete process.env.MOXXY_HOME;
-      else process.env.MOXXY_HOME = original;
-    }
+    const desks = await registry().list();
+    const legacy = desks.find((d) => d.id === 'legacy-desk');
+    expect(legacy?.name).toBe('Legacy');
+    expect(legacy?.sessions.some((s) => s.id === 'ghost')).toBe(false);
   });
 });
 
-function writeSessionMeta(dir: string, sessionMeta: ReturnType<typeof meta>): void {
-  writeFileSync(path.join(dir, `${sessionMeta.id}.meta.json`), JSON.stringify(sessionMeta), 'utf8');
-  writeFileSync(path.join(dir, `${sessionMeta.id}.jsonl`), '', 'utf8');
-}
+describe('cwdForSession', () => {
+  it('prefers an existing session cwd, then the desk cwd', async () => {
+    const reg = registry();
+    const deskCwd = path.join(home, 'proj');
+    mkdirSync(deskCwd, { recursive: true });
+    const desk = await reg.create({ name: 'Proj', cwd: deskCwd });
+    const live = (await reg.list()).find((d) => d.id === desk.id)!;
+    expect(cwdForSession(live, desk.id)).toBe(deskCwd);
+  });
+});

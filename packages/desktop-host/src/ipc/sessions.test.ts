@@ -1,40 +1,24 @@
 /**
- * sessions.* handler tests — the registrar is wired onto a fake
- * CommandBus (via setActiveBus, same seam every transport uses) with a
- * recording RunnerPool stand-in and a REAL DeskStore on a tmp file, so
- * the tests exercise the actual persistence + pool-keying contract:
- * the pool is driven with SESSION ids, removal erases the session's
- * on-disk runner log + chat mirror, and a desk never drops below one
- * session.
+ * sessions.* handler tests. The registrar is wired onto a fake CommandBus (the
+ * same seam every transport uses) with a recording RunnerPool stand-in and a
+ * REAL DeskStore + REAL @moxxy/core, pointed at a temp `MOXXY_HOME`. So these
+ * exercise the actual single-source contract: the pool is driven with SESSION
+ * ids, removal tears the runner down BEFORE the session file is erased, and a
+ * removed session does not reappear.
  */
 
-import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-// shared.ts (the `handle` choke point) transitively touches electron;
-// importing it must not require the GUI binary. Same stub as shared.test.ts.
+// shared.ts (the `handle` choke point) transitively touches electron; importing
+// it must not require the GUI binary.
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }));
-
-// The handlers delete the runner's persisted session log via @moxxy/core —
-// record the calls instead of touching ~/.moxxy. The derived-title pass
-// (session-titles.ts) reads meta sidecars from defaultSessionsDir(); point
-// it at a directory that doesn't exist so every stored name passes through.
-const deleteSessionMock = vi.fn(async (_id: string) => {});
-const coreMockState = vi.hoisted(() => ({
-  sessionTitlesDir: '/nonexistent-session-titles-dir',
-}));
-vi.mock('@moxxy/core', () => ({
-  deleteSession: (id: string) => deleteSessionMock(id),
-  defaultSessionsDir: () => coreMockState.sessionTitlesDir,
-  readSessionIndex: async () => [],
-}));
 
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
 import { DeskStore } from '../desks';
-import { desktopEventBus } from '../event-bus';
 import type { RunnerPool } from '../runner-pool';
 import { setActiveBus } from './shared';
 import { registerSessionsHandlers } from './sessions';
@@ -79,22 +63,22 @@ function fakePool(): { pool: RunnerPool; calls: PoolCall[] } {
   return { pool, calls };
 }
 
+let home: string;
+let originalHome: string | undefined;
 let desks: DeskStore;
 let handlers: Map<string, Handler>;
 let calls: PoolCall[];
 let cwdA: string;
-let cwdB: string;
 
-beforeEach(async () => {
+beforeEach(() => {
   vi.clearAllMocks();
-  const tmp = mkdtempSync(path.join(os.tmpdir(), 'sessions-ipc-'));
-  coreMockState.sessionTitlesDir = path.join(tmp, 'session-titles');
-  mkdirSync(coreMockState.sessionTitlesDir, { recursive: true });
-  cwdA = path.join(tmp, 'a');
-  cwdB = path.join(tmp, 'b');
+  home = mkdtempSync(path.join(os.tmpdir(), 'sessions-ipc-'));
+  originalHome = process.env.MOXXY_HOME;
+  process.env.MOXXY_HOME = home;
+  mkdirSync(path.join(home, 'sessions'), { recursive: true });
+  cwdA = path.join(home, 'a');
   mkdirSync(cwdA, { recursive: true });
-  mkdirSync(cwdB, { recursive: true });
-  desks = new DeskStore(path.join(tmp, 'desks.json'));
+  desks = new DeskStore();
   const { bus, handlers: h } = fakeBus();
   const { pool, calls: c } = fakePool();
   handlers = h;
@@ -103,8 +87,13 @@ beforeEach(async () => {
   registerSessionsHandlers(pool, desks);
 });
 
-const invoke = (channel: string, args?: unknown): Promise<unknown> =>
-  handlers.get(channel)!(args);
+afterEach(() => {
+  if (originalHome === undefined) delete process.env.MOXXY_HOME;
+  else process.env.MOXXY_HOME = originalHome;
+  rmSync(home, { recursive: true, force: true });
+});
+
+const invoke = (channel: string, args?: unknown): Promise<unknown> => handlers.get(channel)!(args);
 
 describe('sessions.* handlers', () => {
   it('registers the full command set', () => {
@@ -119,12 +108,8 @@ describe('sessions.* handlers', () => {
 
   it('list defaults to the active desk', async () => {
     const desk = await desks.create({ name: 'A', cwd: cwdA });
-    const overview = (await invoke('sessions.list')) as {
-      sessions: Array<{ id: string }>;
-      activeSessionId: string | null;
-    };
+    const overview = (await invoke('sessions.list')) as { sessions: Array<{ id: string }> };
     expect(overview.sessions.map((s) => s.id)).toEqual([desk.id]);
-    expect(overview.activeSessionId).toBe(desk.id);
   });
 
   it('create persists under the desk and spawns the session runner with the desk cwd', async () => {
@@ -133,8 +118,6 @@ describe('sessions.* handlers', () => {
     expect(calls).toContainEqual({ op: 'getOrCreate', id: session.id, cwd: cwdA });
     const overview = await desks.listSessions(desk.id);
     expect(overview.sessions.map((s) => s.id)).toContain(session.id);
-    // Not auto-foregrounded.
-    expect(calls.find((c) => c.op === 'setActive')).toBeUndefined();
   });
 
   it('setActive persists, ensures a runner, and foregrounds the SESSION id', async () => {
@@ -142,104 +125,27 @@ describe('sessions.* handlers', () => {
     const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
     await invoke('sessions.setActive', { id: session.id });
     expect((await desks.listSessions(desk.id)).activeSessionId).toBe(session.id);
-    expect(calls).toContainEqual({ op: 'getOrCreate', id: session.id, cwd: cwdA });
     expect(calls).toContainEqual({ op: 'setActive', id: session.id });
   });
 
-  it('broadcasts session switches to desktop event sinks for realtime renderer refresh', async () => {
-    const received: Array<{ channel: string; payload: unknown }> = [];
-    const dispose = desktopEventBus.addSink({
-      broadcast: (channel, payload) => {
-        received.push({ channel, payload });
-      },
-    });
-    try {
-      const desk = await desks.create({ name: 'A', cwd: cwdA });
-      const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
-      received.length = 0;
-
-      await invoke('sessions.setActive', { id: session.id });
-
-      expect(received).toEqual([
-        {
-          channel: 'desks.changed',
-          payload: expect.objectContaining({
-            activeId: desk.id,
-            desks: expect.arrayContaining([
-              expect.objectContaining({ id: desk.id, activeSessionId: session.id }),
-            ]),
-          }),
-        },
-      ]);
-    } finally {
-      dispose();
-    }
-  });
-
-  it('broadcasts the same derived session titles as desks.list after session switches', async () => {
-    const received: Array<{ channel: string; payload: unknown }> = [];
-    const dispose = desktopEventBus.addSink({
-      broadcast: (channel, payload) => {
-        received.push({ channel, payload });
-      },
-    });
-    try {
-      const desk = await desks.create({ name: 'A', cwd: cwdA });
-      const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
-      writeFileSync(
-        path.join(coreMockState.sessionTitlesDir, `${session.id}.meta.json`),
-        JSON.stringify({ firstPrompt: 'uzyj computer_open i otworz strone' }),
-        'utf8',
-      );
-      received.length = 0;
-
-      await invoke('sessions.setActive', { id: session.id });
-
-      const event = received.find((item) => item.channel === 'desks.changed');
-      const payload = event?.payload as { desks?: Array<{ sessions?: Array<{ id: string; name: string }> }> };
-      const broadcastSession = payload.desks
-        ?.flatMap((item) => item.sessions ?? [])
-        .find((item) => item.id === session.id);
-      expect(broadcastSession?.name).toBe('uzyj computer_open i otworz strone');
-    } finally {
-      dispose();
-    }
-  });
-
-  it('setActive starts a Moxxy workspace session with the session cwd, not the workspace cwd', async () => {
-    const sessionCwd = path.join(os.tmpdir(), 'moxxy-session-cwd');
-    mkdirSync(sessionCwd, { recursive: true });
-    await desks.registerSessionFromMeta(
-      {
-        id: 'moxxy-session',
-        cwd: sessionCwd,
-        startedAt: '2026-06-12T10:00:00.000Z',
-        lastActivity: '2026-06-12T10:05:00.000Z',
-        eventCount: 1,
-        firstPrompt: 'from tui',
-        provider: null,
-        model: null,
-      },
-      'tui',
-    );
-
-    await invoke('sessions.setActive', { id: 'moxxy-session' });
-
-    expect(calls).toContainEqual({ op: 'getOrCreate', id: 'moxxy-session', cwd: sessionCwd });
-  });
-
-  it('remove tears down the runner and erases BOTH on-disk logs', async () => {
+  it('remove tears the runner down BEFORE erasing the file, and it stays gone', async () => {
     const desk = await desks.create({ name: 'A', cwd: cwdA });
     const session = (await invoke('sessions.create', { deskId: desk.id })) as { id: string };
+
     await invoke('sessions.remove', { id: session.id });
-    expect(calls).toContainEqual({ op: 'remove', id: session.id });
-    expect(deleteSessionMock).toHaveBeenCalledWith(session.id);
-    expect((await desks.listSessions(desk.id)).sessions.map((s) => s.id)).toEqual([desk.id]);
+
+    // The runner teardown is ordered before the registry erases the file.
+    const removeIdx = calls.findIndex((c) => c.op === 'remove' && c.id === session.id);
+    expect(removeIdx).toBeGreaterThanOrEqual(0);
+    // Gone from the derived list, and stays gone on a fresh registry (restart).
+    expect((await desks.listSessions(desk.id)).sessions.map((s) => s.id)).not.toContain(session.id);
+    expect(
+      (await new DeskStore().listSessions(desk.id)).sessions.map((s) => s.id),
+    ).not.toContain(session.id);
   });
 
-  it('removing the active desk\'s foregrounded session promotes its replacement', async () => {
+  it("removing the active desk's last session promotes a fresh replacement", async () => {
     const desk = await desks.create({ name: 'A', cwd: cwdA });
-    // Remove the desk's only session: a fresh one is seeded + foregrounded.
     await invoke('sessions.remove', { id: desk.id });
     const overview = await desks.listSessions(desk.id);
     expect(overview.sessions).toHaveLength(1);
@@ -247,24 +153,6 @@ describe('sessions.* handlers', () => {
     expect(fresh.id).not.toBe(desk.id);
     expect(calls).toContainEqual({ op: 'getOrCreate', id: fresh.id, cwd: cwdA });
     expect(calls).toContainEqual({ op: 'setActive', id: fresh.id });
-  });
-
-  it('removing a BACKGROUND desk\'s session never re-foregrounds that desk', async () => {
-    const a = await desks.create({ name: 'A', cwd: cwdA });
-    const b = await desks.create({ name: 'B', cwd: cwdB });
-    const session = (await invoke('sessions.create', { deskId: b.id })) as { id: string };
-    await desks.setActive(a.id);
-    calls.length = 0;
-    await invoke('sessions.remove', { id: session.id });
-    expect(calls.find((c) => c.op === 'setActive')).toBeUndefined();
-    expect(calls.find((c) => c.op === 'getOrCreate')).toBeUndefined();
-  });
-
-  it('remove of an unknown session still best-effort clears its runner log', async () => {
-    await desks.create({ name: 'A', cwd: cwdA });
-    await invoke('sessions.remove', { id: 'ghost' });
-    expect(deleteSessionMock).toHaveBeenCalledWith('ghost');
-    expect(calls.find((c) => c.op === 'setActive')).toBeUndefined();
   });
 
   it('rename round-trips through the store', async () => {

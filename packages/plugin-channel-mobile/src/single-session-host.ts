@@ -17,7 +17,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-import { restoreSessionEvents } from '@moxxy/core';
+import { restoreSessionEvents, seedSessionMeta } from '@moxxy/core';
 import {
   denyByDefaultResolver,
   type ClientSession,
@@ -410,21 +410,18 @@ export class MobileSessionHost {
   }
 
   private async syncCurrentSession(options: { readonly activate?: boolean } = {}): Promise<void> {
-    const prompts = this.session.log.ofType?.('user_prompt') ?? [];
-    await this.registry.registerSessionFromMeta(
-      {
-        id: this.workspaceId,
-        cwd: this.session.cwd,
-        startedAt: new Date().toISOString(),
-        lastActivity: new Date().toISOString(),
-        eventCount: this.session.log.length ?? 0,
-        firstPrompt: prompts[0]?.text ?? null,
-        provider: this.session.getInfo().activeProvider ?? null,
-        model: null,
-      },
-      'mobile',
-      { activate: options.activate === true },
-    );
+    // Ensure the live session has its single metadata file so it surfaces in the
+    // derived workspace list (a `mobile` session shows even before its first
+    // prompt). Idempotent: once the runner's persistence has written the file
+    // this is a no-op and never clobbers its content. Then foreground it when
+    // asked.
+    await seedSessionMeta(this.workspaceId, this.session.cwd, 'mobile').catch(() => undefined);
+    if (!options.activate) return;
+    try {
+      await this.registry.setActiveSession(this.workspaceId);
+    } catch {
+      /* not derivable yet — nothing to foreground */
+    }
   }
 
   private async broadcastDesksChanged(): Promise<void> {

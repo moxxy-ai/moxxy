@@ -73,12 +73,11 @@ describe('SessionPersistence', () => {
   it('readIndex ignores rows whose event log file is missing', async () => {
     const dir = await makeTempDir();
     await fs.mkdir(dir, { recursive: true });
+    // `present` has a metadata file AND an event log; `missing` has only the
+    // metadata file. readIndex drops the one whose `.jsonl` is gone.
     await fs.writeFile(path.join(dir, 'present.jsonl'), '', 'utf8');
-    await fs.writeFile(
-      path.join(dir, 'index.json'),
-      JSON.stringify([meta('missing'), meta('present')], null, 2),
-      'utf8',
-    );
+    await fs.writeFile(path.join(dir, 'present.json'), JSON.stringify(meta('present')), 'utf8');
+    await fs.writeFile(path.join(dir, 'missing.json'), JSON.stringify(meta('missing')), 'utf8');
 
     await expect(readIndex(dir)).resolves.toEqual([meta('present')]);
   });
@@ -88,7 +87,7 @@ describe('SessionPersistence', () => {
     await fs.mkdir(dir, { recursive: true });
     const id = '01HYDRATEPROMPT0000000000';
     await fs.writeFile(
-      path.join(dir, `${id}.meta.json`),
+      path.join(dir, `${id}.json`),
       JSON.stringify({ ...meta(id, 3), firstPrompt: null }, null, 2),
       'utf8',
     );
@@ -117,7 +116,7 @@ describe('SessionPersistence', () => {
     await fs.mkdir(dir, { recursive: true });
     const id = '01HYDRATEPROVIDER00000000';
     await fs.writeFile(
-      path.join(dir, `${id}.meta.json`),
+      path.join(dir, `${id}.json`),
       JSON.stringify({ ...meta(id, 2), provider: 'old-provider', model: 'old-model' }, null, 2),
       'utf8',
     );
@@ -165,7 +164,7 @@ describe('SessionPersistence', () => {
     await fs.mkdir(dir, { recursive: true });
     const id = '01SIDECARPROMPT0000000000';
     await fs.writeFile(
-      path.join(dir, `${id}.meta.json`),
+      path.join(dir, `${id}.json`),
       JSON.stringify({ ...meta(id, 2), firstPrompt: 'sidecar title', eventCount: 2 }, null, 2),
       'utf8',
     );
@@ -182,7 +181,7 @@ describe('SessionPersistence', () => {
     await fs.mkdir(dir, { recursive: true });
     const id = '01MATCHPROMPT000000000000';
     await fs.writeFile(
-      path.join(dir, `${id}.meta.json`),
+      path.join(dir, `${id}.json`),
       JSON.stringify({ ...meta(id, 2), firstPrompt: 'foreign title', eventCount: 2 }, null, 2),
       'utf8',
     );
@@ -224,7 +223,7 @@ describe('SessionPersistence', () => {
     await fs.mkdir(dir, { recursive: true });
     const id = '01FOREIGNONLY00000000000';
     await fs.writeFile(
-      path.join(dir, `${id}.meta.json`),
+      path.join(dir, `${id}.json`),
       JSON.stringify({ ...meta(id, 1), firstPrompt: 'foreign prompt', eventCount: 1 }, null, 2),
       'utf8',
     );
@@ -266,7 +265,7 @@ describe('SessionPersistence', () => {
     const id = '01SIDECAR00000000000000000';
     const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
     const detach = persistence.attach(new EventLog());
-    await waitForFile(path.join(dir, `${id}.meta.json`));
+    await waitForFile(path.join(dir, `${id}.json`));
     const ids = (await readIndex(dir)).map((m) => m.id);
     expect(ids).toContain(id);
     detach();
@@ -635,8 +634,8 @@ describe('SessionPersistence', () => {
     const detachB = new SessionPersistence({ sessionId: idB as never, cwd: '/b', dir }).attach(
       new EventLog(),
     );
-    await waitForFile(path.join(dir, `${idA}.meta.json`));
-    await waitForFile(path.join(dir, `${idB}.meta.json`));
+    await waitForFile(path.join(dir, `${idA}.json`));
+    await waitForFile(path.join(dir, `${idB}.json`));
     const ids = (await readIndex(dir)).map((m) => m.id);
     expect(ids).toContain(idA);
     expect(ids).toContain(idB);

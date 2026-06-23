@@ -491,6 +491,10 @@ export class RunnerSupervisor extends EventEmitter {
         // ~/.moxxy) stays fully available — that's how the desktop "patches"
         // itself.
         MOXXY_NO_CORE_UPDATE: '1',
+        // Stamp the session's single metadata file with its originating channel
+        // so the workspace list (derived from those files on every surface) keeps
+        // showing this desktop session even before it has a first prompt.
+        MOXXY_SESSION_SOURCE: 'desktop',
         // Resume this workspace's conversation across restarts (see ctor).
         ...(this.sessionId ? { MOXXY_SESSION_ID: this.sessionId } : {}),
       },

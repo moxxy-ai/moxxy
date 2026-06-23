@@ -27,7 +27,6 @@ import { activateProvider } from './setup/activate-provider.js';
 import { applyPreferences } from './setup/apply-preferences.js';
 import { applySessionHeaderPreferences } from './setup/session-header-preferences.js';
 import { attachSessionPersistence } from './setup/persistence.js';
-import { syncSessionIndexIntoRegistry } from '@moxxy/workspace-registry';
 import type { SetupOptions, SetupResult } from './setup/types.js';
 
 export type { BootStep, SetupOptions, SetupResult } from './setup/types.js';
@@ -39,7 +38,8 @@ export async function setupSession(opts: SetupOptions): Promise<Session> {
 
 export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupResult> {
   const logger = opts.verbose ? createLogger({ minLevel: 'debug' }) : silentLogger;
-  void syncSessionIndexIntoRegistry().catch(() => undefined);
+  // No registry import step anymore: the runner writes each session's single
+  // metadata file directly, and every surface derives its list from those.
   // When the TUI bootstrap path passes onProgress, it owns raw mode —
   // a vault/key prompt would deadlock. Force skipKeyPrompt to surface
   // missing-credential errors as a visible boot-failure row instead.

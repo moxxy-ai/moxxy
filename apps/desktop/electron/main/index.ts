@@ -26,7 +26,7 @@ import {
   wsEventBus,
   DeskStore,
   cwdForSession,
-  syncSessionIndexIntoRegistry,
+  watchSessionsForChanges,
   sweepStaleSockets,
   bindMainWindowMinimize,
   closeFocusWindow,
@@ -650,8 +650,12 @@ app.whenReady().then(async () => {
   }
 
   pool = new RunnerPool();
-  await syncSessionIndexIntoRegistry().catch(() => undefined);
+  // No boot-time import step: each runner writes its session's single metadata
+  // file directly, and the registry derives the workspace list from those files.
   const desks = new DeskStore();
+  // Push live workspace updates to every surface when a runner changes a session
+  // file (e.g. the first prompt becomes the session's title).
+  watchSessionsForChanges(desks);
   // Prime: spawn a runner for the active workspace if one is bound,
   // otherwise an unbound runner so the user lands in a working chat
   // surface from the first paint.

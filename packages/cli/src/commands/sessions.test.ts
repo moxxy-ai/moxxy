@@ -72,12 +72,16 @@ describe('moxxy sessions delete', () => {
     try {
       const sessionId = 'session-delete';
       const cwd = path.join(root, 'project');
+      mkdirSync(cwd, { recursive: true });
       const sessionsDir = path.join(root, '.moxxy', 'sessions');
       mkdirSync(sessionsDir, { recursive: true });
+      // The single per-session file (`<id>.json`) + its event log are the only
+      // record of a session; the registry derives the list from them.
       writeFileSync(path.join(sessionsDir, `${sessionId}.jsonl`), '{"type":"noop"}\n');
       writeFileSync(
-        path.join(sessionsDir, `${sessionId}.meta.json`),
+        path.join(sessionsDir, `${sessionId}.json`),
         JSON.stringify({
+          version: 1,
           id: sessionId,
           cwd,
           startedAt: '2026-06-12T10:00:00.000Z',
@@ -86,22 +90,12 @@ describe('moxxy sessions delete', () => {
           firstPrompt: 'delete me',
           provider: null,
           model: null,
+          source: 'tui',
         }),
       );
       const registry = new WorkspaceRegistry();
-      await registry.registerSessionFromMeta(
-        {
-          id: sessionId,
-          cwd,
-          startedAt: '2026-06-12T10:00:00.000Z',
-          lastActivity: '2026-06-12T10:05:00.000Z',
-          eventCount: 1,
-          firstPrompt: 'delete me',
-          provider: null,
-          model: null,
-        },
-        'tui',
-      );
+      // Sanity: the session is derivable before deletion.
+      expect(await registry.deskForSession(sessionId)).not.toBeNull();
 
       await runSessionsCommand({
         command: 'sessions',

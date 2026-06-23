@@ -68,7 +68,13 @@ export {
   readEventPage as readSessionEventPage,
   pageEvents,
   deleteSession,
+  listSessionMetas,
+  setSessionTitle,
+  setSessionGroup,
+  seedSessionMeta,
+  SESSION_META_VERSION,
   type SessionMeta,
+  type SessionSource,
   type SessionPersistenceOpts,
   type EventPage,
 } from './sessions/persistence.js';

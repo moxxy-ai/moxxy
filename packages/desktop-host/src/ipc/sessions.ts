@@ -15,22 +15,18 @@
  * conversation instead.
  */
 
-import { deleteSession } from '@moxxy/core';
-
 import type { RunnerPool } from '../runner-pool';
 import { cwdForSession, type DeskStore } from '../desks';
 import { broadcastHostEvent } from '../event-bus';
-import { withSessionTitles, withSessionTitlesOverview } from '../session-titles';
 import { handle } from './shared';
 
 export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): void {
   // ---- Sessions (per-desk conversations) -----------------------------------
 
-  // Same derived-title pass as desks.list (auto-named sessions display
-  // their first prompt) — this handler also serves mobile over the WS bridge.
-  handle('sessions.list', async (args) =>
-    withSessionTitlesOverview(await desks.listSessions(args?.deskId)),
-  );
+  // The registry derives names/first-prompts from the per-session files, so the
+  // overview is returned as-is — this handler also serves mobile over the WS
+  // bridge.
+  handle('sessions.list', async (args) => desks.listSessions(args?.deskId));
 
   handle('sessions.create', async (args) => {
     const { desk, session } = await desks.createSession(args?.deskId, args?.name);
@@ -52,17 +48,12 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
   });
 
   handle('sessions.remove', async ({ id }) => {
-    // Drop it from the registry first (this also seeds a fresh replacement
-    // when it was the desk's last session), then tear down + erase its
-    // on-disk state: the runner's sticky session log (else the conversation
-    // would resurrect if the id were ever reused).
-    const desk = await desks.removeSession(id);
+    // Tear the runner down FIRST so a dying child can't re-write the session
+    // file after the registry erases it (single-source: erasing the file IS the
+    // deletion). removeSession then deletes the file and seeds a fresh
+    // replacement when it was the desk's last session.
     await pool.remove(id);
-    try {
-      await deleteSession(id);
-    } catch {
-      // Best-effort: a missing file just means there was nothing to clear.
-    }
+    const desk = await desks.removeSession(id);
     if (!desk) return;
     // If the removed session belonged to the ACTIVE desk, foreground the
     // desk's (possibly freshly-seeded) active session so the user never
@@ -85,10 +76,5 @@ export function registerSessionsHandlers(pool: RunnerPool, desks: DeskStore): vo
 }
 
 async function broadcastDesksChanged(desks: DeskStore): Promise<void> {
-  const list = await desks.list();
-  const active = await desks.getActive();
-  broadcastHostEvent('desks.changed', {
-    desks: await withSessionTitles(list),
-    activeId: active?.id ?? null,
-  });
+  broadcastHostEvent('desks.changed', await desks.overview());
 }

@@ -2,8 +2,8 @@
  * cwdForWorkspace routing tests. This is the cwd that scopes both filesystem
  * browsing (workspace.listDir/readFile) AND every git handler (isRepo/status/
  * diff), so a routing bug silently points reads/diffs at the wrong workspace.
- * We also lock the single-load() perf contract: a back-to-back Files-pane
- * render must not re-read+re-parse desks.json multiple times.
+ * We also lock the single-derive perf contract: a back-to-back Files-pane
+ * render must not derive the desk list multiple times.
  */
 
 import { mkdirSync, mkdtempSync } from 'node:fs';
@@ -30,13 +30,13 @@ function desk(over: Partial<Desk> & Pick<Desk, 'id' | 'cwd'>): Desk {
   };
 }
 
-/** A DeskStore stand-in that only implements load() and counts the calls. */
+/** A DeskStore stand-in that only implements overview() and counts the calls. */
 function fakeStore(activeId: string | null, desks: Desk[]) {
   const loads = { count: 0 };
   const store = {
-    load: async () => {
+    overview: async () => {
       loads.count++;
-      return { version: 2 as const, activeId, desks };
+      return { activeId, desks };
     },
   } as unknown as DeskStore;
   return { store, loads };

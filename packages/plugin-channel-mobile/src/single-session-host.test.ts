@@ -9,6 +9,35 @@ import path from 'node:path';
 import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 import { MobileSessionHost } from './single-session-host.js';
 
+/** Seed a session's single metadata file (`<id>.json`) + event log under the
+ *  isolated MOXXY_HOME — the single-source replacement for the old
+ *  registerSessionFromMeta. */
+async function seedSessionFile(meta: {
+  id: string;
+  cwd: string;
+  firstPrompt?: string | null;
+  source?: 'cli' | 'tui' | 'desktop' | 'mobile';
+}): Promise<void> {
+  const dir = path.join(process.env.MOXXY_HOME!, 'sessions');
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    path.join(dir, `${meta.id}.json`),
+    JSON.stringify({
+      version: 1,
+      id: meta.id,
+      cwd: meta.cwd,
+      startedAt: '2026-06-12T10:00:00.000Z',
+      lastActivity: '2026-06-12T10:01:00.000Z',
+      eventCount: meta.firstPrompt ? 3 : 0,
+      firstPrompt: meta.firstPrompt ?? null,
+      provider: 'openai-codex',
+      model: null,
+      source: meta.source ?? 'cli',
+    }),
+  );
+  await writeFile(path.join(dir, `${meta.id}.jsonl`), '');
+}
+
 let originalMoxxyHome: string | undefined;
 let isolatedMoxxyHome: string;
 
@@ -143,7 +172,7 @@ describe('MobileSessionHost', () => {
             sessions: [
               expect.objectContaining({
                 id: 'sess-1',
-                name: 'Current session',
+                name: 'New session',
                 source: 'mobile',
               }),
             ],
@@ -155,7 +184,7 @@ describe('MobileSessionHost', () => {
         sessions: [
           expect.objectContaining({
             id: 'sess-1',
-            name: 'Current session',
+            name: 'New session',
             source: 'mobile',
           }),
         ],
@@ -183,19 +212,7 @@ describe('MobileSessionHost', () => {
   it('runs a turn for the selected registry session', async () => {
     const cwd = path.join(process.env.MOXXY_HOME!, 'project');
     await mkdir(cwd, { recursive: true });
-    await new WorkspaceRegistry().registerSessionFromMeta(
-      {
-        id: 'old-session',
-        cwd,
-        startedAt: '2026-06-12T10:00:00.000Z',
-        lastActivity: '2026-06-12T10:01:00.000Z',
-        eventCount: 3,
-        firstPrompt: 'Old work',
-        provider: 'openai-codex',
-        model: null,
-      },
-      'cli',
-    );
+    await seedSessionFile({ id: 'old-session', cwd, firstPrompt: 'Old work' });
 
     const bus = new FakeBus();
     const { session, raw } = fakeSession();
@@ -300,19 +317,7 @@ describe('MobileSessionHost', () => {
     try {
       const cwd = path.join(process.env.MOXXY_HOME, 'project');
       await mkdir(cwd, { recursive: true });
-      await new WorkspaceRegistry().registerSessionFromMeta(
-        {
-          id: 'archived-session',
-          cwd,
-          startedAt: '2026-06-12T10:00:00.000Z',
-          lastActivity: '2026-06-12T10:01:00.000Z',
-          eventCount: 3,
-          firstPrompt: 'Archived work',
-          provider: 'openai-codex',
-          model: null,
-        },
-        'cli',
-      );
+      await seedSessionFile({ id: 'archived-session', cwd, firstPrompt: 'Archived work' });
 
       const bus = new FakeBus();
       const { session } = fakeSession();
@@ -356,19 +361,7 @@ describe('MobileSessionHost', () => {
     try {
       const cwd = path.join(process.env.MOXXY_HOME, 'project');
       await mkdir(cwd, { recursive: true });
-      await new WorkspaceRegistry().registerSessionFromMeta(
-        {
-          id: 'archived-session',
-          cwd,
-          startedAt: '2026-06-12T10:00:00.000Z',
-          lastActivity: '2026-06-12T10:01:00.000Z',
-          eventCount: 3,
-          firstPrompt: 'Archived work',
-          provider: 'openai-codex',
-          model: null,
-        },
-        'cli',
-      );
+      await seedSessionFile({ id: 'archived-session', cwd, firstPrompt: 'Archived work' });
 
       const bus = new FakeBus();
       const { session } = fakeSession();
@@ -397,19 +390,7 @@ describe('MobileSessionHost', () => {
       await mkdir(cwd, { recursive: true });
       const registry = new WorkspaceRegistry();
       await registry.create({ name: 'Project', cwd });
-      await registry.registerSessionFromMeta(
-        {
-          id: 'archived-session',
-          cwd,
-          startedAt: '2026-06-12T10:00:00.000Z',
-          lastActivity: '2026-06-12T10:01:00.000Z',
-          eventCount: 3,
-          firstPrompt: 'Archived work',
-          provider: 'openai-codex',
-          model: null,
-        },
-        'cli',
-      );
+      await seedSessionFile({ id: 'archived-session', cwd, firstPrompt: 'Archived work' });
 
       const bus = new FakeBus();
       const { session } = fakeSession();

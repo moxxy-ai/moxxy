@@ -53,7 +53,7 @@ describe('SessionPersistence one-time setup (no per-flush open/close)', () => {
     expect(openSpy).toHaveBeenCalledTimes(1);
 
     // Sidecar still written correctly.
-    const raw = await fs.readFile(path.join(dir, `${id}.meta.json`), 'utf8');
+    const raw = await fs.readFile(path.join(dir, `${id}.json`), 'utf8');
     const meta = JSON.parse(raw) as { eventCount: number; firstPrompt: string | null };
     expect(meta.eventCount).toBe(5);
     expect(meta.firstPrompt).toBe('msg 0');

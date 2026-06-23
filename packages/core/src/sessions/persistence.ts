@@ -23,16 +23,54 @@ import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import type { EventLog } from '../events/log.js';
 import { createLogger, type Logger } from '../logger.js';
 
+/**
+ * The channel that originated a session. Persisted into the sidecar by the
+ * runner so every surface (desktop/TUI/mobile) derives the session list from a
+ * single source instead of each keeping its own copy. `desktop`/`mobile`
+ * sessions are kept in the derived workspace list even before they have a first
+ * prompt (a brand-new chat the user just opened); empty `cli`/`tui` sidecars are
+ * dropped as noise.
+ */
+export type SessionSource = 'cli' | 'tui' | 'desktop' | 'mobile';
+
+/** Schema version of the per-session metadata file (`<id>.json`). Bump when the
+ *  shape changes incompatibly; readers tolerate a missing/older version. */
+export const SESSION_META_VERSION = 1;
+
+/**
+ * The single per-session metadata file: `~/.moxxy/sessions/<id>.json`.
+ *
+ * ONE file per session, the unit every surface (TUI/desktop/mobile) lists,
+ * searches and caches. The conversation itself lives in the append-only
+ * `<id>.jsonl`. Fields split by owner:
+ *  - the RUNNER owns the content fields (`firstPrompt`, `eventCount`,
+ *    `lastActivity`, `provider`, `model`, `startedAt`, `source`) and rewrites
+ *    them on a debounce;
+ *  - the UI owns `title` (a rename) and `groupId` (which desk it belongs to).
+ * Because both write the same file, the runner ADOPTS the UI fields on attach
+ * and re-merges them just before each write, so a live session never clobbers a
+ * rename or a move.
+ */
 export interface SessionMeta {
+  /** Schema version; absent on older files (treated as v0). */
+  readonly version?: number;
   readonly id: string;
   readonly cwd: string;
   readonly startedAt: string;
   readonly lastActivity: string;
   readonly eventCount: number;
-  /** First 80 chars of the first user_prompt. Used as the picker label. */
+  /** First 80 chars of the first user_prompt. The list/search label. */
   readonly firstPrompt: string | null;
   readonly provider: string | null;
   readonly model: string | null;
+  /** Originating channel, when known. Written by the runner via `opts.source`. */
+  readonly source?: SessionSource;
+  /** Explicit workspace/desk membership (UI-owned). `null`/absent → grouped by
+   *  cwd containment (CLI/TUI sessions that don't know about desks). */
+  readonly groupId?: string | null;
+  /** User-set display name, the rename (UI-owned). `null`/absent → the name is
+   *  derived from `firstPrompt`. */
+  readonly title?: string | null;
 }
 
 export interface SessionPersistenceOpts {
@@ -44,6 +82,9 @@ export interface SessionPersistenceOpts {
   readonly providerName?: string;
   /** Currently-active model id — captured into the index for the picker. */
   readonly modelId?: string;
+  /** Originating channel — persisted into the sidecar so the workspace list can
+   *  be derived from a single source (see {@link SessionSource}). */
+  readonly source?: SessionSource;
   /**
    * Structured logger for persistence-degradation warnings. Defaults to a
    * stderr JSON logger — event-log write failures are the session's source
@@ -151,6 +192,7 @@ export class SessionPersistence {
     this.logPath = path.join(this.dir, `${this.id}.jsonl`);
     const now = new Date().toISOString();
     this.meta = {
+      version: SESSION_META_VERSION,
       id: this.id,
       cwd: opts.cwd,
       startedAt: now,
@@ -159,6 +201,7 @@ export class SessionPersistence {
       firstPrompt: null,
       provider: opts.providerName ?? null,
       model: opts.modelId ?? null,
+      ...(opts.source ? { source: opts.source } : {}),
     };
   }
 
@@ -371,28 +414,50 @@ export class SessionPersistence {
       if (!this.closed) {
         await this.ensureReady();
       }
-      // Write ONLY this session's sidecar (`<id>.meta.json`), never a
-      // read-modify-write of a shared index.json — that loses rows when two
-      // moxxy processes update "their" row concurrently (each reads the index,
-      // re-adds only itself, and the last writer drops the other's row).
-      // `writeJsonAtomic` already `mkdir -p`s the sidecar's dir, so this owns no
-      // ensureLogFile — the `.jsonl` is the append path's responsibility.
-      await writeJsonAtomic(metaPath(this.dir, this.meta.id), this.meta);
+      // Write ONLY this session's file (`<id>.json`), never a read-modify-write
+      // of a shared index — that loses rows when two moxxy processes update
+      // "their" row concurrently. `writeJsonAtomic` already `mkdir -p`s the dir,
+      // so this owns no ensureLogFile — the `.jsonl` is the append path's job.
+      //
+      // The UI fields (`title`, `groupId`) are owned by the rename/move path,
+      // not the runner. Re-read them just before writing so an external rename
+      // or move that landed mid-session is preserved rather than clobbered by
+      // our (possibly stale) in-memory copy. The runner owns every other field.
+      const onDisk = await readMetaSidecar(this.dir, this.meta.id);
+      const merged: SessionMeta = {
+        ...this.meta,
+        title: onDisk?.title ?? this.meta.title ?? null,
+        groupId: onDisk?.groupId ?? this.meta.groupId ?? null,
+      };
+      await writeJsonAtomic(metaPath(this.dir, this.meta.id), merged);
     } catch {
       // Index write failures shouldn't bring down a session; the
       // user can always re-resume by id from the filename.
     }
   }
 
-  /** One-time, memoized: `mkdir -p` the dir + create the empty `.jsonl`. On
-   *  failure the latch is cleared so a later flush retries (matching the old
-   *  per-write ensureDir/ensureLogFile recoverability). */
+  /** One-time, memoized: `mkdir -p` the dir + create the empty `.jsonl`, then
+   *  ADOPT a pre-existing file's stable identity: `startedAt` (so the derived
+   *  "created" time doesn't jump on every resume), `source` (when the caller
+   *  didn't pass one), and the UI-owned `title`/`groupId` (so the first runner
+   *  write doesn't drop a rename/move made while no runner was attached). On
+   *  failure the latch is cleared so a later flush retries. */
   private ensureReady(): Promise<void> {
     if (!this.ready) {
       this.ready = (async () => {
         await fs.mkdir(this.dir, { recursive: true });
         const handle = await fs.open(this.logPath, 'a');
         await handle.close();
+        const existing = await readMetaSidecar(this.dir, this.id);
+        if (existing) {
+          this.meta = {
+            ...this.meta,
+            startedAt: existing.startedAt,
+            source: this.meta.source ?? existing.source,
+            title: existing.title ?? null,
+            groupId: existing.groupId ?? null,
+          };
+        }
       })().catch((err) => {
         this.ready = null;
         throw err;
@@ -403,54 +468,15 @@ export class SessionPersistence {
 }
 
 /**
- * Read the session index by assembling per-session sidecars (`<id>.meta.json`)
- * plus a legacy `index.json` if one exists (sidecars win by id). Sessions whose
- * `.jsonl` is missing are dropped. Sorted most-recent-activity first.
+ * Read the session index by assembling per-session metadata files (`<id>.json`),
+ * then hydrating each one's first prompt from its `.jsonl`. Sessions whose
+ * `.jsonl` is missing are dropped. Sorted most-recent-activity first. This is the
+ * heavier, jsonl-hydrated read used by `moxxy resume`; the workspace list uses
+ * the cheap {@link listSessionMetas} instead.
  */
 export async function readIndex(dir = defaultSessionsDir()): Promise<SessionMeta[]> {
-  const byId = new Map<string, SessionMeta>();
-
-  // Legacy single-file index (pre-sidecar layout). Sidecars override it below.
-  try {
-    const raw = await fs.readFile(path.join(dir, 'index.json'), 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) {
-      for (const m of parsed.filter(isSessionMeta)) byId.set(m.id, m);
-    }
-  } catch {
-    // no legacy index — fine
-  }
-
-  let dirents: import('node:fs').Dirent[];
-  try {
-    dirents = await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    dirents = [];
-  }
-  // Cap fan-out: a user with thousands of sidecars in ~/.moxxy/sessions would
-  // otherwise open thousands of file handles at once (EMFILE) on every resume/
-  // list. Process in bounded batches instead.
-  const sidecarFiles = dirents.filter((d) => d.isFile() && d.name.endsWith('.meta.json'));
-  await mapWithConcurrency(sidecarFiles, READ_INDEX_CONCURRENCY, async (d) => {
-    try {
-      const raw = await fs.readFile(path.join(dir, d.name), 'utf8');
-      const parsed = JSON.parse(raw) as unknown;
-      if (isSessionMeta(parsed)) byId.set(parsed.id, parsed);
-    } catch {
-      // skip a malformed/half-written sidecar
-    }
-  });
-
-  const metas = [...byId.values()];
-  const checks = await mapWithConcurrency(metas, READ_INDEX_CONCURRENCY, async (meta) => {
-    try {
-      await fs.access(path.join(dir, `${meta.id}.jsonl`));
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  const present = metas.filter((_, index) => checks[index]);
+  const { metas, logs } = await readSessionsDir(dir);
+  const present = metas.filter((meta) => logs.has(meta.id));
   const hydrated = await mapWithConcurrency(present, READ_INDEX_CONCURRENCY, (meta) =>
     hydrateMetaFirstPrompt(meta, dir),
   );
@@ -832,9 +858,10 @@ async function backupForeignSessionLog(logPath: string): Promise<void> {
 }
 
 /**
- * Remove a session's log file and its sidecar. A leftover legacy `index.json`
- * row, if any, is harmless — `readIndex` filters out sessions whose `.jsonl` is
- * gone, so the deleted session won't reappear.
+ * Remove a session entirely: its event log (`<id>.jsonl`) and its single
+ * metadata file (`<id>.json`). This is the SINGLE deletion mechanism — a session
+ * exists iff its `<id>.json` does, so erasing it removes the session from every
+ * surface's derived list with no second copy to resurrect it.
  */
 export async function deleteSession(
   sessionId: string,
@@ -843,11 +870,162 @@ export async function deleteSession(
   assertSafeSessionId(sessionId);
   await fs.rm(path.join(dir, `${sessionId}.jsonl`), { force: true });
   await fs.rm(metaPath(dir, sessionId), { force: true });
+  metaCache.delete(metaPath(dir, sessionId));
 }
 
-/** Per-session metadata sidecar path. */
+/** Per-session metadata file path: `<id>.json` (one file per session). */
 function metaPath(dir: string, id: string): string {
-  return path.join(dir, `${id}.meta.json`);
+  return path.join(dir, `${id}.json`);
+}
+
+/** Read one session's metadata file, or null if absent/corrupt. */
+async function readMetaSidecar(dir: string, id: string): Promise<SessionMeta | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(metaPath(dir, id), 'utf8')) as unknown;
+    return isSessionMeta(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Patch the UI-owned fields of a session's `<id>.json` in place (read-modify-
+ * write): the rename (`title`) and move (`groupId`) paths. A live runner adopts
+ * and re-merges these on its next write, so this is safe whether or not a runner
+ * is attached. No-op if the session has no metadata file yet.
+ */
+async function patchSessionMeta(
+  sessionId: string,
+  patch: Partial<Pick<SessionMeta, 'title' | 'groupId'>>,
+  dir: string,
+): Promise<void> {
+  assertSafeSessionId(sessionId);
+  const existing = await readMetaSidecar(dir, sessionId);
+  if (!existing) return;
+  await writeJsonAtomic(metaPath(dir, sessionId), { ...existing, ...patch });
+  metaCache.delete(metaPath(dir, sessionId));
+}
+
+/** Persist (or clear, when blank) a user-set session title — the rename path. */
+export async function setSessionTitle(
+  sessionId: string,
+  title: string,
+  dir = defaultSessionsDir(),
+): Promise<void> {
+  await patchSessionMeta(sessionId, { title: title.trim() || null }, dir);
+}
+
+/** Persist (or clear, when null) a session's explicit desk/workspace membership. */
+export async function setSessionGroup(
+  sessionId: string,
+  groupId: string | null,
+  dir = defaultSessionsDir(),
+): Promise<void> {
+  await patchSessionMeta(sessionId, { groupId: groupId ?? null }, dir);
+}
+
+/**
+ * Seed a session's `<id>.json` (+ empty `.jsonl`) so a freshly-created session
+ * appears in the derived workspace list IMMEDIATELY, before its runner spawns
+ * and attaches. Idempotent: if a metadata file already exists this is a no-op,
+ * so it never clobbers a live session. The runner adopts the seeded
+ * `startedAt`/`source`/`groupId`/`title` on attach.
+ */
+export async function seedSessionMeta(
+  sessionId: string,
+  cwd: string,
+  source: SessionSource,
+  dir = defaultSessionsDir(),
+  groupId: string | null = null,
+): Promise<void> {
+  assertSafeSessionId(sessionId);
+  if (await readMetaSidecar(dir, sessionId)) return;
+  await fs.mkdir(dir, { recursive: true });
+  const handle = await fs.open(path.join(dir, `${sessionId}.jsonl`), 'a');
+  await handle.close();
+  const now = new Date().toISOString();
+  const meta: SessionMeta = {
+    version: SESSION_META_VERSION,
+    id: sessionId,
+    cwd,
+    startedAt: now,
+    lastActivity: now,
+    eventCount: 0,
+    firstPrompt: null,
+    provider: null,
+    model: null,
+    source,
+    groupId,
+    title: null,
+  };
+  await writeJsonAtomic(metaPath(dir, sessionId), meta);
+  metaCache.delete(metaPath(dir, sessionId));
+}
+
+/**
+ * Parse-cache for `<id>.json` files, keyed by absolute path. A file is re-parsed
+ * only when its mtime/size changes, so listing thousands of sessions on every
+ * `desks.list` costs N cheap stats plus reparses of just the CHANGED files — not
+ * N JSON parses. Cross-process safe: another process's write bumps the mtime,
+ * observed on the next stat. Per-process, bounded by the number of sessions.
+ */
+const metaCache = new Map<string, { mtimeMs: number; size: number; meta: SessionMeta }>();
+
+/**
+ * One pass over the sessions dir: a single `readdir` yields BOTH the `<id>.json`
+ * metadata files and the set of `<id>` ids that have an event log, so callers
+ * test log-existence with an O(1) Set lookup instead of an `fs.access` per
+ * session. Each `<id>.json` is `stat`-checked and re-parsed only when its
+ * mtime/size changed (the parse cache), so steady-state cost is one `readdir` +
+ * N cheap `stat`s + reparses of only the CHANGED files.
+ */
+async function readSessionsDir(dir: string): Promise<{ metas: SessionMeta[]; logs: Set<string> }> {
+  let dirents: import('node:fs').Dirent[];
+  try {
+    dirents = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return { metas: [], logs: new Set() };
+  }
+  const logs = new Set<string>();
+  const files: import('node:fs').Dirent[] = [];
+  for (const d of dirents) {
+    if (!d.isFile()) continue;
+    if (d.name.endsWith('.jsonl')) logs.add(d.name.slice(0, -'.jsonl'.length));
+    else if (d.name.endsWith('.json') && d.name !== 'index.json') files.push(d);
+  }
+  const live = new Set(files.map((d) => path.join(dir, d.name)));
+  for (const key of metaCache.keys()) if (!live.has(key)) metaCache.delete(key);
+  const metas = await mapWithConcurrency(files, READ_INDEX_CONCURRENCY, async (d) => {
+    const file = path.join(dir, d.name);
+    try {
+      const stat = await fs.stat(file);
+      const cached = metaCache.get(file);
+      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+        return cached.meta;
+      }
+      const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+      if (!isSessionMeta(parsed)) return null;
+      metaCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, meta: parsed });
+      return parsed;
+    } catch {
+      return null;
+    }
+  });
+  return { metas: metas.filter((m): m is SessionMeta => m !== null), logs };
+}
+
+/**
+ * List every session from its `<id>.json` (mtime-cached, no `.jsonl` re-read) —
+ * the cheap read the workspace list/search uses on every `desks.list`. Sessions
+ * whose `.jsonl` is gone are dropped (a deleted session never lingers). Use
+ * {@link readIndex} when you need the jsonl-hydrated picker view. Sorted
+ * most-recent-activity first.
+ */
+export async function listSessionMetas(dir = defaultSessionsDir()): Promise<SessionMeta[]> {
+  const { metas, logs } = await readSessionsDir(dir);
+  return metas
+    .filter((meta) => logs.has(meta.id))
+    .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
 }
 
 /**

@@ -22,12 +22,12 @@ export {
   MOXXY_WORKSPACE_COLOR,
   MOXXY_WORKSPACE_ID,
   MOXXY_WORKSPACE_NAME,
-  syncSessionIndexIntoRegistry,
   WorkspaceRegistry,
   type WorkspaceSessionSource,
 } from './desks.js';
 export { readPrefs, updatePrefs } from './prefs.js';
 export { sweepStaleSockets } from './sweep-sockets.js';
+export { watchSessionsForChanges } from './sessions-watcher.js';
 export {
   bindMainWindowMinimize,
   closeFocusWindow,

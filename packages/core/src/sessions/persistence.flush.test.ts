@@ -18,7 +18,7 @@ afterEach(async () => {
 });
 
 async function readMeta(dir: string, id: string): Promise<SessionMeta> {
-  const raw = await fs.readFile(path.join(dir, `${id}.meta.json`), 'utf8');
+  const raw = await fs.readFile(path.join(dir, `${id}.json`), 'utf8');
   return JSON.parse(raw) as SessionMeta;
 }
 

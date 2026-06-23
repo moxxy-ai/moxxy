@@ -18,14 +18,14 @@ import { handle } from './shared';
  * `process.cwd()`. Exported so the git handlers resolve cwd identically.
  */
 export async function cwdForWorkspace(desks: DeskStore, workspaceId?: string): Promise<string> {
-  // Resolve from a SINGLE load(): the id/session match and the active-desk
-  // fallback both come out of the same DeskDoc, so the common Files-pane path
-  // (git.isRepo + git.status back-to-back) no longer re-reads + re-parses
-  // desks.json two or three times per render.
-  const doc = await desks.load();
+  // Resolve from a SINGLE derive (overview): the id/session match and the
+  // active-desk fallback both come out of the same view, so the common
+  // Files-pane path (git.isRepo + git.status back-to-back) doesn't re-derive
+  // two or three times per render.
+  const { desks: list, activeId } = await desks.overview();
   const desk =
-    doc.desks.find((d) => d.id === workspaceId || d.sessions.some((s) => s.id === workspaceId)) ??
-    doc.desks.find((d) => d.id === doc.activeId) ??
+    list.find((d) => d.id === workspaceId || d.sessions.some((s) => s.id === workspaceId)) ??
+    list.find((d) => d.id === activeId) ??
     null;
   return desk ? cwdForSession(desk, workspaceId) : process.cwd();
 }
