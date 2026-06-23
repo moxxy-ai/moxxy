@@ -85,12 +85,16 @@ export function useChatListAutoScroll(items: ReadonlyArray<TranscriptItem>, send
     return () => clearTimeout(timer);
   }, [scrollToEnd]);
 
-  const handleContentSizeChange = useCallback(() => {
+  const handleContentSizeChange = useCallback((_width: number, height: number) => {
+    contentHeightRef.current = height;
     if (atBottomRef.current) scrollToEnd();
   }, [scrollToEnd]);
 
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    // Keep the measured content height current so scrollToBottom always has a
+    // real anchor to jump to (clamped to the true max offset).
+    contentHeightRef.current = contentSize.height;
     const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
     const atBottom = distanceFromBottom <= AT_BOTTOM_THRESHOLD;
     atBottomRef.current = atBottom;
