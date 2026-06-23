@@ -68,6 +68,14 @@ export interface WorkflowStep {
   readonly prompt?: string;
   readonly tool?: string;
   readonly workflow?: string;
+  /**
+   * Deterministic output: render this template (with `{{ vars.* }}`,
+   * `{{ steps.<id>.output }}`, `{{ inputs.* }}`, `{{ now }}`) and use it verbatim
+   * as the step's output — NO agent turn. Use it for pure formatting/delivery
+   * steps (e.g. emit an already-written digest) where a `prompt` step would burn
+   * a model call and risk re-interpreting/looping on the content.
+   */
+  readonly echo?: string;
   /** Extract/transform upstream data into `vars` (and optional `text`). */
   readonly bridge?: string;
   /** If/else gate: agent returns `{"branch":"then"|"else"}`. */

@@ -155,6 +155,26 @@ describe('dag executor', () => {
     expect(result.output).toBe('OUT_analyze'); // sink
   });
 
+  it('echo renders its template verbatim with NO agent turn', async () => {
+    const h = makeHarness();
+    const result = await dagExecutor.run(
+      wf({
+        name: 'echo',
+        description: 'x',
+        steps: [
+          { id: 'write', prompt: 'go' },
+          { id: 'deliver', needs: ['write'], echo: 'Final: {{ steps.write.output }}' },
+        ],
+      }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.output).toBe('Final: OUT_write'); // sink = rendered template
+    // The echo step must NOT spawn a child agent — only the prompt step did.
+    expect(h.specs.map((s) => s.label)).toEqual(['write']);
+    expect(h.order).not.toContain('deliver');
+  });
+
   it('fans out in parallel and fans back in', async () => {
     const h = makeHarness();
     const result = await dagExecutor.run(

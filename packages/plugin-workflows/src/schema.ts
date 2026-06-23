@@ -15,6 +15,7 @@ const ACTION_KEYS = [
   'prompt',
   'tool',
   'workflow',
+  'echo',
   'bridge',
   'condition',
   'switch',
@@ -42,6 +43,7 @@ const stepSchema = z
     prompt: z.string().min(1).optional(),
     tool: z.string().min(1).optional(),
     workflow: z.string().min(1).optional(),
+    echo: z.string().min(1).optional(),
     bridge: z.string().min(1).optional(),
     condition: z.string().min(1).optional(),
     then: z.array(z.string().min(1)).optional(),
@@ -71,7 +73,10 @@ const stepSchema = z
     // mid-iteration (see the loop-body refinement below). Reject it elsewhere so
     // the author picks a supported action rather than hitting a runtime failure.
     const isLogic = step.bridge != null || step.condition != null || step.switch != null;
-    if (step.awaitInput && (step.tool != null || step.workflow != null || step.loop != null || isLogic)) {
+    if (
+      step.awaitInput &&
+      (step.tool != null || step.workflow != null || step.echo != null || step.loop != null || isLogic)
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `step "${step.id}": awaitInput is only allowed on prompt or skill steps`,

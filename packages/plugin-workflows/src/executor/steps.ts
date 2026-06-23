@@ -67,6 +67,13 @@ async function runStepOnce(
     return runLogicStep(step, scope, ctx, opts);
   }
 
+  if (step.echo != null) {
+    // Deterministic output: render the template and use it verbatim — no agent
+    // turn. Lets a workflow format/deliver an already-produced result without
+    // burning a model call or risking the model re-interpreting/looping on it.
+    return { ok: true, output: renderTemplate(step.echo, scope, opts) };
+  }
+
   if (step.tool) {
     const args = renderArgs(step.args ?? {}, scope, opts);
     const result = await deps.tools.execute(step.tool, args, deps.signal);
