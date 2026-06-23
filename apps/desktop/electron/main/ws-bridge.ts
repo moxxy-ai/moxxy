@@ -12,8 +12,10 @@
  *   - the env-gated BOOT path (`MOXXY_WS_BRIDGE=1`) — back-compat for power
  *     users / CI, started once at boot from {@link resolveWsBridgeConfig};
  *   - the runtime "mobile gateway" path — {@link MobileGatewayManager}, driven
- *     by the Settings → Mobile tab via IPC, which can START and STOP the bridge
- *     on demand and persists the on/off preference so it survives a restart.
+ *     by the Mobile view via IPC, which can START and STOP the bridge on demand.
+ *     It is ON-DEMAND ONLY: the gateway never auto-starts with the app (the boot
+ *     path does not resume the persisted preference), so each pairing session is
+ *     a fresh, explicit opt-in.
  *
  * SECURITY — the runtime gateway binds the LAN by default (so a phone on the
  * same Wi-Fi can actually reach it), which is a deliberate local-network
@@ -229,10 +231,16 @@ export class MobileGatewayManager {
   }
 
   /**
-   * Re-start the gateway on boot iff the persisted preference says it was on.
+   * Re-start the gateway iff the persisted preference says it was on.
+   *
+   * NOTE: the app no longer calls this at boot — the gateway is on-demand only
+   * and must never auto-start (see the boot path in the Electron main). This is
+   * retained as a self-contained capability (and is unit-tested) so a future
+   * opt-in "remember the gateway across restarts" toggle can wire it back in.
+   *
    * Best-effort: a start failure is swallowed (logged) so a transient port
-   * clash can't brick boot — the user can re-toggle from Settings. Serialized
-   * with start/stop/rotate so a user toggle that races boot can't double-bind.
+   * clash can't brick boot. Serialized with start/stop/rotate so a toggle that
+   * races it can't double-bind.
    */
   async resume(): Promise<void> {
     await this.runExclusive(async () => {

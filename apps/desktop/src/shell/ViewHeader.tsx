@@ -5,8 +5,9 @@ import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollap
 import { useMenuKeyboard } from './useMenuKeyboard';
 
 /** Top-level main-content views. Chat ↔ Workflows ↔ Collaborate ↔ Apps switch
- *  via the header's `ViewSwitcher`; Settings is reached from the sidebar. */
-export type View = 'chat' | 'workflows' | 'collaborate' | 'settings' | 'apps';
+ *  via the header's `ViewSwitcher`; Settings and Mobile are reached from the
+ *  sidebar (they own the pane with no active switcher segment). */
+export type View = 'chat' | 'workflows' | 'collaborate' | 'settings' | 'apps' | 'mobile';
 
 /**
  * Shared section header — one 64px chrome bar so Chat / Workflows /
@@ -480,13 +481,16 @@ export function ViewSwitcher({
   return (
     <Segmented
       items={SWITCH_ITEMS}
-      value={view === 'settings' ? null : view}
+      // Settings and Mobile are sidebar destinations, not switcher segments — so
+      // neither maps to a pill. The inline comparison also narrows `view` to the
+      // switcher's own ids in the else branch (keeps the value type exact).
+      value={view === 'settings' || view === 'mobile' ? null : view}
       onChange={onView}
       testIdPrefix="nav-"
       collapsible
       disabledIds={disabledIds}
       disabledReason={disabledReason}
-      // On the Settings view this switcher has no active segment; label the
+      // On a sidebar-owned view this switcher has no active segment; label the
       // folded button with the view family rather than a blank.
       collapsedLabel="Views"
     />

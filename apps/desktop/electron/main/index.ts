@@ -759,12 +759,15 @@ app.whenReady().then(async () => {
     } catch (e) {
       console.error('[moxxy] WebSocket bridge failed to start:', e);
     }
-  } else if (mobileGateway) {
-    // No env override: re-start the gateway iff the user previously enabled it
-    // (persisted preference), so pairing survives a restart.
-    await mobileGateway.resume();
-    wsServer = mobileGateway.liveServer;
   }
+  // Without the env override the gateway stays OFF on boot — it is on-demand
+  // only and never auto-starts with the app. The user enables it explicitly
+  // from the Mobile view; we deliberately do NOT resume the persisted
+  // preference here. (Auto-resume re-opened a fresh proxy tunnel on every
+  // launch — racing the relay's still-registered tunnel from the previous run
+  // and leaving pairing "unresponsive until you regenerate the code".) The
+  // pairing token + identity are still persisted, so re-enabling reuses the
+  // same QR without re-pairing.
 
   // The renderer's DeepLinkBridge calls this once on mount: it returns +
   // clears any `moxxy://` links buffered before the renderer was listening
@@ -830,17 +833,24 @@ app.on('will-quit', () => {
 });
 
 async function shutdown(): Promise<void> {
-  // The runtime gateway may have replaced `wsServer` (toggled on/off from
-  // Settings), so close whichever server is currently live, preferring the
-  // controller's view.
-  const liveBridge = mobileGateway?.liveServer ?? wsServer;
+  // Tear the mobile gateway down THROUGH the manager (not just the raw server):
+  // `stop()` also closes the E2E proxy tunnel + shim, so the relay deregisters
+  // this machine's tunnel on quit. Closing only the WS server (the old path)
+  // left the relay holding a stale registration for the key-derived URL — the
+  // next launch's tunnel then collided with the dead one and pairing looked
+  // "unresponsive until you regenerate the code". When the manager is absent
+  // (bridge module failed to load) fall back to closing the env-boot server.
+  const stopGateway = mobileGateway
+    ? mobileGateway.stop().then(() => undefined)
+    : (wsServer?.close() ?? Promise.resolve());
   await Promise.race([
-    // Stop the runner children, the loopback server, AND the WS bridge (remote
-    // clients). allSettled never rejects, so one failing doesn't skip the others.
+    // Stop the runner children, the loopback server, AND the mobile gateway
+    // (remote clients + relay tunnel). allSettled never rejects, so one failing
+    // doesn't skip the others.
     Promise.allSettled([
       pool?.stopAll() ?? Promise.resolve(),
       loopback?.close() ?? Promise.resolve(),
-      liveBridge?.close() ?? Promise.resolve(),
+      stopGateway,
     ]),
     // Belt-and-braces timeout: don't hang the app on a stuck child.
     new Promise<void>((resolve) => setTimeout(resolve, 3000)),

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useDesks } from '@moxxy/client-core';
-import { Skeleton, Icon, ConfirmModal } from '@moxxy/desktop-ui';
+import { Skeleton, Icon, ConfirmModal, type IconName } from '@moxxy/desktop-ui';
 import { useUnreadWorkspaces } from '@moxxy/client-core';
 import type { Desk, DeskSession } from '@moxxy/desktop-ipc-contract';
 import { Logo } from './workspace-sidebar/Logo';
@@ -188,45 +188,24 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
           />
         )}
       </div>
-      {/* Settings is the only sidebar destination — anchored just above
-       *  the profile's top border. Chat/Workflows switch in the main-pane
-       *  header instead. */}
-      <nav style={{ padding: '6px 12px 10px' }}>
-        <button
-          type="button"
-          data-testid="nav-settings"
-          data-active={view === 'settings'}
+      {/* Mobile + Settings are the sidebar destinations — anchored just above
+       *  the profile's top border, Mobile sitting above Settings.
+       *  Chat/Workflows switch in the main-pane header instead. */}
+      <nav style={{ padding: '6px 12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <NavItem
+          icon="smartphone"
+          label="Mobile"
+          testId="nav-mobile"
+          active={view === 'mobile'}
+          onClick={() => onView('mobile')}
+        />
+        <NavItem
+          icon="settings"
+          label="Settings"
+          testId="nav-settings"
+          active={view === 'settings'}
           onClick={() => onView('settings')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            width: '100%',
-            padding: '10px 12px',
-            fontSize: 13.5,
-            color:
-              view === 'settings'
-                ? 'var(--color-sidebar-text)'
-                : 'var(--color-sidebar-text-dim)',
-            background:
-              view === 'settings' ? 'var(--color-sidebar-bg-active)' : 'transparent',
-            borderRadius: 10,
-            fontWeight: view === 'settings' ? 600 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: 20,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: 0.85,
-            }}
-          >
-            <Icon name="settings" size={17} />
-          </span>
-          <span>Settings</span>
-        </button>
+        />
       </nav>
       <ProfilePill />
       {pendingFolder && (
@@ -288,5 +267,55 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
         />
       )}
     </aside>
+  );
+}
+
+/** A bottom-rail destination button (Mobile, Settings) — one shared row so the
+ *  two entries stay pixel-identical (active fill, icon tile, label weight). */
+function NavItem({
+  icon,
+  label,
+  testId,
+  active,
+  onClick,
+}: {
+  readonly icon: IconName;
+  readonly label: string;
+  readonly testId: string;
+  readonly active: boolean;
+  readonly onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      data-active={active}
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        width: '100%',
+        padding: '10px 12px',
+        fontSize: 13.5,
+        color: active ? 'var(--color-sidebar-text)' : 'var(--color-sidebar-text-dim)',
+        background: active ? 'var(--color-sidebar-bg-active)' : 'transparent',
+        borderRadius: 10,
+        fontWeight: active ? 600 : 500,
+      }}
+    >
+      <span
+        style={{
+          width: 20,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: 0.85,
+        }}
+      >
+        <Icon name={icon} size={17} />
+      </span>
+      <span>{label}</span>
+    </button>
   );
 }

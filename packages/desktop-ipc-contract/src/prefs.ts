@@ -8,10 +8,12 @@ export interface DesktopPrefs {
   clerkUserId: string | null;
   clerkDisplayName: string | null;
   signedInAt: number | null;
-  /** Whether the user enabled the mobile gateway (the WebSocket bridge). The
-   *  main process re-starts the bridge on boot when this is true so pairing
-   *  survives a restart. Defaults to false (OFF) — exposing the host on the LAN
-   *  is always an explicit opt-in. */
+  /** Whether the user last had the mobile gateway (the WebSocket bridge) on.
+   *  Recorded when the gateway is toggled, but NOT acted on at boot: the gateway
+   *  is on-demand only and never auto-starts with the app (exposing the host on
+   *  the network is always an explicit, per-session opt-in from the Mobile view).
+   *  Kept for diagnostics / a possible future "remember" option. Defaults to
+   *  false (OFF). */
   mobileGatewayEnabled: boolean;
   /** Color scheme. The renderer's useTheme() controller maps it to
    *  `data-theme="dark"` on <html>; the main process mirrors it into
