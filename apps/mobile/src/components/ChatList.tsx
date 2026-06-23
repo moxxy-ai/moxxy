@@ -1,12 +1,12 @@
 import { sx } from '../styles/tokens';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Linking,
   Modal,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
   type NativeScrollEvent,
@@ -21,6 +21,7 @@ import { buildChatAttachmentPreview, summarizeAttachment } from '@/attachments';
 import { buildChatListContentStyle, buildOfflineEmptyStateCopy } from '@/chatListLayout';
 import type {
   AssistantTranscriptItem,
+  ReasoningTranscriptItem,
   SubagentGroupTranscriptItem,
   SubagentTranscriptItem,
   SystemGroupTranscriptItem,
@@ -40,17 +41,30 @@ import { buildMessageActions } from '@/messageActions';
 import type { MobileMarkdownBlock } from '@/mobileMarkdown';
 import { buildSubagentDetailUi, selectSubagentDetailAgent } from '@/subagentDetailUi';
 import { buildToolDetailUi, buildToolGroupUi, type ToolDetailUi } from '@/toolGroupUi';
+import { useTheme } from '@/theme/ThemeProvider';
+import type { Palette } from '@/styles/tokens';
 import type { InlineTok } from '@moxxy/chat-model/markdown';
+import type { ImageSourcePropType } from 'react-native';
+import { BottomSheet, SheetGroup, SheetRow } from '@/ui/kit';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
 const CHAT_LIST_PERFORMANCE_PROPS = buildMobileChatListPerformanceProps();
+const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
+
+export interface ChatWelcome {
+  readonly title: string;
+  readonly subtitle: string;
+}
 
 interface ChatListProps {
   readonly items: ReadonlyArray<TranscriptItem>;
   readonly connectionBanner?: ReactNode;
   readonly sending?: boolean;
   readonly hasOlder?: boolean;
+  readonly welcome?: ChatWelcome | null;
+  readonly loading?: boolean;
+  readonly bottomInset?: number;
   readonly onLoadOlder?: () => void;
   readonly copiedMessageId?: string | null;
   readonly onCopyMessage?: (messageId: string, text: string) => void;
@@ -61,12 +75,20 @@ export function ChatList({
   connectionBanner,
   sending = false,
   hasOlder = false,
+  welcome = null,
+  loading = false,
+  bottomInset = 0,
   onLoadOlder,
   copiedMessageId = null,
   onCopyMessage,
 }: ChatListProps) {
+  const { scheme } = useTheme();
+  const [menu, setMenu] = useState<{ readonly id: string; readonly text: string } | null>(null);
+  const onLongPressMessage = useCallback((id: string, text: string) => setMenu({ id, text }), []);
   const autoScroll = useChatListAutoScroll(items, sending);
+  const trackScroll = autoScroll.handleScroll;
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    trackScroll(event);
     if (
       shouldLoadOlderFromScroll({
         contentOffsetY: event.nativeEvent.contentOffset.y,
@@ -75,132 +97,187 @@ export function ChatList({
     ) {
       onLoadOlder?.();
     }
-  }, [hasOlder, onLoadOlder]);
+  }, [hasOlder, onLoadOlder, trackScroll]);
   const renderItem = useCallback<ListRenderItem<TranscriptItem>>(({ item }) => (
     <MemoMessageBlock
       item={item}
       copied={copiedMessageId === item.id}
       onCopyMessage={onCopyMessage}
+      onLongPress={onLongPressMessage}
     />
-  ), [copiedMessageId, onCopyMessage]);
+  ), [copiedMessageId, onCopyMessage, onLongPressMessage]);
   const keyExtractor = useCallback((item: TranscriptItem) => item.id, []);
   const header = useCallback(() => (
     connectionBanner ? <View style={{ marginBottom: 16 }}>{connectionBanner}</View> : null
   ), [connectionBanner]);
   const empty = useCallback(() => {
-    const copy = buildOfflineEmptyStateCopy(Boolean(connectionBanner));
-    return (
-      <View style={[styles.emptyState, connectionBanner ? styles.emptyStateCompact : styles.emptyStateRoomy]}>
-        <Text style={styles.emptyTitle}>{copy.title}</Text>
-        <Text style={styles.emptyBody}>{copy.body}</Text>
-      </View>
-    );
-  }, [connectionBanner]);
+    if (loading) return <SessionLoadingView />;
+    if (welcome && !connectionBanner) return <WelcomeView welcome={welcome} />;
+    return <OfflineEmptyState hasConnectionBanner={Boolean(connectionBanner)} />;
+  }, [connectionBanner, loading, welcome]);
   const footer = useCallback(
     () => (shouldShowThinkingIndicator({ items, sending }) ? <ThinkingIndicator /> : null),
     [items, sending],
   );
 
   return (
-    <FlatList
-      ref={autoScroll.scrollRef}
-      data={items}
-      renderItem={renderItem}
-      keyExtractor={keyExtractor}
-      ListHeaderComponent={header}
-      ListEmptyComponent={empty}
-      ListFooterComponent={footer}
-      style={sx('flex-1')}
-      contentContainerStyle={buildChatListContentStyle()}
-      onContentSizeChange={autoScroll.handleContentSizeChange}
-      onScroll={handleScroll}
-      {...CHAT_LIST_PERFORMANCE_PROPS}
-    />
+    <View style={sx('flex-1')}>
+      <FlatList
+        // Remount the transcript on a theme flip so memoized rows re-resolve colors.
+        key={scheme}
+        ref={autoScroll.scrollRef}
+        data={items}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={header}
+        ListEmptyComponent={empty}
+        ListFooterComponent={footer}
+        style={sx('flex-1')}
+        contentContainerStyle={buildChatListContentStyle({ bottomInset })}
+        onContentSizeChange={autoScroll.handleContentSizeChange}
+        onScroll={handleScroll}
+        {...CHAT_LIST_PERFORMANCE_PROPS}
+      />
+      {autoScroll.showScrollToBottom ? <ScrollToBottomButton bottom={bottomInset - 12} onPress={autoScroll.scrollToBottom} /> : null}
+      <BottomSheet open={menu !== null} onClose={() => setMenu(null)} title="Message">
+        <View style={{ paddingBottom: 8, paddingHorizontal: 16 }}>
+          <SheetGroup>
+            <SheetRow
+              icon="copy"
+              iconTone="brand"
+              label="Copy text"
+              onPress={() => {
+                if (menu) onCopyMessage?.(menu.id, menu.text);
+                setMenu(null);
+              }}
+            />
+          </SheetGroup>
+        </View>
+      </BottomSheet>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  emptyBody: {
-    color: '#667085',
-    fontSize: 14,
-    lineHeight: 22,
-    marginTop: 6,
-  },
-  emptyState: {
-    alignSelf: 'stretch',
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderColor: '#e3e5f0',
-    borderRadius: 18,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  emptyStateCompact: {
-    marginTop: -2,
-  },
-  emptyStateRoomy: {
-    marginTop: 20,
-  },
-  emptyTitle: {
-    color: '#0f172a',
-    fontSize: 17,
-    fontWeight: '900',
-    lineHeight: 22,
-  },
-});
+function ScrollToBottomButton({ onPress, bottom }: { readonly onPress: () => void; readonly bottom: number }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityLabel="Scroll to latest"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) =>
+        sx('absolute items-center justify-center rounded-full', {
+          alignSelf: 'center',
+          backgroundColor: pressed ? colors.cardBg : colors.surface,
+          borderColor: colors.cardBorder,
+          borderWidth: 1,
+          bottom,
+          height: 38,
+          width: 38,
+          ...shadowStyle(colors.shadow),
+        })
+      }
+    >
+      <MobileIcon name="chevronDown" size={20} strokeWidth={2.5} color={colors.text} />
+    </Pressable>
+  );
+}
+
+function shadowStyle(shadow: string) {
+  return { elevation: 6, shadowColor: shadow, shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.4, shadowRadius: 12 };
+}
+
+function WelcomeView({ welcome }: { readonly welcome: ChatWelcome }) {
+  const { colors } = useTheme();
+  return (
+    <View style={sx('flex-1 items-center justify-center', { paddingVertical: 16 })}>
+      <View style={sx('items-center justify-center', { height: 136, width: 136 })}>
+        <View style={sx('absolute rounded-full', { backgroundColor: colors.primary, height: 136, opacity: 0.09, width: 136 })} />
+        <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 124, width: 124 }} />
+      </View>
+      <Text style={sx('mt-3 text-[25px] font-black text-text text-center', { letterSpacing: -0.5 })}>{welcome.title}</Text>
+      <Text style={sx('mt-2 text-[15px] font-medium text-muted text-center', { lineHeight: 21, maxWidth: 320 })}>
+        {welcome.subtitle}
+      </Text>
+    </View>
+  );
+}
+
+function SessionLoadingView() {
+  const { colors } = useTheme();
+  return (
+    <View style={sx('flex-1 items-center justify-center', { gap: 14, paddingBottom: 48 })}>
+      <View style={sx('items-center justify-center', { height: 116, width: 116 })}>
+        <View style={sx('absolute rounded-full', { backgroundColor: colors.primary, height: 116, opacity: 0.09, width: 116 })} />
+        <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 104, width: 104 }} />
+      </View>
+      <ActivityIndicator color={colors.primary} />
+      <Text style={sx('text-[14px] font-semibold text-dim')}>Loading chat…</Text>
+    </View>
+  );
+}
+
+function OfflineEmptyState({ hasConnectionBanner }: { readonly hasConnectionBanner: boolean }) {
+  const { colors } = useTheme();
+  const copy = buildOfflineEmptyStateCopy(hasConnectionBanner);
+  return (
+    <View
+      style={sx('self-stretch rounded-2xl border px-4 py-4', {
+        backgroundColor: colors.cardBg,
+        borderColor: colors.cardBorder,
+        marginTop: hasConnectionBanner ? -2 : 20,
+      })}
+    >
+      <Text style={sx('text-[17px] font-black text-text', { lineHeight: 22 })}>{copy.title}</Text>
+      <Text style={sx('mt-1.5 text-[14px] text-muted', { lineHeight: 22 })}>{copy.body}</Text>
+    </View>
+  );
+}
 
 function MessageBlock({
   item,
-  copied,
-  onCopyMessage,
+  onLongPress,
 }: MobileMessageBlockRenderProps) {
+  const { colors } = useTheme();
   if (item.kind === 'user') {
     const actions = buildMessageActions(item);
     const hasText = item.text.trim().length > 0;
     const hasAttachments = Boolean(item.attachments?.length);
     return (
-      <View
-        style={{ alignItems: 'flex-end', alignSelf: 'flex-end', flexDirection: 'row', gap: 8, maxWidth: '88%' }}
+      <Pressable
+        delayLongPress={300}
+        onLongPress={() => onLongPress?.(item.id, actions.copyText ?? item.text)}
+        style={{ alignItems: 'flex-end', alignSelf: 'flex-end', gap: 8, maxWidth: '88%' }}
         testID="mobile-user-message"
       >
-        <CopyMessageButton
-          copied={copied}
-          hidden={!actions.copyText}
-          tone="user"
-          onPress={() => actions.copyText ? onCopyMessage?.(item.id, actions.copyText) : undefined}
-        />
-        <View
-          style={{ alignItems: 'flex-end', flexShrink: 1, gap: 8, maxWidth: '100%' }}
-        >
-          {hasAttachments ? <MessageAttachments attachments={item.attachments ?? []} /> : null}
-          {hasText || !hasAttachments ? (
-            <View
-              testID="mobile-user-block"
-              style={{
-                backgroundColor: '#ec4899',
-                borderBottomLeftRadius: 16,
-                borderBottomRightRadius: 4,
-                borderTopLeftRadius: 16,
-                borderTopRightRadius: 16,
-                maxWidth: '100%',
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                shadowColor: '#ec4899',
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 0.2,
-                shadowRadius: 14,
-              }}
-            >
-              <Text style={sx('text-[15px] leading-6 text-white')}>{item.text}</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
+        {hasAttachments ? <MessageAttachments attachments={item.attachments ?? []} /> : null}
+        {hasText || !hasAttachments ? (
+          <View
+            testID="mobile-user-block"
+            style={{
+              backgroundColor: colors.primary,
+              borderBottomLeftRadius: 18,
+              borderBottomRightRadius: 6,
+              borderTopLeftRadius: 18,
+              borderTopRightRadius: 18,
+              maxWidth: '100%',
+              paddingHorizontal: 16,
+              paddingVertical: 11,
+            }}
+          >
+            <Text style={sx('text-[15px] leading-6 text-white')}>{item.text}</Text>
+          </View>
+        ) : null}
+      </Pressable>
     );
   }
 
   if (item.kind === 'assistant') {
-    return <AssistantMessage copied={copied} message={item} onCopyMessage={onCopyMessage} />;
+    return <AssistantMessage message={item} onLongPress={onLongPress} />;
+  }
+
+  if (item.kind === 'reasoning') {
+    return <ReasoningMessage item={item} />;
   }
 
   if (item.kind === 'tool-group') {
@@ -217,14 +294,16 @@ function MessageBlock({
 
   return (
     <View
-      style={sx('rounded-block border border-cardBorder bg-cardBg', {
+      style={{
         alignSelf: 'center',
-        borderColor: '#fecaca',
-        borderRadius: 10,
+        backgroundColor: colors.redSoft,
+        borderColor: colors.redBorder,
+        borderRadius: 12,
+        borderWidth: 1,
         maxWidth: '92%',
         paddingHorizontal: 12,
         paddingVertical: 8,
-      })}
+      }}
     >
       <Text style={sx('text-[12px] font-bold text-red')}>{item.label}</Text>
       <Text style={sx('mt-1 text-[13px] leading-5 text-muted')}>{item.text}</Text>
@@ -253,20 +332,17 @@ function MessageAttachments({ attachments }: { readonly attachments: ReadonlyArr
 }
 
 function ImageAttachmentPreview({ alt, uri }: { readonly alt: string; readonly uri: string }) {
+  const { colors } = useTheme();
   return (
     <View
       accessibilityLabel={`Image attachment ${alt}`}
       testID="mobile-image-attachment-preview"
       style={{
-        backgroundColor: '#ffffff',
-        borderColor: '#e3e5f0',
+        backgroundColor: colors.surface,
+        borderColor: colors.cardBorder,
         borderRadius: 14,
         borderWidth: 1,
         overflow: 'hidden',
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.12,
-        shadowRadius: 18,
       }}
     >
       <Image
@@ -280,14 +356,15 @@ function ImageAttachmentPreview({ alt, uri }: { readonly alt: string; readonly u
 }
 
 function MessageAttachmentChip({ attachment }: { readonly attachment: PromptAttachment }) {
+  const { colors } = useTheme();
   const summary = summarizeAttachment(attachment);
   return (
     <View
       style={{
         alignItems: 'center',
         alignSelf: 'flex-end',
-        backgroundColor: '#ffffff',
-        borderColor: '#f9a8d4',
+        backgroundColor: colors.surface,
+        borderColor: colors.pinkBorder,
         borderRadius: 999,
         borderWidth: 1,
         flexDirection: 'row',
@@ -297,109 +374,89 @@ function MessageAttachmentChip({ attachment }: { readonly attachment: PromptAtta
         paddingVertical: 5,
       }}
     >
-      <Text style={{ color: '#be185d', fontSize: 10, fontWeight: '800', opacity: 0.78 }}>{summary.detail}</Text>
-      <Text style={{ color: '#be185d', fontSize: 11, fontWeight: '800', maxWidth: 150 }} numberOfLines={1}>
+      <Text style={{ color: colors.pinkText, fontSize: 10, fontWeight: '800', opacity: 0.78 }}>{summary.detail}</Text>
+      <Text style={{ color: colors.pinkText, fontSize: 11, fontWeight: '800', maxWidth: 150 }} numberOfLines={1}>
         {summary.label}
       </Text>
     </View>
   );
 }
 
-function CopyMessageButton({
-  copied,
-  hidden,
-  tone,
-  onPress,
+function AssistantMessage({
+  message,
+  onLongPress,
 }: {
-  readonly copied: boolean;
-  readonly hidden: boolean;
-  readonly tone: 'assistant' | 'user';
-  readonly onPress: () => void;
+  readonly message: AssistantTranscriptItem;
+  readonly onLongPress?: (messageId: string, text: string) => void;
 }) {
-  if (hidden) return <View style={{ height: 32, width: 32 }} />;
-  const activeColor = copied ? '#16a34a' : tone === 'user' ? '#db2777' : '#64748b';
+  const actions = buildMessageActions(message);
   return (
     <Pressable
-      accessibilityLabel={copied ? 'Message copied' : 'Copy message'}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={{
-        alignItems: 'center',
-        backgroundColor: copied ? '#ecfdf5' : '#ffffff',
-        borderColor: copied ? '#bbf7d0' : '#e3e5f0',
-        borderRadius: 999,
-        borderWidth: 1,
-        height: 32,
-        justifyContent: 'center',
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 10,
-        width: 32,
-      }}
+      testID="mobile-assistant-block"
+      delayLongPress={300}
+      onLongPress={() => onLongPress?.(message.id, actions.copyText ?? message.text)}
+      style={{ alignSelf: 'stretch', maxWidth: '100%' }}
     >
-      <MobileIcon name={copied ? 'check' : 'copy'} size={15} strokeWidth={2.4} color={activeColor} />
+      <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
+        <Text style={sx('text-[13px] font-bold text-text')}>{message.label}</Text>
+        {message.streaming ? (
+          <View style={sx('rounded-pill bg-primarySoft px-2 py-0.5')}>
+            <Text style={sx('text-[11px] font-bold text-primary')}>typing...</Text>
+          </View>
+        ) : null}
+      </View>
+      {message.streaming ? (
+        // While streaming, render the growing text as plain Text. Running the
+        // cached markdown parser on every chunk is O(n^2) over the message and
+        // pollutes the shared block cache (one entry per partial text, evicting
+        // settled messages). Markdown is parsed once, below, when it settles.
+        <Text style={sx('mt-1 text-[15px] leading-6 text-text')}>{message.text}</Text>
+      ) : (
+        <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
+      )}
+      {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
+        <Text style={sx('mt-1 text-[10px] font-bold uppercase text-dim')}>stop: {message.stopReason.replace(/_/g, ' ')}</Text>
+      ) : null}
     </Pressable>
   );
 }
 
-function AssistantMessage({
-  copied,
-  message,
-  onCopyMessage,
-}: {
-  readonly copied: boolean;
-  readonly message: AssistantTranscriptItem;
-  readonly onCopyMessage?: (messageId: string, text: string) => void;
-}) {
-  const actions = buildMessageActions(message);
+function ReasoningMessage({ item }: { readonly item: ReasoningTranscriptItem }) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
   return (
-    <View
-      testID="mobile-assistant-block"
-      style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}
-    >
-      <View
-        style={sx('bg-primarySoft', { alignItems: 'center', borderRadius: 10, height: 34, justifyContent: 'center', width: 34 })}
+    <View style={{ alignSelf: 'stretch', maxWidth: '100%' }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((value) => !value)}
+        style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 32 }}
       >
-        <MobileIcon name="message" size={18} strokeWidth={2.35} color="#db2777" />
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
-          <Text style={sx('text-[13px] font-bold text-text')}>{message.label}</Text>
-          {message.streaming ? (
-            <View style={sx('rounded-pill bg-primarySoft px-2 py-0.5')}>
-              <Text style={sx('text-[11px] font-bold text-primary')}>typing...</Text>
-            </View>
-          ) : null}
-          <View style={{ flex: 1 }} />
-          <CopyMessageButton
-            copied={copied}
-            hidden={!actions.copyText}
-            tone="assistant"
-            onPress={() => actions.copyText ? onCopyMessage?.(message.id, actions.copyText) : undefined}
-          />
+        <MobileIcon name="sparkle" size={15} strokeWidth={2.2} color={colors.textDim} />
+        <Text style={sx('flex-1 text-[13px] font-bold text-dim')}>{open ? 'Thinking' : 'Thought process'}</Text>
+        <MobileIcon name={open ? 'chevronDown' : 'chevronRight'} size={15} strokeWidth={2.4} color={colors.textDim} />
+      </Pressable>
+      {open ? (
+        <View style={sx('mt-1 rounded-2xl px-3 py-2', { backgroundColor: colors.surface, borderColor: colors.cardBorder, borderWidth: 1 })}>
+          <Text style={sx('text-[13px] leading-5', { color: colors.textMuted })}>{item.text}</Text>
         </View>
-        {message.streaming ? (
-          // While streaming, render the growing text as plain Text. Running the
-          // cached markdown parser on every chunk is O(n^2) over the message and
-          // pollutes the shared block cache (one entry per partial text, evicting
-          // settled messages). Markdown is parsed once, below, when it settles.
-          <Text style={sx('mt-1 text-[15px] leading-6 text-text')}>{message.text}</Text>
-        ) : (
-          <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
-        )}
-        {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
-          <Text style={sx('mt-1 text-[10px] font-bold uppercase text-dim')}>stop: {message.stopReason.replace(/_/g, ' ')}</Text>
-        ) : null}
-      </View>
+      ) : null}
     </View>
   );
 }
 
+function toolGroupTone(label: 'failed' | 'running' | 'ok', colors: Palette): { accent: string; tint: string } {
+  if (label === 'failed') return { accent: colors.red, tint: colors.redTint };
+  if (label === 'running') return { accent: colors.primary, tint: colors.primarySoft };
+  return { accent: colors.greenStrong, tint: colors.greenSoft };
+}
+
 function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }) {
+  const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(() => new Set());
   const ui = buildToolGroupUi(group.tools);
+  const tone = toolGroupTone(ui.statusLabel, colors);
   const toggleTool = useCallback((toolId: string) => {
     setExpandedToolIds((current) => {
       const next = new Set(current);
@@ -410,32 +467,23 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
   }, []);
 
   return (
-    <View
-      style={{
-        alignSelf: 'stretch',
-        flexDirection: 'row',
-        gap: 12,
-        maxWidth: '96%',
-      }}
-    >
-      <View
-        style={{ alignItems: 'center', backgroundColor: ui.tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}
-      >
-        <MobileIcon name="bolt" size={17} strokeWidth={2.35} color={ui.accent} />
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
+    <View style={{ alignSelf: 'stretch', maxWidth: '100%' }}>
+      <View style={{ alignItems: 'center', flexDirection: 'row', gap: 12 }}>
+        <View style={{ alignItems: 'center', backgroundColor: tone.tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}>
+          <MobileIcon name="bolt" size={17} strokeWidth={2.35} color={tone.accent} />
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ expanded: open }}
           onPress={() => setOpen((value) => !value)}
-          style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 34 }}
+          style={{ alignItems: 'center', flex: 1, flexDirection: 'row', gap: 8, minHeight: 34, minWidth: 0 }}
         >
           <Text style={sx('text-[13px] font-bold text-text')}>{group.title}</Text>
           <Text style={sx('text-[11px] font-bold text-dim')}>{group.tools.length}</Text>
           <View
             style={{
               alignItems: 'center',
-              backgroundColor: ui.tint,
+              backgroundColor: tone.tint,
               borderRadius: 999,
               flexDirection: 'row',
               gap: 5,
@@ -443,59 +491,47 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
               paddingVertical: 3,
             }}
           >
-            {ui.pulse ? (
-              <View
-                style={{
-                  backgroundColor: ui.accent,
-                  borderRadius: 999,
-                  height: 6,
-                  width: 6,
-                }}
-              />
-            ) : null}
-            <Text style={{ color: ui.accent, fontSize: 11, fontWeight: '800' }}>{ui.statusLabel}</Text>
+            {ui.pulse ? <View style={{ backgroundColor: tone.accent, borderRadius: 999, height: 6, width: 6 }} /> : null}
+            <Text style={{ color: tone.accent, fontSize: 11, fontWeight: '800' }}>{ui.statusLabel}</Text>
           </View>
           <Text style={sx('flex-1 text-[11px] font-medium text-dim')} numberOfLines={1}>
             {ui.summary || group.summary}
           </Text>
           <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
         </Pressable>
-        {open ? (
-          <View style={{ gap: 8, marginTop: 8 }}>
-            {group.tools.map((tool) => (
-              <ExpandableToolCard
-                key={tool.id}
-                tool={buildToolDetailUi(tool)}
-                expanded={expandedToolIds.has(tool.id)}
-                onToggle={() => toggleTool(tool.id)}
-              />
-            ))}
-          </View>
-        ) : null}
       </View>
+      {open ? (
+        <View style={{ gap: 8, marginTop: 10 }}>
+          {group.tools.map((tool) => (
+            <ExpandableToolCard
+              key={tool.id}
+              tool={buildToolDetailUi(tool)}
+              expanded={expandedToolIds.has(tool.id)}
+              onToggle={() => toggleTool(tool.id)}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
 
+function subagentTone(status: 'running' | 'done' | 'failed', colors: Palette): { accent: string; tint: string } {
+  if (status === 'failed') return { accent: colors.red, tint: colors.redTint };
+  if (status === 'done') return { accent: colors.greenStrong, tint: colors.greenSoft };
+  return { accent: colors.purple, tint: colors.purpleSoft };
+}
+
 function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscriptItem }) {
+  const { colors } = useTheme();
   const [open, setOpen] = useState(group.status === 'running');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const selectedAgent = selectSubagentDetailAgent(group, selectedAgentId);
-  const accent = group.status === 'failed' ? '#ef4444' : group.status === 'running' ? '#8b5cf6' : '#16a34a';
-  const tint = group.status === 'failed' ? '#fee2e2' : group.status === 'running' ? '#f5f3ff' : '#ecfdf5';
+  const { accent, tint } = subagentTone(group.status, colors);
 
   return (
-    <View
-      style={{
-        alignSelf: 'stretch',
-        flexDirection: 'row',
-        gap: 12,
-        maxWidth: '96%',
-      }}
-    >
-      <View
-        style={{ alignItems: 'center', backgroundColor: tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}
-      >
+    <View style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}>
+      <View style={{ alignItems: 'center', backgroundColor: tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}>
         <MobileIcon name="agent" size={17} strokeWidth={2.35} color={accent} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -520,7 +556,7 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
           <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
         </Pressable>
         {open ? (
-          <View style={{ borderLeftColor: '#c7d2fe', borderLeftWidth: 1, gap: 6, marginTop: 6, paddingLeft: 10 }}>
+          <View style={{ borderLeftColor: colors.purpleBorder, borderLeftWidth: 1, gap: 6, marginTop: 6, paddingLeft: 10 }}>
             {group.agents.map((agent) => (
               <Pressable
                 key={agent.id}
@@ -529,7 +565,7 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
                 accessibilityRole="button"
                 onPress={() => setSelectedAgentId(agent.id)}
                 style={({ pressed }) => ({
-                  backgroundColor: pressed ? 'rgba(139, 92, 246, 0.08)' : 'transparent',
+                  backgroundColor: pressed ? colors.purpleSoft : 'transparent',
                   borderRadius: 10,
                   minHeight: 44,
                   minWidth: 0,
@@ -543,11 +579,11 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
                       {agent.label} · {agent.toolCallCount} {agent.toolCallCount === 1 ? 'tool' : 'tools'}
                       {formatAgentTokens(agent.tokensUsed)}
                     </Text>
-                    <Text style={{ color: agent.status === 'failed' ? '#ef4444' : accent, fontSize: 11, fontWeight: '800' }}>
+                    <Text style={{ color: agent.status === 'failed' ? colors.red : accent, fontSize: 11, fontWeight: '800' }}>
                       {agent.status === 'done' ? 'Done' : agent.status === 'failed' ? 'Failed' : 'running'}
                     </Text>
                   </View>
-                  <MobileIcon name="chevronRight" size={15} strokeWidth={2.4} color="#94a3b8" />
+                  <MobileIcon name="chevronRight" size={15} strokeWidth={2.4} color={colors.textDim} />
                 </View>
                 {agent.error ? (
                   <Text style={sx('mt-1 text-[11px] leading-4 text-red')} numberOfLines={2}>
@@ -587,6 +623,7 @@ function SubagentDetailModalContent({
   readonly agent: SubagentTranscriptItem;
   readonly onClose: () => void;
 }) {
+  const { colors } = useTheme();
   const [expandedToolIds, setExpandedToolIds] = useState<ReadonlySet<string>>(() => new Set());
   const toggleTool = useCallback((toolId: string) => {
     setExpandedToolIds((current) => {
@@ -597,57 +634,36 @@ function SubagentDetailModalContent({
     });
   }, []);
   const ui = buildSubagentDetailUi(agent);
-  const tone = subagentDetailTone(ui.statusTone);
+  const tone = subagentDetailTone(ui.statusTone, colors);
 
   return (
-    <Modal
-      animationType="fade"
-      transparent
-      visible
-      onRequestClose={onClose}
-    >
+    <Modal animationType="fade" transparent visible onRequestClose={onClose}>
       <View
         accessibilityViewIsModal
-        style={{
-          backgroundColor: 'rgba(15, 23, 42, 0.48)',
-          flex: 1,
-          justifyContent: 'center',
-          paddingHorizontal: 20,
-          paddingVertical: 42,
-        }}
+        style={{ backgroundColor: colors.overlay, flex: 1, justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 42 }}
       >
         <Pressable
           accessibilityLabel="Close subagent details"
           accessibilityRole="button"
           onPress={onClose}
-          style={{
-            bottom: 0,
-            left: 0,
-            position: 'absolute',
-            right: 0,
-            top: 0,
-          }}
+          style={{ bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
         />
         <View
           style={{
             alignSelf: 'center',
-            backgroundColor: '#ffffff',
-            borderColor: '#e3e5f0',
+            backgroundColor: colors.cardBg,
+            borderColor: colors.cardBorder,
             borderRadius: 22,
             borderWidth: 1,
             maxHeight: '86%',
             overflow: 'hidden',
-            shadowColor: '#0f172a',
-            shadowOffset: { width: 0, height: 18 },
-            shadowOpacity: 0.22,
-            shadowRadius: 34,
             width: '100%',
           }}
         >
           <View
             style={{
               alignItems: 'center',
-              borderBottomColor: '#eef0f7',
+              borderBottomColor: colors.cardBorder,
               borderBottomWidth: 1,
               flexDirection: 'row',
               gap: 12,
@@ -655,30 +671,14 @@ function SubagentDetailModalContent({
               paddingVertical: 16,
             }}
           >
-            <View
-              style={{
-                alignItems: 'center',
-                backgroundColor: '#f5f3ff',
-                borderRadius: 12,
-                height: 42,
-                justifyContent: 'center',
-                width: 42,
-              }}
-            >
-              <MobileIcon name="agent" size={20} strokeWidth={2.5} color="#7c3aed" />
+            <View style={{ alignItems: 'center', backgroundColor: colors.purpleSoft, borderRadius: 12, height: 42, justifyContent: 'center', width: 42 }}>
+              <MobileIcon name="agent" size={20} strokeWidth={2.5} color={colors.purpleStrong} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={sx('text-[17px] font-black text-text')} numberOfLines={1}>{ui.title}</Text>
               <Text style={sx('mt-0.5 text-[12px] font-semibold text-muted')} numberOfLines={1}>{ui.subtitle}</Text>
             </View>
-            <View
-              style={{
-                backgroundColor: tone.tint,
-                borderRadius: 999,
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-              }}
-            >
+            <View style={{ backgroundColor: tone.tint, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 }}>
               <Text style={{ color: tone.accent, fontSize: 11, fontWeight: '900' }}>{ui.statusLabel}</Text>
             </View>
             <Pressable
@@ -688,52 +688,32 @@ function SubagentDetailModalContent({
               onPress={onClose}
               style={({ pressed }) => ({
                 alignItems: 'center',
-                backgroundColor: pressed ? '#eef0f7' : '#f8fafc',
+                backgroundColor: pressed ? colors.inputSoft : colors.surface,
                 borderRadius: 999,
                 height: 44,
                 justifyContent: 'center',
                 width: 44,
               })}
             >
-              <MobileIcon name="x" size={19} strokeWidth={2.5} color="#64748b" />
+              <MobileIcon name="x" size={19} strokeWidth={2.5} color={colors.textMuted} />
             </Pressable>
           </View>
-          <ScrollView
-            contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingVertical: 16 }}
-            showsVerticalScrollIndicator
-          >
+          <ScrollView contentContainerStyle={{ gap: 16, paddingHorizontal: 18, paddingVertical: 16 }} showsVerticalScrollIndicator>
             <View>
               <Text style={sx('text-[11px] font-black uppercase text-dim')}>{ui.meta}</Text>
             </View>
             <View>
               <Text style={sx('text-[13px] font-black text-text')}>{ui.responseTitle}</Text>
-              <View
-                style={{
-                  backgroundColor: '#f8fafc',
-                  borderColor: '#e3e5f0',
-                  borderRadius: 14,
-                  borderWidth: 1,
-                  marginTop: 8,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                }}
-              >
+              <View style={{ backgroundColor: colors.inputSoft, borderColor: colors.cardBorder, borderRadius: 14, borderWidth: 1, marginTop: 8, paddingHorizontal: 12, paddingVertical: 10 }}>
                 <MobileMarkdownText compact text={ui.responseText} />
               </View>
             </View>
             <View>
               <Text style={sx('text-[13px] font-black text-text')}>{ui.toolsTitle}</Text>
-              {ui.emptyToolsText ? (
-                <Text style={sx('mt-2 text-[12px] leading-5 text-dim')}>{ui.emptyToolsText}</Text>
-              ) : null}
+              {ui.emptyToolsText ? <Text style={sx('mt-2 text-[12px] leading-5 text-dim')}>{ui.emptyToolsText}</Text> : null}
               <View style={{ gap: 8, marginTop: 8 }}>
                 {ui.tools.map((tool) => (
-                  <ExpandableToolCard
-                    key={tool.id}
-                    tool={tool}
-                    expanded={expandedToolIds.has(tool.id)}
-                    onToggle={() => toggleTool(tool.id)}
-                  />
+                  <ExpandableToolCard key={tool.id} tool={tool} expanded={expandedToolIds.has(tool.id)} onToggle={() => toggleTool(tool.id)} />
                 ))}
               </View>
             </View>
@@ -753,7 +733,8 @@ function ExpandableToolCard({
   readonly expanded: boolean;
   readonly onToggle: () => void;
 }) {
-  const toolTone = toolDetailTone(tool.statusTone);
+  const { colors } = useTheme();
+  const toolTone = toolDetailTone(tool.statusTone, colors);
   return (
     <Pressable
       accessibilityHint={expanded ? 'Collapses tool details' : 'Expands tool details'}
@@ -762,8 +743,8 @@ function ExpandableToolCard({
       accessibilityState={{ expanded }}
       onPress={onToggle}
       style={({ pressed }) => ({
-        backgroundColor: pressed ? '#f8fafc' : '#ffffff',
-        borderColor: expanded ? toolTone.border : '#e3e5f0',
+        backgroundColor: pressed ? colors.inputSoft : colors.cardBg,
+        borderColor: expanded ? toolTone.border : colors.cardBorder,
         borderRadius: 14,
         borderWidth: 1,
         paddingHorizontal: 12,
@@ -774,7 +755,7 @@ function ExpandableToolCard({
         <View style={{ backgroundColor: toolTone.accent, borderRadius: 999, height: 7, width: 7 }} />
         <Text style={sx('flex-1 text-[12px] font-black text-text')} numberOfLines={1}>{tool.name}</Text>
         <Text style={{ color: toolTone.accent, fontSize: 11, fontWeight: '900' }}>{tool.statusLabel}</Text>
-        <MobileIcon name={expanded ? 'chevronDown' : 'chevronRight'} size={15} strokeWidth={2.5} color="#94a3b8" />
+        <MobileIcon name={expanded ? 'chevronDown' : 'chevronRight'} size={15} strokeWidth={2.5} color={colors.textDim} />
       </View>
       {tool.summary ? (
         <Text style={sx('mt-1 text-[11px] leading-4 text-muted')} numberOfLines={expanded ? undefined : 2}>
@@ -782,45 +763,34 @@ function ExpandableToolCard({
         </Text>
       ) : null}
       {expanded ? (
-        <View
-          style={{
-            backgroundColor: '#f8fafc',
-            borderColor: '#e3e5f0',
-            borderRadius: 12,
-            borderWidth: 1,
-            marginTop: 8,
-            paddingHorizontal: 10,
-            paddingVertical: 8,
-          }}
-        >
+        <View style={{ backgroundColor: colors.inputSoft, borderColor: colors.cardBorder, borderRadius: 12, borderWidth: 1, marginTop: 8, paddingHorizontal: 10, paddingVertical: 8 }}>
           <Text style={sx('text-[10px] font-black uppercase text-dim')}>{tool.detailLabel}</Text>
-          <Text style={sx('mt-1 text-[11px] leading-4 text-text')}>
-            {tool.detail ?? 'No details captured yet.'}
-          </Text>
+          <Text style={sx('mt-1 text-[11px] leading-4 text-text')}>{tool.detail ?? 'No details captured yet.'}</Text>
         </View>
       ) : null}
     </Pressable>
   );
 }
 
-function subagentDetailTone(status: 'running' | 'done' | 'failed'): { readonly accent: string; readonly tint: string } {
-  if (status === 'failed') return { accent: '#ef4444', tint: '#fee2e2' };
-  if (status === 'done') return { accent: '#16a34a', tint: '#ecfdf5' };
-  return { accent: '#8b5cf6', tint: '#f5f3ff' };
+function subagentDetailTone(status: 'running' | 'done' | 'failed', colors: Palette): { readonly accent: string; readonly tint: string } {
+  if (status === 'failed') return { accent: colors.red, tint: colors.redTint };
+  if (status === 'done') return { accent: colors.greenStrong, tint: colors.greenSoft };
+  return { accent: colors.purple, tint: colors.purpleSoft };
 }
 
-function toolDetailTone(status: 'running' | 'ok' | 'error'): { readonly accent: string; readonly border: string } {
-  if (status === 'error') return { accent: '#ef4444', border: '#fecaca' };
-  if (status === 'ok') return { accent: '#16a34a', border: '#bbf7d0' };
-  return { accent: '#ec4899', border: '#f9a8d4' };
+function toolDetailTone(status: 'running' | 'ok' | 'error', colors: Palette): { readonly accent: string; readonly border: string } {
+  if (status === 'error') return { accent: colors.red, border: colors.redBorder };
+  if (status === 'ok') return { accent: colors.greenStrong, border: colors.greenBorder };
+  return { accent: colors.primary, border: colors.pinkBorder };
 }
 
 function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptItem }) {
+  const { colors } = useTheme();
   const [open, setOpen] = useState(false);
   return (
     <View style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}>
-      <View style={sx('h-[34px] w-[34px] items-center justify-center rounded-block bg-appBg')}>
-        <MobileIcon name="more" size={17} strokeWidth={2.35} color="#94a3b8" />
+      <View style={sx('h-[34px] w-[34px] items-center justify-center rounded-block', { backgroundColor: colors.inputSoft })}>
+        <MobileIcon name="more" size={17} strokeWidth={2.35} color={colors.textDim} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Pressable
@@ -831,9 +801,7 @@ function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptIt
         >
           <Text style={sx('text-[12px] font-bold text-muted')}>{group.title}</Text>
           <Text style={sx('text-[11px] font-bold text-dim')}>{group.count} events</Text>
-          <Text style={sx('flex-1 text-[11px] text-dim')} numberOfLines={1}>
-            collapsed
-          </Text>
+          <Text style={sx('flex-1 text-[11px] text-dim')} numberOfLines={1}>collapsed</Text>
           <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
         </Pressable>
         {open ? (
@@ -886,34 +854,18 @@ function MobileMarkdownBlockView({
   readonly compact: boolean;
   readonly index: number;
 }) {
+  const { colors } = useTheme();
   if (block.kind === 'heading') {
     const size = block.level <= 2 ? (compact ? 14 : 17) : compact ? 13 : 15;
     return (
-      <Text
-        style={{
-          color: '#111827',
-          fontSize: size,
-          fontWeight: '900',
-          lineHeight: compact ? 20 : 25,
-          marginTop: index === 0 ? 0 : 2,
-        }}
-      >
+      <Text style={{ color: colors.text, fontSize: size, fontWeight: '900', lineHeight: compact ? 20 : 25, marginTop: index === 0 ? 0 : 2 }}>
         {block.text}
       </Text>
     );
   }
 
   if (block.kind === 'paragraph') {
-    return (
-      <MobileInlineText
-        style={{
-          color: '#111827',
-          fontSize: compact ? 13 : 15,
-          lineHeight: compact ? 20 : 24,
-        }}
-        tokens={block.inline}
-      />
-    );
+    return <MobileInlineText style={{ color: colors.text, fontSize: compact ? 13 : 15, lineHeight: compact ? 20 : 24 }} tokens={block.inline} />;
   }
 
   if (block.kind === 'list') {
@@ -921,26 +873,10 @@ function MobileMarkdownBlockView({
       <View style={{ gap: compact ? 4 : 6 }}>
         {block.items.map((item, itemIndex) => (
           <View key={`item:${itemIndex}`} style={{ flexDirection: 'row', gap: 7 }}>
-            <Text
-              style={{
-                color: '#64748b',
-                fontSize: compact ? 13 : 15,
-                fontWeight: '800',
-                lineHeight: compact ? 20 : 24,
-                minWidth: block.ordered ? 22 : 12,
-              }}
-            >
+            <Text style={{ color: colors.textMuted, fontSize: compact ? 13 : 15, fontWeight: '800', lineHeight: compact ? 20 : 24, minWidth: block.ordered ? 22 : 12 }}>
               {block.ordered ? `${itemIndex + 1}.` : '•'}
             </Text>
-            <MobileInlineText
-              style={{
-                color: '#111827',
-                flex: 1,
-                fontSize: compact ? 13 : 15,
-                lineHeight: compact ? 20 : 24,
-              }}
-              tokens={item}
-            />
+            <MobileInlineText style={{ color: colors.text, flex: 1, fontSize: compact ? 13 : 15, lineHeight: compact ? 20 : 24 }} tokens={item} />
           </View>
         ))}
       </View>
@@ -949,25 +885,8 @@ function MobileMarkdownBlockView({
 
   if (block.kind === 'code') {
     return (
-      <View
-        style={{
-          backgroundColor: '#f8fafc',
-          borderColor: '#e3e5f0',
-          borderRadius: 12,
-          borderWidth: 1,
-          paddingHorizontal: 10,
-          paddingVertical: 8,
-        }}
-      >
-        <Text
-          selectable
-          style={{
-            color: '#334155',
-            fontFamily: 'Menlo',
-            fontSize: compact ? 11 : 12,
-            lineHeight: compact ? 16 : 18,
-          }}
-        >
+      <View style={{ backgroundColor: colors.codeBg, borderColor: colors.cardBorder, borderRadius: 12, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 8 }}>
+        <Text selectable style={{ color: colors.codeText, fontFamily: 'Menlo', fontSize: compact ? 11 : 12, lineHeight: compact ? 16 : 18 }}>
           {block.body}
         </Text>
       </View>
@@ -984,48 +903,19 @@ function MobileMarkdownTable({
   readonly block: Extract<MobileMarkdownBlock, { kind: 'table' }>;
   readonly compact: boolean;
 }) {
+  const { colors } = useTheme();
   const rows = [block.header, ...block.rows];
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View
-        style={{
-          borderColor: '#e3e5f0',
-          borderRadius: 10,
-          borderWidth: 1,
-          minWidth: 260,
-          overflow: 'hidden',
-        }}
-      >
+      <View style={{ borderColor: colors.cardBorder, borderRadius: 10, borderWidth: 1, minWidth: 260, overflow: 'hidden' }}>
         {rows.map((row, rowIndex) => (
           <View
             key={`row:${rowIndex}`}
-            style={{
-              backgroundColor: rowIndex === 0 ? '#f8fafc' : '#ffffff',
-              borderTopColor: '#e3e5f0',
-              borderTopWidth: rowIndex === 0 ? 0 : 1,
-              flexDirection: 'row',
-            }}
+            style={{ backgroundColor: rowIndex === 0 ? colors.inputSoft : colors.cardBg, borderTopColor: colors.cardBorder, borderTopWidth: rowIndex === 0 ? 0 : 1, flexDirection: 'row' }}
           >
             {row.map((cell, cellIndex) => (
-              <View
-                key={`cell:${rowIndex}:${cellIndex}`}
-                style={{
-                  borderLeftColor: '#e3e5f0',
-                  borderLeftWidth: cellIndex === 0 ? 0 : 1,
-                  paddingHorizontal: 8,
-                  paddingVertical: 7,
-                  width: 132,
-                }}
-              >
-                <MobileInlineText
-                  style={{
-                    color: '#111827',
-                    fontSize: compact ? 11 : 12,
-                    fontWeight: rowIndex === 0 ? '800' : '500',
-                    lineHeight: compact ? 16 : 18,
-                  }}
-                  tokens={cell}
-                />
+              <View key={`cell:${rowIndex}:${cellIndex}`} style={{ borderLeftColor: colors.cardBorder, borderLeftWidth: cellIndex === 0 ? 0 : 1, paddingHorizontal: 8, paddingVertical: 7, width: 132 }}>
+                <MobileInlineText style={{ color: colors.text, fontSize: compact ? 11 : 12, fontWeight: rowIndex === 0 ? '800' : '500', lineHeight: compact ? 16 : 18 }} tokens={cell} />
               </View>
             ))}
           </View>
@@ -1069,31 +959,19 @@ function MobileInlineText({
 }
 
 function MobileInlineToken({ token }: { readonly token: InlineTok }) {
+  const { colors } = useTheme();
   if (token.kind === 'text') return <Text>{token.value}</Text>;
   if (token.kind === 'bold') return <Text style={{ fontWeight: '900' }}>{token.value}</Text>;
   if (token.kind === 'italic') return <Text style={{ fontStyle: 'italic' }}>{token.value}</Text>;
   if (token.kind === 'code') {
     return (
-      <Text
-        style={{
-          backgroundColor: '#eef2ff',
-          borderRadius: 5,
-          color: '#334155',
-          fontFamily: 'Menlo',
-          fontSize: 13,
-          paddingHorizontal: 3,
-        }}
-      >
+      <Text style={{ backgroundColor: colors.codeInline, borderRadius: 5, color: colors.codeText, fontFamily: 'Menlo', fontSize: 13, paddingHorizontal: 3 }}>
         {token.value}
       </Text>
     );
   }
   return (
-    <Text
-      accessibilityRole="link"
-      onPress={() => openMarkdownLink(token.url)}
-      style={{ color: '#db2777', fontWeight: '800', textDecorationLine: 'underline' }}
-    >
+    <Text accessibilityRole="link" onPress={() => openMarkdownLink(token.url)} style={{ color: colors.pinkText, fontWeight: '800', textDecorationLine: 'underline' }}>
       {token.label}
     </Text>
   );

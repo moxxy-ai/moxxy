@@ -1,13 +1,20 @@
-import { textOf } from './utils/record';
+import { boolOf, textOf } from './utils/record';
 import type { PromptAttachment } from './clientFrames';
 
 export type TranscriptItem =
   | UserTranscriptItem
   | AssistantTranscriptItem
+  | ReasoningTranscriptItem
   | ToolGroupTranscriptItem
   | ErrorTranscriptItem
   | SubagentGroupTranscriptItem
   | SystemGroupTranscriptItem;
+
+export interface ReasoningTranscriptItem {
+  readonly id: string;
+  readonly kind: 'reasoning';
+  readonly text: string;
+}
 
 export interface UserTranscriptItem {
   readonly id: string;
@@ -370,6 +377,24 @@ export function buildCommittedChatTranscript(
         kind: 'error',
         label: type,
         text: firstText(event.message, event.error, event.text, event.body) || 'The turn was interrupted.',
+      });
+      continue;
+    }
+
+    if (type === 'reasoning_message') {
+      // The model's between-calls thinking. Redacted/encrypted blocks exist only
+      // for history round-trip and must never be shown.
+      if (boolOf(event.redacted)) continue;
+      const reasoning = firstText(event.content, event.text, event.message);
+      if (reasoning.length === 0) continue;
+      flushAssistant();
+      flushTools();
+      flushSystem();
+      closeSubagentRun();
+      pushItem({
+        id: eventId(event, `reasoning-${index}`),
+        kind: 'reasoning',
+        text: reasoning,
       });
       continue;
     }

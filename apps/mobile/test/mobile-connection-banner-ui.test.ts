@@ -8,10 +8,10 @@ describe('mobile connection banner UI model', () => {
       actionLabel: 'Open settings',
       icon: 'wifiOff',
       title: 'Enable Moxxy Mobile on your desktop',
-      body: 'Open Moxxy Desktop, go to Settings -> Mobile, then turn on Enable mobile gateway and pair this phone.',
+      body: 'Open Moxxy Desktop, open the Mobile tab in the sidebar, then turn on Enable mobile gateway and pair this phone.',
       steps: [
         'Open Moxxy Desktop on your Mac.',
-        'Go to Settings -> Mobile.',
+        'Open the Mobile tab in the sidebar.',
         'Turn on Enable mobile gateway.',
         'Return here and pair this phone.',
       ],

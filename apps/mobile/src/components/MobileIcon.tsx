@@ -23,7 +23,15 @@ export type MobileIconName =
   | 'x'
   | 'camera'
   | 'wifi'
-  | 'wifiOff';
+  | 'wifiOff'
+  | 'grid'
+  | 'user'
+  | 'chevronLeft'
+  | 'trash'
+  | 'power'
+  | 'sparkle'
+  | 'refresh'
+  | 'play';
 
 interface MobileIconProps {
   readonly name: MobileIconName;
@@ -139,6 +147,57 @@ function IconPaths({ name, color, strokeWidth }: Required<Pick<MobileIconProps, 
           <Path {...props} d="M10.5 13a2.5 2.5 0 0 1 3 0" />
         </>
       );
+    case 'grid':
+      return (
+        <>
+          <Path {...props} d="M4.5 5.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3Z" />
+          <Path {...props} d="M14.5 5.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3Z" />
+          <Path {...props} d="M4.5 15.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3Z" />
+          <Path {...props} d="M14.5 15.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1v-3Z" />
+        </>
+      );
+    case 'user':
+      return (
+        <>
+          <Circle {...props} cx="12" cy="8" r="3.5" />
+          <Path {...props} d="M5.5 20a6.5 6.5 0 0 1 13 0" />
+        </>
+      );
+    case 'chevronLeft':
+      return <Path {...props} d="m15 6-6 6 6 6" />;
+    case 'trash':
+      return (
+        <>
+          <Path {...props} d="M4.5 7h15" />
+          <Path {...props} d="M9 7V5.5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5.5V7" />
+          <Path {...props} d="M6.5 7l.8 11a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9L17.5 7" />
+        </>
+      );
+    case 'power':
+      return (
+        <>
+          <Path {...props} d="M12 3.5v7" />
+          <Path {...props} d="M7 6.5a7 7 0 1 0 10 0" />
+        </>
+      );
+    case 'sparkle':
+      return (
+        <>
+          <Path {...props} d="M12 3.5c.5 3.2 1.3 4 4.5 4.5-3.2.5-4 1.3-4.5 4.5-.5-3.2-1.3-4-4.5-4.5 3.2-.5 4-1.3 4.5-4.5Z" />
+          <Path {...props} d="M18 13.5c.3 1.7.7 2.1 2.4 2.4-1.7.3-2.1.7-2.4 2.4-.3-1.7-.7-2.1-2.4-2.4 1.7-.3 2.1-.7 2.4-2.4Z" />
+        </>
+      );
+    case 'refresh':
+      return (
+        <>
+          <Path {...props} d="M20 11.5a8 8 0 0 0-13.7-4.4L4 9.3" />
+          <Path {...props} d="M4 4.5v4.8h4.8" />
+          <Path {...props} d="M4 12.5a8 8 0 0 0 13.7 4.4L20 14.7" />
+          <Path {...props} d="M20 19.5v-4.8h-4.8" />
+        </>
+      );
+    case 'play':
+      return <Path {...props} d="M7.5 5.5v13l11-6.5-11-6.5Z" />;
     case 'search':
       return (
         <>

@@ -283,4 +283,26 @@ describe('mobile chat transcript model', () => {
     ]);
     expect(new Set(transcript.map((item) => item.id)).size).toBe(transcript.length);
   });
+
+  it('renders model reasoning between tool batches as its own reasoning item', () => {
+    const transcript = buildChatTranscript([
+      { id: 't1', type: 'tool_call_completed', name: 'Bash', status: 'ok' },
+      { id: 'r1', type: 'reasoning_message', content: 'Now I should verify the file exists.' },
+      { id: 't2', type: 'tool_call_completed', name: 'Bash', status: 'ok' },
+      { id: 'a1', type: 'assistant_message', content: 'Done.' },
+    ]);
+
+    const reasoning = transcript.find((item) => item.kind === 'reasoning');
+    expect(reasoning).toMatchObject({ id: 'r1', kind: 'reasoning', text: 'Now I should verify the file exists.' });
+    expect(transcript.filter((item) => item.kind === 'tool-group')).toHaveLength(2);
+    expect(transcript.map((item) => item.kind)).toEqual(['tool-group', 'reasoning', 'tool-group', 'assistant']);
+  });
+
+  it('never displays redacted/encrypted reasoning', () => {
+    const transcript = buildChatTranscript([
+      { id: 'r1', type: 'reasoning_message', content: 'secret', redacted: true },
+      { id: 'a1', type: 'assistant_message', content: 'Hi.' },
+    ]);
+    expect(transcript.some((item) => item.kind === 'reasoning')).toBe(false);
+  });
 });

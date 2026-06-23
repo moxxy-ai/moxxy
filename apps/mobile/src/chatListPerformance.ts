@@ -7,6 +7,7 @@ export interface MobileMessageBlockRenderProps {
   readonly item: TranscriptItem;
   readonly copied: boolean;
   readonly onCopyMessage?: (messageId: string, text: string) => void;
+  readonly onLongPress?: (messageId: string, text: string) => void;
 }
 
 export interface MobileChatListPerformanceProps {
@@ -93,6 +94,10 @@ function transcriptItemRenderSignature(item: TranscriptItem): string {
 
   if (item.kind === 'assistant') {
     return [item.kind, item.id, item.text, item.streaming ? 'streaming' : 'settled', item.stopReason ?? ''].join('\u001f');
+  }
+
+  if (item.kind === 'reasoning') {
+    return ['reasoning', item.id, item.text].join('|');
   }
 
   if (item.kind === 'tool-group') {

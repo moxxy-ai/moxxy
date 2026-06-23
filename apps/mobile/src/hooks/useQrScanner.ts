@@ -31,10 +31,12 @@ export function useQrScanner(onPayload: (raw: string) => Promise<void>): QrScann
   }, [requestCameraPermission]);
 
   const openScanner = useCallback(async () => {
+    // Arm immediately so the camera captures the first QR it sees — no extra tap.
     scanGateRef.current.reset();
+    scanGateRef.current.arm();
     setOpen(true);
     setProcessing(false);
-    setArmed(false);
+    setArmed(true);
     if (!permission?.granted && permission?.canAskAgain !== false) {
       await requestCameraPermission();
     }
@@ -61,8 +63,11 @@ export function useQrScanner(onPayload: (raw: string) => Promise<void>): QrScann
       scanGateRef.current.reset();
       setOpen(false);
     } catch (err) {
+      // Close on error so we return to the pairing screen (which surfaces the
+      // error) instead of re-scanning the same bad QR in a loop.
       const description = describeQrScannerError(err);
       scanGateRef.current.reset();
+      setOpen(false);
       Alert.alert(description.title, description.message, [{ text: 'OK' }]);
     } finally {
       setProcessing(false);

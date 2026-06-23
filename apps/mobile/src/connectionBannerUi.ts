@@ -21,7 +21,7 @@ export function buildConnectionBannerUi({ paired, status }: BuildConnectionBanne
       icon: 'wifi',
       steps: [
         'Keep Moxxy Desktop open on your Mac.',
-        'Check that Settings -> Mobile has the gateway enabled.',
+        'Check that the Mobile tab has the gateway enabled.',
         'Stay on the same Wi-Fi network as this phone.',
       ],
       title: 'Waiting for the Moxxy Desktop gateway',
@@ -30,11 +30,11 @@ export function buildConnectionBannerUi({ paired, status }: BuildConnectionBanne
 
   return {
     actionLabel: 'Open settings',
-    body: 'Open Moxxy Desktop, go to Settings -> Mobile, then turn on Enable mobile gateway and pair this phone.',
+    body: 'Open Moxxy Desktop, open the Mobile tab in the sidebar, then turn on Enable mobile gateway and pair this phone.',
     icon: 'wifiOff',
     steps: [
       'Open Moxxy Desktop on your Mac.',
-      'Go to Settings -> Mobile.',
+      'Open the Mobile tab in the sidebar.',
       'Turn on Enable mobile gateway.',
       'Return here and pair this phone.',
     ],
