@@ -1,5 +1,16 @@
 # @moxxy/desktop
 
+## 0.22.6
+
+### Patch Changes
+
+- Updated dependencies [3862cb2]
+  - @moxxy/desktop-host@0.9.0
+  - @moxxy/plugin-channel-mobile@0.2.2
+  - @moxxy/cli@0.14.13
+  - @moxxy/runner@0.2.18
+  - @moxxy/ipc-server-ws@0.1.30
+
 ## 0.22.5
 
 ### Patch Changes

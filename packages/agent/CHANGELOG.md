@@ -1,5 +1,14 @@
 # @moxxy/agent
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [3862cb2]
+  - @moxxy/core@0.6.0
+  - @moxxy/mode-default@0.1.4
+  - @moxxy/plugin-provider-anthropic@0.2.4
+
 ## 0.2.6
 
 ### Patch Changes
