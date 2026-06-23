@@ -1,6 +1,7 @@
 import { sx } from '../styles/tokens';
 import { Pressable, Text, View } from 'react-native';
 import type { ModeSelectorUiState } from '../modeSelector';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface ModeSelectorSheetProps {
@@ -16,13 +17,14 @@ export function ModeSelectorSheet({
   onClose,
   onPickMode,
 }: ModeSelectorSheetProps) {
+  const { colors } = useTheme();
   return (
     <View
       style={sx('rounded-card border border-cardBorder bg-cardBg shadow-card', {
         borderRadius: 16,
         gap: 10,
         padding: 12,
-        shadowColor: '#0f172a',
+        shadowColor: colors.shadow,
         shadowOffset: { width: 0, height: 14 },
         shadowOpacity: 0.12,
         shadowRadius: 24,
@@ -40,7 +42,7 @@ export function ModeSelectorSheet({
           style={sx('h-9 w-9 items-center justify-center rounded-pill bg-appBg')}
           onPress={onClose}
         >
-          <MobileIcon name="x" size={18} strokeWidth={2.35} color="#64748b" />
+          <MobileIcon name="x" size={18} strokeWidth={2.35} color={colors.textMuted} />
         </Pressable>
       </View>
 
@@ -52,7 +54,7 @@ export function ModeSelectorSheet({
             accessibilityState={{ selected: mode.active }}
             style={sx(mode.active ? 'bg-primarySoft' : 'bg-appBg', {
               alignItems: 'center',
-              borderColor: mode.active ? '#f59e0b' : '#e3e5f0',
+              borderColor: mode.active ? colors.amber : colors.cardBorder,
               borderRadius: 10,
               borderWidth: 1,
               flexDirection: 'row',
@@ -65,7 +67,7 @@ export function ModeSelectorSheet({
             <Text style={sx(`min-w-0 flex-1 text-[13px] font-bold ${mode.active ? 'text-text' : 'text-muted'}`)} numberOfLines={1}>
               {mode.label}
             </Text>
-            {mode.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color="#f59e0b" /> : null}
+            {mode.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color={colors.amber} /> : null}
           </Pressable>
         ))}
       </View>

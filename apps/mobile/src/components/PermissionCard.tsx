@@ -2,6 +2,7 @@ import { sx } from '../styles/tokens';
 import { Pressable, Text, View } from 'react-native';
 import { textOf } from '@/utils/record';
 import { permissionResponseForAction } from '../permissionResponse';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface PermissionCardProps {
@@ -10,6 +11,7 @@ interface PermissionCardProps {
 }
 
 export function PermissionCard({ ask, onRespond }: PermissionCardProps) {
+  const { colors } = useTheme();
   const tool = isRecord(ask.tool) ? ask.tool : ask;
   const name = textOf(tool.name, textOf(ask.title, 'Permission required'));
   const description = textOf(tool.description, textOf(ask.description, textOf(ask.reason, 'The agent needs approval.')));
@@ -18,7 +20,7 @@ export function PermissionCard({ ask, onRespond }: PermissionCardProps) {
     <View style={sx('gap-3 rounded-card border border-cardBorder bg-cardBg p-3 shadow-card')}>
       <View style={sx('flex-row items-start gap-3')}>
         <View style={sx('h-9 w-9 items-center justify-center rounded-block bg-primarySoft')}>
-          <MobileIcon name="actions" size={17} strokeWidth={2.35} color="#db2777" />
+          <MobileIcon name="actions" size={17} strokeWidth={2.35} color={colors.primaryStrong} />
         </View>
         <View style={sx('min-w-0 flex-1')}>
           <Text style={sx('text-[15px] font-bold text-text')} numberOfLines={1}>{name}</Text>

@@ -26,9 +26,17 @@ config.resolver.nodeModulesPaths = [
 // `.claude/worktrees`, plus the other monorepo apps (desktop/docs/…). We do NOT
 // block `packages/*` — the shared `@moxxy/*` packages are consumed from their
 // built `dist`, which must stay resolvable.
+// Anchor the `.claude` exclusion at the workspace root. Anchoring matters when
+// this app is checked out inside a git worktree under `.claude/worktrees/…`: an
+// unanchored `/.claude/` would match the project's OWN absolute path and block
+// every source file (Metro then can't even resolve the entry). Anchored, it
+// still blocks the repo-root `.claude` tree (incl. the multi-GB `worktrees`)
+// without touching a worktree's own files.
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const workspaceRootPattern = escapeRegExp(workspaceRoot);
 const blockedTrees = [
   /[\\/]\.git[\\/].*/,
-  /[\\/]\.claude[\\/].*/,
+  new RegExp(`^${workspaceRootPattern}[\\\\/]\\.claude[\\\\/].*`),
   // Any app other than this one (the negative lookahead keeps `apps/mobile`).
   /[\\/]apps[\\/](?!mobile[\\/])[^\\/]+[\\/].*/,
 ];

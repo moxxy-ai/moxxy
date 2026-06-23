@@ -1,5 +1,6 @@
 import { sx } from '../styles/tokens';
 import { Pressable, Text, TextInput, View } from 'react-native';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface GoalSheetProps {
@@ -13,13 +14,14 @@ interface GoalSheetProps {
 }
 
 export function GoalSheet(props: GoalSheetProps) {
+  const { colors } = useTheme();
   return (
     <View style={sx('gap-4 rounded-card border border-cardBorder bg-cardBg p-4 shadow-card', { maxHeight: props.maxHeight })}>
       <View style={sx('flex-row items-center justify-between gap-3')}>
         <Text style={sx('text-[18px] font-black text-text')}>Start a goal</Text>
         {props.onClose ? (
           <Pressable accessibilityLabel="Close goal" style={sx('h-10 w-10 items-center justify-center rounded-pill')} onPress={props.onClose}>
-            <MobileIcon name="x" size={19} color="#64748b" />
+            <MobileIcon name="x" size={19} color={colors.textMuted} />
           </Pressable>
         ) : null}
       </View>
@@ -28,7 +30,7 @@ export function GoalSheet(props: GoalSheetProps) {
         onChangeText={props.onObjectiveChange}
         multiline
         placeholder="Describe the objective to accomplish..."
-        placeholderTextColor="#94a3b8"
+        placeholderTextColor={colors.textDim}
         scrollEnabled
         style={sx('min-h-32 rounded-block border border-cardBorder bg-cardBg px-3 py-3 text-[14px] leading-5 text-text', {
           maxHeight: props.inputMaxHeight,

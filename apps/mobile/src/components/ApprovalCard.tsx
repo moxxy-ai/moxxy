@@ -2,6 +2,7 @@ import { sx } from '../styles/tokens';
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { textOf } from '@/utils/record';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface ApprovalCardProps {
@@ -10,6 +11,7 @@ interface ApprovalCardProps {
 }
 
 export function ApprovalCard({ ask, onRespond }: ApprovalCardProps) {
+  const { colors } = useTheme();
   const approval = isRecord(ask.approval) ? ask.approval : ask;
   const options = Array.isArray(approval.options) ? approval.options.filter(isRecord) : [];
   const [textOption, setTextOption] = useState<Record<string, unknown> | null>(null);
@@ -24,7 +26,7 @@ export function ApprovalCard({ ask, onRespond }: ApprovalCardProps) {
           onChangeText={setText}
           multiline
           placeholder={textOf(textOption.textPrompt, 'Add details...')}
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={colors.textDim}
           style={sx('min-h-24 rounded-block border border-cardBorder bg-cardBg px-3 py-2 text-[14px] text-text')}
         />
         <View style={sx('flex-row justify-end gap-2')}>
@@ -44,7 +46,7 @@ export function ApprovalCard({ ask, onRespond }: ApprovalCardProps) {
     <View style={sx('gap-3 rounded-card border border-cardBorder bg-cardBg p-3 shadow-card')}>
       <View style={sx('flex-row items-start gap-3')}>
         <View style={sx('h-9 w-9 items-center justify-center rounded-block bg-primarySoft')}>
-          <MobileIcon name="actions" size={17} strokeWidth={2.35} color="#db2777" />
+          <MobileIcon name="actions" size={17} strokeWidth={2.35} color={colors.primaryStrong} />
         </View>
         <View style={sx('min-w-0 flex-1')}>
           <Text style={sx('text-[15px] font-bold text-text')}>{textOf(approval.title, 'Approval required')}</Text>

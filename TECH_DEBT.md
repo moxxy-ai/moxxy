@@ -88,6 +88,73 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-23 — Mobile chat redesign + dark theme
+
+**Retired:** the mobile app was light-only, with light-theme hex hard-coded across
+~40 components (`#ffffff` / `#0f172a` / `#e3e5f0` / `#db2777` / …), so there was no
+path to dark mode and the palette lived in dozens of inline literals. The redesign
+routes every component color through a theme-aware palette: `sx('bg-cardBg' |
+'text-text' | …)` resolves against a swappable `activePalette`, and `useTheme()`
+exposes the same palette plus semantic tokens (soft fills, accent tints, on-color
+text, shadow, overlay) for the dynamic cases. `lightPalette` / `darkPalette` are
+both built from `@moxxy/design-tokens` (`tokens` / `darkTokens`); **dark is the
+default**, with light + system selectable under Settings → Appearance. There are
+now **zero** hard-coded hex literals in `apps/mobile/src/components` + `app/`
+(`.tsx`). The chat surface itself was rebuilt: a two-line header (chat / workspace)
+with a drawer toggle + new-chat, a slide-over drawer (workspace selector +
+current-workspace history + Workflows/Scheduler/Gateway links), a simplified
+composer (`+` actions / voice / send), and a welcome empty-state.
+
+**How the swap propagates (breadcrumb):** there is **no** global remount. The
+screen roots subscribe — `AppShell` (chat) and `ScreenFrame` (every other screen)
+call `useTheme()`, so a mode change re-renders the screen and all render-time
+`sx()` colors re-resolve. The chat `FlatList` is `key`ed by scheme so memoized
+rows rebuild on a flip. `setActivePalette(scheme)` runs in the ThemeProvider
+render body (idempotent) so it's set before children read it.
+
+**New debt / follow-ups accrued:**
+- **Memoized rows can lag a live theme flip.** Outside the chat list (which is
+  re-keyed), a `React.memo` leaf with unchanged props keeps its last-resolved
+  colors until it next renders. Theme changes are rare + deliberate so it's
+  cosmetic, but a `themeVersion` counter folded into the memo comparators would
+  make it exact.
+- **`toolGroupUi.ts` still returns dead light `accent`/`tint` hex.** `ChatList`
+  now derives tool/subagent tones from the `statusLabel`/`statusTone` enums and
+  maps them to `colors.*`, so the hex fields the helper returns are unused. Drop
+  them (and trim `mobile-tool-group-ui.test.ts`) for clarity.
+- **Header session actions are low-discoverability.** Tapping the two-line title
+  opens session actions; long-press renames — honoring the clean ChatGPT-style
+  header, but the rename has no visible affordance.
+- **`selectWorkspace`/`activeWorkspaceId` naming stays misleading** (they select a
+  *session*); the drawer's workspace switcher only changes which history is shown
+  until a session / new-chat is picked. Rename for clarity later.
+
+**Superseded same day by a full view-layer rebuild.** The dark reskin above was
+followed by a from-scratch rebuild of the presentation layer (data/business hooks
+kept). New IA: **no bottom tab bar** — the chat is the immersive home, the drawer
+is the nav hub (collapsible workspace folders + session history + an Apps/Account
+footer), and Apps (Workflows/Schedules) + Account are pushed screens. Added a
+shared `src/ui/kit` design system, an iOS-26 "Liquid Glass" material (`expo-blur`)
+for the floating chrome, a proper onboarding/pairing gate, and a minimal glass
+composer (grow-on-type single line; `+` opens a full-width options sheet; voice +
+send; drag-grabber to minimize). ~19 old presentational components were deleted.
+New debt accrued:
+- **Dead UI-logic modules left in place.** `waitingRoomUi.ts` and
+  `connectionBannerUi.ts` lost their components (WaitingRoom/ConnectionBanner
+  removed) but the modules + their tests remain, unused. Delete them (and the
+  `mobile-connection-banner-ui` test) or wire them into the new connection states.
+- **`LargeHeader` (kit) is currently unused** — Apps/Account switched to the
+  pushed `DetailHeader`. Keep only if a large-title tab/landing screen returns.
+- **`QrScannerSheet` still imports the deprecated `SafeAreaView` from
+  `react-native`** (RN logs a deprecation warning). Swap to
+  `react-native-safe-area-context`.
+- **Composer minimize is in-flow `translateY` to a grabber peek**, not a true
+  overlay; tap-anywhere-to-restore on the transcript isn't wired (focus/grabber
+  only). Fine, but a gesture-driven overlay would feel more native.
+- **`expo-blur` is now a hard dep of the glass material** — fine in Expo Go, but
+  any glass-free fallback path (e.g. reduced-transparency accessibility setting)
+  is unhandled; `Glass` always blurs.
+
 ## 2026-06-23 — Mobile EAS build: workspace deps' `dist` missing on fresh checkout
 
 **Logged + fixed on sight:** the Expo app (`apps/mobile`) consumes its `@moxxy/*`

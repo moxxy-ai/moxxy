@@ -1,5 +1,6 @@
 import { sx } from '../styles/tokens';
 import { KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface RenameSessionSheetProps {
@@ -13,6 +14,7 @@ interface RenameSessionSheetProps {
 }
 
 export function RenameSessionSheet(props: RenameSessionSheetProps) {
+  const { colors } = useTheme();
   if (!props.open) return null;
   const canSubmit = props.value.trim().length > 0 && !props.saving;
 
@@ -31,7 +33,7 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
         accessible
         accessibilityRole="button"
         accessibilityLabel="Close rename session"
-        style={{ backgroundColor: 'rgba(15, 23, 42, 0.3)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
+        style={{ backgroundColor: colors.overlay, bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
         onPress={props.onCancel}
       />
       <KeyboardAvoidingView
@@ -42,7 +44,7 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
           style={sx('rounded-card border border-cardBorder bg-cardBg p-4 shadow-card', {
             borderRadius: 20,
             gap: 14,
-            shadowColor: '#0f172a',
+            shadowColor: colors.shadow,
             shadowOffset: { width: 0, height: 18 },
             shadowOpacity: 0.18,
             shadowRadius: 28,
@@ -60,7 +62,7 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
               style={sx('h-10 w-10 items-center justify-center rounded-pill bg-appBg')}
               onPress={props.onCancel}
             >
-              <MobileIcon name="x" size={19} strokeWidth={2.35} color="#64748b" />
+              <MobileIcon name="x" size={19} strokeWidth={2.35} color={colors.textMuted} />
             </Pressable>
           </View>
 
@@ -69,7 +71,7 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
             value={props.value}
             onChangeText={props.onChange}
             placeholder="Session name"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textDim}
             autoCapitalize="sentences"
             autoCorrect
             autoFocus

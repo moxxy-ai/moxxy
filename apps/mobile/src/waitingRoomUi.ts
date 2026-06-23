@@ -25,7 +25,7 @@ export function buildWaitingRoomUi({ paired, status }: BuildWaitingRoomUiInput):
       status: `Socket status: ${status}`,
       steps: [
         'Open Moxxy Desktop on your Mac.',
-        'Go to Settings -> Mobile.',
+        'Open the Mobile tab in the sidebar.',
         'Turn on Enable mobile gateway.',
       ],
       title: 'Waiting for the desktop gateway',

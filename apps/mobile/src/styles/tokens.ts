@@ -1,4 +1,4 @@
-import { tokens } from '@moxxy/design-tokens';
+import { tokens, darkTokens } from '@moxxy/design-tokens';
 import { Platform, StyleSheet } from 'react-native';
 import type { ImageStyle, StyleProp, TextStyle, ViewStyle } from 'react-native';
 
@@ -88,13 +88,191 @@ export const mobileTheme = {
   },
 } as const;
 
+/**
+ * A flat, theme-aware color map. Every `sx('bg-…' | 'text-…' | 'border-…')`
+ * utility resolves its color through {@link activePalette}, which the
+ * ThemeProvider swaps when the user (or the system) flips between light and
+ * dark. The base names mirror the shared `@moxxy/design-tokens` palette; the
+ * extra "semantic" names (soft fills, accent tints, on-color text, shadows)
+ * carry the values that used to be hard-coded light hex across the components,
+ * so one palette switch re-skins the whole app.
+ */
+export type ColorName =
+  | 'appBg'
+  | 'mainBg'
+  | 'surface'
+  | 'inputSoft'
+  | 'cardBg'
+  | 'cardBorder'
+  | 'cardBorderStrong'
+  | 'text'
+  | 'textMuted'
+  | 'textDim'
+  | 'muted'
+  | 'dim'
+  | 'sidebarBg'
+  | 'sidebarBgHover'
+  | 'sidebarBgActive'
+  | 'sidebarText'
+  | 'sidebarTextDim'
+  | 'sidebarBorder'
+  | 'primary'
+  | 'primaryStrong'
+  | 'primarySoft'
+  | 'send'
+  | 'accent'
+  | 'accentStrong'
+  | 'purple'
+  | 'purpleStrong'
+  | 'green'
+  | 'greenStrong'
+  | 'amber'
+  | 'pink'
+  | 'red'
+  | 'white'
+  | 'black'
+  | 'transparent'
+  | 'shadow'
+  | 'overlay'
+  | 'greenSoft'
+  | 'greenBorder'
+  | 'redSoft'
+  | 'redTint'
+  | 'redBorder'
+  | 'redText'
+  | 'purpleSoft'
+  | 'purpleBorder'
+  | 'amberSoft'
+  | 'cyanSoft'
+  | 'pinkText'
+  | 'pinkBorder'
+  | 'tint'
+  | 'codeBg'
+  | 'codeInline'
+  | 'codeText'
+  | 'glassFill'
+  | 'glassHeavy'
+  | 'glassBorder'
+  | 'glassHighlight';
+
+export type Palette = Record<ColorName, string>;
+
+function buildPalette(c: Record<keyof typeof tokens.color, string>, extra: Partial<Palette>): Palette {
+  return {
+    appBg: c.appBg,
+    mainBg: c.mainBg,
+    surface: c.surface,
+    inputSoft: c.inputSoft,
+    cardBg: c.cardBg,
+    cardBorder: c.cardBorder,
+    cardBorderStrong: c.cardBorderStrong,
+    text: c.text,
+    textMuted: c.textMuted,
+    textDim: c.textDim,
+    muted: c.textMuted,
+    dim: c.textDim,
+    sidebarBg: c.sidebarBg,
+    sidebarBgHover: c.sidebarBgHover,
+    sidebarBgActive: c.sidebarBgActive,
+    sidebarText: c.sidebarText,
+    sidebarTextDim: c.sidebarTextDim,
+    sidebarBorder: c.sidebarBorder,
+    primary: c.primary,
+    primaryStrong: c.primaryStrong,
+    primarySoft: c.primarySoft,
+    send: c.send,
+    accent: c.accent,
+    accentStrong: c.accentStrong,
+    purple: c.purple,
+    green: c.green,
+    amber: c.amber,
+    pink: c.pink,
+    red: c.red,
+    white: '#ffffff',
+    black: '#000000',
+    transparent: 'transparent',
+    // The remaining (semantic) names are theme-specific; supplied via `extra`.
+    purpleStrong: '#7c3aed',
+    greenStrong: '#16a34a',
+    shadow: '#0f172a',
+    overlay: 'rgba(15, 23, 42, 0.48)',
+    greenSoft: '#ecfdf5',
+    greenBorder: '#bbf7d0',
+    redSoft: '#fef2f2',
+    redTint: '#fee2e2',
+    redBorder: '#fecaca',
+    redText: '#991b1b',
+    purpleSoft: '#f5f3ff',
+    purpleBorder: '#c7d2fe',
+    amberSoft: '#fffbeb',
+    cyanSoft: '#ecfeff',
+    pinkText: '#be185d',
+    pinkBorder: '#f9a8d4',
+    tint: '#f8fafc',
+    codeBg: '#f8fafc',
+    codeInline: '#eef2ff',
+    codeText: '#334155',
+    glassFill: 'rgba(255, 255, 255, 0.7)',
+    glassHeavy: 'rgba(248, 249, 253, 0.82)',
+    glassBorder: 'rgba(15, 23, 42, 0.08)',
+    glassHighlight: 'rgba(255, 255, 255, 0.7)',
+    ...extra,
+  };
+}
+
+export const lightPalette: Palette = buildPalette(tokens.color, {});
+
+export const darkPalette: Palette = buildPalette(darkTokens.color, {
+  purpleStrong: '#a78bfa',
+  greenStrong: '#34d399',
+  shadow: '#000000',
+  overlay: 'rgba(0, 0, 0, 0.62)',
+  greenSoft: '#0f2a22',
+  greenBorder: '#1f5f47',
+  redSoft: '#2a1620',
+  redTint: '#3a1820',
+  redBorder: '#5b2330',
+  redText: '#fca5a5',
+  purpleSoft: '#1e1b3a',
+  purpleBorder: '#3b3470',
+  amberSoft: '#2a2210',
+  cyanSoft: '#0c2630',
+  pinkText: '#f9a8d4',
+  pinkBorder: '#5e2945',
+  tint: '#121420',
+  codeBg: '#121420',
+  codeInline: '#1e2233',
+  codeText: '#c7cbe6',
+  glassFill: 'rgba(28, 31, 46, 0.55)',
+  glassHeavy: 'rgba(16, 17, 23, 0.72)',
+  glassBorder: 'rgba(255, 255, 255, 0.12)',
+  glassHighlight: 'rgba(255, 255, 255, 0.06)',
+});
+
+export const palettes = { light: lightPalette, dark: darkPalette } as const;
+export type ThemeScheme = keyof typeof palettes;
+
+/** The palette every render-time `sx()` color resolves against. Dark by
+ *  default; the ThemeProvider rewrites it when the resolved scheme changes,
+ *  then re-renders the screen roots (AppShell / ScreenFrame subscribe to the
+ *  theme context) so descendant `sx()` calls re-read it. */
+let activePalette: Palette = darkPalette;
+
+export function setActivePalette(scheme: ThemeScheme): void {
+  activePalette = palettes[scheme];
+}
+
+export function getActivePalette(): Palette {
+  return activePalette;
+}
+
 export const mobileShadows = StyleSheet.create({
   card: {
     ...Platform.select({
       ios: {
-        shadowColor: '#0f172a',
+        shadowColor: '#000000',
         shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.08,
+        shadowOpacity: 0.32,
         shadowRadius: 24,
       },
       android: {
@@ -108,7 +286,7 @@ export const mobileShadows = StyleSheet.create({
       ios: {
         shadowColor: color.primary,
         shadowOffset: { width: 0, height: 14 },
-        shadowOpacity: 0.12,
+        shadowOpacity: 0.18,
         shadowRadius: 24,
       },
       android: {
@@ -146,35 +324,6 @@ export const mobileStyles = StyleSheet.create({
   input: mobileStyleSpecs.input,
 });
 
-const namedColors = {
-  appBg: mobileTheme.color.appBg,
-  mainBg: mobileTheme.color.mainBg,
-  surface: mobileTheme.color.surface,
-  inputSoft: mobileTheme.color.inputSoft,
-  cardBg: mobileTheme.color.cardBg,
-  cardBorder: mobileTheme.color.cardBorder,
-  cardBorderStrong: mobileTheme.color.cardBorderStrong,
-  text: mobileTheme.color.text,
-  muted: mobileTheme.color.textMuted,
-  dim: mobileTheme.color.textDim,
-  textMuted: mobileTheme.color.textMuted,
-  textDim: mobileTheme.color.textDim,
-  primary: mobileTheme.color.primary,
-  primaryStrong: mobileTheme.color.primaryStrong,
-  primarySoft: mobileTheme.color.primarySoft,
-  send: mobileTheme.color.send,
-  accent: mobileTheme.color.accent,
-  accentStrong: mobileTheme.color.accentStrong,
-  purple: mobileTheme.color.purple,
-  green: mobileTheme.color.green,
-  amber: mobileTheme.color.amber,
-  pink: mobileTheme.color.pink,
-  red: mobileTheme.color.red,
-  white: mobileTheme.color.white,
-  black: mobileTheme.color.black,
-  transparent: mobileTheme.color.transparent,
-} as const;
-
 const spacing = mobileTheme.spacing;
 
 function alphaColor(base: string, alpha: number): string {
@@ -209,6 +358,7 @@ const baseUtilities: Record<string, AnyStyle> = {
   'self-start': { alignSelf: 'flex-start' },
   'self-end': { alignSelf: 'flex-end' },
   'self-stretch': { alignSelf: 'stretch' },
+  'self-center': { alignSelf: 'center' },
   'min-w-0': { minWidth: 0 },
   'opacity-50': { opacity: 0.5 },
   'opacity-60': { opacity: 0.6 },
@@ -246,6 +396,7 @@ const baseUtilities: Record<string, AnyStyle> = {
   'rounded-lg': { borderRadius: 12 },
   'rounded-xl': { borderRadius: 16 },
   'rounded-2xl': { borderRadius: 20 },
+  'rounded-3xl': { borderRadius: 26 },
   'rounded-full': { borderRadius: mobileTheme.radius.pill },
   border: { borderWidth: 1 },
   'border-0': { borderWidth: 0 },
@@ -281,27 +432,24 @@ for (const [key, value] of Object.entries(spacing)) {
   sizeUtilities[`left-${key}`] = { left: value };
 }
 
-const colorUtilities: Record<string, AnyStyle> = {};
-for (const [name, value] of Object.entries(namedColors)) {
-  colorUtilities[`bg-${name}`] = { backgroundColor: value };
-  colorUtilities[`text-${name}`] = { color: value };
-  colorUtilities[`border-${name}`] = { borderColor: value };
+function resolveColorUtility(token: string): AnyStyle | undefined {
+  const colorMatch = /^(bg|text|border)-([A-Za-z]+)(?:\/(\d+))?$/.exec(token);
+  if (!colorMatch) return undefined;
+  const [, target, name, opacity] = colorMatch;
+  const value = activePalette[name as ColorName];
+  if (value === undefined) return undefined;
+  const finalColor = opacity ? alphaColor(value, Number(opacity) / 100) : value;
+  if (target === 'bg') return { backgroundColor: finalColor };
+  if (target === 'text') return { color: finalColor };
+  return { borderColor: finalColor };
 }
 
 function parseUtility(token: string): AnyStyle | undefined {
-  const known = baseUtilities[token] ?? sizeUtilities[token] ?? colorUtilities[token];
+  const known = baseUtilities[token] ?? sizeUtilities[token];
   if (known) return known;
 
-  const colorMatch = /^(bg|text|border)-([A-Za-z]+)(?:\/(\d+))?$/.exec(token);
-  if (colorMatch) {
-    const [, target, name, opacity] = colorMatch;
-    const value = namedColors[name as keyof typeof namedColors];
-    if (!value) return undefined;
-    const finalColor = opacity ? alphaColor(value, Number(opacity) / 100) : value;
-    if (target === 'bg') return { backgroundColor: finalColor };
-    if (target === 'text') return { color: finalColor };
-    return { borderColor: finalColor };
-  }
+  const colorUtility = resolveColorUtility(token);
+  if (colorUtility) return colorUtility;
 
   const numberMatch = /^(-?)(h|w|min-h|min-w|max-h|max-w|top|right|bottom|left)-\[(\d+)px\]$/.exec(token);
   if (numberMatch) {

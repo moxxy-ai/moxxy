@@ -1,5 +1,240 @@
-import { Redirect } from 'expo-router';
+import { sx } from '@/styles/tokens';
+import { AskSheet } from '@/components/AskSheet';
+import { ChatComposer } from '@/components/ChatComposer';
+import { ChatDrawer } from '@/components/ChatDrawer';
+import { ChatHeader } from '@/components/ChatHeader';
+import { ChatList, type ChatWelcome } from '@/components/ChatList';
+import { CompactContextSheet } from '@/components/CompactContextSheet';
+import { ComposerSheet } from '@/components/ComposerSheet';
+import { GoalSheet } from '@/components/GoalSheet';
+import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
+import { ModeSelectorSheet } from '@/components/ModeSelectorSheet';
+import { Onboarding } from '@/components/Onboarding';
+import { RenameSessionSheet } from '@/components/RenameSessionSheet';
+import { SessionActionsSheet } from '@/components/SessionActionsSheet';
+import { buildGoalSheetPlacement } from '@/goalSheetLayout';
+import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
+import { useGatewayStore } from '@/hooks/useGatewayStore';
+import { useMessageCopy } from '@/hooks/useMessageCopy';
+import { useMobileChrome } from '@/hooks/useMobileChrome';
+import { useSessionActions } from '@/hooks/useSessionActions';
+import { useTheme } from '@/theme/ThemeProvider';
+import { buildWorkspaceMenuSections } from '@/navigation';
+import { shouldShowPendingActionsSheet } from '@/chatOverlayState';
+import { textOf } from '@/utils/record';
+import { useCallback, useMemo, useState } from 'react';
+import { Keyboard, Text, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const WELCOME_SUGGESTIONS: ReadonlyArray<string> = [
+  'Summarize what changed in this project today',
+  'Draft a short status update for my team',
+  'Help me plan and run a multi-step task',
+  'Review the latest code changes for bugs',
+];
 
 export default function HomeScreen() {
-  return <Redirect href="/chat" />;
+  const store = useGatewayStore();
+  if (!store.pairing.transportReady) return <Onboarding />;
+  return <Chat />;
+}
+
+function Chat() {
+  const { colors } = useTheme();
+  const {
+    autoApprove,
+    chat,
+    compact,
+    composer,
+    gatewayConnected,
+    goals,
+    modelSelector,
+    permissions,
+    session,
+    sessions,
+  } = useGatewayStore();
+  const [composerHidden, setComposerHidden] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const chrome = useMobileChrome();
+  const messageCopy = useMessageCopy();
+  const { height: screenHeight } = useWindowDimensions();
+  const safeArea = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
+  const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
+  const activeSessionRecord = sessions.sessions.find((item) => textOf(item.id) === sessions.activeWorkspaceId);
+  const activeSessionTitle = textOf(activeSessionRecord?.name, textOf(session.session?.id, 'No active session'));
+  const activeWorkspace = sessions.workspaces.find((w) => textOf(w.id) === textOf(activeSessionRecord?.workspaceId));
+  const workspaceName = textOf(activeWorkspace?.name, textOf(activeWorkspace?.title, 'No workspace'));
+  const chatTitle = textOf(activeSessionRecord?.name, textOf(activeSessionRecord?.firstPrompt, 'New chat'));
+  const canEditSession = session.connected && !session.readOnly && Boolean(sessions.activeWorkspaceId);
+  const statusLabel = session.connected ? workspaceName : 'Connecting…';
+  const sessionActions = useSessionActions({ workspaceId: sessions.activeWorkspaceId, readOnly: session.readOnly || !session.connected, onRunCommand: composer.runCommand });
+  const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
+  const goalPlacement = buildGoalSheetPlacement({ screenHeight, topSafeArea: safeArea.top, keyboardHeight });
+  const overlayBottom = (keyboardHeight > 0 ? keyboardHeight : safeArea.bottom) + 150;
+  const overlayStyle = { bottom: overlayBottom, left: 12, maxHeight: screenHeight * 0.5, position: 'absolute' as const, right: 12, zIndex: 40 };
+  const showPendingActionsSheet = shouldShowPendingActionsSheet({
+    pendingActions,
+    composerActionsOpen: optionsOpen,
+    goalsOpen: goals.open,
+    compactConfirmOpen: compact.confirmOpen,
+    modelPickerOpen: modelSelector.open,
+    modePickerOpen: modelSelector.modeOpen,
+    sessionActionsOpen: sessionActions.open,
+    renameOpen,
+  });
+  const openRename = useCallback(() => {
+    if (!canEditSession) return;
+    Keyboard.dismiss();
+    setRenameDraft(activeSessionTitle);
+    setRenameError(null);
+    setRenameOpen(true);
+  }, [activeSessionTitle, canEditSession]);
+  const submitRename = useCallback(() => {
+    const sessionId = sessions.activeWorkspaceId;
+    const name = renameDraft.trim();
+    if (!sessionId || !name || renameSaving) return;
+    setRenameSaving(true);
+    setRenameError(null);
+    void sessions.renameSession(sessionId, name)
+      .then(() => setRenameOpen(false))
+      .catch((err) => setRenameError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setRenameSaving(false));
+  }, [renameDraft, renameSaving, sessions]);
+  const handleSuggestion = useCallback((text: string) => composer.setText(text), [composer]);
+  const welcome = useMemo<ChatWelcome | null>(
+    () => (session.connected && !session.readOnly ? { title: 'Hey, moxxy is here', subtitle: 'Ask anything, automate a workflow, or pick up a past chat from the menu.', suggestions: WELCOME_SUGGESTIONS, onSuggestion: handleSuggestion } : null),
+    [handleSuggestion, session.connected, session.readOnly],
+  );
+  const connectionBanner = !session.connected ? (
+    <View style={sx('flex-row items-center rounded-2xl px-4 py-3', { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, gap: 10 })}>
+      <View style={sx('rounded-full', { backgroundColor: colors.amber, height: 8, width: 8 })} />
+      <Text style={sx('flex-1 text-[13px] font-semibold text-muted')}>Connecting to your Mac…</Text>
+    </View>
+  ) : null;
+
+  return (
+    <View style={sx('flex-1', { backgroundColor: colors.appBg })}>
+      <SafeAreaView style={sx('flex-1')} edges={['top']}>
+        <ChatHeader
+          title={chatTitle}
+          subtitle={statusLabel}
+          connected={session.connected}
+          pendingActions={pendingActions}
+          onMenu={() => { Keyboard.dismiss(); chrome.toggleMenu(); }}
+          onNewChat={() => { Keyboard.dismiss(); sessions.newSession(); }}
+          onTitlePress={() => { Keyboard.dismiss(); sessionActions.openSheet(); }}
+          onTitleLongPress={openRename}
+          titleDisabled={!session.connected}
+          newChatDisabled={!gatewayConnected}
+        />
+
+        <ChatList
+          items={chat.items}
+          connectionBanner={connectionBanner}
+          sending={chat.sending}
+          hasOlder={chat.hasOlder}
+          welcome={welcome}
+          onLoadOlder={chat.loadOlder}
+          copiedMessageId={messageCopy.copiedMessageId}
+          onCopyMessage={messageCopy.copyMessage}
+        />
+
+        {showPendingActionsSheet ? (
+          <View style={overlayStyle}>
+            <AskSheet asks={permissions.pendingAsks} permissions={permissions.pendingPermissions} maxHeight={screenHeight * 0.5} onAskResponse={permissions.respondAsk} onPermissionDecision={permissions.decidePermission} />
+          </View>
+        ) : null}
+        {goals.open ? (
+          <View style={{ left: 12, maxHeight: goalPlacement.maxHeight, position: 'absolute', right: 12, top: goalPlacement.top, zIndex: 40 }}>
+            <GoalSheet objective={goals.objective} canStart={goals.canStart} maxHeight={goalPlacement.maxHeight} inputMaxHeight={goalPlacement.inputMaxHeight} onObjectiveChange={goals.setObjective} onStart={goals.startGoal} onClose={() => goals.setOpen(false)} />
+          </View>
+        ) : null}
+        {compact.confirmOpen ? (
+          <View style={overlayStyle}>
+            <CompactContextSheet open={compact.confirmOpen} compacting={chat.compacting} onCancel={compact.cancelCompact} onConfirm={compact.confirmCompact} />
+          </View>
+        ) : null}
+        {modelSelector.modeOpen ? (
+          <View style={overlayStyle}>
+            <ModeSelectorSheet ui={modelSelector.modeUi} error={modelSelector.error} onClose={modelSelector.closeModePicker} onPickMode={modelSelector.pickMode} />
+          </View>
+        ) : null}
+        {modelSelector.open ? (
+          <View style={overlayStyle}>
+            <ModelSelectorSheet ui={modelSelector.ui} error={modelSelector.error} onClose={modelSelector.closePicker} onSelectProvider={modelSelector.selectProvider} onPickModel={modelSelector.pickModel} />
+          </View>
+        ) : null}
+
+        <View style={{ paddingBottom: keyboardHeight > 0 ? keyboardHeight : safeArea.bottom }}>
+          <ChatComposer
+            text={composer.text}
+            inputResetKey={composer.inputResetKey}
+            sending={chat.sending}
+            compacting={chat.compacting}
+            autoApprove={autoApprove.enabled}
+            readOnly={session.readOnly}
+            voicePhase={composer.voicePhase}
+            voiceError={composer.voiceError}
+            attachmentCount={composer.attachments.length}
+            hidden={composerHidden}
+            onChangeHidden={setComposerHidden}
+            onTextChange={composer.setText}
+            onSubmit={composer.submit}
+            onAbort={composer.abort}
+            onVoice={composer.transcribe}
+            onOpenOptions={() => { Keyboard.dismiss(); setOptionsOpen(true); }}
+          />
+        </View>
+      </SafeAreaView>
+
+      <SessionActionsSheet
+        open={sessionActions.open}
+        actions={sessionActions.actions}
+        allActionsCount={sessionActions.allActionsCount}
+        filter={sessionActions.filter}
+        error={sessionActions.error}
+        readOnly={session.readOnly || !session.connected}
+        argsFor={sessionActions.argsFor}
+        argValues={sessionActions.argValues}
+        onFilterChange={sessionActions.setFilter}
+        onSelectAction={sessionActions.selectAction}
+        onArgValueChange={sessionActions.setArgValue}
+        onRunArgsAction={sessionActions.runArgsAction}
+        onBackToList={sessionActions.backToList}
+        onClose={sessionActions.close}
+      />
+      <RenameSessionSheet open={renameOpen} value={renameDraft} error={renameError} saving={renameSaving} onChange={setRenameDraft} onCancel={() => setRenameOpen(false)} onSubmit={submitRename} />
+
+      <ComposerSheet
+        open={optionsOpen}
+        autoApprove={autoApprove.enabled}
+        modelLabel={modelSelector.ui.chipLabel}
+        modeLabel={modelSelector.modeUi.chipLabel}
+        readOnly={session.readOnly}
+        onClose={() => setOptionsOpen(false)}
+        onPickImage={composer.pickImageAttachment}
+        onPickFile={composer.pickDocumentAttachment}
+        onOpenModel={modelSelector.openPicker}
+        onOpenMode={modelSelector.openModePicker}
+        onGoal={() => goals.setOpen(true)}
+        onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
+        onCompact={compact.requestCompact}
+        onNewSession={() => sessions.newSession()}
+      />
+
+      <ChatDrawer
+        open={chrome.menuOpen}
+        connected={session.connected}
+        workspaceSections={workspaceSections}
+        onSelectSession={sessions.selectWorkspace}
+        onNewSession={sessions.newSession}
+        onClose={chrome.closeMenu}
+      />
+    </View>
+  );
 }

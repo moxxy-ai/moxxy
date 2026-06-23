@@ -1,9 +1,11 @@
 import { sx } from '../styles/tokens';
 import { Animated, Text, View } from 'react-native';
 import { useThinkingDots } from '@/hooks/useThinkingDots';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 export function ThinkingIndicator() {
+  const { colors } = useTheme();
   const dotOpacity = useThinkingDots();
 
   return (
@@ -15,7 +17,7 @@ export function ThinkingIndicator() {
       <View
         style={sx('bg-primarySoft', { alignItems: 'center', borderRadius: 10, height: 34, justifyContent: 'center', width: 34 })}
       >
-        <MobileIcon name="message" size={18} strokeWidth={2.35} color="#db2777" />
+        <MobileIcon name="message" size={18} strokeWidth={2.35} color={colors.primaryStrong} />
       </View>
       <View
         style={sx('rounded-block border border-cardBorder bg-cardBg', {
@@ -32,7 +34,7 @@ export function ThinkingIndicator() {
             <Animated.View
               key={index}
               style={{
-                backgroundColor: '#ec4899',
+                backgroundColor: colors.primary,
                 borderRadius: 999,
                 height: 5,
                 opacity,

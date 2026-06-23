@@ -1,5 +1,6 @@
 import { sx } from '../styles/tokens';
 import { Pressable, Text, View } from 'react-native';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface CompactContextSheetProps {
@@ -10,6 +11,7 @@ interface CompactContextSheetProps {
 }
 
 export function CompactContextSheet(props: CompactContextSheetProps) {
+  const { colors } = useTheme();
   if (!props.open) return null;
 
   return (
@@ -20,14 +22,14 @@ export function CompactContextSheet(props: CompactContextSheetProps) {
         <View
           style={{
             alignItems: 'center',
-            backgroundColor: '#fdf2f8',
+            backgroundColor: colors.primarySoft,
             borderRadius: 12,
             height: 38,
             justifyContent: 'center',
             width: 38,
           }}
         >
-          <MobileIcon name="actions" size={19} strokeWidth={2.45} color="#db2777" />
+          <MobileIcon name="actions" size={19} strokeWidth={2.45} color={colors.primaryStrong} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={sx('text-[17px] font-black text-text')}>Compact context?</Text>

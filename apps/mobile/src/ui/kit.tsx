@@ -1,0 +1,536 @@
+import { BlurView } from 'expo-blur';
+import type { ReactNode } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  type StyleProp,
+  type TextStyle,
+  type ViewStyle,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
+import { sx } from '../styles/tokens';
+import { useTheme } from '@/theme/ThemeProvider';
+import { MobileIcon, type MobileIconName } from '../components/MobileIcon';
+
+/* ------------------------------------------------------------------- Glass */
+
+/** iOS-26 "liquid glass" material — a translucent blur with a hairline light
+ *  border and a faint inner highlight. Use for floating chrome (drawer,
+ *  composer, headers) so content shows through. */
+export function Glass({
+  children,
+  style,
+  radius = 0,
+  intensity = 60,
+  heavy = false,
+}: {
+  readonly children?: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
+  readonly radius?: number;
+  readonly intensity?: number;
+  readonly heavy?: boolean;
+}) {
+  const { colors, scheme } = useTheme();
+  return (
+    <BlurView
+      intensity={intensity}
+      tint={scheme === 'dark' ? 'systemChromeMaterialDark' : 'systemChromeMaterialLight'}
+      experimentalBlurMethod="dimezisBlurView"
+      style={[{ borderRadius: radius, overflow: 'hidden' }, style]}
+    >
+      <View
+        style={[
+          { backgroundColor: heavy ? colors.glassHeavy : colors.glassFill, borderColor: colors.glassBorder, borderRadius: radius, borderWidth: 1 },
+          StyleSheetAbsoluteFill,
+        ]}
+        pointerEvents="none"
+      />
+      {children}
+    </BlurView>
+  );
+}
+
+const StyleSheetAbsoluteFill = { bottom: 0, left: 0, position: 'absolute' as const, right: 0, top: 0 };
+
+/** Vertical room a scrollable tab screen must leave so its last rows clear the
+ *  floating bottom tab bar. */
+export const TAB_BAR_CLEARANCE = 108;
+
+type Tone = 'neutral' | 'brand' | 'success' | 'warn' | 'danger' | 'info';
+
+function toneColors(tone: Tone, colors: ReturnType<typeof useTheme>['colors']) {
+  switch (tone) {
+    case 'brand':
+      return { fg: colors.primary, bg: colors.primarySoft };
+    case 'success':
+      return { fg: colors.greenStrong, bg: colors.greenSoft };
+    case 'warn':
+      return { fg: colors.amber, bg: colors.amberSoft };
+    case 'danger':
+      return { fg: colors.red, bg: colors.redSoft };
+    case 'info':
+      return { fg: colors.accentStrong, bg: colors.cyanSoft };
+    default:
+      return { fg: colors.textMuted, bg: colors.inputSoft };
+  }
+}
+
+/* ------------------------------------------------------------------ Screen */
+
+export function Screen({
+  children,
+  scroll = false,
+  padded = true,
+  edges = ['top'],
+  contentStyle,
+  bottomClearance = TAB_BAR_CLEARANCE,
+}: {
+  readonly children: ReactNode;
+  readonly scroll?: boolean;
+  readonly padded?: boolean;
+  readonly edges?: ReadonlyArray<Edge>;
+  readonly contentStyle?: StyleProp<ViewStyle>;
+  readonly bottomClearance?: number;
+}) {
+  const { colors } = useTheme();
+  const inner = padded ? { paddingHorizontal: 16 } : null;
+  const body = scroll ? (
+    <ScrollView
+      style={sx('flex-1')}
+      contentContainerStyle={[
+        { paddingBottom: bottomClearance, paddingTop: 8 },
+        inner,
+        contentStyle,
+      ]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
+  ) : (
+    <View style={[sx('flex-1'), { paddingTop: 8 }, inner, contentStyle]}>{children}</View>
+  );
+  return (
+    <SafeAreaView style={[sx('flex-1'), { backgroundColor: colors.appBg }]} edges={edges as Edge[]}>
+      {body}
+    </SafeAreaView>
+  );
+}
+
+/* ------------------------------------------------------------- LargeHeader */
+
+export function LargeHeader({
+  title,
+  subtitle,
+  right,
+}: {
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly right?: ReactNode;
+}) {
+  return (
+    <View style={sx('flex-row items-end justify-between px-4 pb-2 pt-2', { gap: 12 })}>
+      <View style={sx('flex-1', { minWidth: 0 })}>
+        <Text style={sx('text-[30px] font-black text-text', { letterSpacing: -0.5 })} numberOfLines={1}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text style={sx('mt-0.5 text-[14px] font-medium text-dim')} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {right ?? null}
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------ DetailHeader */
+
+/** Header for a pushed (non-tab) screen: back chevron + title + optional right. */
+export function DetailHeader({
+  title,
+  subtitle,
+  onBack,
+  right,
+}: {
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly onBack: () => void;
+  readonly right?: ReactNode;
+}) {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={sx('flex-row items-center border-b border-cardBorder px-2', {
+        backgroundColor: colors.appBg,
+        gap: 8,
+        paddingBottom: 14,
+        paddingTop: insets.top + 12,
+      })}
+    >
+      <IconButton icon="chevronLeft" variant="ghost" accessibilityLabel="Go back" onPress={onBack} />
+      <View style={sx('flex-1', { minWidth: 0 })}>
+        <Text style={sx('text-[20px] font-black text-text', { letterSpacing: -0.3 })} numberOfLines={1}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text style={sx('mt-0.5 text-[13px] font-medium text-dim')} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {right ?? <View style={sx('w-11')} />}
+    </View>
+  );
+}
+
+/* --------------------------------------------------------------- IconBadge */
+
+export function IconBadge({
+  icon,
+  tone = 'brand',
+  size = 38,
+  color,
+  bg,
+}: {
+  readonly icon: MobileIconName;
+  readonly tone?: Tone;
+  readonly size?: number;
+  readonly color?: string;
+  readonly bg?: string;
+}) {
+  const { colors } = useTheme();
+  const t = toneColors(tone, colors);
+  return (
+    <View
+      style={sx('items-center justify-center', {
+        backgroundColor: bg ?? t.bg,
+        borderRadius: size * 0.32,
+        height: size,
+        width: size,
+      })}
+    >
+      <MobileIcon name={icon} size={size * 0.5} strokeWidth={2.3} color={color ?? t.fg} />
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------- Card */
+
+export function Card({
+  children,
+  style,
+  padded = true,
+}: {
+  readonly children: ReactNode;
+  readonly style?: StyleProp<ViewStyle>;
+  readonly padded?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[
+        sx('rounded-2xl', {
+          backgroundColor: colors.cardBg,
+          borderColor: colors.cardBorder,
+          borderWidth: 1,
+        }),
+        padded ? { padding: 16 } : null,
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------ SectionLabel */
+
+export function SectionLabel({ children, style }: { readonly children: ReactNode; readonly style?: StyleProp<TextStyle> }) {
+  return (
+    <Text style={[sx('text-[12px] font-black uppercase tracking-wide text-dim'), { marginBottom: 8, marginLeft: 4 }, style]}>
+      {children}
+    </Text>
+  );
+}
+
+/* ----------------------------------------------------------------- Divider */
+
+export function Divider({ inset = 0 }: { readonly inset?: number }) {
+  const { colors } = useTheme();
+  return <View style={{ backgroundColor: colors.cardBorder, height: 1, marginLeft: inset }} />;
+}
+
+/* ------------------------------------------------------------------ Button */
+
+export function Button({
+  label,
+  onPress,
+  variant = 'primary',
+  icon,
+  disabled = false,
+  full = true,
+  size = 'lg',
+}: {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  readonly icon?: MobileIconName;
+  readonly disabled?: boolean;
+  readonly full?: boolean;
+  readonly size?: 'lg' | 'md';
+}) {
+  const { colors } = useTheme();
+  const height = size === 'lg' ? 52 : 44;
+  const palette = {
+    primary: { bg: colors.primary, fg: colors.white, border: colors.primary },
+    secondary: { bg: colors.surface, fg: colors.text, border: colors.cardBorder },
+    ghost: { bg: 'transparent', fg: colors.textMuted, border: 'transparent' },
+    danger: { bg: colors.redSoft, fg: colors.red, border: colors.redBorder },
+  }[variant];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) =>
+        sx('flex-row items-center justify-center rounded-2xl', {
+          alignSelf: full ? 'stretch' : 'flex-start',
+          backgroundColor: palette.bg,
+          borderColor: palette.border,
+          borderWidth: variant === 'secondary' || variant === 'danger' ? 1 : 0,
+          gap: 8,
+          height,
+          opacity: disabled ? 0.45 : pressed ? 0.88 : 1,
+          paddingHorizontal: 18,
+        })
+      }
+    >
+      {icon ? <MobileIcon name={icon} size={18} strokeWidth={2.5} color={palette.fg} /> : null}
+      <Text style={sx('text-[15px] font-bold', { color: palette.fg })}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/* -------------------------------------------------------------- IconButton */
+
+export function IconButton({
+  icon,
+  onPress,
+  accessibilityLabel,
+  variant = 'surface',
+  size = 44,
+  color,
+  disabled = false,
+  badge = 0,
+}: {
+  readonly icon: MobileIconName;
+  readonly onPress: () => void;
+  readonly accessibilityLabel: string;
+  readonly variant?: 'surface' | 'ghost' | 'brand';
+  readonly size?: number;
+  readonly color?: string;
+  readonly disabled?: boolean;
+  readonly badge?: number;
+}) {
+  const { colors } = useTheme();
+  const bg = variant === 'surface' ? colors.surface : variant === 'brand' ? colors.primarySoft : 'transparent';
+  const border = variant === 'surface' ? colors.cardBorder : 'transparent';
+  const fg = color ?? (variant === 'brand' ? colors.primary : colors.text);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
+      hitSlop={6}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) =>
+        sx('items-center justify-center rounded-full', {
+          backgroundColor: pressed ? colors.cardBg : bg,
+          borderColor: border,
+          borderWidth: variant === 'surface' ? 1 : 0,
+          height: size,
+          opacity: disabled ? 0.4 : 1,
+          width: size,
+        })
+      }
+    >
+      <MobileIcon name={icon} size={size * 0.46} strokeWidth={2.4} color={fg} />
+      {badge > 0 ? (
+        <View
+          style={sx('absolute items-center justify-center rounded-full', {
+            backgroundColor: colors.red,
+            borderColor: colors.appBg,
+            borderWidth: 2,
+            height: 18,
+            minWidth: 18,
+            paddingHorizontal: 4,
+            right: -2,
+            top: -2,
+          })}
+        >
+          <Text style={sx('text-[10px] font-black text-white')}>{badge}</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/* ------------------------------------------------------------------- Pill */
+
+export function Pill({ label, tone = 'neutral' }: { readonly label: string; readonly tone?: Tone }) {
+  const { colors } = useTheme();
+  const t = toneColors(tone, colors);
+  return (
+    <View style={sx('rounded-pill px-2.5', { backgroundColor: t.bg, paddingVertical: 4 })}>
+      <Text style={sx('text-[11px] font-black', { color: t.fg })}>{label}</Text>
+    </View>
+  );
+}
+
+/* ---------------------------------------------------------------- ListRow */
+
+export function ListRow({
+  icon,
+  iconTone = 'neutral',
+  title,
+  subtitle,
+  value,
+  trailing,
+  onPress,
+  danger = false,
+  showChevron = true,
+}: {
+  readonly icon?: MobileIconName;
+  readonly iconTone?: Tone;
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly value?: string;
+  readonly trailing?: ReactNode;
+  readonly onPress?: () => void;
+  readonly danger?: boolean;
+  readonly showChevron?: boolean;
+}) {
+  const { colors } = useTheme();
+  const titleColor = danger ? colors.red : colors.text;
+  const content = (pressed: boolean) => (
+    <View
+      style={sx('flex-row items-center px-4', {
+        backgroundColor: pressed ? colors.inputSoft : 'transparent',
+        gap: 12,
+        minHeight: 56,
+      })}
+    >
+      {icon ? <IconBadge icon={icon} tone={danger ? 'danger' : iconTone} size={34} /> : null}
+      <View style={sx('flex-1', { minWidth: 0 })}>
+        <Text style={sx('text-[15px] font-semibold', { color: titleColor })} numberOfLines={1}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text style={sx('text-[13px] font-medium text-dim')} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {value ? <Text style={sx('text-[14px] font-semibold text-muted')} numberOfLines={1}>{value}</Text> : null}
+      {trailing ?? (onPress && showChevron ? <MobileIcon name="chevronRight" size={17} strokeWidth={2.4} color={colors.textDim} /> : null)}
+    </View>
+  );
+  if (!onPress) return content(false);
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={title} onPress={onPress}>
+      {({ pressed }) => content(pressed)}
+    </Pressable>
+  );
+}
+
+/* ----------------------------------------------------------------- Segmented */
+
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  readonly options: ReadonlyArray<{ readonly value: T; readonly label: string }>;
+  readonly value: T;
+  readonly onChange: (value: T) => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={sx('flex-row rounded-pill', {
+        backgroundColor: colors.inputSoft,
+        borderColor: colors.cardBorder,
+        borderWidth: 1,
+        gap: 3,
+        padding: 3,
+      })}
+    >
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="button"
+            accessibilityLabel={option.label}
+            accessibilityState={{ selected }}
+            onPress={() => onChange(option.value)}
+            style={sx('flex-1 items-center justify-center rounded-pill', {
+              backgroundColor: selected ? colors.surface : 'transparent',
+              borderColor: selected ? colors.cardBorder : 'transparent',
+              borderWidth: 1,
+              minHeight: 38,
+            })}
+          >
+            <Text style={sx('text-[13px] font-bold', { color: selected ? colors.text : colors.textDim })}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/* --------------------------------------------------------------- EmptyState */
+
+export function EmptyState({
+  icon,
+  title,
+  body,
+  action,
+}: {
+  readonly icon: MobileIconName;
+  readonly title: string;
+  readonly body?: string;
+  readonly action?: ReactNode;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View style={sx('items-center justify-center px-6', { paddingVertical: 48 })}>
+      <View
+        style={sx('items-center justify-center rounded-3xl', {
+          backgroundColor: colors.primarySoft,
+          height: 64,
+          width: 64,
+        })}
+      >
+        <MobileIcon name={icon} size={30} strokeWidth={2.2} color={colors.primary} />
+      </View>
+      <Text style={sx('mt-4 text-[18px] font-black text-text text-center')}>{title}</Text>
+      {body ? (
+        <Text style={sx('mt-1.5 text-[14px] font-medium text-dim text-center', { lineHeight: 20, maxWidth: 320 })}>
+          {body}
+        </Text>
+      ) : null}
+      {action ? <View style={sx('mt-5')}>{action}</View> : null}
+    </View>
+  );
+}

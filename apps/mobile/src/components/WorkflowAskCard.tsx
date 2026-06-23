@@ -2,6 +2,7 @@ import { sx } from '../styles/tokens';
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { textOf } from '@/utils/record';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface WorkflowAskCardProps {
@@ -10,6 +11,7 @@ interface WorkflowAskCardProps {
 }
 
 export function WorkflowAskCard({ ask, onRespond }: WorkflowAskCardProps) {
+  const { colors } = useTheme();
   const workflow = isRecord(ask.workflow) ? ask.workflow : ask;
   const [reply, setReply] = useState('');
   const prompt = textOf(workflow.prompt);
@@ -19,7 +21,7 @@ export function WorkflowAskCard({ ask, onRespond }: WorkflowAskCardProps) {
     <View style={sx('gap-3 rounded-card border border-amber bg-cardBg p-3 shadow-card')}>
       <View style={sx('flex-row items-start gap-3')}>
         <View style={sx('h-9 w-9 items-center justify-center rounded-block bg-primarySoft')}>
-          <MobileIcon name="workflows" size={17} strokeWidth={2.35} color="#d97706" />
+          <MobileIcon name="workflows" size={17} strokeWidth={2.35} color={colors.amber} />
         </View>
         <View style={sx('min-w-0 flex-1')}>
           <Text style={sx('text-[15px] font-bold text-text')} numberOfLines={1}>
@@ -40,7 +42,7 @@ export function WorkflowAskCard({ ask, onRespond }: WorkflowAskCardProps) {
         onChangeText={setReply}
         multiline
         placeholder="Type your reply..."
-        placeholderTextColor="#94a3b8"
+        placeholderTextColor={colors.textDim}
         style={sx('min-h-20 rounded-block border border-cardBorder bg-cardBg px-3 py-2 text-[14px] leading-5 text-text')}
       />
       <View style={sx('flex-row justify-end')}>

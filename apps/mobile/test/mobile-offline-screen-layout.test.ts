@@ -1,94 +1,13 @@
-import { readFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildChatListContentStyle, buildOfflineEmptyStateCopy } from '../src/chatListLayout';
-import { buildWaitingRoomUi, shouldShowWaitingRoom } from '../src/waitingRoomUi';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const read = (rel: string) => readFileSync(join(root, rel), 'utf8');
 
-describe('mobile offline gateway screen layout', () => {
-  it('renders the gateway guidance inside the chat list instead of as an absolute overlay', async () => {
-    const chatScreen = await readFile(join(root, 'app', 'chat.tsx'), 'utf8');
-    const chatList = await readFile(join(root, 'src', 'components', 'ChatList.tsx'), 'utf8');
-
-    expect(chatScreen).toContain('connectionBanner={connectionBanner}');
-    expect(chatScreen).not.toContain('className="absolute z-10"');
-    expect(chatList).toContain('readonly connectionBanner?: ReactNode');
-    expect(chatList).toContain('ListHeaderComponent={header}');
-  });
-
-  it('keeps the offline guidance styled without depending on NativeWind class extraction', async () => {
-    const banner = await readFile(
-      join(root, 'src', 'components', 'ConnectionBanner.tsx'),
-      'utf8',
-    );
-
-    expect(banner).toContain('StyleSheet.create');
-    expect(banner).toContain('style={styles.card}');
-    expect(banner).not.toContain('className=');
-  });
-
-  it('keeps the gateway pairing route styled without depending on NativeWind class extraction', async () => {
-    const settingsScreen = await readFile(join(root, 'app', 'settings.tsx'), 'utf8');
-    const shell = await readFile(join(root, 'src', 'components', 'AppShell.tsx'), 'utf8');
-    const frame = await readFile(join(root, 'src', 'components', 'ScreenFrame.tsx'), 'utf8');
-    const topBar = await readFile(join(root, 'src', 'components', 'TopBar.tsx'), 'utf8');
-    const connectionSettings = await readFile(
-      join(root, 'src', 'components', 'ConnectionSettings.tsx'),
-      'utf8',
-    );
-    const qrScanner = await readFile(
-      join(root, 'src', 'components', 'QrScannerSheet.tsx'),
-      'utf8',
-    );
-
-    for (const source of [settingsScreen, shell, frame, topBar, connectionSettings, qrScanner]) {
-      expect(source).toContain('StyleSheet.create');
-      expect(source).not.toContain('className=');
-    }
-
-    expect(connectionSettings).toContain('styles.scanButton');
-    expect(qrScanner).toContain('style={styles.sheet}');
-    expect(frame).toContain('contentContainerStyle={styles.scrollContent}');
-  });
-
-  it('keeps the mobile menu styled without depending on NativeWind class extraction', async () => {
-    const menuSheet = await readFile(
-      join(root, 'src', 'components', 'MobileMenuSheet.tsx'),
-      'utf8',
-    );
-    const workspaceTree = await readFile(
-      join(root, 'src', 'components', 'WorkspaceSessionTree.tsx'),
-      'utf8',
-    );
-
-    for (const source of [menuSheet, workspaceTree]) {
-      expect(source).toContain('StyleSheet.create');
-      expect(source).not.toContain('className=');
-    }
-
-    expect(menuSheet).toContain('styles.sheet');
-    expect(menuSheet).toContain('style={styles.closeButton}');
-    expect(workspaceTree).toContain('styles.sessionButtonActive');
-    expect(workspaceTree).toContain('style={styles.emptyCard}');
-  });
-
-  it('keeps QR scanner controls outside the live camera preview', async () => {
-    const qrScanner = await readFile(
-      join(root, 'src', 'components', 'QrScannerSheet.tsx'),
-      'utf8',
-    );
-
-    expect(qrScanner).toContain("backgroundColor: '#020617'");
-    expect(qrScanner).toContain('style={styles.cameraViewport}');
-    expect(qrScanner).toContain('style={styles.scannerActions}');
-    expect(qrScanner).not.toContain('maxHeight: 390');
-    expect(qrScanner).not.toContain('minHeight: 286');
-    expect(qrScanner).not.toContain('styles.cameraActionArea');
-    expect(qrScanner).not.toContain("position: 'absolute',\n    right: 16");
-  });
-
+describe('mobile chat list layout', () => {
   it('keeps the chat list padding stable around the fixed mobile header', () => {
     expect(buildChatListContentStyle({ headerHeight: 64 })).toMatchObject({
       flexGrow: 1,
@@ -96,13 +15,12 @@ describe('mobile offline gateway screen layout', () => {
       paddingHorizontal: 20,
       paddingTop: 82,
     });
-
     expect(buildChatListContentStyle({ headerHeight: 64, bottomInset: 18 })).toMatchObject({
       paddingBottom: 42,
     });
   });
 
-  it('shows a calm empty state below the offline gateway guidance', () => {
+  it('keeps a calm offline empty state copy for the chat list', () => {
     expect(buildOfflineEmptyStateCopy(true)).toEqual({
       body: 'Your chat will appear here as soon as the desktop gateway is reachable.',
       title: 'Waiting for connection',
@@ -112,79 +30,54 @@ describe('mobile offline gateway screen layout', () => {
       title: 'Moxxy Mobile',
     });
   });
+});
 
-  it('uses fixed touch targets for the floating chat header controls', async () => {
-    const header = await readFile(
-      join(root, 'src', 'components', 'FloatingChatHeader.tsx'),
-      'utf8',
-    );
-
-    expect(header).toContain('StyleSheet.create');
-    expect(header).toContain('style={styles.menuButton}');
-    expect(header).toContain('style={styles.actionButton}');
-    expect(header).toContain('height: 44');
-    expect(header).toContain('width: 44');
+describe('mobile navigation architecture', () => {
+  it('is drawer-centric with no bottom tab bar', () => {
+    expect(existsSync(join(root, 'app/(tabs)')), 'tabs group removed').toBe(false);
+    expect(existsSync(join(root, 'src/components/TabBar.tsx')), 'tab bar removed').toBe(false);
+    // The home route is the chat itself, not a redirect into tabs.
+    const index = read('app/index.tsx');
+    expect(index).not.toContain("href=\"/chat\"");
+    expect(index).toContain('<Onboarding />');
+    for (const screen of ['app/index.tsx', 'app/apps.tsx', 'app/account.tsx', 'app/workflows.tsx', 'app/scheduler.tsx']) {
+      expect(existsSync(join(root, screen)), screen).toBe(true);
+    }
   });
 
-  it('renders a branded waiting room instead of the disabled chat composer while offline', async () => {
-    const chatScreen = await readFile(join(root, 'app', 'chat.tsx'), 'utf8');
-    const settingsScreen = await readFile(join(root, 'app', 'settings.tsx'), 'utf8');
-    const waitingRoom = await readFile(
-      join(root, 'src', 'components', 'WaitingRoom.tsx'),
-      'utf8',
-    );
-    const pairedUi = buildWaitingRoomUi({ paired: true, status: 'closed' });
-    const unpairedUi = buildWaitingRoomUi({ paired: false, status: 'idle' });
+  it('gates the chat home behind onboarding until paired', () => {
+    const index = read('app/index.tsx');
+    const onboarding = read('src/components/Onboarding.tsx');
+    expect(index).toContain('store.pairing.transportReady');
+    expect(onboarding).toContain('usePairing');
+    expect(onboarding).toContain('useQrScanner');
+    expect(onboarding).toContain('QrScannerSheet');
+    expect(onboarding).not.toContain('className=');
+  });
 
-    expect(shouldShowWaitingRoom(true)).toBe(true);
-    expect(shouldShowWaitingRoom(false)).toBe(false);
-    expect(pairedUi.title).toBe('Waiting for the desktop gateway');
-    expect(unpairedUi.steps).toContain('Open Moxxy Desktop on your Mac.');
-    expect(chatScreen).toContain('showWaitingRoom ?');
-    expect(chatScreen).toContain('!showWaitingRoom ? (');
-    expect(chatScreen).toContain("title={showWaitingRoom ? 'Gateway' : 'Chat'}");
-    expect(chatScreen).toContain('<WaitingRoom');
-    expect(chatScreen).toContain('waitingRoomUi={waitingRoomUi}');
-    expect(chatScreen).toContain('onOpenPairing={openPairing}');
-    expect(chatScreen).toContain('openWaitingRoomPairing({');
-    expect(chatScreen).toContain('navigateToScanner: router.push');
-    expect(chatScreen).toContain('open={showWaitingRoom ? false : chrome.menuOpen}');
-    expect(chatScreen).toContain('showMenuButton={!showWaitingRoom}');
-    expect(chatScreen).toContain('showSessionActions={!showWaitingRoom}');
-    expect(chatScreen).not.toContain('isGatewayPairingAvailable');
-    expect(chatScreen).not.toContain('Turn on Moxxy Mobile gateway');
-    expect(chatScreen).not.toContain('pairingProbePending');
-    expect(settingsScreen).toContain('useLocalSearchParams');
-    expect(settingsScreen).toContain("params.scan !== '1'");
-    expect(settingsScreen).toContain('void qrScanner.openScanner()');
-    expect(waitingRoom).toContain('moxxy-mascot-transparent.png');
-    expect(waitingRoom).toContain('accessibilityLabel="Moxxy assistant mascot waving"');
-    expect(waitingRoom).toContain('accessibilityLabel="Open gateway pairing and scan QR code"');
-    expect(waitingRoom).toContain('waitingRoomUi.actionLabel');
-    expect(waitingRoom).not.toContain('pairingPending');
-    expect(waitingRoom).not.toContain('Checking gateway...');
-    expect(waitingRoom).not.toContain('disabled={pairingPending}');
-    expect(waitingRoom).toContain('onPress={onOpenPairing}');
-    expect(waitingRoom).toContain('styles.primaryAction');
-    expect(waitingRoom).toContain('style={styles.contentStack}');
-    expect(waitingRoom).toContain("alignSelf: 'center'");
-    expect(waitingRoom).toContain('maxWidth: 430');
-    expect(waitingRoom).toContain('</View>\n        <View style={styles.stepsCard}>');
-    expect(waitingRoom).toContain('marginTop: 24');
-    expect(waitingRoom).toContain('minHeight: 198');
-    expect(waitingRoom).toContain("width: '100%'");
-    expect(waitingRoom).toContain('paddingHorizontal: 22');
-    expect(waitingRoom).toContain('paddingTop: 24');
-    expect(waitingRoom).toContain('paddingBottom: 34');
-    expect(waitingRoom).not.toContain('paddingVertical: 14');
-    expect(waitingRoom).toContain('instructionItemSpaced');
-    expect(waitingRoom).toContain('marginTop: 14');
-    expect(waitingRoom).toContain('marginRight: 14');
-    expect(waitingRoom).toContain('height: 30');
-    expect(waitingRoom).toContain('stepItems');
-    expect(waitingRoom).toContain('waitingRoomUi.steps.length > 0');
-    expect(waitingRoom).not.toContain('stepsCopy');
-    expect(waitingRoom).not.toContain('stepRow');
-    expect(waitingRoom).not.toContain('ConnectionBanner');
+  it('wires the chat home from fresh chrome (header, list, glass composer, drawer)', () => {
+    const index = read('app/index.tsx');
+    expect(index).toContain('<ChatHeader');
+    expect(index).toContain('<ChatList');
+    expect(index).toContain('<ChatComposer');
+    expect(index).toContain('<ChatDrawer');
+    expect(index).toContain('<ComposerSheet');
+    expect(index).toContain('connectionBanner={connectionBanner}');
+    expect(index).not.toContain('className=');
+  });
+
+  it('puts workspace folders + Apps/Account at the drawer, and uses a glass composer', () => {
+    const drawer = read('src/components/ChatDrawer.tsx');
+    const composer = read('src/components/ChatComposer.tsx');
+    // Workspace folders (the histories live here) + bottom nav to Apps/Account.
+    expect(drawer).toContain('buildWorkspaceSessionTreeState');
+    expect(drawer).toContain("router.push(path)");
+    expect(drawer).toContain("'/apps'");
+    expect(drawer).toContain("'/account'");
+    expect(drawer).not.toContain('className=');
+    // Minimal composer: + opens options, plus a Glass material.
+    expect(composer).toContain('onOpenOptions');
+    expect(composer).toContain('<Glass');
+    expect(composer).not.toContain('className=');
   });
 });

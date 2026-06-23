@@ -1,6 +1,7 @@
 import { sx } from '../styles/tokens';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { ModelSelectorUiState } from '../modelSelector';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface ModelSelectorSheetProps {
@@ -18,13 +19,14 @@ export function ModelSelectorSheet({
   onSelectProvider,
   onPickModel,
 }: ModelSelectorSheetProps) {
+  const { colors } = useTheme();
   return (
     <View
       style={sx('rounded-card border border-cardBorder bg-cardBg shadow-card', {
         borderRadius: 16,
         maxHeight: 420,
         padding: 12,
-        shadowColor: '#0f172a',
+        shadowColor: colors.shadow,
         shadowOffset: { width: 0, height: 14 },
         shadowOpacity: 0.12,
         shadowRadius: 24,
@@ -42,7 +44,7 @@ export function ModelSelectorSheet({
           style={sx('h-9 w-9 items-center justify-center rounded-pill bg-appBg')}
           onPress={onClose}
         >
-          <MobileIcon name="x" size={18} strokeWidth={2.35} color="#64748b" />
+          <MobileIcon name="x" size={18} strokeWidth={2.35} color={colors.textMuted} />
         </Pressable>
       </View>
 
@@ -55,7 +57,7 @@ export function ModelSelectorSheet({
               accessibilityState={{ selected: provider.selected }}
               style={sx(provider.selected ? 'bg-primarySoft' : 'bg-appBg', {
                 alignItems: 'center',
-                borderColor: provider.active ? '#ec4899' : '#e3e5f0',
+                borderColor: provider.active ? colors.primary : colors.cardBorder,
                 borderRadius: 10,
                 borderWidth: 1,
                 flexDirection: 'row',
@@ -67,7 +69,7 @@ export function ModelSelectorSheet({
             >
               <View
                 style={{
-                  backgroundColor: provider.active ? '#22c55e' : '#cbd5e1',
+                  backgroundColor: provider.active ? colors.green : colors.textDim,
                   borderRadius: 999,
                   height: 7,
                   width: 7,
@@ -91,7 +93,7 @@ export function ModelSelectorSheet({
               accessibilityState={{ selected: model.active }}
               style={sx(model.active ? 'bg-primarySoft' : 'bg-appBg', {
                 alignItems: 'center',
-                borderColor: model.active ? '#ec4899' : '#e3e5f0',
+                borderColor: model.active ? colors.primary : colors.cardBorder,
                 borderRadius: 10,
                 borderWidth: 1,
                 flexDirection: 'row',
@@ -107,7 +109,7 @@ export function ModelSelectorSheet({
               >
                 {model.label}
               </Text>
-              {model.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color="#db2777" /> : null}
+              {model.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color={colors.primaryStrong} /> : null}
             </Pressable>
           ))}
           {ui.modelRows.length === 0 ? (

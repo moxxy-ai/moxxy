@@ -1,6 +1,7 @@
 import { sx } from '../styles/tokens';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import type { MobileSessionActionRow } from '../sessionActions';
+import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';
 
 interface SessionActionsSheetProps {
@@ -21,6 +22,7 @@ interface SessionActionsSheetProps {
 }
 
 export function SessionActionsSheet(props: SessionActionsSheetProps) {
+  const { colors } = useTheme();
   if (!props.open) return null;
 
   return (
@@ -41,7 +43,7 @@ export function SessionActionsSheet(props: SessionActionsSheetProps) {
         accessible
         accessibilityRole="button"
         accessibilityLabel="Close session actions"
-        style={{ backgroundColor: 'rgba(15, 23, 42, 0.28)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
+        style={{ backgroundColor: colors.overlay, bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
         onPress={props.onClose}
       />
       <View
@@ -49,7 +51,7 @@ export function SessionActionsSheet(props: SessionActionsSheetProps) {
           borderRadius: 20,
           maxHeight: '100%',
           padding: 16,
-          shadowColor: '#0f172a',
+          shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: 18 },
           shadowOpacity: 0.18,
           shadowRadius: 28,
@@ -62,6 +64,7 @@ export function SessionActionsSheet(props: SessionActionsSheetProps) {
 }
 
 function ListView(props: SessionActionsSheetProps) {
+  const { colors } = useTheme();
   return (
     <View style={{ gap: 14 }}>
       <View style={sx('flex-row items-center justify-between gap-3')}>
@@ -78,7 +81,7 @@ function ListView(props: SessionActionsSheetProps) {
           style={sx('h-10 w-10 items-center justify-center rounded-pill bg-appBg')}
           onPress={props.onClose}
         >
-          <MobileIcon name="x" size={19} strokeWidth={2.35} color="#64748b" />
+          <MobileIcon name="x" size={19} strokeWidth={2.35} color={colors.textMuted} />
         </Pressable>
       </View>
 
@@ -87,7 +90,7 @@ function ListView(props: SessionActionsSheetProps) {
         value={props.filter}
         onChangeText={props.onFilterChange}
         placeholder="Filter actions..."
-        placeholderTextColor="#94a3b8"
+        placeholderTextColor={colors.textDim}
         autoCapitalize="none"
         autoCorrect={false}
         style={sx('min-h-12 rounded-block border border-cardBorder bg-appBg px-4 text-[16px] font-semibold text-text')}
@@ -120,6 +123,7 @@ function ListView(props: SessionActionsSheetProps) {
 }
 
 function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSessionActionRow }) {
+  const { colors } = useTheme();
   const canRun = props.action.args.every((arg) => (props.argValues[arg.id] ?? '').trim().length > 0);
   return (
     <View style={{ gap: 14 }}>
@@ -137,7 +141,7 @@ function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSes
           style={sx('h-10 w-10 items-center justify-center rounded-pill bg-appBg')}
           onPress={props.onClose}
         >
-          <MobileIcon name="x" size={19} strokeWidth={2.35} color="#64748b" />
+          <MobileIcon name="x" size={19} strokeWidth={2.35} color={colors.textMuted} />
         </Pressable>
       </View>
 
@@ -150,7 +154,7 @@ function ArgsView(props: SessionActionsSheetProps & { readonly action: MobileSes
               value={props.argValues[arg.id] ?? ''}
               onChangeText={(value) => props.onArgValueChange(arg.id, value)}
               placeholder={arg.placeholder}
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={colors.textDim}
               multiline={arg.multiline}
               secureTextEntry={arg.id === 'value'}
               autoCapitalize="none"
@@ -203,12 +207,13 @@ function ActionRow({
   readonly disabled: boolean;
   readonly onPress: () => void;
 }) {
+  const { colors } = useTheme();
   const toneColors =
     action.tone === 'destructive'
-      ? { bg: '#fff1f2', border: '#fecdd3', text: '#ef4444' }
+      ? { bg: colors.redSoft, border: colors.redBorder, text: colors.red }
       : action.tone === 'attention'
-        ? { bg: '#fff7ed', border: '#fed7aa', text: '#f59e0b' }
-        : { bg: '#fcfcff', border: '#e3e5f0', text: '#0f172a' };
+        ? { bg: colors.amberSoft, border: colors.amber, text: colors.amber }
+        : { bg: colors.appBg, border: colors.cardBorder, text: colors.text };
 
   return (
     <Pressable
