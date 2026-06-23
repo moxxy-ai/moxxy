@@ -12,6 +12,7 @@ import { Onboarding } from '@/components/Onboarding';
 import { SplashScreen } from '@/components/SplashScreen';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
 import { buildGoalSheetPlacement } from '@/goalSheetLayout';
+import { useHistoryLoading } from '@/hooks/useHistoryLoading';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useMessageCopy } from '@/hooks/useMessageCopy';
@@ -67,6 +68,8 @@ function Chat() {
   const workspaceName = textOf(activeWorkspace?.name, textOf(activeWorkspace?.title, 'Workspace'));
   const chatTitle = textOf(activeSessionRecord?.name, textOf(activeSessionRecord?.firstPrompt, 'New chat'));
   const canEditSession = session.connected && !session.readOnly && Boolean(sessions.activeWorkspaceId);
+  const activeEventCount = typeof activeSessionRecord?.eventCount === 'number' ? activeSessionRecord.eventCount : 0;
+  const historyLoading = useHistoryLoading(sessions.activeWorkspaceId, chat.items.length, activeEventCount);
   const sessionActions = useSessionActions({ workspaceId: sessions.activeWorkspaceId, readOnly: session.readOnly || !session.connected, onRunCommand: composer.runCommand });
   const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
   const goalPlacement = buildGoalSheetPlacement({ screenHeight, topSafeArea: safeArea.top, keyboardHeight });
@@ -138,7 +141,7 @@ function Chat() {
             sending={chat.sending}
             hasOlder={chat.hasOlder}
             welcome={welcome}
-            loading={chat.items.length === 0 && Boolean(textOf(activeSessionRecord?.firstPrompt))}
+            loading={historyLoading}
             bottomInset={composerBottom + 72}
             onLoadOlder={chat.loadOlder}
             copiedMessageId={messageCopy.copiedMessageId}
