@@ -21,6 +21,7 @@ import { buildChatAttachmentPreview, summarizeAttachment } from '@/attachments';
 import { buildChatListContentStyle, buildOfflineEmptyStateCopy } from '@/chatListLayout';
 import type {
   AssistantTranscriptItem,
+  ReasoningTranscriptItem,
   SubagentGroupTranscriptItem,
   SubagentTranscriptItem,
   SystemGroupTranscriptItem,
@@ -275,6 +276,10 @@ function MessageBlock({
     return <AssistantMessage message={item} onLongPress={onLongPress} />;
   }
 
+  if (item.kind === 'reasoning') {
+    return <ReasoningMessage item={item} />;
+  }
+
   if (item.kind === 'tool-group') {
     return <ToolGroupMessage group={item} />;
   }
@@ -413,6 +418,30 @@ function AssistantMessage({
         <Text style={sx('mt-1 text-[10px] font-bold uppercase text-dim')}>stop: {message.stopReason.replace(/_/g, ' ')}</Text>
       ) : null}
     </Pressable>
+  );
+}
+
+function ReasoningMessage({ item }: { readonly item: ReasoningTranscriptItem }) {
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ alignSelf: 'stretch', maxWidth: '100%' }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((value) => !value)}
+        style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 32 }}
+      >
+        <MobileIcon name="sparkle" size={15} strokeWidth={2.2} color={colors.textDim} />
+        <Text style={sx('flex-1 text-[13px] font-bold text-dim')}>{open ? 'Thinking' : 'Thought process'}</Text>
+        <MobileIcon name={open ? 'chevronDown' : 'chevronRight'} size={15} strokeWidth={2.4} color={colors.textDim} />
+      </Pressable>
+      {open ? (
+        <View style={sx('mt-1 rounded-2xl px-3 py-2', { backgroundColor: colors.surface, borderColor: colors.cardBorder, borderWidth: 1 })}>
+          <Text style={sx('text-[13px] leading-5', { color: colors.textMuted })}>{item.text}</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
