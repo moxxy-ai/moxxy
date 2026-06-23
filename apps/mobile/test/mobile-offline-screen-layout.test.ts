@@ -119,17 +119,21 @@ describe('mobile offline gateway screen layout', () => {
     });
   });
 
-  it('uses fixed touch targets for the floating chat header controls', async () => {
-    const header = await readFile(
-      join(root, 'src', 'components', 'FloatingChatHeader.tsx'),
+  it('uses fixed touch targets for the immersive chat controls', async () => {
+    // The chat is immersive: no header bar, just small glass FABs floating over
+    // the panel (menu left, rename + actions right). The container is
+    // box-none so the chat scrolls through the gap; each FAB is a 44pt target.
+    const controls = await readFile(
+      join(root, 'src', 'components', 'ChatFloatingControls.tsx'),
       'utf8',
     );
 
-    expect(header).toContain('StyleSheet.create');
-    expect(header).toContain('style={styles.menuButton}');
-    expect(header).toContain('style={styles.actionButton}');
-    expect(header).toContain('height: 44');
-    expect(header).toContain('width: 44');
+    expect(controls).toContain('StyleSheet.create');
+    expect(controls).toContain('style={styles.fab}');
+    expect(controls).toContain('pointerEvents="box-none"');
+    expect(controls).toContain('testID="mobile-chat-open-menu"');
+    expect(controls).toContain('height: 44');
+    expect(controls).toContain('width: 44');
   });
 
   it('renders a branded waiting room instead of the disabled chat composer while offline', async () => {
@@ -148,9 +152,11 @@ describe('mobile offline gateway screen layout', () => {
     expect(unpairedUi.steps).toContain('Open Moxxy Desktop on your Mac.');
     expect(chatScreen).toContain('showWaitingRoom ?');
     expect(chatScreen).toContain('!showWaitingRoom ? (');
-    // The chat header only renders for the actual chat — the bare "Gateway /
-    // Offline" bar is gone from the waiting room (it has its own status pill).
-    expect(chatScreen).toContain('title="Chat"');
+    // The chat is immersive: no header bar at all — just the floating controls,
+    // and only in chat mode (never over the waiting room, which has its own
+    // status pill). The old "Gateway / Offline" bar is gone entirely.
+    expect(chatScreen).toContain('<ChatFloatingControls');
+    expect(chatScreen).not.toContain('<FloatingChatHeader');
     expect(chatScreen).not.toContain("'Gateway'");
     expect(chatScreen).toContain('<WaitingRoom');
     expect(chatScreen).toContain('waitingRoomUi={waitingRoomUi}');

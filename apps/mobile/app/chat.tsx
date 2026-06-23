@@ -5,7 +5,7 @@ import { ChatList } from '@/components/ChatList';
 import { CompactContextSheet } from '@/components/CompactContextSheet';
 import { ComposerCard } from '@/components/ComposerCard';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
-import { FloatingChatHeader } from '@/components/FloatingChatHeader';
+import { ChatFloatingControls } from '@/components/ChatFloatingControls';
 import { GoalSheet } from '@/components/GoalSheet';
 import { MobileMenuSheet } from '@/components/MobileMenuSheet';
 import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
@@ -267,11 +267,8 @@ export default function ChatScreen() {
           />
 
           {!showWaitingRoom ? (
-            <FloatingChatHeader
-              connected={session.connected}
-              statusLabel={connectionUi.statusLabel}
+            <ChatFloatingControls
               pendingActions={pendingActions}
-              title="Chat"
               onToggleMenu={() => {
                 Keyboard.dismiss();
                 chrome.toggleMenu();
