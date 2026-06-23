@@ -61,6 +61,7 @@ interface ChatListProps {
   readonly sending?: boolean;
   readonly hasOlder?: boolean;
   readonly welcome?: ChatWelcome | null;
+  readonly bottomInset?: number;
   readonly onLoadOlder?: () => void;
   readonly copiedMessageId?: string | null;
   readonly onCopyMessage?: (messageId: string, text: string) => void;
@@ -72,6 +73,7 @@ export function ChatList({
   sending = false,
   hasOlder = false,
   welcome = null,
+  bottomInset = 0,
   onLoadOlder,
   copiedMessageId = null,
   onCopyMessage,
@@ -126,12 +128,12 @@ export function ChatList({
         ListEmptyComponent={empty}
         ListFooterComponent={footer}
         style={sx('flex-1')}
-        contentContainerStyle={buildChatListContentStyle()}
+        contentContainerStyle={buildChatListContentStyle({ bottomInset })}
         onContentSizeChange={autoScroll.handleContentSizeChange}
         onScroll={handleScroll}
         {...CHAT_LIST_PERFORMANCE_PROPS}
       />
-      {autoScroll.showScrollToBottom ? <ScrollToBottomButton onPress={autoScroll.scrollToBottom} /> : null}
+      {autoScroll.showScrollToBottom ? <ScrollToBottomButton bottom={bottomInset + 10} onPress={autoScroll.scrollToBottom} /> : null}
       <BottomSheet open={menu !== null} onClose={() => setMenu(null)} title="Message">
         <View style={{ paddingBottom: 8, paddingHorizontal: 16 }}>
           <SheetGroup>
@@ -151,7 +153,7 @@ export function ChatList({
   );
 }
 
-function ScrollToBottomButton({ onPress }: { readonly onPress: () => void }) {
+function ScrollToBottomButton({ onPress, bottom }: { readonly onPress: () => void; readonly bottom: number }) {
   const { colors } = useTheme();
   return (
     <Pressable
@@ -164,7 +166,7 @@ function ScrollToBottomButton({ onPress }: { readonly onPress: () => void }) {
           backgroundColor: pressed ? colors.cardBg : colors.surface,
           borderColor: colors.cardBorder,
           borderWidth: 1,
-          bottom: 12,
+          bottom,
           height: 38,
           width: 38,
           ...shadowStyle(colors.shadow),

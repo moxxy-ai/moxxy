@@ -99,7 +99,7 @@ export function BottomSheet({
               <View {...pan.panHandlers} style={sx('items-center', { paddingBottom: 10, paddingTop: 12 })}>
                 <View style={sx('rounded-full', { backgroundColor: colors.textDim, height: 5, opacity: 0.6, width: 44 })} />
               </View>
-              {title ? <Text style={sx('px-5 pb-2 text-[13px] font-black uppercase tracking-wide text-dim')}>{title}</Text> : null}
+              {title ? <Text style={sx('px-5 pb-2 text-[20px] font-black text-text', { letterSpacing: -0.3 })}>{title}</Text> : null}
               <View>{children}</View>
             </SafeAreaView>
           </Glass>

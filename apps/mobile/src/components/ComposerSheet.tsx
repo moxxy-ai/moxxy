@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -86,13 +86,13 @@ export function ComposerSheet(props: ComposerSheetProps) {
 
   return (
     <BottomSheet open={props.open} onClose={close} avoidKeyboard>
-      <View style={sx('flex-row items-center px-3 pb-2', { gap: 4, minHeight: 38 })}>
+      <View style={sx('flex-row items-center px-3 pb-3', { gap: 4, minHeight: 40 })}>
         {back ? (
           <Pressable accessibilityLabel="Back" accessibilityRole="button" hitSlop={8} onPress={back} style={sx('h-9 w-9 items-center justify-center rounded-full')}>
-            <MobileIcon name="chevronLeft" size={22} strokeWidth={2.5} color={colors.text} />
+            <MobileIcon name="chevronLeft" size={24} strokeWidth={2.6} color={colors.text} />
           </Pressable>
         ) : null}
-        <Text style={sx('flex-1 text-[13px] font-black uppercase tracking-wide text-dim', { paddingLeft: page === 'main' ? 8 : 0 })} numberOfLines={1}>
+        <Text style={sx('flex-1 text-[20px] font-black text-text', { letterSpacing: -0.3, paddingLeft: page === 'main' ? 13 : 2 })} numberOfLines={1}>
           {title}
         </Text>
       </View>
@@ -123,37 +123,39 @@ export function ComposerSheet(props: ComposerSheetProps) {
           </SheetGroup>
         </ScrollView>
       ) : page === 'model' ? (
-        <ScrollView style={{ height: pageHeight }} contentContainerStyle={{ gap: 10, paddingBottom: 16, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
-          {props.modelUi.providerRows.map((provider) => (
-            <SheetGroup key={provider.id}>
-              <SheetRow
-                dot={provider.active ? colors.green : undefined}
-                label={provider.label}
-                selected={provider.selected}
-                expanded={provider.selected}
-                onPress={() => props.onSelectProvider(provider.id)}
-              />
-              {provider.selected ? (
-                props.modelUi.modelRows.length > 0 ? (
-                  props.modelUi.modelRows.map((model) => (
-                    <SheetRow
-                      key={model.id ?? 'default'}
-                      label={model.label}
-                      indent
-                      divider
-                      selected={model.active}
-                      check={model.active}
-                      onPress={() => { props.onPickModel(props.modelUi.selectedProvider, model.id); backToMain(); }}
-                    />
-                  ))
-                ) : (
-                  <View style={sx('px-4 py-3', { borderTopColor: colors.cardBorder, borderTopWidth: 1 })}>
-                    <Text style={sx('text-[13px] font-medium text-dim')}>No models advertised.</Text>
-                  </View>
-                )
-              ) : null}
-            </SheetGroup>
-          ))}
+        <ScrollView style={{ height: pageHeight }} contentContainerStyle={{ paddingBottom: 16, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
+          <SheetGroup>
+            {props.modelUi.providerRows.map((provider, providerIndex) => (
+              <Fragment key={provider.id}>
+                <SheetRow
+                  dot={provider.active ? colors.green : colors.cardBorderStrong}
+                  label={provider.label}
+                  expanded={provider.selected}
+                  divider={providerIndex > 0}
+                  onPress={() => props.onSelectProvider(provider.id)}
+                />
+                {provider.selected
+                  ? props.modelUi.modelRows.length > 0
+                    ? props.modelUi.modelRows.map((model) => (
+                        <SheetRow
+                          key={model.id ?? 'default'}
+                          label={model.label}
+                          indent
+                          divider
+                          selected={model.active}
+                          check={model.active}
+                          onPress={() => { props.onPickModel(props.modelUi.selectedProvider, model.id); backToMain(); }}
+                        />
+                      ))
+                    : (
+                        <View style={sx('px-4 py-3', { borderTopColor: colors.cardBorder, borderTopWidth: 1, paddingLeft: 32 })}>
+                          <Text style={sx('text-[13px] font-medium text-dim')}>No models advertised.</Text>
+                        </View>
+                      )
+                  : null}
+              </Fragment>
+            ))}
+          </SheetGroup>
         </ScrollView>
       ) : page === 'mode' ? (
         <ScrollView style={{ height: pageHeight }} contentContainerStyle={{ paddingBottom: 16, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>

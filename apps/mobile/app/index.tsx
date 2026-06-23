@@ -47,7 +47,6 @@ function Chat() {
     session,
     sessions,
   } = useGatewayStore();
-  const [composerHidden, setComposerHidden] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
@@ -58,6 +57,9 @@ function Chat() {
   const { height: screenHeight } = useWindowDimensions();
   const safeArea = useSafeAreaInsets();
   const keyboardHeight = useKeyboardHeight();
+  // Where the floating composer sits above the bottom edge (a touch lower than
+  // the full safe-area inset so it hugs the bottom).
+  const composerBottom = keyboardHeight > 0 ? keyboardHeight : Math.max(6, safeArea.bottom - 16);
   const pendingActions = permissions.pendingAsks.length + permissions.pendingPermissions.length;
   const activeSessionRecord = sessions.sessions.find((item) => textOf(item.id) === sessions.activeWorkspaceId);
   const activeSessionTitle = textOf(activeSessionRecord?.name, textOf(session.session?.id, 'No active session'));
@@ -136,6 +138,7 @@ function Chat() {
             sending={chat.sending}
             hasOlder={chat.hasOlder}
             welcome={welcome}
+            bottomInset={composerBottom + 72}
             onLoadOlder={chat.loadOlder}
             copiedMessageId={messageCopy.copiedMessageId}
             onCopyMessage={messageCopy.copyMessage}
@@ -154,7 +157,12 @@ function Chat() {
             <GoalSheet objective={goals.objective} canStart={goals.canStart} maxHeight={goalPlacement.maxHeight} inputMaxHeight={goalPlacement.inputMaxHeight} onObjectiveChange={goals.setObjective} onStart={goals.startGoal} onClose={() => goals.setOpen(false)} />
           </View>
         ) : null}
-        <View style={{ paddingBottom: keyboardHeight > 0 ? keyboardHeight : safeArea.bottom }}>
+        {/* Composer floats over the transcript so content scrolls under the
+            glass (true glassmorphism), not cut off behind a solid bar. */}
+        <View
+          pointerEvents="box-none"
+          style={{ bottom: composerBottom, left: 0, position: 'absolute', right: 0 }}
+        >
           <ChatComposer
             text={composer.text}
             inputResetKey={composer.inputResetKey}
@@ -165,9 +173,7 @@ function Chat() {
             voicePhase={composer.voicePhase}
             voiceError={composer.voiceError}
             attachmentCount={composer.attachments.length}
-            hidden={composerHidden}
             accentBorder={autoApprove.enabled ? colors.primary : modelSelector.modeUi.modeRows.find((m) => m.active)?.id === 'goal' ? colors.amber : undefined}
-            onChangeHidden={setComposerHidden}
             onTextChange={composer.setText}
             onSubmit={composer.submit}
             onAbort={composer.abort}
