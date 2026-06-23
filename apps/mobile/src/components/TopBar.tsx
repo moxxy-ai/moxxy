@@ -4,7 +4,7 @@ import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import { buildReturnToChatAction } from '../navigation';
 import { MobileIcon } from './MobileIcon';
 import { Gradient } from './primitives/Gradient';
-import { PressableScale, PulseDot } from './primitives/motion';
+import { PressableScale } from './primitives/motion';
 
 interface TopBarProps {
   readonly title: string;
@@ -13,7 +13,7 @@ interface TopBarProps {
   readonly showChatAction?: boolean;
 }
 
-export function TopBar({ title, subtitle, connected, showChatAction = true }: TopBarProps) {
+export function TopBar({ title, subtitle, showChatAction = true }: TopBarProps) {
   const action = buildReturnToChatAction();
   return (
     <View style={styles.bar}>
@@ -26,11 +26,13 @@ export function TopBar({ title, subtitle, connected, showChatAction = true }: To
         ]}
         style={styles.sheen}
       />
-      <PulseDot color={connected ? '#10b981' : '#f59e0b'} size={9} pulsing={Boolean(connected)} />
       <View style={styles.titleGroup}>
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          <View style={styles.accent} />
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+        </View>
         {subtitle ? (
           <Text numberOfLines={1} style={styles.subtitle}>
             {subtitle}
@@ -40,7 +42,7 @@ export function TopBar({ title, subtitle, connected, showChatAction = true }: To
       {showChatAction ? (
         <Link href={action.href} asChild>
           <PressableScale accessibilityRole="button" accessibilityLabel="Back to chat" scaleTo={0.94} style={styles.action}>
-            <MobileIcon name={action.icon} size={17} strokeWidth={2.4} color="#db2777" />
+            <MobileIcon name={action.icon} size={16} strokeWidth={2.4} color="#db2777" />
             <Text style={styles.actionLabel}>{action.label}</Text>
           </PressableScale>
         </Link>
@@ -50,16 +52,24 @@ export function TopBar({ title, subtitle, connected, showChatAction = true }: To
 }
 
 const styles = StyleSheet.create({
+  accent: {
+    backgroundColor: '#ec4899',
+    borderRadius: 999,
+    height: 22,
+    width: 4,
+  },
   action: {
     alignItems: 'center',
+    alignSelf: 'flex-start',
     backgroundColor: '#fdf2f8',
     borderColor: 'rgba(249,168,212,0.6)',
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
     justifyContent: 'center',
-    minHeight: 40,
+    marginTop: 2,
+    minHeight: 38,
     paddingHorizontal: 14,
   },
   actionLabel: {
@@ -68,18 +78,20 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   bar: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: mobileGlass.chrome.fill,
     borderBottomColor: mobileGlass.chrome.border,
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    minHeight: 64,
+    justifyContent: 'space-between',
+    paddingBottom: 16,
     paddingHorizontal: 20,
+    paddingTop: 10,
     ...mobileElevation.sm,
   },
   sheen: {
-    height: 24,
+    height: 22,
     left: 0,
     position: 'absolute',
     right: 0,
@@ -87,17 +99,24 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: mobileInk.soft,
-    fontSize: 12,
-    marginTop: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 12,
+    marginTop: 3,
   },
   title: {
     color: mobileInk.strong,
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: -0.3,
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: -0.6,
   },
   titleGroup: {
     flex: 1,
     minWidth: 0,
+  },
+  titleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
 });
