@@ -9,11 +9,8 @@ interface ChatHeaderProps {
   readonly connected: boolean;
   readonly pendingActions: number;
   readonly onMenu: () => void;
-  readonly onNewChat: () => void;
-  readonly onTitlePress: () => void;
-  readonly onTitleLongPress: () => void;
-  readonly newChatDisabled?: boolean;
-  readonly titleDisabled?: boolean;
+  readonly onRename: () => void;
+  readonly renameDisabled?: boolean;
 }
 
 export function ChatHeader({
@@ -22,43 +19,33 @@ export function ChatHeader({
   connected,
   pendingActions,
   onMenu,
-  onNewChat,
-  onTitlePress,
-  onTitleLongPress,
-  newChatDisabled = false,
-  titleDisabled = false,
+  onRename,
+  renameDisabled = false,
 }: ChatHeaderProps) {
   const { colors } = useTheme();
   return (
     <View
       style={sx('flex-row items-center border-b border-cardBorder px-2', {
         backgroundColor: colors.appBg,
-        gap: 6,
+        gap: 4,
         minHeight: 64,
         paddingVertical: 8,
       })}
     >
-      <IconButton
-        icon="menu"
-        variant="ghost"
-        accessibilityLabel="Open menu"
-        onPress={onMenu}
-        badge={pendingActions}
-      />
+      <IconButton icon="menu" variant="ghost" accessibilityLabel="Open menu" onPress={onMenu} badge={pendingActions} />
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${title}. Tap for session actions, long press to rename.`}
-        accessibilityState={{ disabled: titleDisabled }}
-        disabled={titleDisabled}
-        onPress={onTitlePress}
-        onLongPress={onTitleLongPress}
-        style={sx('flex-1 items-center justify-center', { minWidth: 0 })}
+        accessibilityLabel={`${title}. Tap to rename this chat.`}
+        accessibilityState={{ disabled: renameDisabled }}
+        disabled={renameDisabled}
+        onPress={onRename}
+        style={sx('flex-1 pl-1', { minWidth: 0 })}
       >
-        <Text style={sx('text-[15px] font-bold text-text text-center')} numberOfLines={1}>
+        <Text style={sx('text-[16px] font-bold text-text')} numberOfLines={1}>
           {title}
         </Text>
-        <View style={sx('mt-0.5 flex-row items-center justify-center', { gap: 5, maxWidth: '100%' })}>
+        <View style={sx('mt-0.5 flex-row items-center', { gap: 6 })}>
           <View
             style={sx('rounded-full', {
               backgroundColor: connected ? colors.green : colors.amber,
@@ -66,19 +53,11 @@ export function ChatHeader({
               width: 6,
             })}
           />
-          <Text style={sx('text-[12px] font-medium text-dim text-center')} numberOfLines={1}>
+          <Text style={sx('text-[13px] font-medium text-dim')} numberOfLines={1}>
             {subtitle}
           </Text>
         </View>
       </Pressable>
-
-      <IconButton
-        icon="plus"
-        variant="ghost"
-        accessibilityLabel="New chat"
-        onPress={onNewChat}
-        disabled={newChatDisabled}
-      />
     </View>
   );
 }

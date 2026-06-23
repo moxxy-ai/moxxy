@@ -10,14 +10,23 @@ export interface PairingStartupPlan {
   readonly gatewayUrl: string;
   readonly clearStoredToken: boolean;
   readonly clearStoredUrl: boolean;
-  readonly restoreTransport: false;
+  readonly restoreTransport: boolean;
 }
 
+/**
+ * On launch, remember a previously paired gateway: when both a token and URL
+ * were stored, restore the transport (reconnect) instead of forcing a re-scan.
+ * A tokenless stored URL is incomplete — surface it as the manual default but
+ * drop it from storage.
+ */
 export function planPairingStartup(input: PairingStartupInput): PairingStartupPlan {
+  const storedUrl = typeof input.storedUrl === 'string' ? input.storedUrl.trim() : '';
+  const hasUrl = storedUrl.length > 0;
+  const hasToken = input.storedToken !== null && input.storedToken !== '';
   return {
-    gatewayUrl: chooseGatewayUrlForPairing(null, input.expoHostUri),
-    clearStoredToken: input.storedToken !== null,
-    clearStoredUrl: input.storedUrl !== null,
-    restoreTransport: false,
+    gatewayUrl: hasUrl ? storedUrl : chooseGatewayUrlForPairing(null, input.expoHostUri),
+    clearStoredToken: false,
+    clearStoredUrl: hasUrl && !hasToken,
+    restoreTransport: hasToken && hasUrl,
   };
 }

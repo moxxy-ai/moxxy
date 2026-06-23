@@ -7,11 +7,9 @@ import { MobileIcon } from './MobileIcon';
 interface QrScannerSheetProps {
   readonly open: boolean;
   readonly processing: boolean;
-  readonly armed: boolean;
   readonly permission: CameraPermissionState;
   readonly ui: PairingUiState;
   readonly onRequestPermission: () => void;
-  readonly onArmScanner: () => void;
   readonly onScanned: (raw: string) => void;
   readonly onCancel: () => void;
 }
@@ -19,11 +17,9 @@ interface QrScannerSheetProps {
 export function QrScannerSheet({
   open,
   processing,
-  armed,
   permission,
   ui,
   onRequestPermission,
-  onArmScanner,
   onScanned,
   onCancel,
 }: QrScannerSheetProps) {
@@ -31,7 +27,6 @@ export function QrScannerSheet({
   if (!open) return null;
 
   const canScan = permission === 'granted';
-  const scanDisabled = armed || processing;
 
   return (
     <SafeAreaView style={[styles.sheet, { backgroundColor: colors.appBg }]}>
@@ -47,17 +42,12 @@ export function QrScannerSheet({
               <View style={[styles.cameraViewport, { backgroundColor: colors.black }]}>
                 <CameraView
                   facing="back"
-                  onBarcodeScanned={armed && !processing ? (result) => onScanned(result.data) : undefined}
+                  onBarcodeScanned={processing ? undefined : (result) => onScanned(result.data)}
                   barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
                   style={styles.camera}
                 />
                 <View pointerEvents="none" style={styles.focusLayer}>
-                  <View
-                    style={[
-                      styles.focusBox,
-                      { borderColor: armed ? colors.primaryStrong : colors.white },
-                    ]}
-                  />
+                  <View style={[styles.focusBox, { borderColor: colors.primaryStrong }]} />
                 </View>
               </View>
             </View>
@@ -79,29 +69,11 @@ export function QrScannerSheet({
         </View>
 
         {canScan ? (
-          <View style={styles.scannerActions}>
-            <Pressable
-              accessibilityLabel="Start QR code scanning"
-              accessibilityRole="button"
-              disabled={scanDisabled}
-              onPress={onArmScanner}
-              style={({ pressed }) => [
-                styles.cameraAction,
-                { backgroundColor: scanDisabled ? colors.primarySoft : colors.primaryStrong },
-                pressed && !scanDisabled ? styles.pressed : null,
-              ]}
-            >
-              <MobileIcon name="camera" color={scanDisabled ? colors.primaryStrong : colors.white} size={20} />
-              <Text style={[styles.cameraActionText, { color: scanDisabled ? colors.primaryStrong : colors.white }]}>
-                {processing ? 'Pairing...' : armed ? 'Looking for QR...' : 'Scan QR code'}
-              </Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {processing ? (
-          <View style={[styles.processingBox, { backgroundColor: colors.primarySoft }]}>
-            <Text style={[styles.processingText, { color: colors.primaryStrong }]}>Pairing...</Text>
+          <View style={[styles.cameraAction, styles.scannerActions, { backgroundColor: colors.primarySoft }]}>
+            <MobileIcon name="camera" color={colors.primaryStrong} size={20} />
+            <Text style={[styles.cameraActionText, { color: colors.primaryStrong }]}>
+              {processing ? 'Pairing...' : 'Point at the QR code'}
+            </Text>
           </View>
         ) : null}
 

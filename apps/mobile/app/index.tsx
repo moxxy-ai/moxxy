@@ -6,6 +6,7 @@ import { ChatHeader } from '@/components/ChatHeader';
 import { ChatList, type ChatWelcome } from '@/components/ChatList';
 import { CompactContextSheet } from '@/components/CompactContextSheet';
 import { ComposerSheet } from '@/components/ComposerSheet';
+import { ConnectingView } from '@/components/ConnectingView';
 import { GoalSheet } from '@/components/GoalSheet';
 import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
 import { ModeSelectorSheet } from '@/components/ModeSelectorSheet';
@@ -22,16 +23,9 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { buildWorkspaceMenuSections } from '@/navigation';
 import { shouldShowPendingActionsSheet } from '@/chatOverlayState';
 import { textOf } from '@/utils/record';
-import { useCallback, useMemo, useState } from 'react';
-import { Keyboard, Text, useWindowDimensions, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { Keyboard, PanResponder, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-
-const WELCOME_SUGGESTIONS: ReadonlyArray<string> = [
-  'Summarize what changed in this project today',
-  'Draft a short status update for my team',
-  'Help me plan and run a multi-step task',
-  'Review the latest code changes for bugs',
-];
 
 export default function HomeScreen() {
   const store = useGatewayStore();
@@ -46,7 +40,6 @@ function Chat() {
     chat,
     compact,
     composer,
-    gatewayConnected,
     goals,
     modelSelector,
     permissions,
@@ -68,10 +61,9 @@ function Chat() {
   const activeSessionRecord = sessions.sessions.find((item) => textOf(item.id) === sessions.activeWorkspaceId);
   const activeSessionTitle = textOf(activeSessionRecord?.name, textOf(session.session?.id, 'No active session'));
   const activeWorkspace = sessions.workspaces.find((w) => textOf(w.id) === textOf(activeSessionRecord?.workspaceId));
-  const workspaceName = textOf(activeWorkspace?.name, textOf(activeWorkspace?.title, 'No workspace'));
+  const workspaceName = textOf(activeWorkspace?.name, textOf(activeWorkspace?.title, 'Workspace'));
   const chatTitle = textOf(activeSessionRecord?.name, textOf(activeSessionRecord?.firstPrompt, 'New chat'));
   const canEditSession = session.connected && !session.readOnly && Boolean(sessions.activeWorkspaceId);
-  const statusLabel = session.connected ? workspaceName : 'Connecting…';
   const sessionActions = useSessionActions({ workspaceId: sessions.activeWorkspaceId, readOnly: session.readOnly || !session.connected, onRunCommand: composer.runCommand });
   const workspaceSections = buildWorkspaceMenuSections(sessions.workspaces, sessions.sessions, sessions.activeWorkspaceId);
   const goalPlacement = buildGoalSheetPlacement({ screenHeight, topSafeArea: safeArea.top, keyboardHeight });
@@ -87,6 +79,20 @@ function Chat() {
     sessionActionsOpen: sessionActions.open,
     renameOpen,
   });
+
+  // Open the drawer with an edge-swipe from the left, mirroring the menu button.
+  const toggleMenuRef = useRef(chrome.toggleMenu);
+  toggleMenuRef.current = chrome.toggleMenu;
+  const edgePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => g.dx > 12 && g.dx > Math.abs(g.dy) * 1.4,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx > 44) toggleMenuRef.current();
+      },
+    }),
+  ).current;
+
   const openRename = useCallback(() => {
     if (!canEditSession) return;
     Keyboard.dismiss();
@@ -105,44 +111,37 @@ function Chat() {
       .catch((err) => setRenameError(err instanceof Error ? err.message : String(err)))
       .finally(() => setRenameSaving(false));
   }, [renameDraft, renameSaving, sessions]);
-  const handleSuggestion = useCallback((text: string) => composer.setText(text), [composer]);
   const welcome = useMemo<ChatWelcome | null>(
-    () => (session.connected && !session.readOnly ? { title: 'Hey, moxxy is here', subtitle: 'Ask anything, automate a workflow, or pick up a past chat from the menu.', suggestions: WELCOME_SUGGESTIONS, onSuggestion: handleSuggestion } : null),
-    [handleSuggestion, session.connected, session.readOnly],
+    () => (session.connected && !session.readOnly ? { title: 'Hey, moxxy is here', subtitle: 'Ask anything, automate a workflow, or pick up a past chat from the menu.' } : null),
+    [session.connected, session.readOnly],
   );
-  const connectionBanner = !session.connected ? (
-    <View style={sx('flex-row items-center rounded-2xl px-4 py-3', { backgroundColor: colors.cardBg, borderColor: colors.cardBorder, borderWidth: 1, gap: 10 })}>
-      <View style={sx('rounded-full', { backgroundColor: colors.amber, height: 8, width: 8 })} />
-      <Text style={sx('flex-1 text-[13px] font-semibold text-muted')}>Connecting to your Mac…</Text>
-    </View>
-  ) : null;
 
   return (
     <View style={sx('flex-1', { backgroundColor: colors.appBg })}>
       <SafeAreaView style={sx('flex-1')} edges={['top']}>
         <ChatHeader
           title={chatTitle}
-          subtitle={statusLabel}
+          subtitle={session.connected ? workspaceName : 'Connecting…'}
           connected={session.connected}
           pendingActions={pendingActions}
           onMenu={() => { Keyboard.dismiss(); chrome.toggleMenu(); }}
-          onNewChat={() => { Keyboard.dismiss(); sessions.newSession(); }}
-          onTitlePress={() => { Keyboard.dismiss(); sessionActions.openSheet(); }}
-          onTitleLongPress={openRename}
-          titleDisabled={!session.connected}
-          newChatDisabled={!gatewayConnected}
+          onRename={openRename}
+          renameDisabled={!canEditSession}
         />
 
-        <ChatList
-          items={chat.items}
-          connectionBanner={connectionBanner}
-          sending={chat.sending}
-          hasOlder={chat.hasOlder}
-          welcome={welcome}
-          onLoadOlder={chat.loadOlder}
-          copiedMessageId={messageCopy.copiedMessageId}
-          onCopyMessage={messageCopy.copyMessage}
-        />
+        {session.connected ? (
+          <ChatList
+            items={chat.items}
+            sending={chat.sending}
+            hasOlder={chat.hasOlder}
+            welcome={welcome}
+            onLoadOlder={chat.loadOlder}
+            copiedMessageId={messageCopy.copiedMessageId}
+            onCopyMessage={messageCopy.copyMessage}
+          />
+        ) : (
+          <ConnectingView workspaceName={workspaceName} />
+        )}
 
         {showPendingActionsSheet ? (
           <View style={overlayStyle}>
@@ -190,6 +189,9 @@ function Chat() {
             onOpenOptions={() => { Keyboard.dismiss(); setOptionsOpen(true); }}
           />
         </View>
+
+        {/* Left edge-swipe to open the drawer. */}
+        <View {...edgePan.panHandlers} style={{ bottom: 0, left: 0, position: 'absolute', top: 0, width: 24, zIndex: 20 }} />
       </SafeAreaView>
 
       <SessionActionsSheet
@@ -221,6 +223,7 @@ function Chat() {
         onPickFile={composer.pickDocumentAttachment}
         onOpenModel={modelSelector.openPicker}
         onOpenMode={modelSelector.openModePicker}
+        onOpenActions={() => sessionActions.openSheet()}
         onGoal={() => goals.setOpen(true)}
         onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
         onCompact={compact.requestCompact}

@@ -49,7 +49,9 @@ describe('mobile navigation architecture', () => {
     const index = read('app/index.tsx');
     const onboarding = read('src/components/Onboarding.tsx');
     expect(index).toContain('store.pairing.transportReady');
-    expect(onboarding).toContain('usePairing');
+    // Onboarding must use the SHARED store pairing (not a private usePairing
+    // instance) so a successful scan advances the home-screen gate.
+    expect(onboarding).toContain('const { pairing } = useGatewayStore()');
     expect(onboarding).toContain('useQrScanner');
     expect(onboarding).toContain('QrScannerSheet');
     expect(onboarding).not.toContain('className=');
@@ -62,7 +64,8 @@ describe('mobile navigation architecture', () => {
     expect(index).toContain('<ChatComposer');
     expect(index).toContain('<ChatDrawer');
     expect(index).toContain('<ComposerSheet');
-    expect(index).toContain('connectionBanner={connectionBanner}');
+    // Connected → transcript; reconnecting → branded loading view.
+    expect(index).toContain('<ConnectingView');
     expect(index).not.toContain('className=');
   });
 

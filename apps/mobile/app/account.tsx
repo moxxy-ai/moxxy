@@ -40,7 +40,7 @@ export default function AccountScreen() {
             <Text style={sx('text-[15px] font-bold text-text')}>Gateway</Text>
             <Pill label={gatewayConnected ? 'Connected' : 'Not paired'} tone={gatewayConnected ? 'success' : 'warn'} />
           </View>
-          <ListRow icon="gateway" iconTone={gatewayConnected ? 'success' : 'neutral'} title="Gateway URL" value={pairing.gatewayUrl || '—'} showChevron={false} />
+          <ListRow icon="gateway" iconTone={gatewayConnected ? 'success' : 'neutral'} title="Gateway URL" subtitle={pairing.gatewayUrl || '—'} showChevron={false} />
           {pairing.error ? (
             <View style={sx('rounded-2xl', { backgroundColor: colors.redSoft, borderColor: colors.redBorder, borderWidth: 1, marginTop: 12, padding: 12 })}>
               <Text style={sx('text-[13px] font-medium', { color: colors.redText, lineHeight: 18 })}>{pairing.error}</Text>
@@ -86,16 +86,18 @@ export default function AccountScreen() {
             <Text style={sx('mt-1 text-[13px] font-medium text-dim text-center', { lineHeight: 18 })}>Your workspace, in your pocket.</Text>
           </View>
         </Card>
+
+        <View style={{ marginTop: 24 }}>
+          <Button label="Redo onboarding" variant="secondary" icon="refresh" onPress={() => pairing.disconnect()} />
+        </View>
       </ScrollView>
 
       <QrScannerSheet
         open={qrScanner.open}
         processing={qrScanner.processing}
-        armed={qrScanner.armed}
         permission={qrScanner.permission}
         ui={buildPairingUiState({ token: pairing.token, transportReady: pairing.transportReady, scanning: qrScanner.processing, permission: qrScanner.permission })}
         onRequestPermission={() => void qrScanner.requestPermission()}
-        onArmScanner={qrScanner.armScanner}
         onScanned={(raw) => void qrScanner.handlePayload(raw)}
         onCancel={qrScanner.closeScanner}
       />

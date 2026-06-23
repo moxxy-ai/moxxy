@@ -42,16 +42,16 @@ import { buildToolDetailUi, buildToolGroupUi, type ToolDetailUi } from '@/toolGr
 import { useTheme } from '@/theme/ThemeProvider';
 import type { Palette } from '@/styles/tokens';
 import type { InlineTok } from '@moxxy/chat-model/markdown';
+import type { ImageSourcePropType } from 'react-native';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
 const CHAT_LIST_PERFORMANCE_PROPS = buildMobileChatListPerformanceProps();
+const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
 
 export interface ChatWelcome {
   readonly title: string;
   readonly subtitle: string;
-  readonly suggestions: ReadonlyArray<string>;
-  readonly onSuggestion: (text: string) => void;
 }
 
 interface ChatListProps {
@@ -77,7 +77,9 @@ export function ChatList({
 }: ChatListProps) {
   const { scheme } = useTheme();
   const autoScroll = useChatListAutoScroll(items, sending);
+  const trackScroll = autoScroll.handleScroll;
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    trackScroll(event);
     if (
       shouldLoadOlderFromScroll({
         contentOffsetY: event.nativeEvent.contentOffset.y,
@@ -86,7 +88,7 @@ export function ChatList({
     ) {
       onLoadOlder?.();
     }
-  }, [hasOlder, onLoadOlder]);
+  }, [hasOlder, onLoadOlder, trackScroll]);
   const renderItem = useCallback<ListRenderItem<TranscriptItem>>(({ item }) => (
     <MemoMessageBlock
       item={item}
@@ -108,67 +110,69 @@ export function ChatList({
   );
 
   return (
-    <FlatList
-      // Remount the transcript on a theme flip so memoized rows re-resolve colors.
-      key={scheme}
-      ref={autoScroll.scrollRef}
-      data={items}
-      renderItem={renderItem}
-      keyExtractor={keyExtractor}
-      ListHeaderComponent={header}
-      ListEmptyComponent={empty}
-      ListFooterComponent={footer}
-      style={sx('flex-1')}
-      contentContainerStyle={buildChatListContentStyle()}
-      onContentSizeChange={autoScroll.handleContentSizeChange}
-      onScroll={handleScroll}
-      {...CHAT_LIST_PERFORMANCE_PROPS}
-    />
+    <View style={sx('flex-1')}>
+      <FlatList
+        // Remount the transcript on a theme flip so memoized rows re-resolve colors.
+        key={scheme}
+        ref={autoScroll.scrollRef}
+        data={items}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={header}
+        ListEmptyComponent={empty}
+        ListFooterComponent={footer}
+        style={sx('flex-1')}
+        contentContainerStyle={buildChatListContentStyle()}
+        onContentSizeChange={autoScroll.handleContentSizeChange}
+        onScroll={handleScroll}
+        {...CHAT_LIST_PERFORMANCE_PROPS}
+      />
+      {autoScroll.showScrollToBottom ? <ScrollToBottomButton onPress={autoScroll.scrollToBottom} /> : null}
+    </View>
   );
+}
+
+function ScrollToBottomButton({ onPress }: { readonly onPress: () => void }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      accessibilityLabel="Scroll to latest"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) =>
+        sx('absolute items-center justify-center rounded-full', {
+          alignSelf: 'center',
+          backgroundColor: pressed ? colors.cardBg : colors.surface,
+          borderColor: colors.cardBorder,
+          borderWidth: 1,
+          bottom: 12,
+          height: 38,
+          width: 38,
+          ...shadowStyle(colors.shadow),
+        })
+      }
+    >
+      <MobileIcon name="chevronDown" size={20} strokeWidth={2.5} color={colors.text} />
+    </Pressable>
+  );
+}
+
+function shadowStyle(shadow: string) {
+  return { elevation: 6, shadowColor: shadow, shadowOffset: { height: 6, width: 0 }, shadowOpacity: 0.4, shadowRadius: 12 };
 }
 
 function WelcomeView({ welcome }: { readonly welcome: ChatWelcome }) {
   const { colors } = useTheme();
   return (
-    <View style={sx('flex-1 justify-center', { paddingVertical: 12 })}>
-      <View style={sx('items-center')}>
-        <View
-          style={sx('items-center justify-center rounded-3xl', {
-            backgroundColor: colors.primarySoft,
-            height: 64,
-            width: 64,
-          })}
-        >
-          <MobileIcon name="message" size={30} strokeWidth={2.2} color={colors.primary} />
-        </View>
-        <Text style={sx('mt-4 text-[22px] font-black text-text text-center')}>{welcome.title}</Text>
-        <Text style={sx('mt-1.5 text-[15px] font-medium text-muted text-center', { lineHeight: 21 })}>
-          {welcome.subtitle}
-        </Text>
+    <View style={sx('flex-1 items-center justify-center', { paddingVertical: 16 })}>
+      <View style={sx('items-center justify-center', { height: 136, width: 136 })}>
+        <View style={sx('absolute rounded-full', { backgroundColor: colors.primary, height: 136, opacity: 0.09, width: 136 })} />
+        <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 124, width: 124 }} />
       </View>
-      {welcome.suggestions.length > 0 ? (
-        <View style={sx('mt-7')}>
-          <Text style={sx('mb-2 text-[13px] font-black uppercase tracking-wide text-dim')}>Ask me anything</Text>
-          <View style={{ gap: 8 }}>
-            {welcome.suggestions.map((suggestion) => (
-              <Pressable
-                key={suggestion}
-                accessibilityLabel={suggestion}
-                accessibilityRole="button"
-                onPress={() => welcome.onSuggestion(suggestion)}
-                style={({ pressed }) =>
-                  sx('rounded-card border px-4 py-3', {
-                    backgroundColor: pressed ? colors.inputSoft : colors.cardBg,
-                    borderColor: colors.cardBorder,
-                  })
-                }
-              >
-                <Text style={sx('text-[14px] font-semibold text-text')}>{suggestion}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : null}
+      <Text style={sx('mt-3 text-[25px] font-black text-text text-center', { letterSpacing: -0.5 })}>{welcome.title}</Text>
+      <Text style={sx('mt-2 text-[15px] font-medium text-muted text-center', { lineHeight: 21, maxWidth: 320 })}>
+        {welcome.subtitle}
+      </Text>
     </View>
   );
 }

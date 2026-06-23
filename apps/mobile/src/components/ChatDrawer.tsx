@@ -28,7 +28,8 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
   const progress = useRef(new Animated.Value(open ? 1 : 0)).current;
   const [rendered, setRendered] = useState(open);
   const search = useMobileMenuSearch(workspaceSections);
-  const collapse = useWorkspaceCollapse(workspaceSections);
+  // Expand only the workspace that holds the active session; collapse the rest.
+  const collapse = useWorkspaceCollapse(workspaceSections, 1);
 
   useEffect(() => {
     if (open) setRendered(true);
@@ -103,12 +104,9 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
                         accessibilityLabel={section.toggleAccessibilityLabel}
                         accessibilityState={{ expanded: section.expanded }}
                         onPress={() => collapse.toggleWorkspace(section.id)}
-                        style={({ pressed }) => sx('flex-1 flex-row items-center rounded-card px-2', { backgroundColor: pressed ? colors.sidebarBgHover : 'transparent', gap: 9, minHeight: 42 })}
+                        style={({ pressed }) => sx('flex-1 flex-row items-center rounded-card px-2', { backgroundColor: pressed ? colors.sidebarBgHover : 'transparent', gap: 8, minHeight: 44 })}
                       >
-                        <MobileIcon name={section.expanded ? 'chevronDown' : 'chevronRight'} size={16} strokeWidth={2.5} color={colors.sidebarTextDim} />
-                        <View style={sx('items-center justify-center rounded-lg', { backgroundColor: colors.sidebarBgHover, height: 26, width: 26 })}>
-                          <MobileIcon name="folder" size={15} strokeWidth={2.2} color={section.color} />
-                        </View>
+                        <MobileIcon name={section.expanded ? 'chevronDown' : 'chevronRight'} size={18} strokeWidth={2.6} color={section.expanded ? colors.primary : colors.sidebarTextDim} />
                         <Text style={sx('flex-1 text-[14px] font-bold text-sidebarText')} numberOfLines={1}>{section.title}</Text>
                         <Text style={sx('text-[12px] font-bold text-sidebarTextDim')}>{section.sessionCountLabel}</Text>
                       </Pressable>
@@ -123,16 +121,15 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
                       </Pressable>
                     </View>
                     {section.expanded ? (
-                      <View style={sx('ml-3 pl-2', { borderLeftColor: colors.glassBorder, borderLeftWidth: 1 })}>
+                      <View>
                         {section.visibleSessions.map((s) => (
                           <Pressable
                             key={s.id}
                             accessibilityRole="button"
                             accessibilityLabel={s.accessibilityLabel}
                             onPress={() => { onSelectSession(s.id); onClose(); }}
-                            style={({ pressed }) => sx('flex-row items-center rounded-card px-3', { backgroundColor: s.active ? colors.sidebarBgActive : pressed ? colors.sidebarBgHover : 'transparent', gap: 10, minHeight: 40 })}
+                            style={({ pressed }) => sx('flex-row items-center rounded-card px-3', { backgroundColor: s.active ? colors.sidebarBgActive : pressed ? colors.sidebarBgHover : 'transparent', gap: 8, minHeight: 42, paddingLeft: 12 })}
                           >
-                            <View style={sx('rounded-full', { backgroundColor: s.active ? colors.primary : colors.sidebarTextDim, height: s.active ? 7 : 6, opacity: s.active ? 1 : 0.6, width: s.active ? 7 : 6 })} />
                             <Text style={sx(`flex-1 text-[14px] ${s.active ? 'font-bold' : 'font-medium'} text-sidebarText`)} numberOfLines={1}>{s.title}</Text>
                             {s.statusLabel ? (
                               <View style={sx('rounded-pill px-2', { backgroundColor: colors.primarySoft, paddingVertical: 2 })}>
@@ -148,13 +145,9 @@ export function ChatDrawer({ open, connected, workspaceSections, onSelectSession
               )}
             </ScrollView>
 
-            <View style={sx('border-t px-3 pb-1 pt-2', { borderTopColor: colors.glassBorder, gap: 2 })}>
+            <View style={sx('border-t px-3 pb-2 pt-2', { borderTopColor: colors.glassBorder, gap: 2 })}>
               <FooterRow icon="grid" label="Apps" onPress={go('/apps')} />
               <FooterRow icon="user" label="Account" onPress={go('/account')} />
-              <View style={sx('flex-row items-center px-3 pt-1', { gap: 7 })}>
-                <View style={sx('rounded-full', { backgroundColor: connected ? colors.green : colors.amber, height: 7, width: 7 })} />
-                <Text style={sx('text-[12px] font-semibold text-sidebarTextDim')}>{connected ? 'Connected to gateway' : 'Waiting for gateway'}</Text>
-              </View>
             </View>
           </SafeAreaView>
         </Glass>

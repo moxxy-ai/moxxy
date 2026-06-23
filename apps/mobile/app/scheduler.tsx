@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { Alert, ScrollView, Switch, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
   Button,
@@ -37,8 +36,7 @@ export default function SchedulerScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: colors.appBg }}>
-      <View style={[sx('flex-1'), { backgroundColor: colors.appBg }]}>
+    <View style={[sx('flex-1'), { backgroundColor: colors.appBg }]}>
         <DetailHeader
           title="Schedules"
           subtitle={`${scheduler.schedules.length} scheduled`}
@@ -144,7 +142,6 @@ export default function SchedulerScreen() {
             />
           ) : null}
         </ScrollView>
-      </View>
-    </SafeAreaView>
+    </View>
   );
 }

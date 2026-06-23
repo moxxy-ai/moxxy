@@ -15,6 +15,7 @@ import { useStorageState } from './storage';
 
 const TOKEN_KEY = 'moxxy.mobile.gateway.token';
 const URL_KEY = 'moxxy.mobile.gateway.url';
+const FINGERPRINT_KEY = 'moxxy.mobile.gateway.fingerprint';
 
 export interface PairingState {
   readonly gatewayUrl: string;
@@ -33,6 +34,7 @@ export interface PairingState {
 export function usePairing(): PairingState {
   const [[tokenLoading, token], setToken] = useStorageState(TOKEN_KEY);
   const [[urlLoading, storedUrl], setStoredUrl] = useStorageState(URL_KEY);
+  const [[fingerprintLoading, storedFingerprint], setStoredFingerprint] = useStorageState(FINGERPRINT_KEY);
   const expoHostUri = readExpoHostUri();
   const [gatewayUrl, setGatewayUrlState] = useState(chooseGatewayUrlForPairing(null, expoHostUri));
   const [code, setCode] = useState('');
@@ -97,7 +99,7 @@ export function usePairing(): PairingState {
   }, []);
 
   useEffect(() => {
-    if (tokenLoading || urlLoading || startupHandledRef.current) return;
+    if (tokenLoading || urlLoading || fingerprintLoading || startupHandledRef.current) return;
     startupHandledRef.current = true;
     const startup = planPairingStartup({
       storedToken: token,
@@ -113,7 +115,12 @@ export function usePairing(): PairingState {
     setGatewayUrlState(startup.gatewayUrl);
     if (startup.clearStoredToken) setToken(null);
     if (startup.clearStoredUrl) setStoredUrl(null);
-  }, [expoHostUri, setStoredUrl, setToken, storedUrl, token, tokenLoading, urlLoading]);
+    // Remember the gateway: reconnect from the stored token + URL (+ E2E
+    // fingerprint) instead of forcing a re-scan on every launch.
+    if (startup.restoreTransport && token && storedUrl) {
+      configureBridgeTransport(storedUrl, token, undefined, storedFingerprint);
+    }
+  }, [configureBridgeTransport, expoHostUri, fingerprintLoading, setStoredUrl, setToken, storedFingerprint, storedUrl, token, tokenLoading, urlLoading]);
 
   useEffect(() => () => {
     transportHandleRef.current?.close();
@@ -185,10 +192,11 @@ export function usePairing(): PairingState {
 
     setToken(handle.token);
     setStoredUrl(handle.url);
+    setStoredFingerprint(handle.fingerprint ?? null);
     setGatewayUrlState(handle.url);
     setCode('');
     return true;
-  }, [configureBridgeTransport, setStoredUrl, setToken]);
+  }, [configureBridgeTransport, setStoredFingerprint, setStoredUrl, setToken]);
 
   const pair = useCallback(async () => {
     await pairWithCode(gatewayUrl, code);
@@ -214,10 +222,11 @@ export function usePairing(): PairingState {
     transportHandleRef.current = null;
     setToken(null);
     setStoredUrl(null);
+    setStoredFingerprint(null);
     setCode('');
     setTransportReady(false);
     setGatewayUrlState(chooseGatewayUrlForPairing(null, expoHostUri));
-  }, [expoHostUri, setStoredUrl, setToken]);
+  }, [expoHostUri, setStoredFingerprint, setStoredUrl, setToken]);
 
   return {
     gatewayUrl,

@@ -3,7 +3,7 @@ import { Image, type ImageSourcePropType, Keyboard, Text, TextInput, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
-import { usePairing } from '@/hooks/usePairing';
+import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useQrScanner } from '@/hooks/useQrScanner';
 import { buildPairingUiState } from '@/pairingUi';
 import { Button, Card } from '@/ui/kit';
@@ -19,7 +19,11 @@ const STEPS = [
 
 export function Onboarding() {
   const { colors } = useTheme();
-  const pairing = usePairing();
+  // Use the SHARED pairing instance from the gateway store — the home-screen
+  // gate watches the same `pairing.transportReady`, so a successful scan
+  // actually advances past onboarding. (A local usePairing() would connect a
+  // throwaway instance the gate never sees.)
+  const { pairing } = useGatewayStore();
   const qrScanner = useQrScanner(pairing.pairFromQrPayload);
   const [manualOpen, setManualOpen] = useState(false);
   const [link, setLink] = useState('');
@@ -135,11 +139,9 @@ export function Onboarding() {
       <QrScannerSheet
         open={qrScanner.open}
         processing={qrScanner.processing}
-        armed={qrScanner.armed}
         permission={qrScanner.permission}
         ui={pairingUi}
         onRequestPermission={() => void qrScanner.requestPermission()}
-        onArmScanner={qrScanner.armScanner}
         onScanned={(raw) => void qrScanner.handlePayload(raw)}
         onCancel={qrScanner.closeScanner}
       />

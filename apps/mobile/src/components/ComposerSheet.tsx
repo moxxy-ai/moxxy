@@ -1,4 +1,5 @@
-import { Modal, Pressable, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Modal, PanResponder, Pressable, Text, View, type LayoutChangeEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -16,6 +17,7 @@ interface ComposerSheetProps {
   readonly onPickFile: () => void;
   readonly onOpenModel: () => void;
   readonly onOpenMode: () => void;
+  readonly onOpenActions: () => void;
   readonly onGoal: () => void;
   readonly onToggleAutoApprove: () => void;
   readonly onCompact: () => void;
@@ -24,21 +26,70 @@ interface ComposerSheetProps {
 
 export function ComposerSheet(props: ComposerSheetProps) {
   const { colors } = useTheme();
-  if (!props.open) return null;
+  const [rendered, setRendered] = useState(props.open);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(0)).current;
+  const heightRef = useRef(440);
+
+  useEffect(() => {
+    if (props.open) {
+      setRendered(true);
+      translateY.setValue(heightRef.current);
+      Animated.parallel([
+        Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 14, useNativeDriver: true }),
+        Animated.timing(progress, { toValue: 1, duration: 200, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(translateY, { toValue: heightRef.current, duration: 200, useNativeDriver: true }),
+        Animated.timing(progress, { toValue: 0, duration: 180, useNativeDriver: true }),
+      ]).start(({ finished }) => {
+        if (finished) setRendered(false);
+      });
+    }
+  }, [props.open]);
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
+      onPanResponderMove: (_e, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > 90 || g.vy > 0.6) {
+          props.onClose();
+        } else {
+          Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 16, useNativeDriver: true }).start();
+        }
+      },
+    }),
+  ).current;
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    if (e.nativeEvent.layout.height > 0) heightRef.current = e.nativeEvent.layout.height;
+  };
 
   const run = (fn: () => void) => () => {
     props.onClose();
     fn();
   };
 
+  if (!rendered) return null;
+
   return (
-    <Modal animationType="slide" transparent visible onRequestClose={props.onClose}>
-      <Pressable accessibilityLabel="Close options" onPress={props.onClose} style={sx('flex-1', { backgroundColor: colors.overlay })} />
-      <View style={sx('absolute', { bottom: 0, left: 0, right: 0 })}>
+    <Modal transparent visible animationType="none" onRequestClose={props.onClose}>
+      <Animated.View style={[sx('absolute', { bottom: 0, left: 0, right: 0, top: 0 }), { opacity: progress }]}>
+        <Pressable accessibilityLabel="Close options" onPress={props.onClose} style={sx('flex-1', { backgroundColor: colors.overlay })} />
+      </Animated.View>
+
+      <Animated.View
+        onLayout={onLayout}
+        style={[sx('absolute', { bottom: 0, left: 0, right: 0 }), { transform: [{ translateY }] }]}
+      >
         <Glass radius={28} intensity={80} heavy>
           <SafeAreaView edges={['bottom']}>
-            <View style={sx('items-center', { paddingBottom: 4, paddingTop: 8 })}>
-              <View style={sx('rounded-full', { backgroundColor: colors.glassBorder, height: 5, width: 40 })} />
+            <View {...pan.panHandlers} style={sx('items-center', { paddingBottom: 4, paddingTop: 10 })}>
+              <View style={sx('rounded-full', { backgroundColor: colors.textDim, height: 5, opacity: 0.5, width: 40 })} />
             </View>
             <Text style={sx('px-5 pb-1 pt-1 text-[13px] font-black uppercase tracking-wide text-dim')}>Options</Text>
 
@@ -49,6 +100,7 @@ export function ComposerSheet(props: ComposerSheetProps) {
               <Row icon="agent" tone="brand" label="Model" value={props.modelLabel} onPress={run(props.onOpenModel)} />
               <Row icon="bolt" tone="warn" label="Mode" value={props.modeLabel} onPress={run(props.onOpenMode)} />
               <Sep />
+              <Row icon="actions" tone="info" label="Session actions" onPress={run(props.onOpenActions)} />
               <Row icon="goals" tone="brand" label="Start a goal" onPress={run(props.onGoal)} />
               <Row
                 icon="bolt"
@@ -63,7 +115,7 @@ export function ComposerSheet(props: ComposerSheetProps) {
             </View>
           </SafeAreaView>
         </Glass>
-      </View>
+      </Animated.View>
     </Modal>
   );
 }

@@ -439,7 +439,7 @@ export function ListRow({
           </Text>
         ) : null}
       </View>
-      {value ? <Text style={sx('text-[14px] font-semibold text-muted')} numberOfLines={1}>{value}</Text> : null}
+      {value ? <Text style={sx('text-[14px] font-semibold text-muted', { flexShrink: 1, maxWidth: '60%', textAlign: 'right' })} numberOfLines={1}>{value}</Text> : null}
       {trailing ?? (onPress && showChevron ? <MobileIcon name="chevronRight" size={17} strokeWidth={2.4} color={colors.textDim} /> : null)}
     </View>
   );
