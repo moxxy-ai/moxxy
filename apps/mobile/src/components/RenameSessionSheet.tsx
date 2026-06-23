@@ -1,7 +1,6 @@
-import { sx, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { GlassSheet, SheetCloseButton } from './primitives/GlassSheet';
-import { Gradient } from './primitives/Gradient';
 import { PressableScale } from './primitives/motion';
 
 interface RenameSessionSheetProps {
@@ -81,7 +80,6 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
               disabled={!canSubmit}
               onPress={props.onSubmit}
             >
-              <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} />
               <Text style={sx('text-[14px] font-black', { color: mobileInk.onBrand })}>{props.saving ? 'Saving...' : 'Save'}</Text>
             </PressableScale>
           </View>
@@ -93,7 +91,7 @@ export function RenameSessionSheet(props: RenameSessionSheetProps) {
 
 const styles = StyleSheet.create({
   backdrop: {
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    backgroundColor: 'rgba(15, 23, 42, 0.34)',
     bottom: 0,
     left: 0,
     position: 'absolute',
@@ -102,8 +100,8 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     flex: 1,
@@ -121,8 +119,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   input: {
-    backgroundColor: 'rgba(248,250,252,0.85)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     color: mobileInk.strong,
@@ -141,10 +139,10 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
     borderRadius: 14,
     flex: 1,
     justifyContent: 'center',
     minHeight: 48,
-    overflow: 'hidden',
   },
 });

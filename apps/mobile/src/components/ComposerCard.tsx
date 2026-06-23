@@ -1,4 +1,4 @@
-import { sx, mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
+import { sx, mobileFlat, mobileInk, mobileSurface } from '../styles/tokens';
 import { StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
 import { summarizeAttachment } from '@/attachments';
 import { buildComposerUiState } from '@/composerUi';
@@ -8,7 +8,6 @@ import type { ModeSelectorUiState } from '../modeSelector';
 import { ComposerActionMenu } from './ComposerActionMenu';
 import { ContextMeter } from './ContextMeter';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { PressableScale } from './primitives/motion';
 
 type ModeBannerState = NonNullable<ModeSelectorUiState['banner']>;
@@ -62,16 +61,23 @@ export function ComposerCard(props: ComposerCardProps) {
     readOnly: props.readOnly,
   });
   const bypass = ui.frameTone === 'bypass';
+  const actionsActive = ui.actionsTone === 'active';
+  const voiceActive = ui.voiceTone !== 'neutral';
   const handleLayout = (event: LayoutChangeEvent): void => {
     props.onHeightChange?.(event.nativeEvent.layout.height);
   };
 
   return (
-    <View style={sx('relative z-30 px-4 pb-3 pt-2')} onLayout={handleLayout}>
+    <View style={sx('relative z-30 px-3 pb-3 pt-2')} onLayout={handleLayout}>
       <ComposerActionMenu
         open={props.actionsOpen}
         autoApprove={props.autoApprove}
+        modelLabel={props.modelLabel}
+        modeLabel={props.modeLabel}
+        modeAttention={Boolean(props.modeBanner)}
         onToggleOpen={props.onToggleActions}
+        onOpenModelSelector={props.onOpenModelSelector}
+        onOpenModeSelector={props.onOpenModeSelector}
         onGoal={props.onGoal}
         onToggleAutoApprove={props.onToggleAutoApprove}
         onNewSession={props.onNewSession}
@@ -81,22 +87,7 @@ export function ComposerCard(props: ComposerCardProps) {
         onCommand={props.onCommand}
       />
 
-      <View
-        style={[
-          styles.frame,
-          bypass ? styles.frameBypass : null,
-          bypass ? mobileElevation.glow : mobileElevation.md,
-        ]}
-      >
-        <Gradient
-          pointerEventsNone
-          direction="vertical"
-          stops={[
-            { offset: 0, color: bypass ? 'rgba(255,255,255,0.7)' : mobileGlass.card.sheen },
-            { offset: 1, color: 'rgba(255,255,255,0)' },
-          ]}
-          style={styles.sheen}
-        />
+      <View style={[styles.frame, bypass ? styles.frameBypass : null]}>
         {props.attachments.length > 0 ? (
           <View style={styles.attachmentRow}>
             {props.attachments.map((attachment, index) => (
@@ -108,98 +99,39 @@ export function ComposerCard(props: ComposerCardProps) {
             ))}
           </View>
         ) : null}
-        {ui.bypassActive ? (
-          <View style={styles.bypassBadge}>
-            <Gradient preset="cta" radius={999} style={StyleSheet.absoluteFill} />
-            <MobileIcon name="bolt" size={14} strokeWidth={2.6} color="#ffffff" />
-          </View>
-        ) : null}
         {props.modeBanner ? <ModeStatusBanner banner={props.modeBanner} /> : null}
-        <TextInput
-          key={`composer-input-${props.inputResetKey}`}
-          value={props.text}
-          onChangeText={props.onTextChange}
-          multiline
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder={ui.placeholder}
-          placeholderTextColor={mobileInk.faint}
-          returnKeyType="send"
-          editable={!ui.disabled}
-          style={styles.input}
-        />
-        {props.voiceError ? (
-          <Text style={sx('mt-1 px-1 text-[12px] font-semibold text-red')}>{props.voiceError}</Text>
-        ) : null}
-        {props.attachmentError ? (
-          <Text style={sx('mt-1 px-1 text-[12px] font-semibold text-red')}>{props.attachmentError}</Text>
-        ) : null}
 
-        <View style={styles.pickerRow}>
-          <PickerChip
-            label="Model"
-            value={props.modelLabel}
-            disabled={props.modelDisabled}
-            accessibilityLabel="Pick provider and model"
-            onPress={props.onOpenModelSelector}
-          />
-          <PickerChip
-            label="Mode"
-            value={props.modeLabel}
-            disabled={props.modeDisabled}
-            accent={props.modeBanner ? 'attention' : 'neutral'}
-            accessibilityLabel="Pick mode"
-            onPress={props.onOpenModeSelector}
-          />
-        </View>
-
-        <View style={styles.toolbarRow}>
-          <PressableScale
-            accessibilityLabel="Open actions"
-            accessibilityRole="button"
+        <View style={styles.inputRow}>
+          <RoundButton
+            icon="plus"
+            accessibilityLabel="Open actions, model and mode"
+            active={actionsActive}
             hitSlop={toolbar.iconHitSlop}
-            style={[
-              styles.iconButton,
-              {
-                width: toolbar.actionButtonSize,
-                height: toolbar.actionButtonSize,
-                backgroundColor: ui.actionsTone === 'active' ? '#fdf2f8' : 'rgba(255,255,255,0.7)',
-                borderColor: ui.actionsTone === 'active' ? '#f9a8d4' : 'rgba(226,228,240,0.9)',
-              },
-            ]}
             onPress={props.onToggleActions}
-          >
-            <MobileIcon name="plus" size={18} strokeWidth={2.35} color={ui.actionsTone === 'active' ? '#db2777' : mobileInk.muted} />
-          </PressableScale>
-
-          <PressableScale
+          />
+          <TextInput
+            key={`composer-input-${props.inputResetKey}`}
+            value={props.text}
+            onChangeText={props.onTextChange}
+            multiline
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder={ui.placeholder}
+            placeholderTextColor={mobileInk.faint}
+            returnKeyType="send"
+            editable={!ui.disabled}
+            style={styles.input}
+          />
+          <RoundButton
+            icon="mic"
             accessibilityLabel="Voice input"
-            accessibilityRole="button"
-            style={[
-              styles.voiceButton,
-              {
-                maxWidth: toolbar.voiceMaxWidth,
-                backgroundColor: ui.voiceTone === 'recording' ? '#fdf2f8' : 'rgba(255,255,255,0.7)',
-                borderColor: ui.voiceTone === 'neutral' ? 'rgba(226,228,240,0.9)' : '#f9a8d4',
-              },
-            ]}
+            active={voiceActive}
+            hitSlop={toolbar.iconHitSlop}
             onPress={props.onVoice}
-          >
-            <MobileIcon name="mic" size={16} strokeWidth={2.35} color={ui.voiceTone === 'neutral' ? mobileInk.muted : '#db2777'} />
-            <Text
-              style={[styles.voiceLabel, { color: ui.voiceTone === 'neutral' ? mobileInk.muted : '#db2777' }]}
-              numberOfLines={1}
-            >
-              {ui.voiceLabel}
-            </Text>
-          </PressableScale>
-
-          <View style={styles.spacer} />
-
+          />
           <SendButton
             tone={ui.sendTone}
             icon={ui.sendIcon}
-            size={toolbar.sendButtonSize}
             hitSlop={toolbar.iconHitSlop}
             disabled={!props.sending && !ui.canSubmit}
             onPress={props.sending ? props.onAbort : props.onSubmit}
@@ -207,13 +139,16 @@ export function ComposerCard(props: ComposerCardProps) {
           />
         </View>
 
+        {props.voiceError ? (
+          <Text style={sx('mt-1.5 px-1 text-[12px] font-semibold text-red')}>{props.voiceError}</Text>
+        ) : null}
+        {props.attachmentError ? (
+          <Text style={sx('mt-1.5 px-1 text-[12px] font-semibold text-red')}>{props.attachmentError}</Text>
+        ) : null}
+
         {ui.statusLabel || toolbar.showContextMeter ? (
           <View style={styles.statusRow}>
-            {ui.statusLabel ? (
-              <View style={styles.statusPill}>
-                <Text style={sx('text-[11px] font-bold text-primaryStrong')}>{ui.statusLabel}</Text>
-              </View>
-            ) : null}
+            {ui.statusLabel ? <Text style={styles.statusLabel}>{ui.statusLabel}</Text> : null}
             {toolbar.showContextMeter ? <ContextMeter usage={props.usage} /> : null}
           </View>
         ) : null}
@@ -222,10 +157,39 @@ export function ComposerCard(props: ComposerCardProps) {
   );
 }
 
+function RoundButton({
+  icon,
+  accessibilityLabel,
+  active,
+  hitSlop,
+  onPress,
+}: {
+  readonly icon: 'plus' | 'mic';
+  readonly accessibilityLabel: string;
+  readonly active: boolean;
+  readonly hitSlop: number;
+  readonly onPress: () => void;
+}) {
+  return (
+    <PressableScale
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      hitSlop={hitSlop}
+      scaleTo={0.9}
+      style={[
+        styles.roundButton,
+        active ? styles.roundButtonActive : null,
+      ]}
+      onPress={onPress}
+    >
+      <MobileIcon name={icon} size={icon === 'plus' ? 19 : 17} strokeWidth={2.4} color={active ? mobileSurface.accentStrong : mobileInk.muted} />
+    </PressableScale>
+  );
+}
+
 function SendButton({
   tone,
   icon,
-  size,
   hitSlop,
   disabled,
   onPress,
@@ -233,14 +197,13 @@ function SendButton({
 }: {
   readonly tone: 'primary' | 'danger' | 'disabled';
   readonly icon: 'send' | 'stop';
-  readonly size: number;
   readonly hitSlop: number;
   readonly disabled: boolean;
   readonly onPress: () => void;
   readonly accessibilityLabel: string;
 }) {
+  const background = tone === 'danger' ? '#ef4444' : tone === 'disabled' ? mobileSurface.field : mobileSurface.accent;
   const iconColor = tone === 'disabled' ? mobileInk.faint : '#ffffff';
-  const flat = tone === 'danger' ? '#ef4444' : tone === 'disabled' ? '#e6e8f2' : null;
   return (
     <PressableScale
       accessibilityLabel={accessibilityLabel}
@@ -248,91 +211,22 @@ function SendButton({
       disabled={disabled}
       hitSlop={hitSlop}
       scaleTo={0.9}
-      style={[
-        styles.sendButton,
-        { width: size, height: size, backgroundColor: flat ?? 'transparent' },
-        tone === 'primary' ? mobileElevation.glow : null,
-      ]}
+      style={[styles.sendButton, { backgroundColor: background }]}
       onPress={onPress}
     >
-      {tone === 'primary' ? <Gradient preset="cta" radius={13} style={StyleSheet.absoluteFill} /> : null}
-      <MobileIcon name={icon} size={17} strokeWidth={2.55} color={iconColor} />
+      <MobileIcon name={icon} size={18} strokeWidth={2.5} color={iconColor} />
     </PressableScale>
   );
 }
 
 function ModeStatusBanner({ banner }: { readonly banner: ModeBannerState }) {
-  const accent = banner.tone === 'attention' ? '#f59e0b' : '#06b6d4';
-  const soft = banner.tone === 'attention' ? '#fffbeb' : '#ecfeff';
+  const attention = banner.tone === 'attention';
+  const accent = attention ? '#b45309' : mobileSurface.accentStrong;
   return (
-    <View
-      style={{
-        alignItems: 'center',
-        backgroundColor: soft,
-        borderColor: accent,
-        borderRadius: 12,
-        borderWidth: 1,
-        flexDirection: 'row',
-        gap: 8,
-        marginBottom: 8,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-      }}
-    >
-      <View
-        style={{
-          alignItems: 'center',
-          backgroundColor: accent,
-          borderRadius: 999,
-          minWidth: 44,
-          paddingHorizontal: 8,
-          paddingVertical: 3,
-        }}
-      >
-        <Text style={sx('text-[11px] font-black text-white')}>{banner.label}</Text>
-      </View>
-      <Text style={sx('min-w-0 flex-1 text-[12px] font-bold leading-4 text-text')}>{banner.description}</Text>
+    <View style={[styles.modeBanner, { borderColor: attention ? '#fcd9a8' : mobileSurface.accentBorder, backgroundColor: attention ? '#fffaf0' : mobileSurface.accentSoft }]}>
+      <Text style={[styles.modeBannerLabel, { color: accent }]}>{banner.label}</Text>
+      <Text style={styles.modeBannerText}>{banner.description}</Text>
     </View>
-  );
-}
-
-function PickerChip({
-  label,
-  value,
-  disabled,
-  accent = 'neutral',
-  accessibilityLabel,
-  onPress,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly disabled: boolean;
-  readonly accent?: 'neutral' | 'attention';
-  readonly accessibilityLabel: string;
-  readonly onPress: () => void;
-}) {
-  const active = accent === 'attention';
-  return (
-    <PressableScale
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole="button"
-      disabled={disabled}
-      style={[
-        styles.pickerChip,
-        {
-          backgroundColor: disabled ? '#f1f2f9' : active ? '#fffbeb' : 'rgba(255,255,255,0.78)',
-          borderColor: active ? '#f6c659' : 'rgba(226,228,240,0.9)',
-          opacity: disabled ? 0.58 : 1,
-        },
-      ]}
-      onPress={onPress}
-    >
-      <Text style={sx('text-[12px] font-bold text-dim')}>{label}:</Text>
-      <Text style={sx('min-w-0 flex-1 text-[12px] font-bold text-text')} numberOfLines={1}>
-        {value}
-      </Text>
-      <MobileIcon name="chevronDown" size={13} strokeWidth={2.5} color={active ? '#f59e0b' : mobileInk.soft} />
-    </PressableScale>
   );
 }
 
@@ -366,9 +260,9 @@ function AttachmentChip({
 const styles = StyleSheet.create({
   attachmentChip: {
     alignItems: 'center',
-    backgroundColor: 'rgba(248,250,252,0.9)',
-    borderColor: 'rgba(226,228,240,0.9)',
-    borderRadius: 999,
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 6,
@@ -383,120 +277,88 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 8,
   },
-  bypassBadge: {
-    alignItems: 'center',
-    borderColor: '#ffffff',
-    borderRadius: 999,
-    borderWidth: 1.5,
-    height: 28,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    position: 'absolute',
-    right: 12,
-    top: -14,
-    width: 28,
-    zIndex: 2,
-  },
   frame: {
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderRadius: 20,
-    borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    ...mobileFlat.floating,
   },
   frameBypass: {
-    borderColor: '#ec4899',
-    borderTopColor: '#f9a8d4',
-    borderWidth: 1.5,
-  },
-  iconButton: {
-    alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    justifyContent: 'center',
+    borderColor: mobileSurface.accent,
   },
   input: {
-    backgroundColor: 'transparent',
     color: mobileInk.strong,
-    fontSize: 15,
-    lineHeight: 23,
-    maxHeight: 132,
-    minHeight: 48,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    flex: 1,
+    fontSize: 16,
+    lineHeight: 22,
+    maxHeight: 124,
+    minHeight: 40,
+    paddingHorizontal: 6,
+    paddingVertical: 9,
   },
-  pickerChip: {
-    alignItems: 'center',
+  inputRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  modeBanner: {
     borderRadius: 12,
     borderWidth: 1,
-    flex: 1,
-    flexDirection: 'row',
-    gap: 6,
-    height: 44,
-    justifyContent: 'center',
-    minWidth: 0,
-    paddingHorizontal: 10,
+    gap: 2,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
-  pickerRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
+  modeBannerLabel: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  modeBannerText: {
+    color: mobileInk.muted,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  roundButton: {
+    alignItems: 'center',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    marginBottom: 2,
+    width: 40,
+  },
+  roundButtonActive: {
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
   },
   sendButton: {
     alignItems: 'center',
-    borderRadius: 13,
-    justifyContent: 'center',
-  },
-  sheen: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: 40,
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
-  spacer: {
-    flex: 1,
-    minWidth: 8,
-  },
-  statusPill: {
-    alignItems: 'center',
-    backgroundColor: '#fdf2f8',
     borderRadius: 999,
-    height: 28,
+    height: 42,
     justifyContent: 'center',
-    paddingHorizontal: 9,
+    marginBottom: 1,
+    width: 42,
+  },
+  statusLabel: {
+    color: mobileSurface.accentStrong,
+    fontSize: 11,
+    fontWeight: '700',
   },
   statusRow: {
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
-    justifyContent: 'flex-end',
-    marginTop: 10,
-  },
-  toolbarRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
     gap: 8,
-    marginTop: 10,
-  },
-  voiceButton: {
-    alignItems: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 6,
-    height: 44,
-    justifyContent: 'center',
-    minWidth: 44,
-    paddingHorizontal: 10,
-  },
-  voiceLabel: {
-    fontSize: 12,
-    fontWeight: '700',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    paddingHorizontal: 4,
   },
 });

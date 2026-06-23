@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
+import { mobileFlat, mobileInk, mobileSurface } from '../styles/tokens';
 import { boolOf, recordId, textOf } from '@/utils/record';
 import { buildSessionRowAccessibility } from '@/sessionRowUi';
 import { PressableScale, PulseDot } from './primitives/motion';
@@ -21,7 +21,7 @@ export function SessionRow({ workspace, active, onPress }: SessionRowProps) {
   const lastActivity = textOf(workspace.lastActivity);
   const accessibility = buildSessionRowAccessibility(workspace);
 
-  const dotColor = unread ? '#db2777' : active || live ? '#10b981' : '#cbd2e1';
+  const dotColor = unread ? mobileSurface.accent : active || live ? '#16a34a' : '#cbd2e1';
 
   return (
     <PressableScale
@@ -34,7 +34,7 @@ export function SessionRow({ workspace, active, onPress }: SessionRowProps) {
       <View style={styles.row}>
         <PulseDot color={dotColor} size={10} pulsing={active || live} style={styles.dot} />
         <View style={styles.body}>
-          <Text style={styles.name}>{name}</Text>
+          <Text style={[styles.name, active ? styles.nameActive : null]}>{name}</Text>
           {cwd ? (
             <Text style={styles.cwd} numberOfLines={1}>
               {cwd}
@@ -78,7 +78,7 @@ function formatDate(value: string): string {
 
 const styles = StyleSheet.create({
   activeTag: {
-    backgroundColor: '#db2777',
+    backgroundColor: mobileSurface.accent,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 3,
@@ -86,25 +86,28 @@ const styles = StyleSheet.create({
   activeTagText: {
     color: '#ffffff',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 0.3,
   },
   badge: {
-    backgroundColor: 'rgba(241,242,249,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
+    borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
   badgeActive: {
-    backgroundColor: '#10b981',
+    backgroundColor: '#ecfdf5',
+    borderColor: '#bbf7d0',
   },
   badgeText: {
     color: mobileInk.soft,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   badgeTextActive: {
-    color: '#ffffff',
+    color: '#16a34a',
   },
   badges: {
     flexDirection: 'row',
@@ -117,20 +120,18 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   card: {
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
-    borderRadius: 20,
-    borderTopColor: mobileGlass.card.hairline,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 18,
     borderWidth: 1,
     minHeight: 68,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   cardActive: {
-    backgroundColor: '#fdf2f8',
-    borderColor: '#db2777',
-    borderTopColor: '#f9a8d4',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
   },
   cwd: {
     color: mobileInk.soft,
@@ -143,7 +144,10 @@ const styles = StyleSheet.create({
   name: {
     color: mobileInk.strong,
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '700',
+  },
+  nameActive: {
+    color: mobileSurface.accentStrong,
   },
   row: {
     alignItems: 'flex-start',

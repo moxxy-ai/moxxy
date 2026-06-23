@@ -1,8 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
+import { mobileFlat, mobileInk, mobileSurface } from '../styles/tokens';
 import { textOf } from '@/utils/record';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { PulseDot } from './primitives/motion';
 
 interface SessionHeaderProps {
@@ -23,24 +22,12 @@ export function SessionHeader({
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Gradient
-          preset={connected ? 'brand' : 'cta'}
-          radius={12}
-          style={styles.headerIcon}
-          stops={
-            connected
-              ? undefined
-              : [
-                  { offset: 0, color: '#fbbf24' },
-                  { offset: 1, color: '#f59e0b' },
-                ]
-          }
-        >
-          <MobileIcon name="agent" size={20} strokeWidth={2.3} color="#ffffff" />
-        </Gradient>
+        <View style={styles.headerIcon}>
+          <MobileIcon name="agent" size={20} strokeWidth={2.3} color={mobileSurface.accentStrong} />
+        </View>
         <View style={styles.headerCopy}>
           <View style={styles.statusRow}>
-            <PulseDot color={connected ? '#10b981' : '#f59e0b'} size={9} pulsing={connected} />
+            <PulseDot color={connected ? '#16a34a' : '#d97706'} size={9} pulsing={connected} />
             <Text style={styles.statusText}>{connected ? 'Connected' : 'Waiting for gateway'}</Text>
           </View>
           <Text style={styles.sessionId} numberOfLines={1}>
@@ -67,13 +54,12 @@ function Pill({ label }: { readonly label: string }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
-    borderRadius: 22,
-    borderTopColor: mobileGlass.card.hairline,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 20,
     borderWidth: 1,
     padding: 16,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   headerCopy: {
     flex: 1,
@@ -81,6 +67,10 @@ const styles = StyleSheet.create({
   },
   headerIcon: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
+    borderRadius: 12,
+    borderWidth: 1,
     flexShrink: 0,
     height: 44,
     justifyContent: 'center',
@@ -92,15 +82,17 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   pill: {
-    backgroundColor: '#fce7f3',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
+    borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
   pillText: {
-    color: '#be185d',
+    color: mobileInk.muted,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   pills: {
     flexDirection: 'row',
@@ -111,7 +103,7 @@ const styles = StyleSheet.create({
   sessionId: {
     color: mobileInk.strong,
     fontSize: 17,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: -0.3,
     marginTop: 3,
   },
@@ -123,6 +115,6 @@ const styles = StyleSheet.create({
   statusText: {
     color: mobileInk.muted,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
   },
 });

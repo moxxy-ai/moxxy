@@ -1,9 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Image, type ImageSourcePropType, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { WaitingRoomUi } from '../waitingRoomUi';
-import { mobileInk } from '../styles/tokens';
+import { mobileInk, mobileSurface } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { Appear, PressableScale, PulseDot, useReduceMotion } from './primitives/motion';
 
 const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
@@ -55,14 +54,7 @@ export function WaitingRoom({ waitingRoomUi, onOpenPairing }: WaitingRoomProps) 
 
         <Appear from="up" delay={60} distance={16}>
           <View style={styles.hero}>
-            <Gradient
-              direction="vertical"
-              stops={[
-                { offset: 0, color: '#fde9f4' },
-                { offset: 1, color: '#ffffff' },
-              ]}
-              style={styles.heroDisc}
-            />
+            <View style={styles.heroDisc} />
             <Animated.View style={[styles.mascotWrap, { transform: [{ translateY: floatY }] }]}>
               <Image source={moxxyMascot} accessibilityLabel="Moxxy assistant mascot waving" resizeMode="contain" style={styles.mascot} />
             </Animated.View>
@@ -83,7 +75,6 @@ export function WaitingRoom({ waitingRoomUi, onOpenPairing }: WaitingRoomProps) 
             style={styles.primaryAction}
             onPress={onOpenPairing}
           >
-            <Gradient preset="cta" radius={20} style={StyleSheet.absoluteFill} />
             <MobileIcon name="camera" size={20} strokeWidth={2.4} color="#ffffff" />
             <Text style={styles.primaryActionText}>{waitingRoomUi.actionLabel}</Text>
             <MobileIcon name="chevronRight" size={18} strokeWidth={2.6} color="#ffffff" />
@@ -99,9 +90,9 @@ export function WaitingRoom({ waitingRoomUi, onOpenPairing }: WaitingRoomProps) 
                 return (
                   <View key={`${index}-${step}`} style={[styles.stepEntry, isLast ? styles.stepEntryLast : null]}>
                     {isLast ? null : <View style={styles.stepConnector} />}
-                    <Gradient preset="cta" radius={999} style={styles.stepNode}>
+                    <View style={styles.stepNode}>
                       <Text style={styles.stepNumber}>{index + 1}</Text>
-                    </Gradient>
+                    </View>
                     <Text style={styles.stepText}>{step}</Text>
                   </View>
                 );
@@ -158,7 +149,8 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   heroDisc: {
-    borderColor: 'rgba(249, 168, 212, 0.5)',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
     borderRadius: 999,
     borderWidth: 1,
     height: 188,
@@ -176,18 +168,14 @@ const styles = StyleSheet.create({
   primaryAction: {
     alignItems: 'center',
     alignSelf: 'stretch',
-    borderRadius: 20,
+    backgroundColor: mobileSurface.accent,
+    borderRadius: 16,
     flexDirection: 'row',
     gap: 9,
     justifyContent: 'center',
     marginTop: 28,
-    minHeight: 58,
-    overflow: 'hidden',
+    minHeight: 56,
     paddingHorizontal: 20,
-    shadowColor: '#db2777',
-    shadowOffset: { height: 12, width: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 22,
   },
   primaryActionText: {
     color: '#ffffff',
@@ -201,19 +189,14 @@ const styles = StyleSheet.create({
   statusPill: {
     alignItems: 'center',
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.82)',
-    borderColor: 'rgba(255,255,255,0.72)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
-    borderTopColor: 'rgba(255,255,255,0.95)',
     borderWidth: 1,
     flexDirection: 'row',
     gap: 8,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    shadowColor: '#1e2540',
-    shadowOffset: { height: 6, width: 0 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
   },
   statusText: {
     color: mobileInk.muted,
@@ -222,12 +205,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   stepConnector: {
-    backgroundColor: 'rgba(249, 168, 212, 0.55)',
+    backgroundColor: mobileSurface.border,
     bottom: -22,
     left: 13,
     position: 'absolute',
     top: 28,
-    width: 2,
+    width: 1,
   },
   stepEntry: {
     flexDirection: 'row',
@@ -240,6 +223,8 @@ const styles = StyleSheet.create({
   },
   stepNode: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
+    borderRadius: 999,
     height: 28,
     justifyContent: 'center',
     width: 28,
@@ -268,17 +253,12 @@ const styles = StyleSheet.create({
   },
   stepsPanel: {
     alignSelf: 'stretch',
-    backgroundColor: 'rgba(255,255,255,0.82)',
-    borderColor: 'rgba(255,255,255,0.7)',
-    borderRadius: 24,
-    borderTopColor: 'rgba(255,255,255,0.95)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 20,
     borderWidth: 1,
     marginTop: 26,
     padding: 22,
-    shadowColor: '#1e2540',
-    shadowOffset: { height: 12, width: 0 },
-    shadowOpacity: 0.08,
-    shadowRadius: 26,
   },
   title: {
     color: mobileInk.strong,

@@ -1,4 +1,4 @@
-import { sx, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { ModelSelectorUiState } from '../modelSelector';
 import { MobileIcon } from './MobileIcon';
@@ -43,8 +43,8 @@ export function ModelSelectorSheet({
               style={[
                 styles.row,
                 {
-                  backgroundColor: provider.selected ? '#fdf2f8' : 'rgba(255,255,255,0.7)',
-                  borderColor: provider.active ? '#ec4899' : 'rgba(226,228,240,0.9)',
+                  backgroundColor: provider.selected ? mobileSurface.accentSoft : mobileSurface.card,
+                  borderColor: provider.active ? mobileSurface.accentBorder : mobileSurface.border,
                   borderWidth: provider.active ? 1.5 : 1,
                   gap: 7,
                   paddingHorizontal: 9,
@@ -54,14 +54,14 @@ export function ModelSelectorSheet({
             >
               <View
                 style={{
-                  backgroundColor: provider.active ? '#22c55e' : '#cbd5e1',
+                  backgroundColor: provider.active ? '#22c55e' : mobileInk.faint,
                   borderRadius: 999,
                   height: 7,
                   width: 7,
                 }}
               />
               <Text
-                style={sx(`min-w-0 flex-1 text-[12px] font-bold ${provider.selected ? 'text-primaryStrong' : ''}`, provider.selected ? null : { color: mobileInk.muted })}
+                style={sx('min-w-0 flex-1 text-[12px] font-bold', { color: provider.selected ? mobileSurface.accentStrong : mobileInk.muted })}
                 numberOfLines={1}
               >
                 {provider.label}
@@ -80,8 +80,8 @@ export function ModelSelectorSheet({
               style={[
                 styles.row,
                 {
-                  backgroundColor: model.active ? '#fdf2f8' : 'rgba(255,255,255,0.7)',
-                  borderColor: model.active ? '#ec4899' : 'rgba(226,228,240,0.9)',
+                  backgroundColor: model.active ? mobileSurface.accentSoft : mobileSurface.card,
+                  borderColor: model.active ? mobileSurface.accentBorder : mobileSurface.border,
                   borderWidth: model.active ? 1.5 : 1,
                   gap: 8,
                   paddingHorizontal: 10,
@@ -90,12 +90,12 @@ export function ModelSelectorSheet({
               onPress={() => onPickModel(ui.selectedProvider, model.id)}
             >
               <Text
-                style={sx(`min-w-0 flex-1 text-[12px] font-bold ${model.active ? 'text-primaryStrong' : 'text-text'}`)}
+                style={sx('min-w-0 flex-1 text-[12px] font-bold', { color: model.active ? mobileSurface.accentStrong : mobileInk.strong })}
                 numberOfLines={1}
               >
                 {model.label}
               </Text>
-              {model.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color="#db2777" /> : null}
+              {model.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color={mobileSurface.accentStrong} /> : null}
             </PressableScale>
           ))}
           {ui.modelRows.length === 0 ? (
@@ -117,8 +117,8 @@ export function ModelSelectorSheet({
 
 const styles = StyleSheet.create({
   emptyBox: {
-    backgroundColor: 'rgba(248,250,252,0.85)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,

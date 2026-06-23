@@ -1,9 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
 import type { WorkspaceMenuSection } from '@/navigation';
 import { buildWorkspaceSessionTreeState } from '@/workspaceSessionTreeUi';
-import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
+import { mobileFlat, mobileInk, mobileSurface } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { Appear, PressableScale, PulseDot } from './primitives/motion';
 
 interface WorkspaceSessionTreeProps {
@@ -33,14 +32,15 @@ export function WorkspaceSessionTree({
 }: WorkspaceSessionTreeProps) {
   const tree = buildWorkspaceSessionTreeState(sections, collapsedWorkspaceIds);
   const isScreen = variant === 'screen';
+  const isMenu = variant === 'menu';
 
   if (tree.sections.length === 0) {
     return (
       <Appear from="up" distance={12}>
         <View style={styles.emptyCard}>
-          <Gradient preset="brand" radius={18} style={styles.emptyBadge}>
-            <MobileIcon name="folder" size={26} strokeWidth={2.3} color="#ffffff" />
-          </Gradient>
+          <View style={styles.emptyBadge}>
+            <MobileIcon name="folder" size={24} strokeWidth={2.3} color={mobileSurface.accentStrong} />
+          </View>
           <Text style={styles.emptyTitle}>{emptyTitle}</Text>
           <Text style={styles.emptySubtitle}>{emptySubtitle}</Text>
         </View>
@@ -51,29 +51,33 @@ export function WorkspaceSessionTree({
   return (
     <View style={[styles.treeRoot, isScreen ? styles.treeRootScreen : null]}>
       {tree.sections.map((section) => (
-        <View key={section.id} style={isScreen ? styles.sectionScreen : styles.sectionMenu}>
+        <View
+          key={section.id}
+          style={[
+            isScreen ? styles.sectionScreen : styles.sectionMenu,
+            isMenu ? styles.sectionMenuCard : null,
+            isMenu && section.active ? styles.sectionMenuCardActive : null,
+          ]}
+        >
           <View style={styles.workspaceRow}>
             <PressableScale
               accessibilityLabel={section.toggleAccessibilityLabel}
               accessibilityRole="button"
               scaleTo={0.98}
-              style={[styles.workspaceToggle, section.active ? styles.workspaceToggleActive : null]}
+              style={[styles.workspaceToggle, !isMenu && section.active ? styles.workspaceToggleActive : null]}
               onPress={() => onToggleWorkspace(section.id)}
             >
               <View style={[styles.chevronBox, { transform: [{ rotate: section.expanded ? '0deg' : '-90deg' }] }]}>
                 <MobileIcon name="chevronDown" size={15} strokeWidth={2.55} color={mobileInk.soft} />
               </View>
-              <Gradient
-                preset="brand"
-                radius={10}
-                style={styles.folderTile}
-                stops={[
-                  { offset: 0, color: section.color },
-                  { offset: 1, color: '#db2777' },
-                ]}
-              >
-                <MobileIcon name="folder" size={17} strokeWidth={2.4} color="#ffffff" />
-              </Gradient>
+              <View style={[styles.folderTile, section.active ? styles.folderTileActive : null]}>
+                <MobileIcon
+                  name="folder"
+                  size={16}
+                  strokeWidth={2.4}
+                  color={section.active ? mobileSurface.accentStrong : mobileInk.muted}
+                />
+              </View>
               <Text style={[styles.workspaceTitle, section.active ? styles.workspaceTitleActive : null]} numberOfLines={1}>
                 {section.title}
               </Text>
@@ -89,7 +93,6 @@ export function WorkspaceSessionTree({
                 style={styles.workspaceNewButton}
                 onPress={() => onNewSession(section.id)}
               >
-                <Gradient preset="cta" radius={999} style={StyleSheet.absoluteFill} />
                 <MobileIcon name="plus" size={18} strokeWidth={2.55} color="#ffffff" />
               </PressableScale>
             ) : null}
@@ -107,7 +110,7 @@ export function WorkspaceSessionTree({
                   onPress={() => onSelectSession(session.id)}
                 >
                   <PulseDot
-                    color={session.statusLabel ? '#10b981' : session.active ? '#db2777' : '#cbd2e1'}
+                    color={session.statusLabel ? '#16a34a' : session.active ? mobileSurface.accent : '#cbd2e1'}
                     size={8}
                     pulsing={Boolean(session.statusLabel) || session.active}
                   />
@@ -144,7 +147,6 @@ export function WorkspaceSessionTree({
           style={styles.globalNewButton}
           onPress={() => onNewSession()}
         >
-          <Gradient preset="cta" radius={16} style={StyleSheet.absoluteFill} />
           <MobileIcon name="plus" size={18} strokeWidth={2.55} color="#ffffff" />
           <Text style={styles.globalNewText}>New session</Text>
         </PressableScale>
@@ -161,7 +163,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   collapsedSummaryButton: {
-    borderColor: 'rgba(226,228,240,0.9)',
+    borderColor: mobileSurface.border,
     borderLeftWidth: 1,
     justifyContent: 'center',
     marginLeft: 32,
@@ -171,44 +173,50 @@ const styles = StyleSheet.create({
   collapsedSummaryText: {
     color: mobileInk.soft,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   countBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(241,242,249,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
+    borderWidth: 1,
     minWidth: 28,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
   countBadgeActive: {
-    backgroundColor: '#db2777',
+    backgroundColor: mobileSurface.accent,
+    borderColor: mobileSurface.accent,
   },
   countText: {
     color: mobileInk.soft,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   countTextActive: {
     color: '#ffffff',
   },
   emptyBadge: {
     alignItems: 'center',
-    height: 56,
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 52,
     justifyContent: 'center',
     marginBottom: 16,
-    width: 56,
+    width: 52,
   },
   emptyCard: {
     alignItems: 'center',
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
-    borderRadius: 22,
-    borderTopColor: mobileGlass.card.hairline,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 20,
     borderWidth: 1,
     paddingHorizontal: 24,
     paddingVertical: 32,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   emptySubtitle: {
     color: mobileInk.soft,
@@ -220,35 +228,43 @@ const styles = StyleSheet.create({
   emptyTitle: {
     color: mobileInk.strong,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: -0.3,
     textAlign: 'center',
   },
   folderTile: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
+    borderRadius: 9,
+    borderWidth: 1,
     height: 30,
     justifyContent: 'center',
     width: 30,
   },
+  folderTileActive: {
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
+  },
   globalNewButton: {
     alignItems: 'center',
-    borderRadius: 16,
+    backgroundColor: mobileSurface.accent,
+    borderRadius: 14,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     marginTop: 12,
-    minHeight: 52,
-    overflow: 'hidden',
+    minHeight: 50,
   },
   globalNewText: {
     color: '#ffffff',
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: 0.2,
   },
   liveBadge: {
     alignItems: 'center',
-    backgroundColor: '#10b981',
+    backgroundColor: '#16a34a',
     borderRadius: 999,
     flexDirection: 'row',
     gap: 5,
@@ -258,17 +274,29 @@ const styles = StyleSheet.create({
   liveText: {
     color: '#ffffff',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   sectionMenu: {
-    marginBottom: 16,
+    marginBottom: 8,
+  },
+  sectionMenuCard: {
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  sectionMenuCardActive: {
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
   },
   sectionScreen: {
     paddingVertical: 4,
   },
   sessionButton: {
     alignItems: 'center',
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 8,
@@ -277,8 +305,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   sessionButtonActive: {
-    backgroundColor: '#fdf2f8',
-    borderColor: '#db2777',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
   },
   sessionButtonInactive: {
     borderColor: 'transparent',
@@ -287,16 +315,16 @@ const styles = StyleSheet.create({
     color: mobileInk.soft,
     flex: 1,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '500',
     lineHeight: 24,
     minWidth: 0,
   },
   sessionTitleActive: {
-    color: mobileInk.strong,
-    fontWeight: '900',
+    color: mobileSurface.accentStrong,
+    fontWeight: '800',
   },
   sessionsList: {
-    borderColor: 'rgba(226,228,240,0.9)',
+    borderColor: mobileSurface.border,
     borderLeftWidth: 1,
     marginLeft: 32,
     paddingLeft: 12,
@@ -305,21 +333,20 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   treeRootScreen: {
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
-    borderRadius: 20,
-    borderTopColor: mobileGlass.card.hairline,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 18,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   workspaceNewButton: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
     borderRadius: 999,
     height: 38,
     justifyContent: 'center',
-    overflow: 'hidden',
     width: 38,
   },
   workspaceRow: {
@@ -328,10 +355,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   workspaceTitle: {
-    color: mobileInk.soft,
+    color: mobileInk.muted,
     flex: 1,
     fontSize: 17,
-    fontWeight: '900',
+    fontWeight: '800',
     minWidth: 0,
   },
   workspaceTitleActive: {
@@ -339,7 +366,7 @@ const styles = StyleSheet.create({
   },
   workspaceToggle: {
     alignItems: 'center',
-    borderRadius: 14,
+    borderRadius: 12,
     flex: 1,
     flexDirection: 'row',
     gap: 10,
@@ -348,6 +375,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   workspaceToggleActive: {
-    backgroundColor: '#fdf2f8',
+    backgroundColor: mobileSurface.accentSoft,
   },
 });

@@ -1,8 +1,7 @@
-import { mobileGlass, mobileInk } from '../styles/tokens';
+import { mobileInk, mobileSurface } from '../styles/tokens';
 import { Animated, Text, View } from 'react-native';
 import { useThinkingDots } from '@/hooks/useThinkingDots';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { Appear } from './primitives/motion';
 
 export function ThinkingIndicator() {
@@ -15,20 +14,24 @@ export function ThinkingIndicator() {
         style={{ alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 12 }}
         testID="mobile-thinking-indicator"
       >
-        <Gradient
-          preset="brand"
-          radius={11}
-          style={{ alignItems: 'center', height: 34, justifyContent: 'center', width: 34 }}
-        >
-          <MobileIcon name="message" size={18} strokeWidth={2.4} color="#ffffff" />
-        </Gradient>
         <View
           style={{
             alignItems: 'center',
-            backgroundColor: mobileGlass.card.fill,
-            borderColor: mobileGlass.card.border,
+            backgroundColor: mobileSurface.accentSoft,
+            borderRadius: 999,
+            height: 34,
+            justifyContent: 'center',
+            width: 34,
+          }}
+        >
+          <MobileIcon name="message" size={18} strokeWidth={2.4} color={mobileSurface.accent} />
+        </View>
+        <View
+          style={{
+            alignItems: 'center',
+            backgroundColor: mobileSurface.card,
+            borderColor: mobileSurface.border,
             borderRadius: 14,
-            borderTopColor: mobileGlass.card.hairline,
             borderWidth: 1,
             flexDirection: 'row',
             gap: 9,
@@ -42,7 +45,7 @@ export function ThinkingIndicator() {
               <Animated.View
                 key={index}
                 style={{
-                  backgroundColor: '#ec4899',
+                  backgroundColor: mobileSurface.accent,
                   borderRadius: 999,
                   height: 6,
                   opacity,

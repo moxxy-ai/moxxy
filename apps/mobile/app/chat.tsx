@@ -268,6 +268,7 @@ export default function ChatScreen() {
 
           {!showWaitingRoom ? (
             <ChatFloatingControls
+              title={activeSessionTitle}
               pendingActions={pendingActions}
               onToggleMenu={() => {
                 Keyboard.dismiss();

@@ -1,10 +1,9 @@
-import { sx, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { StyleSheet, Text, View } from 'react-native';
 import { textOf } from '@/utils/record';
 import { permissionResponseForAction } from '../permissionResponse';
 import { MobileIcon } from './MobileIcon';
 import { GlassSheet } from './primitives/GlassSheet';
-import { Gradient } from './primitives/Gradient';
 import { PressableScale } from './primitives/motion';
 
 interface PermissionCardProps {
@@ -20,9 +19,9 @@ export function PermissionCard({ ask, onRespond }: PermissionCardProps) {
   return (
     <GlassSheet radius={20} style={styles.sheet}>
       <View style={sx('flex-row items-start gap-3')}>
-        <Gradient preset="brand" radius={12} style={styles.iconBadge}>
-          <MobileIcon name="actions" size={17} strokeWidth={2.35} color="#ffffff" />
-        </Gradient>
+        <View style={styles.iconBadge}>
+          <MobileIcon name="actions" size={17} strokeWidth={2.35} color={mobileSurface.accentStrong} />
+        </View>
         <View style={sx('min-w-0 flex-1')}>
           <Text style={sx('text-[15px] font-bold', { color: mobileInk.strong })} numberOfLines={1}>{name}</Text>
           <Text style={sx('mt-1 text-[13px] leading-5', { color: mobileInk.soft })}>{description}</Text>
@@ -58,7 +57,6 @@ function DecisionButton({
       ]}
       onPress={onPress}
     >
-      {tone === 'primary' ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
       <Text
         style={[
           sx('text-[13px] font-bold'),
@@ -81,24 +79,26 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: 'center',
     minHeight: 44,
-    overflow: 'hidden',
     paddingHorizontal: 14,
   },
   buttonDanger: {
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(254,205,211,0.95)',
+    backgroundColor: mobileSurface.card,
+    borderColor: '#fecdd3',
     borderWidth: 1,
   },
   buttonNeutral: {
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderWidth: 1,
   },
   buttonPrimary: {
+    backgroundColor: mobileSurface.accent,
     minWidth: 112,
   },
   iconBadge: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accentSoft,
+    borderRadius: 12,
     height: 36,
     justifyContent: 'center',
     width: 36,

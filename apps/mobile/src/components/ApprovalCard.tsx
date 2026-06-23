@@ -1,10 +1,9 @@
-import { sx, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { textOf } from '@/utils/record';
 import { MobileIcon } from './MobileIcon';
 import { GlassSheet } from './primitives/GlassSheet';
-import { Gradient } from './primitives/Gradient';
 import { PressableScale } from './primitives/motion';
 
 interface ApprovalCardProps {
@@ -48,9 +47,9 @@ export function ApprovalCard({ ask, onRespond }: ApprovalCardProps) {
   return (
     <GlassSheet radius={20} style={styles.sheet}>
       <View style={sx('flex-row items-start gap-3')}>
-        <Gradient preset="brand" radius={12} style={styles.iconBadge}>
-          <MobileIcon name="actions" size={17} strokeWidth={2.35} color="#ffffff" />
-        </Gradient>
+        <View style={styles.iconBadge}>
+          <MobileIcon name="actions" size={17} strokeWidth={2.35} color={mobileSurface.accentStrong} />
+        </View>
         <View style={sx('min-w-0 flex-1')}>
           <Text style={sx('text-[15px] font-bold', { color: mobileInk.strong })}>{textOf(approval.title, 'Approval required')}</Text>
           <Text style={sx('mt-0.5 text-[12px] leading-4', { color: mobileInk.soft })}>The current turn is waiting for your decision.</Text>
@@ -115,7 +114,6 @@ function Button({
       disabled={disabled}
       onPress={onPress}
     >
-      {primary ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
       <Text
         style={[
           sx('text-[13px] font-bold'),
@@ -134,8 +132,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const styles = StyleSheet.create({
   bodyBox: {
-    backgroundColor: 'rgba(248,250,252,0.85)',
-    borderColor: 'rgba(226,228,240,0.85)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     maxHeight: 150,
@@ -145,31 +143,33 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: 'center',
     minHeight: 44,
-    overflow: 'hidden',
     paddingHorizontal: 14,
   },
   buttonDanger: {
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(254,205,211,0.95)',
+    backgroundColor: mobileSurface.card,
+    borderColor: '#fecdd3',
     borderWidth: 1,
   },
   buttonNeutral: {
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderWidth: 1,
   },
   buttonPrimary: {
+    backgroundColor: mobileSurface.accent,
     minWidth: 110,
   },
   iconBadge: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accentSoft,
+    borderRadius: 12,
     height: 36,
     justifyContent: 'center',
     width: 36,
   },
   input: {
-    backgroundColor: 'rgba(248,250,252,0.85)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     color: mobileInk.strong,

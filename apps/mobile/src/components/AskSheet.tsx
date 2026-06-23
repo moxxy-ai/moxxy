@@ -1,4 +1,4 @@
-import { sx, mobileGlass, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { recordId, textOf } from '@/utils/record';
 import type { PermissionResponseMode } from '../permissionResponse';
@@ -93,8 +93,8 @@ const styles = StyleSheet.create({
   },
   morePill: {
     alignSelf: 'flex-start',
-    backgroundColor: mobileGlass.subtle.fill,
-    borderColor: mobileGlass.subtle.border,
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 12,

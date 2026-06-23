@@ -1,11 +1,14 @@
-import { sx, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { textOf } from '@/utils/record';
 import { MobileIcon } from './MobileIcon';
 import { GlassSheet } from './primitives/GlassSheet';
-import { Gradient } from './primitives/Gradient';
 import { PressableScale } from './primitives/motion';
+
+const AMBER = '#d97706';
+const AMBER_SOFT = '#fffaf0';
+const AMBER_BORDER = '#fcd9a8';
 
 interface WorkflowAskCardProps {
   readonly ask: Record<string, unknown>;
@@ -21,17 +24,9 @@ export function WorkflowAskCard({ ask, onRespond }: WorkflowAskCardProps) {
   return (
     <GlassSheet radius={20} style={styles.sheet}>
       <View style={sx('flex-row items-start gap-3')}>
-        <Gradient
-          direction="diagonal"
-          radius={12}
-          stops={[
-            { offset: 0, color: '#fbbf24' },
-            { offset: 1, color: '#d97706' },
-          ]}
-          style={styles.iconBadge}
-        >
-          <MobileIcon name="workflows" size={18} strokeWidth={2.4} color="#ffffff" />
-        </Gradient>
+        <View style={styles.iconBadge}>
+          <MobileIcon name="workflows" size={18} strokeWidth={2.4} color={AMBER} />
+        </View>
         <View style={sx('min-w-0 flex-1')}>
           <Text style={sx('text-[15px] font-black', { color: mobileInk.strong })} numberOfLines={1}>
             {textOf(workflow.workflow, 'Workflow')} is waiting
@@ -64,15 +59,6 @@ export function WorkflowAskCard({ ask, onRespond }: WorkflowAskCardProps) {
           disabled={!canSend}
           onPress={() => onRespond({ text: reply.trim() })}
         >
-          <Gradient
-            direction="horizontal"
-            radius={14}
-            stops={[
-              { offset: 0, color: '#f59e0b' },
-              { offset: 1, color: '#d97706' },
-            ]}
-            style={StyleSheet.absoluteFill}
-          />
           <MobileIcon name="send" size={15} strokeWidth={2.5} color="#ffffff" />
           <Text style={sx('text-[13px] font-bold', { color: mobileInk.onBrand })}>Send reply</Text>
         </PressableScale>
@@ -88,14 +74,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const styles = StyleSheet.create({
   iconBadge: {
     alignItems: 'center',
+    backgroundColor: AMBER_SOFT,
+    borderColor: AMBER_BORDER,
+    borderRadius: 12,
+    borderWidth: 1,
     flexShrink: 0,
     height: 38,
     justifyContent: 'center',
     width: 38,
   },
   input: {
-    backgroundColor: 'rgba(248,250,252,0.85)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     color: mobileInk.strong,
@@ -106,24 +96,24 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   promptBox: {
-    backgroundColor: 'rgba(248,250,252,0.85)',
-    borderColor: 'rgba(226,228,240,0.85)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     maxHeight: 150,
   },
   sendButton: {
     alignItems: 'center',
+    backgroundColor: AMBER,
     borderRadius: 14,
     flexDirection: 'row',
     gap: 7,
     justifyContent: 'center',
     minHeight: 44,
-    overflow: 'hidden',
     paddingHorizontal: 18,
   },
   sheet: {
-    borderColor: 'rgba(245,158,11,0.4)',
+    borderColor: AMBER_BORDER,
     gap: 12,
     padding: 14,
   },

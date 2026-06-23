@@ -12,9 +12,8 @@ import {
   type ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { mobileInk, type GradientStop, type mobileGradients } from '../styles/tokens';
+import { mobileInk, mobileSurface } from '../styles/tokens';
 import { MobileIcon, type MobileIconName } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { Appear, PressableScale, useReduceMotion } from './primitives/motion';
 
 const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
@@ -25,8 +24,6 @@ interface Slide {
   readonly title: string;
   readonly body: string;
   readonly icon: MobileIconName;
-  readonly tile: keyof typeof mobileGradients;
-  readonly wash: GradientStop[];
   readonly mascot?: boolean;
 }
 
@@ -37,12 +34,6 @@ const SLIDES: ReadonlyArray<Slide> = [
     title: 'Your agent,\nin your pocket',
     body: 'Moxxy Mobile is a live extension of your desktop — the same runtime, now in your hand.',
     icon: 'message',
-    tile: 'cta',
-    wash: [
-      { offset: 0, color: '#fde7f3' },
-      { offset: 0.6, color: '#f1f2f9' },
-      { offset: 1, color: '#ede9fe' },
-    ],
     mascot: true,
   },
   {
@@ -51,12 +42,6 @@ const SLIDES: ReadonlyArray<Slide> = [
     title: 'Connect\nin seconds',
     body: 'Open Moxxy Desktop, head to Settings → Mobile, and scan the QR code. Encrypted, no account needed.',
     icon: 'camera',
-    tile: 'accent',
-    wash: [
-      { offset: 0, color: '#cffafe' },
-      { offset: 0.6, color: '#f1f2f9' },
-      { offset: 1, color: '#e0f2fe' },
-    ],
   },
   {
     key: 'drive',
@@ -64,12 +49,6 @@ const SLIDES: ReadonlyArray<Slide> = [
     title: 'Run every\nsession',
     body: 'Jump into any workspace, approve actions, switch models and modes, and watch tools stream live.',
     icon: 'bolt',
-    tile: 'violet',
-    wash: [
-      { offset: 0, color: '#ede9fe' },
-      { offset: 0.6, color: '#f1f2f9' },
-      { offset: 1, color: '#fae8ff' },
-    ],
   },
   {
     key: 'anywhere',
@@ -77,12 +56,6 @@ const SLIDES: ReadonlyArray<Slide> = [
     title: 'Take over\non the fly',
     body: 'Away from your desk? Your phone becomes mission control for everything Moxxy is doing.',
     icon: 'gateway',
-    tile: 'sunset',
-    wash: [
-      { offset: 0, color: '#ffe4e6' },
-      { offset: 0.55, color: '#f1f2f9' },
-      { offset: 1, color: '#fce7f3' },
-    ],
   },
 ];
 
@@ -145,19 +118,6 @@ export function Onboarding({ onDone }: OnboardingProps) {
 
   return (
     <View style={styles.root}>
-      {SLIDES.map((slide, slideIndex) => {
-        const opacity = scrollX.interpolate({
-          inputRange: [(slideIndex - 1) * width, slideIndex * width, (slideIndex + 1) * width],
-          outputRange: [0, 1, 0],
-          extrapolate: 'clamp',
-        });
-        return (
-          <Animated.View key={`wash-${slide.key}`} style={[StyleSheet.absoluteFill, { opacity }]}>
-            <Gradient direction="diagonal" stops={slide.wash} style={StyleSheet.absoluteFill} />
-          </Animated.View>
-        );
-      })}
-
       <Animated.View style={[styles.skip, { top: insets.top + 8, opacity: skipOpacity }]}>
         <PressableScale
           accessibilityRole="button"
@@ -217,7 +177,6 @@ export function Onboarding({ onDone }: OnboardingProps) {
           style={styles.cta}
           onPress={goNext}
         >
-          <Gradient preset="cta" radius={18} style={StyleSheet.absoluteFill} />
           <Text style={styles.ctaText}>{isLast ? 'Get started' : 'Next'}</Text>
           <MobileIcon name={isLast ? 'check' : 'chevronRight'} size={18} strokeWidth={2.6} color="#ffffff" />
         </PressableScale>
@@ -260,16 +219,13 @@ function SlideView({
           transform: [{ translateX: artTranslate }, { scale: artScale }, { translateY: floatY }],
         }}
       >
-        <View style={styles.halo}>
-          <Gradient preset={slide.tile} radius={999} style={StyleSheet.absoluteFill} />
-        </View>
         <View style={styles.artGlass}>
           {slide.mascot ? (
             <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy mascot" style={styles.mascot} />
           ) : (
-            <Gradient preset={slide.tile} radius={32} style={styles.artTile}>
+            <View style={styles.artTile}>
               <MobileIcon name={slide.icon} size={54} strokeWidth={2.4} color="#ffffff" />
-            </Gradient>
+            </View>
           )}
         </View>
       </Animated.View>
@@ -286,21 +242,18 @@ function SlideView({
 const styles = StyleSheet.create({
   artGlass: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    borderColor: 'rgba(255,255,255,0.75)',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
     borderRadius: 48,
-    borderTopColor: 'rgba(255,255,255,0.95)',
     borderWidth: 1,
     height: 200,
     justifyContent: 'center',
-    shadowColor: '#1e2540',
-    shadowOffset: { width: 0, height: 22 },
-    shadowOpacity: 0.16,
-    shadowRadius: 40,
     width: 200,
   },
   artTile: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
+    borderRadius: 32,
     height: 120,
     justifyContent: 'center',
     width: 120,
@@ -315,12 +268,12 @@ const styles = StyleSheet.create({
   },
   cta: {
     alignItems: 'center',
-    borderRadius: 18,
+    backgroundColor: mobileSurface.accent,
+    borderRadius: 16,
     flexDirection: 'row',
     gap: 8,
     height: 56,
     justifyContent: 'center',
-    overflow: 'hidden',
     width: '100%',
   },
   ctaText: {
@@ -330,9 +283,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   dot: {
-    backgroundColor: '#db2777',
+    backgroundColor: mobileSurface.accent,
     borderRadius: 999,
     height: 8,
+    width: 8,
   },
   dots: {
     alignItems: 'center',
@@ -352,19 +306,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingTop: 6,
   },
-  halo: {
-    borderRadius: 999,
-    height: 240,
-    opacity: 0.4,
-    position: 'absolute',
-    width: 240,
-  },
   mascot: {
     height: 150,
     width: 150,
   },
   root: {
-    backgroundColor: '#f1f2f9',
+    backgroundColor: mobileSurface.appBg,
     flex: 1,
     justifyContent: 'space-between',
   },
@@ -374,8 +321,8 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   skipButton: {
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderColor: 'rgba(255,255,255,0.85)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 16,

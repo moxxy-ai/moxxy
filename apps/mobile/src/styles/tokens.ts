@@ -524,3 +524,51 @@ export const mobileInk = {
   faint: tokens.color.textDim, // decorative only
   onBrand: '#ffffff',
 } as const;
+
+/* ============================================================================
+ * Refined-minimal surface system (2026 rebuild). A quiet, editorial light
+ * theme: a soft neutral canvas, white cards separated by HAIRLINES rather than
+ * shadow or gradient, and brand pink used sparingly — the send button, active
+ * selection, links and the single primary CTA per screen. No gradients, almost
+ * no shadow. This supersedes the glass/gradient layer above for redesigned
+ * components.
+ * ========================================================================== */
+export const mobileSurface = {
+  /** Page canvas — a hair of cool grey so white cards read as raised. */
+  appBg: '#f5f6f9',
+  /** Card / sheet fill. */
+  card: '#ffffff',
+  /** Recessed input / field fill. */
+  field: '#f3f4f8',
+  /** Hairline border around cards & controls. */
+  border: '#e7e9f0',
+  /** A slightly stronger hairline for inputs / emphasis. */
+  borderStrong: '#dadde7',
+  /** Row divider inside grouped cards. */
+  divider: '#eef0f5',
+  /** The one accent — pink — and its quiet tints. */
+  accent: '#ec4899',
+  accentStrong: '#db2777',
+  accentSoft: '#fdf2f8',
+  accentBorder: '#f6cfe3',
+} as const;
+
+/** Near-flat depth. Hairlines do the separation; shadow is a whisper, reserved
+ *  for genuinely floating chrome (composer, sheets, FABs). */
+export const mobileFlat = {
+  none: {} as Record<string, never>,
+  card: {
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  floating: {
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+} as const;

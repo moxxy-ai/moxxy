@@ -1,8 +1,7 @@
-import { sx, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { StyleSheet, Text, View } from 'react-native';
 import { MobileIcon } from './MobileIcon';
 import { GlassSheet } from './primitives/GlassSheet';
-import { Gradient } from './primitives/Gradient';
 import { PressableScale } from './primitives/motion';
 
 interface CompactContextSheetProps {
@@ -18,9 +17,9 @@ export function CompactContextSheet(props: CompactContextSheetProps) {
   return (
     <GlassSheet radius={22} style={styles.sheet}>
       <View style={{ alignItems: 'center', flexDirection: 'row', gap: 12 }}>
-        <Gradient preset="brand" radius={12} style={styles.iconBadge}>
-          <MobileIcon name="actions" size={19} strokeWidth={2.45} color="#ffffff" />
-        </Gradient>
+        <View style={styles.iconBadge}>
+          <MobileIcon name="actions" size={19} strokeWidth={2.45} color={mobileSurface.accentStrong} />
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={sx('text-[17px] font-black', { color: mobileInk.strong })}>Compact context?</Text>
           <Text style={sx('mt-0.5 text-[12px] font-semibold', { color: mobileInk.soft })}>
@@ -52,7 +51,6 @@ export function CompactContextSheet(props: CompactContextSheetProps) {
           disabled={props.compacting}
           onPress={props.onConfirm}
         >
-          <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} />
           <Text style={sx('text-[13px] font-bold', { color: mobileInk.onBrand })}>
             {props.compacting ? 'Compacting...' : 'Compact now'}
           </Text>
@@ -65,8 +63,8 @@ export function CompactContextSheet(props: CompactContextSheetProps) {
 const styles = StyleSheet.create({
   cancelButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     flex: 1,
@@ -75,14 +73,16 @@ const styles = StyleSheet.create({
   },
   confirmButton: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
     borderRadius: 14,
     flex: 1,
     justifyContent: 'center',
     minHeight: 44,
-    overflow: 'hidden',
   },
   iconBadge: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accentSoft,
+    borderRadius: 12,
     height: 40,
     justifyContent: 'center',
     width: 40,

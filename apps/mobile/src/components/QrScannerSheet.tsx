@@ -3,9 +3,8 @@ import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { CameraPermissionState, PairingUiState } from '../pairingUi';
-import { mobileInk } from '../styles/tokens';
+import { mobileInk, mobileSurface } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { Appear, PressableScale, useReduceMotion } from './primitives/motion';
 
 interface QrScannerSheetProps {
@@ -59,9 +58,9 @@ export function QrScannerSheet({
             </View>
           ) : (
             <View style={styles.permissionState}>
-              <Gradient preset="brand" radius={18} style={styles.permissionIcon}>
+              <View style={styles.permissionIcon}>
                 <MobileIcon name="camera" size={26} strokeWidth={2.3} color="#ffffff" />
-              </Gradient>
+              </View>
               <Text style={styles.permissionTitle}>
                 {permission === 'denied' ? 'Camera access is blocked' : 'Camera permission is required'}
               </Text>
@@ -70,7 +69,6 @@ export function QrScannerSheet({
               </Text>
               {permission !== 'denied' ? (
                 <PressableScale accessibilityRole="button" accessibilityLabel="Allow camera" onPress={onRequestPermission} scaleTo={0.95} style={styles.permissionButton}>
-                  <Gradient preset="cta" radius={16} style={StyleSheet.absoluteFill} />
                   <Text style={styles.permissionButtonText}>Allow camera</Text>
                 </PressableScale>
               ) : null}
@@ -125,15 +123,7 @@ function ScanFrame({ processing }: { readonly processing: boolean }) {
       <View style={[styles.corner, styles.cornerBR]} />
       {!processing && !reduce ? (
         <Animated.View style={[styles.scanLineWrap, { transform: [{ translateY }] }]}>
-          <Gradient
-            direction="horizontal"
-            stops={[
-              { offset: 0, color: 'rgba(236,72,153,0)' },
-              { offset: 0.5, color: '#f472b6' },
-              { offset: 1, color: 'rgba(236,72,153,0)' },
-            ]}
-            style={styles.scanLine}
-          />
+          <View style={styles.scanLine} />
         </Animated.View>
       ) : null}
     </View>
@@ -165,19 +155,15 @@ const styles = StyleSheet.create({
   cameraCard: {
     aspectRatio: 1,
     backgroundColor: '#020617',
-    borderColor: 'rgba(15,23,42,0.6)',
-    borderRadius: 28,
+    borderColor: mobileSurface.border,
+    borderRadius: 24,
     borderWidth: 1,
-    shadowColor: '#0f172a',
-    shadowOffset: { height: 18, width: 0 },
-    shadowOpacity: 0.22,
-    shadowRadius: 34,
     width: '100%',
   },
-  // Inner clip so the live camera honours the rounded corners while the card's
-  // depth shadow (above) still renders — iOS clips shadows on overflow:hidden views.
+  // Inner clip so the live camera honours the rounded corners — kept separate from
+  // the card view (iOS clips shadows/borders oddly on overflow:hidden views).
   cameraClip: {
-    borderRadius: 27,
+    borderRadius: 23,
     flex: 1,
     overflow: 'hidden',
   },
@@ -187,9 +173,9 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderColor: 'rgba(226,228,240,0.9)',
-    borderRadius: 18,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 16,
     borderWidth: 1,
     justifyContent: 'center',
     minHeight: 52,
@@ -211,7 +197,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   corner: {
-    borderColor: '#f472b6',
+    borderColor: mobileSurface.accent,
     height: CORNER,
     position: 'absolute',
     width: CORNER,
@@ -269,11 +255,11 @@ const styles = StyleSheet.create({
   },
   permissionButton: {
     alignItems: 'center',
-    borderRadius: 16,
+    backgroundColor: mobileSurface.accent,
+    borderRadius: 14,
     justifyContent: 'center',
     marginTop: 20,
     minHeight: 48,
-    overflow: 'hidden',
     paddingHorizontal: 22,
   },
   permissionButtonText: {
@@ -290,6 +276,8 @@ const styles = StyleSheet.create({
   },
   permissionIcon: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
+    borderRadius: 16,
     height: 56,
     justifyContent: 'center',
     marginBottom: 16,
@@ -308,8 +296,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   scanLine: {
+    backgroundColor: mobileSurface.accent,
     borderRadius: 999,
-    height: 3,
+    height: 2,
     width: SCAN_WINDOW - 28,
   },
   scanLineWrap: {
@@ -323,7 +312,7 @@ const styles = StyleSheet.create({
     width: SCAN_WINDOW,
   },
   sheet: {
-    backgroundColor: '#f1f2f9',
+    backgroundColor: mobileSurface.appBg,
     bottom: 0,
     left: 0,
     position: 'absolute',
@@ -334,10 +323,9 @@ const styles = StyleSheet.create({
   statusPill: {
     alignItems: 'center',
     alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.82)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
-    borderTopColor: 'rgba(255,255,255,0.95)',
     borderWidth: 1,
     flexDirection: 'row',
     gap: 9,

@@ -1,9 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
+import { mobileFlat, mobileInk, mobileSurface } from '../styles/tokens';
 import type { MobileSchedule } from '../schedulerUi';
 import { buildScheduleAccessibilityLabel } from '../schedulerUi';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { Appear, PressableScale, PulseDot } from './primitives/motion';
 
 interface SchedulerListProps {
@@ -26,9 +25,6 @@ export function SchedulerList({
   return (
     <View style={styles.stack}>
       <View style={styles.sectionHeader}>
-        <Gradient preset="accent" radius={11} style={styles.sectionIcon}>
-          <MobileIcon name="scheduler" size={17} strokeWidth={2.3} color="#ffffff" />
-        </Gradient>
         <View style={styles.sectionCopy}>
           <Text style={styles.sectionTitle}>Scheduler</Text>
           <Text style={styles.sectionSubtitle}>
@@ -40,7 +36,7 @@ export function SchedulerList({
           </Text>
         </View>
         <PressableScale style={styles.refreshButton} scaleTo={0.94} onPress={onRefresh} accessibilityRole="button">
-          <MobileIcon name="actions" size={18} strokeWidth={2.4} color="#0891b2" />
+          <MobileIcon name="actions" size={18} strokeWidth={2.4} color={mobileInk.muted} />
         </PressableScale>
       </View>
 
@@ -54,9 +50,9 @@ export function SchedulerList({
       {schedules.length === 0 ? (
         <Appear from="up" distance={12}>
           <View style={styles.emptyCard}>
-            <Gradient preset="accent" radius={18} style={styles.emptyBadge}>
-              <MobileIcon name="scheduler" size={26} strokeWidth={2.3} color="#ffffff" />
-            </Gradient>
+            <View style={styles.emptyBadge}>
+              <MobileIcon name="scheduler" size={24} strokeWidth={2.3} color={mobileSurface.accentStrong} />
+            </View>
             <Text style={styles.emptyTitle}>No schedules visible</Text>
             <Text style={styles.emptyBody}>
               Cron jobs and one-shot scheduled prompts will appear here after they are created by the agent or desktop.
@@ -69,7 +65,7 @@ export function SchedulerList({
         <View key={schedule.id} style={styles.card} accessibilityLabel={buildScheduleAccessibilityLabel(schedule)}>
           <View style={styles.cardRow}>
             <PulseDot
-              color={schedule.enabled ? '#10b981' : '#cbd2e1'}
+              color={schedule.enabled ? '#16a34a' : '#cbd2e1'}
               size={10}
               pulsing={schedule.enabled}
               style={styles.dot}
@@ -110,7 +106,6 @@ export function SchedulerList({
               onPress={() => onToggle(schedule.id, !schedule.enabled)}
               accessibilityRole="button"
             >
-              {schedule.enabled ? null : <Gradient preset="cta" radius={999} style={StyleSheet.absoluteFill} />}
               <MobileIcon
                 name={schedule.enabled ? 'stop' : 'check'}
                 size={16}
@@ -140,7 +135,7 @@ export function SchedulerList({
 function StatusPill({ enabled, label }: { readonly enabled: boolean; readonly label: string }) {
   return (
     <View style={[styles.pill, enabled ? styles.pillGreen : null]}>
-      {enabled ? <PulseDot color="#10b981" size={6} pulsing /> : null}
+      {enabled ? <PulseDot color="#16a34a" size={6} pulsing /> : null}
       <Text style={[styles.pillText, enabled ? styles.pillTextGreen : null]}>{label}</Text>
     </View>
   );
@@ -161,18 +156,21 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   badge: {
-    backgroundColor: 'rgba(241,242,249,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
   },
   badgeDanger: {
-    backgroundColor: 'rgba(239,68,68,0.1)',
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
   },
   badgeText: {
     color: mobileInk.muted,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   badgeTextDanger: {
     color: '#ef4444',
@@ -184,13 +182,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   card: {
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
-    borderRadius: 20,
-    borderTopColor: mobileGlass.card.hairline,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 18,
     borderWidth: 1,
     padding: 16,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   cardBody: {
     flex: 1,
@@ -203,9 +200,9 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(239,68,68,0.25)',
-    borderRadius: 999,
+    backgroundColor: mobileSurface.card,
+    borderColor: '#fecaca',
+    borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 8,
@@ -216,17 +213,21 @@ const styles = StyleSheet.create({
   deleteText: {
     color: '#ef4444',
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   dot: {
     marginTop: 6,
   },
   emptyBadge: {
     alignItems: 'center',
-    height: 56,
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 52,
     justifyContent: 'center',
     marginBottom: 16,
-    width: 56,
+    width: 52,
   },
   emptyBody: {
     color: mobileInk.soft,
@@ -237,70 +238,72 @@ const styles = StyleSheet.create({
   },
   emptyCard: {
     alignItems: 'center',
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
-    borderRadius: 22,
-    borderTopColor: mobileGlass.card.hairline,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 20,
     borderWidth: 1,
     paddingHorizontal: 24,
     paddingVertical: 32,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   emptyTitle: {
     color: mobileInk.strong,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '800',
     letterSpacing: -0.3,
     textAlign: 'center',
   },
   errorBody: {
-    color: '#ef4444',
+    color: '#dc2626',
     fontSize: 13,
     lineHeight: 20,
     marginTop: 4,
   },
   errorCard: {
-    backgroundColor: 'rgba(239,68,68,0.08)',
-    borderColor: 'rgba(239,68,68,0.2)',
-    borderRadius: 18,
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
+    borderRadius: 16,
     borderWidth: 1,
     padding: 16,
   },
   errorTitle: {
-    color: '#ef4444',
+    color: '#dc2626',
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   lastError: {
-    color: '#ef4444',
+    color: '#dc2626',
     fontSize: 12,
     lineHeight: 20,
     marginTop: 12,
   },
   pill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(241,242,249,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
+    borderWidth: 1,
     flexDirection: 'row',
     gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
   },
   pillGreen: {
-    backgroundColor: 'rgba(16,185,129,0.12)',
+    backgroundColor: '#ecfdf5',
+    borderColor: '#bbf7d0',
   },
   pillText: {
     color: mobileInk.muted,
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   pillTextGreen: {
-    color: '#10b981',
+    color: '#16a34a',
   },
   refreshButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(236,254,255,0.9)',
-    borderColor: 'rgba(103,232,249,0.5)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
     borderWidth: 1,
     height: 40,
@@ -310,7 +313,7 @@ const styles = StyleSheet.create({
   scheduleName: {
     color: mobileInk.strong,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
     lineHeight: 24,
   },
   schedulePreview: {
@@ -329,23 +332,17 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 4,
   },
-  sectionIcon: {
-    alignItems: 'center',
-    height: 28,
-    justifyContent: 'center',
-    width: 28,
-  },
   sectionSubtitle: {
     color: mobileInk.soft,
     fontSize: 12,
-    fontWeight: '700',
-    marginTop: 1,
+    fontWeight: '600',
+    marginTop: 2,
   },
   sectionTitle: {
     color: mobileInk.strong,
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: -0.2,
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
   stack: {
     gap: 12,
@@ -362,24 +359,25 @@ const styles = StyleSheet.create({
   },
   toggleButton: {
     alignItems: 'center',
-    borderRadius: 999,
+    borderRadius: 14,
     flex: 1,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     minHeight: 44,
-    overflow: 'hidden',
     paddingHorizontal: 16,
   },
-  togglePrimary: {},
+  togglePrimary: {
+    backgroundColor: mobileSurface.accent,
+  },
   toggleSecondary: {
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderWidth: 1,
   },
   toggleText: {
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   toggleTextPrimary: {
     color: '#ffffff',

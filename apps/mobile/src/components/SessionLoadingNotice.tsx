@@ -1,7 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
+import { mobileFlat, mobileInk, mobileSurface } from '../styles/tokens';
 import { MobileIcon, type MobileIconName } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { Appear } from './primitives/motion';
 
 interface SessionLoadingNoticeProps {
@@ -19,9 +18,9 @@ export function SessionLoadingNotice({
     <Appear from="up" distance={12}>
       <View style={styles.card}>
         <View style={styles.row}>
-          <Gradient preset="brand" radius={14} style={styles.iconBadge}>
-            <MobileIcon name={icon} size={23} strokeWidth={2.35} color="#ffffff" />
-          </Gradient>
+          <View style={styles.iconBadge}>
+            <MobileIcon name={icon} size={22} strokeWidth={2.3} color={mobileSurface.accentStrong} />
+          </View>
           <View style={styles.body}>
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{body}</Text>
@@ -38,17 +37,20 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   card: {
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
     borderRadius: 20,
-    borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
     paddingHorizontal: 20,
     paddingVertical: 20,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   iconBadge: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
+    borderRadius: 14,
+    borderWidth: 1,
     flexShrink: 0,
     height: 44,
     justifyContent: 'center',
@@ -62,13 +64,13 @@ const styles = StyleSheet.create({
   subtitle: {
     color: mobileInk.muted,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
     lineHeight: 20,
     marginTop: 4,
   },
   title: {
     color: mobileInk.strong,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '800',
   },
 });

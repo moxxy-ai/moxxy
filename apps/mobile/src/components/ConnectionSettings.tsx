@@ -1,9 +1,8 @@
 import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { CameraPermissionState } from '../pairingUi';
 import { buildPairingUiState } from '../pairingUi';
-import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
+import { mobileFlat, mobileInk, mobileSurface } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
-import { Gradient } from './primitives/Gradient';
 import { PressableScale, PulseDot } from './primitives/motion';
 
 interface ConnectionSettingsProps {
@@ -42,9 +41,9 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardTitleRow}>
-            <Gradient preset="brand" radius={11} style={styles.headerIcon}>
-              <MobileIcon name="gateway" size={18} strokeWidth={2.3} color="#ffffff" />
-            </Gradient>
+            <View style={styles.headerIcon}>
+              <MobileIcon name="gateway" size={18} strokeWidth={2.3} color={mobileSurface.accentStrong} />
+            </View>
             <Text style={styles.cardTitle}>Gateway</Text>
           </View>
           <View style={[styles.statusPill, props.transportReady ? styles.statusOnline : styles.statusWaiting]}>
@@ -67,7 +66,6 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
           onPress={props.onScanQr}
           style={[styles.scanButton, !pairingUi.scanButtonEnabled ? styles.scanButtonDisabled : null]}
         >
-          {pairingUi.scanButtonEnabled ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
           <MobileIcon name="camera" color={pairingUi.scanButtonEnabled ? '#ffffff' : mobileInk.faint} size={21} />
           <Text style={[styles.scanButtonText, !pairingUi.scanButtonEnabled ? styles.disabledText : null]}>
             {pairingUi.scanButtonLabel}
@@ -86,7 +84,7 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
             name={props.manualPairingOpen ? 'chevronDown' : 'chevronRight'}
             size={16}
             strokeWidth={2.5}
-            color="#db2777"
+            color={mobileSurface.accentStrong}
           />
         </PressableScale>
 
@@ -114,7 +112,6 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
               onPress={props.onPair}
               style={[styles.pairButton, !canPair ? styles.pairButtonDisabled : null]}
             >
-              {canPair ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
               <MobileIcon name="gateway" size={18} strokeWidth={2.3} color={canPair ? '#ffffff' : mobileInk.faint} />
               <Text style={[styles.pairButtonText, !canPair ? styles.disabledText : null]}>Pair gateway</Text>
             </PressableScale>
@@ -142,9 +139,9 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
 
       <View style={styles.card}>
         <View style={styles.cardTitleRow}>
-          <Gradient preset="accent" radius={11} style={styles.headerIcon}>
-            <MobileIcon name="settings" size={17} strokeWidth={2.3} color="#ffffff" />
-          </Gradient>
+          <View style={styles.headerIcon}>
+            <MobileIcon name="settings" size={17} strokeWidth={2.3} color={mobileSurface.accentStrong} />
+          </View>
           <Text style={styles.cardTitle}>Runtime</Text>
         </View>
         <SettingRow
@@ -163,8 +160,8 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
           <Switch
             value={props.autoApprove}
             onValueChange={props.onAutoApproveChange}
-            trackColor={{ false: '#dfe4f0', true: '#f9a8d4' }}
-            thumbColor={props.autoApprove ? '#db2777' : '#ffffff'}
+            trackColor={{ false: '#dfe4f0', true: mobileSurface.accentBorder }}
+            thumbColor={props.autoApprove ? mobileSurface.accent : '#ffffff'}
           />
         </View>
       </View>
@@ -200,14 +197,13 @@ function SettingRow({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: mobileGlass.card.fill,
-    borderColor: mobileGlass.card.border,
-    borderRadius: 22,
-    borderTopColor: mobileGlass.card.hairline,
+    backgroundColor: mobileSurface.card,
+    borderColor: mobileSurface.border,
+    borderRadius: 20,
     borderWidth: 1,
     gap: 12,
     padding: 16,
-    ...mobileElevation.md,
+    ...mobileFlat.card,
   },
   cardHeader: {
     alignItems: 'center',
@@ -217,38 +213,34 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: mobileInk.strong,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   cardTitleRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
   },
-  headerIcon: {
-    alignItems: 'center',
-    height: 28,
-    justifyContent: 'center',
-    width: 28,
-  },
   dangerButton: {
     alignItems: 'center',
-    backgroundColor: '#ef4444',
+    backgroundColor: mobileSurface.card,
+    borderColor: '#fecaca',
     borderRadius: 14,
+    borderWidth: 1,
     justifyContent: 'center',
     minHeight: 44,
   },
   dangerButtonText: {
-    color: '#ffffff',
+    color: '#ef4444',
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   disabledText: {
     color: mobileInk.faint,
   },
   errorBox: {
-    backgroundColor: 'rgba(239,68,68,0.08)',
-    borderColor: 'rgba(239,68,68,0.2)',
-    borderRadius: 16,
+    backgroundColor: '#fef2f2',
+    borderColor: '#fecaca',
+    borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -256,11 +248,21 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#dc2626',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
+  },
+  headerIcon: {
+    alignItems: 'center',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
   },
   input: {
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.borderStrong,
     borderRadius: 14,
     borderWidth: 1,
     color: mobileInk.strong,
@@ -274,7 +276,7 @@ const styles = StyleSheet.create({
   manualHint: {
     color: mobileInk.soft,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
     lineHeight: 19,
   },
   manualStack: {
@@ -282,44 +284,42 @@ const styles = StyleSheet.create({
   },
   pairButton: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
     borderRadius: 14,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     minHeight: 50,
-    overflow: 'hidden',
   },
   pairButtonDisabled: {
-    backgroundColor: '#dfe4f0',
-    opacity: 0.76,
+    backgroundColor: mobileSurface.field,
   },
   pairButtonText: {
     color: '#ffffff',
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   scanButton: {
     alignItems: 'center',
+    backgroundColor: mobileSurface.accent,
     borderRadius: 14,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     minHeight: 56,
-    overflow: 'hidden',
   },
   scanButtonDisabled: {
-    backgroundColor: '#dfe4f0',
-    opacity: 0.76,
+    backgroundColor: mobileSurface.field,
   },
   scanButtonText: {
     color: '#ffffff',
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderColor: 'rgba(226,228,240,0.9)',
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
@@ -330,16 +330,16 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: mobileInk.muted,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   settingLabel: {
     color: mobileInk.soft,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   settingRow: {
     alignItems: 'center',
-    borderBottomColor: 'rgba(226,228,240,0.8)',
+    borderBottomColor: mobileSurface.divider,
     borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
     color: mobileInk.strong,
     flexShrink: 1,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   settingValueRow: {
     alignItems: 'center',
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   statusOnline: {
-    backgroundColor: '#dcfce7',
+    backgroundColor: '#ecfdf5',
   },
   statusPill: {
     alignItems: 'center',
@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 11,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   statusTextOnline: {
     color: '#16a34a',
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     color: '#d97706',
   },
   statusWaiting: {
-    backgroundColor: '#fef3c7',
+    backgroundColor: '#fffbeb',
   },
   switchCopy: {
     flex: 1,
@@ -407,6 +407,6 @@ const styles = StyleSheet.create({
   switchTitle: {
     color: mobileInk.strong,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '800',
   },
 });

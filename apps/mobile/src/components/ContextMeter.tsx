@@ -1,4 +1,4 @@
-import { sx, mobileGlass, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { StyleSheet, Text, View } from 'react-native';
 import { buildContextMeterUiState } from '../contextMeterUi';
 
@@ -6,7 +6,7 @@ export function ContextMeter({ usage }: { readonly usage: Record<string, unknown
   const prompt = typeof usage?.latestPrompt === 'number' ? usage.latestPrompt : null;
   const contextWindow = typeof usage?.contextWindow === 'number' ? usage.contextWindow : null;
   const ui = buildContextMeterUiState({ latestPrompt: prompt, contextWindow });
-  const fillColor = ui.tone === 'red' ? '#ef4444' : ui.tone === 'amber' ? '#f59e0b' : '#ec4899';
+  const fillColor = ui.tone === 'red' ? '#ef4444' : ui.tone === 'amber' ? '#f59e0b' : mobileSurface.accent;
 
   if (!ui.visible) {
     return (
@@ -35,15 +35,15 @@ export function ContextMeter({ usage }: { readonly usage: Record<string, unknown
 
 const styles = StyleSheet.create({
   pill: {
-    backgroundColor: mobileGlass.subtle.fill,
-    borderColor: mobileGlass.subtle.border,
+    backgroundColor: mobileSurface.field,
+    borderColor: mobileSurface.border,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 4,
   },
   track: {
-    backgroundColor: 'rgba(148, 163, 184, 0.22)',
+    backgroundColor: mobileSurface.borderStrong,
     borderRadius: 999,
     height: 5,
     overflow: 'hidden',

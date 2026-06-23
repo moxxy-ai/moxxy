@@ -1,4 +1,4 @@
-import { sx, mobileInk } from '../styles/tokens';
+import { sx, mobileInk, mobileSurface } from '../styles/tokens';
 import { StyleSheet, Text, View } from 'react-native';
 import type { ModeSelectorUiState } from '../modeSelector';
 import { MobileIcon } from './MobileIcon';
@@ -40,20 +40,20 @@ export function ModeSelectorSheet({
             style={[
               styles.row,
               {
-                backgroundColor: mode.active ? '#fffbeb' : 'rgba(255,255,255,0.7)',
-                borderColor: mode.active ? '#f59e0b' : 'rgba(226,228,240,0.9)',
+                backgroundColor: mode.active ? mobileSurface.accentSoft : mobileSurface.card,
+                borderColor: mode.active ? mobileSurface.accentBorder : mobileSurface.border,
                 borderWidth: mode.active ? 1.5 : 1,
               },
             ]}
             onPress={() => onPickMode(mode.id)}
           >
             <Text
-              style={sx('min-w-0 flex-1 text-[13px] font-bold', { color: mode.active ? mobileInk.strong : mobileInk.muted })}
+              style={sx('min-w-0 flex-1 text-[13px] font-bold', { color: mode.active ? mobileSurface.accentStrong : mobileInk.muted })}
               numberOfLines={1}
             >
               {mode.label}
             </Text>
-            {mode.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color="#f59e0b" /> : null}
+            {mode.active ? <MobileIcon name="check" size={15} strokeWidth={2.4} color={mobileSurface.accentStrong} /> : null}
           </PressableScale>
         ))}
       </View>

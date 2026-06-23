@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
-import { mobileInk } from '../styles/tokens';
+import { mobileInk, mobileSurface } from '../styles/tokens';
 import { buildReturnToChatAction } from '../navigation';
 import { MobileIcon } from './MobileIcon';
 import { PressableScale } from './primitives/motion';
@@ -35,7 +35,7 @@ export function TopBar({ title, subtitle, showChatAction = true }: TopBarProps) 
       {showChatAction ? (
         <Link href={action.href} asChild>
           <PressableScale accessibilityRole="button" accessibilityLabel="Back to chat" scaleTo={0.93} style={styles.action}>
-            <MobileIcon name={action.icon} size={16} strokeWidth={2.4} color="#db2777" />
+            <MobileIcon name={action.icon} size={16} strokeWidth={2.4} color={mobileSurface.accentStrong} />
             <Text style={styles.actionLabel}>{action.label}</Text>
           </PressableScale>
         </Link>
@@ -48,8 +48,8 @@ const styles = StyleSheet.create({
   action: {
     alignItems: 'center',
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderColor: 'rgba(249,168,212,0.55)',
+    backgroundColor: mobileSurface.accentSoft,
+    borderColor: mobileSurface.accentBorder,
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
@@ -58,15 +58,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     minHeight: 38,
     paddingHorizontal: 14,
-    shadowColor: '#1e2540',
-    shadowOffset: { height: 5, width: 0 },
-    shadowOpacity: 0.07,
-    shadowRadius: 12,
   },
   actionLabel: {
-    color: '#db2777',
+    color: mobileSurface.accentStrong,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: '800',
   },
   bar: {
     alignItems: 'flex-start',
