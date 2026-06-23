@@ -116,6 +116,7 @@ export function WaitingRoom({ waitingRoomUi, onOpenPairing }: WaitingRoomProps) 
 
 const styles = StyleSheet.create({
   body: {
+    alignSelf: 'center',
     color: mobileInk.soft,
     fontSize: 15,
     lineHeight: 22,
@@ -132,7 +133,11 @@ const styles = StyleSheet.create({
     paddingTop: 40,
   },
   contentStack: {
-    alignItems: 'center',
+    // Stretch children to full width so the CTA and steps panel fill the column
+    // (centering the few elements that need it via alignSelf / textAlign). Using
+    // alignItems:'center' here collapses each animated wrapper to its content
+    // width, which squeezes the step text into mid-word wraps.
+    alignItems: 'stretch',
     alignSelf: 'center',
     maxWidth: 440,
     width: '100%',
