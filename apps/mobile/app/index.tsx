@@ -10,7 +10,6 @@ import { ConnectingView } from '@/components/ConnectingView';
 import { GoalSheet } from '@/components/GoalSheet';
 import { Onboarding } from '@/components/Onboarding';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
-import { SessionActionsSheet } from '@/components/SessionActionsSheet';
 import { buildGoalSheetPlacement } from '@/goalSheetLayout';
 import { useKeyboardHeight } from '@/hooks/useKeyboardHeight';
 import { useGatewayStore } from '@/hooks/useGatewayStore';
@@ -176,22 +175,6 @@ function Chat() {
         <View {...edgePan.panHandlers} style={{ bottom: 0, left: 0, position: 'absolute', top: 0, width: 24, zIndex: 20 }} />
       </SafeAreaView>
 
-      <SessionActionsSheet
-        open={sessionActions.open}
-        actions={sessionActions.actions}
-        allActionsCount={sessionActions.allActionsCount}
-        filter={sessionActions.filter}
-        error={sessionActions.error}
-        readOnly={session.readOnly || !session.connected}
-        argsFor={sessionActions.argsFor}
-        argValues={sessionActions.argValues}
-        onFilterChange={sessionActions.setFilter}
-        onSelectAction={sessionActions.selectAction}
-        onArgValueChange={sessionActions.setArgValue}
-        onRunArgsAction={sessionActions.runArgsAction}
-        onBackToList={sessionActions.backToList}
-        onClose={sessionActions.close}
-      />
       <RenameSessionSheet open={renameOpen} value={renameDraft} error={renameError} saving={renameSaving} onChange={setRenameDraft} onCancel={() => setRenameOpen(false)} onSubmit={submitRename} />
       <CompactContextSheet open={compact.confirmOpen} compacting={chat.compacting} onCancel={compact.cancelCompact} onConfirm={compact.confirmCompact} />
 
@@ -207,7 +190,22 @@ function Chat() {
         onSelectProvider={modelSelector.selectProvider}
         onPickModel={modelSelector.pickModel}
         onPickMode={modelSelector.pickMode}
-        onOpenActions={() => sessionActions.openSheet()}
+        actions={{
+          rows: sessionActions.actions,
+          allCount: sessionActions.allActionsCount,
+          filter: sessionActions.filter,
+          error: sessionActions.error,
+          argsFor: sessionActions.argsFor,
+          argValues: sessionActions.argValues,
+          readOnly: session.readOnly || !session.connected,
+          onFilterChange: sessionActions.setFilter,
+          onSelect: sessionActions.selectAction,
+          onArgChange: sessionActions.setArgValue,
+          onRunArgs: sessionActions.runArgsAction,
+          onBack: sessionActions.backToList,
+          load: sessionActions.openSheet,
+          reset: sessionActions.close,
+        }}
         onGoal={() => goals.setOpen(true)}
         onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
         onCompact={compact.requestCompact}

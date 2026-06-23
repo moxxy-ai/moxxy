@@ -106,6 +106,98 @@ export function BottomSheet({
   );
 }
 
+/* ----------------------------------------------------------- Sheet list rows */
+
+/** A grouped, rounded container for SheetRows — the single list style reused
+ *  across every sheet page (options, model, mode, actions). */
+export function SheetGroup({ children, style }: { readonly children: ReactNode; readonly style?: StyleProp<ViewStyle> }) {
+  const { colors } = useTheme();
+  return (
+    <View style={[sx('overflow-hidden rounded-2xl', { backgroundColor: colors.surface, borderColor: colors.cardBorder, borderWidth: 1 }), style]}>
+      {children}
+    </View>
+  );
+}
+
+/** One row inside a SheetGroup. Handles the leading icon/dot, label + optional
+ *  sublabel, a trailing value, and a trailing affordance (chevron / expand
+ *  chevron / check / custom). `selected` tints the row with the accent. */
+export function SheetRow({
+  icon,
+  iconTone = 'neutral',
+  dot,
+  label,
+  sublabel,
+  value,
+  selected = false,
+  accent,
+  indent = false,
+  divider = false,
+  chevron = false,
+  expanded,
+  check = false,
+  trailing,
+  onPress,
+  disabled = false,
+}: {
+  readonly icon?: MobileIconName;
+  readonly iconTone?: Tone;
+  readonly dot?: string;
+  readonly label: string;
+  readonly sublabel?: string;
+  readonly value?: string;
+  readonly selected?: boolean;
+  readonly accent?: string;
+  readonly indent?: boolean;
+  readonly divider?: boolean;
+  readonly chevron?: boolean;
+  readonly expanded?: boolean;
+  readonly check?: boolean;
+  readonly trailing?: ReactNode;
+  readonly onPress?: () => void;
+  readonly disabled?: boolean;
+}) {
+  const { colors } = useTheme();
+  const accentColor = accent ?? colors.primary;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled || !onPress}
+      onPress={onPress}
+      style={({ pressed }) =>
+        sx('flex-row items-center', {
+          backgroundColor: selected ? colors.primarySoft : pressed ? colors.glassHighlight : 'transparent',
+          borderTopColor: colors.cardBorder,
+          borderTopWidth: divider ? 1 : 0,
+          gap: 12,
+          minHeight: sublabel ? 64 : 56,
+          opacity: disabled ? 0.45 : 1,
+          paddingLeft: indent ? 32 : 14,
+          paddingRight: 14,
+          paddingVertical: sublabel ? 10 : 0,
+        })
+      }
+    >
+      {icon ? <IconBadge icon={icon} tone={iconTone} size={32} /> : null}
+      {dot ? <View style={sx('rounded-full', { backgroundColor: dot, height: 8, width: 8 })} /> : null}
+      <View style={sx('flex-1', { minWidth: 0 })}>
+        <Text style={sx('text-[15px] font-semibold', { color: selected ? accentColor : colors.text })} numberOfLines={1}>{label}</Text>
+        {sublabel ? <Text style={sx('mt-0.5 text-[12px] font-medium text-dim', { lineHeight: 16 })} numberOfLines={2}>{sublabel}</Text> : null}
+      </View>
+      {value ? <Text style={sx('text-[14px] font-semibold text-muted', { flexShrink: 1, maxWidth: '42%', textAlign: 'right' })} numberOfLines={1}>{value}</Text> : null}
+      {trailing}
+      {check ? <MobileIcon name="check" size={18} strokeWidth={2.6} color={accentColor} /> : null}
+      {expanded !== undefined ? (
+        <MobileIcon name={expanded ? 'chevronDown' : 'chevronRight'} size={16} strokeWidth={2.4} color={expanded ? accentColor : colors.textDim} />
+      ) : chevron ? (
+        <MobileIcon name="chevronRight" size={16} strokeWidth={2.4} color={colors.textDim} />
+      ) : null}
+    </Pressable>
+  );
+}
+
 /* ------------------------------------------------------------------- Glass */
 
 /** iOS-26 "liquid glass" material — a translucent blur with a hairline light

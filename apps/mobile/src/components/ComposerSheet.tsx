@@ -1,14 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
-import { Animated, Modal, PanResponder, Pressable, ScrollView, Text, useWindowDimensions, View, type LayoutChangeEvent } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, Switch, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
 import type { ModelSelectorUiState } from '../modelSelector';
 import type { ModeSelectorUiState } from '../modeSelector';
-import { Glass, IconBadge } from '@/ui/kit';
-import { MobileIcon, type MobileIconName } from './MobileIcon';
+import type { MobileSessionActionRow } from '../sessionActions';
+import { BottomSheet, Button, SheetGroup, SheetRow } from '@/ui/kit';
+import { MobileIcon } from './MobileIcon';
 
-type Page = 'main' | 'model' | 'mode';
+type Page = 'main' | 'model' | 'mode' | 'actions';
+
+export interface ComposerSheetActions {
+  readonly rows: ReadonlyArray<MobileSessionActionRow>;
+  readonly allCount: number;
+  readonly filter: string;
+  readonly error: string | null;
+  readonly argsFor: MobileSessionActionRow | null;
+  readonly argValues: Readonly<Record<string, string>>;
+  readonly readOnly: boolean;
+  readonly onFilterChange: (value: string) => void;
+  readonly onSelect: (action: MobileSessionActionRow) => void;
+  readonly onArgChange: (id: string, value: string) => void;
+  readonly onRunArgs: () => void;
+  readonly onBack: () => void;
+  readonly load: () => void;
+  readonly reset: () => void;
+}
 
 interface ComposerSheetProps {
   readonly open: boolean;
@@ -16,13 +33,13 @@ interface ComposerSheetProps {
   readonly readOnly?: boolean;
   readonly modelUi: ModelSelectorUiState;
   readonly modeUi: ModeSelectorUiState;
+  readonly actions: ComposerSheetActions;
   readonly onClose: () => void;
   readonly onPickImage: () => void;
   readonly onPickFile: () => void;
   readonly onSelectProvider: (provider: string) => void;
   readonly onPickModel: (provider: string, model: string | null) => void;
   readonly onPickMode: (mode: string) => void;
-  readonly onOpenActions: () => void;
   readonly onGoal: () => void;
   readonly onToggleAutoApprove: () => void;
   readonly onCompact: () => void;
@@ -31,220 +48,214 @@ interface ComposerSheetProps {
 
 export function ComposerSheet(props: ComposerSheetProps) {
   const { colors } = useTheme();
-  const { height: screenH } = useWindowDimensions();
-  const pageHeight = Math.round(screenH * 0.62);
-  const [rendered, setRendered] = useState(props.open);
+  const { height } = useWindowDimensions();
+  const pageHeight = Math.round(height * 0.62);
   const [page, setPage] = useState<Page>('main');
-  const translateY = useRef(new Animated.Value(0)).current;
-  const progress = useRef(new Animated.Value(0)).current;
-  const heightRef = useRef(440);
 
   useEffect(() => {
-    if (props.open) {
-      setRendered(true);
-      setPage('main');
-      translateY.setValue(heightRef.current);
-      Animated.parallel([
-        Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 14, useNativeDriver: true }),
-        Animated.timing(progress, { toValue: 1, duration: 200, useNativeDriver: true }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(translateY, { toValue: heightRef.current, duration: 200, useNativeDriver: true }),
-        Animated.timing(progress, { toValue: 0, duration: 180, useNativeDriver: true }),
-      ]).start(({ finished }) => {
-        if (finished) setRendered(false);
-      });
-    }
+    if (props.open) setPage('main');
   }, [props.open]);
 
-  const pan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
-      onPanResponderMove: (_e, g) => {
-        if (g.dy > 0) translateY.setValue(g.dy);
-      },
-      onPanResponderRelease: (_e, g) => {
-        if (g.dy > 90 || g.vy > 0.6) props.onClose();
-        else Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 16, useNativeDriver: true }).start();
-      },
-    }),
-  ).current;
-
-  const onLayout = (e: LayoutChangeEvent) => {
-    if (e.nativeEvent.layout.height > 0) heightRef.current = e.nativeEvent.layout.height;
-  };
-
-  const run = (fn: () => void) => () => {
+  const close = () => {
+    props.actions.reset();
     props.onClose();
+  };
+  const run = (fn: () => void) => () => {
+    close();
     fn();
   };
+  const goActions = () => {
+    props.actions.load();
+    setPage('actions');
+  };
+  const backToMain = () => {
+    props.actions.reset();
+    setPage('main');
+  };
 
-  if (!rendered) return null;
+  const inArgs = page === 'actions' && props.actions.argsFor;
+  const title = page === 'model' ? 'Model' : page === 'mode' ? 'Mode' : page === 'actions' ? (inArgs ? props.actions.argsFor!.label : 'Actions') : 'Options';
+  const back = page === 'main' ? undefined : inArgs ? props.actions.onBack : backToMain;
 
   return (
-    <Modal transparent visible animationType="none" onRequestClose={props.onClose}>
-      <Animated.View style={[sx('absolute', { bottom: 0, left: 0, right: 0, top: 0 }), { opacity: progress }]}>
-        <Pressable accessibilityLabel="Close options" onPress={props.onClose} style={sx('flex-1', { backgroundColor: colors.overlay })} />
-      </Animated.View>
+    <BottomSheet open={props.open} onClose={close} avoidKeyboard>
+      <View style={sx('flex-row items-center px-3 pb-2', { gap: 4, minHeight: 38 })}>
+        {back ? (
+          <Pressable accessibilityLabel="Back" accessibilityRole="button" hitSlop={8} onPress={back} style={sx('h-9 w-9 items-center justify-center rounded-full')}>
+            <MobileIcon name="chevronLeft" size={22} strokeWidth={2.5} color={colors.text} />
+          </Pressable>
+        ) : null}
+        <Text style={sx('flex-1 text-[13px] font-black uppercase tracking-wide text-dim', { paddingLeft: page === 'main' ? 8 : 0 })} numberOfLines={1}>
+          {title}
+        </Text>
+      </View>
 
-      <Animated.View onLayout={onLayout} style={[sx('absolute', { bottom: 0, left: 0, right: 0 }), { transform: [{ translateY }] }]}>
-        <Glass radius={28} intensity={80} heavy>
-          <SafeAreaView edges={['bottom']}>
-            <View {...pan.panHandlers} style={sx('items-center', { paddingBottom: 4, paddingTop: 10 })}>
-              <View style={sx('rounded-full', { backgroundColor: colors.textDim, height: 5, opacity: 0.5, width: 40 })} />
-            </View>
-
-            <View style={sx('flex-row items-center px-3 pb-1', { gap: 4, minHeight: 36 })}>
-              {page !== 'main' ? (
-                <Pressable accessibilityLabel="Back" accessibilityRole="button" hitSlop={8} onPress={() => setPage('main')} style={sx('h-9 w-9 items-center justify-center rounded-full')}>
-                  <MobileIcon name="chevronLeft" size={22} strokeWidth={2.5} color={colors.text} />
-                </Pressable>
-              ) : null}
-              <Text style={sx('flex-1 text-[13px] font-black uppercase tracking-wide text-dim', { paddingLeft: page === 'main' ? 8 : 0 })}>
-                {page === 'model' ? 'Model' : page === 'mode' ? 'Mode' : 'Options'}
-              </Text>
-            </View>
-
-            {page === 'main' ? (
-              <View style={sx('px-2 pb-2')}>
-                <Row icon="camera" tone="brand" label="Photo or screenshot" onPress={run(props.onPickImage)} />
-                <Row icon="folder" tone="info" label="File from phone" onPress={run(props.onPickFile)} />
-                <Sep />
-                <Row icon="agent" tone="brand" label="Model" value={props.modelUi.chipLabel} disabled={props.modelUi.disabled} onPress={() => setPage('model')} />
-                <Row icon="bolt" tone="warn" label="Mode" value={props.modeUi.chipLabel} disabled={props.modeUi.disabled} onPress={() => setPage('mode')} />
-                <Sep />
-                <Row icon="actions" tone="info" label="Session actions" onPress={run(props.onOpenActions)} />
-                <Row icon="goals" tone="brand" label="Start a goal" onPress={run(props.onGoal)} />
-                <Row icon="bolt" tone={props.autoApprove ? 'success' : 'neutral'} label="Auto-approve tool calls" value={props.autoApprove ? 'On' : 'Off'} showChevron={false} onPress={props.onToggleAutoApprove} />
-                <Row icon="refresh" tone="neutral" label="Compact context" onPress={run(props.onCompact)} />
-                <Row icon="plus" tone="neutral" label="New chat" onPress={run(props.onNewSession)} />
-              </View>
-            ) : page === 'model' ? (
-              <View style={sx('flex-row px-3 pb-3', { gap: 8, height: pageHeight })}>
-                <ScrollView style={{ width: 140 }} contentContainerStyle={{ gap: 6 }} showsVerticalScrollIndicator={false}>
-                  {props.modelUi.providerRows.map((provider) => (
-                    <PickerRow
-                      key={provider.id}
-                      label={provider.label}
-                      selected={provider.selected}
-                      tone="brand"
-                      dot={provider.active}
-                      onPress={() => props.onSelectProvider(provider.id)}
-                    />
-                  ))}
-                </ScrollView>
-                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }} showsVerticalScrollIndicator={false}>
-                  {props.modelUi.modelRows.map((model) => (
-                    <PickerRow
+      {page === 'main' ? (
+        <ScrollView style={{ maxHeight: pageHeight }} contentContainerStyle={{ gap: 14, paddingBottom: 8, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
+          <SheetGroup>
+            <SheetRow icon="camera" iconTone="brand" label="Photo or screenshot" chevron onPress={run(props.onPickImage)} />
+            <SheetRow icon="folder" iconTone="info" label="File from phone" chevron divider onPress={run(props.onPickFile)} />
+          </SheetGroup>
+          <SheetGroup>
+            <SheetRow icon="agent" iconTone="brand" label="Model" value={props.modelUi.chipLabel} chevron disabled={props.modelUi.disabled} onPress={() => setPage('model')} />
+            <SheetRow icon="bolt" iconTone="warn" label="Mode" value={props.modeUi.chipLabel} chevron divider disabled={props.modeUi.disabled} onPress={() => setPage('mode')} />
+          </SheetGroup>
+          <SheetGroup>
+            <SheetRow icon="actions" iconTone="info" label="Session actions" chevron onPress={goActions} />
+            <SheetRow icon="goals" iconTone="brand" label="Start a goal" chevron divider onPress={run(props.onGoal)} />
+            <SheetRow
+              icon="bolt"
+              iconTone={props.autoApprove ? 'success' : 'neutral'}
+              label="Auto-approve tool calls"
+              divider
+              trailing={
+                <Switch
+                  value={props.autoApprove}
+                  onValueChange={props.onToggleAutoApprove}
+                  trackColor={{ false: colors.cardBorderStrong, true: colors.primary }}
+                  thumbColor={colors.white}
+                  ios_backgroundColor={colors.inputSoft}
+                />
+              }
+            />
+            <SheetRow icon="refresh" iconTone="neutral" label="Compact context" chevron divider onPress={run(props.onCompact)} />
+            <SheetRow icon="plus" iconTone="neutral" label="New chat" chevron divider onPress={run(props.onNewSession)} />
+          </SheetGroup>
+        </ScrollView>
+      ) : page === 'model' ? (
+        <ScrollView style={{ height: pageHeight }} contentContainerStyle={{ gap: 10, paddingBottom: 16, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
+          {props.modelUi.providerRows.map((provider) => (
+            <SheetGroup key={provider.id}>
+              <SheetRow
+                dot={provider.active ? colors.green : undefined}
+                label={provider.label}
+                selected={provider.selected}
+                expanded={provider.selected}
+                onPress={() => props.onSelectProvider(provider.id)}
+              />
+              {provider.selected ? (
+                props.modelUi.modelRows.length > 0 ? (
+                  props.modelUi.modelRows.map((model) => (
+                    <SheetRow
                       key={model.id ?? 'default'}
                       label={model.label}
+                      indent
+                      divider
                       selected={model.active}
-                      tone="brand"
                       check={model.active}
-                      onPress={() => { props.onPickModel(props.modelUi.selectedProvider, model.id); setPage('main'); }}
+                      onPress={() => { props.onPickModel(props.modelUi.selectedProvider, model.id); backToMain(); }}
                     />
-                  ))}
-                  {props.modelUi.modelRows.length === 0 ? (
-                    <Text style={sx('px-1 py-3 text-[13px] font-semibold text-dim')}>No models advertised.</Text>
-                  ) : null}
-                </ScrollView>
-              </View>
-            ) : (
-              <ScrollView style={{ height: pageHeight }} contentContainerStyle={sx('px-3 pb-3', { gap: 6 })} showsVerticalScrollIndicator={false}>
-                {props.modeUi.modeRows.map((mode) => (
-                  <PickerRow
-                    key={mode.id}
-                    label={mode.label}
-                    selected={mode.active}
-                    tone="warn"
-                    check={mode.active}
-                    onPress={() => { props.onPickMode(mode.id); setPage('main'); }}
-                  />
-                ))}
-              </ScrollView>
-            )}
-          </SafeAreaView>
-        </Glass>
-      </Animated.View>
-    </Modal>
+                  ))
+                ) : (
+                  <View style={sx('px-4 py-3', { borderTopColor: colors.cardBorder, borderTopWidth: 1 })}>
+                    <Text style={sx('text-[13px] font-medium text-dim')}>No models advertised.</Text>
+                  </View>
+                )
+              ) : null}
+            </SheetGroup>
+          ))}
+        </ScrollView>
+      ) : page === 'mode' ? (
+        <ScrollView style={{ height: pageHeight }} contentContainerStyle={{ paddingBottom: 16, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
+          <SheetGroup>
+            {props.modeUi.modeRows.map((mode, index) => (
+              <SheetRow
+                key={mode.id}
+                label={mode.label}
+                selected={mode.active}
+                check={mode.active}
+                divider={index > 0}
+                onPress={() => { props.onPickMode(mode.id); backToMain(); }}
+              />
+            ))}
+          </SheetGroup>
+        </ScrollView>
+      ) : inArgs ? (
+        <ActionArgs actions={props.actions} action={props.actions.argsFor!} onClose={close} />
+      ) : (
+        <ActionList actions={props.actions} height={pageHeight} onSelect={(action) => { props.actions.onSelect(action); if (action.args.length === 0) close(); }} />
+      )}
+    </BottomSheet>
   );
 }
 
-function Row({
-  icon,
-  tone,
-  label,
-  value,
-  onPress,
-  showChevron = true,
-  disabled = false,
-}: {
-  readonly icon: MobileIconName;
-  readonly tone: 'neutral' | 'brand' | 'success' | 'warn' | 'info';
-  readonly label: string;
-  readonly value?: string;
-  readonly onPress: () => void;
-  readonly showChevron?: boolean;
-  readonly disabled?: boolean;
-}) {
+function ActionList({ actions, height, onSelect }: { readonly actions: ComposerSheetActions; readonly height: number; readonly onSelect: (action: MobileSessionActionRow) => void }) {
   const { colors } = useTheme();
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => sx('flex-row items-center rounded-2xl px-3', { backgroundColor: pressed ? colors.glassHighlight : 'transparent', gap: 12, minHeight: 52, opacity: disabled ? 0.45 : 1 })}
-    >
-      <IconBadge icon={icon} tone={tone} size={34} />
-      <Text style={sx('flex-1 text-[15px] font-semibold text-text')} numberOfLines={1}>{label}</Text>
-      {value ? <Text style={sx('text-[14px] font-semibold text-muted', { flexShrink: 1, maxWidth: '45%', textAlign: 'right' })} numberOfLines={1}>{value}</Text> : null}
-      {showChevron && !disabled ? <MobileIcon name="chevronRight" size={16} strokeWidth={2.4} color={colors.textDim} /> : null}
-    </Pressable>
+    <View style={{ height }}>
+      <View style={{ paddingBottom: 10, paddingHorizontal: 16 }}>
+        <TextInput
+          accessibilityLabel="Filter actions"
+          value={actions.filter}
+          onChangeText={actions.onFilterChange}
+          placeholder="Filter actions…"
+          placeholderTextColor={colors.textDim}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={sx('rounded-2xl px-4 text-[15px] font-semibold text-text', { backgroundColor: colors.inputSoft, borderColor: colors.cardBorder, borderWidth: 1, minHeight: 48 })}
+        />
+        {actions.error ? (
+          <View style={sx('mt-2 rounded-xl px-3 py-2', { backgroundColor: colors.redSoft, borderColor: colors.redBorder, borderWidth: 1 })}>
+            <Text style={sx('text-[12px] font-semibold', { color: colors.redText })}>{actions.error}</Text>
+          </View>
+        ) : null}
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 16, paddingHorizontal: 16 }} showsVerticalScrollIndicator={false}>
+        {actions.rows.length > 0 ? (
+          <SheetGroup>
+            {actions.rows.map((action, index) => (
+              <SheetRow
+                key={action.id}
+                label={action.label}
+                sublabel={action.description}
+                divider={index > 0}
+                disabled={actions.readOnly}
+                accent={action.tone === 'destructive' ? colors.red : action.tone === 'attention' ? colors.amber : undefined}
+                trailing={action.args.length > 0 ? (
+                  <View style={sx('rounded-pill px-2.5 py-1', { backgroundColor: colors.primarySoft })}>
+                    <Text style={sx('text-[10px] font-black uppercase', { color: colors.primaryStrong })}>Args</Text>
+                  </View>
+                ) : undefined}
+                chevron={action.args.length === 0}
+                onPress={() => onSelect(action)}
+              />
+            ))}
+          </SheetGroup>
+        ) : (
+          <View style={sx('items-center rounded-2xl px-4 py-8', { backgroundColor: colors.surface, borderColor: colors.cardBorder, borderWidth: 1 })}>
+            <Text style={sx('text-[14px] font-black text-text')}>No actions match</Text>
+            <Text style={sx('mt-1 text-[13px] font-medium text-dim')}>Try a shorter filter.</Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
-function PickerRow({
-  label,
-  selected,
-  tone,
-  check = false,
-  dot = false,
-  onPress,
-}: {
-  readonly label: string;
-  readonly selected: boolean;
-  readonly tone: 'brand' | 'warn';
-  readonly check?: boolean;
-  readonly dot?: boolean;
-  readonly onPress: () => void;
-}) {
+function ActionArgs({ actions, action, onClose }: { readonly actions: ComposerSheetActions; readonly action: MobileSessionActionRow; readonly onClose: () => void }) {
   const { colors } = useTheme();
-  const accent = tone === 'warn' ? colors.amber : colors.primary;
+  const canRun = !actions.readOnly && action.args.every((arg) => (actions.argValues[arg.id] ?? '').trim().length > 0);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={sx('flex-row items-center rounded-xl px-3', {
-        backgroundColor: selected ? colors.primarySoft : colors.inputSoft,
-        borderColor: selected ? accent : colors.cardBorder,
-        borderWidth: 1,
-        gap: 8,
-        minHeight: 44,
-      })}
-    >
-      {dot ? <View style={sx('rounded-full', { backgroundColor: colors.green, height: 7, width: 7 })} /> : null}
-      <Text style={sx('flex-1 text-[13px] font-bold', { color: selected ? colors.text : colors.textMuted })} numberOfLines={1}>{label}</Text>
-      {check ? <MobileIcon name="check" size={15} strokeWidth={2.5} color={accent} /> : null}
-    </Pressable>
+    <ScrollView contentContainerStyle={{ gap: 14, paddingBottom: 12, paddingHorizontal: 16 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      {action.description ? <Text style={sx('text-[13px] font-medium text-dim', { lineHeight: 18 })}>{action.description}</Text> : null}
+      {action.args.map((arg) => (
+        <View key={arg.id} style={{ gap: 6 }}>
+          <Text style={sx('text-[11px] font-black uppercase tracking-widest text-muted')}>{arg.label}</Text>
+          <TextInput
+            accessibilityLabel={arg.label}
+            value={actions.argValues[arg.id] ?? ''}
+            onChangeText={(value) => actions.onArgChange(arg.id, value)}
+            placeholder={arg.placeholder}
+            placeholderTextColor={colors.textDim}
+            multiline={arg.multiline}
+            secureTextEntry={arg.id === 'value'}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={sx('rounded-2xl px-4 py-3 text-[15px] font-semibold text-text', { backgroundColor: colors.inputSoft, borderColor: colors.cardBorder, borderWidth: 1, maxHeight: arg.multiline ? 140 : undefined, minHeight: 48 })}
+          />
+        </View>
+      ))}
+      <Button label="Run action" disabled={!canRun} onPress={() => { actions.onRunArgs(); onClose(); }} />
+    </ScrollView>
   );
-}
-
-function Sep() {
-  const { colors } = useTheme();
-  return <View style={{ backgroundColor: colors.glassBorder, height: 1, marginHorizontal: 16, marginVertical: 4 }} />;
 }
