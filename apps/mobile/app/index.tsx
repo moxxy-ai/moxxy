@@ -8,8 +8,6 @@ import { CompactContextSheet } from '@/components/CompactContextSheet';
 import { ComposerSheet } from '@/components/ComposerSheet';
 import { ConnectingView } from '@/components/ConnectingView';
 import { GoalSheet } from '@/components/GoalSheet';
-import { ModelSelectorSheet } from '@/components/ModelSelectorSheet';
-import { ModeSelectorSheet } from '@/components/ModeSelectorSheet';
 import { Onboarding } from '@/components/Onboarding';
 import { RenameSessionSheet } from '@/components/RenameSessionSheet';
 import { SessionActionsSheet } from '@/components/SessionActionsSheet';
@@ -158,17 +156,6 @@ function Chat() {
             <CompactContextSheet open={compact.confirmOpen} compacting={chat.compacting} onCancel={compact.cancelCompact} onConfirm={compact.confirmCompact} />
           </View>
         ) : null}
-        {modelSelector.modeOpen ? (
-          <View style={overlayStyle}>
-            <ModeSelectorSheet ui={modelSelector.modeUi} error={modelSelector.error} onClose={modelSelector.closeModePicker} onPickMode={modelSelector.pickMode} />
-          </View>
-        ) : null}
-        {modelSelector.open ? (
-          <View style={overlayStyle}>
-            <ModelSelectorSheet ui={modelSelector.ui} error={modelSelector.error} onClose={modelSelector.closePicker} onSelectProvider={modelSelector.selectProvider} onPickModel={modelSelector.pickModel} />
-          </View>
-        ) : null}
-
         <View style={{ paddingBottom: keyboardHeight > 0 ? keyboardHeight : safeArea.bottom }}>
           <ChatComposer
             text={composer.text}
@@ -215,14 +202,15 @@ function Chat() {
       <ComposerSheet
         open={optionsOpen}
         autoApprove={autoApprove.enabled}
-        modelLabel={modelSelector.ui.chipLabel}
-        modeLabel={modelSelector.modeUi.chipLabel}
+        modelUi={modelSelector.ui}
+        modeUi={modelSelector.modeUi}
         readOnly={session.readOnly}
         onClose={() => setOptionsOpen(false)}
         onPickImage={composer.pickImageAttachment}
         onPickFile={composer.pickDocumentAttachment}
-        onOpenModel={modelSelector.openPicker}
-        onOpenMode={modelSelector.openModePicker}
+        onSelectProvider={modelSelector.selectProvider}
+        onPickModel={modelSelector.pickModel}
+        onPickMode={modelSelector.pickMode}
         onOpenActions={() => sessionActions.openSheet()}
         onGoal={() => goals.setOpen(true)}
         onToggleAutoApprove={() => autoApprove.setAutoApprove(!autoApprove.enabled)}
