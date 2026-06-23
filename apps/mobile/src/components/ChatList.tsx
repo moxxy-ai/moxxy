@@ -133,7 +133,7 @@ export function ChatList({
         onScroll={handleScroll}
         {...CHAT_LIST_PERFORMANCE_PROPS}
       />
-      {autoScroll.showScrollToBottom ? <ScrollToBottomButton bottom={bottomInset + 10} onPress={autoScroll.scrollToBottom} /> : null}
+      {autoScroll.showScrollToBottom ? <ScrollToBottomButton bottom={bottomInset - 12} onPress={autoScroll.scrollToBottom} /> : null}
       <BottomSheet open={menu !== null} onClose={() => setMenu(null)} title="Message">
         <View style={{ paddingBottom: 8, paddingHorizontal: 16 }}>
           <SheetGroup>
