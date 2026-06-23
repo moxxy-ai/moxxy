@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { useCameraPermissions } from 'expo-camera';
 import type { CameraPermissionState } from '../pairingUi';
@@ -44,6 +44,17 @@ export function useQrScanner(onPayload: (raw: string) => Promise<void>): QrScann
     scanGateRef.current.arm();
     setArmed(true);
   }, []);
+
+  // Start detecting the instant the scanner is open and the camera is live —
+  // opening the scanner *is* the intent to scan, so no extra "start scanning"
+  // tap. The one-shot scan gate still guards against double-processing a code,
+  // and an unhandled/failed scan re-arms here automatically for a retry.
+  useEffect(() => {
+    if (open && permissionState === 'granted' && !processing && !armed) {
+      scanGateRef.current.arm();
+      setArmed(true);
+    }
+  }, [open, permissionState, processing, armed]);
 
   const closeScanner = useCallback(() => {
     scanGateRef.current.reset();

@@ -1,7 +1,9 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { WorkspaceMenuSection } from '@/navigation';
 import { buildWorkspaceSessionTreeState } from '@/workspaceSessionTreeUi';
+import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
+import { PressableScale } from './primitives/motion';
 
 interface WorkspaceSessionTreeProps {
   readonly sections: ReadonlyArray<WorkspaceMenuSection>;
@@ -45,14 +47,15 @@ export function WorkspaceSessionTree({
       {tree.sections.map((section) => (
         <View key={section.id} style={isScreen ? styles.sectionScreen : styles.sectionMenu}>
           <View style={styles.workspaceRow}>
-            <Pressable
+            <PressableScale
               accessibilityLabel={section.toggleAccessibilityLabel}
               accessibilityRole="button"
+              scaleTo={0.98}
               style={styles.workspaceToggle}
               onPress={() => onToggleWorkspace(section.id)}
             >
               <View style={[styles.chevronBox, { transform: [{ rotate: section.expanded ? '0deg' : '-90deg' }] }]}>
-                <MobileIcon name="chevronDown" size={15} strokeWidth={2.55} color="#64748b" />
+                <MobileIcon name="chevronDown" size={15} strokeWidth={2.55} color={mobileInk.soft} />
               </View>
               <MobileIcon name="folder" size={21} strokeWidth={2.2} color={section.color} />
               <Text style={[styles.workspaceTitle, section.active ? styles.workspaceTitleActive : null]} numberOfLines={1}>
@@ -61,26 +64,28 @@ export function WorkspaceSessionTree({
               <View style={styles.countBadge}>
                 <Text style={styles.countText}>{section.sessionCountLabel}</Text>
               </View>
-            </Pressable>
+            </PressableScale>
             {showWorkspaceNewSession && onNewSession ? (
-              <Pressable
+              <PressableScale
                 accessibilityLabel={`New session in ${section.title}`}
                 accessibilityRole="button"
+                scaleTo={0.9}
                 style={styles.workspaceNewButton}
                 onPress={() => onNewSession(section.id)}
               >
                 <MobileIcon name="plus" size={18} strokeWidth={2.45} color="#db2777" />
-              </Pressable>
+              </PressableScale>
             ) : null}
           </View>
 
           {section.expanded ? (
             <View style={styles.sessionsList}>
               {section.visibleSessions.map((session) => (
-                <Pressable
+                <PressableScale
                   key={session.id}
                   accessibilityLabel={session.accessibilityLabel}
                   accessibilityRole="button"
+                  scaleTo={0.98}
                   style={[styles.sessionButton, session.active ? styles.sessionButtonActive : styles.sessionButtonInactive]}
                   onPress={() => onSelectSession(session.id)}
                 >
@@ -92,31 +97,33 @@ export function WorkspaceSessionTree({
                       <Text style={styles.liveText}>{session.statusLabel}</Text>
                     </View>
                   ) : null}
-                </Pressable>
+                </PressableScale>
               ))}
             </View>
           ) : (
-            <Pressable
+            <PressableScale
               accessibilityLabel={`Expand workspace ${section.title}`}
               accessibilityRole="button"
+              scaleTo={0.98}
               style={styles.collapsedSummaryButton}
               onPress={() => onToggleWorkspace(section.id)}
             >
               <Text style={styles.collapsedSummaryText}>{section.collapsedSummary}</Text>
-            </Pressable>
+            </PressableScale>
           )}
         </View>
       ))}
       {showGlobalNewSession && onNewSession ? (
-        <Pressable
+        <PressableScale
           accessibilityLabel="Create new session"
           accessibilityRole="button"
+          scaleTo={0.97}
           style={styles.globalNewButton}
           onPress={() => onNewSession()}
         >
           <MobileIcon name="plus" size={17} strokeWidth={2.45} color="#db2777" />
           <Text style={styles.globalNewText}>New session</Text>
-        </Pressable>
+        </PressableScale>
       ) : null}
     </View>
   );
@@ -130,7 +137,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   collapsedSummaryButton: {
-    borderColor: '#dfe4f0',
+    borderColor: 'rgba(226,228,240,0.9)',
     borderLeftWidth: 1,
     justifyContent: 'center',
     marginLeft: 32,
@@ -138,44 +145,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   collapsedSummaryText: {
-    color: '#64748b',
+    color: mobileInk.soft,
     fontSize: 12,
     fontWeight: '700',
   },
   countBadge: {
     alignItems: 'center',
-    backgroundColor: '#f1f2f9',
+    backgroundColor: 'rgba(241,242,249,0.9)',
     borderRadius: 999,
     minWidth: 28,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
   countText: {
-    color: '#64748b',
+    color: mobileInk.soft,
     fontSize: 10,
     fontWeight: '900',
   },
   emptyCard: {
-    backgroundColor: '#ffffff',
-    borderColor: '#dfe4f0',
+    backgroundColor: mobileGlass.card.fill,
+    borderColor: mobileGlass.card.border,
     borderRadius: 20,
+    borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
     padding: 20,
+    ...mobileElevation.sm,
   },
   emptySubtitle: {
-    color: '#64748b',
+    color: mobileInk.soft,
     fontSize: 13,
     marginTop: 4,
   },
   emptyTitle: {
-    color: '#0f172a',
+    color: mobileInk.strong,
     fontSize: 15,
     fontWeight: '700',
   },
   globalNewButton: {
     alignItems: 'center',
-    backgroundColor: '#f1f2f9',
-    borderColor: '#dfe4f0',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderColor: 'rgba(226,228,240,0.9)',
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
@@ -185,7 +194,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   globalNewText: {
-    color: '#64748b',
+    color: '#db2777',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -217,20 +226,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   sessionButtonActive: {
-    backgroundColor: '#fce7f3',
+    backgroundColor: '#fdf2f8',
     borderColor: '#db2777',
   },
   sessionButtonInactive: {
     borderColor: 'transparent',
   },
-  sessionsList: {
-    borderColor: '#dfe4f0',
-    borderLeftWidth: 1,
-    marginLeft: 32,
-    paddingLeft: 12,
-  },
   sessionTitle: {
-    color: '#64748b',
+    color: mobileInk.soft,
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
@@ -238,23 +241,27 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   sessionTitleActive: {
-    color: '#0f172a',
+    color: mobileInk.strong,
     fontWeight: '900',
+  },
+  sessionsList: {
+    borderColor: 'rgba(226,228,240,0.9)',
+    borderLeftWidth: 1,
+    marginLeft: 32,
+    paddingLeft: 12,
   },
   treeRoot: {
     gap: 4,
   },
   treeRootScreen: {
-    backgroundColor: '#ffffff',
-    borderColor: '#dfe4f0',
+    backgroundColor: mobileGlass.card.fill,
+    borderColor: mobileGlass.card.border,
     borderRadius: 20,
+    borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    shadowColor: '#0f172a',
-    shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.1,
-    shadowRadius: 22,
+    ...mobileElevation.md,
   },
   workspaceNewButton: {
     alignItems: 'center',
@@ -269,14 +276,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   workspaceTitle: {
-    color: '#64748b',
+    color: mobileInk.soft,
     flex: 1,
     fontSize: 17,
     fontWeight: '900',
     minWidth: 0,
   },
   workspaceTitleActive: {
-    color: '#0f172a',
+    color: mobileInk.strong,
   },
   workspaceToggle: {
     alignItems: 'center',

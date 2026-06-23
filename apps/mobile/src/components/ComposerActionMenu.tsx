@@ -1,8 +1,10 @@
-import { sx } from '../styles/tokens';
-import { Pressable, Text, View } from 'react-native';
+import { sx, mobileInk } from '../styles/tokens';
+import { StyleSheet, Text, View } from 'react-native';
 import { buildComposerAttachmentActionItems, buildQuickActionItems, type ComposerAttachmentActionItem, type QuickActionItem } from '../navigation';
 import type { MobileIconName } from './MobileIcon';
 import { MobileIcon } from './MobileIcon';
+import { GlassSheet, SheetCloseButton } from './primitives/GlassSheet';
+import { PressableScale } from './primitives/motion';
 
 interface ComposerActionMenuProps {
   readonly open: boolean;
@@ -58,26 +60,10 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
   };
 
   return (
-    <View
-      style={sx('absolute z-20 rounded-card border border-cardBorder bg-cardBg shadow-card', {
-        bottom: 118,
-        left: 16,
-        padding: 4,
-        right: 16,
-      })}
-    >
-      <View
-        style={sx('flex-row items-center justify-between', {
-          alignItems: 'center',
-          flexDirection: 'row',
-          paddingHorizontal: 6,
-          paddingVertical: 4,
-        })}
-      >
-        <Text style={sx('text-[11px] font-black uppercase text-dim')}>Actions</Text>
-        <Pressable accessibilityLabel="Close actions" accessibilityRole="button" style={sx('h-9 w-9 items-center justify-center rounded-pill')} onPress={props.onToggleOpen}>
-          <MobileIcon name="x" size={18} color="#64748b" />
-        </Pressable>
+    <GlassSheet radius={20} style={styles.menu}>
+      <View style={styles.header}>
+        <Text style={sx('text-[11px] font-black uppercase tracking-wide', { color: mobileInk.soft })}>Actions</Text>
+        <SheetCloseButton label="Close actions" onPress={props.onToggleOpen} />
       </View>
       <View style={{ gap: 4, paddingBottom: 4 }}>
         {attachmentItems.map((item) => (
@@ -89,34 +75,59 @@ export function ComposerActionMenu(props: ComposerActionMenuProps) {
           <MenuButton key={item.id} item={item} onPress={() => runAction(item.id)} />
         ))}
       </View>
-    </View>
+    </GlassSheet>
   );
 }
 
 function MenuButton({ item, onPress }: { readonly item: ComposerMenuItem | QuickActionItem | ComposerAttachmentActionItem; readonly onPress: () => void }) {
   return (
-    <Pressable
+    <PressableScale
       accessibilityLabel={item.label}
       accessibilityRole="button"
-      style={sx(item.active ? 'bg-primarySoft' : 'bg-transparent', {
-        alignItems: 'center',
-        borderRadius: 8,
-        flexDirection: 'row',
-        gap: 9,
-        minHeight: 40,
-        paddingHorizontal: 10,
-        width: '100%',
-      })}
+      scaleTo={0.97}
+      style={[styles.menuButton, { backgroundColor: item.active ? '#fdf2f8' : 'transparent' }]}
       onPress={onPress}
     >
-      <View
-        style={sx(item.active ? 'bg-cardBg' : 'bg-primarySoft', { alignItems: 'center', borderRadius: 8, height: 28, justifyContent: 'center', width: 28 })}
-      >
-        <MobileIcon name={item.icon} size={15} strokeWidth={2.35} color={item.active ? '#db2777' : '#64748b'} />
+      <View style={[styles.menuButtonIcon, { backgroundColor: item.active ? 'rgba(255,255,255,0.9)' : '#fdf2f8' }]}>
+        <MobileIcon name={item.icon} size={15} strokeWidth={2.35} color={item.active ? '#db2777' : mobileInk.soft} />
       </View>
       <Text style={sx(`flex-1 text-[13px] font-bold ${item.active ? 'text-primaryStrong' : 'text-text'}`)}>
         {item.label}
       </Text>
-    </Pressable>
+    </PressableScale>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  menu: {
+    bottom: 118,
+    left: 16,
+    padding: 8,
+    position: 'absolute',
+    right: 16,
+    zIndex: 20,
+  },
+  menuButton: {
+    alignItems: 'center',
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 9,
+    minHeight: 44,
+    paddingHorizontal: 8,
+    width: '100%',
+  },
+  menuButtonIcon: {
+    alignItems: 'center',
+    borderRadius: 10,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+});

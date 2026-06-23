@@ -18,6 +18,7 @@ export default function Layout() {
         }}
       >
         <Stack.Screen name="index" />
+        <Stack.Screen name="onboarding" options={{ animation: 'fade', gestureEnabled: false }} />
         <Stack.Screen name="chat" />
         <Stack.Screen name="sessions" />
         <Stack.Screen name="permissions" />

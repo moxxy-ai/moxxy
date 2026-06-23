@@ -1,7 +1,8 @@
-import { sx } from '../styles/tokens';
-import { Pressable, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import { boolOf, recordId, textOf } from '@/utils/record';
 import { buildSessionRowAccessibility } from '@/sessionRowUi';
+import { PressableScale, PulseDot } from './primitives/motion';
 
 interface SessionRowProps {
   readonly workspace: Record<string, unknown>;
@@ -20,37 +21,42 @@ export function SessionRow({ workspace, active, onPress }: SessionRowProps) {
   const lastActivity = textOf(workspace.lastActivity);
   const accessibility = buildSessionRowAccessibility(workspace);
 
+  const dotColor = unread ? '#db2777' : active || live ? '#10b981' : '#cbd2e1';
+
   return (
-    <Pressable
+    <PressableScale
       accessibilityLabel={accessibility.accessibilityLabel}
       accessibilityRole={accessibility.accessibilityRole}
-      style={sx(`min-h-16 rounded-card border px-4 py-3 ${
-        active ? 'border-primary bg-primarySoft' : 'border-cardBorder bg-cardBg'
-      }`)}
+      scaleTo={0.985}
+      style={[styles.card, active ? styles.cardActive : null]}
       onPress={() => id && onPress(id)}
     >
-      <View style={sx('flex-row items-center gap-3')}>
-        <View style={sx(`h-2.5 w-2.5 rounded-pill ${unread ? 'bg-primary' : active ? 'bg-green' : 'bg-cardBorderStrong'}`)} />
-        <View style={sx('min-w-0 flex-1')}>
-          <Text style={sx('text-[15px] font-bold text-text')}>{name}</Text>
-          {cwd ? <Text style={sx('truncate text-[12px] text-muted')}>{cwd}</Text> : null}
-          <View style={sx('mt-2 flex-row flex-wrap gap-1.5')}>
+      <View style={styles.row}>
+        <PulseDot color={dotColor} size={10} pulsing={active || live} style={styles.dot} />
+        <View style={styles.body}>
+          <Text style={styles.name}>{name}</Text>
+          {cwd ? (
+            <Text style={styles.cwd} numberOfLines={1}>
+              {cwd}
+            </Text>
+          ) : null}
+          <View style={styles.badges}>
             {eventCount !== null ? <Badge label={`${eventCount} events`} /> : null}
             {lastActivity ? <Badge label={formatDate(lastActivity)} /> : null}
             {live ? <Badge label="Live" active /> : null}
             {readOnly ? <Badge label="Archive" /> : null}
           </View>
         </View>
-        {active ? <Text style={sx('text-[11px] font-bold text-primaryStrong')}>Active</Text> : null}
+        {active ? <Text style={styles.activeTag}>Active</Text> : null}
       </View>
-    </Pressable>
+    </PressableScale>
   );
 }
 
 function Badge({ label, active }: { readonly label: string; readonly active?: boolean }) {
   return (
-    <View style={sx(`rounded-pill px-2 py-0.5 ${active ? 'bg-green' : 'bg-appBg'}`)}>
-      <Text style={sx(`text-[10px] font-bold ${active ? 'text-white' : 'text-muted'}`)}>{label}</Text>
+    <View style={[styles.badge, active ? styles.badgeActive : null]}>
+      <Text style={[styles.badgeText, active ? styles.badgeTextActive : null]}>{label}</Text>
     </View>
   );
 }
@@ -65,3 +71,72 @@ function formatDate(value: string): string {
     month: 'short',
   });
 }
+
+const styles = StyleSheet.create({
+  activeTag: {
+    color: '#db2777',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  badge: {
+    backgroundColor: 'rgba(241,242,249,0.9)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  badgeActive: {
+    backgroundColor: '#10b981',
+  },
+  badgeText: {
+    color: mobileInk.soft,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  badgeTextActive: {
+    color: '#ffffff',
+  },
+  badges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  body: {
+    flex: 1,
+    minWidth: 0,
+  },
+  card: {
+    backgroundColor: mobileGlass.card.fill,
+    borderColor: mobileGlass.card.border,
+    borderRadius: 18,
+    borderTopColor: mobileGlass.card.hairline,
+    borderWidth: 1,
+    minHeight: 64,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    ...mobileElevation.sm,
+  },
+  cardActive: {
+    backgroundColor: '#fdf2f8',
+    borderColor: '#db2777',
+    borderTopColor: '#f9a8d4',
+  },
+  cwd: {
+    color: mobileInk.soft,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  dot: {
+    marginTop: 4,
+  },
+  name: {
+    color: mobileInk.strong,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  row: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+  },
+});

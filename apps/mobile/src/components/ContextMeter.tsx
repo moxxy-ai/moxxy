@@ -1,5 +1,5 @@
-import { sx } from '../styles/tokens';
-import { Text, View } from 'react-native';
+import { sx, mobileGlass, mobileInk } from '../styles/tokens';
+import { StyleSheet, Text, View } from 'react-native';
 import { buildContextMeterUiState } from '../contextMeterUi';
 
 export function ContextMeter({ usage }: { readonly usage: Record<string, unknown> | null }) {
@@ -10,23 +10,15 @@ export function ContextMeter({ usage }: { readonly usage: Record<string, unknown
 
   if (!ui.visible) {
     return (
-      <View style={sx('rounded-pill bg-appBg px-3 py-1')}>
-        <Text style={sx('text-[11px] font-bold text-dim')}>Context</Text>
+      <View style={styles.pill}>
+        <Text style={[sx('text-[11px] font-bold'), { color: mobileInk.soft }]}>Context</Text>
       </View>
     );
   }
 
   return (
-    <View style={sx('flex-row items-center gap-2 rounded-pill bg-appBg px-3 py-1')}>
-      <View
-        style={{
-          backgroundColor: 'rgba(148, 163, 184, 0.22)',
-          borderRadius: 999,
-          height: 5,
-          overflow: 'hidden',
-          width: 30,
-        }}
-      >
+    <View style={[styles.pill, sx('flex-row items-center gap-2')]}>
+      <View style={styles.track}>
         <View
           style={{
             backgroundColor: fillColor,
@@ -36,7 +28,25 @@ export function ContextMeter({ usage }: { readonly usage: Record<string, unknown
           }}
         />
       </View>
-      <Text style={sx('text-[11px] font-bold tabular-nums text-dim')}>{ui.label}</Text>
+      <Text style={[sx('text-[11px] font-bold tabular-nums'), { color: mobileInk.soft }]}>{ui.label}</Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  pill: {
+    backgroundColor: mobileGlass.subtle.fill,
+    borderColor: mobileGlass.subtle.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  track: {
+    backgroundColor: 'rgba(148, 163, 184, 0.22)',
+    borderRadius: 999,
+    height: 5,
+    overflow: 'hidden',
+    width: 30,
+  },
+});

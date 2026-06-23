@@ -1,4 +1,6 @@
-import { sx } from '../styles/tokens';
+import { sx, mobileElevation, mobileInk } from '../styles/tokens';
+import { Gradient } from './primitives/Gradient';
+import { PressableScale } from './primitives/motion';
 import {
   FlatList,
   Image,
@@ -91,6 +93,9 @@ export function ChatList({
     const copy = buildOfflineEmptyStateCopy(Boolean(connectionBanner));
     return (
       <View style={[styles.emptyState, connectionBanner ? styles.emptyStateCompact : styles.emptyStateRoomy]}>
+        <Gradient preset="brand" radius={18} style={styles.emptyBadge}>
+          <MobileIcon name="message" size={26} strokeWidth={2.3} color="#ffffff" />
+        </Gradient>
         <Text style={styles.emptyTitle}>{copy.title}</Text>
         <Text style={styles.emptyBody}>{copy.body}</Text>
       </View>
@@ -120,32 +125,45 @@ export function ChatList({
 }
 
 const styles = StyleSheet.create({
+  emptyBadge: {
+    alignItems: 'center',
+    height: 56,
+    justifyContent: 'center',
+    marginBottom: 14,
+    width: 56,
+  },
   emptyBody: {
-    color: '#667085',
+    color: mobileInk.soft,
     fontSize: 14,
     lineHeight: 22,
     marginTop: 6,
+    textAlign: 'center',
   },
   emptyState: {
+    alignItems: 'center',
     alignSelf: 'stretch',
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderColor: '#e3e5f0',
-    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.78)',
+    borderColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 22,
+    borderTopColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 22,
+    paddingVertical: 28,
+    ...mobileElevation.sm,
   },
   emptyStateCompact: {
     marginTop: -2,
   },
   emptyStateRoomy: {
-    marginTop: 20,
+    marginTop: 24,
   },
   emptyTitle: {
-    color: '#0f172a',
-    fontSize: 17,
+    color: mobileInk.strong,
+    fontSize: 18,
     fontWeight: '900',
-    lineHeight: 22,
+    letterSpacing: -0.3,
+    lineHeight: 23,
+    textAlign: 'center',
   },
 });
 
@@ -177,21 +195,32 @@ function MessageBlock({
             <View
               testID="mobile-user-block"
               style={{
-                backgroundColor: '#ec4899',
-                borderBottomLeftRadius: 16,
-                borderBottomRightRadius: 4,
-                borderTopLeftRadius: 16,
-                borderTopRightRadius: 16,
+                borderBottomLeftRadius: 18,
+                borderBottomRightRadius: 5,
+                borderTopLeftRadius: 18,
+                borderTopRightRadius: 18,
                 maxWidth: '100%',
-                paddingHorizontal: 16,
-                paddingVertical: 12,
-                shadowColor: '#ec4899',
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 0.2,
-                shadowRadius: 14,
+                shadowColor: '#db2777',
+                shadowOffset: { width: 0, height: 7 },
+                shadowOpacity: 0.26,
+                shadowRadius: 16,
+                elevation: 5,
               }}
             >
-              <Text style={sx('text-[15px] leading-6 text-white')}>{item.text}</Text>
+              <Gradient
+                preset="user"
+                radius={0}
+                style={{
+                  borderBottomLeftRadius: 18,
+                  borderBottomRightRadius: 5,
+                  borderTopLeftRadius: 18,
+                  borderTopRightRadius: 18,
+                }}
+              >
+                <View style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                  <Text style={sx('text-[15px] leading-6 text-white')}>{item.text}</Text>
+                </View>
+              </Gradient>
             </View>
           ) : null}
         </View>
@@ -317,29 +346,28 @@ function CopyMessageButton({
   readonly onPress: () => void;
 }) {
   if (hidden) return <View style={{ height: 32, width: 32 }} />;
-  const activeColor = copied ? '#16a34a' : tone === 'user' ? '#db2777' : '#64748b';
+  const activeColor = copied ? '#16a34a' : tone === 'user' ? '#db2777' : mobileInk.soft;
   return (
-    <Pressable
+    <PressableScale
       accessibilityLabel={copied ? 'Message copied' : 'Copy message'}
       accessibilityRole="button"
       onPress={onPress}
+      scaleTo={0.85}
+      hitSlop={6}
       style={{
         alignItems: 'center',
-        backgroundColor: copied ? '#ecfdf5' : '#ffffff',
+        backgroundColor: copied ? '#ecfdf5' : 'rgba(255,255,255,0.92)',
         borderColor: copied ? '#bbf7d0' : '#e3e5f0',
         borderRadius: 999,
         borderWidth: 1,
         height: 32,
         justifyContent: 'center',
-        shadowColor: '#0f172a',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 10,
         width: 32,
+        ...mobileElevation.xs,
       }}
     >
       <MobileIcon name={copied ? 'check' : 'copy'} size={15} strokeWidth={2.4} color={activeColor} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -358,11 +386,13 @@ function AssistantMessage({
       testID="mobile-assistant-block"
       style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}
     >
-      <View
-        style={sx('bg-primarySoft', { alignItems: 'center', borderRadius: 10, height: 34, justifyContent: 'center', width: 34 })}
+      <Gradient
+        preset="brand"
+        radius={11}
+        style={{ alignItems: 'center', height: 34, justifyContent: 'center', width: 34 }}
       >
-        <MobileIcon name="message" size={18} strokeWidth={2.35} color="#db2777" />
-      </View>
+        <MobileIcon name="message" size={18} strokeWidth={2.4} color="#ffffff" />
+      </Gradient>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
           <Text style={sx('text-[13px] font-bold text-text')}>{message.label}</Text>
@@ -458,7 +488,7 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
           <Text style={sx('flex-1 text-[11px] font-medium text-dim')} numberOfLines={1}>
             {ui.summary || group.summary}
           </Text>
-          <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
+          <MobileIcon name={open ? 'chevronDown' : 'chevronRight'} size={16} strokeWidth={2.5} color={mobileInk.faint} />
         </Pressable>
         {open ? (
           <View style={{ gap: 8, marginTop: 8 }}>
@@ -517,7 +547,7 @@ function SubagentGroupMessage({ group }: { readonly group: SubagentGroupTranscri
           <Text style={sx('flex-1 text-[13px] font-bold text-text')} numberOfLines={1}>
             {group.summary}
           </Text>
-          <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
+          <MobileIcon name={open ? 'chevronDown' : 'chevronRight'} size={16} strokeWidth={2.5} color={mobileInk.faint} />
         </Pressable>
         {open ? (
           <View style={{ borderLeftColor: '#c7d2fe', borderLeftWidth: 1, gap: 6, marginTop: 6, paddingLeft: 10 }}>
@@ -834,7 +864,7 @@ function SystemGroupMessage({ group }: { readonly group: SystemGroupTranscriptIt
           <Text style={sx('flex-1 text-[11px] text-dim')} numberOfLines={1}>
             collapsed
           </Text>
-          <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
+          <MobileIcon name={open ? 'chevronDown' : 'chevronRight'} size={16} strokeWidth={2.5} color={mobileInk.faint} />
         </Pressable>
         {open ? (
           <View style={sx('mt-2 rounded-block border border-cardBorder bg-cardBg px-3 py-2')}>

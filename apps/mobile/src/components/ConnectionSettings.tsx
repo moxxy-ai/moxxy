@@ -1,7 +1,10 @@
-import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import type { CameraPermissionState } from '../pairingUi';
 import { buildPairingUiState, maskPairingCode } from '../pairingUi';
+import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
+import { Gradient } from './primitives/Gradient';
+import { PressableScale, PulseDot } from './primitives/motion';
 
 interface ConnectionSettingsProps {
   readonly gatewayUrl: string;
@@ -41,34 +44,42 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Gateway</Text>
           <View style={[styles.statusPill, props.transportReady ? styles.statusOnline : styles.statusWaiting]}>
+            <PulseDot
+              color={props.transportReady ? '#16a34a' : '#d97706'}
+              size={7}
+              pulsing={props.transportReady}
+            />
             <Text style={[styles.statusText, props.transportReady ? styles.statusTextOnline : styles.statusTextWaiting]}>
               {pairingUi.statusLabel}
             </Text>
           </View>
         </View>
 
-        <Pressable
+        <PressableScale
           accessibilityLabel={pairingUi.scanButtonLabel}
           accessibilityRole="button"
           disabled={!pairingUi.scanButtonEnabled}
+          scaleTo={0.97}
           onPress={props.onScanQr}
-          style={[styles.scanButton, !pairingUi.scanButtonEnabled ? styles.buttonDisabled : null]}
+          style={[styles.scanButton, !pairingUi.scanButtonEnabled ? styles.scanButtonDisabled : null]}
         >
-          <MobileIcon name="camera" color={pairingUi.scanButtonEnabled ? '#ffffff' : '#94a3b8'} size={21} />
+          {pairingUi.scanButtonEnabled ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
+          <MobileIcon name="camera" color={pairingUi.scanButtonEnabled ? '#ffffff' : mobileInk.faint} size={21} />
           <Text style={[styles.scanButtonText, !pairingUi.scanButtonEnabled ? styles.disabledText : null]}>
             {pairingUi.scanButtonLabel}
           </Text>
-        </Pressable>
+        </PressableScale>
 
-        <Pressable
+        <PressableScale
           accessibilityLabel={pairingUi.manualPairingToggleLabel}
           accessibilityRole="button"
+          scaleTo={0.98}
           onPress={props.onToggleManualPairing}
           style={styles.secondaryButton}
         >
           <Text style={styles.secondaryButtonText}>{pairingUi.manualPairingToggleLabel}</Text>
           <Text style={styles.secondaryButtonIcon}>{props.manualPairingOpen ? '-' : '+'}</Text>
-        </Pressable>
+        </PressableScale>
 
         {props.manualPairingOpen || pairingUi.manualPairingVisible ? (
           <View style={styles.manualStack}>
@@ -78,6 +89,7 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
               autoCapitalize="none"
               autoCorrect={false}
               inputMode="url"
+              placeholderTextColor={mobileInk.faint}
               style={styles.input}
             />
             <View style={styles.codeCard}>
@@ -85,23 +97,26 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
               <Text style={styles.codeText}>{maskPairingCode(props.code)}</Text>
             </View>
             <View style={styles.buttonRow}>
-              <Pressable
+              <PressableScale
                 accessibilityLabel="Refresh pairing"
                 accessibilityRole="button"
+                scaleTo={0.97}
                 onPress={props.onRefreshPairing}
                 style={styles.rowButton}
               >
                 <Text style={styles.rowButtonText}>Refresh pairing</Text>
-              </Pressable>
-              <Pressable
+              </PressableScale>
+              <PressableScale
                 accessibilityLabel="Pair"
                 accessibilityRole="button"
                 disabled={!canPair}
+                scaleTo={0.97}
                 onPress={props.onPair}
-                style={[styles.rowButtonPrimary, !canPair ? styles.buttonDisabled : null]}
+                style={[styles.rowButtonPrimary, !canPair ? styles.rowButtonDisabled : null]}
               >
-                <Text style={styles.rowButtonPrimaryText}>Pair</Text>
-              </Pressable>
+                {canPair ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
+                <Text style={[styles.rowButtonPrimaryText, !canPair ? styles.disabledText : null]}>Pair</Text>
+              </PressableScale>
             </View>
           </View>
         ) : null}
@@ -113,9 +128,15 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
         ) : null}
 
         {props.token ? (
-          <Pressable accessibilityLabel="Disconnect" accessibilityRole="button" onPress={props.onDisconnect} style={styles.dangerButton}>
+          <PressableScale
+            accessibilityLabel="Disconnect"
+            accessibilityRole="button"
+            scaleTo={0.97}
+            onPress={props.onDisconnect}
+            style={styles.dangerButton}
+          >
             <Text style={styles.dangerButtonText}>Disconnect</Text>
-          </Pressable>
+          </PressableScale>
         ) : null}
       </View>
 
@@ -153,25 +174,19 @@ function SettingRow({ label, value }: { readonly label: string; readonly value: 
 }
 
 const styles = StyleSheet.create({
-  buttonDisabled: {
-    backgroundColor: '#dfe4f0',
-    opacity: 0.76,
-  },
   buttonRow: {
     flexDirection: 'row',
     gap: 8,
   },
   card: {
-    backgroundColor: '#ffffff',
-    borderColor: '#dfe4f0',
-    borderRadius: 24,
+    backgroundColor: mobileGlass.card.fill,
+    borderColor: mobileGlass.card.border,
+    borderRadius: 22,
+    borderTopColor: mobileGlass.card.hairline,
     borderWidth: 1,
     gap: 12,
     padding: 16,
-    shadowColor: '#0f172a',
-    shadowOffset: { height: 16, width: 0 },
-    shadowOpacity: 0.08,
-    shadowRadius: 28,
+    ...mobileElevation.md,
   },
   cardHeader: {
     alignItems: 'center',
@@ -179,14 +194,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cardTitle: {
-    color: '#0f172a',
+    color: mobileInk.strong,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   codeCard: {
     alignItems: 'center',
-    backgroundColor: '#fce7f3',
-    borderRadius: 20,
+    backgroundColor: '#fdf2f8',
+    borderColor: 'rgba(249,168,212,0.55)',
+    borderRadius: 18,
+    borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
@@ -206,21 +223,23 @@ const styles = StyleSheet.create({
   dangerButton: {
     alignItems: 'center',
     backgroundColor: '#ef4444',
-    borderRadius: 18,
+    borderRadius: 14,
     justifyContent: 'center',
     minHeight: 44,
   },
   dangerButtonText: {
     color: '#ffffff',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   disabledText: {
-    color: '#94a3b8',
+    color: mobileInk.faint,
   },
   errorBox: {
-    backgroundColor: '#fee2e2',
-    borderRadius: 18,
+    backgroundColor: 'rgba(239,68,68,0.08)',
+    borderColor: 'rgba(239,68,68,0.2)',
+    borderRadius: 16,
+    borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -230,11 +249,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   input: {
-    backgroundColor: '#ffffff',
-    borderColor: '#dfe4f0',
-    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderColor: 'rgba(226,228,240,0.9)',
+    borderRadius: 14,
     borderWidth: 1,
-    color: '#0f172a',
+    color: mobileInk.strong,
     fontSize: 14,
     minHeight: 44,
     paddingHorizontal: 12,
@@ -244,40 +263,48 @@ const styles = StyleSheet.create({
   },
   rowButton: {
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderColor: '#dfe4f0',
-    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderColor: 'rgba(226,228,240,0.9)',
+    borderRadius: 14,
     borderWidth: 1,
     flex: 1,
     justifyContent: 'center',
     minHeight: 44,
   },
+  rowButtonDisabled: {
+    backgroundColor: '#dfe4f0',
+    opacity: 0.76,
+  },
   rowButtonPrimary: {
     alignItems: 'center',
-    backgroundColor: '#db2777',
-    borderRadius: 18,
+    borderRadius: 14,
     flex: 1,
     justifyContent: 'center',
     minHeight: 44,
+    overflow: 'hidden',
   },
   rowButtonPrimaryText: {
     color: '#ffffff',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   rowButtonText: {
-    color: '#64748b',
+    color: mobileInk.muted,
     fontSize: 13,
     fontWeight: '800',
   },
   scanButton: {
     alignItems: 'center',
-    backgroundColor: '#db2777',
-    borderRadius: 18,
+    borderRadius: 14,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     minHeight: 56,
+    overflow: 'hidden',
+  },
+  scanButtonDisabled: {
+    backgroundColor: '#dfe4f0',
+    opacity: 0.76,
   },
   scanButtonText: {
     color: '#ffffff',
@@ -286,9 +313,9 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderColor: '#dfe4f0',
-    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderColor: 'rgba(226,228,240,0.9)',
+    borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -301,25 +328,25 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   secondaryButtonText: {
-    color: '#64748b',
+    color: mobileInk.muted,
     fontSize: 13,
     fontWeight: '800',
   },
   settingLabel: {
-    color: '#64748b',
+    color: mobileInk.soft,
     fontSize: 13,
     fontWeight: '700',
   },
   settingRow: {
     alignItems: 'center',
-    borderBottomColor: '#dfe4f0',
+    borderBottomColor: 'rgba(226,228,240,0.8)',
     borderBottomWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 8,
   },
   settingValue: {
-    color: '#0f172a',
+    color: mobileInk.strong,
     flexShrink: 1,
     fontSize: 13,
     fontWeight: '800',
@@ -333,7 +360,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#dcfce7',
   },
   statusPill: {
+    alignItems: 'center',
     borderRadius: 999,
+    flexDirection: 'row',
+    gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
@@ -355,7 +385,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   switchDescription: {
-    color: '#64748b',
+    color: mobileInk.soft,
     fontSize: 12,
     lineHeight: 20,
     marginTop: 2,
@@ -366,8 +396,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   switchTitle: {
-    color: '#0f172a',
+    color: mobileInk.strong,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
   },
 });

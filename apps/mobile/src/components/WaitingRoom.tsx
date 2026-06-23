@@ -1,6 +1,10 @@
-import { Image, type ImageSourcePropType, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Image, type ImageSourcePropType, StyleSheet, Text, View } from 'react-native';
 import type { WaitingRoomUi } from '../waitingRoomUi';
+import { mobileInk } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
+import { Gradient } from './primitives/Gradient';
+import { Appear, PressableScale, useReduceMotion } from './primitives/motion';
 
 const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
 const fallbackSteps = [
@@ -15,67 +19,82 @@ interface WaitingRoomProps {
 }
 
 export function WaitingRoom({ waitingRoomUi, onOpenPairing }: WaitingRoomProps) {
+  const reduce = useReduceMotion();
+  const float = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (reduce) {
+      float.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(float, { toValue: 1, duration: 2400, useNativeDriver: true }),
+        Animated.timing(float, { toValue: 0, duration: 2400, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [float, reduce]);
+
   const stepItems =
-    Array.isArray(waitingRoomUi.steps) && waitingRoomUi.steps.length > 0
-      ? waitingRoomUi.steps
-      : fallbackSteps;
+    Array.isArray(waitingRoomUi.steps) && waitingRoomUi.steps.length > 0 ? waitingRoomUi.steps : fallbackSteps;
   const statusText =
-    typeof waitingRoomUi.status === 'string' && waitingRoomUi.status.length > 0
-      ? waitingRoomUi.status
-      : 'Not paired yet';
+    typeof waitingRoomUi.status === 'string' && waitingRoomUi.status.length > 0 ? waitingRoomUi.status : 'Not paired yet';
+  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -10] });
 
   return (
     <View style={styles.container}>
       <View style={styles.contentStack}>
-        <View style={styles.heroCard}>
-          <View style={styles.hero}>
-            <View style={styles.glow} />
-            <Image
-              source={moxxyMascot}
-              accessibilityLabel="Moxxy assistant mascot waving"
-              resizeMode="contain"
-              style={styles.mascot}
-            />
+        <Appear from="up" distance={14}>
+          <View style={styles.heroCard}>
+            <View style={styles.heroGlow}>
+              <Gradient preset="brand" radius={999} style={StyleSheet.absoluteFill} />
+            </View>
+            <View style={styles.hero}>
+              <Animated.View style={{ transform: [{ translateY: floatY }] }}>
+                <Image source={moxxyMascot} accessibilityLabel="Moxxy assistant mascot waving" resizeMode="contain" style={styles.mascot} />
+              </Animated.View>
+            </View>
+            <View style={styles.copy}>
+              <Text style={styles.eyebrow}>{waitingRoomUi.eyebrow}</Text>
+              <Text style={styles.title}>{waitingRoomUi.title}</Text>
+              <Text style={styles.body}>{waitingRoomUi.body}</Text>
+            </View>
           </View>
-          <View style={styles.copy}>
-            <Text style={styles.eyebrow}>{waitingRoomUi.eyebrow}</Text>
-            <Text style={styles.title}>{waitingRoomUi.title}</Text>
-            <Text style={styles.body}>{waitingRoomUi.body}</Text>
-          </View>
-        </View>
-        <View style={styles.stepsCard}>
-          <Text style={styles.stepsTitle}>{statusText}</Text>
-          <View style={styles.instructions}>
-            {stepItems.map((step, index) => (
-              <View
-                key={`${index}-${step}`}
-                style={[
-                  styles.instructionItem,
-                  index > 0 ? styles.instructionItemSpaced : null,
-                ]}
-              >
-                <View style={styles.instructionBadge}>
-                  <Text style={styles.instructionBadgeText}>{index + 1}</Text>
+        </Appear>
+
+        <Appear from="up" distance={18} delay={90}>
+          <View style={styles.stepsCard}>
+            <View style={styles.stepsHeader}>
+              <View style={styles.statusDot} />
+              <Text style={styles.stepsTitle}>{statusText}</Text>
+            </View>
+            <View style={styles.instructions}>
+              {stepItems.map((step, index) => (
+                <View key={`${index}-${step}`} style={[styles.instructionItem, index > 0 ? styles.instructionItemSpaced : null]}>
+                  <Gradient preset="brand" radius={999} style={styles.instructionBadge}>
+                    <Text style={styles.instructionBadgeText}>{index + 1}</Text>
+                  </Gradient>
+                  <Text style={styles.instructionText}>{step}</Text>
                 </View>
-                <Text style={styles.instructionText}>{step}</Text>
-              </View>
-            ))}
+              ))}
+            </View>
+            <PressableScale
+              accessible
+              accessibilityLabel="Open gateway pairing and scan QR code"
+              accessibilityRole="button"
+              hitSlop={8}
+              scaleTo={0.97}
+              style={styles.primaryAction}
+              onPress={onOpenPairing}
+            >
+              <Gradient preset="cta" radius={18} style={StyleSheet.absoluteFill} />
+              <MobileIcon name="camera" size={18} strokeWidth={2.4} color="#ffffff" />
+              <Text style={styles.primaryActionText}>{waitingRoomUi.actionLabel}</Text>
+            </PressableScale>
           </View>
-          <Pressable
-            accessible
-            accessibilityLabel="Open gateway pairing and scan QR code"
-            accessibilityRole="button"
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.primaryAction,
-              pressed ? styles.primaryActionPressed : null,
-            ]}
-            onPress={onOpenPairing}
-          >
-            <MobileIcon name="camera" size={18} strokeWidth={2.4} color="#ffffff" />
-            <Text style={styles.primaryActionText}>{waitingRoomUi.actionLabel}</Text>
-          </Pressable>
-        </View>
+        </Appear>
       </View>
     </View>
   );
@@ -83,7 +102,7 @@ export function WaitingRoom({ waitingRoomUi, onOpenPairing }: WaitingRoomProps) 
 
 const styles = StyleSheet.create({
   body: {
-    color: '#667085',
+    color: mobileInk.muted,
     flexShrink: 1,
     fontSize: 14,
     lineHeight: 21,
@@ -112,17 +131,8 @@ const styles = StyleSheet.create({
     color: '#db2777',
     fontSize: 12,
     fontWeight: '900',
-    letterSpacing: 0,
+    letterSpacing: 1.5,
     textTransform: 'uppercase',
-  },
-  glow: {
-    backgroundColor: 'rgba(219, 39, 119, 0.12)',
-    borderRadius: 999,
-    bottom: 6,
-    height: 88,
-    left: 58,
-    position: 'absolute',
-    right: 58,
   },
   hero: {
     alignItems: 'center',
@@ -135,37 +145,43 @@ const styles = StyleSheet.create({
   heroCard: {
     alignItems: 'center',
     alignSelf: 'stretch',
-    backgroundColor: 'rgba(255, 255, 255, 0.82)',
-    borderColor: 'rgba(219, 39, 119, 0.18)',
-    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    borderColor: 'rgba(249, 168, 212, 0.45)',
+    borderRadius: 30,
+    borderTopColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
     minHeight: 292,
     paddingBottom: 24,
     paddingHorizontal: 18,
     paddingTop: 10,
     shadowColor: '#db2777',
-    shadowOffset: { height: 14, width: 0 },
-    shadowOpacity: 0.08,
-    shadowRadius: 26,
+    shadowOffset: { height: 18, width: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 34,
+  },
+  heroGlow: {
+    bottom: 30,
+    height: 120,
+    left: 50,
+    opacity: 0.22,
+    position: 'absolute',
+    right: 50,
   },
   instructionBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(219, 39, 119, 0.1)',
-    borderRadius: 999,
     height: 30,
     justifyContent: 'center',
     marginRight: 14,
-    marginTop: 0,
     width: 30,
   },
   instructionBadgeText: {
-    color: '#db2777',
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '900',
     lineHeight: 18,
   },
   instructionItem: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
     flexDirection: 'row',
     width: '100%',
   },
@@ -173,11 +189,11 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   instructionText: {
-    color: '#475569',
+    color: mobileInk.muted,
     flex: 1,
     flexShrink: 1,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
     lineHeight: 21,
   },
   instructions: {
@@ -185,57 +201,66 @@ const styles = StyleSheet.create({
   },
   mascot: {
     height: 150,
-    width: '100%',
+    width: 180,
   },
   primaryAction: {
     alignItems: 'center',
     alignSelf: 'stretch',
-    backgroundColor: '#db2777',
     borderRadius: 18,
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
     marginTop: 22,
-    minHeight: 50,
+    minHeight: 52,
+    overflow: 'hidden',
     paddingHorizontal: 18,
-  },
-  primaryActionPressed: {
-    opacity: 0.82,
   },
   primaryActionText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '900',
+  },
+  statusDot: {
+    backgroundColor: '#f59e0b',
+    borderRadius: 999,
+    height: 8,
+    width: 8,
   },
   stepsCard: {
     alignSelf: 'stretch',
-    backgroundColor: '#ffffff',
-    borderColor: '#e3e8f5',
+    backgroundColor: 'rgba(255,255,255,0.82)',
+    borderColor: 'rgba(255,255,255,0.7)',
     borderRadius: 24,
+    borderTopColor: 'rgba(255,255,255,0.95)',
     borderWidth: 1,
-    marginTop: 24,
+    marginTop: 22,
     minHeight: 198,
-    paddingBottom: 34,
+    paddingBottom: 28,
     paddingHorizontal: 22,
-    paddingTop: 24,
-    shadowColor: '#0f172a',
-    shadowOffset: { height: 8, width: 0 },
-    shadowOpacity: 0.05,
-    shadowRadius: 18,
+    paddingTop: 22,
+    shadowColor: '#1e2540',
+    shadowOffset: { height: 12, width: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 26,
+  },
+  stepsHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
   },
   stepsTitle: {
     color: '#db2777',
     fontSize: 14,
     fontWeight: '900',
-    marginBottom: 14,
   },
   title: {
-    color: '#111827',
+    color: mobileInk.strong,
     flexShrink: 1,
-    fontSize: 23,
+    fontSize: 24,
     fontWeight: '900',
-    letterSpacing: 0,
-    lineHeight: 28,
+    letterSpacing: -0.5,
+    lineHeight: 29,
     marginTop: 8,
     textAlign: 'center',
     width: '100%',

@@ -1,6 +1,8 @@
-import { sx } from '../styles/tokens';
-import { Pressable, Text, TextInput, View } from 'react-native';
-import { MobileIcon } from './MobileIcon';
+import { sx, mobileInk } from '../styles/tokens';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { GlassSheet, SheetCloseButton } from './primitives/GlassSheet';
+import { Gradient } from './primitives/Gradient';
+import { PressableScale } from './primitives/motion';
 
 interface GoalSheetProps {
   readonly objective: string;
@@ -14,35 +16,58 @@ interface GoalSheetProps {
 
 export function GoalSheet(props: GoalSheetProps) {
   return (
-    <View style={sx('gap-4 rounded-card border border-cardBorder bg-cardBg p-4 shadow-card', { maxHeight: props.maxHeight })}>
+    <GlassSheet maxHeight={props.maxHeight} radius={22} style={styles.sheet}>
       <View style={sx('flex-row items-center justify-between gap-3')}>
-        <Text style={sx('text-[18px] font-black text-text')}>Start a goal</Text>
-        {props.onClose ? (
-          <Pressable accessibilityLabel="Close goal" style={sx('h-10 w-10 items-center justify-center rounded-pill')} onPress={props.onClose}>
-            <MobileIcon name="x" size={19} color="#64748b" />
-          </Pressable>
-        ) : null}
+        <Text style={sx('text-[18px] font-black', { color: mobileInk.strong })}>Start a goal</Text>
+        {props.onClose ? <SheetCloseButton label="Close goal" onPress={props.onClose} /> : null}
       </View>
       <TextInput
         value={props.objective}
         onChangeText={props.onObjectiveChange}
         multiline
         placeholder="Describe the objective to accomplish..."
-        placeholderTextColor="#94a3b8"
+        placeholderTextColor={mobileInk.faint}
         scrollEnabled
-        style={sx('min-h-32 rounded-block border border-cardBorder bg-cardBg px-3 py-3 text-[14px] leading-5 text-text', {
-          maxHeight: props.inputMaxHeight,
-        })}
+        style={[styles.input, { maxHeight: props.inputMaxHeight }]}
       />
-      <Pressable
-        style={sx(`min-h-11 items-center justify-center rounded-block ${
-          props.canStart ? 'bg-primary' : 'bg-cardBorder'
-        }`)}
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel="Start goal"
+        accessibilityState={{ disabled: !props.canStart }}
+        scaleTo={0.97}
+        style={[styles.startButton, props.canStart ? null : { opacity: 0.5 }]}
         disabled={!props.canStart}
         onPress={props.onStart}
       >
-        <Text style={sx('text-[13px] font-bold text-white')}>Start goal</Text>
-      </Pressable>
-    </View>
+        <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} />
+        <Text style={sx('text-[14px] font-black', { color: mobileInk.onBrand })}>Start goal</Text>
+      </PressableScale>
+    </GlassSheet>
   );
 }
+
+const styles = StyleSheet.create({
+  input: {
+    backgroundColor: 'rgba(248,250,252,0.85)',
+    borderColor: 'rgba(226,228,240,0.9)',
+    borderRadius: 18,
+    borderWidth: 1,
+    color: mobileInk.strong,
+    fontSize: 14,
+    lineHeight: 20,
+    minHeight: 128,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  sheet: {
+    gap: 16,
+    padding: 16,
+  },
+  startButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    justifyContent: 'center',
+    minHeight: 48,
+    overflow: 'hidden',
+  },
+});

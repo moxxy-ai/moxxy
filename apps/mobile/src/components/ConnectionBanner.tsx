@@ -1,7 +1,10 @@
 import { Link } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { mobileInk } from '../styles/tokens';
 import { buildConnectionBannerUi } from '../connectionBannerUi';
 import { MobileIcon } from './MobileIcon';
+import { Gradient } from './primitives/Gradient';
+import { PressableScale } from './primitives/motion';
 
 interface ConnectionBannerProps {
   readonly paired: boolean;
@@ -17,9 +20,9 @@ export function ConnectionBanner({ paired, connected, status }: ConnectionBanner
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <View style={styles.iconBadge}>
-          <MobileIcon name={ui.icon} size={20} strokeWidth={2.5} color="#db2777" />
-        </View>
+        <Gradient preset="brand" radius={14} style={styles.iconBadge}>
+          <MobileIcon name={ui.icon} size={20} strokeWidth={2.5} color="#ffffff" />
+        </Gradient>
         <View style={styles.copy}>
           <Text style={styles.title}>{ui.title}</Text>
           <Text style={styles.body}>{ui.body}</Text>
@@ -35,17 +38,11 @@ export function ConnectionBanner({ paired, connected, status }: ConnectionBanner
       </View>
       <View style={styles.actionRow}>
         <Link href="/settings" asChild>
-          <Pressable
-            accessibilityLabel={ui.actionLabel}
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.settingsButton,
-              pressed ? styles.settingsButtonPressed : null,
-            ]}
-          >
+          <PressableScale accessibilityLabel={ui.actionLabel} accessibilityRole="button" scaleTo={0.95} style={styles.settingsButton}>
+            <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} />
             <MobileIcon name="settings" size={15} strokeWidth={2.4} color="#ffffff" />
             <Text style={styles.settingsButtonText}>Open settings</Text>
-          </Pressable>
+          </PressableScale>
         </Link>
       </View>
     </View>
@@ -58,21 +55,22 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   body: {
-    color: '#667085',
+    color: mobileInk.soft,
     fontSize: 13,
     lineHeight: 19,
     marginTop: 4,
   },
   card: {
-    backgroundColor: '#ffffff',
-    borderColor: 'rgba(219, 39, 119, 0.32)',
+    backgroundColor: 'rgba(255,255,255,0.82)',
+    borderColor: 'rgba(249, 168, 212, 0.5)',
     borderRadius: 22,
+    borderTopColor: 'rgba(255,255,255,0.95)',
     borderWidth: 1,
     padding: 16,
     shadowColor: '#db2777',
     shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
+    shadowOpacity: 0.13,
+    shadowRadius: 26,
   },
   copy: {
     flex: 1,
@@ -85,8 +83,6 @@ const styles = StyleSheet.create({
   },
   iconBadge: {
     alignItems: 'center',
-    backgroundColor: '#fce7f3',
-    borderRadius: 999,
     flexShrink: 0,
     height: 44,
     justifyContent: 'center',
@@ -94,16 +90,13 @@ const styles = StyleSheet.create({
   },
   settingsButton: {
     alignItems: 'center',
-    backgroundColor: '#db2777',
     borderRadius: 14,
     flexDirection: 'row',
     gap: 7,
     justifyContent: 'center',
     minHeight: 44,
-    paddingHorizontal: 14,
-  },
-  settingsButtonPressed: {
-    opacity: 0.78,
+    overflow: 'hidden',
+    paddingHorizontal: 16,
   },
   settingsButtonText: {
     color: '#ffffff',
@@ -122,15 +115,15 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   stepText: {
-    color: '#111827',
+    color: mobileInk.strong,
     flex: 1,
     fontSize: 12,
     lineHeight: 18,
     minWidth: 0,
   },
   steps: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e4e7ec',
+    backgroundColor: 'rgba(248,250,252,0.8)',
+    borderColor: 'rgba(226,228,240,0.8)',
     borderRadius: 16,
     borderWidth: 1,
     marginTop: 14,
@@ -138,7 +131,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   title: {
-    color: '#111827',
+    color: mobileInk.strong,
     fontSize: 16,
     fontWeight: '900',
     lineHeight: 20,

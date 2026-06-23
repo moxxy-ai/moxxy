@@ -1,7 +1,9 @@
-import { sx } from '../styles/tokens';
-import { Pressable, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import type { MobileWorkflow } from '../hooks/useWorkflows';
 import { MobileIcon } from './MobileIcon';
+import { Gradient } from './primitives/Gradient';
+import { PressableScale, PulseDot } from './primitives/motion';
 
 interface WorkflowListProps {
   readonly workflows: ReadonlyArray<MobileWorkflow>;
@@ -11,37 +13,36 @@ interface WorkflowListProps {
 
 export function WorkflowList({ workflows, onRefresh, onRun }: WorkflowListProps) {
   return (
-    <View style={sx('gap-3')}>
-      <Pressable
-        style={sx('min-h-12 flex-row items-center justify-center gap-2 rounded-card border border-cardBorder bg-cardBg')}
-        onPress={onRefresh}
-      >
-        <MobileIcon name="workflows" size={18} strokeWidth={2.35} color="#475569" />
-        <Text style={sx('text-[13px] font-bold text-muted')}>Refresh workflows</Text>
-      </Pressable>
+    <View style={styles.stack}>
+      <PressableScale style={styles.refreshButton} scaleTo={0.97} onPress={onRefresh}>
+        <MobileIcon name="workflows" size={18} strokeWidth={2.35} color={mobileInk.muted} />
+        <Text style={styles.refreshText}>Refresh workflows</Text>
+      </PressableScale>
 
       {workflows.length === 0 ? (
-        <View style={sx('rounded-card border border-cardBorder bg-cardBg p-5 shadow-card', { shadowOpacity: 0.08 })}>
-          <Text style={sx('text-[16px] font-black text-text')}>No workflows visible</Text>
-          <Text style={sx('mt-1 text-[13px] leading-5 text-muted')}>
+        <View style={styles.card}>
+          <Text style={styles.emptyTitle}>No workflows visible</Text>
+          <Text style={styles.emptyBody}>
             Start Moxxy with the workflows plugin enabled, then refresh this list.
           </Text>
         </View>
       ) : null}
 
       {workflows.map((workflow) => (
-        <View
-          key={workflow.name}
-          style={sx('rounded-card border border-cardBorder bg-cardBg p-4 shadow-card', { shadowOpacity: 0.08 })}
-        >
-          <View style={sx('flex-row items-start gap-3')}>
-            <View style={sx(`mt-1.5 h-2 w-2 rounded-pill ${workflow.enabled ? 'bg-green' : 'bg-cardBorderStrong'}`)} />
-            <View style={sx('min-w-0 flex-1')}>
-              <Text style={sx('text-[16px] font-black leading-6 text-text')}>{workflow.name}</Text>
+        <View key={workflow.name} style={styles.card}>
+          <View style={styles.cardRow}>
+            <PulseDot
+              color={workflow.enabled ? '#10b981' : '#cbd2e1'}
+              size={8}
+              pulsing={workflow.enabled}
+              style={styles.dot}
+            />
+            <View style={styles.cardBody}>
+              <Text style={styles.workflowName}>{workflow.name}</Text>
               {workflow.description ? (
-                <Text style={sx('mt-1 text-[13px] leading-5 text-muted')}>{workflow.description}</Text>
+                <Text style={styles.workflowDescription}>{workflow.description}</Text>
               ) : null}
-              <View style={sx('mt-3 flex-row flex-wrap gap-2')}>
+              <View style={styles.badges}>
                 <Badge label={workflow.enabled ? 'Enabled' : 'Disabled'} tone={workflow.enabled ? 'green' : 'muted'} />
                 {workflow.scope ? <Badge label={workflow.scope} tone="muted" /> : null}
                 <Badge label={`${workflow.steps} steps`} tone="muted" />
@@ -49,13 +50,11 @@ export function WorkflowList({ workflows, onRefresh, onRun }: WorkflowListProps)
               </View>
             </View>
           </View>
-          <Pressable
-            style={sx('mt-4 min-h-11 flex-row items-center justify-center gap-2 rounded-pill bg-primary px-4')}
-            onPress={() => onRun(workflow.name)}
-          >
+          <PressableScale style={styles.runButton} scaleTo={0.97} onPress={() => onRun(workflow.name)}>
+            <Gradient preset="cta" radius={999} style={StyleSheet.absoluteFill} />
             <MobileIcon name="send" size={17} strokeWidth={2.4} color="#ffffff" />
-            <Text style={sx('text-[13px] font-black text-white')}>Run workflow</Text>
-          </Pressable>
+            <Text style={styles.runText}>Run workflow</Text>
+          </PressableScale>
         </View>
       ))}
     </View>
@@ -64,8 +63,113 @@ export function WorkflowList({ workflows, onRefresh, onRun }: WorkflowListProps)
 
 function Badge({ label, tone }: { readonly label: string; readonly tone: 'green' | 'muted' }) {
   return (
-    <View style={sx(`rounded-pill px-3 py-1 ${tone === 'green' ? 'bg-green/10' : 'bg-appBg'}`)}>
-      <Text style={sx(`text-[11px] font-black ${tone === 'green' ? 'text-green' : 'text-muted'}`)}>{label}</Text>
+    <View style={[styles.badge, tone === 'green' ? styles.badgeGreen : null]}>
+      <Text style={[styles.badgeText, tone === 'green' ? styles.badgeTextGreen : null]}>{label}</Text>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  badge: {
+    backgroundColor: 'rgba(241,242,249,0.9)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  badgeGreen: {
+    backgroundColor: 'rgba(16,185,129,0.12)',
+  },
+  badgeText: {
+    color: mobileInk.muted,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  badgeTextGreen: {
+    color: '#10b981',
+  },
+  badges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  card: {
+    backgroundColor: mobileGlass.card.fill,
+    borderColor: mobileGlass.card.border,
+    borderRadius: 18,
+    borderTopColor: mobileGlass.card.hairline,
+    borderWidth: 1,
+    padding: 16,
+    ...mobileElevation.sm,
+  },
+  cardBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  cardRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dot: {
+    marginTop: 6,
+  },
+  emptyBody: {
+    color: mobileInk.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  emptyTitle: {
+    color: mobileInk.strong,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  refreshButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderColor: 'rgba(226,228,240,0.9)',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  refreshText: {
+    color: mobileInk.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  runButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginTop: 16,
+    minHeight: 44,
+    overflow: 'hidden',
+    paddingHorizontal: 16,
+  },
+  runText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  stack: {
+    gap: 12,
+  },
+  workflowDescription: {
+    color: mobileInk.muted,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  workflowName: {
+    color: mobileInk.strong,
+    fontSize: 16,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+});

@@ -80,13 +80,19 @@ describe('mobile offline gateway screen layout', () => {
       'utf8',
     );
 
+    // The camera lives in its own dark card…
     expect(qrScanner).toContain("backgroundColor: '#020617'");
-    expect(qrScanner).toContain('style={styles.cameraViewport}');
-    expect(qrScanner).toContain('style={styles.scannerActions}');
+    expect(qrScanner).toContain('style={styles.cameraCard}');
+    // …and the interactive controls (live status + cancel) render OUTSIDE it.
+    expect(qrScanner).toContain('style={styles.statusPill}');
+    expect(qrScanner).toContain('style={styles.cancelButton}');
+    // Scanning is live/auto — it detects on open, with no oversized fixed
+    // preview and no manual "Scan QR code" arm button floating over the camera.
+    expect(qrScanner).toContain('onBarcodeScanned');
     expect(qrScanner).not.toContain('maxHeight: 390');
     expect(qrScanner).not.toContain('minHeight: 286');
     expect(qrScanner).not.toContain('styles.cameraActionArea');
-    expect(qrScanner).not.toContain("position: 'absolute',\n    right: 16");
+    expect(qrScanner).not.toContain("'Scan QR code'");
   });
 
   it('keeps the chat list padding stable around the fixed mobile header', () => {
@@ -169,13 +175,10 @@ describe('mobile offline gateway screen layout', () => {
     expect(waitingRoom).toContain('style={styles.contentStack}');
     expect(waitingRoom).toContain("alignSelf: 'center'");
     expect(waitingRoom).toContain('maxWidth: 430');
-    expect(waitingRoom).toContain('</View>\n        <View style={styles.stepsCard}>');
-    expect(waitingRoom).toContain('marginTop: 24');
+    expect(waitingRoom).toContain('style={styles.stepsCard}');
     expect(waitingRoom).toContain('minHeight: 198');
     expect(waitingRoom).toContain("width: '100%'");
     expect(waitingRoom).toContain('paddingHorizontal: 22');
-    expect(waitingRoom).toContain('paddingTop: 24');
-    expect(waitingRoom).toContain('paddingBottom: 34');
     expect(waitingRoom).not.toContain('paddingVertical: 14');
     expect(waitingRoom).toContain('instructionItemSpaced');
     expect(waitingRoom).toContain('marginTop: 14');

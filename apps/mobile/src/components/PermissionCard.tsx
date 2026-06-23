@@ -1,8 +1,11 @@
-import { sx } from '../styles/tokens';
-import { Pressable, Text, View } from 'react-native';
+import { sx, mobileInk } from '../styles/tokens';
+import { StyleSheet, Text, View } from 'react-native';
 import { textOf } from '@/utils/record';
 import { permissionResponseForAction } from '../permissionResponse';
 import { MobileIcon } from './MobileIcon';
+import { GlassSheet } from './primitives/GlassSheet';
+import { Gradient } from './primitives/Gradient';
+import { PressableScale } from './primitives/motion';
 
 interface PermissionCardProps {
   readonly ask: Record<string, unknown>;
@@ -15,23 +18,23 @@ export function PermissionCard({ ask, onRespond }: PermissionCardProps) {
   const description = textOf(tool.description, textOf(ask.description, textOf(ask.reason, 'The agent needs approval.')));
 
   return (
-    <View style={sx('gap-3 rounded-card border border-cardBorder bg-cardBg p-3 shadow-card')}>
+    <GlassSheet radius={20} style={styles.sheet}>
       <View style={sx('flex-row items-start gap-3')}>
-        <View style={sx('h-9 w-9 items-center justify-center rounded-block bg-primarySoft')}>
-          <MobileIcon name="actions" size={17} strokeWidth={2.35} color="#db2777" />
-        </View>
+        <Gradient preset="brand" radius={12} style={styles.iconBadge}>
+          <MobileIcon name="actions" size={17} strokeWidth={2.35} color="#ffffff" />
+        </Gradient>
         <View style={sx('min-w-0 flex-1')}>
-          <Text style={sx('text-[15px] font-bold text-text')} numberOfLines={1}>{name}</Text>
-          <Text style={sx('mt-1 text-[13px] leading-5 text-muted')}>{description}</Text>
+          <Text style={sx('text-[15px] font-bold', { color: mobileInk.strong })} numberOfLines={1}>{name}</Text>
+          <Text style={sx('mt-1 text-[13px] leading-5', { color: mobileInk.soft })}>{description}</Text>
         </View>
       </View>
       <View style={sx('flex-row flex-wrap justify-end gap-2')}>
         <DecisionButton label="Deny" tone="danger" onPress={() => onRespond(permissionResponseForAction('deny'))} />
-        <DecisionButton label="Allow once" tone="primary" onPress={() => onRespond(permissionResponseForAction('allow_once'))} />
-        <DecisionButton label="Allow session" onPress={() => onRespond(permissionResponseForAction('allow_session'))} />
-        <DecisionButton label="Always allow" onPress={() => onRespond(permissionResponseForAction('allow_always'))} />
+        <DecisionButton label="Allow once" tone="neutral" onPress={() => onRespond(permissionResponseForAction('allow_once'))} />
+        <DecisionButton label="Allow session" tone="neutral" onPress={() => onRespond(permissionResponseForAction('allow_session'))} />
+        <DecisionButton label="Always allow" tone="primary" onPress={() => onRespond(permissionResponseForAction('allow_always'))} />
       </View>
-    </View>
+    </GlassSheet>
   );
 }
 
@@ -44,28 +47,64 @@ function DecisionButton({
   readonly tone?: 'neutral' | 'primary' | 'danger';
   readonly onPress: () => void;
 }) {
-  const cls = tone === 'primary'
-    ? 'border-primary bg-primary'
-    : tone === 'danger'
-      ? 'border-cardBorder bg-cardBg'
-      : 'border-cardBorder bg-cardBg';
-  const textCls = tone === 'primary'
-    ? 'text-white'
-    : tone === 'danger'
-      ? 'text-red'
-      : 'text-muted';
   return (
-    <Pressable
+    <PressableScale
       accessibilityLabel={label}
       accessibilityRole="button"
-      style={sx(`min-h-9 justify-center rounded-block border px-3 ${cls}`)}
+      scaleTo={0.94}
+      style={[
+        styles.button,
+        tone === 'primary' ? styles.buttonPrimary : tone === 'danger' ? styles.buttonDanger : styles.buttonNeutral,
+      ]}
       onPress={onPress}
     >
-      <Text style={sx(`text-[13px] font-bold ${textCls}`)}>{label}</Text>
-    </Pressable>
+      {tone === 'primary' ? <Gradient preset="cta" radius={14} style={StyleSheet.absoluteFill} /> : null}
+      <Text
+        style={[
+          sx('text-[13px] font-bold'),
+          { color: tone === 'primary' ? mobileInk.onBrand : tone === 'danger' ? '#ef4444' : mobileInk.muted },
+        ]}
+      >
+        {label}
+      </Text>
+    </PressableScale>
   );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+const styles = StyleSheet.create({
+  button: {
+    alignItems: 'center',
+    borderRadius: 14,
+    justifyContent: 'center',
+    minHeight: 44,
+    overflow: 'hidden',
+    paddingHorizontal: 14,
+  },
+  buttonDanger: {
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderColor: 'rgba(254,205,211,0.95)',
+    borderWidth: 1,
+  },
+  buttonNeutral: {
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderColor: 'rgba(226,228,240,0.9)',
+    borderWidth: 1,
+  },
+  buttonPrimary: {
+    minWidth: 112,
+  },
+  iconBadge: {
+    alignItems: 'center',
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  sheet: {
+    gap: 12,
+    padding: 14,
+  },
+});

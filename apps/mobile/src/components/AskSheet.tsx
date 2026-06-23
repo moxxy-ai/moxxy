@@ -1,8 +1,9 @@
-import { sx } from '../styles/tokens';
-import { ScrollView, Text, View } from 'react-native';
+import { sx, mobileGlass, mobileInk } from '../styles/tokens';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { recordId, textOf } from '@/utils/record';
 import type { PermissionResponseMode } from '../permissionResponse';
 import { ApprovalCard } from './ApprovalCard';
+import { GlassSheet } from './primitives/GlassSheet';
 import { PermissionCard } from './PermissionCard';
 import { WorkflowAskCard } from './WorkflowAskCard';
 
@@ -18,10 +19,10 @@ export function AskSheet(props: AskSheetProps) {
   const total = props.asks.length + props.permissions.length;
   if (total === 0) {
     return (
-      <View style={sx('mt-8 items-center rounded-card border border-cardBorder bg-cardBg px-5 py-8')}>
-        <Text style={sx('text-center text-[16px] font-bold text-text')}>No pending actions</Text>
-        <Text style={sx('mt-1 text-center text-[13px] text-muted')}>Approvals and permissions will appear here.</Text>
-      </View>
+      <GlassSheet radius={20} style={styles.emptyCard}>
+        <Text style={sx('text-center text-[16px] font-bold', { color: mobileInk.strong })}>No pending actions</Text>
+        <Text style={sx('mt-1 text-center text-[13px]', { color: mobileInk.soft })}>Approvals and permissions will appear here.</Text>
+      </GlassSheet>
     );
   }
 
@@ -31,13 +32,13 @@ export function AskSheet(props: AskSheetProps) {
 
   return (
     <ScrollView
-      style={sx('gap-2', { maxHeight: props.maxHeight })}
+      style={{ maxHeight: props.maxHeight }}
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ gap: 8 }}
     >
       {extraCount > 0 ? (
-        <View style={sx('self-start rounded-pill bg-cardBg px-3 py-1.5')}>
-          <Text style={sx('text-[11px] font-bold text-muted')}>+{extraCount} more pending</Text>
+        <View style={styles.morePill}>
+          <Text style={sx('text-[11px] font-bold', { color: mobileInk.soft })}>+{extraCount} more pending</Text>
         </View>
       ) : null}
       {firstAsk ? (
@@ -82,3 +83,21 @@ export function AskSheet(props: AskSheetProps) {
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  emptyCard: {
+    alignItems: 'center',
+    marginTop: 32,
+    paddingHorizontal: 20,
+    paddingVertical: 32,
+  },
+  morePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: mobileGlass.subtle.fill,
+    borderColor: mobileGlass.subtle.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+});

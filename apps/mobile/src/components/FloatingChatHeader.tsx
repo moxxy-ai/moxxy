@@ -1,5 +1,8 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { mobileElevation, mobileGlass, mobileInk } from '../styles/tokens';
 import { MobileIcon } from './MobileIcon';
+import { Gradient } from './primitives/Gradient';
+import { Appear, PressableScale, PulseDot } from './primitives/motion';
 
 interface FloatingChatHeaderProps {
   readonly connected: boolean;
@@ -29,43 +32,52 @@ export function FloatingChatHeader({
   showSessionActions = true,
 }: FloatingChatHeaderProps) {
   return (
-    <View
-      style={styles.header}
-    >
+    <View style={styles.header}>
+      <Gradient
+        pointerEventsNone
+        direction="vertical"
+        stops={[
+          { offset: 0, color: mobileGlass.chrome.sheen },
+          { offset: 1, color: 'rgba(255,255,255,0)' },
+        ]}
+        style={styles.sheen}
+      />
       {showMenuButton ? (
-        <Pressable
+        <PressableScale
           accessible
           accessibilityRole="button"
           accessibilityLabel="Open mobile menu"
           testID="mobile-chat-open-menu"
           hitSlop={8}
+          scaleTo={0.9}
           style={styles.menuButton}
           onPress={onToggleMenu}
         >
-          <MobileIcon name="menu" size={21} strokeWidth={2.4} color="#475569" />
+          <MobileIcon name="menu" size={21} strokeWidth={2.4} color={mobileInk.muted} />
           {pendingActions > 0 ? (
-            <View
-              style={styles.pendingBadge}
-            >
+            <Appear from="scale" style={styles.pendingBadge}>
+              <Gradient preset="cta" radius={999} style={StyleSheet.absoluteFill} />
               <Text style={styles.pendingBadgeText}>{pendingActions}</Text>
-            </View>
+            </Appear>
           ) : null}
-        </Pressable>
+        </PressableScale>
       ) : null}
 
-        <View style={styles.titleColumn}>
-          <Text style={styles.title}>{title}</Text>
-          <View style={styles.statusRow}>
-            <View style={[styles.statusDot, connected ? styles.statusDotConnected : styles.statusDotDisconnected]} />
-            <Text style={styles.statusLabel} numberOfLines={1}>
-              {statusLabel}
-            </Text>
-          </View>
+      <View style={styles.titleColumn}>
+        <Text style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
+        <View style={styles.statusRow}>
+          <PulseDot color={connected ? '#10b981' : '#f59e0b'} size={8} pulsing={connected} />
+          <Text style={styles.statusLabel} numberOfLines={1}>
+            {statusLabel}
+          </Text>
         </View>
+      </View>
 
       {showSessionActions ? (
         <View style={styles.actions}>
-          <Pressable
+          <PressableScale
             accessible
             accessibilityRole="button"
             accessibilityLabel="Rename session"
@@ -76,9 +88,9 @@ export function FloatingChatHeader({
             style={styles.actionButton}
             onPress={onRenameSession}
           >
-            <MobileIcon name="edit" size={20} strokeWidth={2.3} color={renameDisabled ? '#94a3b8' : '#475569'} />
-          </Pressable>
-          <Pressable
+            <MobileIcon name="edit" size={20} strokeWidth={2.3} color={renameDisabled ? mobileInk.faint : mobileInk.muted} />
+          </PressableScale>
+          <PressableScale
             accessible
             accessibilityRole="button"
             accessibilityLabel="Open session actions"
@@ -89,8 +101,8 @@ export function FloatingChatHeader({
             style={styles.actionButton}
             onPress={onOpenActions}
           >
-            <MobileIcon name="more" size={21} strokeWidth={2.7} color={actionsDisabled ? '#94a3b8' : '#475569'} />
-          </Pressable>
+            <MobileIcon name="more" size={21} strokeWidth={2.7} color={actionsDisabled ? mobileInk.faint : mobileInk.muted} />
+          </PressableScale>
         </View>
       ) : null}
     </View>
@@ -100,7 +112,10 @@ export function FloatingChatHeader({
 const styles = StyleSheet.create({
   actionButton: {
     alignItems: 'center',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    borderColor: 'rgba(226,228,240,0.7)',
+    borderRadius: 13,
+    borderWidth: 1,
     height: 44,
     justifyContent: 'center',
     width: 44,
@@ -108,15 +123,15 @@ const styles = StyleSheet.create({
   actions: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 2,
+    gap: 6,
   },
   header: {
     alignItems: 'center',
-    backgroundColor: '#fcfcff',
-    borderBottomColor: '#e3e5f0',
+    backgroundColor: mobileGlass.chrome.fill,
+    borderBottomColor: mobileGlass.chrome.border,
     borderBottomWidth: 1,
     flexDirection: 'row',
-    gap: 10,
+    gap: 12,
     height: 64,
     left: 0,
     paddingHorizontal: 16,
@@ -124,28 +139,27 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     zIndex: 30,
+    ...mobileElevation.sm,
   },
   menuButton: {
     alignItems: 'center',
-    backgroundColor: '#ffffff',
-    borderColor: '#e3e5f0',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: mobileGlass.chrome.hairline,
     borderRadius: 14,
     borderWidth: 1,
     height: 44,
     justifyContent: 'center',
-    shadowColor: '#0f172a',
-    shadowOffset: { height: 5, width: 0 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
     width: 44,
+    ...mobileElevation.xs,
   },
   pendingBadge: {
     alignItems: 'center',
-    backgroundColor: '#ef4444',
     borderColor: '#ffffff',
     borderRadius: 999,
     borderWidth: 2,
+    justifyContent: 'center',
     minWidth: 22,
+    overflow: 'hidden',
     paddingHorizontal: 5,
     paddingVertical: 1,
     position: 'absolute',
@@ -157,19 +171,15 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
   },
-  statusDot: {
-    borderRadius: 999,
-    height: 9,
-    width: 9,
-  },
-  statusDotConnected: {
-    backgroundColor: '#10b981',
-  },
-  statusDotDisconnected: {
-    backgroundColor: '#f59e0b',
+  sheen: {
+    height: 28,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
   },
   statusLabel: {
-    color: '#667085',
+    color: mobileInk.soft,
     flexShrink: 1,
     fontSize: 12,
     fontWeight: '800',
@@ -178,12 +188,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 7,
-    marginTop: 1,
+    marginTop: 2,
   },
   title: {
-    color: '#0f172a',
+    color: mobileInk.strong,
     fontSize: 19,
     fontWeight: '900',
+    letterSpacing: -0.3,
     lineHeight: 23,
   },
   titleColumn: {

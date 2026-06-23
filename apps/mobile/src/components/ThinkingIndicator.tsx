@@ -1,47 +1,59 @@
-import { sx } from '../styles/tokens';
+import { mobileGlass, mobileInk } from '../styles/tokens';
 import { Animated, Text, View } from 'react-native';
 import { useThinkingDots } from '@/hooks/useThinkingDots';
 import { MobileIcon } from './MobileIcon';
+import { Gradient } from './primitives/Gradient';
+import { Appear } from './primitives/motion';
 
 export function ThinkingIndicator() {
   const dotOpacity = useThinkingDots();
 
   return (
-    <View
-      accessibilityLabel="Assistant is thinking"
-      style={{ alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 10 }}
-      testID="mobile-thinking-indicator"
-    >
+    <Appear from="up" distance={6}>
       <View
-        style={sx('bg-primarySoft', { alignItems: 'center', borderRadius: 10, height: 34, justifyContent: 'center', width: 34 })}
+        accessibilityLabel="Assistant is thinking"
+        style={{ alignItems: 'center', alignSelf: 'flex-start', flexDirection: 'row', gap: 12 }}
+        testID="mobile-thinking-indicator"
       >
-        <MobileIcon name="message" size={18} strokeWidth={2.35} color="#db2777" />
-      </View>
-      <View
-        style={sx('rounded-block border border-cardBorder bg-cardBg', {
-          alignItems: 'center',
-          flexDirection: 'row',
-          gap: 8,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-        })}
-      >
-        <Text style={sx('text-[13px] font-bold text-muted')}>Thinking</Text>
-        <View style={{ flexDirection: 'row', gap: 3 }}>
-          {dotOpacity.map((opacity, index) => (
-            <Animated.View
-              key={index}
-              style={{
-                backgroundColor: '#ec4899',
-                borderRadius: 999,
-                height: 5,
-                opacity,
-                width: 5,
-              }}
-            />
-          ))}
+        <Gradient
+          preset="brand"
+          radius={11}
+          style={{ alignItems: 'center', height: 34, justifyContent: 'center', width: 34 }}
+        >
+          <MobileIcon name="message" size={18} strokeWidth={2.4} color="#ffffff" />
+        </Gradient>
+        <View
+          style={{
+            alignItems: 'center',
+            backgroundColor: mobileGlass.card.fill,
+            borderColor: mobileGlass.card.border,
+            borderRadius: 14,
+            borderTopColor: mobileGlass.card.hairline,
+            borderWidth: 1,
+            flexDirection: 'row',
+            gap: 9,
+            paddingHorizontal: 13,
+            paddingVertical: 9,
+          }}
+        >
+          <Text style={{ color: mobileInk.muted, fontSize: 13, fontWeight: '700' }}>Thinking</Text>
+          <View style={{ flexDirection: 'row', gap: 4 }}>
+            {dotOpacity.map((opacity, index) => (
+              <Animated.View
+                key={index}
+                style={{
+                  backgroundColor: '#ec4899',
+                  borderRadius: 999,
+                  height: 6,
+                  opacity,
+                  transform: [{ scale: opacity }],
+                  width: 6,
+                }}
+              />
+            ))}
+          </View>
         </View>
       </View>
-    </View>
+    </Appear>
   );
 }

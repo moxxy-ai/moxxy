@@ -88,6 +88,37 @@ pass also **retired the plugins-admin CLI install-hardening + dedup items** (for
 
 ---
 
+## 2026-06-23 — Mobile liquid-glass redesign
+
+**Retired on sight (visual-debt consolidation):** the redesign pulled the mobile
+app's scattered styling onto one additive design layer in `styles/tokens.ts`
+(`mobileMotion` / `mobileElevation` / `mobileGlass` / `mobileGradients` /
+`mobileInk`) plus dependency-free primitives (`Gradient`, `GlassSurface`,
+`GlassSheet`, `PressableScale`/`Appear`/`PulseDot`). This **retired** three
+standing inconsistencies the 2026-06 audits had flagged: per-component hardcoded
+hex for text/brand/status, ad-hoc radii (16/18/20/22/24) and duplicated inline
+shadow specs, and the off-brand dead `ComposerBar.tsx` (used a `#2563eb` blue,
+imported nowhere — deleted). Text greys now route through `mobileInk` (the shared
+`textDim` #94a3b8 failed WCAG AA for readable text; `mobileInk.muted`/`.soft`
+pass), and every animation honors OS Reduce Motion.
+
+**New debt / follow-ups accrued by this work:**
+- **`BottomNav.tsx` is dead code.** It renders nowhere (secondary screens use
+  `ScreenFrame`→`TopBar`; chat uses the floating header + drawer). Left in place
+  and lightly un-touched this pass; either delete it or wire it intentionally.
+- **No real backdrop blur.** The "liquid glass" is simulated with layered
+  translucent fills + a specular hairline + sheen + tuned shadow (chosen over
+  adding `expo-blur`, which would need a native rebuild of the committed `ios/`
+  project that can't be verified here). `GlassSurface`/`GlassSheet` are the single
+  swap points: dropping a `BlurView` behind their fill upgrades every surface at
+  once. Revisit if a true frosted backdrop is wanted.
+- **Per-row chat entrance animations were deliberately skipped.** `FlatList`
+  recycles rows, so a mount-entrance would replay on scroll. Liveliness comes from
+  the streaming indicator, pulse dots, gradient bubbles and press-springs instead.
+  A non-replaying "animate only newly-appended items" pass is possible later.
+- **`MobileMenuSheet` still destructures unused `sessionLabel`/`modeLabel`/
+  `providerLabel`** (pre-existing props-contract warning, preserved as-is).
+
 ## 2026-06-22 — Mobile NativeWind cleanup
 
 **Retired:** the mobile app no longer depends on NativeWind/Tailwind runtime

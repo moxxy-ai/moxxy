@@ -356,3 +356,171 @@ export function sx(...values: StyleInput[]): StyleProp<any> {
   for (const value of values) pushStyle(out, value);
   return out;
 }
+
+/* ============================================================================
+ * Liquid-glass design language (2026) — an ADDITIVE layer on top of the shared
+ * @moxxy/design-tokens palette. Nothing above is changed; these exports power
+ * the GlassSurface / Gradient / motion primitives so the brand stays in lockstep
+ * with desktop while mobile gains depth, translucency and life. Pure values —
+ * no new native dependencies. If `expo-blur` is ever added, only GlassSurface
+ * needs to change; every consumer keeps working.
+ * ========================================================================== */
+
+/** Motion grammar. Durations in ms; spring presets feed `Animated.spring`.
+ *  Functional, iOS-like motion — quick in, soft settle, never jelly. */
+export const mobileMotion = {
+  duration: {
+    instant: 90,
+    fast: 150,
+    base: 240,
+    slow: 340,
+    slower: 460,
+  },
+  spring: {
+    /** Button / chip press — snappy and tight. */
+    press: { tension: 320, friction: 18 },
+    /** Cards & sheets settling into place. */
+    gentle: { tension: 170, friction: 22 },
+    /** Playful accents (badges, send pop). */
+    bouncy: { tension: 210, friction: 13 },
+  },
+  scale: {
+    press: 0.965,
+    pressSmall: 0.93,
+    pressLarge: 0.98,
+  },
+} as const;
+
+type Elevation = {
+  shadowColor: string;
+  shadowOffset: { width: number; height: number };
+  shadowOpacity: number;
+  shadowRadius: number;
+  elevation: number;
+};
+
+/** A tuned depth ramp. Ink shadows (cool slate) for resting surfaces; the brand
+ *  glow tiers carry pink/cyan light for hero CTAs and focus. Use via
+ *  `mobileElevation.md` etc. — Android falls back to `elevation`. */
+export const mobileElevation: Record<
+  'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'glow' | 'glowAccent',
+  Elevation
+> = {
+  xs: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 1 },
+  sm: { shadowColor: '#0f172a', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.07, shadowRadius: 12, elevation: 2 },
+  md: { shadowColor: '#1e2540', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.09, shadowRadius: 22, elevation: 5 },
+  lg: { shadowColor: '#1e2540', shadowOffset: { width: 0, height: 18 }, shadowOpacity: 0.14, shadowRadius: 34, elevation: 10 },
+  xl: { shadowColor: '#161b34', shadowOffset: { width: 0, height: 26 }, shadowOpacity: 0.2, shadowRadius: 46, elevation: 18 },
+  glow: { shadowColor: tokens.color.primary, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.34, shadowRadius: 22, elevation: 8 },
+  glowAccent: { shadowColor: tokens.color.accentStrong, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 22, elevation: 8 },
+};
+
+type GlassSpec = {
+  /** Resting fill (translucent — reads as frosted over the app canvas). */
+  fill: string;
+  /** Outer hairline border. */
+  border: string;
+  /** Brighter top-edge specular line — the "lensing" cue of liquid glass. */
+  hairline: string;
+  /** Inner sheen overlay laid over the top third. */
+  sheen: string;
+};
+
+/** Glass material variants. `chrome` stays near-opaque (sits over scrolling
+ *  content, must not bleed text through); `card`/`sheet`/`subtle` are airier and
+ *  sit over the static canvas. `brand`/`accent` carry a tinted wash. */
+export const mobileGlass: Record<
+  'chrome' | 'card' | 'sheet' | 'subtle' | 'brand' | 'accent',
+  GlassSpec
+> = {
+  chrome: {
+    // Sits over scrolling content with no real backdrop blur, so it stays
+    // near-opaque to avoid sharp text ghosting — the glass read comes from the
+    // hairline + sheen + ambient shadow, not see-through.
+    fill: 'rgba(252,252,255,0.93)',
+    border: 'rgba(226,228,240,0.9)',
+    hairline: 'rgba(255,255,255,0.95)',
+    sheen: 'rgba(255,255,255,0.55)',
+  },
+  card: {
+    fill: 'rgba(255,255,255,0.82)',
+    border: 'rgba(255,255,255,0.7)',
+    hairline: 'rgba(255,255,255,0.92)',
+    sheen: 'rgba(255,255,255,0.5)',
+  },
+  sheet: {
+    fill: 'rgba(252,252,255,0.9)',
+    border: 'rgba(224,227,240,0.85)',
+    hairline: 'rgba(255,255,255,0.96)',
+    sheen: 'rgba(255,255,255,0.6)',
+  },
+  subtle: {
+    fill: 'rgba(247,248,252,0.7)',
+    border: 'rgba(227,229,240,0.7)',
+    hairline: 'rgba(255,255,255,0.8)',
+    sheen: 'rgba(255,255,255,0.4)',
+  },
+  brand: {
+    fill: 'rgba(253,242,248,0.86)',
+    border: 'rgba(249,168,212,0.55)',
+    hairline: 'rgba(255,255,255,0.9)',
+    sheen: 'rgba(255,255,255,0.5)',
+  },
+  accent: {
+    fill: 'rgba(236,254,255,0.84)',
+    border: 'rgba(103,232,249,0.5)',
+    hairline: 'rgba(255,255,255,0.9)',
+    sheen: 'rgba(255,255,255,0.5)',
+  },
+};
+
+export type GradientStop = { offset: number; color: string };
+
+/** Brand gradients as SVG-consumable stop arrays — the exact desktop ramps
+ *  (`tokens.gradient`) translated for the `<Gradient>` primitive. 135° default. */
+export const mobileGradients: Record<
+  'brand' | 'cta' | 'accent' | 'user' | 'violet' | 'sunset' | 'mesh',
+  GradientStop[]
+> = {
+  brand: [
+    { offset: 0, color: '#f472b6' },
+    { offset: 1, color: '#db2777' },
+  ],
+  cta: [
+    { offset: 0, color: '#ec4899' },
+    { offset: 1, color: '#db2777' },
+  ],
+  accent: [
+    { offset: 0, color: '#38bdf8' },
+    { offset: 1, color: '#22d3ee' },
+  ],
+  user: [
+    { offset: 0, color: '#ec4899' },
+    { offset: 1, color: '#e0418f' },
+  ],
+  violet: [
+    { offset: 0, color: '#a78bfa' },
+    { offset: 1, color: '#8b5cf6' },
+  ],
+  sunset: [
+    { offset: 0, color: '#fb7185' },
+    { offset: 0.5, color: '#ec4899' },
+    { offset: 1, color: '#a855f7' },
+  ],
+  mesh: [
+    { offset: 0, color: '#fdf2f8' },
+    { offset: 0.55, color: '#f1f2f9' },
+    { offset: 1, color: '#ecfeff' },
+  ],
+};
+
+/** Accessibility-tuned ink. The shared `textDim` (#94a3b8) fails WCAG AA for
+ *  text on white (~2.6:1); use `inkMuted` for any text that must be *read*, and
+ *  reserve `textDim` for decorative glyphs / placeholders. */
+export const mobileInk = {
+  strong: tokens.color.text, // #0f172a
+  muted: tokens.color.textMuted, // #475569 — AA+ on white
+  soft: '#64748b', // ~5.0:1 — captions / secondary
+  faint: tokens.color.textDim, // decorative only
+  onBrand: '#ffffff',
+} as const;
