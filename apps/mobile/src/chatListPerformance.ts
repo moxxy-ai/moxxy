@@ -7,6 +7,7 @@ export interface MobileMessageBlockRenderProps {
   readonly item: TranscriptItem;
   readonly copied: boolean;
   readonly onCopyMessage?: (messageId: string, text: string) => void;
+  readonly onLongPress?: (messageId: string, text: string) => void;
 }
 
 export interface MobileChatListPerformanceProps {

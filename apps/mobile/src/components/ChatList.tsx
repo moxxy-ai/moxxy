@@ -43,6 +43,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import type { Palette } from '@/styles/tokens';
 import type { InlineTok } from '@moxxy/chat-model/markdown';
 import type { ImageSourcePropType } from 'react-native';
+import { BottomSheet, SheetGroup, SheetRow } from '@/ui/kit';
 import { MobileIcon } from './MobileIcon';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
@@ -76,6 +77,8 @@ export function ChatList({
   onCopyMessage,
 }: ChatListProps) {
   const { scheme } = useTheme();
+  const [menu, setMenu] = useState<{ readonly id: string; readonly text: string } | null>(null);
+  const onLongPressMessage = useCallback((id: string, text: string) => setMenu({ id, text }), []);
   const autoScroll = useChatListAutoScroll(items, sending);
   const trackScroll = autoScroll.handleScroll;
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -94,8 +97,9 @@ export function ChatList({
       item={item}
       copied={copiedMessageId === item.id}
       onCopyMessage={onCopyMessage}
+      onLongPress={onLongPressMessage}
     />
-  ), [copiedMessageId, onCopyMessage]);
+  ), [copiedMessageId, onCopyMessage, onLongPressMessage]);
   const keyExtractor = useCallback((item: TranscriptItem) => item.id, []);
   const header = useCallback(() => (
     connectionBanner ? <View style={{ marginBottom: 16 }}>{connectionBanner}</View> : null
@@ -128,6 +132,21 @@ export function ChatList({
         {...CHAT_LIST_PERFORMANCE_PROPS}
       />
       {autoScroll.showScrollToBottom ? <ScrollToBottomButton onPress={autoScroll.scrollToBottom} /> : null}
+      <BottomSheet open={menu !== null} onClose={() => setMenu(null)} title="Message">
+        <View style={{ paddingBottom: 8, paddingHorizontal: 16 }}>
+          <SheetGroup>
+            <SheetRow
+              icon="copy"
+              iconTone="brand"
+              label="Copy text"
+              onPress={() => {
+                if (menu) onCopyMessage?.(menu.id, menu.text);
+                setMenu(null);
+              }}
+            />
+          </SheetGroup>
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -196,8 +215,7 @@ function OfflineEmptyState({ hasConnectionBanner }: { readonly hasConnectionBann
 
 function MessageBlock({
   item,
-  copied,
-  onCopyMessage,
+  onLongPress,
 }: MobileMessageBlockRenderProps) {
   const { colors } = useTheme();
   if (item.kind === 'user') {
@@ -205,42 +223,36 @@ function MessageBlock({
     const hasText = item.text.trim().length > 0;
     const hasAttachments = Boolean(item.attachments?.length);
     return (
-      <View
-        style={{ alignItems: 'flex-end', alignSelf: 'flex-end', flexDirection: 'row', gap: 8, maxWidth: '88%' }}
+      <Pressable
+        delayLongPress={300}
+        onLongPress={() => onLongPress?.(item.id, actions.copyText ?? item.text)}
+        style={{ alignItems: 'flex-start', alignSelf: 'flex-start', gap: 8, maxWidth: '88%' }}
         testID="mobile-user-message"
       >
-        <CopyMessageButton
-          copied={copied}
-          hidden={!actions.copyText}
-          tone="user"
-          onPress={() => actions.copyText ? onCopyMessage?.(item.id, actions.copyText) : undefined}
-        />
-        <View style={{ alignItems: 'flex-end', flexShrink: 1, gap: 8, maxWidth: '100%' }}>
-          {hasAttachments ? <MessageAttachments attachments={item.attachments ?? []} /> : null}
-          {hasText || !hasAttachments ? (
-            <View
-              testID="mobile-user-block"
-              style={{
-                backgroundColor: colors.primary,
-                borderBottomLeftRadius: 18,
-                borderBottomRightRadius: 6,
-                borderTopLeftRadius: 18,
-                borderTopRightRadius: 18,
-                maxWidth: '100%',
-                paddingHorizontal: 16,
-                paddingVertical: 11,
-              }}
-            >
-              <Text style={sx('text-[15px] leading-6 text-white')}>{item.text}</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
+        {hasAttachments ? <MessageAttachments attachments={item.attachments ?? []} /> : null}
+        {hasText || !hasAttachments ? (
+          <View
+            testID="mobile-user-block"
+            style={{
+              backgroundColor: colors.primary,
+              borderBottomLeftRadius: 6,
+              borderBottomRightRadius: 18,
+              borderTopLeftRadius: 18,
+              borderTopRightRadius: 18,
+              maxWidth: '100%',
+              paddingHorizontal: 16,
+              paddingVertical: 11,
+            }}
+          >
+            <Text style={sx('text-[15px] leading-6 text-white')}>{item.text}</Text>
+          </View>
+        ) : null}
+      </Pressable>
     );
   }
 
   if (item.kind === 'assistant') {
-    return <AssistantMessage copied={copied} message={item} onCopyMessage={onCopyMessage} />;
+    return <AssistantMessage message={item} onLongPress={onLongPress} />;
   }
 
   if (item.kind === 'tool-group') {
@@ -281,7 +293,7 @@ const MemoMessageBlock = memo(
 
 function MessageAttachments({ attachments }: { readonly attachments: ReadonlyArray<PromptAttachment> }) {
   return (
-    <View style={{ alignItems: 'flex-end', gap: 7, maxWidth: '100%' }}>
+    <View style={{ alignItems: 'flex-start', gap: 7, maxWidth: '100%' }}>
       {attachments.map((attachment, index) => {
         const preview = buildChatAttachmentPreview(attachment);
         const key = `${attachment.kind}:${attachment.name ?? index}:${index}`;
@@ -345,92 +357,42 @@ function MessageAttachmentChip({ attachment }: { readonly attachment: PromptAtta
   );
 }
 
-function CopyMessageButton({
-  copied,
-  hidden,
-  tone,
-  onPress,
-}: {
-  readonly copied: boolean;
-  readonly hidden: boolean;
-  readonly tone: 'assistant' | 'user';
-  readonly onPress: () => void;
-}) {
-  const { colors } = useTheme();
-  if (hidden) return <View style={{ height: 32, width: 32 }} />;
-  const activeColor = copied ? colors.greenStrong : tone === 'user' ? colors.pinkText : colors.textDim;
-  return (
-    <Pressable
-      accessibilityLabel={copied ? 'Message copied' : 'Copy message'}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={{
-        alignItems: 'center',
-        backgroundColor: copied ? colors.greenSoft : colors.cardBg,
-        borderColor: copied ? colors.greenBorder : colors.cardBorder,
-        borderRadius: 999,
-        borderWidth: 1,
-        height: 32,
-        justifyContent: 'center',
-        width: 32,
-      }}
-    >
-      <MobileIcon name={copied ? 'check' : 'copy'} size={15} strokeWidth={2.4} color={activeColor} />
-    </Pressable>
-  );
-}
-
 function AssistantMessage({
-  copied,
   message,
-  onCopyMessage,
+  onLongPress,
 }: {
-  readonly copied: boolean;
   readonly message: AssistantTranscriptItem;
-  readonly onCopyMessage?: (messageId: string, text: string) => void;
+  readonly onLongPress?: (messageId: string, text: string) => void;
 }) {
-  const { colors } = useTheme();
   const actions = buildMessageActions(message);
   return (
-    <View
+    <Pressable
       testID="mobile-assistant-block"
-      style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}
+      delayLongPress={300}
+      onLongPress={() => onLongPress?.(message.id, actions.copyText ?? message.text)}
+      style={{ alignSelf: 'stretch', maxWidth: '100%' }}
     >
-      <View
-        style={sx('bg-primarySoft', { alignItems: 'center', borderRadius: 10, height: 34, justifyContent: 'center', width: 34 })}
-      >
-        <MobileIcon name="message" size={18} strokeWidth={2.35} color={colors.primaryStrong} />
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
-          <Text style={sx('text-[13px] font-bold text-text')}>{message.label}</Text>
-          {message.streaming ? (
-            <View style={sx('rounded-pill bg-primarySoft px-2 py-0.5')}>
-              <Text style={sx('text-[11px] font-bold text-primary')}>typing...</Text>
-            </View>
-          ) : null}
-          <View style={{ flex: 1 }} />
-          <CopyMessageButton
-            copied={copied}
-            hidden={!actions.copyText}
-            tone="assistant"
-            onPress={() => actions.copyText ? onCopyMessage?.(message.id, actions.copyText) : undefined}
-          />
-        </View>
+      <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
+        <Text style={sx('text-[13px] font-bold text-text')}>{message.label}</Text>
         {message.streaming ? (
-          // While streaming, render the growing text as plain Text. Running the
-          // cached markdown parser on every chunk is O(n^2) over the message and
-          // pollutes the shared block cache (one entry per partial text, evicting
-          // settled messages). Markdown is parsed once, below, when it settles.
-          <Text style={sx('mt-1 text-[15px] leading-6 text-text')}>{message.text}</Text>
-        ) : (
-          <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
-        )}
-        {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
-          <Text style={sx('mt-1 text-[10px] font-bold uppercase text-dim')}>stop: {message.stopReason.replace(/_/g, ' ')}</Text>
+          <View style={sx('rounded-pill bg-primarySoft px-2 py-0.5')}>
+            <Text style={sx('text-[11px] font-bold text-primary')}>typing...</Text>
+          </View>
         ) : null}
       </View>
-    </View>
+      {message.streaming ? (
+        // While streaming, render the growing text as plain Text. Running the
+        // cached markdown parser on every chunk is O(n^2) over the message and
+        // pollutes the shared block cache (one entry per partial text, evicting
+        // settled messages). Markdown is parsed once, below, when it settles.
+        <Text style={sx('mt-1 text-[15px] leading-6 text-text')}>{message.text}</Text>
+      ) : (
+        <MobileMarkdownText text={message.text} style={{ marginTop: 4 }} />
+      )}
+      {!message.streaming && message.stopReason && message.stopReason !== 'end_turn' ? (
+        <Text style={sx('mt-1 text-[10px] font-bold uppercase text-dim')}>stop: {message.stopReason.replace(/_/g, ' ')}</Text>
+      ) : null}
+    </Pressable>
   );
 }
 
