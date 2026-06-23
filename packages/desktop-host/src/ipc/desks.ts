@@ -10,6 +10,8 @@
 
 import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
+import { deleteSession } from '@moxxy/core';
+
 import type { RunnerPool } from '../runner-pool';
 import { cwdForSession, type DeskStore } from '../desks';
 import { broadcastHostEvent } from '../event-bus';
@@ -34,10 +36,22 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
   });
   handle('desks.remove', async ({ id }) => {
     // The pool is keyed by SESSION id (a desk can hold several), so tear down
-    // every one of the removed desk's session runners — not just one entry.
+    // every one of the removed desk's session runners — not just one entry —
+    // then ERASE each session's on-disk runner log. Without the erase, the next
+    // launch's syncSessionIndexIntoRegistry() re-imports every session whose
+    // sidecar still has a first prompt + live cwd, so a "deleted" workspace's
+    // conversations resurrect (routed by cwd to another desk, or the Moxxy
+    // fallback) and the removal never sticks. Stop the runner FIRST so the dying
+    // child can't re-flush its meta sidecar after we delete it — same ordering
+    // and best-effort guard as sessions.remove.
     const removed = await desks.remove(id);
     for (const session of removed?.sessions ?? []) {
       await pool.remove(session.id);
+      try {
+        await deleteSession(session.id);
+      } catch {
+        // Best-effort: a missing log just means there was nothing to clear.
+      }
     }
     // Defensive: also drop a pool entry keyed by the bare desk id (the
     // pre-multi-session key; normally identical to the first session's id).

@@ -1085,6 +1085,24 @@ channel end to end (QR pairing → chat → ask round-trip). The production mobi
   prompt before registering, workspace-registry ignores empty/stale sidecars and falls back to a
   safe managed cwd when a session cwd has disappeared, and desktop runner spawn errors are surfaced
   as controlled reconnect phases instead of uncaught main-process exceptions.
+- **Retired (2026-06-23): removing a desktop workspace didn't survive a restart.** Because the
+  on-disk session logs (`~/.moxxy/sessions/*.{jsonl,meta.json}`) are a SECOND source of truth that
+  `syncSessionIndexIntoRegistry()` re-imports on every launch, a delete that only updates
+  `desks.json` resurrects on the next boot. `sessions.remove` already erased the logs via
+  `deleteSession`, but `desks.remove` only tore down the runners — so a removed workspace's
+  conversations were re-imported (routed by cwd to another desk, or the Moxxy fallback). `desks.remove`
+  now erases each removed session's log after stopping its runner (same ordering/guard as
+  `sessions.remove`). `packages/desktop-host/src/ipc/desks.ts`.
+- **[low, hygiene] No GC for orphan session logs.** `~/.moxxy/sessions/` only shrinks when a session
+  is explicitly deleted; CLI/TUI sessions and any pre-fix orphans accumulate forever (a real machine
+  showed 57 sidecars vs 11 referenced by `desks.json`). `readIndex` already drops sidecars whose
+  `.jsonl` is gone, but nothing prunes the logs themselves. A periodic/age-based sweep (or a
+  "delete on registry eviction" pass) would bound the directory. `packages/core/src/sessions/persistence.ts`.
+- **[low, correctness] `WorkspaceRegistry.load()` doesn't dedupe sessions by id.** A legacy-corrupted
+  `desks.json` can hold the same session id many times under one desk (observed: one id ×5);
+  `normalizeSessions`/`hydrateLegacySessionNames` map but never collapse duplicates, so the corruption
+  persists across loads (delete still works — `removeSession` filters all copies). A de-dup-by-id pass
+  in `normalizeSessions` would self-heal these on next load. `packages/workspace-registry/src/index.ts`.
 
 ## 2026-06-10 round-2 audit intake — mobile gateway
 
