@@ -42,7 +42,12 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
     <View style={styles.stack}>
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>Gateway</Text>
+          <View style={styles.cardTitleRow}>
+            <Gradient preset="brand" radius={11} style={styles.headerIcon}>
+              <MobileIcon name="gateway" size={18} strokeWidth={2.3} color="#ffffff" />
+            </Gradient>
+            <Text style={styles.cardTitle}>Gateway</Text>
+          </View>
           <View style={[styles.statusPill, props.transportReady ? styles.statusOnline : styles.statusWaiting]}>
             <PulseDot
               color={props.transportReady ? '#16a34a' : '#d97706'}
@@ -78,7 +83,12 @@ export function ConnectionSettings(props: ConnectionSettingsProps) {
           style={styles.secondaryButton}
         >
           <Text style={styles.secondaryButtonText}>{pairingUi.manualPairingToggleLabel}</Text>
-          <Text style={styles.secondaryButtonIcon}>{props.manualPairingOpen ? '-' : '+'}</Text>
+          <MobileIcon
+            name={props.manualPairingOpen ? 'chevronDown' : 'chevronRight'}
+            size={16}
+            strokeWidth={2.5}
+            color="#db2777"
+          />
         </PressableScale>
 
         {props.manualPairingOpen || pairingUi.manualPairingVisible ? (
@@ -197,6 +207,17 @@ const styles = StyleSheet.create({
     color: mobileInk.strong,
     fontSize: 16,
     fontWeight: '900',
+  },
+  cardTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  headerIcon: {
+    alignItems: 'center',
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
   },
   codeCard: {
     alignItems: 'center',
@@ -321,11 +342,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: 44,
     paddingHorizontal: 12,
-  },
-  secondaryButtonIcon: {
-    color: '#db2777',
-    fontSize: 18,
-    fontWeight: '900',
   },
   secondaryButtonText: {
     color: mobileInk.muted,

@@ -115,7 +115,11 @@ export function Onboarding({ onDone }: OnboardingProps) {
   }, [float, reduce]);
 
   const onScroll = Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
-    useNativeDriver: false,
+    // Native-driven: every scroll-linked interpolation below targets transform /
+    // opacity only (never a layout prop like width), so the parallax and dots run
+    // on the UI thread. Animating `width` here would crash the native animated
+    // module ("Style property 'width' is not supported").
+    useNativeDriver: true,
     listener: (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const next = Math.round(event.nativeEvent.contentOffset.x / width);
       setIndex((current) => (current === next ? current : next));
@@ -193,10 +197,15 @@ export function Onboarding({ onDone }: OnboardingProps) {
         <View style={styles.dots}>
           {SLIDES.map((slide, dotIndex) => {
             const inputRange = [(dotIndex - 1) * width, dotIndex * width, (dotIndex + 1) * width];
-            const dotWidth = scrollX.interpolate({ inputRange, outputRange: [8, 26, 8], extrapolate: 'clamp' });
-            const dotOpacity = scrollX.interpolate({ inputRange, outputRange: [0.3, 1, 0.3], extrapolate: 'clamp' });
+            // Widen the active dot into a pill via scaleX (native-safe) instead of
+            // animating `width` (a layout prop the native driver rejects).
+            const dotScaleX = scrollX.interpolate({ inputRange, outputRange: [1, 3.25, 1], extrapolate: 'clamp' });
+            const dotOpacity = scrollX.interpolate({ inputRange, outputRange: [0.32, 1, 0.32], extrapolate: 'clamp' });
             return (
-              <Animated.View key={`dot-${slide.key}`} style={[styles.dot, { width: dotWidth, opacity: dotOpacity }]} />
+              <Animated.View
+                key={`dot-${slide.key}`}
+                style={[styles.dot, { opacity: dotOpacity, transform: [{ scaleX: dotScaleX }] }]}
+              />
             );
           })}
         </View>
@@ -258,8 +267,8 @@ function SlideView({
           {slide.mascot ? (
             <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy mascot" style={styles.mascot} />
           ) : (
-            <Gradient preset={slide.tile} radius={36} style={styles.artTile}>
-              <MobileIcon name={slide.icon} size={64} strokeWidth={2.1} color="#ffffff" />
+            <Gradient preset={slide.tile} radius={32} style={styles.artTile}>
+              <MobileIcon name={slide.icon} size={54} strokeWidth={2.4} color="#ffffff" />
             </Gradient>
           )}
         </View>
