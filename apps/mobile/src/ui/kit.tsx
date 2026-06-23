@@ -254,6 +254,7 @@ export function Glass({
   heavy = false,
   borderColor,
   borderWidth = 1,
+  fill,
 }: {
   readonly children?: ReactNode;
   readonly style?: StyleProp<ViewStyle>;
@@ -262,6 +263,7 @@ export function Glass({
   readonly heavy?: boolean;
   readonly borderColor?: string;
   readonly borderWidth?: number;
+  readonly fill?: string;
 }) {
   const { colors, scheme } = useTheme();
   return (
@@ -273,7 +275,7 @@ export function Glass({
     >
       <View
         style={[
-          { backgroundColor: heavy ? colors.glassHeavy : colors.glassFill, borderColor: borderColor ?? colors.glassBorder, borderRadius: radius, borderWidth },
+          { backgroundColor: fill ?? (heavy ? colors.glassHeavy : colors.glassFill), borderColor: borderColor ?? colors.glassBorder, borderRadius: radius, borderWidth },
           StyleSheetAbsoluteFill,
         ]}
         pointerEvents="none"

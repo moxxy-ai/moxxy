@@ -153,7 +153,8 @@ export type ColorName =
   | 'glassFill'
   | 'glassHeavy'
   | 'glassBorder'
-  | 'glassHighlight';
+  | 'glassHighlight'
+  | 'composerFill';
 
 export type Palette = Record<ColorName, string>;
 
@@ -216,6 +217,7 @@ function buildPalette(c: Record<keyof typeof tokens.color, string>, extra: Parti
     glassHeavy: 'rgba(248, 249, 253, 0.82)',
     glassBorder: 'rgba(15, 23, 42, 0.08)',
     glassHighlight: 'rgba(255, 255, 255, 0.7)',
+    composerFill: 'rgba(241, 242, 249, 0.82)',
     ...extra,
   };
 }
@@ -247,6 +249,7 @@ export const darkPalette: Palette = buildPalette(darkTokens.color, {
   glassHeavy: 'rgba(16, 17, 23, 0.72)',
   glassBorder: 'rgba(255, 255, 255, 0.12)',
   glassHighlight: 'rgba(255, 255, 255, 0.06)',
+  composerFill: 'rgba(11, 12, 19, 0.8)',
 });
 
 export const palettes = { light: lightPalette, dark: darkPalette } as const;

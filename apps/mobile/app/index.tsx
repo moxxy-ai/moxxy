@@ -46,6 +46,7 @@ function Chat() {
     permissions,
     session,
     sessions,
+    sessionLoading,
   } = useGatewayStore();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -138,6 +139,7 @@ function Chat() {
             sending={chat.sending}
             hasOlder={chat.hasOlder}
             welcome={welcome}
+            loading={sessionLoading && chat.items.length === 0}
             bottomInset={composerBottom + 72}
             onLoadOlder={chat.loadOlder}
             copiedMessageId={messageCopy.copiedMessageId}

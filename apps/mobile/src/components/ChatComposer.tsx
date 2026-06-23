@@ -43,7 +43,7 @@ export function ChatComposer(props: ChatComposerProps) {
 
   return (
     <View style={sx('px-3', { paddingTop: 8 })}>
-      <Glass radius={28} intensity={70} borderColor={props.accentBorder} borderWidth={props.accentBorder ? 1.6 : 1}>
+      <Glass radius={28} intensity={70} fill={colors.composerFill} borderColor={props.accentBorder} borderWidth={props.accentBorder ? 1.6 : 1}>
         {props.voiceError ? (
           <Text style={sx('px-4 pt-2 text-[12px] font-semibold text-red')}>{props.voiceError}</Text>
         ) : null}

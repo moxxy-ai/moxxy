@@ -1,5 +1,6 @@
 import { sx } from '../styles/tokens';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Linking,
@@ -61,6 +62,7 @@ interface ChatListProps {
   readonly sending?: boolean;
   readonly hasOlder?: boolean;
   readonly welcome?: ChatWelcome | null;
+  readonly loading?: boolean;
   readonly bottomInset?: number;
   readonly onLoadOlder?: () => void;
   readonly copiedMessageId?: string | null;
@@ -73,6 +75,7 @@ export function ChatList({
   sending = false,
   hasOlder = false,
   welcome = null,
+  loading = false,
   bottomInset = 0,
   onLoadOlder,
   copiedMessageId = null,
@@ -107,9 +110,10 @@ export function ChatList({
     connectionBanner ? <View style={{ marginBottom: 16 }}>{connectionBanner}</View> : null
   ), [connectionBanner]);
   const empty = useCallback(() => {
+    if (loading) return <SessionLoadingView />;
     if (welcome && !connectionBanner) return <WelcomeView welcome={welcome} />;
     return <OfflineEmptyState hasConnectionBanner={Boolean(connectionBanner)} />;
-  }, [connectionBanner, welcome]);
+  }, [connectionBanner, loading, welcome]);
   const footer = useCallback(
     () => (shouldShowThinkingIndicator({ items, sending }) ? <ThinkingIndicator /> : null),
     [items, sending],
@@ -194,6 +198,20 @@ function WelcomeView({ welcome }: { readonly welcome: ChatWelcome }) {
       <Text style={sx('mt-2 text-[15px] font-medium text-muted text-center', { lineHeight: 21, maxWidth: 320 })}>
         {welcome.subtitle}
       </Text>
+    </View>
+  );
+}
+
+function SessionLoadingView() {
+  const { colors } = useTheme();
+  return (
+    <View style={sx('flex-1 items-center justify-center', { gap: 14, paddingBottom: 48 })}>
+      <View style={sx('items-center justify-center', { height: 116, width: 116 })}>
+        <View style={sx('absolute rounded-full', { backgroundColor: colors.primary, height: 116, opacity: 0.09, width: 116 })} />
+        <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 104, width: 104 }} />
+      </View>
+      <ActivityIndicator color={colors.primary} />
+      <Text style={sx('text-[14px] font-semibold text-dim')}>Loading chat…</Text>
     </View>
   );
 }
