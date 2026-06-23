@@ -58,12 +58,18 @@ const AT_BOTTOM_THRESHOLD = 96;
 export function useChatListAutoScroll(items: ReadonlyArray<TranscriptItem>, sending: boolean) {
   const scrollRef = useRef<FlatList<TranscriptItem> | null>(null);
   const atBottomRef = useRef(true);
+  const contentHeightRef = useRef(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const contentKey = useMemo(() => buildChatListAutoScrollKey(items, sending), [items, sending]);
 
   const scrollToEnd = useCallback((animated = true) => {
     requestAnimationFrame(() => {
       scrollRef.current?.scrollToEnd({ animated });
+      // Belt-and-braces: jump past the measured content bottom so virtualization
+      // can't leave us short of the last row (clamped to the real max).
+      if (contentHeightRef.current > 0) {
+        scrollRef.current?.scrollToOffset({ animated, offset: contentHeightRef.current + 600 });
+      }
     });
   }, []);
 

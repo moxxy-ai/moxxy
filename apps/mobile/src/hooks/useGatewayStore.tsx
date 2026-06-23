@@ -331,8 +331,10 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   const sessions = useSessions(state, sendFrame, {
     renameSession: coreDesks.renameSession,
     removeSession: coreDesks.removeSession,
-    renameWorkspace: coreDesks.rename,
-    removeWorkspace: coreDesks.remove,
+    // The drawer addresses workspaces by the mobile workspace id, but the desk
+    // store's rename/remove expect the DESK id — map through deskForWorkspace.
+    renameWorkspace: (workspaceId, name) => coreDesks.rename(deskForWorkspace(coreDesks.desks, workspaceId)?.id ?? workspaceId, name),
+    removeWorkspace: (workspaceId) => coreDesks.remove(deskForWorkspace(coreDesks.desks, workspaceId)?.id ?? workspaceId),
   });
   const permissions = usePermissions(state, sendFrame);
   const chatTranscript = useChatTranscript(state);
