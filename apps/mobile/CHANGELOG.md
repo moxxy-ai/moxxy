@@ -1,5 +1,24 @@
 # @moxxy/workspaces-app
 
+## 0.2.2
+
+### Patch Changes
+
+- 4fec599: Mobile: show a Stop button for the whole turn so a running agent/workflow can be cancelled.
+
+  The composer's primary action only became Stop during the brief send round-trip
+  (`sending`), so once the agent moved into a long thinking/tool/subagent run the
+  button flipped back to Send and there was no way to cancel from the phone. It now
+  follows the whole turn (`activeTurnId !== null || sending`) — matching desktop —
+  and presses through to the existing `abort()` (which already cancels spawned
+  subagents via the parent turn signal).
+
+- Updated dependencies [0d6df6e]
+  - @moxxy/sdk@0.17.0
+  - @moxxy/chat-model@0.3.5
+  - @moxxy/client-core@0.10.4
+  - @moxxy/client-transport-ws@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

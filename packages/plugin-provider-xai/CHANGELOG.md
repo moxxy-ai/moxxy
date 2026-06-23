@@ -1,5 +1,13 @@
 # @moxxy/plugin-provider-xai
 
+## 0.0.15
+
+### Patch Changes
+
+- Updated dependencies [0d6df6e]
+  - @moxxy/sdk@0.17.0
+  - @moxxy/plugin-provider-openai@0.1.5
+
 ## 0.0.14
 
 ### Patch Changes
