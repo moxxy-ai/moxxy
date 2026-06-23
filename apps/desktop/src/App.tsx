@@ -26,6 +26,7 @@ import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
 import { WorkflowsPanel } from './workflows/WorkflowsPanel';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
+import { MobilePanel } from './mobile/MobilePanel';
 import { AppsPanel } from './apps/AppsPanel';
 import { UpdateBanner } from './shell/UpdateBanner';
 import { Splash } from './Splash';
@@ -334,6 +335,18 @@ export function App(): JSX.Element {
       {view === 'apps' && (
         <main className="col-main col-main--flat">
           <AppsPanel
+            onView={onView}
+            disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
+            disabledViewReason={RUNNER_LOCKED_REASON}
+          />
+        </main>
+      )}
+      {/* Mobile is independent of the runner session (the gateway lives in the
+          main process), so it is never runner-locked — but the switcher still
+          needs the locked set so the OTHER segments disable in lockstep. */}
+      {view === 'mobile' && (
+        <main className="col-main col-main--flat">
+          <MobilePanel
             onView={onView}
             disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
             disabledViewReason={RUNNER_LOCKED_REASON}

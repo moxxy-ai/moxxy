@@ -41,6 +41,7 @@ export type IconName =
   | 'folder'
   | 'terminal'
   | 'globe'
+  | 'smartphone'
   | 'file'
   | 'diff';
 
@@ -259,6 +260,12 @@ const paths: Record<IconName, JSX.Element> = {
       <circle cx="12" cy="12" r="9" />
       <path d="M3 12h18" />
       <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" />
+    </>
+  ),
+  smartphone: (
+    <>
+      <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+      <path d="M12 18h.01" />
     </>
   ),
   file: (

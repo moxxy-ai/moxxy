@@ -5,7 +5,6 @@ import { SkillsView } from './SkillsView';
 import { ProvidersTab } from './ProvidersTab';
 import { McpTab } from './McpTab';
 import { VaultTab } from './VaultTab';
-import { MobileTab } from './MobileTab';
 import { PreferencesTab } from './PreferencesTab';
 import { SearchBox } from './settings-primitives';
 import { ViewHeader, ViewSwitcher, Segmented, type View } from '../shell/ViewHeader';
@@ -84,7 +83,6 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
       />
     ),
   },
-  { id: 'mobile', label: 'Mobile', standalone: true, render: () => <MobileTab /> },
   { id: 'preferences', label: 'Preferences', standalone: true, render: () => <PreferencesTab /> },
 ];
 
@@ -158,9 +156,9 @@ export function SettingsPanel({
         }}
       >
 
-      {/* Standalone tabs (Preferences / Mobile) are independent of the
-          runner-backed settings slice — render them without the shared
-          loading / error chrome below. */}
+      {/* Standalone tabs (Preferences) are independent of the runner-backed
+          settings slice — render them without the shared loading / error
+          chrome below. */}
       {active.standalone && active.render(ctx)}
 
       {!active.standalone && s.error && (
