@@ -139,10 +139,14 @@ for the floating chrome, a proper onboarding/pairing gate, and a minimal glass
 composer (grow-on-type single line; `+` opens a full-width options sheet; voice +
 send; drag-grabber to minimize). ~19 old presentational components were deleted.
 New debt accrued:
-- **Dead UI-logic modules left in place.** `waitingRoomUi.ts` and
+- ~~**Dead UI-logic modules left in place.** `waitingRoomUi.ts` and
   `connectionBannerUi.ts` lost their components (WaitingRoom/ConnectionBanner
-  removed) but the modules + their tests remain, unused. Delete them (and the
-  `mobile-connection-banner-ui` test) or wire them into the new connection states.
+  removed) but the modules + their tests remain, unused.~~ ✅ DONE (2026-06-23,
+  reconnect-escape change): deleted both modules + the `mobile-connection-banner-ui`
+  test (`waitingRoomUi` had zero importers; `connectionBannerUi` only its own
+  test). The connecting state is now owned by `reconnectUi.ts` + `ReconnectScreen`,
+  which spins briefly then offers a re-pair escape hatch so a stale gateway can't
+  strand the user on "Connecting to your Mac…".
 - **`LargeHeader` (kit) is currently unused** — Apps/Account switched to the
   pushed `DetailHeader`. Keep only if a large-title tab/landing screen returns.
 - **`QrScannerSheet` still imports the deprecated `SafeAreaView` from
