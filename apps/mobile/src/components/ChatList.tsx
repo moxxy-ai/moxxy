@@ -226,7 +226,7 @@ function MessageBlock({
       <Pressable
         delayLongPress={300}
         onLongPress={() => onLongPress?.(item.id, actions.copyText ?? item.text)}
-        style={{ alignItems: 'flex-start', alignSelf: 'flex-start', gap: 8, maxWidth: '88%' }}
+        style={{ alignItems: 'flex-end', alignSelf: 'flex-end', gap: 8, maxWidth: '88%' }}
         testID="mobile-user-message"
       >
         {hasAttachments ? <MessageAttachments attachments={item.attachments ?? []} /> : null}
@@ -235,8 +235,8 @@ function MessageBlock({
             testID="mobile-user-block"
             style={{
               backgroundColor: colors.primary,
-              borderBottomLeftRadius: 6,
-              borderBottomRightRadius: 18,
+              borderBottomLeftRadius: 18,
+              borderBottomRightRadius: 6,
               borderTopLeftRadius: 18,
               borderTopRightRadius: 18,
               maxWidth: '100%',
@@ -293,7 +293,7 @@ const MemoMessageBlock = memo(
 
 function MessageAttachments({ attachments }: { readonly attachments: ReadonlyArray<PromptAttachment> }) {
   return (
-    <View style={{ alignItems: 'flex-start', gap: 7, maxWidth: '100%' }}>
+    <View style={{ alignItems: 'flex-end', gap: 7, maxWidth: '100%' }}>
       {attachments.map((attachment, index) => {
         const preview = buildChatAttachmentPreview(attachment);
         const key = `${attachment.kind}:${attachment.name ?? index}:${index}`;
@@ -418,16 +418,16 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
   }, []);
 
   return (
-    <View style={{ alignSelf: 'stretch', flexDirection: 'row', gap: 12, maxWidth: '96%' }}>
-      <View style={{ alignItems: 'center', backgroundColor: tone.tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}>
-        <MobileIcon name="bolt" size={17} strokeWidth={2.35} color={tone.accent} />
-      </View>
-      <View style={{ flex: 1, minWidth: 0 }}>
+    <View style={{ alignSelf: 'stretch', maxWidth: '100%' }}>
+      <View style={{ alignItems: 'center', flexDirection: 'row', gap: 12 }}>
+        <View style={{ alignItems: 'center', backgroundColor: tone.tint, borderRadius: 10, height: 34, justifyContent: 'center', width: 34 }}>
+          <MobileIcon name="bolt" size={17} strokeWidth={2.35} color={tone.accent} />
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ expanded: open }}
           onPress={() => setOpen((value) => !value)}
-          style={{ alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 34 }}
+          style={{ alignItems: 'center', flex: 1, flexDirection: 'row', gap: 8, minHeight: 34, minWidth: 0 }}
         >
           <Text style={sx('text-[13px] font-bold text-text')}>{group.title}</Text>
           <Text style={sx('text-[11px] font-bold text-dim')}>{group.tools.length}</Text>
@@ -450,19 +450,19 @@ function ToolGroupMessage({ group }: { readonly group: ToolGroupTranscriptItem }
           </Text>
           <Text style={sx('text-[16px] font-bold text-dim')}>{open ? '-' : '+'}</Text>
         </Pressable>
-        {open ? (
-          <View style={{ gap: 8, marginTop: 8 }}>
-            {group.tools.map((tool) => (
-              <ExpandableToolCard
-                key={tool.id}
-                tool={buildToolDetailUi(tool)}
-                expanded={expandedToolIds.has(tool.id)}
-                onToggle={() => toggleTool(tool.id)}
-              />
-            ))}
-          </View>
-        ) : null}
       </View>
+      {open ? (
+        <View style={{ gap: 8, marginTop: 10 }}>
+          {group.tools.map((tool) => (
+            <ExpandableToolCard
+              key={tool.id}
+              tool={buildToolDetailUi(tool)}
+              expanded={expandedToolIds.has(tool.id)}
+              onToggle={() => toggleTool(tool.id)}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
