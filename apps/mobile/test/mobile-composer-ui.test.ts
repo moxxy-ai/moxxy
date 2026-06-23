@@ -62,6 +62,32 @@ describe('mobile composer ui model', () => {
     });
   });
 
+  it('shows Stop for the whole turn (running) — not just the brief send round-trip', () => {
+    // The send round-trip is over (`sending: false`) but the agent is still
+    // working (`running: true`): the button must stay Stop so a long
+    // thinking/tool/subagent run can be cancelled.
+    expect(buildComposerUiState({
+      text: '',
+      sending: false,
+      running: true,
+      compacting: false,
+      actionsOpen: false,
+      autoApprove: false,
+    })).toMatchObject({
+      sendIcon: 'stop',
+      sendTone: 'danger',
+    });
+    // No turn in flight → back to Send.
+    expect(buildComposerUiState({
+      text: 'next',
+      sending: false,
+      running: false,
+      compacting: false,
+      actionsOpen: false,
+      autoApprove: false,
+    })).toMatchObject({ sendIcon: 'send', sendTone: 'primary' });
+  });
+
   it('shows recording and transcribing feedback while voice input is active', () => {
     expect(buildComposerUiState({
       text: '',

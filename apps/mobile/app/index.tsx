@@ -190,6 +190,7 @@ function Chat() {
             text={composer.text}
             inputResetKey={composer.inputResetKey}
             sending={chat.sending}
+            running={chat.activeTurnId !== null || chat.sending}
             compacting={chat.compacting}
             autoApprove={autoApprove.enabled}
             readOnly={session.readOnly}
