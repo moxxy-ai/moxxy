@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Modal, PanResponder, Pressable, ScrollView, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Animated, Modal, PanResponder, Pressable, ScrollView, Text, useWindowDimensions, View, type LayoutChangeEvent } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -31,6 +31,8 @@ interface ComposerSheetProps {
 
 export function ComposerSheet(props: ComposerSheetProps) {
   const { colors } = useTheme();
+  const { height: screenH } = useWindowDimensions();
+  const pageHeight = Math.round(screenH * 0.62);
   const [rendered, setRendered] = useState(props.open);
   const [page, setPage] = useState<Page>('main');
   const translateY = useRef(new Animated.Value(0)).current;
@@ -119,8 +121,8 @@ export function ComposerSheet(props: ComposerSheetProps) {
                 <Row icon="plus" tone="neutral" label="New chat" onPress={run(props.onNewSession)} />
               </View>
             ) : page === 'model' ? (
-              <View style={sx('flex-row px-3 pb-3', { gap: 8 })}>
-                <ScrollView style={{ maxHeight: 320, width: 140 }} contentContainerStyle={{ gap: 6 }}>
+              <View style={sx('flex-row px-3 pb-3', { gap: 8, height: pageHeight })}>
+                <ScrollView style={{ width: 140 }} contentContainerStyle={{ gap: 6 }} showsVerticalScrollIndicator={false}>
                   {props.modelUi.providerRows.map((provider) => (
                     <PickerRow
                       key={provider.id}
@@ -132,7 +134,7 @@ export function ComposerSheet(props: ComposerSheetProps) {
                     />
                   ))}
                 </ScrollView>
-                <ScrollView style={{ flex: 1, maxHeight: 320 }} contentContainerStyle={{ gap: 6 }}>
+                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }} showsVerticalScrollIndicator={false}>
                   {props.modelUi.modelRows.map((model) => (
                     <PickerRow
                       key={model.id ?? 'default'}
@@ -149,7 +151,7 @@ export function ComposerSheet(props: ComposerSheetProps) {
                 </ScrollView>
               </View>
             ) : (
-              <View style={sx('px-3 pb-3', { gap: 6 })}>
+              <ScrollView style={{ height: pageHeight }} contentContainerStyle={sx('px-3 pb-3', { gap: 6 })} showsVerticalScrollIndicator={false}>
                 {props.modeUi.modeRows.map((mode) => (
                   <PickerRow
                     key={mode.id}
@@ -160,7 +162,7 @@ export function ComposerSheet(props: ComposerSheetProps) {
                     onPress={() => { props.onPickMode(mode.id); setPage('main'); }}
                   />
                 ))}
-              </View>
+              </ScrollView>
             )}
           </SafeAreaView>
         </Glass>

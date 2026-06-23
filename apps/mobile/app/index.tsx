@@ -151,11 +151,6 @@ function Chat() {
             <GoalSheet objective={goals.objective} canStart={goals.canStart} maxHeight={goalPlacement.maxHeight} inputMaxHeight={goalPlacement.inputMaxHeight} onObjectiveChange={goals.setObjective} onStart={goals.startGoal} onClose={() => goals.setOpen(false)} />
           </View>
         ) : null}
-        {compact.confirmOpen ? (
-          <View style={overlayStyle}>
-            <CompactContextSheet open={compact.confirmOpen} compacting={chat.compacting} onCancel={compact.cancelCompact} onConfirm={compact.confirmCompact} />
-          </View>
-        ) : null}
         <View style={{ paddingBottom: keyboardHeight > 0 ? keyboardHeight : safeArea.bottom }}>
           <ChatComposer
             text={composer.text}
@@ -198,6 +193,7 @@ function Chat() {
         onClose={sessionActions.close}
       />
       <RenameSessionSheet open={renameOpen} value={renameDraft} error={renameError} saving={renameSaving} onChange={setRenameDraft} onCancel={() => setRenameOpen(false)} onSubmit={submitRename} />
+      <CompactContextSheet open={compact.confirmOpen} compacting={chat.compacting} onCancel={compact.cancelCompact} onConfirm={compact.confirmCompact} />
 
       <ComposerSheet
         open={optionsOpen}

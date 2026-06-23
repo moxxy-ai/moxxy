@@ -1,7 +1,7 @@
 import { sx } from '../styles/tokens';
-import { KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
-import { MobileIcon } from './MobileIcon';
+import { BottomSheet } from '@/ui/kit';
 
 interface RenameSessionSheetProps {
   readonly open: boolean;
@@ -15,106 +15,56 @@ interface RenameSessionSheetProps {
 
 export function RenameSessionSheet(props: RenameSessionSheetProps) {
   const { colors } = useTheme();
-  if (!props.open) return null;
   const canSubmit = props.value.trim().length > 0 && !props.saving;
 
   return (
-    <View
-      style={{
-        bottom: 0,
-        left: 0,
-        position: 'absolute',
-        right: 0,
-        top: 0,
-        zIndex: 75,
-      }}
-    >
-      <Pressable
-        accessible
-        accessibilityRole="button"
-        accessibilityLabel="Close rename session"
-        style={{ backgroundColor: colors.overlay, bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }}
-        onPress={props.onCancel}
-      />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 96 }}
-      >
-        <View
-          style={sx('rounded-card border border-cardBorder bg-cardBg p-4 shadow-card', {
-            borderRadius: 20,
-            gap: 14,
-            shadowColor: colors.shadow,
-            shadowOffset: { width: 0, height: 18 },
-            shadowOpacity: 0.18,
-            shadowRadius: 28,
+    <BottomSheet open={props.open} onClose={props.onCancel} title="Rename chat" avoidKeyboard>
+      <View style={sx('px-4 pb-2', { gap: 14 })}>
+        <TextInput
+          accessibilityLabel="Chat name"
+          value={props.value}
+          onChangeText={props.onChange}
+          placeholder="Chat name"
+          placeholderTextColor={colors.textDim}
+          autoCapitalize="sentences"
+          autoCorrect
+          autoFocus
+          returnKeyType="done"
+          onSubmitEditing={canSubmit ? props.onSubmit : undefined}
+          style={sx('rounded-2xl px-4 text-[16px] font-semibold text-text', {
+            backgroundColor: colors.inputSoft,
+            borderColor: colors.cardBorder,
+            borderWidth: 1,
+            minHeight: 50,
           })}
-        >
-          <View style={sx('flex-row items-center justify-between gap-3')}>
-            <View style={sx('min-w-0 flex-1')}>
-              <Text style={sx('text-[22px] font-black text-text')}>Rename session</Text>
-              <Text style={sx('mt-1 text-[12px] font-semibold text-muted')}>This updates the same session on desktop and mobile.</Text>
-            </View>
-            <Pressable
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel="Close rename dialog"
-              style={sx('h-10 w-10 items-center justify-center rounded-pill bg-appBg')}
-              onPress={props.onCancel}
-            >
-              <MobileIcon name="x" size={19} strokeWidth={2.35} color={colors.textMuted} />
-            </Pressable>
+        />
+
+        {props.error ? (
+          <View style={sx('rounded-2xl px-3 py-2', { backgroundColor: colors.redSoft, borderColor: colors.redBorder, borderWidth: 1 })}>
+            <Text style={sx('text-[13px] font-semibold', { color: colors.redText })}>{props.error}</Text>
           </View>
+        ) : null}
 
-          <TextInput
-            accessibilityLabel="Session name"
-            value={props.value}
-            onChangeText={props.onChange}
-            placeholder="Session name"
-            placeholderTextColor={colors.textDim}
-            autoCapitalize="sentences"
-            autoCorrect
-            autoFocus
-            style={sx('min-h-12 rounded-block border border-cardBorder bg-appBg px-4 text-[16px] font-semibold text-text')}
-            returnKeyType="done"
-            onSubmitEditing={canSubmit ? props.onSubmit : undefined}
-          />
-
-          {props.error ? (
-            <View style={sx('rounded-block bg-red/10 px-3 py-2')}>
-              <Text style={sx('text-[12px] font-semibold text-red')}>{props.error}</Text>
-            </View>
-          ) : null}
-
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <Pressable
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel="Cancel rename session"
-              style={sx('min-h-12 flex-1 items-center justify-center rounded-block border border-cardBorder bg-cardBg')}
-              onPress={props.onCancel}
-            >
-              <Text style={sx('text-[14px] font-black text-muted')}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel="Save session name"
-              style={sx(canSubmit ? 'bg-primary' : 'bg-cardBorder', {
-                alignItems: 'center',
-                borderRadius: 12,
-                flex: 1,
-                justifyContent: 'center',
-                minHeight: 48,
-              })}
-              disabled={!canSubmit}
-              onPress={props.onSubmit}
-            >
-              <Text style={sx('text-[14px] font-black text-white')}>{props.saving ? 'Saving...' : 'Save'}</Text>
-            </Pressable>
-          </View>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Pressable
+            accessibilityLabel="Cancel rename"
+            accessibilityRole="button"
+            onPress={props.onCancel}
+            style={sx('flex-1 items-center justify-center rounded-2xl border border-cardBorder', { backgroundColor: colors.surface, minHeight: 50 })}
+          >
+            <Text style={sx('text-[14px] font-bold text-muted')}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Save chat name"
+            accessibilityRole="button"
+            disabled={!canSubmit}
+            onPress={props.onSubmit}
+            style={sx('flex-1 items-center justify-center rounded-2xl', { backgroundColor: canSubmit ? colors.primary : colors.cardBorderStrong, minHeight: 50 })}
+          >
+            <Text style={sx('text-[14px] font-bold text-white')}>{props.saving ? 'Saving…' : 'Save'}</Text>
+          </Pressable>
         </View>
-      </KeyboardAvoidingView>
-    </View>
+      </View>
+    </BottomSheet>
   );
 }

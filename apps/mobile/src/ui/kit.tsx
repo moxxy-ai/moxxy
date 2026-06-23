@@ -1,10 +1,16 @@
 import { BlurView } from 'expo-blur';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Animated,
+  KeyboardAvoidingView,
+  Modal,
+  PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   Text,
   View,
+  type LayoutChangeEvent,
   type StyleProp,
   type TextStyle,
   type ViewStyle,
@@ -13,6 +19,92 @@ import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-ar
 import { sx } from '../styles/tokens';
 import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon, type MobileIconName } from '../components/MobileIcon';
+
+/* -------------------------------------------------------------- BottomSheet */
+
+/** The shared draggable, glass bottom-sheet used for every action surface
+ *  (composer options, model/mode, goal, compact, rename) so nothing renders as
+ *  a plain modal. Drag the grabber down to dismiss. */
+export function BottomSheet({
+  open,
+  onClose,
+  title,
+  avoidKeyboard = false,
+  children,
+}: {
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly title?: string;
+  readonly avoidKeyboard?: boolean;
+  readonly children: ReactNode;
+}) {
+  const { colors } = useTheme();
+  const [rendered, setRendered] = useState(open);
+  const translateY = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(0)).current;
+  const heightRef = useRef(360);
+
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      translateY.setValue(heightRef.current);
+      Animated.parallel([
+        Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 14, useNativeDriver: true }),
+        Animated.timing(progress, { toValue: 1, duration: 200, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(translateY, { toValue: heightRef.current, duration: 200, useNativeDriver: true }),
+        Animated.timing(progress, { toValue: 0, duration: 180, useNativeDriver: true }),
+      ]).start(({ finished }) => {
+        if (finished) setRendered(false);
+      });
+    }
+  }, [open]);
+
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
+      onPanResponderMove: (_e, g) => {
+        if (g.dy > 0) translateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_e, g) => {
+        if (g.dy > 90 || g.vy > 0.6) onClose();
+        else Animated.spring(translateY, { toValue: 0, bounciness: 2, speed: 16, useNativeDriver: true }).start();
+      },
+    }),
+  ).current;
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    if (e.nativeEvent.layout.height > 0) heightRef.current = e.nativeEvent.layout.height;
+  };
+
+  if (!rendered) return null;
+
+  return (
+    <Modal transparent visible animationType="none" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={avoidKeyboard && Platform.OS === 'ios' ? 'padding' : undefined}
+        style={sx('flex-1', { justifyContent: 'flex-end' })}
+      >
+        <Animated.View style={[{ bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 }, { opacity: progress }]}>
+          <Pressable accessibilityLabel="Close" onPress={onClose} style={sx('flex-1', { backgroundColor: colors.overlay })} />
+        </Animated.View>
+        <Animated.View onLayout={onLayout} style={{ transform: [{ translateY }] }}>
+          <Glass radius={28} intensity={80} heavy>
+            <SafeAreaView edges={['bottom']}>
+              <View {...pan.panHandlers} style={sx('items-center', { paddingBottom: 6, paddingTop: 10 })}>
+                <View style={sx('rounded-full', { backgroundColor: colors.textDim, height: 5, opacity: 0.5, width: 40 })} />
+              </View>
+              {title ? <Text style={sx('px-5 pb-2 text-[13px] font-black uppercase tracking-wide text-dim')}>{title}</Text> : null}
+              <View>{children}</View>
+            </SafeAreaView>
+          </Glass>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
 
 /* ------------------------------------------------------------------- Glass */
 

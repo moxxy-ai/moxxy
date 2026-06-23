@@ -1,7 +1,7 @@
 import { sx } from '../styles/tokens';
 import { Pressable, Text, View } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
-import { MobileIcon } from './MobileIcon';
+import { BottomSheet, IconBadge } from '@/ui/kit';
 
 interface CompactContextSheetProps {
   readonly open: boolean;
@@ -12,56 +12,39 @@ interface CompactContextSheetProps {
 
 export function CompactContextSheet(props: CompactContextSheetProps) {
   const { colors } = useTheme();
-  if (!props.open) return null;
-
   return (
-    <View
-      style={sx('rounded-card border border-cardBorder bg-cardBg p-4 shadow-card', { gap: 12 })}
-    >
-      <View style={{ alignItems: 'center', flexDirection: 'row', gap: 10 }}>
-        <View
-          style={{
-            alignItems: 'center',
-            backgroundColor: colors.primarySoft,
-            borderRadius: 12,
-            height: 38,
-            justifyContent: 'center',
-            width: 38,
-          }}
-        >
-          <MobileIcon name="actions" size={19} strokeWidth={2.45} color={colors.primaryStrong} />
+    <BottomSheet open={props.open} onClose={props.onCancel} title="Compact context">
+      <View style={sx('px-4 pb-2', { gap: 14 })}>
+        <View style={sx('flex-row items-center', { gap: 12 })}>
+          <IconBadge icon="refresh" tone="brand" size={38} />
+          <View style={sx('flex-1', { minWidth: 0 })}>
+            <Text style={sx('text-[17px] font-black text-text')}>Compact context?</Text>
+            <Text style={sx('mt-0.5 text-[13px] font-medium text-dim', { lineHeight: 18 })}>
+              Older turns are summarized to free the model window; the smaller context is used on the next message.
+            </Text>
+          </View>
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={sx('text-[17px] font-black text-text')}>Compact context?</Text>
-          <Text style={sx('mt-0.5 text-[12px] font-semibold text-muted')}>
-            Older turns will be summarized to free the model window.
-          </Text>
+
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Pressable
+            accessibilityLabel="Cancel compaction"
+            accessibilityRole="button"
+            onPress={props.onCancel}
+            style={sx('flex-1 items-center justify-center rounded-2xl border border-cardBorder', { backgroundColor: colors.surface, minHeight: 50 })}
+          >
+            <Text style={sx('text-[14px] font-bold text-muted')}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Confirm context compaction"
+            accessibilityRole="button"
+            disabled={props.compacting}
+            onPress={props.onConfirm}
+            style={sx('flex-1 items-center justify-center rounded-2xl', { backgroundColor: colors.primary, minHeight: 50, opacity: props.compacting ? 0.65 : 1 })}
+          >
+            <Text style={sx('text-[14px] font-bold text-white')}>{props.compacting ? 'Compacting…' : 'Compact now'}</Text>
+          </Pressable>
         </View>
       </View>
-
-      <Text style={sx('text-[12px] leading-5 text-muted')}>
-        This locks the composer while Moxxy summarizes the current session. The smaller context is used on the next message.
-      </Text>
-
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <Pressable
-          accessibilityLabel="Cancel compaction"
-          style={sx('flex-1 items-center justify-center rounded-block border border-cardBorder', { minHeight: 42 })}
-          onPress={props.onCancel}
-        >
-          <Text style={sx('text-[13px] font-bold text-muted')}>Cancel</Text>
-        </Pressable>
-        <Pressable
-          accessibilityLabel="Confirm context compaction"
-          style={sx('flex-1 items-center justify-center rounded-block bg-primary', { minHeight: 42, opacity: props.compacting ? 0.65 : 1 })}
-          disabled={props.compacting}
-          onPress={props.onConfirm}
-        >
-          <Text style={sx('text-[13px] font-bold text-white')}>
-            {props.compacting ? 'Compacting...' : 'Compact now'}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
+    </BottomSheet>
   );
 }
