@@ -1,5 +1,12 @@
 # @moxxy/e2e
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies [e4fe785]
+  - @moxxy/sdk@0.18.0
+
 ## 0.1.2
 
 ### Patch Changes

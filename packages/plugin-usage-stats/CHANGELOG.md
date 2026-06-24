@@ -1,5 +1,13 @@
 # @moxxy/plugin-usage-stats
 
+## 0.0.34
+
+### Patch Changes
+
+- Updated dependencies [e4fe785]
+  - @moxxy/sdk@0.18.0
+  - @moxxy/core@0.6.2
+
 ## 0.0.33
 
 ### Patch Changes

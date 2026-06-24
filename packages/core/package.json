@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/core",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "The moxxy runtime as a programmatic library: the agentic Session + runTurn loop, the event log, the plugin host, every block registry (providers, tools, modes, compactors, cache strategies, channels, …), session persistence, and the permission engine. Pair with @moxxy/sdk to build and embed moxxy agents in your own code.",
   "keywords": [
     "moxxy",
