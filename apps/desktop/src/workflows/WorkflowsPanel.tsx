@@ -24,10 +24,15 @@ export function WorkflowsPanel({
   onView = () => undefined,
   disabledViews,
   disabledViewReason,
+  // When embedded inside the Actions surface, the parent owns the chrome
+  // header (top switcher + sub-tabs), so this panel renders its actions as a
+  // plain toolbar row instead of its own ViewHeader/ViewSwitcher.
+  embedded = false,
 }: {
   readonly onView?: (v: View) => void;
   readonly disabledViews?: ReadonlyArray<View>;
   readonly disabledViewReason?: string;
+  readonly embedded?: boolean;
 }): JSX.Element {
   const wf = useWorkflows();
   // `editing === undefined` → list; `null` → new workflow; string → edit by name.
@@ -51,38 +56,58 @@ export function WorkflowsPanel({
     );
   }
 
+  const actions = (
+    <>
+      <Button variant="chip" onClick={() => void wf.refresh()} style={{ borderRadius: 9 }}>
+        <Icon name="rotate" size={14} />
+        Refresh
+      </Button>
+      <Button
+        variant="chip"
+        data-testid="generate-workflow"
+        onClick={() => setGenerating(true)}
+        style={{ borderRadius: 9, gap: 7 }}
+      >
+        <Icon name="spark" size={14} />
+        Generate with AI
+      </Button>
+      <Button
+        variant="primary"
+        data-testid="new-workflow"
+        onClick={() => setEditing(null)}
+        style={{ borderRadius: 9, padding: '6px 14px', fontSize: 13 }}
+      >
+        + New
+      </Button>
+    </>
+  );
+
   return (
     <>
-      <ViewHeader>
-        <ViewSwitcher
-          view="workflows"
-          onView={onView}
-          disabledViews={disabledViews}
-          disabledReason={disabledViewReason}
-        />
-        <span style={{ flex: 1 }} />
-        <Button variant="chip" onClick={() => void wf.refresh()} style={{ borderRadius: 9 }}>
-          <Icon name="rotate" size={14} />
-          Refresh
-        </Button>
-        <Button
-          variant="chip"
-          data-testid="generate-workflow"
-          onClick={() => setGenerating(true)}
-          style={{ borderRadius: 9, gap: 7 }}
+      {embedded ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 8,
+            padding: '12px 24px 0',
+          }}
         >
-          <Icon name="spark" size={14} />
-          Generate with AI
-        </Button>
-        <Button
-          variant="primary"
-          data-testid="new-workflow"
-          onClick={() => setEditing(null)}
-          style={{ borderRadius: 9, padding: '6px 14px', fontSize: 13 }}
-        >
-          + New
-        </Button>
-      </ViewHeader>
+          {actions}
+        </div>
+      ) : (
+        <ViewHeader>
+          <ViewSwitcher
+            view="actions"
+            onView={onView}
+            disabledViews={disabledViews}
+            disabledReason={disabledViewReason}
+          />
+          <span style={{ flex: 1 }} />
+          {actions}
+        </ViewHeader>
+      )}
       <div
         style={{
           flex: 1,
