@@ -1,5 +1,13 @@
 # @moxxy/desktop
 
+## 0.22.9
+
+### Patch Changes
+
+- Updated dependencies [50918af]
+  - @moxxy/client-core@0.10.6
+  - @moxxy/client-platform-web@0.1.33
+
 ## 0.22.8
 
 ### Patch Changes

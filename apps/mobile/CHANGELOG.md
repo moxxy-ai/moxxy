@@ -1,5 +1,12 @@
 # @moxxy/workspaces-app
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [50918af]
+  - @moxxy/client-core@0.10.6
+
 ## 0.3.0
 
 ### Minor Changes
