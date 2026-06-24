@@ -1,5 +1,12 @@
 # @moxxy/mode-default
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [08f927a]
+  - @moxxy/sdk@0.19.0
+
 ## 0.1.6
 
 ### Patch Changes

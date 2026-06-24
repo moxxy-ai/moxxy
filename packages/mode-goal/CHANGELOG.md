@@ -1,5 +1,12 @@
 # @moxxy/mode-goal
 
+## 0.0.30
+
+### Patch Changes
+
+- Updated dependencies [08f927a]
+  - @moxxy/sdk@0.19.0
+
 ## 0.0.29
 
 ### Patch Changes
