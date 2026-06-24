@@ -1,5 +1,14 @@
 # @moxxy/mode-collaborative
 
+## 0.7.7
+
+### Patch Changes
+
+- Updated dependencies [e4fe785]
+  - @moxxy/sdk@0.18.0
+  - @moxxy/plugin-collab@0.3.7
+  - @moxxy/runner@0.2.20
+
 ## 0.7.6
 
 ### Patch Changes
