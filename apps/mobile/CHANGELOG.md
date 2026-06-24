@@ -1,5 +1,13 @@
 # @moxxy/workspaces-app
 
+## 0.3.2
+
+### Patch Changes
+
+- Updated dependencies [c4b7f1c]
+  - @moxxy/client-core@0.11.0
+  - @moxxy/client-transport-ws@0.2.4
+
 ## 0.3.1
 
 ### Patch Changes
