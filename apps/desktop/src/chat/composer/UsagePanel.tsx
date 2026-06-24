@@ -15,7 +15,9 @@ function pct(f: number): string {
   return `${Math.round(f * 100)}%`;
 }
 
-function fillColor(f: number): string {
+/** Context-fill color ramp — primary → amber (≥60%) → red (≥85%). Shared with
+ *  the composer's inline mini-meter so both read the same severity at a glance. */
+export function fillColor(f: number): string {
   return f >= 0.85 ? 'var(--color-red)' : f >= 0.6 ? 'var(--color-amber)' : 'var(--color-primary)';
 }
 
@@ -36,6 +38,10 @@ export function UsagePanel({
 }): JSX.Element {
   const [compacting, setCompacting] = useState(false);
   const [note, setNote] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  // Prompt composition is detail-on-demand — collapsed by default so the panel
+  // leads with the context-window fill; the header still shows the calls/prompt
+  // teaser so it's worth expanding.
+  const [compOpen, setCompOpen] = useState(false);
   // The shared per-workspace compaction lock. Reading it (not just our local
   // `compacting`) keeps the button disabled even if the panel is closed and
   // reopened mid-compaction — otherwise a second compaction could race the
@@ -105,7 +111,12 @@ export function UsagePanel({
       </Section>
 
       {s.calls > 0 && (
-        <Section title="Prompt composition" subtitle={`${s.calls} calls · ${fmt(s.totalPrompt)} prompt`}>
+        <CollapsibleSection
+          title="Prompt composition"
+          subtitle={`${s.calls} calls · ${fmt(s.totalPrompt)} prompt`}
+          open={compOpen}
+          onToggle={() => setCompOpen((v) => !v)}
+        >
           <CompRow label="Cache read" frac={readFrac} value={s.totalCacheRead} color="var(--color-green)" />
           <CompRow label="Fresh input" frac={freshFrac} value={s.totalInput} color="var(--color-primary)" />
           <CompRow label="Cache write" frac={writeFrac} value={s.totalCacheCreation} color="var(--color-amber)" />
@@ -131,7 +142,7 @@ export function UsagePanel({
             )}
           </div>
           {usage.perCall.length >= 2 && <Sparkline series={usage.perCall} />}
-        </Section>
+        </CollapsibleSection>
       )}
 
       <footer style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
@@ -186,6 +197,77 @@ function Section({
         )}
       </div>
       {children}
+    </section>
+  );
+}
+
+/**
+ * A `Section` whose body collapses behind its header. The header stays a full
+ * status line — title + subtitle teaser — with a rotating disclosure caret, so
+ * the summary is readable even while closed and one click reveals the detail.
+ */
+function CollapsibleSection({
+  title,
+  subtitle,
+  open,
+  onToggle,
+  children,
+}: {
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly open: boolean;
+  readonly onToggle: () => void;
+  readonly children: React.ReactNode;
+}): JSX.Element {
+  const bodyId = `comp-${title.replace(/\s+/g, '-').toLowerCase()}`;
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        title={open ? 'Hide details' : 'Show details'}
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: 8,
+          width: '100%',
+          padding: 0,
+          background: 'transparent',
+          border: 'none',
+          textAlign: 'left',
+          cursor: 'pointer',
+          color: 'inherit',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              fontSize: 9,
+              color: 'var(--color-text-dim)',
+              transform: open ? 'rotate(90deg)' : 'none',
+              transition: 'transform 160ms ease',
+            }}
+          >
+            ▶
+          </span>
+          <h3 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: 'var(--color-text)' }}>{title}</h3>
+        </span>
+        {subtitle && (
+          <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-text-dim)' }}>
+            {subtitle}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div id={bodyId} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {children}
+        </div>
+      )}
     </section>
   );
 }
