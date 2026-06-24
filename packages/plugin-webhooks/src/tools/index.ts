@@ -31,6 +31,7 @@ export function buildWebhookTools(deps: WebhooksToolDeps): ReadonlyArray<ToolDef
     dispatcher: deps.dispatcher,
     tunnelHandle: deps.tunnelHandle,
     secretsDir: deps.secretsDir ?? defaultWebhookSecretsDir(),
+    ...(deps.ownerSessionId !== undefined ? { ownerSessionId: deps.ownerSessionId } : {}),
   };
 
   return [

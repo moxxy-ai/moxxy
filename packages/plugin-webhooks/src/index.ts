@@ -16,7 +16,14 @@ import {
   type WebhookFireOutcome,
   type WebhookPromptResult,
   type WebhookPromptRunner,
+  type WebhookRouteOutcome,
 } from './runner.js';
+import {
+  defaultWebhookQueueDir,
+  WebhookDeliveryQueue,
+  type QueuedDelivery,
+} from './queue.js';
+import { WebhookDrainPoller, type WebhookDrainPollerOptions } from './drain.js';
 import {
   WebhookServer,
   type WebhookServerHandle,
@@ -66,9 +73,12 @@ export {
   // Runtime
   WebhookDispatcher,
   WebhookServer,
+  WebhookDeliveryQueue,
+  WebhookDrainPoller,
   DeliveryDedupeCache,
   RateLimiter,
   defaultWebhookInboxDir,
+  defaultWebhookQueueDir,
   // Verification + templating
   verifyDelivery,
   idempotencyKey,
@@ -89,8 +99,11 @@ export {
   type WebhookStoreLogger,
   type WebhookStoreOptions,
   type WebhookDispatcherOptions,
+  type WebhookRouteOutcome,
   type WebhookServerOptions,
   type WebhookServerHandle,
+  type WebhookDrainPollerOptions,
+  type QueuedDelivery,
   type WebhookPromptRunner,
   type WebhookPromptResult,
   type WebhookFireOutcome,
@@ -132,6 +145,28 @@ export interface BuildWebhooksPluginOptions {
    * a non-loopback bind).
    */
   readonly ratePerSec?: number;
+  /**
+   * This runner's session identity (`MOXXY_SESSION_ID`). With several runners
+   * sharing the listener port, this is how a delivery reaches the runner that
+   * created the trigger: deliveries for triggers owned by ANOTHER runner are
+   * handed off via the shared queue, and a per-runner drain poller fires the
+   * records addressed to THIS id. Undefined → single-process behavior (every
+   * delivery fires in-process, no queue/drain).
+   */
+  readonly ownerSessionId?: string;
+  /** Shared delivery queue. Defaults to one at `~/.moxxy/webhooks/queue/`. */
+  readonly queue?: WebhookDeliveryQueue;
+  /** Drain poll cadence in ms (multi-runner only). Default 1500ms. */
+  readonly drainIntervalMs?: number;
+  /**
+   * Re-open the proxy tunnel on boot when the stored public URL came from the
+   * proxy (`publicUrlSource: 'proxy'`). Default true. The tunnel only lives in
+   * memory, so without this a restart leaves the saved URL pointing at nothing —
+   * the GitHub-side "delivery timed out" symptom. Only the runner that wins the
+   * listener bind restores it (so the N runners don't collide on the one relay
+   * subdomain). Set false to keep the legacy manual-only behavior (tests).
+   */
+  readonly restoreTunnelOnBoot?: boolean;
 }
 
 export interface BuiltWebhooksPlugin {
@@ -166,9 +201,12 @@ export interface BuiltWebhooksPlugin {
 export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebhooksPlugin {
   const store = opts.store ?? new WebhookStore(opts.logger ? { logger: opts.logger } : {});
   const config = opts.config ?? new WebhookConfigStore();
+  const queue = opts.queue ?? new WebhookDeliveryQueue();
   const dispatcher = new WebhookDispatcher({
     store,
     runner: opts.runner,
+    queue,
+    ...(opts.ownerSessionId !== undefined ? { ownerSessionId: opts.ownerSessionId } : {}),
     ...(opts.inbox ? { inbox: opts.inbox } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),
     ...(opts.onFired ? { onFired: opts.onFired } : {}),
@@ -177,8 +215,27 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
   const tunnelHandle: { current: RunningTunnel | null } = { current: null };
   let serverInstance: WebhookServer | null = null;
   let serverHandle: WebhookServerHandle | null = null;
+  // A runner only drains deliveries addressed to its own session id, so the
+  // drain poller only exists in the multi-runner case (an owner id is set).
+  // Single-process CLI fires every delivery in-process — nothing to drain.
+  const drain: WebhookDrainPoller | null = opts.ownerSessionId
+    ? new WebhookDrainPoller({
+        queue,
+        store,
+        dispatcher,
+        ownerSessionId: opts.ownerSessionId,
+        ...(opts.drainIntervalMs !== undefined ? { intervalMs: opts.drainIntervalMs } : {}),
+        ...(opts.logger ? { logger: opts.logger } : {}),
+      })
+    : null;
 
-  const tools = buildWebhookTools({ store, config, dispatcher, tunnelHandle });
+  const tools = buildWebhookTools({
+    store,
+    config,
+    dispatcher,
+    tunnelHandle,
+    ...(opts.ownerSessionId !== undefined ? { ownerSessionId: opts.ownerSessionId } : {}),
+  });
 
   const plugin = definePlugin({
     name: '@moxxy/plugin-webhooks',
@@ -228,9 +285,10 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
         try {
           serverHandle = await serverInstance.start();
         } catch (err) {
-          // Port in use is the most common failure — log and let other
-          // plugins keep working. The agent can surface the issue via
-          // webhook_status (listener will show as down).
+          // Port in use is the most common failure — and the EXPECTED one for
+          // every runner except the one that wins the shared listener port. Log
+          // and carry on: this runner still drains its own handed-off deliveries
+          // below. The agent can surface a genuine failure via webhook_status.
           opts.logger?.warn?.('webhooks: listener failed to start', {
             err: err instanceof Error ? err.message : String(err),
             host,
@@ -238,12 +296,44 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
           });
           serverInstance = null;
         }
+
+        // The drain poller runs in EVERY runner: the runners that did NOT win the
+        // listener port are exactly the ones that own triggers whose deliveries
+        // arrive at the winner and get handed off here for them to fire.
+        drain?.start();
+
+        // Only the runner that won the listener bind owns the public edge, so
+        // only it (re)opens the proxy tunnel — otherwise the N runners would all
+        // dial the relay under the one keypair-derived subdomain and fight over
+        // it. Restoring on boot is what fixes the "saved URL but delivery times
+        // out" symptom after a restart (the tunnel only ever lived in memory).
+        if (
+          serverHandle &&
+          opts.restoreTunnelOnBoot !== false &&
+          !tunnelHandle.current &&
+          cfg.publicUrl &&
+          cfg.publicUrlSource === 'proxy'
+        ) {
+          void startTunnel({ host, port })
+            .then((t) => {
+              tunnelHandle.current = t;
+              opts.logger?.info?.('webhooks: proxy tunnel restored on boot', { url: t.url });
+            })
+            .catch((err) =>
+              opts.logger?.warn?.('webhooks: proxy tunnel restore failed', {
+                err: err instanceof Error ? err.message : String(err),
+              }),
+            );
+        }
       },
       onShutdown: () => stopAll(),
     },
   });
 
   async function stopAll(): Promise<void> {
+    if (drain) {
+      try { await drain.stop(); } catch { /* ignore */ }
+    }
     if (serverInstance) {
       try { await serverInstance.stop(); } catch { /* ignore */ }
       serverInstance = null;

@@ -138,6 +138,17 @@ export const webhookTriggerSchema = z.object({
   idempotencyHeader: z.string().optional(),
   /** Free-form note shown in `webhook_list`. */
   description: z.string().optional(),
+  /**
+   * The session that created this trigger (the creating runner's
+   * `MOXXY_SESSION_ID`). The webhook listener binds a single shared port, so
+   * one runner process receives EVERY delivery — but the prompt must fire on the
+   * runner whose chat asked for the webhook. This is the routing key: a delivery
+   * for a trigger owned by another runner is handed off to that runner (via the
+   * shared delivery queue) instead of firing on whoever received the HTTP
+   * request. Unset for a single-process CLI (no `MOXXY_SESSION_ID`) — those fire
+   * in-process as before.
+   */
+  ownerSessionId: z.string().optional(),
   enabled: z.boolean().default(true),
   createdAt: z.number().int(),
   lastFiredAt: z.number().int().optional(),
