@@ -70,6 +70,9 @@ export function defineWebhookCreateTool(deps: ResolvedToolDeps): ToolDef {
         filters,
         ...(input.idempotencyHeader ? { idempotencyHeader: input.idempotencyHeader } : {}),
         ...(input.description ? { description: input.description } : {}),
+        // Bind to the creating runner so its deliveries fire on this workspace's
+        // chat, even though another runner may own the shared listener port.
+        ...(deps.ownerSessionId !== undefined ? { ownerSessionId: deps.ownerSessionId } : {}),
       });
 
       const cfg = await config.get();

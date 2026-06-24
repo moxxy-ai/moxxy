@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import type { WebhookDeliveryQueue } from './queue.js';
 import type { WebhookStore, WebhookTrigger } from './store.js';
 
 /**
@@ -90,7 +91,24 @@ export interface WebhookDispatcherOptions {
   /** Optional hook fired after each delivery — channels use this to
    *  push a "your webhook fired" notification to the user. */
   readonly onFired?: (trigger: WebhookTrigger, outcome: WebhookFireOutcome) => void;
+  /**
+   * This runner's session identity (`MOXXY_SESSION_ID`), or undefined for a
+   * single-process CLI. {@link route} uses it to decide whether a delivery
+   * belongs to THIS runner (fire in-process) or another (hand off via the
+   * queue).
+   */
+  readonly ownerSessionId?: string;
+  /**
+   * Shared hand-off queue. Required for cross-runner routing in {@link route};
+   * without it, every delivery fires in-process (the single-process behavior).
+   */
+  readonly queue?: WebhookDeliveryQueue;
 }
+
+/** Outcome of {@link WebhookDispatcher.route}: either fired here, or handed off. */
+export type WebhookRouteOutcome =
+  | { readonly handled: 'fired'; readonly outcome: WebhookFireOutcome }
+  | { readonly handled: 'enqueued'; readonly ownerSessionId: string };
 
 /**
  * Runs prompts in response to verified webhook deliveries. Decoupled
@@ -100,6 +118,40 @@ export interface WebhookDispatcherOptions {
  */
 export class WebhookDispatcher {
   constructor(private readonly opts: WebhookDispatcherOptions) {}
+
+  /**
+   * Decide where a verified, filtered delivery runs, then act:
+   *  - owned by ANOTHER runner (and a queue is wired) → enqueue it for that
+   *    runner's drain to fire, so the prompt lands in the chat that created the
+   *    trigger rather than on whichever runner happens to own the listener port;
+   *  - owner-less, or owned by THIS runner → {@link fire} it in-process.
+   *
+   * This is the entry point the HTTP listener calls; {@link fire} stays the
+   * in-process executor (used here, by the drain poller, and by `webhook_test`).
+   */
+  async route(
+    trigger: WebhookTrigger,
+    prompt: string,
+    deliveryId: string | null,
+  ): Promise<WebhookRouteOutcome> {
+    const owner = trigger.ownerSessionId;
+    if (this.opts.queue && owner && owner !== this.opts.ownerSessionId) {
+      await this.opts.queue.enqueue({
+        triggerId: trigger.id,
+        triggerName: trigger.name,
+        ownerSessionId: owner,
+        prompt,
+        deliveryId,
+      });
+      this.opts.logger?.info?.('webhooks: delivery handed off to owner runner', {
+        trigger: trigger.name,
+        owner,
+      });
+      return { handled: 'enqueued', ownerSessionId: owner };
+    }
+    const outcome = await this.fire(trigger, prompt, deliveryId);
+    return { handled: 'fired', outcome };
+  }
 
   async fire(
     trigger: WebhookTrigger,

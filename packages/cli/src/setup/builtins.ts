@@ -190,9 +190,18 @@ function buildWebhooksSlice(
   // to runTurn via the supplied runner. Agent-facing tools (webhook_create,
   // webhook_tunnel_start, webhook_setup_guide, …) let a non-technical user walk
   // through tunnel + provider setup in conversation.
+  //
+  // ownerSessionId binds triggers created here to THIS runner. With several
+  // runners (one `moxxy serve` per desktop workspace), only one wins the shared
+  // listener port, so it receives every delivery and hands off the ones owned by
+  // other runners through the shared queue; each runner drains and fires its own.
+  // The desktop sets MOXXY_SESSION_ID per workspace; a single-process CLI/TUI
+  // leaves it unset and fires every delivery in-process (no queue/drain).
+  const ownerSessionId = process.env.MOXXY_SESSION_ID?.trim() || undefined;
   const { plugin, store, config, stop } = buildWebhooksPlugin({
     runner: webhookRunner,
     logger,
+    ...(ownerSessionId ? { ownerSessionId } : {}),
   });
   return { entry: { name: '@moxxy/plugin-webhooks', plugin }, store, config, stop };
 }

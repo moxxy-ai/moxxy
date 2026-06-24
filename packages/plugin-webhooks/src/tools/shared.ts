@@ -31,6 +31,13 @@ export interface WebhooksToolDeps {
    * user. Override — primarily for tests. Default: `~/.moxxy/webhooks-secrets/`.
    */
   readonly secretsDir?: string;
+  /**
+   * This runner's session identity (`MOXXY_SESSION_ID`). Stamped onto triggers
+   * created via `webhook_create` so their deliveries fire on the runner whose
+   * chat asked for the webhook, even though a different runner may own the shared
+   * listener port. Undefined for a single-process CLI.
+   */
+  readonly ownerSessionId?: string;
 }
 
 /** Per-tool factories receive the resolved deps (secretsDir defaulted). */
@@ -40,6 +47,8 @@ export interface ResolvedToolDeps {
   readonly dispatcher: WebhookDispatcher;
   readonly tunnelHandle: { current: RunningTunnel | null };
   readonly secretsDir: string;
+  /** See {@link WebhooksToolDeps.ownerSessionId}. */
+  readonly ownerSessionId?: string;
 }
 
 /** Owner-only directory where generated webhook secrets are written for the user. */

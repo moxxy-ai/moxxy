@@ -238,7 +238,14 @@ export class WebhookServer {
       firedAt: new Date(),
     });
 
-    // Fire-and-forget. Errors are logged inside the dispatcher.
-    void this.opts.dispatcher.fire(trigger, prompt, idempKey);
+    // Fire-and-forget. `route` fires in-process when this runner owns the
+    // trigger (or it's owner-less), and otherwise hands the delivery to the
+    // owning runner via the shared queue. Errors are logged inside the dispatcher.
+    void this.opts.dispatcher.route(trigger, prompt, idempKey).catch((err) => {
+      this.opts.logger?.warn?.('webhooks: route failed', {
+        trigger: trigger.name,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 }
