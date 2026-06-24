@@ -23,7 +23,7 @@ import { WorkspaceSidebar } from './shell/WorkspaceSidebar';
 import type { View } from './shell/ViewHeader';
 import { ContextRail, type RailPane } from './shell/ContextRail';
 import { useAgentSurfaceReveal } from './shell/surfaces/useAgentSurfaceReveal';
-import { WorkflowsPanel } from './workflows/WorkflowsPanel';
+import { ActionsPanel } from './actions/ActionsPanel';
 import { CollaboratePanel } from './collaborate/CollaboratePanel';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { MobilePanel } from './mobile/MobilePanel';
@@ -38,7 +38,7 @@ import {
 } from './app-readiness';
 import { useSessionInfoReady } from './app-session-readiness';
 
-const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['workflows', 'collaborate', 'apps'];
+const RUNNER_LOCKED_VIEWS: ReadonlyArray<View> = ['actions', 'collaborate', 'apps'];
 const RUNNER_LOCKED_REASON = 'Moxxy is still loading this session';
 
 /**
@@ -304,9 +304,9 @@ export function App(): JSX.Element {
           />
         </>
       )}
-      {view === 'workflows' && (
+      {view === 'actions' && (
         <main className="col-main col-main--flat">
-          <WorkflowsPanel
+          <ActionsPanel
             onView={onView}
             disabledViews={runnerTabsLocked ? RUNNER_LOCKED_VIEWS : undefined}
             disabledViewReason={RUNNER_LOCKED_REASON}
