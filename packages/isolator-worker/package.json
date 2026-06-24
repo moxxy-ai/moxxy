@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/isolator-worker",
   "private": true,
-  "version": "0.0.29",
+  "version": "0.0.30",
   "description": "worker_threads-based Isolator for @moxxy/plugin-security. Runs tools that declare a handlerModule reference in a separate JS thread with enforced memory + time + abort.",
   "type": "module",
   "main": "./dist/index.js",

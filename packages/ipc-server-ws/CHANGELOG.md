@@ -1,5 +1,14 @@
 # @moxxy/ipc-server-ws
 
+## 0.1.34
+
+### Patch Changes
+
+- Updated dependencies [08f927a]
+  - @moxxy/sdk@0.19.0
+  - @moxxy/desktop-ipc-contract@0.12.0
+  - @moxxy/runner@0.2.21
+
 ## 0.1.33
 
 ### Patch Changes
