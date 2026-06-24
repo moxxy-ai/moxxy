@@ -1,5 +1,13 @@
 # @moxxy/plugin-oauth
 
+## 0.0.29
+
+### Patch Changes
+
+- Updated dependencies [e4fe785]
+  - @moxxy/sdk@0.18.0
+  - @moxxy/plugin-vault@0.0.29
+
 ## 0.0.28
 
 ### Patch Changes

@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-computer-control",
   "private": true,
-  "version": "0.0.28",
+  "version": "0.0.29",
   "description": "Programmatic control of the host computer (macOS only for now): screenshot, click, type, key, open, clipboard, applescript. Every tool prompts for permission.",
   "type": "module",
   "main": "./dist/index.js",
