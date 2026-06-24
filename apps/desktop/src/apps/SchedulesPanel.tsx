@@ -1,8 +1,8 @@
 /**
- * Schedules sub-view of the Actions surface. Lists the runner's scheduled jobs
+ * Schedules sub-view of the Apps surface. Lists the runner's scheduled jobs
  * (cron / one-shot) from `scheduler.list` with their next fire time + last
  * result, and lets the user enable/disable or delete one. Content-only — the
- * Actions header (top switcher + sub-tabs) is owned by {@link ActionsPanel}.
+ * Apps header (top switcher + sub-tabs) is owned by {@link AppsPanel}.
  */
 
 import { useScheduler } from '@moxxy/client-core';

@@ -127,6 +127,7 @@ const workflowName = z
   .refine((s) => !s.includes('..') && !s.includes('/') && !s.includes('\\'), 'invalid workflow name');
 
 const scheduleId = z.string().min(1).max(256);
+const webhookId = z.string().min(1).max(256);
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
@@ -262,6 +263,11 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'scheduler.list': z.undefined(),
   'scheduler.setEnabled': z.object({ id: scheduleId, enabled: z.boolean() }),
   'scheduler.delete': z.object({ id: scheduleId }),
+  // Webhooks: host-only management of inbound triggers. Lock the id like the
+  // scheduler entries; list takes no args.
+  'webhooks.list': z.undefined(),
+  'webhooks.setEnabled': z.object({ id: webhookId, enabled: z.boolean() }),
+  'webhooks.delete': z.object({ id: webhookId }),
   // Human-in-the-loop resume: bound the run id + the operator reply (the reply
   // is forwarded into the paused step's child agent, so cap it to avoid OOM).
   'workflows.resume': z.object({

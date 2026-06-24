@@ -49,6 +49,7 @@ import { registerSurfaceHandlers } from './ipc/surfaces';
 import { registerDesksHandlers } from './ipc/desks';
 import { registerWorkflowsHandlers } from './ipc/workflows';
 import { registerSchedulerHandlers } from './ipc/scheduler';
+import { registerWebhookHandlers } from './ipc/webhooks';
 import { registerPrefsHandlers } from './ipc/prefs';
 import { registerSettingsHandlers } from './ipc/settings';
 import { registerVaultHandlers } from './ipc/vault';
@@ -91,6 +92,7 @@ export function registerIpcHandlers(
     registerDesksHandlers(pool, desks);
     registerWorkflowsHandlers(pool);
     registerSchedulerHandlers();
+    registerWebhookHandlers();
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
     registerVaultHandlers();

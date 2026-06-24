@@ -14,12 +14,12 @@ import { useVoiceRecorder } from '@moxxy/client-core';
 import { useActiveModeBadge } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
 import { composerDraftStore, usePendingComposerDraft } from '@moxxy/client-core';
-import { AgentPicker } from './AgentPicker';
+import { useAgentSession } from './agent-picker/useAgentSession';
 import { ModeBanner } from './composer/ModeBanner';
-import { ContextMeter } from './ContextMeter';
+import { ModelContextControl } from './composer/ModelContextControl';
 import { CommandPalette } from './CommandPalette';
 import { ToolChip } from './composer/ToolChip';
-import { OverflowMenu } from './composer/OverflowMenu';
+import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
 import { AttachmentChip } from './composer/AttachmentChip';
@@ -122,6 +122,10 @@ export function Composer({
   // set, the composer wears a persistent accent banner so the user always
   // knows an autonomous mode is driving the session.
   const modeBadge = useActiveModeBadge(workspaceId);
+
+  // Session info + provider/model/mode mutations. One fetch feeds both the Mode
+  // submenu in the "+" overflow and the model/context control on the right.
+  const agent = useAgentSession(workspaceId, !ready || inFlight);
 
   // Send orchestration (submit / auto-approve / one-click goal) lives in its
   // own hook; the composer still owns the draft + attachment state.
@@ -238,6 +242,33 @@ export function Composer({
     [],
   );
 
+  // "+" overflow tools. Mode joins as a disclosure submenu once session.info is
+  // ready (collaboration modes filtered out by the hook); it's locked while a
+  // turn is in flight, matching the old chip.
+  const overflowItems: OverflowMenuItem[] = [
+    { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
+    { icon: 'agent', label: 'Goal', onClick: () => setGoalOpen(true) },
+    {
+      icon: 'check',
+      label: autoApprove ? 'Auto-approve ON' : 'Auto-approve',
+      onClick: () => setAutoApprove(!autoApprove),
+      active: autoApprove,
+    },
+  ];
+  if (agent.info) {
+    overflowItems.push({
+      icon: 'sliders',
+      label: 'Mode',
+      active: modeBadge != null,
+      disabled: !ready || inFlight || agent.modes.length === 0,
+      submenu: {
+        value: agent.info.activeMode ?? '',
+        options: agent.modes,
+        onSelect: (m) => agent.onMode(m),
+      },
+    });
+  }
+
   return (
     <form
       data-testid="composer"
@@ -350,19 +381,9 @@ export function Composer({
       />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <OverflowMenu
-          highlighted={autoApprove}
-          items={[
-            { icon: 'spark', label: 'Actions', onClick: () => setActionsOpen(true) },
-            { icon: 'agent', label: 'Goal', onClick: () => setGoalOpen(true) },
-            {
-              icon: 'check',
-              label: autoApprove ? 'Auto-approve ON' : 'Auto-approve',
-              onClick: () => setAutoApprove(!autoApprove),
-              active: autoApprove,
-            },
-          ]}
+          highlighted={autoApprove || modeBadge != null}
+          items={overflowItems}
         />
-        <AgentPicker workspaceId={workspaceId} disabled={!ready || inFlight} />
         <ToolChip label="Attach file" onClick={() => void onAttach()}>
           <Icon name="attach" size={16} />
           <span>Attach</span>
@@ -388,7 +409,15 @@ export function Composer({
           </span>
         </ToolChip>
         <span style={{ flex: 1 }} />
-        <ContextMeter workspaceId={workspaceId} />
+        {agent.info && (
+          <ModelContextControl
+            workspaceId={workspaceId}
+            info={agent.info}
+            selectedModel={agent.selectedModel}
+            disabled={!ready}
+            onPick={agent.onPickProviderModel}
+          />
+        )}
         {inFlight ? (
           <button
             type="button"

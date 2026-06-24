@@ -4,11 +4,11 @@ import { PanelLeftIcon } from './PanelLeftIcon';
 import { setSidebarCollapsed, useSidebarCollapsed } from '@/lib/useSidebarCollapsed';
 import { useMenuKeyboard } from './useMenuKeyboard';
 
-/** Top-level main-content views. Chat ↔ Actions ↔ Collaborate ↔ Apps switch
- *  via the header's `ViewSwitcher`; Settings and Mobile are reached from the
- *  sidebar (they own the pane with no active switcher segment). The Actions
- *  view groups Workflows / Schedules / Webhooks under one tab. */
-export type View = 'chat' | 'actions' | 'collaborate' | 'settings' | 'apps' | 'mobile';
+/** Top-level main-content views. Chat ↔ Collaborate ↔ Apps switch via the
+ *  header's `ViewSwitcher`; Settings and Mobile are reached from the sidebar
+ *  (they own the pane with no active switcher segment). The Apps view groups
+ *  the gallery + Workflows / Schedules / Webhooks under its own sub-nav. */
+export type View = 'chat' | 'collaborate' | 'settings' | 'apps' | 'mobile';
 
 /**
  * Shared section header — one 64px chrome bar so Chat / Workflows /
@@ -456,16 +456,15 @@ function CollapsibleSegmented<T extends string>({
 }
 
 const SWITCH_ITEMS: ReadonlyArray<{
-  readonly id: 'chat' | 'actions' | 'collaborate' | 'apps';
+  readonly id: 'chat' | 'collaborate' | 'apps';
   readonly label: string;
 }> = [
   { id: 'chat', label: 'Chat' },
-  { id: 'actions', label: 'Actions' },
   { id: 'collaborate', label: 'Collaborate' },
   { id: 'apps', label: 'Apps' },
 ];
 
-/** Chat ↔ Workflows ↔ Apps segmented switcher — the leading element of every
+/** Chat ↔ Collaborate ↔ Apps segmented switcher — the leading element of every
  *  unified header, standing in for a per-view title. */
 export function ViewSwitcher({
   view,

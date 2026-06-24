@@ -27,7 +27,7 @@ interface Props {
  * sessions nested beneath — see {@link WorkspaceTree}. Picking a session
  * anywhere foregrounds it (and its workspace); folder rows only fold.
  * Bottom: a lone Settings entry above the user-profile pill —
- * Chat/Workflows navigation lives in the main-pane header
+ * Chat/Collaborate/Apps navigation lives in the main-pane header
  * (`ViewSwitcher`), not here.
  *
  * The whole rail collapses to nothing (Cmd/Ctrl+B, or the panel button
@@ -171,7 +171,7 @@ export function WorkspaceSidebar({ view, onView }: Props): JSX.Element | null {
             onToggleCollapse={toggleWorkspaceCollapsed}
             onSelectSession={(id) => {
               // Picking a session always lands on its chat — also the way
-              // back out of Settings/Workflows now that the sidebar carries
+              // back out of Settings/Apps now that the sidebar carries
               // no Chat entry. Cross-desk picks activate that desk too.
               void desks.setActiveSession(id);
               onView('chat');

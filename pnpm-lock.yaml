@@ -971,6 +971,9 @@ importers:
       '@moxxy/plugin-vault':
         specifier: workspace:*
         version: link:../plugin-vault
+      '@moxxy/plugin-webhooks':
+        specifier: workspace:*
+        version: link:../plugin-webhooks
       '@moxxy/runner':
         specifier: workspace:*
         version: link:../runner

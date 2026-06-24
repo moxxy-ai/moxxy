@@ -70,6 +70,9 @@ export type {
 // ---------- Scheduler -----------------------------------------------------
 export type { ScheduleSource, ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 
+// ---------- Webhooks ------------------------------------------------------
+export type { WebhookLastResult, WebhookSummary, WebhookDeleteResult } from './webhooks.js';
+
 // ---------- Mobile gateway (WebSocket bridge) ------------------------------
 export type { MobileGatewayStatus } from './mobile.js';
 

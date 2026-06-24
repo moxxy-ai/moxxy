@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { __setApiOverride, connectionStore } from '@moxxy/client-core';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
-import { AgentPicker } from './AgentPicker';
+import { useAgentSession } from './useAgentSession';
 import type { SessionInfo } from './types';
 
 const info: SessionInfo = {
@@ -12,6 +12,27 @@ const info: SessionInfo = {
   activeMode: 'default',
   activeModeBadge: null,
 };
+
+/** Tiny host that surfaces the hook's state so tests can assert on the DOM. */
+function Probe({
+  workspaceId,
+  disabled,
+}: {
+  readonly workspaceId: string;
+  readonly disabled: boolean;
+}): JSX.Element {
+  const agent = useAgentSession(workspaceId, disabled);
+  if (!agent.info) return <div>no-info</div>;
+  return (
+    <div>
+      <span>{agent.info.activeProvider}</span>
+      <span data-testid="mode">{agent.info.activeMode}</span>
+      <button type="button" onClick={() => void agent.onPickProviderModel('openai-codex', 'gpt-5')}>
+        pick
+      </button>
+    </div>
+  );
+}
 
 function installInfoSequence(values: ReadonlyArray<SessionInfo | null>) {
   let index = 0;
@@ -31,26 +52,26 @@ afterEach(() => {
   connectionStore.setActive(null);
 });
 
-describe('AgentPicker', () => {
+describe('useAgentSession', () => {
   it('refetches session.info when a starting session becomes ready', async () => {
     const invoke = installInfoSequence([null, info]);
-    const { rerender } = render(<AgentPicker workspaceId="session-a" disabled />);
+    const { rerender } = render(<Probe workspaceId="session-a" disabled />);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/Model:/)).toBeNull();
+    expect(screen.queryByText('openai-codex')).toBeNull();
 
-    rerender(<AgentPicker workspaceId="session-a" disabled={false} />);
+    rerender(<Probe workspaceId="session-a" disabled={false} />);
 
     expect(await screen.findByText('openai-codex')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('default')).toBeInTheDocument();
+    expect(screen.getByTestId('mode')).toHaveTextContent('default');
   });
 
   it('refetches session.info when the target session connection reaches connected', async () => {
     const invoke = installInfoSequence([null, info]);
-    render(<AgentPicker workspaceId="fresh-session" disabled={false} />);
+    render(<Probe workspaceId="fresh-session" disabled={false} />);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/Model:/)).toBeNull();
+    expect(screen.queryByText('openai-codex')).toBeNull();
 
     act(() => {
       connectionStore.setSnapshot('fresh-session', {
@@ -86,10 +107,10 @@ describe('AgentPicker', () => {
       log: [],
     });
     const invoke = installInfoSequence([null, info]);
-    render(<AgentPicker workspaceId="fresh-session" disabled={false} />);
+    render(<Probe workspaceId="fresh-session" disabled={false} />);
 
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/Model:/)).toBeNull();
+    expect(screen.queryByText('openai-codex')).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(750);
@@ -102,10 +123,10 @@ describe('AgentPicker', () => {
   it('keeps retrying session.info even when the connected snapshot is missed', async () => {
     vi.useFakeTimers();
     const invoke = installInfoSequence([null, info]);
-    render(<AgentPicker workspaceId="missed-snapshot-session" disabled={false} />);
+    render(<Probe workspaceId="missed-snapshot-session" disabled={false} />);
 
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/Model:/)).toBeNull();
+    expect(screen.queryByText('openai-codex')).toBeNull();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(750);
@@ -118,16 +139,14 @@ describe('AgentPicker', () => {
   it('persists a picked model through the shared session.setModel command', async () => {
     const invoke = vi.fn(async (cmd: string) => {
       if (cmd === 'session.info') return info;
-      if (cmd === 'settings.adminProviders') return [];
       if (cmd === 'session.setModel') return undefined;
       throw new Error(`unexpected ${cmd}`);
     });
     __setApiOverride({ invoke, subscribe: () => () => {} } as unknown as MoxxyApi);
 
-    render(<AgentPicker workspaceId="session-model" disabled={false} />);
+    render(<Probe workspaceId="session-model" disabled={false} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /Model:/i }));
-    fireEvent.click(await screen.findByRole('option', { name: 'gpt-5' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'pick' }));
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith('session.setModel', {

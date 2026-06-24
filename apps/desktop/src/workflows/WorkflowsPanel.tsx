@@ -24,7 +24,7 @@ export function WorkflowsPanel({
   onView = () => undefined,
   disabledViews,
   disabledViewReason,
-  // When embedded inside the Actions surface, the parent owns the chrome
+  // When embedded inside the Apps surface, the parent owns the chrome
   // header (top switcher + sub-tabs), so this panel renders its actions as a
   // plain toolbar row instead of its own ViewHeader/ViewSwitcher.
   embedded = false,
@@ -99,7 +99,7 @@ export function WorkflowsPanel({
       ) : (
         <ViewHeader>
           <ViewSwitcher
-            view="actions"
+            view="apps"
             onView={onView}
             disabledViews={disabledViews}
             disabledReason={disabledViewReason}

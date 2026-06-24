@@ -30,6 +30,7 @@ export * from './useDesks.js';
 export * from './useSessions.js';
 export * from './useWorkflows.js';
 export * from './useScheduler.js';
+export * from './useWebhooks.js';
 export * from './usePausedWorkflows.js';
 export * from './useWorkflowBuilder.js';
 export * from './useActionCatalog.js';

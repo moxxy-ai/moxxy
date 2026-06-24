@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Modal, Icon } from '@moxxy/desktop-ui';
+import { Button, Icon } from '@moxxy/desktop-ui';
 import { api } from '@moxxy/client-core';
 import { chatStore, useChat } from '@moxxy/client-core';
 import type { ContextUsage } from '@moxxy/client-core';
@@ -20,33 +20,29 @@ function fillColor(f: number): string {
 }
 
 /**
- * `Usage & context` modal — opened from the composer's context meter.
- *
- * Top: live context-window fill (the last call's prompt size vs the model's
- * window). Middle: this session's prompt composition (cache read / fresh /
- * cache write) + cache savings, with a per-call growth sparkline. Bottom: a
- * one-click "Compact context now" that runs the runner's `/compact` command;
- * the freed space shows up on the next message (compaction rewrites history,
- * the gauge reflects it when the next prompt is sent).
+ * `Usage & context` body — the context-window fill, this session's prompt
+ * composition (cache read / fresh / cache write) + cache savings with a
+ * per-call growth sparkline, and a one-click "Compact context now" that runs
+ * the runner's `/compact` command (the freed space shows up on the next
+ * message). Rendered inside the combined Model & context panel, so it ships no
+ * modal chrome of its own.
  */
-export function UsageModal({
+export function UsagePanel({
   usage,
   workspaceId,
-  onClose,
 }: {
   readonly usage: ContextUsage;
   readonly workspaceId: string;
-  readonly onClose: () => void;
 }): JSX.Element {
   const [compacting, setCompacting] = useState(false);
   const [note, setNote] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   // The shared per-workspace compaction lock. Reading it (not just our local
-  // `compacting`) keeps the button disabled even if the modal is closed and
+  // `compacting`) keeps the button disabled even if the panel is closed and
   // reopened mid-compaction — otherwise a second compaction could race the
   // runner's context rewrite.
   const sharedCompacting = useChat(workspaceId).compacting;
-  // The runner round-trip can outlive the modal/ContextMeter (close-on-switch);
-  // guard the post-await setState so we don't touch a dead component.
+  // The runner round-trip can outlive the panel (close-on-switch); guard the
+  // post-await setState so we don't touch a dead component.
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -63,7 +59,7 @@ export function UsageModal({
 
   const onCompact = async (): Promise<void> => {
     // Idempotency guard: never launch a second compaction while one is already
-    // in flight for this workspace (survives a modal close/reopen via the
+    // in flight for this workspace (survives a panel close/reopen via the
     // shared lock, not just our local state).
     if (compacting || sharedCompacting) return;
     setCompacting(true);
@@ -93,7 +89,7 @@ export function UsageModal({
   };
 
   return (
-    <Modal title="Usage & context" onClose={onClose} width={460}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <Section title="Context window">
         {f != null ? (
           <>
@@ -166,7 +162,7 @@ export function UsageModal({
           </Button>
         </div>
       </footer>
-    </Modal>
+    </div>
   );
 }
 

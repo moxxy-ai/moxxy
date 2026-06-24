@@ -33,6 +33,7 @@
     "@moxxy/mode-collaborative": "workspace:*",
     "@moxxy/plugin-scheduler": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
+    "@moxxy/plugin-webhooks": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/runner": "workspace:*",
     "@moxxy/sdk": "workspace:*",

@@ -19,6 +19,7 @@ import type {
   WorkflowDetail,
 } from './workflows.js';
 import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
+import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 import type { MobileGatewayStatus } from './mobile.js';
 import type {
   ProviderEntry,
@@ -457,6 +458,18 @@ export interface IpcCommands {
   'scheduler.setEnabled': (args: { id: string; enabled: boolean }) => Promise<ScheduleSummary | null>;
   /** Permanently remove an existing scheduler entry by id. */
   'scheduler.delete': (args: { id: string }) => Promise<SchedulerDeleteResult>;
+
+  // Webhooks
+  /** List every persisted webhook trigger. The host reads the shared webhooks
+   *  store directly so it also sees triggers the agent's `webhook_*` tools
+   *  created; verification secrets are redacted before crossing the boundary.
+   *  Host-only (NOT remote-allowed) — managing inbound triggers is a desktop
+   *  operation, like the apps gallery. */
+  'webhooks.list': () => Promise<ReadonlyArray<WebhookSummary>>;
+  /** Pause/resume an existing webhook trigger without rewriting its prompt. */
+  'webhooks.setEnabled': (args: { id: string; enabled: boolean }) => Promise<WebhookSummary | null>;
+  /** Permanently remove an existing webhook trigger by id. */
+  'webhooks.delete': (args: { id: string }) => Promise<WebhookDeleteResult>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
   // All host-only (native pickers + filesystem + a network download). They are
