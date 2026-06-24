@@ -3,6 +3,7 @@ import { api, getTransportRevision, subscribeTransport } from './transport.js';
 import type { MoxxyEvent, UserPromptAttachment } from '@moxxy/sdk';
 import { chatStore, EMPTY_SNAPSHOT } from './chatStore.js';
 import { createIpcPersistence } from './chatPersistence.js';
+import { connectionStore } from './useConnection.js';
 import { wireAskBridge } from './askStore.js';
 import { toErrorMessage } from './errors.js';
 import { desksStore } from './useDesks.js';
@@ -213,11 +214,25 @@ export function useChat(workspaceId: string | null): UseChat {
     workspaceId ? chatStore.getChat(workspaceId) : EMPTY_SNAPSHOT,
   );
 
-  // Load the most-recent window from disk the first time this workspace
-  // is observed (idempotent — the store guards re-entry).
+  // Whether this workspace's runner has reached the `connected` phase. The
+  // history pull (`chat.loadHistory`) only succeeds once a runner is attached —
+  // before that the IPC returns null.
+  const runnerConnected = useSyncExternalStore(connectionStore.subscribe, () =>
+    workspaceId ? connectionStore.get(workspaceId)?.phase.phase === 'connected' : false,
+  );
+
+  // Load the most-recent window from the runner the first time this workspace is
+  // observed AND again once its runner reaches `connected`. The first open
+  // usually races the runner spawn: `chat.loadHistory` returns null (no attached
+  // runner yet), so `loadInitial` leaves the slot unloaded for a retry. The
+  // runner attaches with `replay:'none'`, so nothing pushes history in — without
+  // this re-run on connect the transcript stays empty until the user re-opens
+  // the workspace (the "first click shows empty, second click loads" bug).
+  // Idempotent: `loadInitial` bails once a load has succeeded (`slot.loaded`),
+  // so a later reconnect never re-pages.
   useEffect(() => {
     if (workspaceId) void chatStore.loadInitial(workspaceId);
-  }, [workspaceId]);
+  }, [workspaceId, runnerConnected]);
 
   const loadOlder = useCallback((): void => {
     if (workspaceId) void chatStore.loadOlder(workspaceId);
