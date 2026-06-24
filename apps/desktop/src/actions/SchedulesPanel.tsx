@@ -110,7 +110,7 @@ export function SchedulesPanel(): JSX.Element {
                   onClick={() => void sched.deleteSchedule(s.id)}
                   style={{ borderRadius: 9 }}
                 >
-                  <Icon name="trash" size={14} />
+                  <Icon name="x" size={14} />
                 </Button>
               </li>
             ))}

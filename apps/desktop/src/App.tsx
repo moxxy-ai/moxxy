@@ -373,7 +373,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 function isRunnerLockedView(view: View): boolean {
-  return view === 'workflows' || view === 'collaborate' || view === 'apps';
+  return view === 'actions' || view === 'collaborate' || view === 'apps';
 }
 
 function GlobalAskFallback({ workspaceId }: { readonly workspaceId: string | null }): JSX.Element | null {
