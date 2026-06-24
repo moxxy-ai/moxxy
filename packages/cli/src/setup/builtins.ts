@@ -159,10 +159,19 @@ function buildSchedulerSlice(
   // The runner reuses the active session for v1; scheduled prompts appear in
   // conversation history so the user sees what fired. An isolated child-session
   // runner is the obvious follow-up to avoid context pollution.
+  //
+  // ownerSessionId binds schedules created here to THIS runner so a multi-runner
+  // desktop (one `moxxy serve` per workspace, all polling the same shared
+  // schedules.json) fires each schedule on the workspace that created it — not
+  // whichever poller ticks first. The desktop sets MOXXY_SESSION_ID to the desk
+  // id; a single-process CLI/TUI leaves it unset (schedules stay owner-less and
+  // fire-once via the cross-process lock).
+  const ownerSessionId = process.env.MOXXY_SESSION_ID?.trim() || undefined;
   const { plugin, store, poller } = buildSchedulerPlugin({
     runner: schedulerRunner,
     skills: session.skills,
     logger,
+    ...(ownerSessionId ? { ownerSessionId } : {}),
   });
   return { entry: { name: '@moxxy/plugin-scheduler', plugin }, store, poller };
 }
@@ -264,7 +273,16 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
   // for time triggers (no new timer), the EventLog for afterWorkflow, and the
   // subagent spawner for step execution. Stashes a `WorkflowsView` on the
   // session (in onReady) backing the `/workflows` modal.
-  const workflows = buildWorkflowsIntegration({ session, scheduleStore: scheduler.store, logger });
+  const workflows = buildWorkflowsIntegration({
+    session,
+    scheduleStore: scheduler.store,
+    // Multi-runner desktops set MOXXY_SESSION_ID per workspace; pass it so
+    // fileChanged triggers fire once across runners (not once per runner).
+    ...(process.env.MOXXY_SESSION_ID?.trim()
+      ? { ownerSessionId: process.env.MOXXY_SESSION_ID.trim() }
+      : {}),
+    logger,
+  });
   entries.push({ name: '@moxxy/plugin-workflows', plugin: workflows.plugin });
 
   const webhooks = buildWebhooksSlice(webhookRunner, logger);

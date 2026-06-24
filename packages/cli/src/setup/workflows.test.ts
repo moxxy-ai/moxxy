@@ -14,6 +14,7 @@ import {
   fireAfterWorkflowDependents,
   MAX_AFTER_WORKFLOW_CHAIN,
   type AfterWorkflowNode,
+  type WorkflowsIntegration,
 } from './workflows.js';
 
 // ---------------------------------------------------------------------------
@@ -452,6 +453,75 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       await vi.waitFor(() => expect(runs).toContain('on-touch'), { timeout: 4000, interval: 50 });
     } finally {
       integration.stop();
+    }
+  });
+
+  it('a fileChanged edit runs the workflow ONCE across two concurrent runners', async () => {
+    // Two runners (two `moxxy serve` processes, here two integrations sharing one
+    // MOXXY_HOME so they share the cross-process lock dir) watch the SAME project
+    // workflow's globs. A single edit must run the workflow once total — not once
+    // per runner — which is the multi-tenant guarantee for fileChanged triggers.
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-fc-mt-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    const watchedDir = path.join(cwd, 'watched');
+    await fs.mkdir(watchedDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, 'on-touch.yaml'),
+      [
+        'name: on-touch',
+        'description: fires on file change',
+        'on:',
+        `  fileChanged: ${path.join(watchedDir, '**', '*.txt').replace(/\\/g, '/')}`,
+        'delivery:',
+        '  inbox: false',
+        'steps:',
+        '  - id: s1',
+        '    prompt: hi',
+        '',
+      ].join('\n'),
+    );
+
+    const runs: string[] = [];
+    const boot = async (ownerSessionId: string): Promise<WorkflowsIntegration> => {
+      const session = new Session({ cwd, logger: silentLogger });
+      session.workflowExecutors.register({
+        name: 'stub',
+        run: async (workflow) => {
+          runs.push(`${ownerSessionId}:${workflow.name}`);
+          return { ok: true, steps: [], output: '' };
+        },
+      });
+      const integration = buildWorkflowsIntegration({
+        session,
+        scheduleStore: new ScheduleStore({ file: path.join(cwd, `sched-${ownerSessionId}.json`) }),
+        ownerSessionId,
+      });
+      session.pluginHost.registerStatic(integration.plugin);
+      await session.dispatcher.dispatchInit(session.appContext());
+      return integration;
+    };
+
+    const a = await boot('runner-A');
+    const b = await boot('runner-B');
+    try {
+      await fs.writeFile(path.join(watchedDir, 'note.txt'), 'hello');
+      // Wait until at least one runner has fired...
+      await vi.waitFor(() => expect(runs.length).toBeGreaterThanOrEqual(1), {
+        timeout: 4000,
+        interval: 50,
+      });
+      // ...then give the other runner ample time to (wrongly) also fire. It must
+      // not: the cross-process lock lets exactly one claim the change.
+      await new Promise((r) => setTimeout(r, 700));
+      expect(runs).toHaveLength(1);
+    } finally {
+      a.stop();
+      b.stop();
     }
   });
 

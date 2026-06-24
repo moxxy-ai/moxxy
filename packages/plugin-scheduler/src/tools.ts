@@ -71,6 +71,13 @@ export interface SchedulerToolDeps {
    * race on its `store.update`. Wired by `buildSchedulerPlugin`.
    */
   readonly firingLock?: FiringLock;
+  /**
+   * This runner's session identity (`MOXXY_SESSION_ID`). Stamped onto schedules
+   * created via `schedule_create` so they fire on the runner whose chat asked
+   * for them, not whichever of the concurrently-running pollers ticks first.
+   * Undefined for a single-process CLI/TUI — those schedules stay owner-less.
+   */
+  readonly ownerSessionId?: string;
 }
 
 export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<ToolDef> {
@@ -117,6 +124,9 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           ...(input.timeZone ? { timeZone: input.timeZone } : {}),
           ...(input.channel ? { channel: input.channel } : {}),
           ...(input.model ? { model: input.model } : {}),
+          // Bind to the creating runner so a multi-runner desktop fires this on
+          // the workspace that asked for it, not whichever poller ticks first.
+          ...(deps.ownerSessionId !== undefined ? { ownerSessionId: deps.ownerSessionId } : {}),
         });
         return describeScheduleEntry(created);
       },

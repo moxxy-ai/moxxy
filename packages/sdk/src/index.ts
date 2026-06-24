@@ -182,6 +182,7 @@ export type { TunnelProviderDef, TunnelHandle, TunnelOpenOptions } from './tunne
 // builtins and would break a browser/RN bundle. See ./server.ts.
 export { isRetryableError, toFriendlyError, zodToJsonSchema, estimateTextTokens, type StopReason } from './provider-utils.js';
 export type { WriteFileAtomicOptions } from './fs-utils.js';
+export type { CrossProcessFireLock, CrossProcessFireLockOptions } from './cross-process-lock.js';
 export { createMutex, type Mutex } from './mutex.js';
 export {
   createJsonFileStore,

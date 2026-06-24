@@ -47,6 +47,17 @@ export const scheduleEntrySchema = z
     lastResult: z.enum(['ok', 'error']).optional(),
     lastError: z.string().optional(),
     source: scheduleSourceSchema.default('manual'),
+    /**
+     * The session that created this schedule, when it was created inside one
+     * (the `MOXXY_SESSION_ID` of that runner process). With several runner
+     * processes polling the SAME shared store, this is what lets a schedule fire
+     * on its OWNER — the runner whose chat the result should land in — instead
+     * of whichever poller happened to pick it up first. Unset for ambient,
+     * non-session-bound schedules (skill- and workflow-mirrored rows, or a
+     * single-process CLI with no `MOXXY_SESSION_ID`): those are owner-less and
+     * fire exactly once across all processes via the poller's cross-process lock.
+     */
+    ownerSessionId: z.string().optional(),
     /** When source='skill': the skill name this schedule mirrors. */
     skillName: z.string().optional(),
     /** When source='workflow': the workflow name this schedule fires. */
