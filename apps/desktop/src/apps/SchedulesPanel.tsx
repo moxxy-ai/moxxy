@@ -8,6 +8,7 @@
 import { useScheduler } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { ScheduleSummary } from '@moxxy/desktop-ipc-contract';
+import { TargetSessionPicker } from './TargetSessionPicker';
 
 function whenLabel(s: ScheduleSummary): string {
   if (s.cron) return `cron ${s.cron}${s.timeZone ? ` (${s.timeZone})` : ''}`;
@@ -95,6 +96,24 @@ export function SchedulesPanel(): JSX.Element {
                     {s.source === 'workflow' && s.workflowName ? ` · workflow: ${s.workflowName}` : ''}
                     {nextLabel(s) ? ` · ${nextLabel(s)}` : ''}
                     {s.lastResult ? ` · last: ${s.lastResult}` : ''}
+                  </div>
+                  <div style={{ marginTop: 6 }}>
+                    {s.source === 'manual' ? (
+                      <TargetSessionPicker
+                        label="Runs in"
+                        value={s.targetSessionId ?? null}
+                        valueName={s.targetSessionName ?? null}
+                        onChange={(sid) => void sched.setTargetSession(s.id, sid)}
+                      />
+                    ) : (
+                      // workflow/skill-driven rows have their owner re-stamped on every
+                      // sync from their source, so reassigning here wouldn't stick —
+                      // show it read-only and point at where to change it.
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-text-dim)' }}>
+                        Runs in: {s.targetSessionName ?? 'any session'}
+                        {s.source === 'workflow' ? ' (set on the workflow)' : ''}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <Button

@@ -39,6 +39,7 @@ export function buildWorkflowsView(args: {
         scope: w.scope,
         steps: w.workflow.steps.length,
         triggers: triggerSummary(w.workflow.on),
+        targetSessionId: w.workflow.targetSessionId ?? null,
       })),
     setEnabled: async (name, enabled) => {
       await store.setEnabled(name, enabled);

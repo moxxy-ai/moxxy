@@ -108,6 +108,8 @@ export interface BuilderMeta {
   concurrency: number;
   inputs: Record<string, WorkflowInputSpec>;
   on?: WorkflowTrigger;
+  /** Session this workflow's triggered runs are pinned to (where they run + display). */
+  targetSessionId?: string;
   delivery?: WorkflowDelivery;
 }
 

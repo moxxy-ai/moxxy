@@ -9,6 +9,9 @@ export interface UseScheduler {
   readonly error: string | null;
   readonly refresh: () => Promise<void>;
   readonly setEnabled: (id: string, enabled: boolean) => Promise<void>;
+  /** Reassign which session a schedule fires in (where its run runs +
+   *  display), or pass `null` to clear the binding. */
+  readonly setTargetSession: (id: string, sessionId: string | null) => Promise<void>;
   readonly deleteSchedule: (id: string) => Promise<void>;
 }
 
@@ -51,6 +54,19 @@ export function useScheduler(): UseScheduler {
     [refresh],
   );
 
+  const setTargetSession = useCallback(
+    async (id: string, sessionId: string | null): Promise<void> => {
+      try {
+        const updated = await api().invoke('scheduler.setTargetSession', { id, sessionId });
+        if (updated) setList((cur) => cur.map((s) => (s.id === id ? updated : s)));
+        await refresh();
+      } catch (e) {
+        setError(toErrorMessage(e));
+      }
+    },
+    [refresh],
+  );
+
   const deleteSchedule = useCallback(
     async (id: string): Promise<void> => {
       try {
@@ -66,5 +82,5 @@ export function useScheduler(): UseScheduler {
     [refresh],
   );
 
-  return { list, loading, error, refresh, setEnabled, deleteSchedule };
+  return { list, loading, error, refresh, setEnabled, setTargetSession, deleteSchedule };
 }

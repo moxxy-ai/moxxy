@@ -36,6 +36,7 @@ afterEach(() => {
 
 const stableRefresh = async () => undefined;
 const stableSetEnabled = async () => undefined;
+const stableSetTargetSession = async () => undefined;
 const stableRun = async () => undefined;
 
 function coreWorkflows(overrides: Partial<UseWorkflows> = {}): UseWorkflows {
@@ -46,6 +47,7 @@ function coreWorkflows(overrides: Partial<UseWorkflows> = {}): UseWorkflows {
     lastRun: null,
     refresh: stableRefresh,
     setEnabled: stableSetEnabled,
+    setTargetSession: stableSetTargetSession,
     run: stableRun,
     ...overrides,
   };

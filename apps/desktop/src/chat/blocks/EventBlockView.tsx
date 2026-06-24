@@ -1,12 +1,19 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { UserBlock } from './UserBlock';
+import { TriggerBlock } from './TriggerBlock';
 import { AssistantBlock } from './AssistantBlock';
 import { ReasoningBlock } from './ReasoningBlock';
 
 export function EventBlockView({ event }: { readonly event: MoxxyEvent }): JSX.Element | null {
   switch (event.type) {
     case 'user_prompt':
-      return <UserBlock text={event.text} attachments={event.attachments} />;
+      // A machine-initiated turn (fired webhook/schedule/workflow) renders as a
+      // compact, expandable trigger marker instead of the raw synthesized prompt.
+      return event.origin ? (
+        <TriggerBlock origin={event.origin} text={event.text} />
+      ) : (
+        <UserBlock text={event.text} attachments={event.attachments} />
+      );
     case 'assistant_message':
       return <AssistantBlock text={event.content} streaming={false} stopReason={event.stopReason} />;
     case 'reasoning_message':

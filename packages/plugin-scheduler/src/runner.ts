@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { TriggerOrigin } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
@@ -19,7 +20,17 @@ export interface SchedulePromptResult {
 }
 
 export interface SchedulePromptRunner {
-  runPrompt(input: { prompt: string; model?: string; scheduleName: string }): Promise<SchedulePromptResult>;
+  runPrompt(input: {
+    prompt: string;
+    model?: string;
+    scheduleName: string;
+    /**
+     * Provenance for the fired turn, so the host can render a compact marker
+     * instead of the raw prompt. A workflow-mirror schedule reports
+     * `kind:'workflow'`; an ordinary schedule reports `kind:'schedule'`.
+     */
+    origin?: TriggerOrigin;
+  }): Promise<SchedulePromptResult>;
 }
 
 export interface ScheduleRunOutcome {
@@ -82,6 +93,12 @@ export async function runSchedule(
       prompt: entry.prompt,
       ...(entry.model ? { model: entry.model } : {}),
       scheduleName: entry.name,
+      // A workflow-mirror row (source='workflow') reads as "Workflow ran";
+      // every other schedule reads as "Schedule fired".
+      origin:
+        entry.source === 'workflow' && entry.workflowName
+          ? { kind: 'workflow', name: entry.workflowName }
+          : { kind: 'schedule', name: entry.name },
     });
   } catch (err) {
     result = {

@@ -9,7 +9,8 @@ import type { WebhookSummary } from '@moxxy/desktop-ipc-contract';
 // Math.random not allowed" at boot, so the app never starts (see the desktop
 // 0.22.3 changelog for the identical mobile-proxy regression + fix).
 import type { WebhookStore, WebhookTrigger } from '@moxxy/plugin-webhooks';
-import { handle } from './shared';
+import type { DeskStore } from '../desks';
+import { buildSessionNameResolver, handle, type SessionNameResolver } from './shared';
 
 interface WebhooksModule {
   readonly store: WebhookStore;
@@ -47,8 +48,10 @@ function loadWebhooks(): Promise<WebhooksModule> {
  *
  * @param injectedStore Tests pass a temp-file store so they don't touch the
  *  real `~/.moxxy/webhooks.json`; production lazy-loads the default store.
+ * @param desks The desk registry, used to resolve a trigger's `targetSessionId`
+ *  to a display name for the panel. Omitted by the injected-store tests.
  */
-export function registerWebhookHandlers(injectedStore?: WebhookStore): void {
+export function registerWebhookHandlers(injectedStore?: WebhookStore, desks?: DeskStore): void {
   const get: () => Promise<WebhooksModule> = injectedStore
     ? async () => ({
         store: injectedStore,
@@ -59,15 +62,24 @@ export function registerWebhookHandlers(injectedStore?: WebhookStore): void {
   handle('webhooks.list', async () => {
     const { store, describeTrigger } = await get();
     store.invalidate();
-    const triggers = await store.list();
-    return triggers.map((t) => toWebhookSummary(t, describeTrigger));
+    const [triggers, resolveName] = await Promise.all([store.list(), buildSessionNameResolver(desks)]);
+    return triggers.map((t) => toWebhookSummary(t, describeTrigger, resolveName));
   });
 
   handle('webhooks.setEnabled', async ({ id, enabled }) => {
     const { store, describeTrigger } = await get();
     store.invalidate();
     const updated = await store.update(id, { enabled });
-    return updated ? toWebhookSummary(updated, describeTrigger) : null;
+    return updated ? toWebhookSummary(updated, describeTrigger, await buildSessionNameResolver(desks)) : null;
+  });
+
+  handle('webhooks.setTargetSession', async ({ id, sessionId }) => {
+    const { store, describeTrigger } = await get();
+    store.invalidate();
+    // `ownerSessionId` is the stored routing key; the queue/drain already
+    // honors it, so reassigning here re-homes the trigger's deliveries.
+    const updated = await store.update(id, { ownerSessionId: sessionId ?? undefined });
+    return updated ? toWebhookSummary(updated, describeTrigger, await buildSessionNameResolver(desks)) : null;
   });
 
   handle('webhooks.delete', async ({ id }) => {
@@ -86,6 +98,10 @@ export function registerWebhookHandlers(injectedStore?: WebhookStore): void {
 function toWebhookSummary(
   trigger: WebhookTrigger,
   describeTrigger: WebhooksModule['describeTrigger'],
+  resolveName: SessionNameResolver,
 ): WebhookSummary {
-  return describeTrigger(trigger, undefined) as unknown as WebhookSummary;
+  // `describeTrigger` already carries `targetSessionId` (the stored
+  // ownerSessionId); the host adds the resolved display name on top.
+  const described = describeTrigger(trigger, undefined) as unknown as WebhookSummary;
+  return { ...described, targetSessionName: resolveName(described.targetSessionId) };
 }

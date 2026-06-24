@@ -150,6 +150,16 @@ or recorded-on-purpose decision.
 - [med] Mobile workflow builder name fields are free-text — populate from
   `workflows.list` like desktop. Add a settings error-row retry if `settings.read`
   failures prove common. `apps/mobile/app/workflow-edit.tsx`.
+- [med] Cross-session `afterWorkflow` can't route: the `workflow_completed` event is
+  observed in-process by ONLY the runner that ran the parent, so a dependent pinned
+  (`targetSessionId`) to a different session is skipped with a warning rather than
+  run there. A shared completion queue (mirror the webhooks queue/drain from #333)
+  would let any runner pick up its own-target dependents. `packages/cli/src/setup/wire-run-store.ts`.
+- [low] No validation that a trigger's `targetSessionId` names a live session: a
+  stale/mistyped id silently never fires (schedule owner-gates to an absent runner;
+  fileChanged/afterWorkflow skip on every runner). The desktop picker surfaces a
+  "(missing)" option, but `webhook_create`/`schedule_create`/workflow YAML can't
+  validate without a live-desk registry. `packages/plugin-{webhooks,scheduler}`, `packages/cli`.
 
 ## CLI / services
 

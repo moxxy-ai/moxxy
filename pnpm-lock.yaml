@@ -989,6 +989,9 @@ importers:
       pdfjs-dist:
         specifier: 4.10.38
         version: 4.10.38
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.0
     devDependencies:
       '@moxxy/testing':
         specifier: workspace:*

@@ -51,6 +51,9 @@ export function describeScheduleEntry(entry: ScheduleEntry): Record<string, unkn
     promptPreview: entry.prompt.slice(0, 200),
     source: entry.source,
     skillName: entry.skillName ?? null,
+    // The session this schedule fires in (where its run executes + displays).
+    // null = owner-less (fires once across runners via the cross-process lock).
+    targetSessionId: entry.ownerSessionId ?? null,
     createdAt: entry.createdAt,
     lastRunAt: entry.lastRunAt ?? null,
     lastResult: entry.lastResult ?? null,
@@ -102,6 +105,14 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           prompt: z.string().min(1),
           channel: z.string().optional(),
           model: z.string().optional(),
+          targetSessionId: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              'Session id to fire this schedule in (where its run executes + displays). ' +
+                'Defaults to the session that created the schedule.',
+            ),
         })
         .and(cronOrTimestamp),
       permission: { action: 'prompt' },
@@ -124,9 +135,15 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
           ...(input.timeZone ? { timeZone: input.timeZone } : {}),
           ...(input.channel ? { channel: input.channel } : {}),
           ...(input.model ? { model: input.model } : {}),
-          // Bind to the creating runner so a multi-runner desktop fires this on
-          // the workspace that asked for it, not whichever poller ticks first.
-          ...(deps.ownerSessionId !== undefined ? { ownerSessionId: deps.ownerSessionId } : {}),
+          // Bind to a target session (where the run fires + displays). An explicit
+          // `targetSessionId` wins; otherwise default to the creating runner so a
+          // multi-runner desktop fires this on the workspace that asked for it, not
+          // whichever poller ticks first. Unset on both → owner-less (fire-once).
+          ...(input.targetSessionId !== undefined
+            ? { ownerSessionId: input.targetSessionId }
+            : deps.ownerSessionId !== undefined
+              ? { ownerSessionId: deps.ownerSessionId }
+              : {}),
         });
         return describeScheduleEntry(created);
       },
@@ -183,6 +200,24 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       inputSchema: z.object({ id: z.string().min(1) }),
       handler: async ({ id }) => {
         const updated = await store.update(id, { enabled: false });
+        if (!updated) return { ok: false, reason: 'no schedule with that id' };
+        return { ok: true, schedule: describeScheduleEntry(updated) };
+      },
+    }),
+
+    defineTool({
+      name: 'schedule_set_target',
+      description:
+        'Reassign which session a schedule fires in (where its run executes + displays). ' +
+        'Pass `targetSessionId` to re-home it, or omit it to clear the binding (revert to ' +
+        'owner-less fire-once across runners).',
+      inputSchema: z.object({
+        id: z.string().min(1),
+        targetSessionId: z.string().min(1).optional(),
+      }),
+      permission: { action: 'prompt' },
+      handler: async ({ id, targetSessionId }) => {
+        const updated = await store.update(id, { ownerSessionId: targetSessionId });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
         return { ok: true, schedule: describeScheduleEntry(updated) };
       },

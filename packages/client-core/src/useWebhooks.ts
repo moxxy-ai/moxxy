@@ -9,6 +9,9 @@ export interface UseWebhooks {
   readonly error: string | null;
   readonly refresh: () => Promise<void>;
   readonly setEnabled: (id: string, enabled: boolean) => Promise<void>;
+  /** Reassign which session a webhook delivers to (where its runs fire +
+   *  display), or pass `null` to clear the binding. */
+  readonly setTargetSession: (id: string, sessionId: string | null) => Promise<void>;
   readonly deleteWebhook: (id: string) => Promise<void>;
 }
 
@@ -56,6 +59,19 @@ export function useWebhooks(): UseWebhooks {
     [refresh],
   );
 
+  const setTargetSession = useCallback(
+    async (id: string, sessionId: string | null): Promise<void> => {
+      try {
+        const updated = await api().invoke('webhooks.setTargetSession', { id, sessionId });
+        if (updated) setList((cur) => cur.map((w) => (w.id === id ? updated : w)));
+        await refresh();
+      } catch (e) {
+        setError(toErrorMessage(e));
+      }
+    },
+    [refresh],
+  );
+
   const deleteWebhook = useCallback(
     async (id: string): Promise<void> => {
       try {
@@ -71,5 +87,5 @@ export function useWebhooks(): UseWebhooks {
     [refresh],
   );
 
-  return { list, loading, error, refresh, setEnabled, deleteWebhook };
+  return { list, loading, error, refresh, setEnabled, setTargetSession, deleteWebhook };
 }

@@ -128,6 +128,8 @@ const workflowName = z
 
 const scheduleId = z.string().min(1).max(256);
 const webhookId = z.string().min(1).max(256);
+/** A target session id (same shape as a session/desk id), or null to clear it. */
+const sessionRef = z.string().min(1).max(256).nullable();
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
@@ -260,13 +262,18 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     previousName: workflowName.optional(),
   }),
   'workflows.getRun': z.object({ name: workflowName }),
+  // Reassign a trigger's target session. `sessionId` is a session id (same shape
+  // as the scheduler/webhook ids) or null to clear the binding.
+  'workflows.setTargetSession': z.object({ name: workflowName, sessionId: sessionRef }),
   'scheduler.list': z.undefined(),
   'scheduler.setEnabled': z.object({ id: scheduleId, enabled: z.boolean() }),
+  'scheduler.setTargetSession': z.object({ id: scheduleId, sessionId: sessionRef }),
   'scheduler.delete': z.object({ id: scheduleId }),
   // Webhooks: host-only management of inbound triggers. Lock the id like the
   // scheduler entries; list takes no args.
   'webhooks.list': z.undefined(),
   'webhooks.setEnabled': z.object({ id: webhookId, enabled: z.boolean() }),
+  'webhooks.setTargetSession': z.object({ id: webhookId, sessionId: sessionRef }),
   'webhooks.delete': z.object({ id: webhookId }),
   // Human-in-the-loop resume: bound the run id + the operator reply (the reply
   // is forwarded into the paused step's child agent, so cap it to avoid OOM).

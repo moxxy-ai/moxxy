@@ -1,4 +1,4 @@
-import type { MoxxyEvent, UserPromptAttachment } from './events.js';
+import type { MoxxyEvent, TriggerOrigin, UserPromptAttachment } from './events.js';
 import type { SessionId, TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
@@ -22,6 +22,13 @@ export interface RunTurnOptions {
   readonly signal?: AbortSignal;
   /** Inline attachments shipped alongside the prompt (images, audio, stdin). */
   readonly attachments?: ReadonlyArray<UserPromptAttachment>;
+  /**
+   * Provenance for a machine-initiated turn (a fired webhook/schedule/workflow).
+   * Stamped onto the resulting {@link UserPromptEvent} so renderers show a
+   * compact "trigger fired" marker instead of the raw synthesized prompt. Omit
+   * for an ordinary user-typed turn.
+   */
+  readonly origin?: TriggerOrigin;
   /**
    * Pre-minted turn id. When omitted, `runTurn` mints one. The runner passes
    * this so it can return the id to the client *before* the turn starts and
@@ -191,6 +198,12 @@ export interface WorkflowSummaryView {
   readonly steps: number;
   /** Human-readable trigger summary, e.g. `cron(0 8 * * *)` or `on-demand`. */
   readonly triggers: string;
+  /**
+   * Session this workflow's triggered runs are pinned to (where they run +
+   * display), or null when unpinned. Optional for wire back-compat — an older
+   * runner omits it; the desktop treats absent as null.
+   */
+  readonly targetSessionId?: string | null;
 }
 
 /** Result of running a workflow from the modal. */

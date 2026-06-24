@@ -15,7 +15,7 @@ import type { MiniLogger, WorkflowRunner } from './build-workflow-runner.js';
 export const MAX_AFTER_WORKFLOW_CHAIN = 8;
 
 /** The trigger-relevant slice of a {@link Workflow} the cycle guards inspect. */
-export type AfterWorkflowNode = Pick<Workflow, 'name' | 'enabled' | 'on'>;
+export type AfterWorkflowNode = Pick<Workflow, 'name' | 'enabled' | 'on' | 'targetSessionId'>;
 
 /**
  * Find cycles in the `afterWorkflow` trigger graph among enabled workflows.
@@ -113,14 +113,37 @@ export async function fireAfterWorkflowDependents(args: {
   chain: ReadonlyArray<string>;
   workflows: ReadonlyArray<AfterWorkflowNode>;
   disabled: ReadonlySet<string>;
+  /**
+   * This runner's session identity. The `workflow_completed` event is observed
+   * in-process by only the runner that ran the parent, so a dependent pinned
+   * (via `targetSessionId`) to a *different* session can't be routed there —
+   * it's skipped with a warning. Undefined → single-process CLI/TUI (no gate).
+   */
+  thisRunnerSessionId?: string;
   run: (input: { name: string; trigger: string; chain: ReadonlyArray<string> }) => Promise<unknown>;
   logger?: MiniLogger;
 }): Promise<void> {
-  const { completed, workflows, disabled, run, logger } = args;
+  const { completed, workflows, disabled, thisRunnerSessionId, run, logger } = args;
   const nextChain = [...args.chain, completed];
   for (const workflow of workflows) {
     if (!workflow.enabled || !workflow.on?.afterWorkflow) continue;
     if (![workflow.on.afterWorkflow].flat().includes(completed)) continue;
+    // Target-session gate: a dependent pinned to another session must run on
+    // THAT runner to display there, but the completion event only reached this
+    // runner (in-process subscription). Skip + warn so the run never lands in
+    // the wrong session; co-locate the chain or use a schedule trigger to fan
+    // out across sessions. Unset target / single-process → no gate (today's path).
+    if (
+      workflow.targetSessionId &&
+      thisRunnerSessionId &&
+      workflow.targetSessionId !== thisRunnerSessionId
+    ) {
+      logger?.info?.(
+        'workflows: afterWorkflow dependent is pinned to another session; skipping (co-locate or use a schedule trigger)',
+        { workflow: workflow.name, after: completed, target: workflow.targetSessionId },
+      );
+      continue;
+    }
     if (disabled.has(workflow.name)) {
       logger?.info?.('workflows: afterWorkflow auto-refire disabled by the cycle guard; skipping', {
         workflow: workflow.name,
@@ -195,9 +218,18 @@ export function wireWorkflowTriggers(args: {
    * nothing to race and every debounced change should fire as before.
    */
   fireLock?: CrossProcessFireLock;
+  /**
+   * This runner process's session identity (`MOXXY_SESSION_ID`), or undefined
+   * for a single-process CLI/TUI. When a workflow declares `targetSessionId`,
+   * only the runner whose id matches it watches/fires that workflow's
+   * fileChanged trigger and runs its afterWorkflow dependents — pinning the run
+   * to the chosen session. Unset on a workflow → today's behavior (every runner
+   * watches; `fireLock` dedupes fileChanged).
+   */
+  thisRunnerSessionId?: string;
   logger?: MiniLogger;
 }): WorkflowTriggerWiring {
-  const { session, store, scheduleStore, runner, fireLock, logger } = args;
+  const { session, store, scheduleStore, runner, fireLock, thisRunnerSessionId, logger } = args;
 
   const watchers: FSWatcher[] = [];
   // Workflows whose afterWorkflow auto-refire is statically disabled because
@@ -251,6 +283,20 @@ export function wireWorkflowTriggers(args: {
     cancelPendingDebounces();
     for (const { workflow } of await store.list()) {
       if (!workflow.enabled || !workflow.on?.fileChanged) continue;
+      // Target-session gate: a pinned workflow's fileChanged trigger is watched
+      // ONLY by the target runner, so the run lands in the chosen session. A
+      // mismatched runner registers no watcher at all (no debounce timers, no
+      // wasted fs.watch handles). If the target runner is offline when the file
+      // changes the event is simply missed — there is no fs-event replay (unlike
+      // webhooks/schedules, which catch up). Unset target / single-process → every
+      // runner watches and `fireLock` dedupes (today's behavior).
+      if (
+        workflow.targetSessionId &&
+        thisRunnerSessionId &&
+        workflow.targetSessionId !== thisRunnerSessionId
+      ) {
+        continue;
+      }
       for (const glob of [workflow.on.fileChanged].flat()) {
         const base = globBaseDir(glob, session.cwd);
         const key = `${workflow.name}::${glob}`;
@@ -357,6 +403,14 @@ export function wireWorkflowTriggers(args: {
             ...(cron ? { cron } : {}),
             ...(runAt !== undefined ? { runAt } : {}),
             ...(timeZone ? { timeZone } : {}),
+            // Pin the synthetic schedule to the workflow's chosen session: the
+            // existing scheduler owner-gate then fires the run on (and displays
+            // it in) that runner. Unset → owner-less row → fire-once via the
+            // poller's cross-process lock (today's behavior). NOTE: a soft-deleted
+            // mirror row takes precedence in syncWorkflowSchedule, so retargeting
+            // a previously-deleted-then-re-enabled workflow won't re-stamp until
+            // its deletion marker clears (matches existing scheduler semantics).
+            ...(workflow.targetSessionId ? { ownerSessionId: workflow.targetSessionId } : {}),
             enabled: true,
             createdAt: 0,
             source: 'workflow',
@@ -407,6 +461,7 @@ export function wireWorkflowTriggers(args: {
         chain,
         workflows: (await store.list()).map((w) => w.workflow),
         disabled: cyclicTriggers,
+        ...(thisRunnerSessionId ? { thisRunnerSessionId } : {}),
         run: runner.runNow,
         ...(logger ? { logger } : {}),
       });

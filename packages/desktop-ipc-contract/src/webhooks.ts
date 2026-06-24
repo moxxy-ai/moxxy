@@ -26,6 +26,12 @@ export interface WebhookSummary {
   readonly lastResult: WebhookLastResult | null;
   readonly lastError: string | null;
   readonly createdAt: number;
+  /** Session this webhook delivers to (where its runs fire + display), or null
+   *  when owner-less. Optional for back-compat with older summary producers. */
+  readonly targetSessionId?: string | null;
+  /** Resolved display name of `targetSessionId` (its session title), or null
+   *  when owner-less or the bound session no longer exists. */
+  readonly targetSessionName?: string | null;
 }
 
 export interface WebhookDeleteResult {

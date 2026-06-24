@@ -5,6 +5,7 @@ import { WORKFLOW_ERROR_KEY } from '@moxxy/workflows-builder';
 import { WorkflowCanvas } from './WorkflowCanvas';
 import { NodeInspector } from './NodeInspector';
 import { Palette } from './Palette';
+import { TargetSessionPicker } from '../apps/TargetSessionPicker';
 
 /**
  * The desktop visual builder: palette + drag canvas + node inspector, all
@@ -72,6 +73,17 @@ export function WorkflowBuilder({ name, onClose, onSaved }: Props): JSX.Element 
             value={state.meta.description}
             data-testid="builder-description"
             onChange={(e) => dispatch({ type: 'update-meta', patch: { description: e.target.value } })}
+          />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={metaLabel}>triggered runs in</span>
+          <TargetSessionPicker
+            label=""
+            value={state.meta.targetSessionId ?? null}
+            valueName={null}
+            onChange={(sid) =>
+              dispatch({ type: 'update-meta', patch: { targetSessionId: sid ?? undefined } })
+            }
           />
         </div>
         <ValidityBadge valid={builder.valid} validating={builder.validating} />

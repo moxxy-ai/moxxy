@@ -32,10 +32,27 @@ export interface UserPromptAttachment {
   readonly mediaType?: string;
 }
 
+/**
+ * Provenance of a machine-initiated prompt: an ambient trigger (a fired
+ * webhook, a fired schedule, or a triggered workflow) ran a turn rather than a
+ * human typing it. Carried on {@link UserPromptEvent.origin} so renderers can
+ * collapse the (often large, untrusted-payload-bearing) synthesized prompt into
+ * a compact "trigger fired" marker instead of a giant user bubble. The prompt
+ * text stays in the event (and thus in the model's context) — only the *display*
+ * changes. Absent for an ordinary user-typed prompt.
+ */
+export interface TriggerOrigin {
+  readonly kind: 'webhook' | 'schedule' | 'workflow';
+  /** The trigger's name (webhook/schedule/workflow), for the marker label. */
+  readonly name: string;
+}
+
 export interface UserPromptEvent extends EventBase {
   readonly type: 'user_prompt';
   readonly text: string;
   readonly attachments?: ReadonlyArray<UserPromptAttachment>;
+  /** Set when an ambient trigger fired this turn (see {@link TriggerOrigin}). */
+  readonly origin?: TriggerOrigin;
 }
 
 export interface AssistantChunkEvent extends EventBase {

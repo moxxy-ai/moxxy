@@ -235,7 +235,16 @@ export class MobileSessionHost {
     // @moxxy/plugin-workflows is wired — `moxxy mobile` runs the full CLI setup,
     // so it normally is). Absent ⇒ list degrades to empty / setEnabled no-ops
     // (desktop parity) and run fails coded so the UI can hide the surface.
-    this.bus.handle('workflows.list', async () => this.session.workflows?.list() ?? []);
+    this.bus.handle('workflows.list', async () => {
+      const summaries = (await this.session.workflows?.list()) ?? [];
+      // Mobile has no desk registry to resolve a target session's display name;
+      // it surfaces the id only (the picker is a desktop affordance).
+      return summaries.map((s) => ({
+        ...s,
+        targetSessionId: s.targetSessionId ?? null,
+        targetSessionName: null,
+      }));
+    });
     this.bus.handle('workflows.setEnabled', async ({ name, enabled }) => {
       if (this.session.workflows) await this.session.workflows.setEnabled(name, enabled);
     });

@@ -10,6 +10,9 @@ export interface UseWorkflows {
   readonly lastRun: { name: string; result: WorkflowRun } | null;
   readonly refresh: () => Promise<void>;
   readonly setEnabled: (name: string, enabled: boolean) => Promise<void>;
+  /** Pin a workflow's triggered runs to a session (where they run + display),
+   *  or pass `null` to clear the pin. */
+  readonly setTargetSession: (name: string, sessionId: string | null) => Promise<void>;
   readonly run: (name: string) => Promise<void>;
 }
 
@@ -55,6 +58,19 @@ export function useWorkflows(): UseWorkflows {
     [refresh],
   );
 
+  const setTargetSession = useCallback(
+    async (name: string, sessionId: string | null): Promise<void> => {
+      try {
+        const updated = await api().invoke('workflows.setTargetSession', { name, sessionId });
+        if (updated) setList((cur) => cur.map((w) => (w.name === name ? updated : w)));
+        await refresh();
+      } catch (e) {
+        setError(toErrorMessage(e));
+      }
+    },
+    [refresh],
+  );
+
   const run = useCallback(
     async (name: string): Promise<void> => {
       try {
@@ -73,5 +89,5 @@ export function useWorkflows(): UseWorkflows {
     [],
   );
 
-  return { list, loading, error, lastRun, refresh, setEnabled, run };
+  return { list, loading, error, lastRun, refresh, setEnabled, setTargetSession, run };
 }

@@ -92,6 +92,9 @@ export function buildWorkflowsIntegration(args: {
     scheduleStore,
     runner,
     ...(fileLock ? { fireLock: fileLock } : {}),
+    // Pin a workflow's fileChanged/afterWorkflow triggers to its `targetSessionId`
+    // by telling the wiring which runner this is. Unset for single-process CLI/TUI.
+    ...(ownerSessionId ? { thisRunnerSessionId: ownerSessionId } : {}),
     ...(logger ? { logger } : {}),
   });
 

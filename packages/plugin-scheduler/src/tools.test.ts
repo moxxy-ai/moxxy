@@ -61,3 +61,54 @@ describe('schedule_create tool — input validation hardening', () => {
     expect((await store.list())).toHaveLength(1);
   });
 });
+
+describe('schedule target session (ownerSessionId routing)', () => {
+  let dir: string;
+  let store: ScheduleStore;
+
+  const tools = (ownerSessionId?: string): ReadonlyArray<ToolDef> =>
+    buildSchedulerTools({
+      store,
+      runner: { runPrompt: async () => ({ text: 'ok' }) },
+      ...(ownerSessionId ? { ownerSessionId } : {}),
+    });
+  const handler = (list: ReadonlyArray<ToolDef>, name: string): ToolDef['handler'] =>
+    list.find((t) => t.name === name)!.handler;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'moxxy-sched-target-'));
+    store = new ScheduleStore({ file: path.join(dir, 'schedules.json') });
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('stamps ownerSessionId from an explicit targetSessionId, overriding the creator', async () => {
+    const out = (await handler(tools('creator'), 'schedule_create')(
+      { name: 'pinned', prompt: 'x', cron: '0 9 * * *', targetSessionId: 'desk-B' },
+      ctx,
+    )) as { id: string };
+    expect((await store.get(out.id))?.ownerSessionId).toBe('desk-B');
+  });
+
+  it('defaults to the creating runner when no targetSessionId is given', async () => {
+    const out = (await handler(tools('creator'), 'schedule_create')(
+      { name: 'default', prompt: 'x', cron: '0 9 * * *' },
+      ctx,
+    )) as { id: string };
+    expect((await store.get(out.id))?.ownerSessionId).toBe('creator');
+  });
+
+  it('schedule_set_target reassigns and clears the binding', async () => {
+    const list = tools('creator');
+    const created = (await handler(list, 'schedule_create')(
+      { name: 'movable', prompt: 'x', cron: '0 9 * * *' },
+      ctx,
+    )) as { id: string };
+    await handler(list, 'schedule_set_target')({ id: created.id, targetSessionId: 'desk-C' }, ctx);
+    expect((await store.get(created.id))?.ownerSessionId).toBe('desk-C');
+    // Omitting targetSessionId clears it (revert to owner-less fire-once).
+    await handler(list, 'schedule_set_target')({ id: created.id }, ctx);
+    expect((await store.get(created.id))?.ownerSessionId).toBeUndefined();
+  });
+});

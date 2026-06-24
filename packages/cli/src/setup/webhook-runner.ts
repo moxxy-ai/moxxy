@@ -27,8 +27,11 @@ export function buildWebhookRunner(session: Session): WebhookPromptRunner {
       const target = scopedSessionView(session, allowedTools, triggerName);
       let text = '';
       let lastError: string | null = null;
+      // Stamp provenance so the UI renders a compact "Webhook received · <name>"
+      // marker instead of the raw (untrusted-payload-bearing) injected prompt.
+      const origin = { kind: 'webhook', name: triggerName } as const;
       try {
-        for await (const event of runTurn(target, prompt, model ? { model } : {})) {
+        for await (const event of runTurn(target, prompt, { origin, ...(model ? { model } : {}) })) {
           if (event.type === 'assistant_message') {
             text = event.content;
             // The latest assistant_message is authoritative for the final

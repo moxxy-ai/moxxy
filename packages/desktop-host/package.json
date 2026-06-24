@@ -39,7 +39,8 @@
     "@moxxy/sdk": "workspace:*",
     "@moxxy/workspace-registry": "workspace:*",
     "officeparser": "~5.1.1",
-    "pdfjs-dist": "4.10.38"
+    "pdfjs-dist": "4.10.38",
+    "yaml": "^2.6.0"
   },
   "devDependencies": {
     "@moxxy/testing": "workspace:*",

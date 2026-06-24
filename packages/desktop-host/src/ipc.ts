@@ -90,9 +90,9 @@ export function registerIpcHandlers(
     registerGitHandlers(desks);
     registerSurfaceHandlers(pool);
     registerDesksHandlers(pool, desks);
-    registerWorkflowsHandlers(pool);
-    registerSchedulerHandlers();
-    registerWebhookHandlers();
+    registerWorkflowsHandlers(pool, desks);
+    registerSchedulerHandlers(undefined, desks);
+    registerWebhookHandlers(undefined, desks);
     registerPrefsHandlers();
     registerSettingsHandlers(pool);
     registerVaultHandlers();

@@ -441,6 +441,10 @@ export interface IpcCommands {
   'workflows.save': (args: { yaml: string; previousName?: string }) => Promise<WorkflowSave>;
   /** Fetch one saved workflow as canonical YAML (null when unknown). */
   'workflows.getRun': (args: { name: string }) => Promise<WorkflowDetail | null>;
+  /** Pin a workflow's triggered runs to a session (where they run + display),
+   *  or pass `sessionId: null` to clear the pin (revert to fire-once across
+   *  runners). The host loads the YAML, sets `targetSessionId`, and re-saves. */
+  'workflows.setTargetSession': (args: { name: string; sessionId: string | null }) => Promise<WorkflowSummary | null>;
   /**
    * Answer a paused workflow's `awaitInput` question and resume the run (the
    * human-in-the-loop flow). `runId` comes from the `workflow_paused` plugin
@@ -458,6 +462,10 @@ export interface IpcCommands {
   'scheduler.setEnabled': (args: { id: string; enabled: boolean }) => Promise<ScheduleSummary | null>;
   /** Permanently remove an existing scheduler entry by id. */
   'scheduler.delete': (args: { id: string }) => Promise<SchedulerDeleteResult>;
+  /** Reassign which session a schedule fires in (where its run runs + displays),
+   *  or pass `sessionId: null` to clear the binding. Maps to the entry's stored
+   *  `ownerSessionId`; the existing poller owner-gate routes the fire. */
+  'scheduler.setTargetSession': (args: { id: string; sessionId: string | null }) => Promise<ScheduleSummary | null>;
 
   // Webhooks
   /** List every persisted webhook trigger. The host reads the shared webhooks
@@ -470,6 +478,10 @@ export interface IpcCommands {
   'webhooks.setEnabled': (args: { id: string; enabled: boolean }) => Promise<WebhookSummary | null>;
   /** Permanently remove an existing webhook trigger by id. */
   'webhooks.delete': (args: { id: string }) => Promise<WebhookDeleteResult>;
+  /** Reassign which session a webhook delivers to (where its run runs + displays),
+   *  or pass `sessionId: null` to clear the binding. Maps to the trigger's stored
+   *  `ownerSessionId`; the existing queue/drain routes the delivery. */
+  'webhooks.setTargetSession': (args: { id: string; sessionId: string | null }) => Promise<WebhookSummary | null>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
   // All host-only (native pickers + filesystem + a network download). They are

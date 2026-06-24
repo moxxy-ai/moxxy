@@ -24,6 +24,9 @@ export function describeTrigger(
     verification: redactVerification(trigger.verification),
     filters: trigger.filters,
     idempotencyHeader: trigger.idempotencyHeader ?? null,
+    // The session this webhook delivers to (where its runs fire + display).
+    // null = owner-less (legacy single-process / fire in-process).
+    targetSessionId: trigger.ownerSessionId ?? null,
     fireCount: trigger.fireCount,
     lastFiredAt: trigger.lastFiredAt ?? null,
     lastResult: trigger.lastResult ?? null,

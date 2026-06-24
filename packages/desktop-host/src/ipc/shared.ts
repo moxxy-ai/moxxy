@@ -39,7 +39,31 @@ export { IpcError };
 import type { RunnerSupervisor } from '../runner-supervisor';
 import type { RunnerPool } from '../runner-pool';
 import type { SessionDriver } from '../session-driver';
+import type { DeskStore } from '../desks';
 import { buildInProcessPlugins, type InProcessPlugins } from '../in-process-plugins';
+
+/**
+ * A `targetSessionId → display name` lookup, for stamping `targetSessionName`
+ * onto the automation summaries (webhooks / schedules / workflows). Returns
+ * null for an unknown id — e.g. a trigger bound to a since-deleted session.
+ */
+export type SessionNameResolver = (id: string | null | undefined) => string | null;
+
+/**
+ * Build a {@link SessionNameResolver} from the desk registry with a single
+ * `desks.list()` read (so a list handler resolves N triggers without N disk
+ * reads). Returns an all-null resolver when no registry is wired (the
+ * injected-store test variants pass none).
+ */
+export async function buildSessionNameResolver(desks?: DeskStore): Promise<SessionNameResolver> {
+  const names = new Map<string, string>();
+  if (desks) {
+    for (const desk of await desks.list()) {
+      for (const session of desk.sessions) names.set(session.id, session.name);
+    }
+  }
+  return (id) => (id ? (names.get(id) ?? null) : null);
+}
 
 /** Driver lookup shared across the IPC handlers + bindWindow. Keyed by
  *  workspace id so runTurn / abortTurn target the right runner. The primary

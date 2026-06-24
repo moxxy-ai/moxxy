@@ -11,6 +11,7 @@
 import { useWebhooks } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import type { WebhookSummary } from '@moxxy/desktop-ipc-contract';
+import { TargetSessionPicker } from './TargetSessionPicker';
 
 /** One-line activity summary: fires + last fire time + model override. */
 function activityLabel(w: WebhookSummary): string {
@@ -108,6 +109,14 @@ export function WebhooksPanel(): JSX.Element {
                       {w.description}
                     </div>
                   )}
+                  <div style={{ marginTop: 6 }}>
+                    <TargetSessionPicker
+                      label="Delivers to"
+                      value={w.targetSessionId ?? null}
+                      valueName={w.targetSessionName ?? null}
+                      onChange={(sid) => void hooks.setTargetSession(w.id, sid)}
+                    />
+                  </div>
                 </div>
                 <Button
                   variant="chip"

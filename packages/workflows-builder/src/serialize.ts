@@ -74,6 +74,7 @@ export function serialize(state: BuilderState): SerializeResult {
     enabled: state.meta.enabled,
     inputs: state.meta.inputs,
     ...(state.meta.on ? { on: state.meta.on } : {}),
+    ...(state.meta.targetSessionId ? { targetSessionId: state.meta.targetSessionId } : {}),
     ...(state.meta.delivery ? { delivery: state.meta.delivery } : {}),
     ui: { layout },
     concurrency: state.meta.concurrency,
@@ -139,6 +140,7 @@ export function hydrate(workflow: Workflow): BuilderState {
     concurrency: workflow.concurrency,
     inputs: workflow.inputs ?? {},
     ...(workflow.on ? { on: workflow.on } : {}),
+    ...(workflow.targetSessionId ? { targetSessionId: workflow.targetSessionId } : {}),
     ...(workflow.delivery ? { delivery: workflow.delivery } : {}),
   };
   const viewport = workflow.ui?.layout?.viewport ?? DEFAULT_VIEWPORT;
@@ -192,6 +194,7 @@ function normalizeWorkflow(raw: Partial<Workflow>): Workflow {
     enabled: raw.enabled ?? true,
     inputs: raw.inputs ?? {},
     ...(raw.on ? { on: raw.on } : {}),
+    ...(raw.targetSessionId ? { targetSessionId: raw.targetSessionId } : {}),
     ...(raw.delivery ? { delivery: raw.delivery } : {}),
     ...(raw.ui ? { ui: raw.ui } : {}),
     concurrency: raw.concurrency ?? 4,

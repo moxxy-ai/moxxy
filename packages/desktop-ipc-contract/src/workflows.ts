@@ -7,6 +7,13 @@ export interface WorkflowSummary {
   scope: string;
   steps: number;
   triggers: string;
+  /** Session this workflow's triggered runs are pinned to (where they run +
+   *  display), or null when unpinned. Optional for back-compat with older
+   *  summary producers. */
+  targetSessionId?: string | null;
+  /** Resolved display name of `targetSessionId` (its session title), or null
+   *  when unpinned or the bound session no longer exists. */
+  targetSessionName?: string | null;
 }
 
 export interface WorkflowRun {

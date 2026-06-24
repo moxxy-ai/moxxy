@@ -20,10 +20,20 @@ export function defineWebhookUpdateTool(deps: ResolvedToolDeps): ToolDef {
       description: z.string().optional(),
       idempotencyHeader: z.string().optional(),
       filters: filterInputSchema.optional(),
+      targetSessionId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Reassign which session this webhook delivers to (where its runs execute + display).'),
     }),
     permission: { action: 'prompt' },
-    handler: async ({ id, ...patch }) => {
-      const updated = await store.update(id, patch);
+    handler: async ({ id, targetSessionId, ...patch }) => {
+      // `targetSessionId` is the user-facing name for the stored `ownerSessionId`
+      // routing key — map it so reassigning a webhook re-homes its deliveries.
+      const updated = await store.update(id, {
+        ...patch,
+        ...(targetSessionId !== undefined ? { ownerSessionId: targetSessionId } : {}),
+      });
       if (!updated) return { ok: false, reason: 'no trigger with that id' };
       const cfg = await config.get();
       return { ok: true, trigger: describeTrigger(updated, cfg.publicUrl) };

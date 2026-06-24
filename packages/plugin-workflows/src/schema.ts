@@ -215,6 +215,10 @@ export const workflowSchema = z
     enabled: z.boolean().default(true),
     inputs: z.record(inputSpecSchema).default({}),
     on: triggerSchema.optional(),
+    // Pin triggered runs (schedule/fileChanged/afterWorkflow) to a chosen
+    // runner's session so the run executes + displays there. Unset → ambient
+    // fire-once across runners (today's behavior). See `Workflow.targetSessionId`.
+    targetSessionId: z.string().min(1).optional(),
     delivery: z
       .object({
         channel: z.string().optional(),

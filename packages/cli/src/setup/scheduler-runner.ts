@@ -11,11 +11,14 @@ import type { SchedulePromptRunner } from '@moxxy/plugin-scheduler';
  */
 export function buildSchedulerRunner(session: Session): SchedulePromptRunner {
   return {
-    runPrompt: async ({ prompt, model }) => {
+    runPrompt: async ({ prompt, model, origin }) => {
       let text = '';
       let lastError: string | null = null;
       try {
-        for await (const event of runTurn(session, prompt, model ? { model } : {})) {
+        for await (const event of runTurn(session, prompt, {
+          ...(origin ? { origin } : {}),
+          ...(model ? { model } : {}),
+        })) {
           if (event.type === 'assistant_message') {
             text = event.content;
             // The latest assistant_message is authoritative for the final

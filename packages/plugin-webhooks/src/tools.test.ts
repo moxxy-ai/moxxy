@@ -315,3 +315,78 @@ describe('webhook tools', () => {
     });
   });
 });
+
+describe('webhook target session (ownerSessionId routing)', () => {
+  let dir: string;
+  let store: WebhookStore;
+  let tools: ReadonlyArray<ToolDef>;
+
+  const call = async (name: string, input: unknown): Promise<unknown> => {
+    const t = tools.find((x) => x.name === name);
+    if (!t) throw new Error(`no tool ${name}`);
+    return t.handler(t.inputSchema.parse(input), ctx);
+  };
+
+  const build = (ownerSessionId?: string): void => {
+    tools = buildWebhookTools({
+      store,
+      config: new WebhookConfigStore({ file: path.join(dir, 'webhooks-config.json') }),
+      dispatcher: { fire: async () => ({ ok: true, text: '' }) } as unknown as WebhookDispatcher,
+      tunnelHandle: { current: null },
+      secretsDir: path.join(dir, 'secrets'),
+      ...(ownerSessionId ? { ownerSessionId } : {}),
+    });
+  };
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'moxxy-webhook-target-'));
+    store = new WebhookStore({ file: path.join(dir, 'webhooks.json') });
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('stamps ownerSessionId from an explicit targetSessionId', async () => {
+    build();
+    const created = (await call('webhook_create', {
+      name: 'pinned',
+      prompt: 'x',
+      verification: { type: 'none' },
+      targetSessionId: 'desk-B',
+    })) as { trigger: { id: string } };
+    expect((await store.get(created.trigger.id))?.ownerSessionId).toBe('desk-B');
+  });
+
+  it('targetSessionId overrides the creating runner', async () => {
+    build('creator-session');
+    const created = (await call('webhook_create', {
+      name: 'override',
+      prompt: 'x',
+      verification: { type: 'none' },
+      targetSessionId: 'desk-B',
+    })) as { trigger: { id: string } };
+    expect((await store.get(created.trigger.id))?.ownerSessionId).toBe('desk-B');
+  });
+
+  it('defaults to the creating runner when no targetSessionId is given', async () => {
+    build('creator-session');
+    const created = (await call('webhook_create', {
+      name: 'default-owner',
+      prompt: 'x',
+      verification: { type: 'none' },
+    })) as { trigger: { id: string } };
+    expect((await store.get(created.trigger.id))?.ownerSessionId).toBe('creator-session');
+  });
+
+  it('webhook_update reassigns the target session', async () => {
+    build('creator-session');
+    const created = (await call('webhook_create', {
+      name: 'movable',
+      prompt: 'x',
+      verification: { type: 'none' },
+    })) as { trigger: { id: string } };
+    await call('webhook_update', { id: created.trigger.id, targetSessionId: 'desk-C' });
+    expect((await store.get(created.trigger.id))?.ownerSessionId).toBe('desk-C');
+  });
+});

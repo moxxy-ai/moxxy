@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useWorkflows } from '@moxxy/client-core';
 import { Button, Icon, Skeleton } from '@moxxy/desktop-ui';
 import { AgentTaskModal } from '../settings/shared/AgentTaskModal';
+import { TargetSessionPicker } from '../apps/TargetSessionPicker';
 import { WorkflowBuilder } from './WorkflowBuilder';
 import { WORKFLOW_PROMPT_TEMPLATE } from './workflow-prompt';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
@@ -177,6 +178,14 @@ export function WorkflowsPanel({
                     {w.description}
                   </div>
                 )}
+                <div style={{ marginTop: 6 }}>
+                  <TargetSessionPicker
+                    label="Triggered runs in"
+                    value={w.targetSessionId ?? null}
+                    valueName={w.targetSessionName ?? null}
+                    onChange={(sid) => void wf.setTargetSession(w.name, sid)}
+                  />
+                </div>
               </div>
               <button
                 type="button"

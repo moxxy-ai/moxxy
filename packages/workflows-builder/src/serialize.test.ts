@@ -54,6 +54,18 @@ describe('serialize → Workflow', () => {
     expect(yaml).toContain('loop:');
   });
 
+  it('round-trips targetSessionId through serialize → hydrate → hydrateYaml', () => {
+    let s = refineFixture();
+    s = updateMeta(s, { targetSessionId: 'desk-B' });
+    const { workflow, yaml } = serialize(s);
+    // Survives serialize (the field-by-field serializer would otherwise drop it).
+    expect(workflow.targetSessionId).toBe('desk-B');
+    expect(yaml).toContain('targetSessionId: desk-B');
+    // ...and the inverse: hydrate from the object and from the YAML both keep it.
+    expect(hydrate(workflow).meta.targetSessionId).toBe('desk-B');
+    expect(hydrateYaml(yaml).meta.targetSessionId).toBe('desk-B');
+  });
+
   it('serializes multiline prompts as block scalars that round-trip', () => {
     const s = refineFixture();
     const { yaml } = serialize(s);

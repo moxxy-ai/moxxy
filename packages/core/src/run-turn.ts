@@ -55,6 +55,7 @@ export async function* runTurn(
       ...(opts.attachments && opts.attachments.length > 0
         ? { attachments: opts.attachments }
         : {}),
+      ...(opts.origin ? { origin: opts.origin } : {}),
     });
 
     // Resolve provider + model AFTER the prompt is recorded so a

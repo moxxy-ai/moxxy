@@ -151,6 +151,26 @@ export interface Workflow {
   readonly enabled: boolean;
   readonly inputs: Record<string, WorkflowInputSpec>;
   readonly on?: WorkflowTrigger;
+  /**
+   * Pin this workflow's *triggered* runs (schedule / fileChanged / afterWorkflow)
+   * to one chosen runner's session — identified by that runner's
+   * `MOXXY_SESSION_ID` — so the run executes and displays in the session the user
+   * picked. On the desktop, one `moxxy serve` runner == one session.
+   *
+   * - schedule: the scheduler mirror row is stamped with this as its owner, so the
+   *   existing poller owner-gate fires the run on the target runner.
+   * - fileChanged: only the runner whose id matches watches/fires the trigger. If
+   *   that runner is offline when the file changes, the event is missed — there is
+   *   no fs-event replay (unlike webhooks/schedules, which catch up).
+   * - afterWorkflow: a dependent pinned to a *different* session than the runner
+   *   that observed the parent's completion is skipped (the completion event is
+   *   in-process); co-locate the chain or use a schedule trigger for fan-out.
+   *
+   * Unset (the default) preserves today's ambient behavior: triggered runs fire
+   * once across runners via the cross-process lock. Ignored in single-process
+   * CLI/TUI (no `MOXXY_SESSION_ID`).
+   */
+  readonly targetSessionId?: string;
   readonly delivery?: WorkflowDelivery;
   /** GUI-only metadata persisted with the YAML artifact. */
   readonly ui?: WorkflowUi;

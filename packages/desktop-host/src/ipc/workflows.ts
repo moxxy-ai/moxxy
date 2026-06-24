@@ -7,17 +7,25 @@
  * a clear error so the renderer can surface it.
  */
 
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import type { RunnerPool } from '../runner-pool';
-import { handle, mustSession } from './shared';
+import type { DeskStore } from '../desks';
+import { buildSessionNameResolver, handle, mustSession } from './shared';
 
-export function registerWorkflowsHandlers(pool: RunnerPool): void {
+export function registerWorkflowsHandlers(pool: RunnerPool, desks?: DeskStore): void {
   // ---- Workflows -----------------------------------------------------------
 
   handle('workflows.list', async () => {
     const session = mustSession(pool);
     const view = session.workflows;
     if (!view) return [];
-    return await view.list();
+    const [summaries, resolveName] = await Promise.all([view.list(), buildSessionNameResolver(desks)]);
+    // The runner-side view carries `targetSessionId` (read from the YAML); the
+    // host adds the resolved display name (it owns the desk registry).
+    return summaries.map((s) => {
+      const targetSessionId = s.targetSessionId ?? null;
+      return { ...s, targetSessionId, targetSessionName: resolveName(targetSessionId) };
+    });
   });
   handle('workflows.setEnabled', async ({ name, enabled }) => {
     const session = mustSession(pool);
@@ -46,6 +54,30 @@ export function registerWorkflowsHandlers(pool: RunnerPool): void {
     const session = mustSession(pool);
     if (!session.workflows?.getRun) throw new Error('workflows builder not supported on this session');
     return await session.workflows.getRun(name);
+  });
+
+  // Reassign a workflow's target session by flipping the top-level
+  // `targetSessionId` key in its YAML and re-saving via the existing builder
+  // save path (no new runner RPC). The edit is a single-key set/delete on the
+  // parsed object — `view.save` re-parses + schema-validates server-side. We use
+  // the pure `yaml` lib (not `@moxxy/plugin-workflows`, whose static import would
+  // drag the engine + eager `ulid` into the bundled Electron main and crash boot).
+  handle('workflows.setTargetSession', async ({ name, sessionId }) => {
+    const session = mustSession(pool);
+    const view = session.workflows;
+    if (!view?.getRun || !view?.save) throw new Error('workflows builder not supported on this session');
+    const detail = await view.getRun(name);
+    if (!detail) return null;
+    const obj = (parseYaml(detail.yaml) ?? {}) as Record<string, unknown>;
+    if (sessionId) obj.targetSessionId = sessionId;
+    else delete obj.targetSessionId;
+    // lineWidth:0 matches the plugin's canonical serializer (no long-line wraps).
+    await view.save(stringifyYaml(obj, { lineWidth: 0 }), name);
+    const [summaries, resolveName] = await Promise.all([view.list(), buildSessionNameResolver(desks)]);
+    const updated = summaries.find((s) => s.name === name);
+    if (!updated) return null;
+    const targetSessionId = updated.targetSessionId ?? null;
+    return { ...updated, targetSessionId, targetSessionName: resolveName(targetSessionId) };
   });
 
   // ---- Human-in-the-loop: resume a paused awaitInput run ------------------

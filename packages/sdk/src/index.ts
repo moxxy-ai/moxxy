@@ -17,6 +17,7 @@ export type {
   EmittedEvent,
   UserPromptEvent,
   UserPromptAttachment,
+  TriggerOrigin,
   AssistantChunkEvent,
   AssistantMessageEvent,
   ReasoningChunkEvent,

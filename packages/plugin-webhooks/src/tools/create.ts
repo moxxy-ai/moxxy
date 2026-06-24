@@ -56,6 +56,15 @@ export function defineWebhookCreateTool(deps: ResolvedToolDeps): ToolDef {
       filters: filterInputSchema.optional(),
       idempotencyHeader: z.string().optional(),
       description: z.string().optional(),
+      targetSessionId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          'Session id to deliver this webhook to (where its runs execute + display). ' +
+            'Defaults to the session that created the trigger. On the desktop this is a ' +
+            "session's id; the runner owning that session drains and fires the delivery.",
+        ),
     }),
     permission: { action: 'prompt' },
     handler: async (input) => {
@@ -70,9 +79,15 @@ export function defineWebhookCreateTool(deps: ResolvedToolDeps): ToolDef {
         filters,
         ...(input.idempotencyHeader ? { idempotencyHeader: input.idempotencyHeader } : {}),
         ...(input.description ? { description: input.description } : {}),
-        // Bind to the creating runner so its deliveries fire on this workspace's
-        // chat, even though another runner may own the shared listener port.
-        ...(deps.ownerSessionId !== undefined ? { ownerSessionId: deps.ownerSessionId } : {}),
+        // Bind to a target session (where deliveries fire + display). An explicit
+        // `targetSessionId` wins; otherwise default to the creating runner so its
+        // deliveries fire on this workspace's chat, even though another runner may
+        // own the shared listener port. Unset on both → owner-less (legacy).
+        ...(input.targetSessionId !== undefined
+          ? { ownerSessionId: input.targetSessionId }
+          : deps.ownerSessionId !== undefined
+            ? { ownerSessionId: deps.ownerSessionId }
+            : {}),
       });
 
       const cfg = await config.get();

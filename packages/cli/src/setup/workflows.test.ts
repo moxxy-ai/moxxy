@@ -22,12 +22,13 @@ import {
 
 function wf(
   name: string,
-  opts: { after?: string | string[]; enabled?: boolean } = {},
+  opts: { after?: string | string[]; enabled?: boolean; target?: string } = {},
 ): AfterWorkflowNode {
   return {
     name,
     enabled: opts.enabled ?? true,
     ...(opts.after ? { on: { afterWorkflow: opts.after } } : {}),
+    ...(opts.target ? { targetSessionId: opts.target } : {}),
   };
 }
 
@@ -133,6 +134,58 @@ describe('fireAfterWorkflowDependents', () => {
     expect(runs).toEqual(Array.from({ length: MAX_AFTER_WORKFLOW_CHAIN - 1 }, (_, i) => `w${i + 1}`));
     expect(warns).toHaveLength(1);
     expect(warns[0]).toContain(`depth cap of ${MAX_AFTER_WORKFLOW_CHAIN}`);
+  });
+
+  it('skips an afterWorkflow dependent pinned to a different session (info, no run)', async () => {
+    const workflows = [wf('a'), wf('b', { after: 'a', target: 'desk-B' })];
+    const { logger, infos } = captureLogger();
+    const runs: string[] = [];
+
+    await fireAfterWorkflowDependents({
+      completed: 'a',
+      chain: [],
+      workflows,
+      disabled: new Set(),
+      thisRunnerSessionId: 'desk-A',
+      run: async ({ name }) => void runs.push(name),
+      logger,
+    });
+
+    expect(runs).toEqual([]);
+    expect(infos.some((m) => m.includes('pinned to another session'))).toBe(true);
+  });
+
+  it('runs an afterWorkflow dependent pinned to THIS session', async () => {
+    const workflows = [wf('a'), wf('b', { after: 'a', target: 'desk-A' })];
+    const runs: string[] = [];
+
+    await fireAfterWorkflowDependents({
+      completed: 'a',
+      chain: [],
+      workflows,
+      disabled: new Set(),
+      thisRunnerSessionId: 'desk-A',
+      run: async ({ name }) => void runs.push(name),
+    });
+
+    expect(runs).toEqual(['b']);
+  });
+
+  it('does not gate when the runner has no id (single-process): a pinned dependent still runs', async () => {
+    const workflows = [wf('a'), wf('b', { after: 'a', target: 'desk-Z' })];
+    const runs: string[] = [];
+
+    // thisRunnerSessionId omitted → the gate short-circuits, preserving today's
+    // behavior for a single-process CLI/TUI.
+    await fireAfterWorkflowDependents({
+      completed: 'a',
+      chain: [],
+      workflows,
+      disabled: new Set(),
+      run: async ({ name }) => void runs.push(name),
+    });
+
+    expect(runs).toEqual(['b']);
   });
 
   it('skips workflows the static cycle guard disabled (info, no run)', async () => {
@@ -643,6 +696,47 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       expect(byWorkflow.get('b-good')?.cron).toBe('0 9 * * *');
       // ...and the malformed one was skipped, not scheduled with garbage.
       expect(byWorkflow.has('a-bad')).toBe(false);
+    } finally {
+      integration.stop();
+    }
+  });
+
+  it("stamps a scheduled workflow's mirror row with its targetSessionId as ownerSessionId", async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-target-'));
+    tempDirs.push(cwd);
+    process.env.HOME = cwd;
+    process.env.MOXXY_HOME = path.join(cwd, '.moxxy-home');
+
+    const projectDir = path.join(cwd, '.moxxy', 'workflows');
+    await fs.mkdir(projectDir, { recursive: true });
+    await fs.writeFile(
+      path.join(projectDir, 'pinned.yaml'),
+      [
+        'name: pinned',
+        'description: pinned to a chosen session',
+        'targetSessionId: desk-B',
+        'on:',
+        '  schedule:',
+        "    cron: '0 9 * * *'",
+        'delivery:',
+        '  inbox: false',
+        'steps:',
+        '  - id: s1',
+        '    prompt: hi',
+        '',
+      ].join('\n'),
+    );
+
+    const session = new Session({ cwd, logger: silentLogger });
+    session.workflowExecutors.register({ name: 'stub', run: async () => ({ ok: true, steps: [], output: '' }) });
+    const scheduleStore = new ScheduleStore({ file: path.join(cwd, 'sched.json') });
+    const integration = buildWorkflowsIntegration({ session, scheduleStore });
+    session.pluginHost.registerStatic(integration.plugin);
+    try {
+      await session.dispatcher.dispatchInit(session.appContext());
+      const entry = (await scheduleStore.list()).find((e) => e.workflowName === 'pinned');
+      // The owner-gate then fires the synthetic turn on the desk-B runner.
+      expect(entry?.ownerSessionId).toBe('desk-B');
     } finally {
       integration.stop();
     }
