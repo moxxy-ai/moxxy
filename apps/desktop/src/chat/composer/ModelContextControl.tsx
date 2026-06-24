@@ -3,7 +3,7 @@ import { Button, Modal } from '@moxxy/desktop-ui';
 import { useContextUsage } from '@moxxy/client-core';
 import type { SessionInfo } from '../agent-picker/types';
 import { ProviderModelGrid } from '../agent-picker/ProviderModelGrid';
-import { UsagePanel } from './UsagePanel';
+import { UsagePanel, fillColor } from './UsagePanel';
 
 /**
  * The composer's right-aligned model control — a subtle, borderless text label
@@ -39,22 +39,38 @@ export function ModelContextControl({
         disabled={disabled}
         onClick={() => setOpen(true)}
         title="Model & context"
-        aria-label={`Model ${label} — open model & context`}
-        style={{ gap: 5, padding: '6px 8px', fontSize: 12.5, maxWidth: 220, fontWeight: 600 }}
+        aria-label={
+          usage.fraction != null
+            ? `Model ${label}, context ${pct(usage.fraction)} used — open model & context`
+            : `Model ${label} — open model & context`
+        }
+        style={{
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 3,
+          padding: '4px 9px',
+          fontSize: 12.5,
+          minWidth: 96,
+          maxWidth: 220,
+          fontWeight: 600,
+        }}
       >
-        <span
-          style={{
-            color: 'var(--color-text)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {label}
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+          <span
+            style={{
+              color: 'var(--color-text)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+          </span>
+          <span aria-hidden style={{ color: 'var(--color-text-dim)' }}>
+            ▾
+          </span>
         </span>
-        <span aria-hidden style={{ color: 'var(--color-text-dim)' }}>
-          ▾
-        </span>
+        {usage.fraction != null && <ContextMeter fraction={usage.fraction} />}
       </Button>
       {open && (
         <Modal title="Model & context" width={620} onClose={() => setOpen(false)}>
@@ -78,5 +94,57 @@ export function ModelContextControl({
         </Modal>
       )}
     </>
+  );
+}
+
+function pct(f: number): string {
+  return `${Math.round(f * 100)}%`;
+}
+
+/**
+ * The inline context-window mini-meter that rides under the model name: a hair-
+ * thin fill bar plus a tabular percent, color-ramped (amber/red) as the window
+ * fills — a quiet at-a-glance gauge that the full panel expands on. Sized to sit
+ * inside the ghost button without changing its rhythm.
+ */
+function ContextMeter({ fraction }: { readonly fraction: number }): JSX.Element {
+  const f = Math.max(0, Math.min(1, fraction));
+  const color = fillColor(f);
+  return (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span
+        style={{
+          flex: 1,
+          height: 3,
+          borderRadius: 999,
+          background: 'color-mix(in srgb, var(--color-text-dim) 22%, transparent)',
+          overflow: 'hidden',
+        }}
+      >
+        <span
+          style={{
+            display: 'block',
+            width: `${f * 100}%`,
+            height: '100%',
+            borderRadius: 999,
+            background: color,
+            transition: 'width 240ms ease',
+          }}
+        />
+      </span>
+      <span
+        className="mono"
+        style={{
+          flexShrink: 0,
+          fontSize: 9.5,
+          fontWeight: 600,
+          lineHeight: 1,
+          color,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {pct(f)}
+      </span>
+    </span>
   );
 }
