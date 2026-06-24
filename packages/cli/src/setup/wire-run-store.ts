@@ -1,7 +1,7 @@
 import { type FSWatcher, watch as fsWatch } from 'node:fs';
 import * as path from 'node:path';
 import { type Session } from '@moxxy/core';
-import type { MoxxyEvent, Workflow } from '@moxxy/sdk';
+import type { CrossProcessFireLock, MoxxyEvent, Workflow } from '@moxxy/sdk';
 import { type ScheduleStore, isValidCron, isValidTimeZone } from '@moxxy/plugin-scheduler';
 import type { WorkflowStore } from '@moxxy/plugin-workflows';
 import type { MiniLogger, WorkflowRunner } from './build-workflow-runner.js';
@@ -185,9 +185,19 @@ export function wireWorkflowTriggers(args: {
   store: WorkflowStore;
   scheduleStore: ScheduleStore;
   runner: WorkflowRunner;
+  /**
+   * Cross-process "fire exactly once" lock. Workflows are file-based artifacts
+   * (a user-scope workflow is visible to every runner), so when several runners
+   * each watch the same `fileChanged` globs, a single edit fires the workflow
+   * once PER runner. When this lock is supplied (the desktop's multi-runner
+   * case), each fileChanged fire is gated on claiming it, so exactly one runner
+   * runs the workflow. Omitted for a single-process CLI/TUI, where there's
+   * nothing to race and every debounced change should fire as before.
+   */
+  fireLock?: CrossProcessFireLock;
   logger?: MiniLogger;
 }): WorkflowTriggerWiring {
-  const { session, store, scheduleStore, runner, logger } = args;
+  const { session, store, scheduleStore, runner, fireLock, logger } = args;
 
   const watchers: FSWatcher[] = [];
   // Workflows whose afterWorkflow auto-refire is statically disabled because
@@ -207,6 +217,35 @@ export function wireWorkflowTriggers(args: {
     debounced.clear();
   }
 
+  /**
+   * Run a fileChanged-triggered workflow, but only once across all runners.
+   * Without the lock (single-process CLI/TUI) it just runs. With it (multi-runner
+   * desktop), the first runner to claim the key for this change window runs the
+   * workflow; the others — which saw the same edit on the same shared file —
+   * skip, so the workflow runs once instead of once per runner. The lock's short
+   * TTL bounds the dedup window: edits further apart than the TTL fire again.
+   */
+  async function fireFileChanged(name: string, glob: string, key: string): Promise<void> {
+    if (fireLock) {
+      let claimed: boolean;
+      try {
+        claimed = await fireLock.claim(`wf-file:${key}`);
+      } catch {
+        // A lock-dir failure must not silently drop the trigger; fall through and
+        // run (worst case: the pre-existing once-per-runner behavior).
+        claimed = true;
+      }
+      if (!claimed) {
+        logger?.info?.('workflows: fileChanged already claimed by another runner; skipping', {
+          workflow: name,
+          glob,
+        });
+        return;
+      }
+    }
+    await runner.runNow({ name, trigger: `fileChanged:${glob}` }).catch(() => {});
+  }
+
   async function startFileWatchers(): Promise<void> {
     for (const w of watchers.splice(0)) w.close();
     cancelPendingDebounces();
@@ -220,7 +259,7 @@ export function wireWorkflowTriggers(args: {
           if (prev) clearTimeout(prev);
           const t = setTimeout(() => {
             debounced.delete(key);
-            void runner.runNow({ name: workflow.name, trigger: `fileChanged:${glob}` }).catch(() => {});
+            void fireFileChanged(workflow.name, glob, key);
           }, 600);
           t.unref?.();
           debounced.set(key, t);

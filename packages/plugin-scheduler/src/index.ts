@@ -1,4 +1,5 @@
-import { definePlugin, type Plugin, type SkillRegistry } from '@moxxy/sdk';
+import { definePlugin, type CrossProcessFireLock, type Plugin, type SkillRegistry } from '@moxxy/sdk';
+import { CrossProcessFireLock as CrossProcessFireLockImpl, moxxyPath } from '@moxxy/sdk/server';
 import { isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
 import { FiringLock } from './firing-lock.js';
 import { SchedulerPoller, isDue } from './poller.js';
@@ -57,6 +58,19 @@ export interface BuildSchedulerPluginOptions {
   readonly skills?: SkillRegistry;
   readonly inbox?: InboxOptions;
   readonly intervalMs?: number;
+  /**
+   * This runner's session identity (`MOXXY_SESSION_ID`). When set, schedules
+   * created in a session are stamped with it and fire only on their owning
+   * runner — so with several runners polling the same shared store, a schedule
+   * lands in the chat that created it instead of whichever poller ticks first.
+   */
+  readonly ownerSessionId?: string;
+  /**
+   * Cross-process "fire exactly once" lock for owner-less (skill/workflow/
+   * unstamped) schedules. Defaults to one rooted at `~/.moxxy/locks/scheduler`.
+   * Inject a test-scoped instance (or `null` to disable) in tests.
+   */
+  readonly fireLock?: CrossProcessFireLock | null;
   readonly logger?: {
     info?(msg: string, meta?: Record<string, unknown>): void;
     warn?(msg: string, meta?: Record<string, unknown>): void;
@@ -86,6 +100,12 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
   // `schedule_run_now` tool so a manual run and a background tick can never
   // double-fire (and race store.update on) the same schedule.
   const firingLock = new FiringLock();
+  // Cross-process fire-once lock for owner-less schedules. `null` explicitly
+  // disables it (tests); otherwise default to a shared dir under ~/.moxxy.
+  const fireLock =
+    opts.fireLock === null
+      ? undefined
+      : (opts.fireLock ?? new CrossProcessFireLockImpl({ dir: moxxyPath('locks', 'scheduler') }));
   const poller = new SchedulerPoller({
     store,
     runner: opts.runner,
@@ -93,6 +113,8 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
     ...(opts.skills ? { skills: opts.skills } : {}),
     ...(opts.intervalMs !== undefined ? { intervalMs: opts.intervalMs } : {}),
     ...(opts.inbox ? { inbox: opts.inbox } : {}),
+    ...(opts.ownerSessionId !== undefined ? { ownerSessionId: opts.ownerSessionId } : {}),
+    ...(fireLock ? { fireLock } : {}),
     ...(opts.logger ? { logger: opts.logger } : {}),
     ...(opts.onFired ? { onFired: opts.onFired } : {}),
   });
@@ -101,6 +123,7 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
     store,
     runner: opts.runner,
     firingLock,
+    ...(opts.ownerSessionId !== undefined ? { ownerSessionId: opts.ownerSessionId } : {}),
     ...(opts.inbox ? { inbox: opts.inbox } : {}),
   });
 

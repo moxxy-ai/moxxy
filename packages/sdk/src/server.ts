@@ -21,6 +21,9 @@ export {
   moxxyHome,
   moxxyPath,
 } from './fs-utils.js';
+// Cross-process "fire exactly once" lock (node:fs). Value lives here; its
+// options type is re-exported from the main barrel like other erased types.
+export { CrossProcessFireLock } from './cross-process-lock.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
 export {
   resolveChannelToken,

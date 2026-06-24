@@ -1,5 +1,6 @@
 import { type Session } from '@moxxy/core';
 import { type Plugin } from '@moxxy/sdk';
+import { CrossProcessFireLock, moxxyPath } from '@moxxy/sdk/server';
 import type { ScheduleStore } from '@moxxy/plugin-scheduler';
 import {
   BUILTIN_WORKFLOWS_DIR,
@@ -58,9 +59,17 @@ export interface WorkflowsIntegration {
 export function buildWorkflowsIntegration(args: {
   session: Session;
   scheduleStore: ScheduleStore;
+  /**
+   * This runner's session identity (`MOXXY_SESSION_ID`). Present only in the
+   * desktop's multi-runner setup (one `moxxy serve` per workspace). When set, a
+   * cross-process lock guards `fileChanged` triggers so a single edit runs the
+   * workflow once across all runners instead of once per runner. A single-process
+   * CLI/TUI leaves it unset and keeps the unguarded per-change behavior.
+   */
+  ownerSessionId?: string;
   logger?: MiniLogger;
 }): WorkflowsIntegration {
-  const { session, scheduleStore, logger } = args;
+  const { session, scheduleStore, ownerSessionId, logger } = args;
   const store = new WorkflowStore({
     cwd: session.cwd,
     builtinDir: BUILTIN_WORKFLOWS_DIR,
@@ -69,11 +78,20 @@ export function buildWorkflowsIntegration(args: {
 
   const runner = buildWorkflowRunner({ session, store, ...(logger ? { logger } : {}) });
 
+  // Short-TTL fire-once lock for fileChanged triggers, ONLY when this is a
+  // multi-runner context (an owner id is present). The TTL bounds the window in
+  // which a single shared-file edit is collapsed to one run across runners;
+  // edits further apart fire again. Single-process CLI/TUI passes no lock.
+  const fileLock = ownerSessionId
+    ? new CrossProcessFireLock({ dir: moxxyPath('locks', 'workflow-triggers'), ttlMs: 3_000 })
+    : undefined;
+
   const triggers = wireWorkflowTriggers({
     session,
     store,
     scheduleStore,
     runner,
+    ...(fileLock ? { fireLock: fileLock } : {}),
     ...(logger ? { logger } : {}),
   });
 

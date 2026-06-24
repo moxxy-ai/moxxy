@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
 import { asSkillId } from '@moxxy/sdk';
+import { CrossProcessFireLock } from '@moxxy/sdk/server';
 import { FiringLock } from './firing-lock.js';
 import { isDue, nextCronFire, SchedulerPoller } from './poller.js';
 import { syncSkillSchedules } from './skill-sync.js';
@@ -406,5 +407,107 @@ describe('SchedulerPoller integration', () => {
     expect(stored).toHaveLength(1);
     expect(stored[0]!.cron).toBe('0 18 * * *');
     expect(stored[0]!.prompt).toBe('second');
+  });
+});
+
+describe('SchedulerPoller multi-tenant (concurrent runners)', () => {
+  let dir: string;
+  let inboxDir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'moxxy-sched-mt-'));
+    inboxDir = path.join(dir, 'inbox');
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function countingRunner(): { calls: string[]; runner: { runPrompt: (i: { prompt: string }) => Promise<{ text: string }> } } {
+    const calls: string[] = [];
+    return {
+      calls,
+      runner: {
+        runPrompt: async ({ prompt }: { prompt: string }) => {
+          calls.push(prompt);
+          return { text: `did: ${prompt}` };
+        },
+      },
+    };
+  }
+
+  it('an owner-bound schedule fires only on its owning runner', async () => {
+    const store = new ScheduleStore({ file: path.join(dir, 'schedules.json') });
+    await store.create({
+      name: 'owned',
+      prompt: 'do XYZ',
+      cron: '* * * * *',
+      ownerSessionId: 'runner-A',
+    });
+    const entries = await store.list();
+    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+
+    // The wrong runner (B) sees the due row but must NOT fire it.
+    const b = countingRunner();
+    const pollerB = new SchedulerPoller({
+      store,
+      runner: b.runner,
+      ownerSessionId: 'runner-B',
+      inbox: { dir: inboxDir },
+    });
+    expect(await pollerB.tickOnce()).toBe(0);
+    expect(b.calls).toEqual([]);
+
+    // The owning runner (A) fires it exactly once.
+    const a = countingRunner();
+    const pollerA = new SchedulerPoller({
+      store,
+      runner: a.runner,
+      ownerSessionId: 'runner-A',
+      inbox: { dir: inboxDir },
+    });
+    expect(await pollerA.tickOnce()).toBe(1);
+    expect(a.calls).toEqual(['do XYZ']);
+  });
+
+  it('an owner-less schedule fires exactly once across N runners (cross-process lock)', async () => {
+    const file = path.join(dir, 'schedules.json');
+    const lock = new CrossProcessFireLock({ dir: path.join(dir, 'locks') });
+
+    // Runner A creates an owner-less cron schedule and backdates it so it's due.
+    const storeA = new ScheduleStore({ file });
+    await storeA.create({ name: 'global-report', prompt: 'do XYZ', cron: '* * * * *' });
+    const created = await storeA.list();
+    await storeA.update(created[0]!.id, { lastRunAt: Date.now() - 120_000 });
+
+    // Runner B is a second process over the SAME shared file — it sees the same
+    // due row. Both pre-read so each has the due entry cached, mimicking two
+    // pollers ticking before either has persisted its fire.
+    const storeB = new ScheduleStore({ file });
+    await storeA.list();
+    await storeB.list();
+
+    const a = countingRunner();
+    const b = countingRunner();
+    const pollerA = new SchedulerPoller({ store: storeA, runner: a.runner, fireLock: lock, inbox: { dir: inboxDir } });
+    const pollerB = new SchedulerPoller({ store: storeB, runner: b.runner, fireLock: lock, inbox: { dir: inboxDir } });
+
+    const firedA = await pollerA.tickOnce();
+    const firedB = await pollerB.tickOnce();
+
+    // Exactly one of the two runners ran it — never both, never zero.
+    expect(firedA + firedB).toBe(1);
+    expect(a.calls.length + b.calls.length).toBe(1);
+  });
+
+  it('without a fire lock, owner-less schedules still fire (single-process fallback)', async () => {
+    const store = new ScheduleStore({ file: path.join(dir, 'schedules.json') });
+    await store.create({ name: 'solo', prompt: 'go', cron: '* * * * *' });
+    const entries = await store.list();
+    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+
+    const a = countingRunner();
+    const poller = new SchedulerPoller({ store, runner: a.runner, inbox: { dir: inboxDir } });
+    expect(await poller.tickOnce()).toBe(1);
+    expect(a.calls).toEqual(['go']);
   });
 });
