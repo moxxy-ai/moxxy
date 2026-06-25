@@ -46,7 +46,11 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
 
   const primaryProvider = providerDefault(config);
   const fallbacks = providerSlot(config).fallbacks ?? [];
-  const candidates = [primaryProvider, ...fallbacks];
+  // Drop an unset primary (a fresh config has no provider until init/provision)
+  // so the walk simply finds nothing → "continue without an active provider".
+  const candidates = [primaryProvider, ...fallbacks].filter(
+    (c): c is string => typeof c === 'string' && c.length > 0,
+  );
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;
   let lastErr: unknown = null;
