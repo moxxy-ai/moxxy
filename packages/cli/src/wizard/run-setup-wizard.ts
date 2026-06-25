@@ -4,6 +4,7 @@ import {
   intro,
   isCancel,
   log,
+  multiselect,
   note,
   outro,
   password,
@@ -13,9 +14,22 @@ import {
 import { renderYaml, type ProviderAuthKind, type SetupChoice } from '@moxxy/plugin-cli';
 import { colors } from '../colors.js';
 
+export interface EnsureProviderResult {
+  readonly models: ReadonlyArray<SetupChoice>;
+  readonly authKind: ProviderAuthKind;
+}
+
 export interface SetupWizardController {
   saveApiKey(providerId: string, key: string): Promise<void>;
   writeConfig(yaml: string): Promise<string>;
+  /**
+   * Make the picked provider available before collecting credentials: a bundled
+   * provider resolves instantly; a catalog-only one is installed from npm +
+   * enabled here, then its real models + auth kind are returned. Throw on a
+   * failed install (the wizard bails). When absent, the wizard uses the
+   * upfront `models`/`authKinds` maps (the all-bundled case).
+   */
+  ensureProvider?(providerId: string): Promise<EnsureProviderResult | null>;
   testKey?(
     providerId: string,
     key: string,
@@ -27,6 +41,11 @@ export interface SetupWizardController {
    * cancellation; the wizard offers a retry.
    */
   loginOAuth?(providerId: string): Promise<void>;
+  /**
+   * Install + enable the chosen optional plugins (by catalog id / package name).
+   * Best-effort: implementations should report per-plugin failures and continue.
+   */
+  installPlugins?(ids: ReadonlyArray<string>): Promise<void>;
 }
 
 export interface RunSetupWizardOptions {
@@ -38,6 +57,8 @@ export interface RunSetupWizardOptions {
   readonly version?: string;
   /** Per-provider auth kind. Providers absent here are treated as `'apiKey'`. */
   readonly authKinds?: Record<string, ProviderAuthKind>;
+  /** Optional extra plugins the user may install during setup (skippable step). */
+  readonly availablePlugins?: ReadonlyArray<SetupChoice>;
 }
 
 interface Selections {
@@ -115,11 +136,35 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   });
   const provider = guard(providerRaw);
 
+  // Ensure the provider is available (install + enable a catalog-only one) BEFORE
+  // collecting credentials, so its real models + auth kind are known. A bundled
+  // provider resolves instantly. Falls back to the upfront maps when no
+  // ensureProvider hook is wired (the all-bundled path).
+  let modelChoices = opts.models[provider] ?? [];
+  let providerKind = authKind(opts.authKinds, provider);
+  if (opts.controller.ensureProvider) {
+    const prep = spinner();
+    prep.start(`Preparing ${provider}`);
+    try {
+      const resolved = await opts.controller.ensureProvider(provider);
+      prep.stop(`${colors.bold('✓')} ${provider} ready`);
+      if (resolved) {
+        modelChoices = resolved.models;
+        providerKind = resolved.authKind;
+      }
+    } catch (err) {
+      prep.stop(
+        `${colors.red('✗')} could not prepare ${provider}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      bail();
+    }
+  }
+
   // Step 2 — credentials. An API-key provider prompts for a key (with optional
   // live validation); an OAuth provider runs its full sign-in flow inline.
   const apiKeys: Record<string, string> = {};
   const oauthCompleted: string[] = [];
-  if (authKind(opts.authKinds, provider) === 'oauth') {
+  if (providerKind === 'oauth') {
     if (!opts.controller.loginOAuth) {
       cancel(
         `Provider ${provider} requires OAuth but the wizard has no loginOAuth handler wired up.`,
@@ -132,8 +177,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     apiKeys[provider] = await collectKey(provider, opts.controller);
   }
 
-  // Step 3 — model
-  const modelChoices = opts.models[provider] ?? [];
+  // Step 3 — model (from the resolved provider's real models)
   let model: string | null = null;
   if (modelChoices.length > 0) {
     const modelRaw = await select({
@@ -171,6 +215,33 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   });
   const securityEnabled = guard(securityRaw);
 
+  // Step 7 — optional extra plugins. Skippable: offer a multiselect of
+  // installable plugins (telegram, browser, …); chosen ones are installed +
+  // enabled at persist time. Only shown when the host wired a catalog + handler.
+  let extraPlugins: ReadonlyArray<string> = [];
+  if (
+    opts.availablePlugins &&
+    opts.availablePlugins.length > 0 &&
+    opts.controller.installPlugins
+  ) {
+    const wantRaw = await confirm({
+      message: `Step 7 — Install extra plugins? ${colors.dim('(optional)')}`,
+      initialValue: false,
+    });
+    if (guard(wantRaw)) {
+      const pickedRaw = await multiselect({
+        message: 'Pick plugins to install + enable (space to toggle, enter to confirm)',
+        options: opts.availablePlugins.map((p) =>
+          p.description
+            ? { value: p.id, label: p.label, hint: p.description }
+            : { value: p.id, label: p.label },
+        ),
+        required: false,
+      });
+      extraPlugins = guard(pickedRaw) as string[];
+    }
+  }
+
   const selections: Selections = {
     providers: [provider],
     apiKeys,
@@ -183,9 +254,9 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     ...(securityEnabled ? { security: { enabled: true, isolator: 'inproc' } } : {}),
   };
 
-  // Step 7 — review
+  // Step 8 — review
   const yaml = renderYaml(selections);
-  note(yaml, 'Step 7 — Review (moxxy.config.yaml)');
+  note(yaml, 'Step 8 — Review (moxxy.config.yaml)');
 
   const confirmedRaw = await confirm({
     message: 'Save config and store keys in the vault?',
@@ -199,12 +270,27 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   // here), so this stage only needs to persist the API key and rendered YAML.
   const persist = spinner();
   persist.start('Writing config and storing keys');
-  if (authKind(opts.authKinds, provider) !== 'oauth') {
+  if (providerKind !== 'oauth') {
     const key = apiKeys[provider];
     if (key) await opts.controller.saveApiKey(provider, key);
   }
   const configPath = await opts.controller.writeConfig(yaml);
   persist.stop(`Wrote ${colors.bold(configPath)}`);
+
+  // Install any optional plugins the user picked (best-effort; the controller
+  // reports per-plugin outcomes).
+  if (extraPlugins.length > 0 && opts.controller.installPlugins) {
+    const ps = spinner();
+    ps.start(`Installing ${extraPlugins.length} plugin(s)`);
+    try {
+      await opts.controller.installPlugins(extraPlugins);
+      ps.stop(`${colors.bold('✓')} installed ${extraPlugins.join(', ')}`);
+    } catch (err) {
+      ps.stop(
+        `${colors.yellow('!')} some plugins failed to install: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   outro(
     `${colors.bold('✓')} Setup complete. Try ${colors.bold('moxxy -p "hello"')} to verify, ` +

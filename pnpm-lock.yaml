@@ -609,30 +609,12 @@ importers:
       '@moxxy/plugin-provider-admin':
         specifier: workspace:*
         version: link:../plugin-provider-admin
-      '@moxxy/plugin-provider-anthropic':
-        specifier: workspace:*
-        version: link:../plugin-provider-anthropic
       '@moxxy/plugin-provider-claude-code':
         specifier: workspace:*
         version: link:../plugin-provider-claude-code
-      '@moxxy/plugin-provider-google':
-        specifier: workspace:*
-        version: link:../plugin-provider-google
-      '@moxxy/plugin-provider-local':
-        specifier: workspace:*
-        version: link:../plugin-provider-local
-      '@moxxy/plugin-provider-openai':
-        specifier: workspace:*
-        version: link:../plugin-provider-openai
       '@moxxy/plugin-provider-openai-codex':
         specifier: workspace:*
         version: link:../plugin-provider-openai-codex
-      '@moxxy/plugin-provider-xai':
-        specifier: workspace:*
-        version: link:../plugin-provider-xai
-      '@moxxy/plugin-provider-zai':
-        specifier: workspace:*
-        version: link:../plugin-provider-zai
       '@moxxy/plugin-scheduler':
         specifier: workspace:*
         version: link:../plugin-scheduler

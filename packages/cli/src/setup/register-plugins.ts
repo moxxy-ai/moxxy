@@ -1,5 +1,5 @@
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 import {
   createPluginLoader,
   discoverPlugins,
@@ -71,7 +71,9 @@ export async function registerPlugins(
   }
 
   const loader = createPluginLoader({ cwd });
-  const userPluginsDir = path.join(os.homedir(), '.moxxy', 'plugins');
+  // Honor MOXXY_HOME (via moxxyPath) so discovery scans the SAME dir installs
+  // land in — `install_plugin` / `provision` use moxxyPath('plugins') too.
+  const userPluginsDir = moxxyPath('plugins');
   // Scan BOTH the user plugin dir (scaffolded via `moxxy plugins new`,
   // which drops dirs straight under here) AND its node_modules subtree
   // (where `npm install --prefix ~/.moxxy/plugins ...` lands packages

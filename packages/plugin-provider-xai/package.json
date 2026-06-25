@@ -1,6 +1,5 @@
 {
   "name": "@moxxy/plugin-provider-xai",
-  "private": true,
   "version": "0.0.17",
   "description": "xAI (Grok) LLMProvider plugin for moxxy. Streams the OpenAI-compatible xAI API (https://api.x.ai/v1).",
   "type": "module",

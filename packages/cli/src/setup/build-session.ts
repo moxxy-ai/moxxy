@@ -1,5 +1,6 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { moxxyPath } from '@moxxy/sdk/server';
 import {
   EventLog,
   PermissionEngine,
@@ -88,7 +89,9 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
     }
   }
 
-  const userPluginsDir = path.join(os.homedir(), '.moxxy', 'plugins');
+  // Honor MOXXY_HOME (via moxxyPath) so discovery scans the SAME dir installs
+  // land in — `install_plugin` / `provision` use moxxyPath('plugins') too.
+  const userPluginsDir = moxxyPath('plugins');
 
   return new Session({
     cwd: args.cwd,

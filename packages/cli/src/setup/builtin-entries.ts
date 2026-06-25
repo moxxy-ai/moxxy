@@ -1,14 +1,14 @@
 import { buildSynthesizeSkillPlugin, type Session } from '@moxxy/core';
 import { type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
-import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
-import { openaiPlugin } from '@moxxy/plugin-provider-openai';
+// The API-key providers (anthropic, openai, google, xai, zai, local) are NOT
+// bundled — they install on demand from npm via `moxxy init` / `moxxy provision`
+// into ~/.moxxy/plugins and are discovered by the plugin host, keeping the
+// kernel slim. The two OAuth/subscription providers stay bundled: they're the
+// out-of-box "sign in" default AND the CLI's credential resolver
+// (provider-credentials.ts) links their token helpers directly.
 import { openaiCodexPlugin } from '@moxxy/plugin-provider-openai-codex';
 import { claudeCodePlugin } from '@moxxy/plugin-provider-claude-code';
-import { zaiPlugin } from '@moxxy/plugin-provider-zai';
-import { xaiPlugin } from '@moxxy/plugin-provider-xai';
-import { googlePlugin } from '@moxxy/plugin-provider-google';
-import { localPlugin } from '@moxxy/plugin-provider-local';
 import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
 import { whisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
@@ -108,18 +108,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
   );
 
   return [
-    { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
-    { name: '@moxxy/plugin-provider-openai', plugin: openaiPlugin },
+    // Bundled OAuth providers (out-of-box "sign in"; CLI credential resolver
+    // links their token helpers). The API-key providers install on demand.
     { name: '@moxxy/plugin-provider-openai-codex', plugin: openaiCodexPlugin },
     { name: '@moxxy/plugin-provider-claude-code', plugin: claudeCodePlugin },
-    // OpenAI-compatible vendors (z.ai api-key mode, xAI, Google Gemini, local
-    // servers) + z.ai's GLM Coding Plan (Anthropic-compatible). Each reuses the
-    // shared OpenAIProvider/AnthropicProvider with its own slug + base URL +
-    // model catalog; see the respective plugin packages.
-    { name: '@moxxy/plugin-provider-zai', plugin: zaiPlugin },
-    { name: '@moxxy/plugin-provider-xai', plugin: xaiPlugin },
-    { name: '@moxxy/plugin-provider-google', plugin: googlePlugin },
-    { name: '@moxxy/plugin-provider-local', plugin: localPlugin },
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
     { name: '@moxxy/mode-default', plugin: defaultModePlugin },
     { name: '@moxxy/mode-goal', plugin: goalModePlugin },
