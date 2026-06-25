@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { migrateModeName } from './mode.js';
+import { migrateModeName, isSelectableMode } from './mode.js';
+
+describe('isSelectableMode', () => {
+  it('treats a plain mode (no `special`) as selectable', () => {
+    expect(isSelectableMode({ special: undefined })).toBe(true);
+    expect(isSelectableMode({})).toBe(true);
+  });
+  it('treats a special mode as NOT selectable (any descriptor, even empty)', () => {
+    expect(isSelectableMode({ special: {} })).toBe(false);
+    expect(isSelectableMode({ special: { invokedBy: 'collab' } })).toBe(false);
+  });
+  it('filters special modes out of a list, keeping plain ones', () => {
+    const modes = [
+      { name: 'default' },
+      { name: 'goal' },
+      { name: 'collaborative', special: { invokedBy: 'collab' } },
+    ];
+    expect(modes.filter(isSelectableMode).map((m) => m.name)).toEqual(['default', 'goal']);
+  });
+});
 
 describe('migrateModeName', () => {
   it('maps every legacy mode name to its current target', () => {

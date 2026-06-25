@@ -335,6 +335,7 @@ export type {
   ModeContext,
   ModeDef,
   ModeBadge,
+  ModeSpecial,
   ElisionSettings,
   ApprovalResolver,
   ApprovalRequest,
@@ -445,7 +446,7 @@ export {
   defineWorkflowExecutor,
 } from './define.js';
 
-export { migrateModeName } from './mode.js';
+export { migrateModeName, isSelectableMode } from './mode.js';
 
 export {
   skillFrontmatterSchema,

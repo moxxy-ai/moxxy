@@ -40,7 +40,7 @@ import { jsonlEventStore } from './sessions/jsonl-event-store.js';
 import { RequirementRegistry } from './requirements.js';
 import { PermissionEngine } from './permissions/engine.js';
 import { autoAllowResolver } from './permissions/resolvers.js';
-import { evaluateToolRule } from '@moxxy/sdk';
+import { evaluateToolRule, isSelectableMode } from '@moxxy/sdk';
 import type {
   ApprovalResolver,
   CredentialResolver,
@@ -256,7 +256,7 @@ export class Session implements ClientSession, SessionRuntime {
       tools: this.tools.list().map((t) => t.name),
       agents: this.agents.list().map((a) => a.name),
       providers: this.providers.list().map((p) => p.name),
-      modes: this.modes.list().map((m) => m.name),
+      modes: this.modes.list().filter(isSelectableMode).map((m) => m.name),
       compactors: this.compactors.list().map((c) => c.name),
       channels: this.channels.list().map((c) => c.name),
     }));
@@ -516,7 +516,7 @@ export class Session implements ClientSession, SessionRuntime {
       })),
       activeMode,
       activeModeBadge,
-      modes: this.modes.list().map((m) => m.name),
+      modes: this.modes.list().filter(isSelectableMode).map((m) => m.name),
       tools: this.tools.list().map((t) => ({
         name: t.name,
         description: t.description,

@@ -1,5 +1,5 @@
 import { runTurn, type Session } from '@moxxy/core';
-import { MoxxyError, type CategoryView, type Plugin } from '@moxxy/sdk';
+import { MoxxyError, isSelectableMode, type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import {
   INSTALLABLE_PLUGIN_CATALOG,
@@ -165,7 +165,10 @@ function buildCategoryViews(session: Session): ReadonlyArray<CategoryView> {
       category,
       active,
       floor: r.getFloorName?.() ?? null,
-      items: r.list().map((d) => ({ name: d.name, isDefault: d.name === active })),
+      // Special modes (e.g. the collaborative system) are not swap-default
+      // targets — drop them from the swap axis. Harmless for non-mode kinds
+      // (their defs carry no `special`).
+      items: r.list().filter(isSelectableMode).map((d) => ({ name: d.name, isDefault: d.name === active })),
     });
   }
   return out;

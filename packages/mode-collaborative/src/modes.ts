@@ -16,6 +16,8 @@ export const collabArchitectMode: ModeDef = defineMode({
   name: COLLAB_ARCHITECT_MODE_NAME,
   description: 'Collaboration architect (internal): designs the plan + shared contracts, then brokers.',
   badge: { label: 'ARCHITECT', tone: 'attention' },
+  // Internal role mode — entered via the spawned agent's MOXXY_MODE, never picked.
+  special: { invokedBy: "collab" },
   run: (ctx) => runCollabAgentLoop(ctx, { systemPrompt: COLLAB_ARCHITECT_PROMPT }),
 });
 
@@ -36,5 +38,7 @@ export const collabPeerMode: ModeDef = defineMode({
   name: COLLAB_PEER_MODE_NAME,
   description: 'Collaboration peer (internal): a team member building to the shared contracts.',
   badge: { label: 'TEAM', tone: 'attention' },
+  // Internal role mode — entered via the spawned agent's MOXXY_MODE, never picked.
+  special: { invokedBy: "collab" },
   run: (ctx) => runCollabAgentLoop(ctx, { systemPrompt: peerSystemPrompt(ctx.env) }),
 });
