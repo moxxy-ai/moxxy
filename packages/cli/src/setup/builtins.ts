@@ -1,7 +1,10 @@
 import { runTurn, type Session } from '@moxxy/core';
-import { type Plugin } from '@moxxy/sdk';
+import { MoxxyError, type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
-import { INSTALLABLE_PLUGIN_CATALOG } from '@moxxy/plugin-plugins-admin';
+import {
+  INSTALLABLE_PLUGIN_CATALOG,
+  setCategoryDefault as persistCategoryDefault,
+} from '@moxxy/plugin-plugins-admin';
 import {
   buildSchedulerPlugin,
   type SchedulerPoller,
@@ -31,6 +34,7 @@ import {
   type WebControlsRef,
 } from './builtin-entries.js';
 import { buildSetPluginEnabledLive } from './plugin-toggle.js';
+import { CRITICAL_PACKAGES } from './critical-packages.js';
 import { buildWorkflowsIntegration } from './workflows.js';
 
 // Re-exported so existing consumers (register-plugins.ts) keep importing the
@@ -121,14 +125,101 @@ export interface BuiltBuiltinsCore {
 }
 
 /** Wire the plugin-management slice that backs the TUI `/plugins` picker. */
+/** Minimal active-def surface a category registry exposes for the swap UI. */
+interface CategoryRegistryLike {
+  list(): ReadonlyArray<{ name: string }>;
+  getActiveName(): string | null;
+  getFloorName?(): string | null;
+  setActive(name: string): unknown;
+}
+
+/**
+ * The registries the category swap surface reads. `isolator`/`channel` are
+ * persist-only (their active isn't a live session registry slot) and apply on
+ * the next boot, so they're not in this live table.
+ */
+const CATEGORY_REGISTRIES: ReadonlyArray<{
+  category: string;
+  reg: (s: Session) => CategoryRegistryLike | undefined;
+}> = [
+  { category: 'provider', reg: (s) => s.providers },
+  { category: 'mode', reg: (s) => s.modes },
+  { category: 'compactor', reg: (s) => s.compactors },
+  { category: 'cacheStrategy', reg: (s) => s.cacheStrategies },
+  { category: 'workflowExecutor', reg: (s) => s.workflowExecutors },
+  { category: 'transcriber', reg: (s) => s.transcribers },
+  { category: 'synthesizer', reg: (s) => s.synthesizers },
+  { category: 'embedder', reg: (s) => s.embedders },
+  { category: 'viewRenderer', reg: (s) => s.viewRenderers },
+  { category: 'tunnelProvider', reg: (s) => s.tunnelProviders },
+  { category: 'eventStore', reg: (s) => s.eventStores },
+];
+
+function buildCategoryViews(session: Session): ReadonlyArray<CategoryView> {
+  const out: CategoryView[] = [];
+  for (const { category, reg } of CATEGORY_REGISTRIES) {
+    const r = reg(session);
+    if (!r) continue;
+    const active = r.getActiveName();
+    out.push({
+      category,
+      active,
+      floor: r.getFloorName?.() ?? null,
+      items: r.list().map((d) => ({ name: d.name, isDefault: d.name === active })),
+    });
+  }
+  return out;
+}
+
+/** Live snapshot + swap of category defaults. Backs both the `set_default`/
+ *  `list_defaults` model tools and the TUI `/plugins` category tabs. */
+export interface CategoryDefaultLive {
+  categories: () => ReadonlyArray<CategoryView>;
+  setCategoryDefault: (category: string, name: string) => Promise<void>;
+}
+
+export function buildCategoryDefaultLive(session: Session): CategoryDefaultLive {
+  return {
+    categories: () => buildCategoryViews(session),
+    setCategoryDefault: async (category, name) => {
+      const entry = CATEGORY_REGISTRIES.find((c) => c.category === category);
+      const reg = entry?.reg(session);
+      // For a LIVE category, the name must be registered; persist-only kinds
+      // (isolator/channel) are validated against the registry on the next boot.
+      if (reg && !reg.list().some((d) => d.name === name)) {
+        throw new MoxxyError({
+          code: 'TOOL_ERROR',
+          message: `${category} '${name}' is not registered.`,
+          hint: 'Run list_defaults to see available options, or install a plugin that provides it.',
+          context: { category, name },
+        });
+      }
+      // Apply live where we can (provider needs credential resolution); a live
+      // failure is non-fatal — the persisted default takes effect next boot.
+      try {
+        if (category === 'provider') {
+          const cfg = session.credentialResolver ? await session.credentialResolver(name) : {};
+          session.providers.setActive(name, cfg);
+        } else if (reg) {
+          reg.setActive(name);
+        }
+      } catch {
+        // persist anyway; the default applies on the next boot
+      }
+      await persistCategoryDefault(category, name);
+    },
+  };
+}
+
 function wirePluginsAdminView(
   session: Session,
   disabledPackages: Set<string>,
   setPluginEnabledLive: (packageName: string, enabled: boolean) => Promise<void>,
+  categoryLive: CategoryDefaultLive,
 ): void {
-  // The live disabled-set, the installable catalog, and the same plug/unplug
-  // closure the model tools use. A RemoteSession leaves this undefined; the
-  // picker guards.
+  // The live disabled-set, the installable catalog, and the same plug/unplug +
+  // swap-default closures the model tools use. A RemoteSession leaves this
+  // undefined; the picker guards.
   session.pluginsAdmin = {
     loaded: () =>
       session.pluginHost.list().map((p) => ({
@@ -137,6 +228,7 @@ function wirePluginsAdminView(
         kinds: p.kinds,
       })),
     disabled: () => [...disabledPackages],
+    protectedPackages: () => [...CRITICAL_PACKAGES],
     catalog: () =>
       INSTALLABLE_PLUGIN_CATALOG.map((e) => ({
         id: e.id,
@@ -147,6 +239,8 @@ function wirePluginsAdminView(
         ...(e.startCommand ? { startCommand: e.startCommand } : {}),
       })),
     setEnabled: setPluginEnabledLive,
+    categories: categoryLive.categories,
+    setCategoryDefault: categoryLive.setCategoryDefault,
   };
 }
 
@@ -218,7 +312,11 @@ function buildSecuritySlice(
   const security = buildSecurityPlugin({
     config: {
       enabled: rawConfig.security?.enabled ?? false,
-      ...(rawConfig.security?.isolator ? { isolator: rawConfig.security.isolator } : {}),
+      // The default isolator now lives in the unified tree at
+      // `plugins.isolator.default` (a registry kind like any other).
+      ...(rawConfig.plugins?.isolator?.default
+        ? { isolator: rawConfig.plugins.isolator.default }
+        : {}),
       ...(rawConfig.security?.perTool ? { perTool: rawConfig.security.perTool } : {}),
       ...(rawConfig.security?.perPlugin ? { perPlugin: rawConfig.security.perPlugin } : {}),
       ...(rawConfig.security?.requireDeclaration !== undefined
@@ -261,6 +359,10 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     getEntries: () => entries,
   });
 
+  // Live snapshot + swap of category defaults — same closures the model tools
+  // and the TUI category tabs share.
+  const categoryLive = buildCategoryDefaultLive(session);
+
   const entries: BuiltinEntry[] = buildBuiltinEntries({
     session,
     rawConfig,
@@ -271,9 +373,10 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     viewSurface,
     webControls,
     setPluginEnabledLive,
+    categoryLive,
   });
 
-  wirePluginsAdminView(session, disabledPackages, setPluginEnabledLive);
+  wirePluginsAdminView(session, disabledPackages, setPluginEnabledLive, categoryLive);
 
   const scheduler = buildSchedulerSlice(session, schedulerRunner, logger);
   entries.push(scheduler.entry);

@@ -1,8 +1,8 @@
 /**
- * Desktop-app preferences (separate from the runner's own
- * ~/.moxxy/preferences.json). Stores anything that's purely about the
- * desktop's local UI state: whether the user has finished onboarding,
- * which Clerk user they were last signed in as, ui prefs, etc.
+ * Desktop-app preferences (separate from the runner's ~/.moxxy/config.yaml
+ * manifest). Stores anything that's purely about the desktop's local UI state:
+ * whether the user has finished onboarding, which Clerk user they were last
+ * signed in as, ui prefs, etc.
  *
  * Crash-atomic write via the framework's writeFileAtomic (unique temp +
  * rename) so a crashed save can't corrupt the file. Lives under

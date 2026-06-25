@@ -36,6 +36,7 @@ import { SynthesizerRegistry } from '../registries/synthesizers.js';
 import { EmbedderRegistry } from '../registries/embedders.js';
 import { IsolatorRegistry } from '../registries/isolators.js';
 import { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
+import { EventStoreRegistry } from '../registries/event-stores.js';
 import { RequirementRegistry } from '../requirements.js';
 import { HookDispatcherImpl } from './lifecycle.js';
 import { PluginHost } from './host.js';
@@ -72,6 +73,20 @@ const everyKindPlugin = definePlugin({
   embedders: [defineEmbedder({ name: 'emb-1', createClient: () => ({}) as never })],
   isolators: [isolator],
   workflowExecutors: [defineWorkflowExecutor({ name: 'wfx-1', run: async () => ({}) as never })],
+  eventStores: [
+    {
+      name: 'es-1',
+      open: () => ({
+        attach: () => () => {},
+        flush: async () => {},
+        settleWrites: async () => {},
+        updateHeader: () => {},
+        degraded: false,
+      }),
+      restore: async () => [],
+      readPage: async () => ({ events: [], prevCursor: null }),
+    },
+  ],
 });
 
 function makeHost() {
@@ -92,6 +107,7 @@ function makeHost() {
     embedders: new EmbedderRegistry(),
     isolators: new IsolatorRegistry(),
     workflowExecutors: new WorkflowExecutorRegistry(),
+    eventStores: new EventStoreRegistry(),
   };
   const requirements = new RequirementRegistry({
     tools: registries.tools,
@@ -130,6 +146,7 @@ function makeHost() {
     embedder: registries.embedders,
     isolator: registries.isolators,
     workflowExecutor: registries.workflowExecutors,
+    eventStore: registries.eventStores,
   };
   return { host, byKind };
 }

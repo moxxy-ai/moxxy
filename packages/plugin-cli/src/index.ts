@@ -41,12 +41,6 @@ export {
   VOICE_CAPTURE_RUNTIME,
   type VoiceCaptureAvailabilityOptions,
 } from './voice-input.js';
-export {
-  loadPreferences,
-  savePreferences,
-  preferencesPath,
-  type MoxxyPreferences,
-} from '@moxxy/core';
 
 export const tuiChannelDef = defineChannel({
   name: 'tui',

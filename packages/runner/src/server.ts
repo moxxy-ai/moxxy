@@ -122,20 +122,14 @@ export class RunnerServer {
   private fallbackApproval: ApprovalResolver | null;
   private closed = false;
   /**
-   * Serializes this runner's preferences read-modify-write handlers
-   * ({@link handleProviderSetActive} / {@link handleProviderSetEnabled}).
-   *
-   * Invariant #5: a whole-file RMW store needs an atomic write PLUS a
-   * per-instance promise-mutex. The atomic-write half lives in core's
-   * `savePreferences`; the serialization half lives here because the
-   * `disabledProviders` toggle reads the current set via `loadPreferences`
-   * BEFORE handing the merged patch to `savePreferences` — that load→compute
-   * step spans core's own critical section, so two overlapping toggles could
-   * otherwise both read the same set and the second clobber the first. Running
-   * the whole load→compute→save body under one mutex makes every prefs write
-   * issued by this runner serialize. (Core would ideally expose a single
-   * mutexed updater covering all callers; until it does, cross-process /
-   * cross-runner prefs writes remain best-effort behind the atomic rename.)
+   * Serializes this runner's multi-await readiness recompute
+   * ({@link handleProviderRefreshReady}): it sequentially probes each
+   * provider's credentials then assigns `session.readyProviders` in one shot,
+   * so without a per-instance mutex two overlapping refreshes (or a setActive
+   * landing mid-probe) could let the slower one's stale set clobber the newer
+   * state. Provider/mode persistence now writes single fields through
+   * @moxxy/config's own mutexed writers (no whole-file RMW), so it no longer
+   * needs this lock.
    */
   private readonly prefsMutex = createMutex();
   /**

@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@clack/prompts": "catalog:",
+    "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",

@@ -3,6 +3,7 @@ import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
+import { providerDefault, providerSlot } from './resolve-plugins-tree.js';
 import type { BootStep } from './types.js';
 
 type Logger = {
@@ -43,8 +44,8 @@ export interface ActivateProviderResult {
 export async function activateProvider(args: ActivateProviderArgs): Promise<ActivateProviderResult> {
   const { session, config, vault, providerConfig, skipKeyPrompt, logger, progress, onProgress } = args;
 
-  const primaryProvider = config.provider?.name ?? 'anthropic';
-  const fallbacks = config.provider?.fallbacks ?? [];
+  const primaryProvider = providerDefault(config);
+  const fallbacks = providerSlot(config).fallbacks ?? [];
   const candidates = [primaryProvider, ...fallbacks];
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;
@@ -55,8 +56,8 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   } else {
     for (let i = 0; i < candidates.length; i++) {
       const candidate = candidates[i]!;
-      // A user-disabled provider (preferences.json `disabledProviders`,
-      // seeded into the registry before this walk) is never auto-activated —
+      // A user-disabled provider (`plugins.provider.items.<name>.enabled:
+      // false`, seeded into the registry before this walk) is never auto-activated —
       // fall through to the next candidate instead of failing on setActive.
       if (!session.providers.isEnabled(candidate)) {
         logger.warn('skipping disabled provider', { provider: candidate });

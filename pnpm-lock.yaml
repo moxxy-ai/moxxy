@@ -1508,6 +1508,9 @@ importers:
       '@moxxy/chat-model':
         specifier: workspace:*
         version: link:../chat-model
+      '@moxxy/config':
+        specifier: workspace:*
+        version: link:../config
       '@moxxy/core':
         specifier: workspace:*
         version: link:../core
@@ -2226,6 +2229,9 @@ importers:
       '@clack/prompts':
         specifier: 'catalog:'
         version: 1.4.0
+      '@moxxy/config':
+        specifier: workspace:*
+        version: link:../config
       '@moxxy/core':
         specifier: workspace:*
         version: link:../core
@@ -2488,6 +2494,9 @@ importers:
 
   packages/runner:
     dependencies:
+      '@moxxy/config':
+        specifier: workspace:*
+        version: link:../config
       '@moxxy/core':
         specifier: workspace:*
         version: link:../core

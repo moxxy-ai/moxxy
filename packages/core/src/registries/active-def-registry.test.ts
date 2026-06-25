@@ -100,4 +100,46 @@ describe('ActiveDefRegistry (shared base)', () => {
     r.setActive('a');
     expect(r.getActive()?.name).toBe('a');
   });
+
+  describe('protected floor (swap, don\'t break)', () => {
+    it('records the floor and reports it via getFloorName', () => {
+      const r = new ActiveDefRegistry<Thing>({ noun: 'Thing' });
+      r.register(mk('base'), { protected: true });
+      expect(r.getFloorName()).toBe('base');
+      expect(r.getActiveName()).toBe('base');
+      const r2 = new ActiveDefRegistry<Thing>({ noun: 'Thing' });
+      r2.register(mk('a'));
+      expect(r2.getFloorName()).toBeNull(); // no floor when nothing is protected
+    });
+
+    it('reverts active to the floor when the active swap target is removed', () => {
+      const r = new ActiveDefRegistry<Thing>({ noun: 'Thing' });
+      r.register(mk('base'), { protected: true });
+      r.register(mk('swap'));
+      r.setActive('swap');
+      expect(r.getActiveName()).toBe('swap');
+      r.unregister('swap');
+      expect(r.getActiveName()).toBe('base'); // reverts to floor, never null
+      expect(r.getActive()?.name).toBe('base');
+    });
+
+    it('refuses to unregister the floor', () => {
+      const r = new ActiveDefRegistry<Thing>({ noun: 'Thing' });
+      r.register(mk('base'), { protected: true });
+      expect(() => r.unregister('base')).toThrow(
+        "Thing 'base' is a protected default and cannot be removed",
+      );
+      expect(r.has('base')).toBe(true);
+    });
+
+    it('falls back to the floor when nothing is explicitly active', () => {
+      const r = new ActiveDefRegistry<Thing>({ noun: 'Thing' });
+      r.register(mk('base'), { protected: true });
+      r.register(mk('swap'));
+      r.setActive('swap');
+      r.clearActive();
+      expect(r.getActiveName()).toBe('base'); // floor, not null
+      expect(r.getActive()?.name).toBe('base');
+    });
+  });
 });

@@ -34,7 +34,7 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
 
   if (sub === 'status') {
     const enabled = config.security?.enabled ?? false;
-    const isolator = config.security?.isolator ?? '(default: inproc)';
+    const isolator = config.plugins?.isolator?.default ?? '(default: inproc)';
     process.stdout.write(
       `${colors.bold('enabled')}   ${enabled ? colors.bold('yes') : colors.dim('no')}\n` +
         `${colors.bold('isolator')}  ${colors.dim(isolator)}\n` +

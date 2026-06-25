@@ -87,8 +87,8 @@ function makeBuiltin_(name: string): { name: string; plugin: Plugin } {
 describe('buildSessionConfigApplier', () => {
   it('changes to `mode` are applied immediately', async () => {
     const session = makeSession();
-    const apply = buildSessionConfigApplier(session, { mode: 'default' });
-    const r = await apply({ mode: 'research' });
+    const apply = buildSessionConfigApplier(session, { plugins: { mode: { default: 'default' } } });
+    const r = await apply({ plugins: { mode: { default: 'research' } } });
     expect(r.applied).toContain('mode');
     expect(r.pending).not.toContain('mode');
   });
@@ -101,23 +101,25 @@ describe('buildSessionConfigApplier', () => {
       compact: async () => ({}) as never,
     });
     const apply = buildSessionConfigApplier(session, {});
-    const r = await apply({ compactor: 'fake-compact' });
+    const r = await apply({ plugins: { compactor: { default: 'fake-compact' } } });
     expect(r.applied).toContain('compactor');
   });
 
   it('compactor set to a missing strategy reports pending with the error', async () => {
     const session = makeSession();
     const apply = buildSessionConfigApplier(session, {});
-    const r = await apply({ compactor: 'nonexistent' });
+    const r = await apply({ plugins: { compactor: { default: 'nonexistent' } } });
     expect(r.applied).not.toContain('compactor');
     expect(r.pending.some((p) => p.startsWith('compactor'))).toBe(true);
   });
 
   it('provider.* changes are reported as pending', async () => {
     const apply = buildSessionConfigApplier(makeSession(), {
-      provider: { name: 'anthropic', model: 'sonnet' },
+      plugins: { provider: { default: 'anthropic', items: { anthropic: { model: 'sonnet' } } } },
     });
-    const r = await apply({ provider: { name: 'anthropic', model: 'haiku' } });
+    const r = await apply({
+      plugins: { provider: { default: 'anthropic', items: { anthropic: { model: 'haiku' } } } },
+    });
     expect(r.pending.some((p) => p.startsWith('provider'))).toBe(true);
   });
 
@@ -127,7 +129,7 @@ describe('buildSessionConfigApplier', () => {
     session.pluginHost.registerStatic(entry.plugin);
 
     const apply = buildSessionConfigApplier(session, {}, [entry]);
-    const r = await apply({ plugins: { '@test/plugin-x': { enabled: false } } });
+    const r = await apply({ plugins: { packages: { '@test/plugin-x': { enabled: false } } } });
 
     expect(r.applied).toContain('plugins[@test/plugin-x].enabled=false');
     expect(session.pluginHost.list().some((p) => p.name === '@test/plugin-x')).toBe(false);
@@ -139,10 +141,10 @@ describe('buildSessionConfigApplier', () => {
     // Initial state: disabled (not in plugin host).
     const apply = buildSessionConfigApplier(
       session,
-      { plugins: { '@test/plugin-x': { enabled: false } } },
+      { plugins: { packages: { '@test/plugin-x': { enabled: false } } } },
       [entry],
     );
-    const r = await apply({ plugins: { '@test/plugin-x': { enabled: true } } });
+    const r = await apply({ plugins: { packages: { '@test/plugin-x': { enabled: true } } } });
 
     expect(r.applied).toContain('plugins[@test/plugin-x].enabled=true');
     expect(session.pluginHost.list().some((p) => p.name === '@test/plugin-x')).toBe(true);
@@ -156,11 +158,11 @@ describe('buildSessionConfigApplier', () => {
     const entry = makeBuiltin_('@test/needs-base');
     const apply = buildSessionConfigApplier(
       session,
-      { plugins: { '@test/needs-base': { enabled: false } } },
+      { plugins: { packages: { '@test/needs-base': { enabled: false } } } },
       [entry],
     );
 
-    const r = await apply({ plugins: { '@test/needs-base': { enabled: true } } });
+    const r = await apply({ plugins: { packages: { '@test/needs-base': { enabled: true } } } });
 
     expect(r.applied).not.toContain('plugins[@test/needs-base].enabled=true');
     expect(r.pending).toContain(
@@ -171,19 +173,23 @@ describe('buildSessionConfigApplier', () => {
   it('toggle is a no-op when the plugin has no builtin entry registered with the applier', async () => {
     const session = makeSession();
     const apply = buildSessionConfigApplier(session, {}, []);
-    const r = await apply({ plugins: { '@unknown/plug': { enabled: true } } });
+    const r = await apply({ plugins: { packages: { '@unknown/plug': { enabled: true } } } });
     // No-op: the applier doesn't have a plugin handle, can't register
     expect(r.applied.find((a) => a.includes('@unknown/plug'))).toBeUndefined();
   });
 
-  it('embeddings.* changes are reported as pending', async () => {
-    const apply = buildSessionConfigApplier(makeSession(), { embeddings: { provider: 'tfidf' } });
-    const r = await apply({ embeddings: { provider: 'openai' } });
-    expect(r.pending.some((p) => p.startsWith('embeddings'))).toBe(true);
+  it('embedder.* changes are reported as pending', async () => {
+    const apply = buildSessionConfigApplier(makeSession(), {
+      plugins: { embedder: { default: 'tfidf' } },
+    });
+    const r = await apply({ plugins: { embedder: { default: 'openai' } } });
+    expect(r.pending.some((p) => p.startsWith('embedder'))).toBe(true);
   });
 
   it('an unchanged config produces empty applied + pending lists', async () => {
-    const cfg = { mode: 'default', compactor: 'summarize-old-turns' };
+    const cfg = {
+      plugins: { mode: { default: 'default' }, compactor: { default: 'summarize-old-turns' } },
+    };
     const apply = buildSessionConfigApplier(makeSession(), cfg);
     const r = await apply(cfg);
     expect(r.applied).toEqual([]);

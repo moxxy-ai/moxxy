@@ -10,12 +10,9 @@ export {
 // so the programmatic API is fully typed from a single `@moxxy/core` import.
 export type { MoxxyEvent, Plugin, ToolDef, PermissionResolver } from '@moxxy/sdk';
 export { createSubagentSpawner, clearRetainedChildren, type SubagentRuntime } from './subagents.js';
-export {
-  loadPreferences,
-  savePreferences,
-  preferencesPath,
-  type MoxxyPreferences,
-} from './preferences.js';
+// Runtime provider/mode/model/disabled persistence moved from
+// ~/.moxxy/preferences.json into the unified `plugins:` manifest; the writers
+// now live in @moxxy/config (setCategoryDefault/setProviderModel/…).
 export {
   loadUsageStats,
   mergeUsageStats,
@@ -59,6 +56,14 @@ export { TranscriberRegistry } from './registries/transcribers.js';
 export { SynthesizerRegistry } from './registries/synthesizers.js';
 export { EmbedderRegistry } from './registries/embedders.js';
 export { IsolatorRegistry as ContributedIsolatorRegistry } from './registries/isolators.js';
+export { EventStoreRegistry } from './registries/event-stores.js';
+export { jsonlEventStore } from './sessions/jsonl-event-store.js';
+export type {
+  EventStoreDef,
+  EventStoreSession,
+  EventStoreScope,
+  EventLogLike,
+} from '@moxxy/sdk';
 export { RequirementRegistry, type RequirementRegistryOptions } from './requirements.js';
 export {
   SessionPersistence,

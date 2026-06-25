@@ -1,26 +1,26 @@
-import { SessionPersistence, type Session, type SessionSource } from '@moxxy/core';
+import { type EventStoreSession, type Session, type SessionSource } from '@moxxy/core';
 import { definePlugin } from '@moxxy/sdk';
 
 /**
- * Wire session persistence to the live event log. Returns null when the
- * caller opted out via `disableSessionPersistence`.
+ * Wire session persistence to the live event log via the session's ACTIVE
+ * EventStore (the protected JSONL floor by default; a plugin store when the
+ * user has swapped `plugins.eventStore.default`). Returns null when the caller
+ * opted out via `disableSessionPersistence`.
  *
- * Persistence is attached LAST — after seeded events are in place and
- * after onInit hooks have run, so we only record the user's actual
- * turn activity (not boot artifacts). The detach is registered as an
- * onShutdown hook so we get a final index update with the real
- * lastActivity timestamp when Session.close() fires.
+ * Attached LAST — after seeded events are in place and after onInit hooks have
+ * run, so we only record the user's actual turn activity (not boot artifacts).
+ * The detach is registered as an onShutdown hook so we get a final index update
+ * with the real lastActivity timestamp when Session.close() fires.
  *
- * The runner writes the session's single metadata file (`<id>.json`), stamped
- * with its originating channel, and every surface (TUI/desktop/mobile) derives
- * its workspace list from those files — there is no separate registry copy to
- * keep in sync.
+ * The store writes the session's single metadata record, stamped with its
+ * originating channel, and every surface (TUI/desktop/mobile) derives its
+ * workspace list from those — there is no separate registry copy to keep in sync.
  */
 export function attachSessionPersistence(
   session: Session,
   cwd: string,
   disabled: boolean | undefined,
-): SessionPersistence | null {
+): EventStoreSession | null {
   if (disabled) return null;
 
   const providerName = session.providers.getActiveName() ?? undefined;
@@ -31,14 +31,17 @@ export function attachSessionPersistence(
       return undefined;
     }
   })();
-  const persistence = new SessionPersistence({
+  // The floor guarantees an active store; guard defensively rather than throw.
+  const store = session.eventStores.getActive();
+  if (!store) return null;
+  const handle = store.open({
     sessionId: session.id,
     cwd,
     providerName,
     modelId,
     source: sessionSource(),
   });
-  const detach = persistence.attach(session.log);
+  const detach = handle.attach(session.log);
   session.pluginHost.registerStatic(
     definePlugin({
       name: '@moxxy/session-persistence-handle',
@@ -50,7 +53,7 @@ export function attachSessionPersistence(
       },
     }),
   );
-  return persistence;
+  return handle;
 }
 
 /** Originating channel of this runner, for the session file's `source`. The

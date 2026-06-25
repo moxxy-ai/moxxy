@@ -32,6 +32,8 @@ import { SynthesizerRegistry } from './registries/synthesizers.js';
 import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
+import { EventStoreRegistry } from './registries/event-stores.js';
+import { jsonlEventStore } from './sessions/jsonl-event-store.js';
 import { RequirementRegistry } from './requirements.js';
 import { PermissionEngine } from './permissions/engine.js';
 import { autoAllowResolver } from './permissions/resolvers.js';
@@ -129,6 +131,7 @@ export class Session implements ClientSession, SessionRuntime {
   readonly embedders: EmbedderRegistry;
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
+  readonly eventStores: EventStoreRegistry;
   readonly requirements: RequirementRegistry;
   readonly permissions: PermissionEngine;
   /** Current PermissionResolver. Update via `setPermissionResolver(r)`. */
@@ -191,13 +194,15 @@ export class Session implements ClientSession, SessionRuntime {
     this.compactors = new CompactorRegistry();
     this.cacheStrategies = new CacheStrategyRegistry();
     this.viewRenderers = new ViewRendererRegistry();
-    // Seed the built-in renderer so `present_view` always has one to parse
-    // with; plugins can register/replace and `setActive` an alternative.
-    this.viewRenderers.register(defaultViewRenderer);
+    // Seed the built-in renderer as the protected floor so `present_view`
+    // always has one to parse with; plugins can register/replace and
+    // `setActive` an alternative, but it can never be removed (reverts here).
+    this.viewRenderers.register(defaultViewRenderer, { protected: true });
     this.tunnelProviders = new TunnelProviderRegistry();
-    // Seed the no-op localhost provider so the web surface always resolves a
-    // URL; plugins (the proxy relay) register/setActive a real tunnel.
-    this.tunnelProviders.register(localhostTunnel);
+    // Seed the no-op localhost provider as the protected floor so the web
+    // surface always resolves a URL; plugins (the proxy relay) register/
+    // setActive a real tunnel, reverting here if it's removed.
+    this.tunnelProviders.register(localhostTunnel, { protected: true });
     this.channels = new ChannelRegistryImpl();
     this.surfaceRegistry = new SurfaceRegistryImpl();
     this.surfaces = new SurfaceHostImpl(this.surfaceRegistry, { cwd: this.cwd, logger: this.logger }, this.logger);
@@ -211,6 +216,10 @@ export class Session implements ClientSession, SessionRuntime {
     this.embedders = new EmbedderRegistry();
     this.isolators = new IsolatorRegistry();
     this.workflowExecutors = new WorkflowExecutorRegistry();
+    this.eventStores = new EventStoreRegistry();
+    // Seed the built-in JSONL store as the protected floor — the storage backend
+    // behind the event log always exists and can be swapped but never removed.
+    this.eventStores.register(jsonlEventStore, { protected: true });
     this.requirements = new RequirementRegistry({
       tools: this.tools,
       providers: this.providers,
@@ -257,6 +266,7 @@ export class Session implements ClientSession, SessionRuntime {
       embedders: this.embedders,
       isolators: this.isolators,
       workflowExecutors: this.workflowExecutors,
+      eventStores: this.eventStores,
       requirements: this.requirements,
       dispatcher: this.dispatcher,
       loader: opts.pluginLoader,

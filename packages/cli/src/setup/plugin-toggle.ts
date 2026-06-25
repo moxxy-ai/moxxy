@@ -1,5 +1,7 @@
+import { MoxxyError } from '@moxxy/sdk';
 import { type Session } from '@moxxy/core';
 import { setPluginEnabled } from '@moxxy/plugin-plugins-admin';
+import { isCriticalPackage } from './critical-packages.js';
 import type { BuiltinEntry } from './builtin-entries.js';
 
 export interface PluginToggleArgs {
@@ -27,6 +29,16 @@ export function buildSetPluginEnabledLive(
 ): (packageName: string, enabled: boolean) => Promise<void> {
   const { session, disabledPackages, getEntries } = args;
   return async (packageName: string, enabled: boolean): Promise<void> => {
+    // The kernel floor: a critical package can be swapped (point a category at a
+    // different default) but never disabled — refuse rather than brick the app.
+    if (!enabled && isCriticalPackage(packageName)) {
+      throw new MoxxyError({
+        code: 'PLUGIN_PROTECTED',
+        message: `${packageName} is a core module and cannot be disabled.`,
+        hint: 'Swap the relevant category default instead (e.g. `set_default mode <other>`), or install an alternative and point the default at it.',
+        context: { package: packageName },
+      });
+    }
     await setPluginEnabled(packageName, enabled);
     if (!enabled) {
       disabledPackages.add(packageName);

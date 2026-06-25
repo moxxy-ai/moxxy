@@ -1,22 +1,8 @@
 import { z } from 'zod';
+import { pluginSettingsSchema } from './plugin-settings-schema.js';
+import { pluginsTreeSchema } from './plugins-tree-schema.js';
 
 export const watcherModeSchema = z.enum(['auto', 'manual', 'off']);
-
-export const pluginSettingsSchema = z.object({
-  enabled: z.boolean().optional(),
-  options: z.record(z.string(), z.unknown()).optional(),
-});
-
-export const providerSettingsSchema = z.object({
-  name: z.string(),
-  config: z.record(z.string(), z.unknown()).optional(),
-  model: z.string().optional(),
-  /**
-   * Ordered list of provider names to fall back to when the primary's API key
-   * resolution fails. The first one with a working key wins.
-   */
-  fallbacks: z.array(z.string()).optional(),
-});
 
 export const permissionsConfigSchema = z.object({
   policyPath: z.string().optional(),
@@ -50,13 +36,9 @@ export const securityConfigSchema = z.object({
    * write one field at a time; consumers default it to false.
    */
   enabled: z.boolean().optional(),
-  /**
-   * Name of the Isolator implementation to use as default. Phase 1
-   * ships `none` (passthrough) and `inproc` (cap validation + timeout).
-   * Future isolators (`worker`, `subprocess`, `wasm`, `docker`) register
-   * by name via the same plugin contract and slot in here.
-   */
-  isolator: z.string().optional(),
+  // The default isolator now lives in the unified tree at
+  // `plugins.isolator.default` (a registry kind like any other); it is no
+  // longer a bespoke `security.isolator` key.
   /**
    * Per-tool isolator overrides keyed by tool name. e.g.
    * `{ bash: 'subprocess', memory_save: 'none' }`. Falls back to the
@@ -127,8 +109,7 @@ export const elisionConfigSchema = z.object({
 export const contextConfigSchema = z.object({
   /** Master switch for prompt caching. Default true (lossless). */
   caching: z.boolean().optional(),
-  /** Name of the active CacheStrategy block (default 'stable-prefix'). */
-  cacheStrategy: z.string().optional(),
+  // The active CacheStrategy now lives at `plugins.cacheStrategy.default`.
   elision: elisionConfigSchema.optional(),
   /** Lazy tool loading: send only core + loaded tool schemas, index the rest. Default false. */
   lazyTools: z.boolean().optional(),
@@ -143,11 +124,14 @@ export const contextConfigSchema = z.object({
 });
 
 export const moxxyConfigSchema = z.object({
-  provider: providerSettingsSchema.optional(),
-  mode: z.string().optional(),
-  compactor: z.string().optional(),
-  /** Name of the active WorkflowExecutor block (default 'dag'). */
-  workflowExecutor: z.string().optional(),
+  /**
+   * The unified plugins manifest — the single source of truth for what's
+   * installed/enabled (`plugins.packages`) and the active default per category
+   * (`plugins.<category>.default`). Replaces the legacy flat
+   * provider/mode/compactor/workflowExecutor keys, the old `plugins:` map, and
+   * `preferences.json`.
+   */
+  plugins: pluginsTreeSchema.optional(),
   context: contextConfigSchema.optional(),
   systemPrompt: z.string().optional(),
   maxIterations: z.number().int().positive().optional(),
@@ -160,9 +144,7 @@ export const moxxyConfigSchema = z.object({
       extraDirs: z.array(z.string()).optional(),
     })
     .optional(),
-  embeddings: embeddingsConfigSchema.optional(),
   security: securityConfigSchema.optional(),
-  plugins: z.record(z.string(), pluginSettingsSchema).optional(),
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
@@ -171,9 +153,12 @@ export const moxxyConfigSchema = z.object({
 export type MoxxyConfig = z.infer<typeof moxxyConfigSchema>;
 export type ContextConfig = z.infer<typeof contextConfigSchema>;
 export type ElisionConfig = z.infer<typeof elisionConfigSchema>;
-export type PluginSettings = z.infer<typeof pluginSettingsSchema>;
-export type ProviderSettings = z.infer<typeof providerSettingsSchema>;
 export type WatcherMode = z.infer<typeof watcherModeSchema>;
 export type PermissionsConfig = z.infer<typeof permissionsConfigSchema>;
 export type EmbeddingsConfig = z.infer<typeof embeddingsConfigSchema>;
 export type SecurityConfig = z.infer<typeof securityConfigSchema>;
+
+// `pluginSettingsSchema` is defined in ./plugin-settings-schema and re-exported
+// here for back-references; `PluginSettings` lives there too.
+export { pluginSettingsSchema };
+export type { PluginSettings } from './plugin-settings-schema.js';

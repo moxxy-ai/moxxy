@@ -16,6 +16,7 @@ import {
   silentLogger,
   type Logger,
 } from '@moxxy/core';
+import { loadActiveProvider, loadDisabledProviders } from '@moxxy/config';
 import {
   asTurnId,
   defineMode,
@@ -479,8 +480,9 @@ describe('runner end-to-end', () => {
     // creating a workspace after connecting a (non-default) provider booted a
     // fresh runner that defaulted back to `anthropic`, found no key, came up
     // `connected` but provider-less, and bounced the user to "Connect a
-    // provider". The runner must persist the pick to ~/.moxxy/preferences.json
-    // (like the TUI / Telegram pickers) so the next runner picks it up.
+    // provider". The runner must persist the pick to ~/.moxxy/config.yaml
+    // (`plugins.provider.default`, like the TUI / Telegram pickers) so the next
+    // runner picks it up.
     const home = await mkdtemp(path.join(os.tmpdir(), 'moxxy-prefs-'));
     const prevHome = process.env.HOME;
     const prevUserProfile = process.env.USERPROFILE;
@@ -510,20 +512,15 @@ describe('runner end-to-end', () => {
       remote.providers.setActive('fake2');
       await waitFor(() => session.providers.getActiveName() === 'fake2');
 
-      // savePreferences is fire-and-forget inside the handler, so poll the
-      // file until the async write lands.
-      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
+      // Persisting `plugins.provider.default` is fire-and-forget inside the
+      // handler, so poll the config until the async write lands.
       const deadline = Date.now() + 2000;
-      let persisted: { providerName?: string } = {};
-      while (persisted.providerName !== 'fake2' && Date.now() < deadline) {
-        try {
-          persisted = JSON.parse(await readFile(prefsPath, 'utf8')) as { providerName?: string };
-        } catch {
-          /* not written yet */
-        }
-        if (persisted.providerName !== 'fake2') await new Promise((r) => setTimeout(r, 5));
+      let persisted: string | null = null;
+      while (persisted !== 'fake2' && Date.now() < deadline) {
+        persisted = await loadActiveProvider();
+        if (persisted !== 'fake2') await new Promise((r) => setTimeout(r, 5));
       }
-      expect(persisted.providerName).toBe('fake2');
+      expect(persisted).toBe('fake2');
     } finally {
       if (prevHome === undefined) delete process.env.HOME;
       else process.env.HOME = prevHome;
@@ -1052,35 +1049,24 @@ describe('provider management (protocol v7)', () => {
       await waitFor(
         () => remote.getInfo().providers.find((p) => p.name === 'fake2')?.enabled === false,
       );
-      // Persisted (fire-and-forget) so the next boot's walk skips it.
-      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
-      await waitForAsync(async () => {
-        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
-          disabledProviders?: string[];
-        };
-        return prefs.disabledProviders?.includes('fake2') === true;
-      });
+      // Persisted (fire-and-forget) as `plugins.provider.items.fake2.enabled:
+      // false` so the next boot's walk skips it.
+      await waitForAsync(async () => (await loadDisabledProviders()).includes('fake2'));
 
-      // Re-enable: registry + persisted list both flip back.
+      // Re-enable: registry + persisted flag both flip back.
       await remote.providerAdmin.setEnabled('fake2', true);
       expect(session.providers.isEnabled('fake2')).toBe(true);
-      await waitForAsync(async () => {
-        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
-          disabledProviders?: string[];
-        };
-        return prefs.disabledProviders?.includes('fake2') === false;
-      });
+      await waitForAsync(async () => !(await loadDisabledProviders()).includes('fake2'));
     });
   });
 
   it('serializes concurrent provider.setEnabled toggles so neither drops the other (invariant #5)', async () => {
-    // Regression (u120-2): handleProviderSetEnabled does a read-modify-write of
-    // preferences.json — load disabledProviders, add/remove one name, save. Two
-    // overlapping toggles (the model can fire tools in parallel; the desktop can
-    // toggle two providers in quick succession) each read the SAME stale set,
-    // and without serialization the second writer clobbers the first — one
-    // disable silently vanishes. The runner's `prefsMutex` must serialize the
-    // whole load→compute→save body so BOTH names land in the persisted list.
+    // Regression (u120-2): handleProviderSetEnabled persists each provider's
+    // `plugins.provider.items.<name>.enabled` flag through @moxxy/config's
+    // mutexed writer. Two overlapping toggles (the model can fire tools in
+    // parallel; the desktop can toggle two providers in quick succession) write
+    // DIFFERENT fields; the writer's mutex serializes them so the second reads
+    // the doc including the first's write — BOTH disables land, neither lost.
     await withTempHome(async (home) => {
       const socketPath = tmpSocket();
       const provider = new FakeProvider({ script: [textReply('hi')] });
@@ -1107,19 +1093,14 @@ describe('provider management (protocol v7)', () => {
         remote.providerAdmin.setEnabled('fake3', false),
       ]);
 
-      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
-      // The mutex guarantees BOTH names survive the read-modify-write race.
+      // Each toggle is a single-field write serialized by the config writer's
+      // own mutex, so BOTH names survive the concurrent toggles (the second
+      // writer reads the doc including the first's write).
       await waitForAsync(async () => {
-        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
-          disabledProviders?: string[];
-        };
-        const set = new Set(prefs.disabledProviders ?? []);
+        const set = new Set(await loadDisabledProviders());
         return set.has('fake2') && set.has('fake3');
       });
-      const finalPrefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
-        disabledProviders?: string[];
-      };
-      expect([...(finalPrefs.disabledProviders ?? [])].sort()).toEqual(['fake2', 'fake3']);
+      expect([...(await loadDisabledProviders())].sort()).toEqual(['fake2', 'fake3']);
 
       // And the live registry reflects both — behaviour of each toggle is
       // unchanged, the mutex only serialized the persistence.
@@ -1129,10 +1110,10 @@ describe('provider management (protocol v7)', () => {
   });
 
   it('does not lose a disabledProviders update when setActive races a setEnabled toggle', async () => {
-    // The other prefs writer (handleProviderSetActive, which persists
-    // providerName) shares the same `prefsMutex`. A setActive firing between a
-    // toggle's load and its save must not clobber disabledProviders, and the
-    // toggle must not clobber providerName. Both effects persist.
+    // handleProviderSetActive persists `plugins.provider.default` and the toggle
+    // persists `plugins.provider.items.<name>.enabled` — different fields, both
+    // serialized by the config writer's mutex. A setActive racing a toggle must
+    // not clobber the other; both effects persist.
     await withTempHome(async (home) => {
       const socketPath = tmpSocket();
       const provider = new FakeProvider({ script: [textReply('hi')] });
@@ -1156,23 +1137,13 @@ describe('provider management (protocol v7)', () => {
         remote.providers.setActive('fake2'),
       ]);
 
-      const prefsPath = path.join(home, '.moxxy', 'preferences.json');
       await waitForAsync(async () => {
-        const prefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
-          providerName?: string;
-          disabledProviders?: string[];
-        };
-        return (
-          prefs.providerName === 'fake2' &&
-          (prefs.disabledProviders ?? []).includes('fake3')
-        );
+        const provider = await loadActiveProvider();
+        const disabled = await loadDisabledProviders();
+        return provider === 'fake2' && disabled.includes('fake3');
       });
-      const finalPrefs = JSON.parse(await readFile(prefsPath, 'utf8')) as {
-        providerName?: string;
-        disabledProviders?: string[];
-      };
-      expect(finalPrefs.providerName).toBe('fake2');
-      expect(finalPrefs.disabledProviders).toContain('fake3');
+      expect(await loadActiveProvider()).toBe('fake2');
+      expect(await loadDisabledProviders()).toContain('fake3');
     });
   });
 

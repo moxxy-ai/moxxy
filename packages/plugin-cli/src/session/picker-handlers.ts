@@ -1,5 +1,5 @@
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { savePreferences } from '@moxxy/core';
+import { setCategoryDefault, setProviderModel } from '@moxxy/config';
 import type { Picker } from './types.js';
 import { openMcpPicker, openPluginsPicker } from './run-slash.js';
 
@@ -48,6 +48,33 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
   const action = sep >= 0 ? id.slice(sep + 2) : '';
   if (action === 'install') {
     deps.setSystemNotice(`to install: run \`moxxy plugins install ${name}\``);
+    return;
+  }
+  if (action === 'core') {
+    deps.setSystemNotice(`${name} is a core module and can't be disabled — swap its default instead`);
+    return;
+  }
+  if (action === 'setdefault') {
+    // id is `<category>::<contribution>::setdefault`; `name` holds the rest.
+    if (!admin) {
+      deps.setSystemNotice('plugin management is not available on this session');
+      return;
+    }
+    const split = name.indexOf('::');
+    const category = split >= 0 ? name.slice(0, split) : name;
+    const contribution = split >= 0 ? name.slice(split + 2) : '';
+    void (async () => {
+      try {
+        await admin.setCategoryDefault(category, contribution);
+        deps.setSystemNotice(`✓ ${category} default → ${contribution}`);
+      } catch (err) {
+        deps.setSystemNotice(
+          `set default failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        openPluginsPicker(deps);
+      }
+    })();
     return;
   }
   if (action !== 'enable' && action !== 'disable') return;
@@ -200,7 +227,9 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
       }
       deps.setActiveModelOverride(modelId);
       deps.setSystemNotice(`switched to ${providerId}:${modelId}`);
-      void savePreferences({ providerName: providerId, model: modelId });
+      // Persist to the unified manifest so the next boot keeps this pick.
+      void setCategoryDefault('provider', providerId).catch(() => undefined);
+      void setProviderModel(providerId, modelId).catch(() => undefined);
     } catch (err) {
       deps.setSystemNotice(
         `failed to switch: ${err instanceof Error ? err.message : String(err)}`,
@@ -213,7 +242,7 @@ function handleModeSelected(id: string, deps: PickerHandlerDeps): void {
   try {
     deps.session.modes.setActive(id);
     deps.setSystemNotice(`mode → ${id}`);
-    void savePreferences({ mode: id });
+    void setCategoryDefault('mode', id).catch(() => undefined);
   } catch (err) {
     deps.setSystemNotice(
       `failed to switch mode: ${err instanceof Error ? err.message : String(err)}`,

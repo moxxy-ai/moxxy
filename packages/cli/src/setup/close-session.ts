@@ -1,4 +1,4 @@
-import type { Session, SessionPersistence } from '@moxxy/core';
+import type { EventStoreSession, Session } from '@moxxy/core';
 
 /**
  * Cleanly tear down a one-shot CLI session so the process can exit promptly
@@ -30,7 +30,7 @@ import type { Session, SessionPersistence } from '@moxxy/core';
  */
 export async function closeSession(
   session: Session,
-  persistence?: SessionPersistence | null,
+  persistence?: EventStoreSession | null,
 ): Promise<void> {
   // Drain persistence FIRST so the last event + final index row are on disk
   // before the shutdown hook detaches the listener. Best-effort: a flush
