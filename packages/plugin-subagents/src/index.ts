@@ -1,4 +1,10 @@
-import { definePlugin, type AgentDef, type Plugin } from '@moxxy/sdk';
+import {
+  definePlugin,
+  type AgentDef,
+  type LifecycleHooks,
+  type NamedRegistry,
+  type Plugin,
+} from '@moxxy/sdk';
 import { buildDispatchAgentTool, type DispatchAgentDeps } from './dispatch-agent.js';
 
 export { buildDispatchAgentTool, type DispatchAgentDeps } from './dispatch-agent.js';
@@ -35,7 +41,10 @@ export interface BuildSubagentsPluginOpts {
  * a freshly-installed agent kind becomes available the next time the
  * model calls dispatch_agent — no restart needed.
  */
-export function buildSubagentsPlugin(opts: BuildSubagentsPluginOpts = {}): Plugin {
+export function buildSubagentsPlugin(
+  opts: BuildSubagentsPluginOpts = {},
+  hooks?: LifecycleHooks,
+): Plugin {
   const deps: DispatchAgentDeps = {
     getAgent: opts.getAgent ?? (() => undefined),
     ...(opts.getToolNames ? { getToolNames: opts.getToolNames } : {}),
@@ -43,10 +52,35 @@ export function buildSubagentsPlugin(opts: BuildSubagentsPluginOpts = {}): Plugi
   return definePlugin({
     name: '@moxxy/plugin-subagents',
     version: '0.0.0',
+    ...(hooks ? { hooks } : {}),
     tools: [buildDispatchAgentTool(deps)],
   });
 }
 
-export const subagentsPlugin = buildSubagentsPlugin();
+/**
+ * Discovery-loadable default export: resolves the `agents` + `tools` registries
+ * from the inter-plugin service registry in `onInit` (the host publishes them),
+ * so `dispatch_agent` looks up agent kinds + the live parent-tool snapshot from
+ * the session without a host-injected closure. Both reads are lazy (at tool-call
+ * time, after all registration), and degrade to the standalone defaults if the
+ * host hasn't published them.
+ */
+export const subagentsPlugin: Plugin = (() => {
+  let agents: NamedRegistry<AgentDef> | null = null;
+  let tools: NamedRegistry<{ readonly name: string }> | null = null;
+  const hooks: LifecycleHooks = {
+    onInit: (ctx) => {
+      agents = ctx.services.get<NamedRegistry<AgentDef>>('agents') ?? null;
+      tools = ctx.services.get<NamedRegistry<{ readonly name: string }>>('tools') ?? null;
+    },
+  };
+  return buildSubagentsPlugin(
+    {
+      getAgent: (name) => agents?.get(name),
+      getToolNames: () => (tools ? tools.list().map((t) => t.name) : []),
+    },
+    hooks,
+  );
+})();
 
 export default subagentsPlugin;

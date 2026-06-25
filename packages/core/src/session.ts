@@ -220,6 +220,17 @@ export class Session implements ClientSession, SessionRuntime {
     this.isolators = new IsolatorRegistry();
     this.workflowExecutors = new WorkflowExecutorRegistry();
     this.services = new ServiceRegistryImpl();
+    // Publish the core registries on the inter-plugin service registry under
+    // well-known names, so a discovery-loaded plugin can resolve one in its
+    // onInit (typed as the SDK's minimal NamedRegistry) instead of being
+    // hand-built with a `() => session.<registry>` closure. The registry
+    // objects are stable; their contents grow as plugins register — consumers
+    // read them lazily at tool-call time, after all registration has run.
+    this.services.register('agents', this.agents);
+    this.services.register('tools', this.tools);
+    this.services.register('providers', this.providers);
+    this.services.register('viewRenderers', this.viewRenderers);
+    this.services.register('synthesizers', this.synthesizers);
     this.eventStores = new EventStoreRegistry();
     // Seed the built-in JSONL store as the protected floor — the storage backend
     // behind the event log always exists and can be swapped but never removed.
