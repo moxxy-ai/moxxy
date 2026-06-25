@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-scheduler",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Cron/heartbeat plugin for moxxy. Time-driven prompts + auto-scheduled skills with frontmatter.schedule.",
   "type": "module",
   "main": "./dist/index.js",

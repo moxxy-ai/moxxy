@@ -1,5 +1,6 @@
 import type { Bot, Context } from 'grammy';
 import { setCategoryDefault, setProviderModel } from '@moxxy/config';
+import { isSelectableMode } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { PermissionDecision } from '@moxxy/sdk';
 import type { TelegramPermissionResolver } from '../permission.js';
@@ -219,6 +220,13 @@ async function handleMode(
   const modeName = data.slice(5);
   if (!modeName || !session) {
     await ctx.answerCallbackQuery({ text: 'invalid mode' });
+    return;
+  }
+  // Refuse a special mode reached by name (e.g. a stale callback) — special
+  // modes are entered only via their own command. Mirrors the TUI guard.
+  const target = session.modes.list().find((m) => m.name === modeName);
+  if (target && !isSelectableMode(target)) {
+    await ctx.answerCallbackQuery({ text: `"${modeName}" is a special mode` });
     return;
   }
   try {

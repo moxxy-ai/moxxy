@@ -1,7 +1,30 @@
 {
   "name": "@moxxy/plugin-provider-claude-code",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Claude subscription (Pro/Max) LLMProvider plugin for moxxy. Talks to the standard Anthropic Messages API using a Claude Code OAuth token from `claude setup-token` or an in-app sign-in.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "anthropic",
+    "claude",
+    "oauth",
+    "llm"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-claude-code"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -1,7 +1,31 @@
 {
   "name": "@moxxy/plugin-provider-openai-codex",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "OpenAI Codex (ChatGPT Pro/Plus OAuth) LLMProvider plugin for moxxy. Streams against https://chatgpt.com/backend-api/codex/responses using PKCE-based OAuth tokens.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "openai",
+    "codex",
+    "chatgpt",
+    "oauth",
+    "llm"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-openai-codex"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

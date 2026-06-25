@@ -1,7 +1,29 @@
 {
   "name": "@moxxy/plugin-provider-local",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Local-model LLMProvider plugin for moxxy. Talks to any OpenAI-compatible local server (Ollama, LM Studio, llama.cpp, vLLM) — no API key required.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "ollama",
+    "local",
+    "llm"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-local"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

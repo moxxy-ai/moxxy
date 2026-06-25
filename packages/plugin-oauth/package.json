@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-oauth",
-  "private": true,
-  "version": "0.0.32",
+  "version": "0.0.33",
   "description": "Generic OAuth 2.0 + PKCE client. Loopback callback server, vault-backed token storage, refresh helpers. Bundled skills for Google Workspace + arbitrary providers.",
+  "keywords": [
+    "moxxy",
+    "oauth",
+    "pkce",
+    "auth",
+    "plugin"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-oauth"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

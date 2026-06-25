@@ -1,5 +1,15 @@
 # @moxxy/plugin-cli
 
+## 0.4.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.21.1
+- @moxxy/core@0.21.1
+- @moxxy/config@0.21.1
+- @moxxy/chat-model@0.3.10
+- @moxxy/plugin-mcp@0.0.33
+
 ## 0.4.0
 
 ### Minor Changes

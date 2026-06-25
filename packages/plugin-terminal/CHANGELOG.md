@@ -1,5 +1,11 @@
 # @moxxy/plugin-terminal
 
+## 0.0.20
+
+### Patch Changes
+
+- @moxxy/sdk@0.21.1
+
 ## 0.0.19
 
 ### Patch Changes

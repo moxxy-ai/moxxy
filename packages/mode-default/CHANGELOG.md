@@ -1,5 +1,11 @@
 # @moxxy/mode-default
 
+## 0.1.10
+
+### Patch Changes
+
+- @moxxy/sdk@0.21.1
+
 ## 0.1.9
 
 ### Patch Changes

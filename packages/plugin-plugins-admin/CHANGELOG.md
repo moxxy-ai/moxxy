@@ -1,5 +1,12 @@
 # @moxxy/plugin-plugins-admin
 
+## 0.2.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.21.1
+- @moxxy/config@0.21.1
+
 ## 0.2.0
 
 ### Minor Changes
