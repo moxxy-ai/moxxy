@@ -125,7 +125,7 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     payload: { autoApprove: true, maxIterations: ctx.maxIterations ?? GOAL_MAX_ITERATIONS },
   });
 
-  const detector = createStuckLoopDetector();
+  const detector = createStuckLoopDetector(ctx.loopGuard);
   // Coerce a caller/config-supplied bound to a positive integer. A degenerate
   // value (0, negative, NaN, fractional) would otherwise make the for-loop
   // never run and fall straight to the "iteration cap reached" fatal — work was

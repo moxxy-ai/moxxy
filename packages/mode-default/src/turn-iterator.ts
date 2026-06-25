@@ -73,7 +73,7 @@ export async function* runDefaultMode(ctx: ModeContext): AsyncIterable<MoxxyEven
     typeof requestedMaxIterations === 'number' && Number.isFinite(requestedMaxIterations)
       ? Math.max(1, Math.floor(requestedMaxIterations))
       : 500;
-  const detector = createStuckLoopDetector();
+  const detector = createStuckLoopDetector(ctx.loopGuard);
   // Reactive-compaction budget per overflow episode. If the provider keeps
   // rejecting for context size even after compacting this many times, give up
   // (the overflow is in the recent, un-compactable tail). Reset on any clean

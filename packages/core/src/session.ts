@@ -2,6 +2,7 @@ import type {
   AppContext,
   ClientSession,
   EmittedEvent,
+  LoopGuardSettings,
   MoxxyEvent,
   RunTurnOptions,
   SessionId,
@@ -162,6 +163,12 @@ export class Session implements ClientSession, SessionRuntime {
    * when the active model advertises `supportsReasoning`. Undefined → off.
    */
   reasoning: { readonly effort?: 'low' | 'medium' | 'high' } | boolean | undefined = undefined;
+  /**
+   * Stuck-loop guard tuning, from `config.context.loopGuard`. Forwarded to each
+   * turn's ModeContext and on to the mode's stuck-loop detector. Undefined →
+   * the detector's defaults.
+   */
+  loopGuard: LoopGuardSettings | undefined = undefined;
   /**
    * Model id resolved by the most recent `runTurn()` (see SessionRuntime).
    * Last-writer-wins for concurrent turns; null until the first turn runs.

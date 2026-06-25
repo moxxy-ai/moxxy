@@ -6,6 +6,7 @@ import type {
   ElisionSettings,
   HookDispatcher,
   LLMProvider,
+  LoopGuardSettings,
   ModeDef,
   PermissionResolver,
   PluginHostHandle,
@@ -59,6 +60,8 @@ export interface SessionRuntime {
   readonly lazyTools: boolean;
   /** Reasoning/thinking preference (effort), forwarded to each turn's ModeContext. */
   readonly reasoning?: { readonly effort?: 'low' | 'medium' | 'high' } | boolean | undefined;
+  /** Stuck-loop guard tuning, forwarded to each turn's ModeContext. */
+  readonly loopGuard?: LoopGuardSettings;
   readonly dispatcher: HookDispatcher;
   readonly pluginHost: PluginHostHandle;
   /**

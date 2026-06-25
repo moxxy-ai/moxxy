@@ -458,6 +458,7 @@ function buildChildContext(
     cacheStrategy: parentSession.cacheStrategies.getActive(),
     ...(parentSession.elisionSettings ? { elision: parentSession.elisionSettings } : {}),
     ...(parentSession.lazyTools ? { lazyTools: true } : {}),
+    ...(parentSession.loopGuard ? { loopGuard: parentSession.loopGuard } : {}),
     permissions: parentSession.resolver,
     // Intentionally no `approval` — fanning approval gates out to N
     // children in parallel would prompt the user N times. Strategies

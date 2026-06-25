@@ -7,6 +7,7 @@ import type { SessionId, TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
 import type { PermissionResolver } from './permission.js';
 import type { LLMProvider } from './provider.js';
+import type { LoopGuardSettings } from './mode/stuck-loop.js';
 import type { Skill } from './skill.js';
 import type { SubagentSpawner } from './subagent.js';
 import type { ToolDef } from './tool.js';
@@ -111,6 +112,11 @@ export interface ModeContext {
   readonly services: ServiceRegistry;
   readonly signal: AbortSignal;
   readonly maxIterations?: number;
+  /**
+   * Loop-guard tuning (config `context.loopGuard`), forwarded to each mode's
+   * stuck-loop detector. When omitted the detector uses its defaults.
+   */
+  readonly loopGuard?: LoopGuardSettings;
   /**
    * Spawn one or more child agents that share the parent's registries
    * but run in isolation. Children stream their events back to the

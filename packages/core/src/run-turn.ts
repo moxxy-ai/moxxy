@@ -124,6 +124,7 @@ export async function* runTurn(
       // Reasoning preference (effort) — honored only by providers/models that
       // advertise `supportsReasoning` (gated in collectProviderStream).
       ...(session.reasoning ? { reasoning: session.reasoning } : {}),
+      ...(session.loopGuard ? { loopGuard: session.loopGuard } : {}),
       permissions: session.resolver,
       ...(session.approvalResolver ? { approval: session.approvalResolver } : {}),
       hooks: session.dispatcher,

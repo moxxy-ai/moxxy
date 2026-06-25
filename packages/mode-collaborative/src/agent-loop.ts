@@ -76,7 +76,7 @@ export async function* runCollabAgentLoop(
   // Announce active work so the roster/UI shows 'working' (not a stale
   // 'connected') for the whole turn. Best-effort; the run proceeds regardless.
   if (hub) await hub.setStatus('working').catch(() => undefined);
-  const detector = createStuckLoopDetector();
+  const detector = createStuckLoopDetector(ctx.loopGuard);
   const maxIterations = ctx.maxIterations ?? peerMaxIterationsFromEnv() ?? DEFAULT_MAX_ITERATIONS;
   let noop = 0;
   let reactiveCompactions = 0;
