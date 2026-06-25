@@ -21,8 +21,8 @@
  * Voice capture lives in this orchestrator (not in Active) so a recording
  * that's still transcribing survives the active → mini-text stage switch.
  *
- * The tile stays compact; transient preview copy is rendered as a lightweight
- * bubble beside it and never drives per-token window resizing.
+ * The tile / action bar stay compact; transient preview copy is rendered as a
+ * lightweight bubble beside them and never drives per-token window resizing.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -44,7 +44,9 @@ type Stage = 'inactive' | 'active' | 'mini-text';
 // doesn't look hollow on the right.
 const ACTIVE_WIDTH_WITH_MIC = 232;
 const ACTIVE_WIDTH_WITHOUT_MIC = 196;
-const INACTIVE_PREVIEW_SIZE = { width: 348, height: 76 };
+const INACTIVE_PREVIEW_SIZE = { width: 430, height: 104 };
+const ACTIVE_PREVIEW_EXTRA_WIDTH = 378;
+const PREVIEW_HEIGHT = 104;
 
 const SIZE: Record<Stage, { width: number; height: number }> = {
   inactive: { width: 44, height: 44 },
@@ -81,9 +83,17 @@ function Surface({
   const chat = useChat(workspaceId);
   const { preview, dismissPreview } = useInactiveReplyPreview({ stage, workspaceId });
   const previewVisible = preview !== null;
-  const openInactive = (): void => {
+  const activeWidth = hasTranscriber === false ? ACTIVE_WIDTH_WITHOUT_MIC : ACTIVE_WIDTH_WITH_MIC;
+  const openPreview = (): void => {
     dismissPreview();
-    setStage(preview ? 'mini-text' : 'active');
+    setStage('mini-text');
+  };
+  const openInactive = (): void => {
+    if (preview) {
+      openPreview();
+      return;
+    }
+    setStage('active');
   };
   const tileGesture = useFocusTileGesture({
     onClick: openInactive,
@@ -129,12 +139,16 @@ function Surface({
 
   useEffect(() => {
     let { width, height } = SIZE[stage];
+    if (stage === 'active') {
+      width = activeWidth;
+    }
     if (stage === 'inactive' && previewVisible) {
       width = INACTIVE_PREVIEW_SIZE.width;
       height = INACTIVE_PREVIEW_SIZE.height;
     }
-    if (stage === 'active' && hasTranscriber === false) {
-      width = ACTIVE_WIDTH_WITHOUT_MIC;
+    if (stage === 'active' && previewVisible) {
+      width = activeWidth + ACTIVE_PREVIEW_EXTRA_WIDTH;
+      height = PREVIEW_HEIGHT;
     }
     void api()
       .invoke('focus.resize', { width, height, resizable: stage === 'mini-text' })
@@ -142,7 +156,7 @@ function Surface({
         if (placement?.horizontalAnchor) setHorizontalAnchor(placement.horizontalAnchor);
       })
       .catch(() => undefined);
-  }, [stage, hasTranscriber, previewVisible]);
+  }, [stage, activeWidth, previewVisible]);
 
   // Collapsing back to the inactive square hides the recording UI but the voice
   // recorder lives on the always-mounted Surface — so without explicitly
@@ -160,11 +174,15 @@ function Surface({
         horizontalAnchor={horizontalAnchor}
         dragging={tileGesture.dragging}
         gestureProps={tileGesture.gestureProps}
+        onPreviewActivate={openInactive}
       />
     );
   if (stage === 'active')
     return (
       <Active
+        preview={preview}
+        horizontalAnchor={horizontalAnchor}
+        width={activeWidth}
         hasTranscriber={hasTranscriber === true}
         recording={voice.phase === 'recording'}
         transcribing={voice.phase === 'transcribing'}
@@ -172,6 +190,7 @@ function Surface({
         onToggleMic={voice.toggle}
         onCollapse={collapse}
         onText={() => setStage('mini-text')}
+        onPreviewActivate={openPreview}
       />
     );
   return (

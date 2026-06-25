@@ -98,7 +98,8 @@ export function useInactiveReplyPreview({
   }, []);
 
   useEffect(() => {
-    if (stage !== 'inactive') {
+    const canShowPreview = stage === 'inactive' || stage === 'active';
+    if (!canShowPreview) {
       consumedKeyRef.current = candidate?.key ?? consumedKeyRef.current;
       dismissPreview();
       return;

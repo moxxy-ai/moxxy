@@ -1,9 +1,9 @@
 /**
  * Cross-stage atoms shared by the focus widget: the brand LogoMark, the
- * pulsing thinking Dot, and the hover-aware ActionButton used in the
- * active action row. Each is intentionally tiny and self-contained so
- * the stage components (inactive / active / mini-text) can compose them
- * without re-declaring hover/fallback logic.
+ * reply preview bubble, the pulsing thinking Dot, and the hover-aware
+ * ActionButton used in the active action row. Each is intentionally tiny
+ * and self-contained so the stage components can compose them without
+ * re-declaring hover/fallback logic.
  */
 
 import { useState } from 'react';
@@ -70,6 +70,28 @@ export function Dot({ delay }: { readonly delay: number }): JSX.Element {
         animationDelay: `${delay}ms`,
       }}
     />
+  );
+}
+
+// ---- ReplyPreviewButton --------------------------------------------------
+
+export function ReplyPreviewButton({
+  text,
+  onClick,
+}: {
+  readonly text: string;
+  readonly onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      style={style.replyPreviewBubble}
+      aria-label="Open latest reply"
+      aria-live="polite"
+      onClick={onClick}
+    >
+      {text}
+    </button>
   );
 }
 

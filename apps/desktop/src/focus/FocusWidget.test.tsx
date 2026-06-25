@@ -403,6 +403,98 @@ describe('FocusWidget bidirectional sync', () => {
     expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
   });
 
+  it('opens mini-text when the inactive preview text is clicked', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-click',
+        seq: 21,
+        ts: 21,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-click',
+        delta: 'clickable preview reply',
+      } as MoxxyEvent,
+    });
+
+    const previewButton = await screen.findByRole('button', {
+      name: /open latest reply/i,
+    });
+    fireEvent.click(previewButton);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    });
+    expect(screen.getByText(/clickable preview reply/i)).toBeTruthy();
+  });
+
+  it('shows assistant preview beside the active controls', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-active-preview',
+        seq: 22,
+        ts: 22,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-active-preview',
+        delta: 'reply while controls are open',
+      } as MoxxyEvent,
+    });
+
+    await screen.findByText(/reply while controls are open/i);
+    expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
+
+    await waitFor(() => {
+      const previewResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 600,
+      );
+      expect(previewResize).toBeTruthy();
+      expect((previewResize!.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+    });
+  });
+
+  it('reserves enough window height for a three-line inactive preview', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-height',
+        seq: 23,
+        ts: 23,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-height',
+        delta:
+          'Tak — jest kilka sensownych sposobów na tworzenie napisów w locie, zależnie od tego, czy chodzi Ci o szybki podgląd czy finalny eksport.',
+      } as MoxxyEvent,
+    });
+
+    await screen.findByText(/tworzenie napisów/i);
+
+    await waitFor(() => {
+      const previewResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 400,
+      );
+      expect(previewResize).toBeTruthy();
+      expect((previewResize!.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+    });
+  });
+
   it('keeps the inactive preview window size stable while assistant chunks stream', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);

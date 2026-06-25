@@ -3,7 +3,7 @@
  * the widget to the active stage.
  */
 
-import { LogoMark } from './focus-primitives';
+import { LogoMark, ReplyPreviewButton } from './focus-primitives';
 import { style } from './focus-styles';
 import type { FocusTileGestureProps, FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import type { InactiveReplyPreview } from './useInactiveReplyPreview';
@@ -13,11 +13,13 @@ export function Inactive({
   horizontalAnchor,
   dragging,
   gestureProps,
+  onPreviewActivate,
 }: {
   readonly preview: InactiveReplyPreview | null;
   readonly horizontalAnchor: FocusTileHorizontalAnchor;
   readonly dragging: boolean;
   readonly gestureProps: FocusTileGestureProps;
+  readonly onPreviewActivate: () => void;
 }): JSX.Element {
   const withPreview = !!preview;
   return (
@@ -40,9 +42,7 @@ export function Inactive({
         <LogoMark />
       </button>
       {preview ? (
-        <div style={style.inactivePreviewBubble} aria-live="polite">
-          {preview.text}
-        </div>
+        <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
       ) : null}
     </div>
   );
