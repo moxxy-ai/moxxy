@@ -1,0 +1,98 @@
+name: Prepare release
+
+# Versioning lives on `development`. This job — daily (cron) or on-demand
+# (workflow_dispatch) — consolidates ALL of the day's accumulated changesets into
+# ONE `changeset version` bump committed to `development`, then opens the
+# `development → main` release PR.
+#
+# Why here and not on main: `main` is PUBLISH-ONLY (release.yml) and never runs
+# `changeset version`, so it never edits version files. That makes `main` always
+# an ancestor of `development` on those files, so `development → main` is a
+# CONFLICT-FREE merge, every time — by construction, not by remembering to sync.
+#
+# Cadence: the schedule runs at most once per day ("version once a day"); land as
+# many feature PRs (each with a changeset) on `development` during the day as you
+# like — they just accumulate and get batched into the single daily bump. Trigger
+# `workflow_dispatch` to cut one off-schedule.
+on:
+  schedule:
+    # 06:00 UTC daily. At most one version bump per day.
+    - cron: '0 6 * * *'
+  workflow_dispatch: {}
+
+# Never overlap a version bump with itself.
+concurrency: prepare-release
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    name: Version development + open release PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: development
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Version development (only if changesets are pending)
+        id: version
+        run: |
+          set -euo pipefail
+          # Pending changesets = *.md under .changeset except README.md.
+          pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')"
+          if [ "$pending" = "0" ]; then
+            echo "No pending changesets — nothing to version today."
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Versioning $pending pending changeset(s) into one bump."
+          pnpm dlx @changesets/cli@2.27.10 version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # [skip ci] — the gate already ran on every PR that landed each
+          # changeset; the bump itself is mechanical (versions + CHANGELOGs).
+          git commit -m "chore: version packages [skip ci]"
+          git push origin HEAD:development
+          echo "bumped=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the development → main release PR
+        if: steps.version.outputs.bumped == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch origin main development
+          if git diff --quiet origin/main origin/development; then
+            echo "::notice::development is in sync with main — nothing to release."
+            exit 0
+          fi
+          existing="$(gh pr list --base main --head development --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            echo "::notice::Release PR #$existing already open — it now includes today's bump."
+            exit 0
+          fi
+          body="Automated release prep. Versions were already bumped on development (consuming the day's changesets), so this development -> main merge is conflict-free. Merging promotes development to production; the push to main then publishes the bumped packages to npm and, when the desktop version changed, builds + releases the desktop installers (release.yml)."
+          gh pr create --base main --head development \
+            --title "Release: development → main" \
+            --body "$body"

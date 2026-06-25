@@ -1,18 +1,20 @@
 name: Release
 
-# Production release pipeline, driven entirely by changesets.
+# Production publish pipeline. PUBLISH-ONLY — versioning lives on `development`.
 #
 # Branch model: feature PRs land on `development` (each carrying a changeset);
-# `main` is production. A release is ON-DEMAND — you cut one by opening a
-# `development → main` PR and merging it (or by running this workflow manually
-# via the Actions tab / `workflow_dispatch`). Either way it ends as a push to
-# `main`, which is what triggers everything below.
+# `main` is production. VERSIONING happens on development via prepare-release.yml
+# (daily/on-demand `changeset version`, batching the day's changesets into one
+# bump) which then opens the `development → main` PR. Merging that PR — or running
+# this workflow via `workflow_dispatch` — ends as a push to `main`, which triggers
+# everything below.
 #
-# On push to main the first job has two modes:
-#   1. Pending changesets in `.changeset/`: open or update a "Version
-#      Packages" PR that bumps versions + changelogs.
-#   2. The Version Packages PR has just merged: publish every non-private
-#      workspace package whose version is not yet on npm.
+# main NEVER runs `changeset version` (no `version` input on the changesets action
+# below). Because main never edits version files, it is always an ancestor of
+# development on those files → `development → main` is conflict-free by
+# construction. On push to main this job simply PUBLISHES every non-private
+# workspace package whose version is not yet on npm (the bumps already landed via
+# the merge), then cuts the desktop release when its version changed.
 #
 # The desktop rides the same rails. `@moxxy/desktop` is private (npm never
 # touches it) but it is NOT in `.changeset` ignore, so changesets versions it
@@ -92,11 +94,16 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Create Release PR or publish
+      # PUBLISH-ONLY. `main` never runs `changeset version` — versioning happens
+      # on `development` (prepare-release.yml), so changesets are already consumed
+      # by the time `development → main` merges. Omitting the `version` input means
+      # this never opens a "Version Packages" PR on main, so main never edits
+      # version files → `development → main` is conflict-free by construction.
+      # `hasChangesets` is still emitted (false on main) and gates the desktop cut.
+      - name: Publish to npm
         id: changesets
         uses: changesets/action@v1
         with:
-          version: pnpm dlx @changesets/cli@2.27.10 version
           publish: node scripts/safe-publish.mjs
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
