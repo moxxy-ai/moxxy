@@ -1,17 +1,14 @@
 /**
  * The macOS / Windows application menu template.
  *
- * Extracted verbatim from `index.ts`. The focus-mode toggle is greyed out via
- * `focusEnabled` (the main window is fullscreen on macOS), and the toggle /
- * open-main actions are injected by the caller, which owns the window + focus
- * lifecycle.
+ * Extracted verbatim from `index.ts`. The toggle / open-main actions are
+ * injected by the caller, which owns the window + focus lifecycle.
  */
 import { Menu } from 'electron';
 
 export function installApplicationMenu(
   toggleFocus: () => void,
   openMain: () => void,
-  focusEnabled: boolean,
 ): void {
   const isMac = process.platform === 'darwin';
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -59,7 +56,6 @@ export function installApplicationMenu(
         {
           label: 'Toggle Focus Mode',
           accelerator: 'CommandOrControl+Shift+M',
-          enabled: focusEnabled,
           click: toggleFocus,
         },
         { type: 'separator' },

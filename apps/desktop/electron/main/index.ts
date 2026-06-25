@@ -28,11 +28,16 @@ import {
   cwdForSession,
   watchSessionsForChanges,
   sweepStaleSockets,
-  bindMainWindowMinimize,
+  beginFocusWindowDrag,
+  bindMainWindowFocusDismissal,
   closeFocusWindow,
+  createFocusModeController,
+  endFocusWindowDrag,
+  isFocusOpen,
+  moveFocusWindowDrag,
+  moveFocusWindowBy,
   resizeFocusWindow,
   showFocusWindow,
-  toggleFocusWindow,
   installContentSecurityPolicy,
   installMediaPermissions,
   lockDownNavigation,
@@ -316,43 +321,34 @@ async function createWindow(): Promise<void> {
       return bindWindow(pool, win, { claimGlobal: false });
     },
   };
-  bindMainWindowMinimize(mainWindow, focusOpts);
+  bindMainWindowFocusDismissal(mainWindow);
 
-  // Focus mode floats a tiny always-on-top widget over your desktop.
-  // On macOS, native fullscreen puts the main window in its own Space;
-  // spawning the floating widget there never surfaces the bar and instead
-  // wedges the app — the main window's controls vanish and it won't close
-  // (needs a force-quit). So focus mode is unavailable while the main
-  // window is fullscreen: the menu items grey out and every handler
-  // (including the global shortcut, which has no disabled state) no-ops.
-  const focusModeAvailable = (): boolean =>
-    !(
-      process.platform === 'darwin' &&
-      !!mainWindow &&
-      !mainWindow.isDestroyed() &&
-      mainWindow.isFullScreen()
-    );
+  const focusMode = createFocusModeController({
+    showFocus: () => showFocusWindow(focusOpts),
+    closeFocus: closeFocusWindow,
+    isFocusOpen,
+    getMainWindow: () => mainWindow,
+    ensureMainWindow: async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        await createWindow();
+      }
+      return mainWindow;
+    },
+    focusApp: () => {
+      if (process.platform === 'darwin') app.focus({ steal: true });
+    },
+  });
 
   const openMainAndCloseFocus = (): void => {
-    closeFocusWindow();
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-    // macOS: ensure the app is foregrounded even if the window
-    // was hidden behind another Space.
-    if (process.platform === 'darwin') app.focus({ steal: true });
+    void focusMode.restoreMain();
   };
 
   const requestFocusToggle = (): void => {
-    if (!focusModeAvailable()) return;
-    void toggleFocusWindow(focusOpts);
+    void focusMode.toggle();
   };
 
-  // (Re)build the tray context menu + application menu, greying out the
-  // focus-mode entries whenever focus mode isn't currently available.
+  // (Re)build the tray context menu + application menu.
   const applyMenus = (): void => {
-    const focusEnabled = focusModeAvailable();
     if (trayInstance) {
       trayInstance.setContextMenu(
         Menu.buildFromTemplate([
@@ -362,22 +358,14 @@ async function createWindow(): Promise<void> {
           { label: 'MoxxyAI Workspaces', enabled: false },
           { type: 'separator' },
           { label: 'Open main window', click: openMainAndCloseFocus },
-          { label: 'Toggle focus mode', enabled: focusEnabled, click: requestFocusToggle },
+          { label: 'Toggle focus mode', click: requestFocusToggle },
           { type: 'separator' },
           { role: 'quit' },
         ]),
       );
     }
-    installApplicationMenu(requestFocusToggle, openMainAndCloseFocus, focusEnabled);
+    installApplicationMenu(requestFocusToggle, openMainAndCloseFocus);
   };
-
-  // Entering fullscreen drops any open widget and disables the toggles;
-  // leaving re-enables them.
-  mainWindow.on('enter-full-screen', () => {
-    closeFocusWindow();
-    applyMenus();
-  });
-  mainWindow.on('leave-full-screen', applyMenus);
 
   // Tray menu — toggle the widget, restore the main window, quit.
   if (!trayInstance) {
@@ -421,9 +409,8 @@ async function createWindow(): Promise<void> {
       // failures + missing PNGs both hit this path).
       if (raw.isEmpty()) trayInstance.setTitle('moxxy');
       trayInstance.setToolTip('MoxxyAI Workspaces');
-      // The context menu is built by applyMenus() below (and rebuilt on
-      // fullscreen changes) so the focus-mode item can grey out when the
-      // main window is fullscreen.
+      // The context menu is built by applyMenus() below so it shares the same
+      // Focus Mode controller path as the app menu and global shortcut.
       //
       // We intentionally do NOT bind a left-click → toggle handler
       // here. A bare tray click should just open the menu (the OS
@@ -449,12 +436,7 @@ async function createWindow(): Promise<void> {
   });
   ipcMain.removeHandler('focus.restoreMain');
   ipcMain.handle('focus.restoreMain', () => {
-    closeFocusWindow();
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-    if (process.platform === 'darwin') app.focus({ steal: true });
+    return focusMode.restoreMain();
   });
   ipcMain.removeHandler('focus.resize');
   ipcMain.handle(
@@ -463,9 +445,27 @@ async function createWindow(): Promise<void> {
       _evt,
       { width, height, resizable }: { width: number; height: number; resizable?: boolean },
     ) => {
-      resizeFocusWindow(width, height, resizable);
+      return resizeFocusWindow(width, height, resizable);
     },
   );
+  ipcMain.removeHandler('focus.moveBy');
+  ipcMain.handle('focus.moveBy', (_evt, { dx, dy }: { dx: number; dy: number }) => {
+    return moveFocusWindowBy(dx, dy);
+  });
+  ipcMain.removeHandler('focus.dragStart');
+  ipcMain.handle(
+    'focus.dragStart',
+    (_evt, pointer: { screenX: number; screenY: number }) => beginFocusWindowDrag(pointer),
+  );
+  ipcMain.removeHandler('focus.dragMove');
+  ipcMain.handle(
+    'focus.dragMove',
+    (_evt, pointer: { screenX: number; screenY: number }) => moveFocusWindowDrag(pointer),
+  );
+  ipcMain.removeHandler('focus.dragEnd');
+  ipcMain.handle('focus.dragEnd', () => {
+    endFocusWindowDrag();
+  });
 
   // System-wide shortcut so the user can summon the widget even when
   // moxxy isn't the focused app. Cmd+Shift+M on mac / Ctrl+Shift+M
@@ -473,10 +473,7 @@ async function createWindow(): Promise<void> {
   try {
     globalShortcut.unregister('CommandOrControl+Shift+M');
     globalShortcut.register('CommandOrControl+Shift+M', () => {
-      if (!focusModeAvailable()) return;
-      void toggleFocusWindow(focusOpts).then(() => {
-        if (!mainWindow?.isVisible()) void showFocusWindow(focusOpts);
-      });
+      void focusMode.toggle();
     });
   } catch {
     /* shortcut may already be claimed — non-fatal */

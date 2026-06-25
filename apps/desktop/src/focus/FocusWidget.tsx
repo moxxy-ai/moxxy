@@ -21,7 +21,8 @@
  * Voice capture lives in this orchestrator (not in Active) so a recording
  * that's still transcribing survives the active → mini-text stage switch.
  *
- * Every stage is flat, sharp-cornered, shadowless.
+ * The tile stays compact; transient preview copy is rendered as a lightweight
+ * bubble beside it and never drives per-token window resizing.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -32,6 +33,8 @@ import { ConnectionBridge, useActiveWorkspaceId } from '@moxxy/client-core';
 import { Inactive } from './Inactive';
 import { Active } from './Active';
 import { MiniText } from './MiniText';
+import { useFocusTileGesture, type FocusTileHorizontalAnchor } from './useFocusTileGesture';
+import { useInactiveReplyPreview } from './useInactiveReplyPreview';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
@@ -41,6 +44,7 @@ type Stage = 'inactive' | 'active' | 'mini-text';
 // doesn't look hollow on the right.
 const ACTIVE_WIDTH_WITH_MIC = 232;
 const ACTIVE_WIDTH_WITHOUT_MIC = 196;
+const INACTIVE_PREVIEW_SIZE = { width: 348, height: 76 };
 
 const SIZE: Record<Stage, { width: number; height: number }> = {
   inactive: { width: 44, height: 44 },
@@ -73,7 +77,18 @@ function Surface({
   // the panel before painting (no flicker on first activation).
   const [hasTranscriber, setHasTranscriber] = useState<boolean | null>(null);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+  const [horizontalAnchor, setHorizontalAnchor] = useState<FocusTileHorizontalAnchor>('right');
   const chat = useChat(workspaceId);
+  const { preview, dismissPreview } = useInactiveReplyPreview({ stage, workspaceId });
+  const previewVisible = preview !== null;
+  const openInactive = (): void => {
+    dismissPreview();
+    setStage(preview ? 'mini-text' : 'active');
+  };
+  const tileGesture = useFocusTileGesture({
+    onClick: openInactive,
+    onPlacement: setHorizontalAnchor,
+  });
 
   // Voice capture lives here, not in Active: when the user stops a
   // recording we switch to the mini-text stage (which unmounts Active),
@@ -113,15 +128,21 @@ function Surface({
   }, []);
 
   useEffect(() => {
-    const { height } = SIZE[stage];
-    let width = SIZE[stage].width;
+    let { width, height } = SIZE[stage];
+    if (stage === 'inactive' && previewVisible) {
+      width = INACTIVE_PREVIEW_SIZE.width;
+      height = INACTIVE_PREVIEW_SIZE.height;
+    }
     if (stage === 'active' && hasTranscriber === false) {
       width = ACTIVE_WIDTH_WITHOUT_MIC;
     }
     void api()
       .invoke('focus.resize', { width, height, resizable: stage === 'mini-text' })
+      .then((placement) => {
+        if (placement?.horizontalAnchor) setHorizontalAnchor(placement.horizontalAnchor);
+      })
       .catch(() => undefined);
-  }, [stage, hasTranscriber]);
+  }, [stage, hasTranscriber, previewVisible]);
 
   // Collapsing back to the inactive square hides the recording UI but the voice
   // recorder lives on the always-mounted Surface — so without explicitly
@@ -133,7 +154,14 @@ function Surface({
   };
 
   if (stage === 'inactive')
-    return <Inactive onActivate={() => setStage('active')} />;
+    return (
+      <Inactive
+        preview={preview}
+        horizontalAnchor={horizontalAnchor}
+        dragging={tileGesture.dragging}
+        gestureProps={tileGesture.gestureProps}
+      />
+    );
   if (stage === 'active')
     return (
       <Active

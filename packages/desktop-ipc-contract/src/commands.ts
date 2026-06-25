@@ -530,6 +530,11 @@ export interface IpcCommands {
   'prefs.update': (patch: Partial<DesktopPrefs>) => Promise<DesktopPrefs>;
 
   // Focus-mode window control (from the floating widget back to main).
+  // Returned by focus-window geometry calls so the renderer can keep any
+  // collapsed reply preview on the inward-facing side of the tile.
+  // Local desktop IPC only: deliberately excluded from REMOTE_ALLOWED_COMMANDS.
+  // See remote.test.ts.
+  // Exported inline in the command map to keep the boundary compact.
   'focus.close': () => Promise<void>;
   'focus.restoreMain': () => Promise<void>;
   /** Resize the focus window. Keeps the nearer screen edge pinned so the
@@ -540,7 +545,29 @@ export interface IpcCommands {
     width: number;
     height: number;
     resizable?: boolean;
-  }) => Promise<void>;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** Move the focus window by a renderer-measured pointer delta. This stays
+   *  local-only because remote/mobile clients must not be able to move the
+   *  user's desktop window. */
+  'focus.moveBy': (args: {
+    dx: number;
+    dy: number;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** Start a native focus-tile drag session at a global screen point. The host
+   *  captures the current BrowserWindow bounds so later dragMove calls can set
+   *  absolute target bounds instead of accumulating stale renderer deltas. */
+  'focus.dragStart': (args: {
+    screenX: number;
+    screenY: number;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** Move the focus window to the current global pointer position relative to
+   *  the captured dragStart origin. Local desktop IPC only. */
+  'focus.dragMove': (args: {
+    screenX: number;
+    screenY: number;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** End the host-side focus-tile drag session. */
+  'focus.dragEnd': () => Promise<void>;
 
   /** Provider list for the given workspace (defaults to active). */
   'settings.providers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<ProviderEntry>>;

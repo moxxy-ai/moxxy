@@ -22,6 +22,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import { chatStore } from '@moxxy/client-core';
+import type { MoxxyEvent } from '@moxxy/sdk';
 import { FocusWidget } from './FocusWidget';
 
 interface IpcSpy {
@@ -29,9 +30,30 @@ interface IpcSpy {
   emit: (channel: string, payload: unknown) => void;
 }
 
-function installFakeApi(): IpcSpy {
+interface FakeApiOptions {
+  readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
+  readonly hasTranscriber?: boolean;
+}
+
+function event(
+  seq: number,
+  patch: Partial<MoxxyEvent> & { type: MoxxyEvent['type']; turnId?: string },
+): MoxxyEvent {
+  return {
+    id: `e-${seq}`,
+    seq,
+    ts: seq,
+    sessionId: 's-test',
+    turnId: patch.turnId ?? `t-${seq}`,
+    ...patch,
+  } as MoxxyEvent;
+}
+
+function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const invokes: Array<{ channel: string; args: unknown }> = [];
   const subs = new Map<string, Set<(payload: unknown) => void>>();
+  const historyEvents = options.historyEvents ?? [];
+  const hasTranscriber = options.hasTranscriber ?? true;
 
   __setApiOverride({
     invoke: ((channel: string, args: unknown) => {
@@ -52,11 +74,29 @@ function installFakeApi(): IpcSpy {
       if (channel === 'connection.activeWorkspace') {
         return Promise.resolve('ws-test');
       }
+      if (channel === 'chat.loadHistory') {
+        return Promise.resolve({ events: historyEvents, prevCursor: null });
+      }
+      if (channel === 'focus.resize') {
+        return Promise.resolve({ horizontalAnchor: 'right' });
+      }
+      if (channel === 'focus.moveBy') {
+        return Promise.resolve({ horizontalAnchor: 'right' });
+      }
+      if (
+        channel === 'focus.dragStart' ||
+        channel === 'focus.dragMove'
+      ) {
+        return Promise.resolve({ horizontalAnchor: 'right' });
+      }
+      if (channel === 'focus.dragEnd') {
+        return Promise.resolve(undefined);
+      }
       if (channel === 'session.runTurn') {
         return Promise.resolve({ turnId: 't-1' });
       }
       if (channel === 'session.hasTranscriber') {
-        return Promise.resolve(true);
+        return Promise.resolve(hasTranscriber);
       }
       return Promise.resolve(undefined);
     }) as never,
@@ -85,7 +125,7 @@ function installFakeApi(): IpcSpy {
 beforeEach(() => {
   // Each test gets a fresh workspace chat so latest-line / sending
   // states don't bleed across cases.
-  chatStore.clear('ws-test');
+  chatStore.drop('ws-test');
 });
 
 afterEach(() => {
@@ -152,16 +192,7 @@ describe('FocusWidget stages', () => {
   });
 
   it('hides the mic button when the runner has no transcriber', async () => {
-    // Custom fake — hasTranscriber returns false.
-    __setApiOverride({
-      invoke: ((channel: string) => {
-        if (channel === 'connection.snapshotAll') return Promise.resolve([]);
-        if (channel === 'connection.activeWorkspace') return Promise.resolve('ws-test');
-        if (channel === 'session.hasTranscriber') return Promise.resolve(false);
-        return Promise.resolve(undefined);
-      }) as never,
-      subscribe: (() => () => undefined) as never,
-    } as never);
+    installFakeApi({ hasTranscriber: false });
     render(<FocusWidget />);
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     // Text / restore / close stay visible; mic is gone.
@@ -197,9 +228,73 @@ describe('FocusWidget stages', () => {
     fireEvent.click(screen.getByRole('button', { name: /open main window/i }));
     expect(spy.invokes.some((i) => i.channel === 'focus.restoreMain')).toBe(true);
   });
+
+  it('dragging the inactive square tracks screen coordinates and does not expand it', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    const square = screen.getByRole('button', { name: /click to expand/i });
+    fireEvent.mouseDown(square, {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      screenX: 610,
+      screenY: 410,
+    });
+    fireEvent.mouseMove(square, {
+      clientX: 14,
+      clientY: 13,
+      screenX: 690,
+      screenY: 470,
+    });
+    fireEvent.mouseUp(square, {
+      clientX: 14,
+      clientY: 13,
+      screenX: 690,
+      screenY: 470,
+    });
+
+    await waitFor(() => {
+      expect(spy.invokes.some((i) => i.channel === 'focus.dragStart')).toBe(true);
+      const move = spy.invokes.find((i) => i.channel === 'focus.dragMove');
+      expect(move).toBeTruthy();
+      expect(move!.args).toEqual({ screenX: 690, screenY: 470 });
+      expect(spy.invokes.some((i) => i.channel === 'focus.dragEnd')).toBe(true);
+    });
+    expect(spy.invokes.some((i) => i.channel === 'focus.moveBy')).toBe(false);
+    expect(screen.queryByRole('button', { name: /^text$/i })).toBeNull();
+  });
 });
 
 describe('FocusWidget bidirectional sync', () => {
+  it('hydrates the active workspace history and shows the latest user/assistant block in mini-text', async () => {
+    const spy = installFakeApi({
+      historyEvents: [
+        event(1, { type: 'user_prompt', turnId: 't-history', source: 'user', text: 'cached user prompt' } as never),
+        event(2, {
+          type: 'assistant_message',
+          turnId: 't-history',
+          source: 'model',
+          content: 'cached assistant answer',
+          stopReason: 'end_turn',
+        } as never),
+      ],
+    });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    await waitFor(() => {
+      const load = spy.invokes.find((i) => i.channel === 'chat.loadHistory');
+      expect(load).toBeTruthy();
+      expect((load!.args as { workspaceId: string }).workspaceId).toBe('ws-test');
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/cached assistant answer/i)).toBeTruthy();
+    });
+  });
+
   it('sending from mini-text invokes session.runTurn for the active workspace', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
@@ -229,7 +324,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('a runner.event flowing into chatStore surfaces in mini-text latest line', async () => {
-    installFakeApi();
+    const spy = installFakeApi();
     render(<FocusWidget />);
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
@@ -238,13 +333,17 @@ describe('FocusWidget bidirectional sync', () => {
     // Simulate the runner streaming an assistant_chunk event — this
     // is what bindWindow's SessionDriver delivers to the focus
     // window when the main window sends a turn.
-    chatStore.dispatch('ws-test', {
-      type: 'event',
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
       event: {
+        id: 'e-incoming',
+        seq: 10,
+        ts: 10,
+        sessionId: 's-test',
         type: 'assistant_chunk',
         turnId: 't-incoming',
         delta: 'response from the main window',
-      } as never,
+      } as MoxxyEvent,
     });
 
     await waitFor(() => {
@@ -273,5 +372,82 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       expect(screen.getByText('newest').tagName).toBe('STRONG');
     });
+  });
+
+  it('shows an inactive assistant preview bubble and opens mini-text when the square is clicked', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview',
+        seq: 20,
+        ts: 20,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview',
+        delta: 'live reply while collapsed',
+      } as MoxxyEvent,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    });
+    expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
+  });
+
+  it('keeps the inactive preview window size stable while assistant chunks stream', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-1',
+        seq: 21,
+        ts: 21,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-size',
+        delta: 'first live chunk',
+      } as MoxxyEvent,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/first live chunk/i)).toBeTruthy();
+    });
+
+    const resizeCountAfterFirstPreview = spy.invokes.filter(
+      (i) => i.channel === 'focus.resize',
+    ).length;
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-2',
+        seq: 22,
+        ts: 22,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-size',
+        delta: ' and second live chunk',
+      } as MoxxyEvent,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/first live chunk and second live chunk/i)).toBeTruthy();
+    });
+
+    const resizeCountAfterSecondPreview = spy.invokes.filter(
+      (i) => i.channel === 'focus.resize',
+    ).length;
+    expect(resizeCountAfterSecondPreview).toBe(resizeCountAfterFirstPreview);
   });
 });

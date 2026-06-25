@@ -143,6 +143,40 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('mobileGateway.status', { sneaky: 1 })).toThrow();
   });
 
+  it('bounds local focus-window movement and resize payloads', () => {
+    expect(() => validateIpcInput('focus.moveBy', { dx: 10, dy: -12 })).not.toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragStart', { screenX: -1200, screenY: 240 }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragMove', { screenX: 3200, screenY: 1800 }),
+    ).not.toThrow();
+    expect(() => validateIpcInput('focus.dragEnd', undefined)).not.toThrow();
+    expect(() =>
+      validateIpcInput('focus.resize', { width: 320, height: 76, resizable: false }),
+    ).not.toThrow();
+
+    expect(() => validateIpcInput('focus.moveBy', { dx: Number.POSITIVE_INFINITY, dy: 0 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: Number.NaN, dy: 0 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: 10_001, dy: 0 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: 0, dy: -10_001 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: 0, dy: 0, sneaky: true })).toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragStart', { screenX: Number.NaN, screenY: 0 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragMove', { screenX: 100_001, screenY: 0 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragMove', { screenX: 0, screenY: 0, sneaky: true }),
+    ).toThrow();
+    expect(() => validateIpcInput('focus.dragEnd', { sneaky: true })).toThrow();
+
+    expect(() => validateIpcInput('focus.resize', { width: 39, height: 44 })).toThrow();
+    expect(() => validateIpcInput('focus.resize', { width: 44, height: 801 })).toThrow();
+    expect(() => validateIpcInput('focus.resize', { width: Number.NaN, height: 44 })).toThrow();
+  });
+
   it('allows mobileGatewayEnabled in prefs.update', () => {
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: true })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: 'x' })).toThrow();
