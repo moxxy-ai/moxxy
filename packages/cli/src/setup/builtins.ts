@@ -231,6 +231,7 @@ function wirePluginsAdminView(
         name: p.name,
         version: p.version,
         kinds: p.kinds,
+        installed: p.installed,
       })),
     disabled: () => [...disabledPackages],
     protectedPackages: () => [...CRITICAL_PACKAGES],

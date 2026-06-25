@@ -96,7 +96,13 @@ describe('PluginHost', () => {
     expect(modes.list()).toHaveLength(1);
     expect(compactors.list()).toHaveLength(1);
     expect(host.list()).toEqual([
-      { name: 'demo', version: '0.0.0', loaded: true, kinds: ['provider', 'mode', 'compactor', 'tool'] },
+      {
+        name: 'demo',
+        version: '0.0.0',
+        loaded: true,
+        installed: false,
+        kinds: ['provider', 'mode', 'compactor', 'tool'],
+      },
     ]);
   });
 
