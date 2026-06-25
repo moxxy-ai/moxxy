@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-cli",
   "private": true,
-  "version": "0.3.15",
+  "version": "0.4.0",
   "description": "Ink-based interactive TUI components + interactive PermissionResolver for moxxy.",
   "type": "module",
   "main": "./dist/index.js",

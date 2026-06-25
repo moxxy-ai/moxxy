@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/workflows-builder",
   "private": true,
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "DOM-free, RN-safe shared model for the visual workflow builder: the canvas state + reducer, pure graph operations (add/remove step, connect needs, branch + loop-body/exit wiring, move/viewport), a Workflow<->YAML serializer pair (with auto-layout), and validate/save bridges over the workflows IPC. Consumed by the Electron desktop canvas and the Expo mobile editor.",
   "type": "module",
   "main": "./dist/index.js",

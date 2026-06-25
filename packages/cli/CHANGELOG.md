@@ -1,5 +1,49 @@
 # @moxxy/cli
 
+## 0.21.0
+
+### Minor Changes
+
+- 05df794: `/plugins` now distinguishes **built-in** (bundled) from **installed** (on-demand from `~/.moxxy/plugins`) packages instead of showing everything as "on": the plugin host reports `installed` (manifest present = discovered) and the Packages tab badges core / installed / built-in. The Installable catalog is also populated with the six unbundled API-key providers (anthropic, openai, google, xai, zai, local) so they can be installed from the picker (and the init optional-plugins step).
+- e7b6853: Add the headless provisioner foundation for Pillar 3 (slim-core / on-demand setup): a shared `provision()` engine + a `moxxy provision` command + a first-party provider catalog.
+
+  `provision({ provider, model, key, basics })` resolves the provider from the catalog, installs its package (skipping it when it's already registered — i.e. bundled — so it never duplicate-registers), installs accepted basics, stores the key in the vault, and writes the unified `plugins:` config — config last, so a mid-flight failure leaves no half-state. `moxxy provision` drives it headlessly via flags (`--provider anthropic --key … --model …`) or a JSON spec on stdin (`--spec -`) — the same engine the interactive `init` wizard + the desktop first-run will use.
+
+  Safe + additive: providers stay bundled, `init` is unchanged. Includes `pinFirstPartySpec` (pins first-party installs to the CLI version, scoped to provision so it can't break the generic `install_plugin` path) and the `PROVIDER_CATALOG` (slug → package + auth + default model). Rewiring `init` + the actual unbundling/publishing are the gated follow-ups.
+
+- 5c943a3: Slim the bundle + rework init around on-demand providers. The six API-key providers (anthropic, openai, google, xai, zai, local) are no longer bundled into the CLI — they install on demand from npm into `~/.moxxy/plugins` and are discovered by the plugin host, keeping the kernel slim (no eager provider onInit / tool bloat at boot). The two OAuth/subscription providers (openai-codex, claude-code) stay bundled as the out-of-box "sign in" default (and the CLI's credential resolver links their token helpers).
+
+  `init` is reworked: it offers the full provider catalog (loaded + installable), and an `ensureProvider` step installs + enables a not-yet-bundled provider before collecting its key/OAuth. A new optional wizard step lets you install extra plugins. The shared `provision()` engine + `moxxy provision` (flags or `--spec -`) drive the same install→vault→config flow headlessly.
+
+  Also: the six private provider packages are flipped publishable + added to a fixed changeset group (co-version with cli/sdk/core), and a latent bug is fixed — plugin discovery now honors `MOXXY_HOME` (matching where installs land), so an installed provider is reliably discovered + activated.
+
+### Patch Changes
+
+- 074f845: Make the stuck-loop guard more tolerant + configurable. The detector was tripping turns too eagerly — its exact-repeat threshold was 3 (the same tool+input 3× in a window of 8), which legitimately-repeated work (re-reading a file, re-running `git status` across steps) could hit. Raised the defaults to exact=8 / near=10 / window=12, since `maxIterations` (500 in default mode) is the real runaway backstop and the guard only needs to catch a _tight_ same-call loop.
+
+  It's now tunable via `context.loopGuard` in config: `enabled` (set `false` to disable the guard entirely and rely on `maxIterations`), `windowSize`, `repeatThreshold`, `nearWindowSize`, `nearThreshold`. Threaded through the session → ModeContext → every loop strategy (default, goal, collaborative + subagents), and live-reloadable.
+
+- 3a4b604: Add a generic "special mode" mechanism. `ModeDef.special` (a `ModeSpecial` descriptor, optionally `{ invokedBy }`) marks a mode that is entered only via its own invocation — never offered in a mode list and never name-switched from `/mode`. Special modes are filtered uniformly via the new `isSelectableMode` predicate across every surface: `SessionInfo.modes` (mobile/desktop), the TUI `/mode` picker + by-name switch (which now points the user at `/<invokedBy>`), and the `/plugins` swap axis. The collaborative modes (`collaborative`, `collab-architect`, `collab-peer`) opt in — they're a separate system launched by `/collab` (TUI) or the desktop CollaboratePanel, not a pickable mode. Extensible: future special modes set the same flag.
+- d924a73: TUI: multi-session switcher (`/sessions`).
+
+  - New `/sessions` slash command (alias `/switch`) opens a `ListPicker` overlay
+    listing your saved conversations — first-prompt title, last-active time, event
+    count and active model — sourced from the same `~/.moxxy/sessions` index the
+    desktop sidebar and `moxxy resume` already read. The session you're in is
+    marked, and a leading **+ New session** entry starts a fresh conversation.
+  - Picking an entry re-points the TUI onto that session in place: the live session
+    is torn down (firing its `onShutdown` hooks and releasing the runner socket),
+    the chosen session is booted (resuming its persisted history, or a fresh one),
+    and the chat view re-mounts onto it. Your previous conversation stays saved, so
+    you can switch back and forth.
+  - Works when the TUI hosts the session (the default self-host / `--standalone`
+    modes). When attached to an external `moxxy serve` (whose runner owns a single
+    fixed session) the switcher degrades to a notice pointing at `moxxy resume`.
+
+- Updated dependencies [074f845]
+- Updated dependencies [3a4b604]
+  - @moxxy/sdk@0.21.0
+
 ## 0.16.0
 
 ### Minor Changes

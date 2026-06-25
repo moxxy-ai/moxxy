@@ -1,5 +1,36 @@
 # @moxxy/plugin-cli
 
+## 0.4.0
+
+### Minor Changes
+
+- 05df794: `/plugins` now distinguishes **built-in** (bundled) from **installed** (on-demand from `~/.moxxy/plugins`) packages instead of showing everything as "on": the plugin host reports `installed` (manifest present = discovered) and the Packages tab badges core / installed / built-in. The Installable catalog is also populated with the six unbundled API-key providers (anthropic, openai, google, xai, zai, local) so they can be installed from the picker (and the init optional-plugins step).
+- d924a73: TUI: multi-session switcher (`/sessions`).
+
+  - New `/sessions` slash command (alias `/switch`) opens a `ListPicker` overlay
+    listing your saved conversations — first-prompt title, last-active time, event
+    count and active model — sourced from the same `~/.moxxy/sessions` index the
+    desktop sidebar and `moxxy resume` already read. The session you're in is
+    marked, and a leading **+ New session** entry starts a fresh conversation.
+  - Picking an entry re-points the TUI onto that session in place: the live session
+    is torn down (firing its `onShutdown` hooks and releasing the runner socket),
+    the chosen session is booted (resuming its persisted history, or a fresh one),
+    and the chat view re-mounts onto it. Your previous conversation stays saved, so
+    you can switch back and forth.
+  - Works when the TUI hosts the session (the default self-host / `--standalone`
+    modes). When attached to an external `moxxy serve` (whose runner owns a single
+    fixed session) the switcher degrades to a notice pointing at `moxxy resume`.
+
+### Patch Changes
+
+- Updated dependencies [074f845]
+- Updated dependencies [3a4b604]
+  - @moxxy/sdk@0.21.0
+  - @moxxy/core@0.21.0
+  - @moxxy/config@0.21.0
+  - @moxxy/chat-model@0.3.9
+  - @moxxy/plugin-mcp@0.0.32
+
 ## 0.3.15
 
 ### Patch Changes

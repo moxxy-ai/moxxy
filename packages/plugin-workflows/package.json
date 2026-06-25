@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-workflows",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Workflows plugin for moxxy — a swappable DAG engine that chains skills/prompts/tools into saved, parameterized, schedulable/event-triggered pipelines.",
   "type": "module",
   "main": "./dist/index.js",
