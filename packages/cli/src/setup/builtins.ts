@@ -127,7 +127,9 @@ export interface BuiltBuiltinsCore {
 /** Wire the plugin-management slice that backs the TUI `/plugins` picker. */
 /** Minimal active-def surface a category registry exposes for the swap UI. */
 interface CategoryRegistryLike {
-  list(): ReadonlyArray<{ name: string }>;
+  // `special?` lets the mode registry's special-mode marker flow through to the
+  // swap UI filter (isSelectableMode); non-mode defs simply omit it.
+  list(): ReadonlyArray<{ name: string; special?: unknown }>;
   getActiveName(): string | null;
   getFloorName?(): string | null;
   setActive(name: string): unknown;

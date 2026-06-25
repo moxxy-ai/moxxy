@@ -234,9 +234,12 @@ export interface ModeSpecial {
 /**
  * Whether a mode is user-selectable — i.e. NOT a {@link ModeDef.special} mode.
  * The single predicate every surface (TUI/mobile/desktop mode lists + the
- * by-name mode-switch) uses to filter/refuse special modes uniformly.
+ * by-name mode-switch) uses to filter/refuse special modes uniformly. The
+ * parameter is intentionally loose (`{ special? }`) so it also applies to the
+ * minimal `{ name }` rows the swap-UI registries expose — non-mode defs simply
+ * carry no `special` and are always selectable.
  */
-export function isSelectableMode(mode: Pick<ModeDef, 'special'>): boolean {
+export function isSelectableMode(mode: { readonly special?: unknown }): boolean {
   return mode.special === undefined;
 }
 
