@@ -1,4 +1,4 @@
-import { loadPreferences, savePreferences } from '@moxxy/core';
+import { setCategoryDefault, setProviderEnabled } from '@moxxy/config';
 import {
   providerConfigureParamsSchema,
   providerSetActiveParamsSchema,
@@ -10,7 +10,7 @@ export async function handleProviderSetActive(
   ctx: HandlerContext,
   raw: unknown,
 ): Promise<Record<string, never>> {
-  const { session, prefsMutex, broadcastInfo } = ctx;
+  const { session, broadcastInfo } = ctx;
   const { name, config } = providerSetActiveParamsSchema.parse(raw);
   // Mirror the in-process picker: resolve credentials (the CLI stashes a
   // resolver on the session at boot), drop any cached instance, re-activate.
@@ -19,19 +19,14 @@ export async function handleProviderSetActive(
   const def = session.providers.list().find((p) => p.name === name);
   if (def) session.providers.replace(def);
   session.providers.setActive(name, cfg);
-  // Persist the pick to ~/.moxxy/preferences.json so it survives to the NEXT
-  // freshly-spawned runner. Without this, a remote client (e.g. the desktop)
-  // that switches provider only mutates THIS runner's in-memory state — so
-  // spawning another runner (the desktop spawns one `moxxy serve` per
-  // workspace) boots back on the default provider with no key, comes up
-  // `connected` but provider-less, and bounces the user to "Connect a
-  // provider". Mirrors the TUI / Telegram pickers, which already persist.
-  // Best-effort: savePreferences swallows its own write errors and never
-  // throws, so a read-only home can't fail the setActive RPC. Run under the
-  // shared `prefsMutex` so this write serializes against the disabledProviders
-  // RMW in handleProviderSetEnabled (invariant #5): a setActive racing a
-  // toggle must not interleave with that handler's load→compute→save.
-  void prefsMutex.run(() => savePreferences({ providerName: name }));
+  // Persist the pick to the unified manifest (`plugins.provider.default` in
+  // ~/.moxxy/config.yaml) so it survives to the NEXT freshly-spawned runner.
+  // Without this, a remote client (e.g. the desktop) that switches provider
+  // only mutates THIS runner's in-memory state — so spawning another runner
+  // (the desktop spawns one `moxxy serve` per workspace) boots back on the
+  // default provider. Best-effort: a read-only home must not fail the RPC, and
+  // the writer's own mutex serializes against the disabled-provider write.
+  void setCategoryDefault('provider', name).catch(() => undefined);
   broadcastInfo();
   return {};
 }
@@ -40,7 +35,7 @@ export async function handleProviderSetEnabled(
   ctx: HandlerContext,
   raw: unknown,
 ): Promise<Record<string, never>> {
-  const { session, prefsMutex, broadcastInfo } = ctx;
+  const { session, broadcastInfo } = ctx;
   const { name, enabled } = providerSetEnabledParamsSchema.parse(raw);
   if (!session.providers.list().some((p) => p.name === name)) {
     throw new Error(`Provider not registered: ${name}`);
@@ -48,19 +43,9 @@ export async function handleProviderSetEnabled(
   // Throws when disabling the ACTIVE provider — surface that verbatim.
   session.providers.setEnabled(name, enabled);
   // Persist so the next boot's activation walk skips it (setup.ts seeds the
-  // registry from this list). Read-merge so concurrent writers of other
-  // preference fields aren't clobbered; best-effort like every prefs write.
-  // The load→compute→save is run under `prefsMutex` so it serializes against
-  // the other prefs-writing handler — without it, two overlapping toggles (or
-  // a setActive racing a toggle) could both read the same `disabledProviders`
-  // set and the second clobber the first (invariant #5).
-  void prefsMutex.run(async () => {
-    const prefs = await loadPreferences();
-    const current = new Set(prefs.disabledProviders ?? []);
-    if (enabled) current.delete(name);
-    else current.add(name);
-    await savePreferences({ disabledProviders: [...current] });
-  });
+  // disabled set from `plugins.provider.items.<name>.enabled`). Single-field
+  // atomic write under the config writer's own mutex; best-effort.
+  void setProviderEnabled(name, enabled).catch(() => undefined);
   broadcastInfo();
   return {};
 }

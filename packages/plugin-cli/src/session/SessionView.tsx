@@ -3,7 +3,7 @@ import { Box } from 'ink';
 import { useApp } from 'ink';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { savePreferences } from '@moxxy/core';
+import { setCategoryDefault } from '@moxxy/config';
 import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
 import { estimateContextTokens } from '../context-estimate.js';
@@ -169,7 +169,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
     const next = modes[(idx + 1) % modes.length]!;
     try {
       session.modes.setActive(next.name);
-      void savePreferences({ mode: next.name });
+      void setCategoryDefault('mode', next.name).catch(() => undefined);
       setSystemNotice(`mode → ${next.name}`);
     } catch {
       /* registry empty or name vanished — leave the active mode as-is */

@@ -9,6 +9,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { parse as parseYaml } from 'yaml';
 import { moxxyHome } from '@moxxy/sdk/server';
 import type { OnboardingStatus } from '@moxxy/desktop-ipc-contract';
 import { augmentedPaths, resolveMoxxyCli, spawnCli, type CliInvocation } from './cli-resolver';
@@ -20,13 +21,12 @@ export async function probeOnboarding(): Promise<OnboardingStatus> {
   const cliInstalled = cli !== null;
   const cliPath = cli ? displayPath(cli) : null;
 
-  // The CLI/runner store the vault + preferences under moxxyHome() — which
-  // honors $MOXXY_HOME. Reading a hardcoded ~/.moxxy here would miss a relocated
-  // home and report hasProvider:false even when a key is configured, looping the
+  // The CLI/runner store the vault + config under moxxyHome() — which honors
+  // $MOXXY_HOME. Reading a hardcoded ~/.moxxy here would miss a relocated home
+  // and report hasProvider:false even when a key is configured, looping the
   // onboarding wizard forever.
   const dir = moxxyHome();
-  const prefs = await readPreferencesAt(dir);
-  const activeProvider = prefs?.providerName ?? null;
+  const activeProvider = await readActiveProviderAt(dir);
   const vaultKeys = await readVaultKeysAt(dir);
 
   const expectedKey = activeProvider ? builtinProviderKeyName(activeProvider) : null;
@@ -38,17 +38,17 @@ export async function probeOnboarding(): Promise<OnboardingStatus> {
   return { cliInstalled, cliPath, hasProvider, activeProvider };
 }
 
-interface Preferences {
-  providerName?: string;
-  model?: string;
-  mode?: string;
-}
-
-/** Read preferences.json directly from a `.moxxy` directory. */
-async function readPreferencesAt(moxxyDir: string): Promise<Preferences | null> {
+/**
+ * Read the active provider (`plugins.provider.default`) directly from the
+ * unified `config.yaml` in a `.moxxy` directory — the store that replaced
+ * `preferences.json`. Read directly (not via @moxxy/config) to keep the
+ * Electron main bundle free of the config loader's heavier import graph.
+ */
+async function readActiveProviderAt(moxxyDir: string): Promise<string | null> {
   try {
-    const body = await readFile(path.join(moxxyDir, 'preferences.json'), 'utf8');
-    return JSON.parse(body) as Preferences;
+    const body = await readFile(path.join(moxxyDir, 'config.yaml'), 'utf8');
+    const cfg = parseYaml(body) as { plugins?: { provider?: { default?: string } } } | null;
+    return cfg?.plugins?.provider?.default ?? null;
   } catch {
     return null;
   }

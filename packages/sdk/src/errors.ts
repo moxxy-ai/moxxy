@@ -48,6 +48,7 @@ export type MoxxyErrorCode =
   // --- Config / setup ---
   | 'CONFIG_INVALID'
   | 'PLUGIN_LOAD_FAILED'
+  | 'PLUGIN_PROTECTED'          // a kernel/critical package can't be disabled — swap its default instead
   | 'UNKNOWN_COMMAND'
   // --- Tool / runtime ---
   | 'TOOL_ERROR'               // a tool handler failed (bad input, not-found, exec error)

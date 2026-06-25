@@ -10,6 +10,11 @@ import {
   buildEnablePluginTool,
   type PluginToggleDeps,
 } from './toggle.js';
+import {
+  buildListDefaultsTool,
+  buildSetDefaultTool,
+  type CategoryDefaultsDeps,
+} from './defaults.js';
 import { buildSearchPluginsTool } from './search.js';
 
 export {
@@ -33,18 +38,26 @@ export {
 } from './toggle.js';
 
 export {
+  buildListDefaultsTool,
+  buildSetDefaultTool,
+  type CategoryDefaultsDeps,
+} from './defaults.js';
+
+export {
   buildSearchPluginsTool,
   searchInstallablePlugins,
   type PluginSearchResult,
   type FetchLike,
 } from './search.js';
 
-// Enable/disable persistence (formerly @moxxy/plugin-marketplace/config-state).
+// Enable/disable + category-default persistence (formerly
+// @moxxy/plugin-marketplace/config-state).
 export {
   clearPluginState,
   defaultUserConfigPath,
   isPluginDisabled,
   loadDisabledPackageNames,
+  setCategoryDefault,
   setPluginEnabled,
   type PluginConfigOptions,
 } from './config.js';
@@ -86,6 +99,10 @@ export interface BuildPluginsAdminOpts {
    * unplug a plugin from the live session and across restarts.
    */
   readonly setEnabled: PluginToggleDeps['setEnabled'];
+  /** Per-category active default + swappable items (the `list_defaults` tool). */
+  readonly categories: CategoryDefaultsDeps['categories'];
+  /** Persist + apply a category default swap (the `set_default` tool). */
+  readonly setCategoryDefault: CategoryDefaultsDeps['setCategoryDefault'];
 }
 
 /**
@@ -98,6 +115,10 @@ export interface BuildPluginsAdminOpts {
 export function buildPluginsAdminPlugin(opts: BuildPluginsAdminOpts): Plugin {
   const installDeps: InstallPluginDeps = { reload: opts.reload, snapshot: opts.snapshot };
   const toggleDeps: PluginToggleDeps = { setEnabled: opts.setEnabled, snapshot: opts.snapshot };
+  const defaultsDeps: CategoryDefaultsDeps = {
+    categories: opts.categories,
+    setCategoryDefault: opts.setCategoryDefault,
+  };
   return definePlugin({
     name: '@moxxy/plugin-plugins-admin',
     version: '0.0.0',
@@ -107,6 +128,8 @@ export function buildPluginsAdminPlugin(opts: BuildPluginsAdminOpts): Plugin {
       buildUninstallPluginTool(installDeps),
       buildEnablePluginTool(toggleDeps),
       buildDisablePluginTool(toggleDeps),
+      buildListDefaultsTool(defaultsDeps),
+      buildSetDefaultTool(defaultsDeps),
     ],
   });
 }

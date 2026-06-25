@@ -87,8 +87,9 @@ import type {
  * v7: three additive provider-management methods backing the desktop's
  * interactive Settings → Providers tab.
  *   - `provider.setEnabled` toggles a provider on/off in the live registry
- *     (disable refuses the ACTIVE provider) and persists the disabled set to
- *     ~/.moxxy/preferences.json so the next boot's activation walk skips it.
+ *     (disable refuses the ACTIVE provider) and persists the flag to
+ *     `plugins.provider.items.<name>.enabled` in ~/.moxxy/config.yaml so the
+ *     next boot's activation walk skips it.
  *   - `provider.refreshReady` re-probes every registered provider's
  *     credentials via the session's credential resolver and replaces
  *     `readyProviders` — so a key saved to the vault flips the readiness dot
@@ -190,7 +191,7 @@ export const RunnerMethod = {
   SessionSetReasoning: 'session.setReasoning',
   /** client->server: switch the active provider (server resolves credentials). */
   ProviderSetActive: 'provider.setActive',
-  /** client->server: enable/disable a provider (v7; persists to preferences). */
+  /** client->server: enable/disable a provider (v7; persists to the config manifest). */
   ProviderSetEnabled: 'provider.setEnabled',
   /** client->server: re-probe every provider's credentials → readyProviders (v7). */
   ProviderRefreshReady: 'provider.refreshReady',

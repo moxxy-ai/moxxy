@@ -1,5 +1,5 @@
 import type { Bot, Context } from 'grammy';
-import { savePreferences } from '@moxxy/core';
+import { setCategoryDefault, setProviderModel } from '@moxxy/config';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { PermissionDecision } from '@moxxy/sdk';
 import type { TelegramPermissionResolver } from '../permission.js';
@@ -191,11 +191,11 @@ async function handleModel(
       session.providers.setActive(providerId, cfg);
     }
     cb.setActiveModelOverride(modelId);
-    // Persist for next CLI run — same preferences file the TUI writes. Await it
-    // so a write failure (disk/permission/lock) is caught below and reported,
-    // instead of telling the user "✓ switched" while the preference silently
-    // never landed (and leaking an unhandled rejection).
-    await savePreferences({ providerName: providerId, model: modelId });
+    // Persist to the unified manifest for the next CLI run — same config the TUI
+    // writes. Await so a write failure (disk/permission/lock) is caught below and
+    // reported, instead of telling the user "✓ switched" while it never landed.
+    await setCategoryDefault('provider', providerId);
+    await setProviderModel(providerId, modelId);
     await ctx.answerCallbackQuery({ text: `→ ${providerId}:${modelId}` });
     if (ctx.callbackQuery?.message) {
       try {
@@ -224,8 +224,8 @@ async function handleMode(
   try {
     session.modes.setActive(modeName);
     // Await so a persistence failure is caught below (and reported) rather than
-    // claiming success while the preference silently never landed.
-    await savePreferences({ mode: modeName });
+    // claiming success while it silently never landed.
+    await setCategoryDefault('mode', modeName);
     await ctx.answerCallbackQuery({ text: `mode → ${modeName}` });
     if (ctx.callbackQuery?.message) {
       try {

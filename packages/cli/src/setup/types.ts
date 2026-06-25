@@ -1,4 +1,4 @@
-import type { Session, SessionPersistence } from '@moxxy/core';
+import type { EventStoreSession, Session } from '@moxxy/core';
 import type { PermissionResolver } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
@@ -113,8 +113,8 @@ export interface SetupResult {
     readonly config: WebhookConfigStore;
     readonly stop: () => Promise<void>;
   };
-  /** Session persistence handle. Null when `disableSessionPersistence` is set. */
-  readonly persistence: SessionPersistence | null;
+  /** Active EventStore session handle. Null when `disableSessionPersistence` is set. */
+  readonly persistence: EventStoreSession | null;
   /** Security plugin handle. `audit()` lists every tool's isolation
    *  status; `registry` exposes the available `Isolator` impls. The
    *  plugin itself is a no-op until `security.enabled: true`. */

@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildSynthesizeSkillPlugin, type Session } from '@moxxy/core';
-import { asPluginId, type Plugin } from '@moxxy/sdk';
+import { asPluginId, type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { openaiPlugin } from '@moxxy/plugin-provider-openai';
@@ -72,6 +72,11 @@ export interface BuiltinEntriesArgs {
   readonly viewSurface: ViewSurfaceRef;
   readonly webControls: WebControlsRef;
   readonly setPluginEnabledLive: (packageName: string, enabled: boolean) => Promise<void>;
+  /** Live snapshot + swap of category defaults — shared with the TUI tabs. */
+  readonly categoryLive: {
+    categories: () => ReadonlyArray<CategoryView>;
+    setCategoryDefault: (category: string, name: string) => Promise<void>;
+  };
 }
 
 /**
@@ -81,7 +86,7 @@ export interface BuiltinEntriesArgs {
  * builtin set; do not reorder.
  */
 export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
-  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, viewSurface, webControls, setPluginEnabledLive } = args;
+  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
 
   return [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
@@ -216,6 +221,8 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
           channels: session.channels.list().map((c) => c.name),
         }),
         setEnabled: setPluginEnabledLive,
+        categories: categoryLive.categories,
+        setCategoryDefault: categoryLive.setCategoryDefault,
       }),
     },
     // Self-update — exposes self_update_* tools so the model can author
@@ -257,9 +264,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
               source: 'plugin',
             })
             .then(() => undefined),
-        ...(typeof rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.maxTxnRetained === 'number'
+        ...(typeof rawConfig.plugins?.packages?.['@moxxy/plugin-self-update']?.options
+          ?.maxTxnRetained === 'number'
           ? {
-              maxTxnRetained: rawConfig.plugins['@moxxy/plugin-self-update'].options
+              maxTxnRetained: rawConfig.plugins.packages['@moxxy/plugin-self-update']!.options!
                 .maxTxnRetained as number,
             }
           : {}),
@@ -275,9 +283,14 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
         coreUpdate: {
           enabled:
             process.env.MOXXY_NO_CORE_UPDATE !== '1' &&
-            rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.allowCoreUpdate !== false,
-          ...(typeof rawConfig.plugins?.['@moxxy/plugin-self-update']?.options?.repoUrl === 'string'
-            ? { repoUrlOverride: rawConfig.plugins['@moxxy/plugin-self-update'].options.repoUrl as string }
+            rawConfig.plugins?.packages?.['@moxxy/plugin-self-update']?.options?.allowCoreUpdate !==
+              false,
+          ...(typeof rawConfig.plugins?.packages?.['@moxxy/plugin-self-update']?.options?.repoUrl ===
+          'string'
+            ? {
+                repoUrlOverride: rawConfig.plugins.packages['@moxxy/plugin-self-update']!.options!
+                  .repoUrl as string,
+              }
             : {}),
         },
       }),

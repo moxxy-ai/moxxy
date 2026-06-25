@@ -1,5 +1,6 @@
 import type React from 'react';
-import { savePreferences, clearUsageStats } from '@moxxy/core';
+import { clearUsageStats } from '@moxxy/core';
+import { setCategoryDefault } from '@moxxy/config';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { ListPickerOption, ListPickerTab } from '../components/ListPicker.js';
@@ -288,31 +289,41 @@ export interface OpenPluginsPickerDeps {
   setSystemNotice: (msg: string | null) => void;
 }
 
-/** Maps a plugin's primary contribution kind to one of a few basic picker
- *  tabs. Everything that isn't a provider / mode / channel / tool lands in
- *  "Others" (embedders, voice, isolators, compactors, cache strategies, …). */
-const PLUGIN_KIND_TAB: Record<string, { id: string; label: string }> = {
-  provider: { id: 'providers', label: 'Providers' },
-  mode: { id: 'modes', label: 'Modes' },
-  channel: { id: 'channels', label: 'Channels' },
-  tool: { id: 'tools', label: 'Tools' },
-  agent: { id: 'tools', label: 'Tools' },
-  command: { id: 'tools', label: 'Tools' },
+/** Human labels for the per-category default tabs (the swap axis). */
+const CATEGORY_LABELS: Record<string, string> = {
+  provider: 'Providers',
+  mode: 'Modes',
+  compactor: 'Compactors',
+  cacheStrategy: 'Cache',
+  embedder: 'Embedders',
+  transcriber: 'Transcribers',
+  synthesizer: 'Synthesizers',
+  workflowExecutor: 'Workflows',
+  viewRenderer: 'Renderers',
+  tunnelProvider: 'Tunnels',
+  isolator: 'Isolators',
+  eventStore: 'Storage',
+  channel: 'Channels',
 };
-const OTHER_TAB = { id: 'others', label: 'Others' };
-const PLUGIN_TAB_ORDER = ['providers', 'modes', 'channels', 'tools', 'others'];
 
 function shortPluginName(name: string): string {
   return name.replace(/^@moxxy\/(?:plugin-|mode-|compactor-|cache-strategy-)?/, '');
 }
 
 /**
- * `/plugins` — a tabbed picker (one tab per plugin kind, plus Disabled and
- * Installable) for plugging/unplugging plugins. Selecting a loaded plugin
- * disables it; selecting a disabled one re-enables it; both persist to config
- * and apply to the live session immediately via `session.pluginsAdmin`.
- * Installable entries print their install command. Degrades gracefully when
- * the in-process pluginsAdmin capability is absent (e.g. a RemoteSession).
+ * `/plugins` — a tabbed picker aligned with the unified `plugins:` manifest's
+ * two axes:
+ *   - **per-category default tabs** (Providers / Modes / …) — the SWAP axis. Each
+ *     lists that category's registered contributions with the active one badged
+ *     `current` and the protected floor badged `core`; selecting swaps the
+ *     default (`set_default`, persisted + live-applied). Only categories with
+ *     something to swap (≥2 contributions) get a tab.
+ *   - a **Packages** tab — the ENABLE/DISABLE axis. Loaded packages (with a
+ *     `core` badge on the kernel ones that can't be disabled) + disabled ones;
+ *     selecting toggles enable/disable.
+ *   - an **Installable** tab — the curated catalog of not-yet-installed plugins.
+ *
+ * Degrades gracefully when `session.pluginsAdmin` is absent (a RemoteSession).
  */
 export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
   const admin = deps.session.pluginsAdmin;
@@ -323,44 +334,62 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
   const loaded = admin.loaded();
   const disabled = admin.disabled();
   const catalog = admin.catalog();
+  const core = new Set<string>(admin.protectedPackages());
   const installed = new Set<string>([...loaded.map((p) => p.name), ...disabled]);
 
-  const byTab = new Map<string, { label: string; options: ListPickerOption[] }>();
-  const ensureTab = (id: string, label: string): { label: string; options: ListPickerOption[] } => {
-    const existing = byTab.get(id);
-    if (existing) return existing;
-    const created = { label, options: [] as ListPickerOption[] };
-    byTab.set(id, created);
-    return created;
-  };
-  for (const p of [...loaded].sort((a, b) => a.name.localeCompare(b.name))) {
-    const primary = p.kinds?.[0];
-    const cat = (primary && PLUGIN_KIND_TAB[primary]) || OTHER_TAB;
-    ensureTab(cat.id, cat.label).options.push({
-      id: `${p.name}::disable`,
-      label: shortPluginName(p.name),
-      description: `${p.kinds && p.kinds.length ? p.kinds.join(', ') : 'plugin'} · @${p.version}`,
-      badge: 'on',
-      badgeColor: 'green',
+  const tabs: ListPickerTab[] = [];
+
+  // 1. Swap axis — one tab per category with something to swap.
+  for (const cat of admin.categories()) {
+    if (cat.items.length < 2) continue; // nothing to swap (just the floor)
+    tabs.push({
+      id: `cat:${cat.category}`,
+      label: CATEGORY_LABELS[cat.category] ?? cat.category,
+      options: cat.items.map((item) => ({
+        id: `${cat.category}::${item.name}::setdefault`,
+        label: item.name,
+        description: item.isDefault
+          ? 'current default'
+          : item.name === cat.floor
+            ? 'core default — swap, don’t remove'
+            : 'select to make this the default',
+        current: item.isDefault,
+        ...(item.isDefault
+          ? { badge: 'current' as const, badgeColor: 'green' as const }
+          : item.name === cat.floor
+            ? { badge: 'core' as const, badgeColor: 'gray' as const }
+            : {}),
+      })),
     });
   }
-  // Disabled plugins have no live contribution kind to group by, so they live
-  // under "Others" with an [off] badge — still discoverable + re-enableable.
+
+  // 2. Enable/disable axis — every installed package, kernel ones marked.
+  const pkgOptions: ListPickerOption[] = [];
+  for (const p of [...loaded].sort((a, b) => a.name.localeCompare(b.name))) {
+    const isCore = core.has(p.name);
+    pkgOptions.push({
+      // Kernel packages can't be disabled — a `::core` selection just explains why.
+      id: isCore ? `${p.name}::core` : `${p.name}::disable`,
+      label: shortPluginName(p.name),
+      description: `${p.kinds && p.kinds.length ? p.kinds.join(', ') : 'plugin'} · @${p.version}`,
+      badge: isCore ? 'core' : 'on',
+      badgeColor: isCore ? 'cyan' : 'green',
+    });
+  }
   for (const name of [...disabled].sort()) {
-    ensureTab(OTHER_TAB.id, OTHER_TAB.label).options.push({
+    pkgOptions.push({
       id: `${name}::enable`,
       label: shortPluginName(name),
-      description: name,
+      description: `${name} · disabled`,
       badge: 'off',
       badgeColor: 'gray',
     });
   }
-
-  const tabs: ListPickerTab[] = [];
-  for (const id of PLUGIN_TAB_ORDER) {
-    const t = byTab.get(id);
-    if (t && t.options.length) tabs.push({ id, label: t.label, options: t.options });
+  if (pkgOptions.length > 0) {
+    tabs.push({ id: 'packages', label: 'Packages', options: pkgOptions });
   }
+
+  // 3. Installable catalog (not-yet-installed).
   const installable = catalog.filter((e) => !installed.has(e.packageName));
   if (installable.length > 0) {
     tabs.push({
@@ -408,7 +437,7 @@ function startGoal(deps: SlashDeps, arg: string): void {
   }
   try {
     deps.session.modes.setActive(GOAL_MODE);
-    void savePreferences({ mode: GOAL_MODE });
+    void setCategoryDefault('mode', GOAL_MODE).catch(() => undefined);
   } catch (err) {
     deps.setSystemNotice(
       `failed to switch to goal mode: ${err instanceof Error ? err.message : String(err)}`,
@@ -446,7 +475,7 @@ function startCollab(deps: SlashDeps, arg: string): void {
   }
   try {
     deps.session.modes.setActive(COLLAB_MODE);
-    void savePreferences({ mode: COLLAB_MODE });
+    void setCategoryDefault('mode', COLLAB_MODE).catch(() => undefined);
   } catch (err) {
     deps.setSystemNotice(
       `failed to switch to collaborative mode: ${err instanceof Error ? err.message : String(err)}`,
@@ -488,7 +517,7 @@ function openModePicker(deps: SlashDeps, arg = ''): void {
       try {
         deps.session.modes.setActive(match.name);
         deps.setSystemNotice(`mode → ${match.name}`);
-        void savePreferences({ mode: match.name });
+        void setCategoryDefault('mode', match.name).catch(() => undefined);
       } catch (err) {
         deps.setSystemNotice(
           `failed to switch mode: ${err instanceof Error ? err.message : String(err)}`,

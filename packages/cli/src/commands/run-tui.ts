@@ -1,9 +1,9 @@
 import {
   createInteractivePermissionResolver,
   InteractiveSession,
-  loadPreferences,
   type InteractiveBootStep,
 } from '@moxxy/plugin-cli';
+import { loadActiveModel } from '@moxxy/config';
 import { render } from 'ink';
 import React from 'react';
 import type {
@@ -226,8 +226,7 @@ async function runAttachedTui(argv: ParsedArgv, tuiOpts: RunTuiOpts): Promise<nu
   // Register as the resolver for the turns this client starts.
   remote.setPermissionResolver(resolver);
 
-  const prefs = await loadPreferences();
-  const effectiveModel = stringFlag(argv, 'model') ?? prefs.model;
+  const effectiveModel = stringFlag(argv, 'model') ?? (await loadActiveModel());
   const version = cliVersion();
   const updateNotice = resolveUpdateNotice(version);
 
@@ -335,7 +334,7 @@ async function runSelfHostedTui(
     },
   });
 
-  const effectiveModel = stringFlag(argv, 'model') ?? (await loadPreferences()).model;
+  const effectiveModel = stringFlag(argv, 'model') ?? (await loadActiveModel());
   const version = cliVersion();
   const updateNotice = resolveUpdateNotice(version);
 

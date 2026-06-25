@@ -19,59 +19,22 @@
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
+import type { EventLogLike, EventPage, SessionMeta, SessionSource } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
-import type { EventLog } from '../events/log.js';
 import { createLogger, type Logger } from '../logger.js';
 
-/**
- * The channel that originated a session. Persisted into the sidecar by the
- * runner so every surface (desktop/TUI/mobile) derives the session list from a
- * single source instead of each keeping its own copy. `desktop`/`mobile`
- * sessions are kept in the derived workspace list even before they have a first
- * prompt (a brand-new chat the user just opened); empty `cli`/`tui` sidecars are
- * dropped as noise.
- */
-export type SessionSource = 'cli' | 'tui' | 'desktop' | 'mobile';
+// `SessionSource`, `SessionMeta` and `EventPage` are the EventStore contract's
+// data shapes — defined in @moxxy/sdk so `EventStoreDef` can reference them.
+// Re-exported here (and onward from @moxxy/core) so existing importers are
+// unaffected by the move.
+export type { EventLogLike, EventPage, SessionMeta, SessionSource } from '@moxxy/sdk';
 
 /** Schema version of the per-session metadata file (`<id>.json`). Bump when the
  *  shape changes incompatibly; readers tolerate a missing/older version. */
 export const SESSION_META_VERSION = 1;
 
-/**
- * The single per-session metadata file: `~/.moxxy/sessions/<id>.json`.
- *
- * ONE file per session, the unit every surface (TUI/desktop/mobile) lists,
- * searches and caches. The conversation itself lives in the append-only
- * `<id>.jsonl`. Fields split by owner:
- *  - the RUNNER owns the content fields (`firstPrompt`, `eventCount`,
- *    `lastActivity`, `provider`, `model`, `startedAt`, `source`) and rewrites
- *    them on a debounce;
- *  - the UI owns `title` (a rename) and `groupId` (which desk it belongs to).
- * Because both write the same file, the runner ADOPTS the UI fields on attach
- * and re-merges them just before each write, so a live session never clobbers a
- * rename or a move.
- */
-export interface SessionMeta {
-  /** Schema version; absent on older files (treated as v0). */
-  readonly version?: number;
-  readonly id: string;
-  readonly cwd: string;
-  readonly startedAt: string;
-  readonly lastActivity: string;
-  readonly eventCount: number;
-  /** First 80 chars of the first user_prompt. The list/search label. */
-  readonly firstPrompt: string | null;
-  readonly provider: string | null;
-  readonly model: string | null;
-  /** Originating channel, when known. Written by the runner via `opts.source`. */
-  readonly source?: SessionSource;
-  /** Explicit workspace/desk membership (UI-owned). `null`/absent → grouped by
-   *  cwd containment (CLI/TUI sessions that don't know about desks). */
-  readonly groupId?: string | null;
-  /** User-set display name, the rename (UI-owned). `null`/absent → the name is
-   *  derived from `firstPrompt`. */
-  readonly title?: string | null;
-}
+// `SessionMeta` is defined in @moxxy/sdk (the EventStore contract's listing
+// shape) and re-exported above. The JSONL impl below reads/writes it.
 
 export interface SessionPersistenceOpts {
   readonly sessionId: SessionId;
@@ -216,7 +179,7 @@ export class SessionPersistence {
    * in the same (now empty) JSONL, matching how the in-memory log
    * reuses the same Session object.
    */
-  attach(log: EventLog): () => void {
+  attach(log: EventLogLike): () => void {
     void this.ensureReady()
       .then(() => this.scheduleIndexWrite())
       .catch(() => undefined);
@@ -679,18 +642,8 @@ export async function restoreEvents(
   return events;
 }
 
-/** One page of persisted events, newest-page-first paging (see
- *  {@link readEventPage}). */
-export interface EventPage {
-  /** The events in this page, in ascending `seq` order. */
-  readonly events: MoxxyEvent[];
-  /**
-   * Cursor to pass as `before` for the NEXT (older) page — the `seq` of the
-   * OLDEST event in this page. `null` once the start of history (the first
-   * persisted event) is included, signalling there is no older page.
-   */
-  readonly prevCursor: number | null;
-}
+// `EventPage` is defined in @moxxy/sdk (the EventStore read contract) and
+// re-exported above; `readEventPage`/`pageEvents` below produce it.
 
 /**
  * Read ONE page of a persisted session's events without re-materializing the

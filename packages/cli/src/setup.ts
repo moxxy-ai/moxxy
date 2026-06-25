@@ -7,11 +7,10 @@ import {
   defaultUserSkillsDir,
   denyByDefaultResolver,
   discoverSkills,
-  loadPreferences,
   silentLogger,
 } from '@moxxy/core';
 import type { Plugin } from '@moxxy/sdk';
-import { buildConfigPlugin } from '@moxxy/config';
+import { buildConfigPlugin, loadDisabledProviders } from '@moxxy/config';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './setup/builtin-skills-dir.js';
 import { buildVaultPlugin } from '@moxxy/plugin-vault';
 import { buildMemoryPlugin } from '@moxxy/plugin-memory';
@@ -24,7 +23,16 @@ import { buildSchedulerRunner } from './setup/scheduler-runner.js';
 import { buildWebhookRunner } from './setup/webhook-runner.js';
 import { registerPlugins } from './setup/register-plugins.js';
 import { activateProvider } from './setup/activate-provider.js';
-import { applyPreferences } from './setup/apply-preferences.js';
+import {
+  applyPluginsTree,
+  assertCriticalFloors,
+  markBuiltinFloors,
+} from './setup/apply-plugins-tree.js';
+import {
+  disabledPackageNames,
+  embedderSelection,
+  providerItem,
+} from './setup/resolve-plugins-tree.js';
 import { applySessionHeaderPreferences } from './setup/session-header-preferences.js';
 import { attachSessionPersistence } from './setup/persistence.js';
 import type { SetupOptions, SetupResult } from './setup/types.js';
@@ -75,11 +83,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // PluginHost reads it on every reload so a disabled plugin is never
   // resurrected; the config applier and the plugins-admin enable/disable tools
   // mutate it so a runtime toggle takes effect without a restart.
-  const disabledPackages = new Set<string>(
-    Object.entries(config.plugins ?? {})
-      .filter(([, settings]) => settings?.enabled === false)
-      .map(([name]) => name),
-  );
+  const disabledPackages = new Set<string>(disabledPackageNames(config));
 
   const session = await buildSession({
     cwd: opts.cwd,
@@ -138,9 +142,14 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     skipped: pluginRegistration.skipped.length,
   });
 
+  // Kernel-plugin-contributed defaults (compactor/cacheStrategy/workflowExecutor)
+  // are registered now — designate them protected floors so a swapped-then-
+  // removed alternative reverts here instead of leaving the slot empty.
+  markBuiltinFloors(session);
+
   // Every plugin (incl. discovered embedder plugins) is registered now — pick
   // the configured embedder onto session.embedders; memory reads it lazily.
-  await selectEmbedder(session, rawConfig.embeddings, logger);
+  await selectEmbedder(session, embedderSelection(config), logger);
 
   // Bridge plugin-contributed isolators (from discovered `kind: 'isolator'`
   // plugins) into the security layer's registry, BEFORE its onInit wraps tools.
@@ -150,23 +159,23 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   for (const iso of session.isolators.list()) security.registry.register(iso);
 
   // Seed user-disabled providers (desktop Settings → Providers toggle) BEFORE
-  // the activation walk so a disabled provider is never auto-activated. The
-  // registry's disabled set is name-based, so seeding works regardless of
-  // plugin registration order. Best-effort, like every preferences read.
+  // the activation walk so a disabled provider is never auto-activated. Read
+  // from `plugins.provider.items.<name>.enabled: false` in the unified config.
+  // The registry's disabled set is name-based, so seeding works regardless of
+  // plugin registration order. Best-effort — never block boot.
   try {
-    const bootPrefs = await loadPreferences();
-    for (const name of bootPrefs.disabledProviders ?? []) {
+    for (const name of await loadDisabledProviders()) {
       session.providers.setEnabled(name, false);
     }
   } catch {
-    // preferences are optional — never block boot
+    // best-effort — never block boot
   }
 
   const { credentialResolver } = await activateProvider({
     session,
     config,
     vault,
-    providerConfig: { ...(config.provider?.config ?? {}), ...(opts.providerConfig ?? {}) },
+    providerConfig: { ...(providerItem(config).config ?? {}), ...(opts.providerConfig ?? {}) },
     skipKeyPrompt,
     skipProviderActivation: opts.skipProviderActivation,
     tolerateNoProvider: opts.tolerateNoProvider,
@@ -175,16 +184,15 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     logger,
   });
 
-  if (config.mode) session.modes.setActive(config.mode);
-  if (config.compactor) session.compactors.setActive(config.compactor);
-  if (config.workflowExecutor) session.workflowExecutors.setActive(config.workflowExecutor);
-  // Caching is on by default (stable-prefix auto-activates). `caching: false`
-  // selects the no-op strategy; an explicit name overrides the default.
-  if (config.context?.caching === false) {
-    session.cacheStrategies.setActive('none');
-  } else if (config.context?.cacheStrategy) {
-    session.cacheStrategies.setActive(config.context.cacheStrategy);
-  }
+  // Apply the manifest's per-category defaults (mode/compactor/cacheStrategy/
+  // workflowExecutor/viewRenderer/tunnelProvider) in one table-driven pass. A
+  // default naming an uninstalled plugin warns and keeps the protected floor —
+  // never throws at boot. provider/embedder/isolator are applied by their
+  // bespoke callers above/below.
+  applyPluginsTree(session, config, logger);
+  // Fail loud if any non-nullable slot ended up empty (a broken build/seed) —
+  // never let the user hit a half-initialized app.
+  assertCriticalFloors(session);
   // The web-surface tunnel provider (localhost by default) is applied by the
   // web plugin's onInit from ~/.moxxy/web.json or config.channels.web.tunnel,
   // and auto-selected per primary channel by coAttachWebSurface — no env needed.
@@ -194,7 +202,10 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   if (config.context?.elision) session.elisionSettings = config.context.elision;
   if (config.context?.lazyTools) session.lazyTools = true;
 
-  await applyPreferences(session, credentialResolver, logger);
+  // No separate preferences overlay anymore: the persisted provider/mode IS the
+  // manifest default, already applied by activateProvider + applyPluginsTree
+  // above. Only the per-session header (resumed session's own provider/model)
+  // still overlays here.
   await applySessionHeaderPreferences(session, opts.sessionId, credentialResolver, logger);
   progress({ kind: 'prefs-applied' });
 

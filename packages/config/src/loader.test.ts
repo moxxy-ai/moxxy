@@ -23,11 +23,11 @@ describe('loadConfig', () => {
   it('loads a moxxy.config.js from cwd', async () => {
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.js'),
-      `export default { provider: { name: 'anthropic', model: 'sonnet' } };`,
+      `export default { plugins: { provider: { default: 'anthropic', items: { anthropic: { model: 'sonnet' } } } } };`,
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.provider?.name).toBe('anthropic');
-    expect(result.config.provider?.model).toBe('sonnet');
+    expect(result.config.plugins?.provider?.default).toBe('anthropic');
+    expect(result.config.plugins?.provider?.items?.anthropic?.model).toBe('sonnet');
     expect(result.sources[0]?.scope).toBe('project');
   });
 
@@ -36,28 +36,28 @@ describe('loadConfig', () => {
     await fs.mkdir(nested, { recursive: true });
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.js'),
-      `export default { mode: 'default' };`,
+      `export default { plugins: { mode: { default: 'default' } } };`,
     );
     const result = await loadConfig({ cwd: nested, skipUser: true });
-    expect(result.config.mode).toBe('default');
+    expect(result.config.plugins?.mode?.default).toBe('default');
   });
 
   it('honors explicitPath over upward search', async () => {
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.js'),
-      `export default { mode: 'default' };`,
+      `export default { plugins: { mode: { default: 'default' } } };`,
     );
     const custom = path.join(tmp, 'custom.config.js');
-    await fs.writeFile(custom, `export default { mode: 'research' };`);
+    await fs.writeFile(custom, `export default { plugins: { mode: { default: 'research' } } };`);
     const result = await loadConfig({ cwd: tmp, explicitPath: custom, skipUser: true });
-    expect(result.config.mode).toBe('research');
+    expect(result.config.plugins?.mode?.default).toBe('research');
     expect(result.sources[0]?.scope).toBe('explicit');
   });
 
   it('rejects a config whose schema is invalid', async () => {
     await fs.writeFile(
       path.join(tmp, 'moxxy.config.js'),
-      `export default { provider: { name: 42 } };`,
+      `export default { plugins: { provider: { default: 42 } } };`,
     );
     await expect(loadConfig({ cwd: tmp, skipUser: true })).rejects.toThrow(/Invalid moxxy config/);
   });
@@ -76,18 +76,18 @@ describe('loadConfig', () => {
     // buster so back-to-back reloads in the same millisecond can't return the
     // stale cached module. Use .mjs so it goes through importJsConfig, not jiti.
     const file = path.join(tmp, 'moxxy.config.mjs');
-    await fs.writeFile(file, `export default { mode: 'default' };`);
+    await fs.writeFile(file, `export default { plugins: { mode: { default: 'default' } } };`);
     const first = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(first.config.mode).toBe('default');
+    expect(first.config.plugins?.mode?.default).toBe('default');
 
-    await fs.writeFile(file, `export default { mode: 'goal' };`);
+    await fs.writeFile(file, `export default { plugins: { mode: { default: 'goal' } } };`);
     // Two reloads with no delay between them (same-ms risk).
     const [a, b] = await Promise.all([
       loadConfig({ cwd: tmp, skipUser: true }),
       loadConfig({ cwd: tmp, skipUser: true }),
     ]);
-    expect(a.config.mode).toBe('goal');
-    expect(b.config.mode).toBe('goal');
+    expect(a.config.plugins?.mode?.default).toBe('goal');
+    expect(b.config.plugins?.mode?.default).toBe('goal');
   });
 
   it('resolves each .ts config\'s relative imports against ITS OWN dir (jiti cache keyed by cwd)', async () => {
@@ -101,19 +101,19 @@ describe('loadConfig', () => {
       await fs.writeFile(path.join(dirA, 'marker.ts'), `export const marker = 'from-A';`);
       await fs.writeFile(
         path.join(dirA, 'moxxy.config.ts'),
-        `import { marker } from './marker';\nexport default { provider: { name: 'x', model: marker } };`,
+        `import { marker } from './marker';\nexport default { plugins: { provider: { default: 'x', items: { x: { model: marker } } } } };`,
       );
       await fs.writeFile(path.join(dirB, 'marker.ts'), `export const marker = 'from-B';`);
       await fs.writeFile(
         path.join(dirB, 'moxxy.config.ts'),
-        `import { marker } from './marker';\nexport default { provider: { name: 'x', model: marker } };`,
+        `import { marker } from './marker';\nexport default { plugins: { provider: { default: 'x', items: { x: { model: marker } } } } };`,
       );
 
       const a = await loadConfig({ cwd: dirA, skipUser: true });
       const b = await loadConfig({ cwd: dirB, skipUser: true });
 
-      expect(a.config.provider?.model).toBe('from-A');
-      expect(b.config.provider?.model).toBe('from-B');
+      expect(a.config.plugins?.provider?.items?.x?.model).toBe('from-A');
+      expect(b.config.plugins?.provider?.items?.x?.model).toBe('from-B');
     } finally {
       await fs.rm(dirA, { recursive: true, force: true });
       await fs.rm(dirB, { recursive: true, force: true });

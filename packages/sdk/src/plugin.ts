@@ -16,8 +16,9 @@ import type { SynthesizerDef } from './synthesizer.js';
 import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
+import type { EventStoreDef } from './event-store.js';
 
-export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'surface' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor';
+export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'surface' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor' | 'event-store';
 
 export interface PluginSpec {
   readonly name: string;
@@ -44,6 +45,14 @@ export interface PluginSpec {
    * the proxy relay). One active per session; core seeds a `localhost` no-op.
    */
   readonly tunnelProviders?: ReadonlyArray<TunnelProviderDef>;
+  /**
+   * Event-store backends — the storage behind a session's event log. Core seeds
+   * a protected JSONL default; a plugin can contribute an alternative (SQLite,
+   * remote, encrypted), activated only by explicit `plugins.eventStore.default`
+   * (a discovered store is registered but never auto-active — the trust
+   * boundary, since the store sees every event). See {@link EventStoreDef}.
+   */
+  readonly eventStores?: ReadonlyArray<EventStoreDef>;
   readonly channels?: ReadonlyArray<ChannelDef>;
   /**
    * Interactive surfaces contributed by the plugin — long-lived panes a human

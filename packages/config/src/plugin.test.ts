@@ -154,7 +154,10 @@ describe('buildConfigPlugin tools', () => {
 
   it('config_set rejects writes that would violate the schema', async () => {
     await expect(
-      tool('config_set').handler({ scope: 'project', path: 'provider.name', value: '42' }, ctx),
+      tool('config_set').handler(
+        { scope: 'project', path: 'plugins.provider.default', value: '42' },
+        ctx,
+      ),
     ).rejects.toThrow(/invalid config/);
   });
 
@@ -165,8 +168,9 @@ describe('buildConfigPlugin tools', () => {
     };
     expect(out.created).toBe(true);
     const text = await fs.readFile(out.path, 'utf8');
-    expect(text).toContain('provider:');
-    expect(text).toContain('mode: default');
+    expect(text).toContain('plugins:');
+    expect(text).toContain('default: anthropic');
+    expect(text).toContain('default: default');
   });
 
   it('config_init is a no-op when a file already exists', async () => {
@@ -231,12 +235,14 @@ describe('buildConfigPlugin runtime applier', () => {
       return { applied: ['mode'], pending: ['provider.name'] };
     };
     const out = (await toolOf(pluginWith(applier), 'config_set').handler(
-      { scope: 'project', path: 'mode', value: '"goal"' },
+      { scope: 'project', path: 'plugins.mode.default', value: '"goal"' },
       ctx,
     )) as { runtime: ConfigApplyResult };
     expect(out.runtime).toEqual({ applied: ['mode'], pending: ['provider.name'] });
     expect(seen).toHaveLength(1);
-    expect((seen[0] as { mode?: string }).mode).toBe('goal');
+    expect((seen[0] as { plugins?: { mode?: { default?: string } } }).plugins?.mode?.default).toBe(
+      'goal',
+    );
   });
 
   it('config_set catches an applier throw and reports it as a reload-failed pending entry', async () => {
@@ -269,14 +275,14 @@ describe('buildConfigPlugin runtime applier', () => {
   });
 
   it('config_reload loads fresh config from disk and forwards it to the applier', async () => {
-    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), 'mode: goal\n');
-    let received: { mode?: string } | undefined;
+    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), 'plugins:\n  mode:\n    default: goal\n');
+    let received: { plugins?: { mode?: { default?: string } } } | undefined;
     const applier: ConfigApplier = async (snapshot) => {
       received = snapshot;
       return { applied: ['mode'], pending: [] };
     };
     const out = (await toolOf(pluginWith(applier), 'config_reload').handler({}, ctx)) as ConfigApplyResult;
-    expect(received?.mode).toBe('goal');
+    expect(received?.plugins?.mode?.default).toBe('goal');
     expect(out).toEqual({ applied: ['mode'], pending: [] });
   });
 
@@ -290,7 +296,10 @@ describe('buildConfigPlugin runtime applier', () => {
   });
 
   it('config_validate reports {ok:false,error} for an invalid on-disk config', async () => {
-    await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), 'provider:\n  name: 42\n');
+    await fs.writeFile(
+      path.join(tmp, 'moxxy.config.yaml'),
+      'plugins:\n  provider:\n    default: 42\n',
+    );
     const out = (await toolOf(pluginWith(), 'config_validate').handler({}, ctx)) as {
       ok: boolean;
       error?: string;

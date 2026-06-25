@@ -161,6 +161,30 @@ or recorded-on-purpose decision.
   "(missing)" option, but `webhook_create`/`schedule_create`/workflow YAML can't
   validate without a live-desk registry. `packages/plugin-{webhooks,scheduler}`, `packages/cli`.
 
+## Config / plugins manifest
+
+- [note, RESOLVED 2026-06-25] The three overlapping config stores (flat
+  `provider`/`mode`/`compactor` keys + package-keyed `plugins:` map +
+  `~/.moxxy/preferences.json`) are unified into one category-grouped `plugins:`
+  tree with a critical floor (Pillar 1). Provider/mode/model/disabled now persist
+  through `@moxxy/config` writers; `preferences.json` is gone.
+- [note, RESOLVED 2026-06-25] Pillar 2 done: the **EventStore** behind the event
+  log is now a registry kind (`eventStore`) with a protected JSONL floor and an
+  explicit-opt-in trust boundary, behaviour-identical (thin adapter over
+  `SessionPersistence`). Pillar 3 (slim-core kernel + publish ~40 plugins +
+  init-provisions + desktop seed-pack) remains planned but unstarted. Plan:
+  `~/.claude/plans/i-think-we-need-zany-wirth.md`.
+- [low, follow-up] EventStore: only the WRITE path routes through the active
+  store (`attachSessionPersistence` → `getActive().open()`). The session-scoped
+  READS (`restoreSessionEvents`/`readSessionEventPage` in build-session, runner
+  session-handlers, mobile host) + cross-session management (`listSessionMetas`/
+  `deleteSession`/`seedSessionLog`) still call the standalone JSONL fns. Identical
+  while JSONL is the only impl; route them through `getActive()` (and add a
+  default-store seam for the no-session listing) when a 2nd store lands.
+- [low, dx] plugins-admin/runner/channels persist via raw-YAML `setIn` writers in
+  `@moxxy/config/user-config.ts` — the typecheck can't catch a wrong path string;
+  keep the round-trip tests honest and grep for `['plugins'` paths on changes.
+
 ## CLI / services
 
 - [med, dx] `service install` units break under Electron-as-node (`nodeBin()` returns

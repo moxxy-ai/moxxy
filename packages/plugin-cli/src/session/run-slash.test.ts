@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runSlash, type SlashDeps } from './run-slash.js';
 
-// run-slash.ts imports savePreferences/clearUsageStats from @moxxy/core; stub
-// them so /goal's preference save doesn't touch ~/.moxxy during the unit test.
+// run-slash.ts imports clearUsageStats from @moxxy/core and setCategoryDefault
+// from @moxxy/config; stub them so /goal's mode-default persist doesn't touch
+// ~/.moxxy during the unit test.
 vi.mock('@moxxy/core', () => ({
-  savePreferences: vi.fn(async () => undefined),
   clearUsageStats: vi.fn(async () => undefined),
+}));
+vi.mock('@moxxy/config', () => ({
+  setCategoryDefault: vi.fn(async () => undefined),
 }));
 
 describe('runSlash', () => {

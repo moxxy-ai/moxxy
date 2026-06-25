@@ -53,31 +53,34 @@ export function buildSessionConfigApplier(
     const applied: string[] = [];
     const pending: string[] = [];
 
-    if (next.mode !== last.mode) {
+    const nextMode = next.plugins?.mode?.default;
+    if (nextMode !== last.plugins?.mode?.default) {
       try {
-        if (next.mode) session.modes.setActive(next.mode);
+        if (nextMode) session.modes.setActive(nextMode);
         applied.push('mode');
       } catch (err) {
         pending.push(`mode (${err instanceof Error ? err.message : String(err)})`);
       }
     }
 
-    if (next.compactor !== last.compactor) {
+    const nextCompactor = next.plugins?.compactor?.default;
+    if (nextCompactor !== last.plugins?.compactor?.default) {
       try {
-        if (next.compactor) session.compactors.setActive(next.compactor);
+        if (nextCompactor) session.compactors.setActive(nextCompactor);
         applied.push('compactor');
       } catch (err) {
         pending.push(`compactor (${err instanceof Error ? err.message : String(err)})`);
       }
     }
 
+    const nextCacheStrategy = next.plugins?.cacheStrategy?.default;
     if (
       next.context?.caching !== last.context?.caching ||
-      next.context?.cacheStrategy !== last.context?.cacheStrategy
+      nextCacheStrategy !== last.plugins?.cacheStrategy?.default
     ) {
       try {
         if (next.context?.caching === false) session.cacheStrategies.setActive('none');
-        else session.cacheStrategies.setActive(next.context?.cacheStrategy ?? 'stable-prefix');
+        else session.cacheStrategies.setActive(nextCacheStrategy ?? 'stable-prefix');
         applied.push('cacheStrategy');
       } catch (err) {
         pending.push(`cacheStrategy (${err instanceof Error ? err.message : String(err)})`);
@@ -119,7 +122,7 @@ export function buildSessionConfigApplier(
     // re-load a freshly-disabled discovered plugin (and vice-versa). Only
     // explicitly-mentioned names are touched, preserving boot-scope disables.
     if (disabledPackages) {
-      for (const [name, settings] of Object.entries(next.plugins ?? {})) {
+      for (const [name, settings] of Object.entries(next.plugins?.packages ?? {})) {
         if (settings?.enabled === false) disabledPackages.add(name);
         else disabledPackages.delete(name);
       }
@@ -129,8 +132,8 @@ export function buildSessionConfigApplier(
     // per-key object references on every re-parsed config and spuriously report
     // a pending change each save (training users to ignore the restart nudge).
     // Compare structurally so we only surface pending on a real difference.
-    if (!deepEqual(last.embeddings, next.embeddings)) {
-      pending.push('embeddings.* (restart required to rebuild memory embedder)');
+    if (!deepEqual(last.plugins?.embedder, next.plugins?.embedder)) {
+      pending.push('embedder.* (restart required to rebuild memory embedder)');
     }
     if (!deepEqual(last.channels, next.channels)) {
       pending.push('channels.* (applies on next `moxxy <channel>` invocation)');
@@ -171,8 +174,8 @@ async function applyPluginToggles(
 ): Promise<PluginToggleResult> {
   const allNames = new Set<string>([
     ...builtinsByName.keys(),
-    ...Object.keys(last.plugins ?? {}),
-    ...Object.keys(next.plugins ?? {}),
+    ...Object.keys(last.plugins?.packages ?? {}),
+    ...Object.keys(next.plugins?.packages ?? {}),
   ]);
   const applied: PluginToggle[] = [];
   const pending: string[] = [];
@@ -220,16 +223,17 @@ async function applyPluginToggles(
 }
 
 function effectiveEnabled(cfg: MoxxyConfig, name: string): boolean {
-  const entry = cfg.plugins?.[name];
+  const entry = cfg.plugins?.packages?.[name];
   if (!entry) return true; // default: enabled when not mentioned
   return entry.enabled !== false;
 }
 
 function providerChanged(a: MoxxyConfig, b: MoxxyConfig): boolean {
-  if (a.provider?.name !== b.provider?.name) return true;
-  if (a.provider?.model !== b.provider?.model) return true;
-  if (!deepEqual(a.provider?.config, b.provider?.config)) return true;
-  if (!arraysEqual(a.provider?.fallbacks, b.provider?.fallbacks)) return true;
+  const pa = a.plugins?.provider;
+  const pb = b.plugins?.provider;
+  if (pa?.default !== pb?.default) return true;
+  if (!arraysEqual(pa?.fallbacks, pb?.fallbacks)) return true;
+  if (!deepEqual(pa?.items, pb?.items)) return true;
   return false;
 }
 

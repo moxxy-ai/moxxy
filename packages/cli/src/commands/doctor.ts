@@ -12,6 +12,7 @@ import type { RequirementCheck } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
+import { embedderSelection } from '../setup/resolve-plugins-tree.js';
 import type { RegistrationResult } from '../setup/register-plugins.js';
 import { canonicalKey } from '../provider-keys.js';
 import { colors } from '../colors.js';
@@ -136,8 +137,8 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   }
 
   // Providers
-  const primary = config.provider?.name ?? 'anthropic';
-  const fallbacks = config.provider?.fallbacks ?? [];
+  const primary = config.plugins?.provider?.default ?? 'anthropic';
+  const fallbacks = config.plugins?.provider?.fallbacks ?? [];
   const providerNames = Array.from(new Set([primary, ...fallbacks]));
   for (const name of providerNames) {
     const def = session.providers.list().find((p) => p.name === name);
@@ -239,11 +240,12 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   });
 
   // Embeddings
-  const eCfg = config.embeddings?.provider ?? 'tfidf';
+  const embedder = embedderSelection(config);
+  const eProvider = embedder?.provider ?? 'tfidf';
   checks.push({
     id: 'embeddings',
     status: 'ok',
-    message: `provider=${eCfg}${config.embeddings?.model ? ` model=${config.embeddings.model}` : ''}`,
+    message: `provider=${eProvider}${embedder?.model ? ` model=${embedder.model}` : ''}`,
   });
 
   // Self-update — Tier-1 is always available if the plugin is loaded; Tier-2

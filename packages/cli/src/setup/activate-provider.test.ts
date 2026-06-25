@@ -26,7 +26,7 @@ describe('activateProvider', () => {
 
     await activateProvider({
       session,
-      config: { provider: { name: 'test-provider' } },
+      config: { plugins: { provider: { default: 'test-provider' } } },
       vault: {
         get: async () => null,
         set: async () => undefined,

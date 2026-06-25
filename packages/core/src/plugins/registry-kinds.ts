@@ -16,6 +16,7 @@ import type {
   ViewRendererDef,
   TunnelProviderDef,
   WorkflowExecutorDef,
+  EventStoreDef,
 } from '@moxxy/sdk';
 import type { PluginHostOptions } from './host-options.js';
 
@@ -42,6 +43,7 @@ export interface RegistryNameRecord {
   readonly embedderNames: ReadonlyArray<string>;
   readonly isolatorNames: ReadonlyArray<string>;
   readonly workflowExecutorNames: ReadonlyArray<string>;
+  readonly eventStoreNames: ReadonlyArray<string>;
 }
 
 /**
@@ -229,4 +231,16 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     register: (o, w: WorkflowExecutorDef) => o.workflowExecutors.register(w),
     unregister: (o, n) => o.workflowExecutors.unregister(n),
   } satisfies RegistryKind<WorkflowExecutorDef>,
+  {
+    kind: 'eventStore',
+    recordField: 'eventStoreNames',
+    defs: (p) => p.eventStores ?? [],
+    nameOf: (e: EventStoreDef) => e.name,
+    // Throw-on-duplicate `register` (NOT `replace`): a discovered plugin's store
+    // is added but can't shadow the protected JSONL floor and never auto-
+    // activates — the user opts in via `plugins.eventStore.default`. The store
+    // sees every event, so that explicit opt-in is the trust boundary.
+    register: (o, e: EventStoreDef) => o.eventStores.register(e),
+    unregister: (o, n) => o.eventStores.unregister(n),
+  } satisfies RegistryKind<EventStoreDef>,
 ] as ReadonlyArray<RegistryKind<unknown>>;

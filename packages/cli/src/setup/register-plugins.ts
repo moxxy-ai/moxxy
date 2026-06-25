@@ -13,6 +13,7 @@ import type { MoxxyConfig } from '@moxxy/config';
 import type { MoxxyRequirement } from '@moxxy/sdk';
 import type { BuiltinEntry } from './builtins.js';
 import { BUILTIN_REQUIREMENTS } from './builtin-requirements.generated.js';
+import { isCriticalPackage } from './critical-packages.js';
 
 export interface RegistrationResult {
   readonly registered: ReadonlySet<string>;
@@ -47,7 +48,8 @@ export async function registerPlugins(
   const resolved = await resolveBuiltinRequirements(builtins, cwd);
   const ordered = toposortBuiltins(builtins, resolved);
   for (const { name, plugin } of ordered) {
-    if (config.plugins?.[name]?.enabled === false) {
+    // A hand-edited config can't disable a kernel package — the floor stays.
+    if (config.plugins?.packages?.[name]?.enabled === false && !isCriticalPackage(name)) {
       logger.info('skipping disabled plugin', { plugin: name });
       continue;
     }
@@ -84,7 +86,7 @@ export async function registerPlugins(
     });
     for (const manifest of manifests) {
       if (registered.has(manifest.packageName)) continue;
-      if (config.plugins?.[manifest.packageName]?.enabled === false) {
+      if (config.plugins?.packages?.[manifest.packageName]?.enabled === false) {
         logger.info('skipping disabled plugin', { plugin: manifest.packageName });
         continue;
       }

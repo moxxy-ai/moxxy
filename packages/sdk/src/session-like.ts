@@ -291,6 +291,30 @@ export interface LoadedPluginView {
   readonly kinds: ReadonlyArray<string>;
 }
 
+/** One swappable contribution within a {@link CategoryView}. */
+export interface CategoryItemView {
+  /** Contribution name (e.g. provider `anthropic`, compactor `summarize`). */
+  readonly name: string;
+  /** Whether this item is the active default for its category. */
+  readonly isDefault: boolean;
+}
+
+/**
+ * One registry category in {@link PluginsAdminView.categories} — the active
+ * default plus the available items to swap between. Powers the per-category
+ * tabs in the `/plugins` picker and the `list_defaults` tool.
+ */
+export interface CategoryView {
+  /** Registry kind, e.g. `provider` | `compactor` | `mode`. */
+  readonly category: string;
+  /** Active default contribution name, or null when the category is empty. */
+  readonly active: string | null;
+  /** The protected floor's name (never disableable), or null when none. */
+  readonly floor: string | null;
+  /** Swappable contributions registered for this category. */
+  readonly items: ReadonlyArray<CategoryItemView>;
+}
+
 /**
  * The slice of plugin management a channel needs to drive the `/plugins`
  * picker: which plugins are disabled, what's installable, and a persist+
@@ -301,12 +325,24 @@ export interface LoadedPluginView {
 export interface PluginsAdminView {
   /** Currently-loaded plugins with their contribution kinds (for kind tabs). */
   loaded(): ReadonlyArray<LoadedPluginView>;
-  /** Package names currently disabled (config `plugins[name].enabled=false`). */
+  /** Package names currently disabled (config `plugins.packages[name].enabled=false`). */
   disabled(): ReadonlyArray<string>;
+  /** Kernel package names that cannot be disabled (swap their default instead). */
+  protectedPackages(): ReadonlyArray<string>;
   /** Curated installable-plugin catalog for the picker's "Installable" tab. */
   catalog(): ReadonlyArray<InstallablePluginView>;
-  /** Persist `plugins[name].enabled` AND apply it to the live session. */
+  /** Persist `plugins.packages[name].enabled` AND apply it to the live session. */
   setEnabled(packageName: string, enabled: boolean): Promise<void>;
+  /**
+   * Per-category active default + swappable items (the swap axis). Powers the
+   * `/plugins` category tabs and the `list_defaults` tool.
+   */
+  categories(): ReadonlyArray<CategoryView>;
+  /**
+   * Persist `plugins.<category>.default` AND apply it to the live session
+   * (`setActive`). Rejects an unknown category or an unregistered name.
+   */
+  setCategoryDefault(category: string, name: string): Promise<void>;
 }
 
 /**

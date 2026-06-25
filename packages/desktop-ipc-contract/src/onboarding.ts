@@ -8,7 +8,7 @@ export interface OnboardingStatus {
   cliInstalled: boolean;
   cliPath: string | null;
   hasProvider: boolean;
-  /** ProviderName from `~/.moxxy/preferences.json`. */
+  /** Active provider (`plugins.provider.default`) from `~/.moxxy/config.yaml`. */
   activeProvider: string | null;
 }
 

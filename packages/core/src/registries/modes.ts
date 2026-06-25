@@ -55,6 +55,18 @@ export class ModeRegistry {
     return [...this.modes.values()];
   }
 
+  has(name: string): boolean {
+    return this.modes.has(name) || this.modes.has(migrateModeName(name));
+  }
+
+  /** Active mode name, or null when none is active. Mirrors ActiveDefRegistry
+   *  so the manifest apply loop + `categories()` surface can treat modes
+   *  uniformly. (`mode` has no protected-floor concept here — `mode-default`
+   *  is a critical package, so the default is protected at the package level.) */
+  getActiveName(): string | null {
+    return this.active;
+  }
+
   setActive(name: string): void {
     // Prefer the literal name; only when it isn't registered fall back to the
     // legacy-name map (e.g. a persisted "tool-use" → "default"). This never

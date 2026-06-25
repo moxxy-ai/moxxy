@@ -23,6 +23,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
+    "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "zod": "catalog:"

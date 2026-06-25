@@ -64,6 +64,8 @@ export type {
   PluginsAdminView,
   InstallablePluginView,
   LoadedPluginView,
+  CategoryView,
+  CategoryItemView,
 } from './session-like.js';
 
 export type {
@@ -177,6 +179,15 @@ export type {
 } from './view-renderer.js';
 export { VIEW_PRIMITIVES, VIEW_COMPONENTS, DEFAULT_VIEW_TAGS, isSafeViewUrl, countNodes } from './view-renderer.js';
 export type { TunnelProviderDef, TunnelHandle, TunnelOpenOptions } from './tunnel.js';
+export type {
+  EventStoreDef,
+  EventStoreSession,
+  EventStoreScope,
+  EventLogLike,
+  EventPage,
+  SessionMeta,
+  SessionSource,
+} from './event-store.js';
 // Node-runtime helpers (writeFileAtomic*, moxxyHome/moxxyPath,
 // readRequestBody/bearerTokenMatches, channel-auth) are exported from the
 // './server' subpath, NOT the main barrel — they statically reach node:*

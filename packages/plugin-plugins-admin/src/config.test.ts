@@ -3,7 +3,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
-import { clearPluginState, loadDisabledPackageNames, setPluginEnabled } from './config.js';
+import {
+  clearPluginState,
+  loadDisabledPackageNames,
+  setCategoryDefault,
+  setPluginEnabled,
+} from './config.js';
 
 let dir: string;
 let configPath: string;
@@ -27,6 +32,32 @@ describe('plugins-admin config', () => {
     expect(await loadDisabledPackageNames({ configPath })).not.toContain('@moxxy/plugin-a');
     // No-op on an absent entry.
     await clearPluginState('@moxxy/plugin-a', { configPath });
+  });
+
+  it('setCategoryDefault writes plugins.<category>.default and rejects unknown categories', async () => {
+    await setCategoryDefault('provider', 'openai', { configPath });
+    await setCategoryDefault('mode', 'goal', { configPath });
+    const parsed = parse(readFileSync(configPath, 'utf8')) as {
+      plugins?: { provider?: { default?: string }; mode?: { default?: string } };
+    };
+    expect(parsed.plugins?.provider?.default).toBe('openai');
+    expect(parsed.plugins?.mode?.default).toBe('goal');
+    await expect(setCategoryDefault('bogus', 'x', { configPath })).rejects.toThrow(
+      /unknown plugin category/,
+    );
+  });
+
+  it('setCategoryDefault and setPluginEnabled coexist under one plugins tree', async () => {
+    await setPluginEnabled('@moxxy/plugin-telegram', false, { configPath });
+    await setCategoryDefault('compactor', 'summarize', { configPath });
+    const parsed = parse(readFileSync(configPath, 'utf8')) as {
+      plugins?: {
+        packages?: Record<string, { enabled?: boolean }>;
+        compactor?: { default?: string };
+      };
+    };
+    expect(parsed.plugins?.packages?.['@moxxy/plugin-telegram']?.enabled).toBe(false);
+    expect(parsed.plugins?.compactor?.default).toBe('summarize');
   });
 
   // invariant 5: concurrent read-modify-write of the shared config.yaml must
@@ -56,14 +87,16 @@ describe('plugins-admin config', () => {
   });
 
   it('preserves unrelated existing config keys when toggling a plugin', async () => {
-    writeFileSync(configPath, 'provider:\n  name: anthropic\n  model: sonnet\n');
+    writeFileSync(configPath, 'systemPrompt: hello\nmaxIterations: 7\n');
     await setPluginEnabled('@moxxy/plugin-a', false, { configPath });
     const parsed = parse(readFileSync(configPath, 'utf8')) as {
-      provider?: { name?: string; model?: string };
-      plugins?: Record<string, { enabled?: boolean }>;
+      systemPrompt?: string;
+      maxIterations?: number;
+      plugins?: { packages?: Record<string, { enabled?: boolean }> };
     };
-    expect(parsed.provider).toEqual({ name: 'anthropic', model: 'sonnet' });
-    expect(parsed.plugins?.['@moxxy/plugin-a']?.enabled).toBe(false);
+    expect(parsed.systemPrompt).toBe('hello');
+    expect(parsed.maxIterations).toBe(7);
+    expect(parsed.plugins?.packages?.['@moxxy/plugin-a']?.enabled).toBe(false);
   });
 
   it('clearPluginState keeps a sibling plugin entry', async () => {
@@ -79,7 +112,10 @@ describe('plugins-admin config', () => {
   // NOT strand the plugin gate: the read path degrades to "no disabled
   // plugins" and toggling still works (validating only the plugins subtree).
   it('does not throw on an unrelated invalid key; the plugins gate still loads', async () => {
-    writeFileSync(configPath, 'mode: 42\nplugins:\n  "@moxxy/plugin-a":\n    enabled: false\n');
+    writeFileSync(
+      configPath,
+      'maxIterations: not-a-number\nplugins:\n  packages:\n    "@moxxy/plugin-a":\n      enabled: false\n',
+    );
     const disabled = await loadDisabledPackageNames({ configPath });
     expect(disabled).toContain('@moxxy/plugin-a');
   });
@@ -113,7 +149,7 @@ describe('plugins-admin config', () => {
   it('drops only a malformed plugin row, keeping valid siblings', async () => {
     writeFileSync(
       configPath,
-      'plugins:\n  "@moxxy/good":\n    enabled: false\n  "@moxxy/bad":\n    enabled: not-a-bool\n',
+      'plugins:\n  packages:\n    "@moxxy/good":\n      enabled: false\n    "@moxxy/bad":\n      enabled: not-a-bool\n',
     );
     const disabled = await loadDisabledPackageNames({ configPath });
     expect(disabled).toContain('@moxxy/good');

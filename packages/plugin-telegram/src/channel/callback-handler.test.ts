@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'grammy';
 
-// savePreferences (a read-modify-write of the prefs file) can reject on
-// disk/permission/lock. Mock it so we can drive the failure path.
-const savePreferences = vi.fn(async () => {});
-vi.mock('@moxxy/core', () => ({ savePreferences: (...a: unknown[]) => savePreferences(...a) }));
+// The manifest writers (setCategoryDefault/setProviderModel) can reject on
+// disk/permission/lock. Mock them so we can drive the failure path.
+const setCategoryDefault = vi.fn(async () => {});
+const setProviderModel = vi.fn(async () => {});
+vi.mock('@moxxy/config', () => ({
+  setCategoryDefault: (...a: unknown[]) => setCategoryDefault(...a),
+  setProviderModel: (...a: unknown[]) => setProviderModel(...a),
+}));
 
 import { handleCallback, type CallbackState, type CallbackCallbacks } from './callback-handler.js';
 
@@ -135,13 +139,14 @@ describe('handleCallback — model/mode persistence failure (u110-5)', () => {
     pairing: { isAuthorized: () => true },
   });
 
-  it('does NOT claim "✓ switched" when savePreferences rejects (model)', async () => {
-    savePreferences.mockReset();
-    savePreferences.mockRejectedValueOnce(new Error('EROFS'));
+  it('does NOT claim "✓ switched" when the manifest write rejects (model)', async () => {
+    setCategoryDefault.mockReset();
+    setProviderModel.mockReset();
+    setCategoryDefault.mockRejectedValueOnce(new Error('EROFS'));
     const { ctx, editMessageText, answerCallbackQuery } = ctxWithEdit('model:openai::gpt-x');
     await handleCallback(ctx, stateFor(fakeSession()), cb);
 
-    expect(savePreferences).toHaveBeenCalledWith({ providerName: 'openai', model: 'gpt-x' });
+    expect(setCategoryDefault).toHaveBeenCalledWith('provider', 'openai');
     // The success edit must NOT have fired; the failure surfaces via the toast.
     const successEdits = editMessageText.mock.calls.filter((c) =>
       String(c[0]).includes('✓ switched'),
@@ -152,13 +157,13 @@ describe('handleCallback — model/mode persistence failure (u110-5)', () => {
     ).toBe(true);
   });
 
-  it('does NOT claim "✓ mode →" when savePreferences rejects (mode)', async () => {
-    savePreferences.mockReset();
-    savePreferences.mockRejectedValueOnce(new Error('EROFS'));
+  it('does NOT claim "✓ mode →" when the manifest write rejects (mode)', async () => {
+    setCategoryDefault.mockReset();
+    setCategoryDefault.mockRejectedValueOnce(new Error('EROFS'));
     const { ctx, editMessageText, answerCallbackQuery } = ctxWithEdit('mode:goal');
     await handleCallback(ctx, stateFor(fakeSession()), cb);
 
-    expect(savePreferences).toHaveBeenCalledWith({ mode: 'goal' });
+    expect(setCategoryDefault).toHaveBeenCalledWith('mode', 'goal');
     const successEdits = editMessageText.mock.calls.filter((c) =>
       String(c[0]).includes('✓ mode'),
     );
@@ -168,9 +173,9 @@ describe('handleCallback — model/mode persistence failure (u110-5)', () => {
     ).toBe(true);
   });
 
-  it('persists and confirms success when savePreferences resolves (model)', async () => {
-    savePreferences.mockReset();
-    savePreferences.mockResolvedValueOnce(undefined);
+  it('persists and confirms success when the manifest writes resolve (model)', async () => {
+    setCategoryDefault.mockReset();
+    setProviderModel.mockReset();
     const { ctx, editMessageText } = ctxWithEdit('model:openai::gpt-x');
     await handleCallback(ctx, stateFor(fakeSession()), cb);
     expect(

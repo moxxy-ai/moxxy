@@ -9,11 +9,13 @@ import {
   resolveCatalogEntry,
   resolveCatalogPackageName,
   searchInstallablePlugins,
+  setCategoryDefault,
   setPluginEnabled,
 } from '@moxxy/plugin-plugins-admin';
 import type { ParsedArgv } from '../argv.js';
 import { argvToSetupOptions, bootSession, helpRequested } from '../argv-helpers.js';
 import { probeSession } from '../setup.js';
+import { isCriticalPackage } from '../setup/critical-packages.js';
 import { printError } from '../errors.js';
 import { runPluginNewCommand } from './plugin-new.js';
 import { colors } from '../colors.js';
@@ -32,6 +34,8 @@ const HELP = formatHelp({
         ['remove <pkg>', 'uninstall a plugin package'],
         ['enable <pkg>', 'enable (plug in) a plugin'],
         ['disable <pkg>', 'disable (unplug) a plugin — kept installed'],
+        ['defaults', 'show each category’s active default + swappable options'],
+        ['set-default <category> <name>', 'swap a category default (e.g. provider openai)'],
         ['open <id>', 'show how to open a UI plugin'],
         ['reload', 'rescan discovery roots and hot-reload'],
         ['new <name> [--here]', 'scaffold a new user-scope plugin'],
@@ -65,6 +69,10 @@ export async function runPluginsCommand(argv: ParsedArgv): Promise<number> {
       return await runToggle(argv, true);
     case 'disable':
       return await runToggle(argv, false);
+    case 'defaults':
+      return await runDefaults(argv);
+    case 'set-default':
+      return await runSetDefault(argv);
     case 'open':
       return runOpen(argv);
     default:
@@ -201,10 +209,66 @@ async function runToggle(argv: ParsedArgv, enabled: boolean): Promise<number> {
     return 2;
   }
   const packageName = resolveCatalogPackageName(target);
+  if (!enabled && isCriticalPackage(packageName)) {
+    printError(
+      `${packageName} is a core module and cannot be disabled. ` +
+        'Swap the relevant category default instead (e.g. `moxxy plugins set-default mode <other>`).',
+    );
+    return 2;
+  }
   try {
     await setPluginEnabled(packageName, enabled);
     process.stdout.write(
       `${enabled ? 'enabled' : 'disabled'} ${packageName}\n` +
+        colors.dim('applies to new sessions; a running TUI applies it immediately via /plugins\n'),
+    );
+    return 0;
+  } catch (err) {
+    printError(errorMessage(err));
+    return 1;
+  }
+}
+
+async function runDefaults(argv: ParsedArgv): Promise<number> {
+  // Probe semantics — registries are populated by plugin registration, so the
+  // category snapshot is identical to a full boot's (no init-hook daemons, no
+  // provider activation needed just to list).
+  const categories = await probeSession(
+    argvToSetupOptions(argv, {
+      skipKeyPrompt: true,
+      skipProviderActivation: true,
+      tolerateNoProvider: true,
+    }),
+    (r) => r.session.pluginsAdmin?.categories() ?? [],
+  );
+  if (categories.length === 0) {
+    process.stdout.write(colors.dim('no swappable categories available\n'));
+    return 0;
+  }
+  for (const cat of categories) {
+    const floorNote = cat.floor ? colors.dim(` [floor: ${cat.floor}]`) : '';
+    process.stdout.write(
+      `${colors.bold(cat.category.padEnd(16))} ${colors.dim('active=')}${cat.active ?? '(none)'}${floorNote}\n`,
+    );
+    const items = cat.items
+      .map((i) => (i.isDefault ? colors.bold(`${i.name}*`) : colors.dim(i.name)))
+      .join(', ');
+    if (items) process.stdout.write(`  ${items}\n`);
+  }
+  return 0;
+}
+
+async function runSetDefault(argv: ParsedArgv): Promise<number> {
+  const category = argv.positional[1];
+  const name = argv.positional[2];
+  if (!category || !name) {
+    printError('plugins set-default requires <category> <name> (e.g. provider openai)');
+    return 2;
+  }
+  try {
+    await setCategoryDefault(category, name);
+    process.stdout.write(
+      `set ${category} default to ${name}\n` +
         colors.dim('applies to new sessions; a running TUI applies it immediately via /plugins\n'),
     );
     return 0;
