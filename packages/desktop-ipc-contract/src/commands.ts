@@ -174,6 +174,14 @@ export interface IpcCommands {
   /** Returns how a provider authenticates so the wizard can pick the
    *  right UI affordance: a key field vs an OAuth button. */
   'onboarding.providerAuthKind': (args: { provider: string }) => Promise<'oauth' | 'api-key'>;
+  /** Install + provision a non-bundled provider on demand: runs the CLI's
+   *  headless `moxxy provision <provider>` (the API key was already stored via
+   *  `saveProviderKey`), then restarts the runner so it discovers the freshly
+   *  installed package and its boot activation makes the provider active. The
+   *  slim kernel bundles ONLY the OAuth providers; every API-key provider
+   *  (anthropic, openai, …) lives on npm and must be installed first, or
+   *  `setActive` throws "Provider not registered". */
+  'onboarding.provisionProvider': (args: { provider: string; model?: string }) => Promise<void>;
 
   // ---- Interactive provider sign-in (OAuth) ------------------------------
   /** Begin an interactive sign-in for `provider`, correlated by the

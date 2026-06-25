@@ -155,6 +155,10 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     secret: z.string().min(1).max(8192),
   }),
   'onboarding.providerAuthKind': z.object({ provider: providerName }),
+  'onboarding.provisionProvider': z.object({
+    provider: providerName,
+    model: z.string().min(1).max(256).optional(),
+  }),
   // Interactive provider sign-in spawns `moxxy login <provider>` and feeds it
   // the user's pasted answers over stdin — guard the provider slug and the
   // correlation id, and bound the answer (a token / `code#state`) so a hostile

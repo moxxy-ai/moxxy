@@ -103,7 +103,12 @@ export function ProviderStep({
         secret: secret.trim(),
       });
       setSecret('');
-      await activateProvider();
+      // API-key providers are NOT bundled (slim kernel): install + provision the
+      // package on demand, which also restarts the runner so it activates the
+      // provider. Without this, `setActive` throws "Provider not registered" and
+      // onboarding loops forever. (OAuth providers are bundled → setProvider in
+      // onOauthSignedIn.)
+      await api().invoke('onboarding.provisionProvider', { provider });
       setDone(true);
     } catch (e) {
       setError(toErrorMessage(e));
