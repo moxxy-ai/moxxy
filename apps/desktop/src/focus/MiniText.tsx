@@ -18,13 +18,17 @@ import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';
 import { useLatestBlock } from './useLatestBlock';
 import type { LatestBlock } from './useLatestBlock';
 import { style } from './focus-styles';
+import { FocusAskCard } from './FocusAskCard';
+import type { FocusAskPrompt } from './useFocusAsk';
 
 export function MiniText({
   workspaceId,
+  ask,
   onBack,
   transcribing = false,
 }: {
   readonly workspaceId: string | null;
+  readonly ask: FocusAskPrompt | null;
   readonly onBack: () => void;
   /** True while a voice clip is being transcribed (before it's sent) — so
    *  opening the panel on mic-stop shows progress, not a stale message. */
@@ -57,6 +61,7 @@ export function MiniText({
     <div style={style.panel}>
       <MiniHeader title="Text" onBack={onBack} />
       <div ref={bodyRef} style={style.panelBody}>
+        {ask && <FocusAskCard prompt={ask} variant="panel" />}
         {latest && <LatestMessage block={latest} />}
         {showThinking && (
           <ThinkingLine label={transcribing ? 'transcribing…' : 'working…'} />

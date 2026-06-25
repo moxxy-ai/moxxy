@@ -13,11 +13,14 @@ import { ActionButton, Dot, LogoMark, ReplyPreviewButton } from './focus-primiti
 import { MicIcon, PencilIcon, WindowIcon, XIcon } from './focus-icons';
 import { SpectroBackground } from './SpectroBackground';
 import { style } from './focus-styles';
+import { FocusAskCard } from './FocusAskCard';
 import type { FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import type { InactiveReplyPreview } from './useInactiveReplyPreview';
+import type { FocusAskPrompt } from './useFocusAsk';
 
 export function Active({
   preview,
+  ask,
   horizontalAnchor,
   width,
   hasTranscriber,
@@ -30,6 +33,7 @@ export function Active({
   onPreviewActivate,
 }: {
   readonly preview: InactiveReplyPreview | null;
+  readonly ask: FocusAskPrompt | null;
   readonly horizontalAnchor: FocusTileHorizontalAnchor;
   readonly width: number;
   readonly hasTranscriber: boolean;
@@ -45,8 +49,8 @@ export function Active({
     <div
       style={{
         ...style.activeRoot,
-        ...(preview ? style.activeRootWithPreview : null),
-        ...(preview ? { width } : null),
+        ...(preview || ask ? style.activeRootWithPreview : null),
+        ...(preview || ask ? { width } : null),
       }}
     >
       {analyser && recording && <SpectroBackground analyser={analyser} />}
@@ -93,7 +97,7 @@ export function Active({
     </div>
   );
 
-  if (!preview) return bar;
+  if (!preview && !ask) return bar;
 
   return (
     <div
@@ -103,7 +107,11 @@ export function Active({
       }}
     >
       {bar}
-      <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
+      {ask ? (
+        <FocusAskCard prompt={ask} variant="toast" />
+      ) : preview ? (
+        <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
+      ) : null}
     </div>
   );
 }

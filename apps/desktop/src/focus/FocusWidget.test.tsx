@@ -19,10 +19,11 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
-import { chatStore } from '@moxxy/client-core';
+import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import type { AskRequest } from '@moxxy/desktop-ipc-contract';
 import { FocusWidget } from './FocusWidget';
 
 interface IpcSpy {
@@ -47,6 +48,19 @@ function event(
     turnId: patch.turnId ?? `t-${seq}`,
     ...patch,
   } as MoxxyEvent;
+}
+
+function permissionAsk(requestId = 'ask-focus-1'): AskRequest {
+  return {
+    requestId,
+    workspaceId: 'ws-test',
+    kind: 'permission',
+    tool: {
+      name: 'Bash',
+      description: 'Run a shell command',
+      input: { command: 'pnpm build' },
+    },
+  };
 }
 
 function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
@@ -126,9 +140,12 @@ beforeEach(() => {
   // Each test gets a fresh workspace chat so latest-line / sending
   // states don't bleed across cases.
   chatStore.drop('ws-test');
+  for (const ask of askStore.getAll()) askStore.resolve(ask.requestId);
 });
 
 afterEach(() => {
+  for (const ask of askStore.getAll()) askStore.resolve(ask.requestId);
+  cleanup();
   __setApiOverride(null);
 });
 
@@ -567,5 +584,98 @@ describe('FocusWidget bidirectional sync', () => {
       (i) => i.channel === 'focus.resize',
     ).length;
     expect(resizeCountAfterSecondPreview).toBe(resizeCountAfterFirstPreview);
+  });
+
+  it('shows a pending permission as an inactive focus toast and answers from it', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', permissionAsk('ask-focus-toast'));
+
+    await screen.findByRole('group', { name: /permission required/i });
+    expect(screen.getByText(/bash/i)).toBeTruthy();
+    expect(screen.getByText(/pnpm build/i)).toBeTruthy();
+
+    await waitFor(() => {
+      const askResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 520,
+      );
+      expect(askResize).toBeTruthy();
+      expect((askResize!.args as { height: number }).height).toBeGreaterThanOrEqual(130);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^allow$/i }));
+
+    await waitFor(() => {
+      const respond = spy.invokes.find((i) => i.channel === 'ask.respond');
+      expect(respond).toBeTruthy();
+      expect(respond!.args).toEqual({
+        requestId: 'ask-focus-toast',
+        response: { mode: 'allow_session' },
+      });
+    });
+  });
+
+  it('keeps a pending permission visible inside mini-text until it is answered', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', permissionAsk('ask-focus-mini'));
+
+    await screen.findByRole('group', { name: /permission required/i });
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    });
+    expect(screen.getByRole('group', { name: /permission required/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /always allow/i }));
+
+    await waitFor(() => {
+      const respond = spy.invokes.find((i) => i.channel === 'ask.respond');
+      expect(respond).toBeTruthy();
+      expect(respond!.args).toEqual({
+        requestId: 'ask-focus-mini',
+        response: { mode: 'allow_always' },
+      });
+    });
+  });
+
+  it('reserves enough active-toast height for permission details and action buttons', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    spy.emit('ask.request', {
+      ...permissionAsk('ask-focus-tall-toast'),
+      tool: {
+        name: 'nutrition_search_usda',
+        description:
+          'Search USDA FoodData Central for generic ingredients and return verified nutrition data.',
+        input: {
+          query: 'chicken breast cooked roasted skinless with rice and vegetables',
+          pageSize: 3,
+        },
+      },
+    });
+
+    await screen.findByRole('group', { name: /permission required/i });
+    expect(screen.getByRole('button', { name: /^deny$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^allow$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /always allow/i })).toBeTruthy();
+
+    await waitFor(() => {
+      const askResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 600,
+      );
+      expect(askResize).toBeTruthy();
+      expect((askResize!.args as { height: number }).height).toBeGreaterThanOrEqual(210);
+    });
   });
 });

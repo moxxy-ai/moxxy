@@ -5,28 +5,32 @@
 
 import { LogoMark, ReplyPreviewButton } from './focus-primitives';
 import { style } from './focus-styles';
+import { FocusAskCard } from './FocusAskCard';
 import type { FocusTileGestureProps, FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import type { InactiveReplyPreview } from './useInactiveReplyPreview';
+import type { FocusAskPrompt } from './useFocusAsk';
 
 export function Inactive({
   preview,
+  ask,
   horizontalAnchor,
   dragging,
   gestureProps,
   onPreviewActivate,
 }: {
   readonly preview: InactiveReplyPreview | null;
+  readonly ask: FocusAskPrompt | null;
   readonly horizontalAnchor: FocusTileHorizontalAnchor;
   readonly dragging: boolean;
   readonly gestureProps: FocusTileGestureProps;
   readonly onPreviewActivate: () => void;
 }): JSX.Element {
-  const withPreview = !!preview;
+  const withSidecar = !!ask || !!preview;
   return (
     <div
       style={{
         ...style.inactiveRoot,
-        ...(withPreview ? style.inactiveRootWithPreview : null),
+        ...(withSidecar ? style.inactiveRootWithPreview : null),
         flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
       }}
     >
@@ -41,7 +45,9 @@ export function Inactive({
       >
         <LogoMark />
       </button>
-      {preview ? (
+      {ask ? (
+        <FocusAskCard prompt={ask} variant="toast" />
+      ) : preview ? (
         <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
       ) : null}
     </div>

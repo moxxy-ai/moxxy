@@ -35,6 +35,7 @@ import { Active } from './Active';
 import { MiniText } from './MiniText';
 import { useFocusTileGesture, type FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import { useInactiveReplyPreview } from './useInactiveReplyPreview';
+import { useFocusAsk } from './useFocusAsk';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
@@ -47,6 +48,9 @@ const ACTIVE_WIDTH_WITHOUT_MIC = 196;
 const INACTIVE_PREVIEW_SIZE = { width: 430, height: 104 };
 const ACTIVE_PREVIEW_EXTRA_WIDTH = 378;
 const PREVIEW_HEIGHT = 104;
+const INACTIVE_ASK_SIZE = { width: 580, height: 216 };
+const ACTIVE_ASK_EXTRA_WIDTH = 500;
+const ASK_HEIGHT = 216;
 
 const SIZE: Record<Stage, { width: number; height: number }> = {
   inactive: { width: 44, height: 44 },
@@ -82,14 +86,17 @@ function Surface({
   const [horizontalAnchor, setHorizontalAnchor] = useState<FocusTileHorizontalAnchor>('right');
   const chat = useChat(workspaceId);
   const { preview, dismissPreview } = useInactiveReplyPreview({ stage, workspaceId });
-  const previewVisible = preview !== null;
+  const ask = useFocusAsk(workspaceId);
+  const askVisible = ask !== null;
+  const chromePreview = askVisible ? null : preview;
+  const previewVisible = chromePreview !== null;
   const activeWidth = hasTranscriber === false ? ACTIVE_WIDTH_WITHOUT_MIC : ACTIVE_WIDTH_WITH_MIC;
   const openPreview = (): void => {
     dismissPreview();
     setStage('mini-text');
   };
   const openInactive = (): void => {
-    if (preview) {
+    if (chromePreview) {
       openPreview();
       return;
     }
@@ -142,11 +149,17 @@ function Surface({
     if (stage === 'active') {
       width = activeWidth;
     }
-    if (stage === 'inactive' && previewVisible) {
+    if (stage === 'inactive' && askVisible) {
+      width = INACTIVE_ASK_SIZE.width;
+      height = INACTIVE_ASK_SIZE.height;
+    } else if (stage === 'inactive' && previewVisible) {
       width = INACTIVE_PREVIEW_SIZE.width;
       height = INACTIVE_PREVIEW_SIZE.height;
     }
-    if (stage === 'active' && previewVisible) {
+    if (stage === 'active' && askVisible) {
+      width = Math.min(activeWidth + ACTIVE_ASK_EXTRA_WIDTH, 760);
+      height = ASK_HEIGHT;
+    } else if (stage === 'active' && previewVisible) {
       width = activeWidth + ACTIVE_PREVIEW_EXTRA_WIDTH;
       height = PREVIEW_HEIGHT;
     }
@@ -156,7 +169,7 @@ function Surface({
         if (placement?.horizontalAnchor) setHorizontalAnchor(placement.horizontalAnchor);
       })
       .catch(() => undefined);
-  }, [stage, activeWidth, previewVisible]);
+  }, [stage, activeWidth, previewVisible, askVisible]);
 
   // Collapsing back to the inactive square hides the recording UI but the voice
   // recorder lives on the always-mounted Surface — so without explicitly
@@ -170,7 +183,8 @@ function Surface({
   if (stage === 'inactive')
     return (
       <Inactive
-        preview={preview}
+        preview={chromePreview}
+        ask={ask}
         horizontalAnchor={horizontalAnchor}
         dragging={tileGesture.dragging}
         gestureProps={tileGesture.gestureProps}
@@ -180,7 +194,8 @@ function Surface({
   if (stage === 'active')
     return (
       <Active
-        preview={preview}
+        preview={chromePreview}
+        ask={ask}
         horizontalAnchor={horizontalAnchor}
         width={activeWidth}
         hasTranscriber={hasTranscriber === true}
@@ -196,6 +211,7 @@ function Surface({
   return (
     <MiniText
       workspaceId={workspaceId}
+      ask={ask}
       transcribing={voice.phase === 'transcribing'}
       onBack={() => setStage('active')}
     />
