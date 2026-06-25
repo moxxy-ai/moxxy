@@ -2,7 +2,9 @@
 
 You are working in the **moxxy** monorepo: a TypeScript framework for block-based, modular agentic loops. Every block — provider, loop strategy, tool, compactor, channel, skill, even the CLI — is swappable. Skills can synthesize new skills mid-session.
 
-If you're a Claude Code agent or any other autonomous agent: read this file first, then jump to the workflow under `.claude/agents/` that matches your task.
+If you're a Claude Code agent or any other autonomous agent: read this file first, then jump to the workflow under `.ai/agents/` that matches your task.
+
+> **Canonical AI catalog: `.ai/`.** Skills and agent author-guides live once under **`.ai/skills/`** and **`.ai/agents/`** — the single source of truth shared across assistants. `.claude/skills`, `.claude/agents`, `.codex/skills`, `.codex/agents` are **symlinks** into `.ai/`. Always edit the files under `.ai/`; never duplicate them under `.claude/` or `.codex/`, and don't chase the symlinked copies in circles. (`.claude/settings.json` and `.claude/hooks/` stay Claude-Code-specific and are NOT mirrored into `.ai/`.)
 
 ---
 
@@ -108,23 +110,23 @@ Run `pnpm check:deps` to verify after structural changes.
 
 | Task | Open this file |
 |---|---|
-| Create a new Markdown skill | `.claude/agents/skill-author.md` |
-| Create a new `@moxxy/plugin-*` package | `.claude/agents/plugin-author.md` |
-| Add one tool to a plugin | `.claude/agents/tool-author.md` |
-| Implement an `LLMProvider` for a new model API | `.claude/agents/provider-author.md` |
-| Build a text-to-speech `Synthesizer` plugin (ElevenLabs / OpenAI TTS / local) | `.claude/agents/synthesizer-author.md` |
-| Build a new loop strategy | `.claude/agents/loop-strategy-author.md` |
-| Build a new `Compactor` | `.claude/agents/compactor-author.md` |
-| Build a new `CacheStrategy` (prompt-cache breakpoints) | `.claude/agents/cache-strategy-author.md` |
-| Build a new `Channel` | `.claude/agents/channel-author.md` |
-| Add a security isolator (worker / subprocess / wasm / docker / …) | `.claude/agents/isolator-author.md` |
-| Modify `@moxxy/core` itself | `.claude/agents/core-extender.md` |
-| Reproduce and isolate a bug | `.claude/agents/bug-hunter.md` |
-| Identify gaps and propose improvements | `.claude/agents/self-improver.md` |
+| Create a new Markdown skill | `.ai/agents/skill-author.md` |
+| Create a new `@moxxy/plugin-*` package | `.ai/agents/plugin-author.md` |
+| Add one tool to a plugin | `.ai/agents/tool-author.md` |
+| Implement an `LLMProvider` for a new model API | `.ai/agents/provider-author.md` |
+| Build a text-to-speech `Synthesizer` plugin (ElevenLabs / OpenAI TTS / local) | `.ai/agents/synthesizer-author.md` |
+| Build a new loop strategy | `.ai/agents/loop-strategy-author.md` |
+| Build a new `Compactor` | `.ai/agents/compactor-author.md` |
+| Build a new `CacheStrategy` (prompt-cache breakpoints) | `.ai/agents/cache-strategy-author.md` |
+| Build a new `Channel` | `.ai/agents/channel-author.md` |
+| Add a security isolator (worker / subprocess / wasm / docker / …) | `.ai/agents/isolator-author.md` |
+| Modify `@moxxy/core` itself | `.ai/agents/core-extender.md` |
+| Reproduce and isolate a bug | `.ai/agents/bug-hunter.md` |
+| Identify gaps and propose improvements | `.ai/agents/self-improver.md` |
 
-**Skill library.** Beyond these deep workflows, `.claude/skills/` holds ~28 thin,
+**Skill library.** Beyond these deep workflows, `.ai/skills/` holds ~28 thin,
 task-scoped SKILL.md checklists (dev loop, every extension point, verify/debug
-recipes, process rules) — scan the index at `.claude/skills/README.md` and read
+recipes, process rules) — scan the index at `.ai/skills/README.md` and read
 only the one that matches your task. Claude Code hooks in `.claude/settings.json`
 (see `.claude/hooks/README.md`) backstop the typecheck gate and the changeset
 requirement automatically.
