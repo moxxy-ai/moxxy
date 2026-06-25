@@ -194,9 +194,9 @@ So: **branch off `development`, PR back into `development`. Releases to `main` a
 
 **Cutting a release** (versioning happens on `development`, at most once a day):
 1. **`prepare-release.yml`** runs daily (cron) — or on-demand via its `workflow_dispatch`. If changesets are pending on `development`, it consolidates them into **one** `changeset version` bump committed to `development`, then opens (or updates) the `development → main` PR. Land as many changeset-carrying PRs during the day as you like; they batch into the single daily bump.
-2. Review + **merge the `development → main` PR**. The push to `main` runs `release.yml` → npm publish (+ desktop). Because the bump already happened on `development`, this merge never conflicts.
+2. Review + **SQUASH-merge the `development → main` PR** (one tidy commit on `main` per release). The push to `main` runs `release.yml` → npm publish (+ desktop), and `sync-back.yml` → merges `main` back into `development`.
 
-> **Always merge `development → main` with a real MERGE commit, never squash.** Squashing flattens away main's history, so main stops being an ancestor of development and the *next* release conflicts. (This is exactly what bit the first release after the redesign.)
+> **Why the sync-back exists (and why you can squash):** a squash drops development's HEAD from main's history, so main stops being an ancestor of development and the *next* dev→main would 3-way-conflict on version files. `sync-back.yml` records main's squash commit back into development (a content-free `-X ours` merge — it can't conflict), restoring the ancestry. So `main` stays a clean, additive list of release squash-commits, and releases never conflict. Don't disable the sync-back.
 
 ## Releasing (changesets)
 

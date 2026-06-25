@@ -1,0 +1,54 @@
+name: Sync back
+
+# After every release (push to `main`), merge `main` back into `development`.
+#
+# Why: we SQUASH-merge `development → main` (one tidy commit on main, not the whole
+# history). But a squash drops development's HEAD from main's history, so main
+# stops being an ancestor of development — and the NEXT `development → main` then
+# 3-way-conflicts on the version/changelog files. This job records main's squash
+# commit back into development's history, restoring the ancestry so the next
+# release merges cleanly again.
+#
+# It can never conflict: it merges with `-X ours`, so development's content always
+# wins (main is publish-only — its only change is the squash commit, whose content
+# development already has). The merge only adds main's commit as a parent
+# (ancestry); it changes no files. `[skip ci]` keeps it from re-triggering CI.
+on:
+  push:
+    branches: [main]
+
+# One sync at a time; never cancel a sync midway.
+concurrency: sync-back
+
+permissions:
+  contents: write
+
+jobs:
+  sync-back:
+    name: Merge main → development
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: development
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge main into development (ancestry only; development content wins)
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main development
+          git checkout development
+          git reset --hard origin/development
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "::notice::main is already an ancestor of development — nothing to sync."
+            exit 0
+          fi
+          # -X ours: development's content always wins, so this never conflicts.
+          # The merge's value is the ancestry — main's (squash) commit becomes a
+          # parent of development, so the next development -> main is clean.
+          git merge --no-ff -X ours origin/main \
+            -m "chore: sync main into development (release ancestry) [skip ci]"
+          git push origin HEAD:development
