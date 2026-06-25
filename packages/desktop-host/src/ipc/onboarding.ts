@@ -11,7 +11,7 @@
 import { app, shell, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
-import { probeOnboarding, saveProviderKey } from '../onboarding';
+import { probeOnboarding, provisionProvider, saveProviderKey } from '../onboarding';
 import { installMoxxyCli, probeNode } from '../installer';
 import { installManagedNode } from '../node-manager';
 import { assertSafeExternalUrl } from '../security';
@@ -44,8 +44,20 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
   });
   handle('onboarding.saveProviderKey', async ({ provider, secret }) => {
     await saveProviderKey(provider, secret);
+    // Best-effort early activation for a BUNDLED (OAuth) provider — an unbundled
+    // API-key provider isn't registered yet (it's installed by
+    // provisionProvider below), so tolerate its "not registered" rejection
+    // instead of leaving an unhandled promise.
     const session = pool.active()?.remote();
-    if (session) session.providers.setActive(provider);
+    if (session) void Promise.resolve(session.providers.setActive(provider)).catch(() => undefined);
+  });
+  handle('onboarding.provisionProvider', async ({ provider, model }) => {
+    await provisionProvider(provider, model);
+    // The provider package now lives in ~/.moxxy/plugins and the config names it
+    // as the default — but the runner(s) booted before it existed. Restart every
+    // runner so the fresh process discovers the package and its boot activation
+    // walk makes the provider active, clearing the onboarding/recovery gate.
+    await Promise.all(pool.list().map((e) => e.supervisor.restart()));
   });
   handle('onboarding.providerAuthKind', async ({ provider }) => {
     // Prefer the runner's own registry metadata — it knows every provider's

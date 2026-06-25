@@ -84,6 +84,25 @@ export async function saveProviderKey(provider: string, secret: string): Promise
   await runCli(cli, ['vault', 'set', key], secret);
 }
 
+/**
+ * Install + configure a non-bundled provider on demand via the CLI's headless
+ * provisioner (`moxxy provision --provider <slug> [--model <id>]`). The slim
+ * kernel bundles only the OAuth providers; every API-key provider (anthropic,
+ * openai, …) lives on npm and must be installed before any runner can activate
+ * it. The key was already stored by {@link saveProviderKey}, so provision only
+ * installs + enables the package and writes `plugins.provider.default`. The
+ * caller restarts the runner so the new package is discovered and activated.
+ * Args are passed as argv (no shell), so the bounded `model` can't inject.
+ */
+export async function provisionProvider(provider: string, model?: string): Promise<void> {
+  assertSafeProviderName(provider);
+  const cli = resolveMoxxyCli({ extraPaths: augmentedPaths() });
+  if (!cli) throw new Error('moxxy CLI not found');
+  const args = ['provision', '--provider', provider];
+  if (model) args.push('--model', model);
+  await runCli(cli, args);
+}
+
 function runCli(cli: CliInvocation, args: string[], stdin?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     // 'pipe' stdin so we can feed the secret to `vault set`.
