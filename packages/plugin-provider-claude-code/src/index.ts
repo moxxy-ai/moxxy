@@ -42,6 +42,12 @@ export {
   claudeStatus,
   ensureFreshClaudeTokens,
   refreshClaudeAccessToken,
+  refreshClaudeTokenDirect,
   type FreshClaudeTokens,
 } from './login.js';
+export {
+  readInstalledClaudeCreds,
+  writeInstalledClaudeCreds,
+  type InstalledClaudeCreds,
+} from './cli-creds.js';
 export { createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';

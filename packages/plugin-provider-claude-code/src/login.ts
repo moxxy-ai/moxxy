@@ -322,6 +322,29 @@ async function exchangeClaudeCode(
   });
 }
 
+/**
+ * Vault-free refresh against the Claude token endpoint. Used by the
+ * installed-CLI ("borrow live") path, which keeps its tokens in the `claude`
+ * CLI's own store (keychain / `~/.claude/.credentials.json`) rather than the
+ * moxxy vault, so it can't go through {@link refreshClaudeAccessToken}. Reuses
+ * {@link postClaudeToken}'s retry/timeout hardening. Returns the rotated
+ * bundle flat; the caller writes it back to the CLI's store.
+ */
+export async function refreshClaudeTokenDirect(
+  refreshToken: string,
+): Promise<{ accessToken: string; refreshToken?: string; expiresAt?: number }> {
+  const { tokenSet } = await postClaudeToken({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: CLAUDE_CLIENT_ID,
+  });
+  return {
+    accessToken: tokenSet.accessToken,
+    ...(tokenSet.refreshToken ? { refreshToken: tokenSet.refreshToken } : {}),
+    ...(tokenSet.expiresAt !== undefined ? { expiresAt: tokenSet.expiresAt } : {}),
+  };
+}
+
 async function refreshAndPersist(
   vault: OAuthVault,
   refreshToken: string,

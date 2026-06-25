@@ -32,6 +32,11 @@ export interface UseSettings {
    *  re-probe credentials so the readiness dot flips live. Throws for
    *  inline error rendering. */
   readonly setProviderKey: (keyName: string, value: string) => Promise<void>;
+  /** Ask the runner to re-probe every provider's credentials, then refetch the
+   *  list, so a readiness change (e.g. just completed an OAuth sign-in) shows up
+   *  without a restart. Best-effort on the re-probe (a pre-v7 runner just needs
+   *  a reboot to notice). */
+  readonly reprobeProviders: () => Promise<void>;
   readonly readSkill: (name: string) => Promise<string>;
   readonly writeSkill: (name: string, body: string) => Promise<void>;
   readonly deleteSkill: (name: string) => Promise<void>;
@@ -120,20 +125,25 @@ export function useSettings(): UseSettings {
     [refresh],
   );
 
+  const reprobeProviders = useCallback(async (): Promise<void> => {
+    // Have the runner re-resolve every provider's credentials so a readiness
+    // change flips without a restart. Best-effort — a pre-v7 runner lacks the
+    // method and just needs a reboot to notice.
+    try {
+      await api().invoke('settings.providerRefreshReady');
+    } catch {
+      /* pre-v7 runner — readiness updates on next boot */
+    }
+    await refresh();
+  }, [refresh]);
+
   const setProviderKey = useCallback(
     async (keyName: string, value: string): Promise<void> => {
       await api().invoke('settings.vaultSet', { name: keyName, value });
-      // The key is on disk; have the runner re-probe credentials so the
-      // readiness dot flips without a restart. Best-effort — an old runner
-      // without v7 still saved the key, it just needs a restart to see it.
-      try {
-        await api().invoke('settings.providerRefreshReady');
-      } catch {
-        /* pre-v7 runner — key saved, readiness updates on next boot */
-      }
-      await refresh();
+      // The key is on disk; re-probe so the readiness dot flips without a restart.
+      await reprobeProviders();
     },
-    [refresh],
+    [reprobeProviders],
   );
 
   const readSkill = useCallback(
@@ -199,6 +209,7 @@ export function useSettings(): UseSettings {
     setProviderEnabled,
     configureProvider,
     setProviderKey,
+    reprobeProviders,
     readSkill,
     writeSkill,
     deleteSkill,

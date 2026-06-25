@@ -46,7 +46,10 @@ const TAB_DESCRIPTORS: ReadonlyArray<TabDescriptor> = [
         onToggle={s.setProviderEnabled}
         onConfigure={s.configureProvider}
         onSetKey={s.setProviderKey}
-        onRefresh={s.refresh}
+        // Re-probe readiness on any provider-config change (esp. after an OAuth
+        // sign-in) so the row's readiness + "connected via …" subtitle flip
+        // without a restart — a plain refresh would refetch a stale snapshot.
+        onRefresh={s.reprobeProviders}
         search={<SearchBox value={query} onChange={setQuery} placeholder="Search providers…" />}
       />
     ),

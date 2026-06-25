@@ -70,6 +70,16 @@ export interface ProviderInfo {
    * wire back-compat — an older runner omits it; treat absent as enabled.
    */
   readonly enabled?: boolean;
+  /**
+   * Where this provider's credentials were resolved from, when known:
+   * `'vault'` (a `moxxy login` / stored key), `'env'`, `'prompt'`, `'config'`,
+   * or `'installed-cli'` (borrowed from a locally-installed `claude`/`codex`
+   * CLI). Lets a UI show "Connected via installed Claude CLI" instead of
+   * leaving an auto-activated provider looking unconfigured. Only populated for
+   * providers that resolved during activation; absent (older runner / not
+   * probed) means "unknown source".
+   */
+  readonly credentialSource?: 'config' | 'vault' | 'env' | 'prompt' | 'installed-cli';
 }
 
 /** Serializable tool metadata for status lines / slash menus / compact rendering. */

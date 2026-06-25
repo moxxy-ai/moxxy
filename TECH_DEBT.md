@@ -123,6 +123,22 @@ or recorded-on-purpose decision.
   Anthropic round-trips fully. `packages/plugin-provider-*/`.
 - [low] Hardcoded catalogs span 5+ providers and drift — a shared
   OpenAI-compatible-vendor catalog or `/v1/models`-backed refresh would self-update.
+- [low, note] Installed-CLI "borrow live" write-back on macOS rewrites the Keychain
+  item via `security add-generic-password -U`, which can reset its ACL — so after a
+  moxxy-driven refresh of a STALE claude token the `claude` CLI may prompt once on
+  its next launch. Never fires on the common path (an active CLI keeps its token
+  fresh, so moxxy only ever reads). A native Keychain binding that preserves the ACL
+  on update would remove the caveat. `packages/plugin-provider-claude-code/src/cli-creds.ts`.
+- [low, verify] Codex installed-CLI borrow is unit-tested (read/write/resolution) but
+  not live-rotated end-to-end — the local `~/.codex/auth.json` is months stale, so a
+  live run would refresh + write back the user's real codex token. Verify the
+  refresh+write-back against a fresh `codex` login before relying on it.
+  `packages/plugin-provider-openai-codex/src/cli-creds.ts`.
+- [note] Subscription OAuth tokens used by third-party apps (claude-code/openai-codex
+  borrowing the installed CLI's token) are metered by the vendor against pay-as-you-go
+  "extra usage", NOT plan limits — a real agentic request can 400 with "Add more at
+  claude.ai/settings/usage". This is vendor billing policy, not a moxxy bug; the
+  provider already surfaces the message verbatim. Don't re-investigate as a request-shape bug.
 
 ## Channels, relay & HTTP
 

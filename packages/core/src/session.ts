@@ -2,6 +2,7 @@ import type {
   AppContext,
   ClientSession,
   MoxxyEvent,
+  ProviderInfo,
   RunTurnOptions,
   SessionId,
   SessionInfo,
@@ -167,6 +168,12 @@ export class Session implements ClientSession, SessionRuntime {
    * type-checked access.
    */
   readyProviders?: Set<string>;
+  /**
+   * Per-provider credential source ('vault' | 'env' | 'installed-cli' | …),
+   * recorded during activation so `getInfo()` can surface a "connected via …"
+   * badge. Provider name → source. Absent until activation populates it.
+   */
+  credentialSources?: Map<string, ProviderInfo['credentialSource']>;
   credentialResolver?: CredentialResolver;
   mcpAdmin?: McpAdminView;
   providerAdmin?: ProviderAdminView;
@@ -432,6 +439,9 @@ export class Session implements ClientSession, SessionRuntime {
         supportsLiveModelDiscovery:
           (p as { supportsLiveModelDiscovery?: boolean }).supportsLiveModelDiscovery === true,
         enabled: this.providers.isEnabled(p.name),
+        ...(this.credentialSources?.get(p.name)
+          ? { credentialSource: this.credentialSources.get(p.name) }
+          : {}),
       })),
       activeMode,
       activeModeBadge,

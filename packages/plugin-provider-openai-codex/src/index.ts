@@ -61,5 +61,10 @@ export {
   readStoredTokens,
   readStoredTokens as readCodexStoredTokens,
 } from './login.js';
+export {
+  codexAuthPath,
+  readInstalledCodexTokens,
+  writeInstalledCodexTokens,
+} from './cli-creds.js';
 export type { CodexProviderConfig } from './provider.js';
 export type { CodexTokens, PkceCodes, OAuthTokenResponse } from './types.js';

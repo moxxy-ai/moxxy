@@ -63,6 +63,9 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
         // is the source of truth (the desktop never sees raw ModelDescriptors);
         // a provider supports it when ANY of its models advertises it.
         supportsReasoning: p.models.some((m) => m.supportsReasoning === true),
+        // Surface where credentials resolved from (older runners omit it) so the
+        // UI can show "Connected via installed CLI" for auto-borrowed tokens.
+        ...(p.credentialSource ? { credentialSource: p.credentialSource } : {}),
         ...(detail
           ? {
               baseURL: detail.baseURL,

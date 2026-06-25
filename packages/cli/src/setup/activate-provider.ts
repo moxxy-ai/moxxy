@@ -2,7 +2,10 @@ import type { Session } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
-import { resolveProviderCredentials } from '../provider-credentials.js';
+import {
+  resolveProviderCredentialsDetailed,
+  type CredentialSource,
+} from '../provider-credentials.js';
 import type { BootStep } from './types.js';
 
 type Logger = {
@@ -49,6 +52,9 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;
   let lastErr: unknown = null;
+  // Provider name → where its credentials resolved from, surfaced via getInfo()
+  // so the UI can show "connected via installed Claude CLI" etc.
+  const credentialSources = new Map<string, CredentialSource>();
 
   if (args.skipProviderActivation) {
     logger.info('skipping provider activation (skipProviderActivation set)');
@@ -66,11 +72,12 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       // through fallbacks via prompts would be confusing.
       const interactive = i === 0 && !skipKeyPrompt && process.stdin.isTTY === true;
       try {
-        const resolved = await resolveProviderCredentials(candidate, vault, {
+        const resolved = await resolveProviderCredentialsDetailed(candidate, vault, {
           providerConfig: i === 0 ? providerConfig : {},
           interactive,
         });
-        activated = { name: candidate, cfg: resolved };
+        activated = { name: candidate, cfg: resolved.config };
+        credentialSources.set(candidate, resolved.source);
         break;
       } catch (err) {
         lastErr = err;
@@ -104,6 +111,15 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
     if (activated.name !== primaryProvider) {
       logger.warn('using fallback provider', { primary: primaryProvider, active: activated.name });
     }
+    // Honor the configured model (`provider.model`) as the session's initial
+    // model. Without this, run-turn falls back to `provider.models[0]` — the
+    // first entry of the catalog — which for the Anthropic/claude-code catalog
+    // is `claude-fable-5`, a tier many subscriptions can't access (the API
+    // 404s "use Opus instead"). A resumed session's persisted model or an
+    // explicit `/model` pick still overrides this later.
+    if (config.provider?.model && !session.lastResolvedModel) {
+      session.lastResolvedModel = config.provider.model;
+    }
     progress({ kind: 'provider-activated', name: activated.name });
   }
 
@@ -119,8 +135,9 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   for (const p of session.providers.list()) {
     if (readyProviders.has(p.name)) continue;
     try {
-      await resolveProviderCredentials(p.name, vault, { interactive: false });
+      const resolved = await resolveProviderCredentialsDetailed(p.name, vault, { interactive: false });
       readyProviders.add(p.name);
+      credentialSources.set(p.name, resolved.source);
       session.requirements.setRuntime(`auth:provider:${p.name}`, 'ready');
     } catch {
       // not ready — leave out
@@ -128,14 +145,23 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
     }
   }
   session.readyProviders = readyProviders;
+  session.credentialSources = credentialSources;
 
   // Expose a credential resolver so runtime provider switches (TUI
-  // /model picker, preference re-apply below) can re-resolve credentials
-  // before calling setActive — otherwise the new provider gets
-  // createClient({}) and OAuth-backed providers (openai-codex) throw
-  // "no credentials" on the next turn.
-  const credentialResolver: CredentialResolver = async (providerName) =>
-    resolveProviderCredentials(providerName, vault, { interactive: false });
+  // /model picker, preference re-apply below) and the runner's
+  // `provider.refreshReady` re-probe can re-resolve credentials before calling
+  // setActive — otherwise the new provider gets createClient({}) and
+  // OAuth-backed providers (openai-codex) throw "no credentials" on the next
+  // turn. Side-effects the shared source map so the "connected via …" badge
+  // stays current after a re-probe (a freshly-installed CLI / saved key flips
+  // both readiness and its source).
+  const credentialResolver: CredentialResolver = async (providerName) => {
+    const resolved = await resolveProviderCredentialsDetailed(providerName, vault, {
+      interactive: false,
+    });
+    credentialSources.set(providerName, resolved.source);
+    return resolved.config;
+  };
   session.credentialResolver = credentialResolver;
 
   return { activated, credentialResolver };

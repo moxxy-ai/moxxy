@@ -33,6 +33,11 @@ export interface ProviderEntry {
    *  selector. Derived from the runner's model catalog (the desktop never sees
    *  raw `ModelDescriptor`s). Absent ⇒ unknown/false. */
   supportsReasoning?: boolean;
+  /** Where the runner resolved this provider's credentials from, when known.
+   *  `'installed-cli'` = borrowed from a locally-installed `claude`/`codex`
+   *  CLI; lets the UI show "Connected via installed CLI" instead of leaving an
+   *  auto-activated provider looking unconfigured. Absent ⇒ unknown. */
+  credentialSource?: 'config' | 'vault' | 'env' | 'prompt' | 'installed-cli';
 }
 
 export interface McpServerEntry {

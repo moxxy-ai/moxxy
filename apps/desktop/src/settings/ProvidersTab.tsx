@@ -181,10 +181,25 @@ export function ProvidersTab({
 
 function subtitleFor(p: ProviderRow): string {
   if (!p.enabled) return 'Disabled · excluded from activation';
-  if (p.ready) return 'Active · credentials resolved';
+  if (p.ready) return `Active · ${sourceLabel(p.credentialSource)}`;
   return p.authKind === 'oauth'
     ? 'Inactive · sign in to connect'
     : 'Inactive · add a key to use';
+}
+
+/** Human label for where a ready provider's credentials came from. */
+function sourceLabel(source: ProviderRow['credentialSource']): string {
+  switch (source) {
+    case 'installed-cli':
+      return 'connected via installed CLI';
+    case 'env':
+      return 'using an environment variable';
+    case 'vault':
+    case 'prompt':
+    case 'config':
+    default:
+      return 'credentials resolved';
+  }
 }
 
 /**
