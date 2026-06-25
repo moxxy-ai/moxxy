@@ -27,6 +27,13 @@ export type Picker =
     }
   | { kind: 'mode'; title: string; options: ReadonlyArray<ListPickerOption> }
   | {
+      kind: 'sessions';
+      title: string;
+      options: ReadonlyArray<ListPickerOption>;
+      searchable?: boolean;
+      searchPlaceholder?: string;
+    }
+  | {
       kind: 'plugins';
       title: string;
       tabs: ReadonlyArray<ListPickerTab>;

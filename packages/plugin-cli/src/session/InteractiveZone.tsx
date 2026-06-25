@@ -104,6 +104,10 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
       <ListPicker
         title={picker.title}
         options={picker.options}
+        {...(picker.kind === 'sessions' && picker.searchable ? { searchable: true } : {})}
+        {...(picker.kind === 'sessions' && picker.searchPlaceholder
+          ? { searchPlaceholder: picker.searchPlaceholder }
+          : {})}
         onSelect={(id) => onPickerSelect(picker, id)}
         onCancel={onPickerCancel}
       />

@@ -1,5 +1,5 @@
 import type React from 'react';
-import { clearUsageStats } from '@moxxy/core';
+import { clearUsageStats, readSessionIndex } from '@moxxy/core';
 import { setCategoryDefault } from '@moxxy/config';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
@@ -7,6 +7,7 @@ import { isSelectableMode } from '@moxxy/sdk';
 import type { ListPickerOption, ListPickerTab } from '../components/ListPicker.js';
 import type { Overlay, Picker } from './types.js';
 import { formatTokensShort } from './helpers.js';
+import { buildSessionPickerOptions } from './sessions-picker.js';
 
 export interface SlashDeps {
   session: Session;
@@ -23,6 +24,13 @@ export interface SlashDeps {
   /** Start a turn with the given text (used by /goal to kick off autonomous
    *  work immediately). Does not clear the system notice, unlike handleSubmit. */
   submitPrompt: (text: string) => void;
+  /**
+   * Whether the host can re-bootstrap onto a different session. Gates whether
+   * `/sessions` opens the switcher or shows a degrade notice. `false` on a thin
+   * client attached to an external `moxxy serve` (its runner owns a single fixed
+   * session).
+   */
+  canSwitchSession?: boolean;
 }
 
 export function runSlash(cmd: string, deps: SlashDeps): void {
@@ -118,6 +126,9 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return;
     case 'model':
       return openModelPicker(deps);
+    case 'sessions':
+    case 'switch':
+      return openSessionsPicker(deps);
     case 'mcp':
       return openMcpPicker(deps);
     case 'mode':
@@ -236,6 +247,54 @@ function openModelPicker(deps: SlashDeps): void {
       searchable: true,
       searchPlaceholder: 'filter models…',
     });
+  })();
+}
+
+/** Subset of deps `openSessionsPicker` touches. Exported so picker-handlers can
+ *  re-open the switcher (e.g. after a failed switch) without dragging in all of
+ *  SlashDeps. */
+export interface OpenSessionsPickerDeps {
+  session: Session;
+  setPicker: (p: Picker) => void;
+  setSystemNotice: (msg: string | null) => void;
+  canSwitchSession?: boolean;
+}
+
+/**
+ * `/sessions` — the multi-session switcher. Lists the persisted sessions (from
+ * the same `~/.moxxy/sessions` index the desktop sidebar and `moxxy resume`
+ * read) with their first-prompt title, last-active time and event count, marks
+ * the one you're in, and offers a "+ New session" entry. Picking one re-points
+ * the TUI onto that session via the host's switch capability.
+ *
+ * Degrades to a notice when `canSwitchSession` is false (a thin client attached
+ * to an external `moxxy serve`, whose runner owns a single fixed session): the
+ * user is told to start a separate `moxxy tui` or use `moxxy resume`.
+ */
+export function openSessionsPicker(deps: OpenSessionsPickerDeps): void {
+  if (!deps.canSwitchSession) {
+    deps.setSystemNotice(
+      'switching sessions is only available when this TUI hosts the session. ' +
+        "You're attached to a running `moxxy serve` — run `moxxy resume` in a separate terminal to open another.",
+    );
+    return;
+  }
+  void (async () => {
+    try {
+      const metas = await readSessionIndex();
+      const options = buildSessionPickerOptions(metas, deps.session.id);
+      deps.setPicker({
+        kind: 'sessions',
+        title: 'Switch session',
+        options,
+        searchable: true,
+        searchPlaceholder: 'filter sessions…',
+      });
+    } catch (err) {
+      deps.setSystemNotice(
+        `failed to list sessions: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   })();
 }
 

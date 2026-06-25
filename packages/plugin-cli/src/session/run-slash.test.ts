@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runSlash, type SlashDeps } from './run-slash.js';
 
-// run-slash.ts imports clearUsageStats from @moxxy/core and setCategoryDefault
-// from @moxxy/config; stub them so /goal's mode-default persist doesn't touch
-// ~/.moxxy during the unit test.
+// run-slash.ts imports clearUsageStats/readSessionIndex from @moxxy/core and
+// setCategoryDefault from @moxxy/config; stub them so /goal's mode-default
+// persist and /sessions' index read don't touch ~/.moxxy during the unit test.
+const sessionIndex = vi.hoisted(() => ({ value: [] as unknown[] }));
 vi.mock('@moxxy/core', () => ({
   clearUsageStats: vi.fn(async () => undefined),
+  readSessionIndex: vi.fn(async () => sessionIndex.value),
 }));
 vi.mock('@moxxy/config', () => ({
   setCategoryDefault: vi.fn(async () => undefined),
@@ -123,6 +125,66 @@ describe('runSlash dispatch safety', () => {
       setOverlay: (o) => overlays.push(typeof o === 'function' ? o(null) : o),
     } as unknown as SlashDeps);
     expect(overlays).toContainEqual({ kind: 'tools' });
+  });
+});
+
+describe('runSlash /sessions', () => {
+  it('degrades to a notice when the host cannot switch sessions', () => {
+    const notices: Array<string | null> = [];
+    const pickers: unknown[] = [];
+    runSlash('/sessions', {
+      ...baseDeps(),
+      canSwitchSession: false,
+      setSystemNotice: (n) => notices.push(n),
+      setPicker: (p) => pickers.push(p),
+    } as unknown as SlashDeps);
+    // No async index read / picker open on the degrade path.
+    expect(pickers).toEqual([]);
+    expect(notices.some((n) => typeof n === 'string' && /only available/.test(n))).toBe(true);
+  });
+
+  it('opens a sessions picker (with a new-session entry) when switching is available', async () => {
+    sessionIndex.value = [
+      {
+        id: 'sess-current',
+        cwd: '/x',
+        startedAt: new Date().toISOString(),
+        lastActivity: new Date().toISOString(),
+        eventCount: 4,
+        firstPrompt: 'fix the bug',
+        provider: 'openai',
+        model: 'gpt-test',
+      },
+      {
+        id: 'sess-other',
+        cwd: '/y',
+        startedAt: new Date().toISOString(),
+        lastActivity: new Date().toISOString(),
+        eventCount: 2,
+        firstPrompt: 'write docs',
+        provider: 'openai',
+        model: 'gpt-test',
+      },
+    ];
+    const pickers: unknown[] = [];
+    runSlash('/sessions', {
+      ...baseDeps(),
+      session: { id: 'sess-current', commands: { get: () => undefined } },
+      canSwitchSession: true,
+      setPicker: (p) => pickers.push(p),
+    } as unknown as SlashDeps);
+    // openSessionsPicker reads the index asynchronously, then sets the picker.
+    await new Promise((r) => setImmediate(r));
+    expect(pickers).toHaveLength(1);
+    const picker = pickers[0] as {
+      kind: string;
+      options: Array<{ id: string; current?: boolean }>;
+    };
+    expect(picker.kind).toBe('sessions');
+    // "+ New session" first, then the two persisted ones; current marked.
+    expect(picker.options[0]!.id).toBe('__new__');
+    expect(picker.options.find((o) => o.id === 'sess-current')!.current).toBe(true);
+    expect(picker.options.map((o) => o.id)).toContain('sess-other');
   });
 });
 

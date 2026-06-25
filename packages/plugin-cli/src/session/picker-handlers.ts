@@ -2,6 +2,7 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import { setCategoryDefault, setProviderModel } from '@moxxy/config';
 import type { Picker } from './types.js';
 import { openMcpPicker, openPluginsPicker } from './run-slash.js';
+import { NEW_SESSION_OPTION_ID, type SessionSwitchTarget } from './sessions-picker.js';
 
 export interface PickerHandlerDeps {
   session: Session;
@@ -10,6 +11,12 @@ export interface PickerHandlerDeps {
   setSystemNotice: (msg: string | null) => void;
   setActiveModelOverride: (id: string) => void;
   refreshMcpStatus: () => Promise<void>;
+  /**
+   * Re-point the TUI onto a different session. Provided by BootShell (it owns
+   * the session state + re-mount); resolves on success, rejects on failure.
+   * Absent ⇒ `/sessions` never opened a picker, so this branch is unreachable.
+   */
+  requestSessionSwitch?: (target: SessionSwitchTarget) => Promise<void>;
 }
 
 export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id: string) => void {
@@ -32,7 +39,39 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     if (kind === 'plugins') {
       return handlePluginAction(id, deps);
     }
+    if (kind === 'sessions') {
+      return handleSessionSelected(id, deps);
+    }
   };
+}
+
+/**
+ * Apply a `/sessions` picker selection. The synthetic "+ New session" entry
+ * boots a fresh session; any other id resumes that persisted session. Picking
+ * the session you're already in is a no-op (avoids a pointless re-bootstrap).
+ * The actual switch — closing the live session, re-pointing the runner socket,
+ * booting the new one — is the host's job (BootShell's `requestSessionSwitch`).
+ */
+function handleSessionSelected(id: string, deps: PickerHandlerDeps): void {
+  const requestSwitch = deps.requestSessionSwitch;
+  if (!requestSwitch) {
+    deps.setSystemNotice('switching sessions is not available on this session');
+    return;
+  }
+  if (id === deps.session.id) {
+    deps.setSystemNotice("you're already in that session");
+    return;
+  }
+  const target: SessionSwitchTarget =
+    id === NEW_SESSION_OPTION_ID ? { kind: 'new' } : { kind: 'resume', id };
+  deps.setSystemNotice(id === NEW_SESSION_OPTION_ID ? 'starting a new session…' : 'switching…');
+  // On success the view re-mounts onto the new session (this strip is gone); on
+  // failure the current session stays and we surface the error here.
+  void requestSwitch(target).catch((err: unknown) => {
+    deps.setSystemNotice(
+      `failed to switch session: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
 }
 
 /**

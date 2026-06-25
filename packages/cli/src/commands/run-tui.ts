@@ -339,11 +339,78 @@ async function runSelfHostedTui(
   const updateNotice = resolveUpdateNotice(version);
 
   // Capture the resolved session + optional runner so shutdown can fire
-  // `onShutdown` hooks and release the socket.
+  // `onShutdown` hooks and release the socket. These are re-pointed in place
+  // when the user switches sessions via `/sessions` (see `switchSession`).
   let bootedSession: Session | null = null;
   let runnerServer: RunnerServer | null = null;
   let webHandle: ChannelHandle | null = null;
   let shuttingDown = false;
+  // Serializes session switches against each other and against shutdown so a
+  // switch in flight can't race a SIGINT teardown (or a second switch).
+  let switching: Promise<void> = Promise.resolve();
+
+  /**
+   * Tear down the surfaces wrapping the CURRENT session (web surface + runner
+   * socket) and close it, firing its `onShutdown` hooks. Used both by the
+   * top-level shutdown and by a session switch (which then boots a replacement).
+   */
+  const teardownCurrent = async (reason: NodeJS.Signals | 'switch' | 'normal'): Promise<void> => {
+    await webHandle?.stop('shutdown').catch(() => undefined);
+    webHandle = null;
+    await runnerServer?.close().catch(() => undefined);
+    runnerServer = null;
+    const s = bootedSession;
+    bootedSession = null;
+    if (!s) return;
+    try {
+      await s.close(reason === 'normal' ? undefined : reason);
+    } catch {
+      // Best-effort; never block on cleanup errors.
+    }
+  };
+
+  /**
+   * Boot a session (optionally resuming a persisted id) and wire its surfaces:
+   * open the runner socket (unless `--standalone`) so other clients can attach,
+   * and co-attach the web surface for `present_view`. Updates the captured refs.
+   * `onProgress` is only passed on the FIRST boot (the splash is on-screen);
+   * switches boot silently.
+   */
+  const bootSession = async (
+    opts: { resumeSessionId?: string; freshSessionId?: string },
+    progress?: (step: InteractiveBootStep) => void,
+  ): Promise<Session> => {
+    const result = await setupSessionWithConfig({
+      ...argvToSetupOptions(argv, tuiOpts.cwd ? { cwd: tuiOpts.cwd } : {}),
+      resolver,
+      ...(progress ? { onProgress: (step: BootStep) => progress(toInteractiveStep(step)) } : {}),
+      ...(opts.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : {}),
+      ...(opts.freshSessionId ? { sessionId: opts.freshSessionId } : {}),
+    });
+    bootedSession = result.session;
+    // Option A: open the socket so other clients can attach while this TUI is
+    // open. A lost race (someone else bound first) just means we run without
+    // sharing — not an error.
+    if (!standalone) {
+      try {
+        runnerServer = await startRunnerServer(result.session);
+      } catch {
+        runnerServer = null;
+      }
+    }
+    // Co-attach the web surface to THIS session so `present_view` returns a real
+    // URL (local by default — no public tunnel for the TUI). `write` is
+    // suppressed: the URL flows back through present_view → the agent's reply,
+    // and stdout would corrupt the Ink render.
+    webHandle = await coAttachWebSurface({
+      primary: 'tui',
+      session: result.session,
+      vault: result.vault,
+      config: result.config,
+      write: () => {},
+    });
+    return result.session;
+  };
 
   const shutdown = async (signal: NodeJS.Signals | 'normal'): Promise<void> => {
     if (shuttingDown) return;
@@ -355,16 +422,9 @@ async function runSelfHostedTui(
       const force = setTimeout(() => process.exit(0), 4000);
       force.unref?.();
     }
-    await webHandle?.stop('shutdown').catch(() => undefined);
-    await runnerServer?.close().catch(() => undefined);
-    const s = bootedSession;
-    bootedSession = null;
-    if (!s) return;
-    try {
-      await s.close(signal === 'normal' ? undefined : signal);
-    } catch {
-      // Best-effort; never block process exit on cleanup errors.
-    }
+    // Let an in-flight switch settle so we never close a half-booted session.
+    await switching.catch(() => undefined);
+    await teardownCurrent(signal);
   };
 
   const onSignal = (signal: NodeJS.Signals): void => {
@@ -373,42 +433,44 @@ async function runSelfHostedTui(
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 
+  /**
+   * `/sessions` switch: tear down the live session (firing its onShutdown
+   * hooks + releasing the socket), then boot the target — resuming its
+   * persisted log, or a fresh session (a new id is minted by setup when none is
+   * given). The TUI re-mounts onto the returned session. Serialized via
+   * `switching` so overlapping picks / a racing shutdown can't interleave.
+   */
+  const switchSession = async (
+    target: { kind: 'new' } | { kind: 'resume'; id: string },
+  ): Promise<Session> => {
+    if (shuttingDown) throw new Error('shutting down');
+    let resolveDone!: () => void;
+    const done = new Promise<void>((r) => {
+      resolveDone = r;
+    });
+    const prev = switching;
+    switching = done;
+    try {
+      await prev.catch(() => undefined);
+      if (shuttingDown) throw new Error('shutting down');
+      await teardownCurrent('switch');
+      return await bootSession(target.kind === 'resume' ? { resumeSessionId: target.id } : {});
+    } finally {
+      resolveDone();
+    }
+  };
+
   const { waitUntilExit } = render(
     React.createElement(InteractiveSession, {
-      bootstrap: async (progress: (step: InteractiveBootStep) => void) => {
-        const result = await setupSessionWithConfig({
-          ...argvToSetupOptions(argv, tuiOpts.cwd ? { cwd: tuiOpts.cwd } : {}),
-          resolver,
-          onProgress: (step: BootStep) => progress(toInteractiveStep(step)),
-          ...(tuiOpts.resumeSessionId ? { resumeSessionId: tuiOpts.resumeSessionId } : {}),
-        });
-        bootedSession = result.session;
-        // Option A: open the socket so other clients can attach while this TUI
-        // is open. A lost race (someone else bound first) just means we run
-        // without sharing - not an error.
-        if (!standalone) {
-          try {
-            runnerServer = await startRunnerServer(result.session);
-          } catch {
-            runnerServer = null;
-          }
-        }
-        // Co-attach the web surface to THIS session so `present_view` returns a
-        // real URL (local by default — no public tunnel for the TUI). `write` is
-        // suppressed: the URL flows back through present_view → the agent's reply,
-        // and stdout would corrupt the Ink render.
-        webHandle = await coAttachWebSurface({
-          primary: 'tui',
-          session: result.session,
-          vault: result.vault,
-          config: result.config,
-          write: () => {},
-        });
-        return result.session;
-      },
+      bootstrap: async (progress: (step: InteractiveBootStep) => void) =>
+        bootSession(
+          tuiOpts.resumeSessionId ? { resumeSessionId: tuiOpts.resumeSessionId } : {},
+          progress,
+        ),
       registerInteractiveResolver: (handler) => {
         promptHandler = handler;
       },
+      switchSession,
       ...(effectiveModel ? { model: effectiveModel } : {}),
       ...(version ? { version } : {}),
       ...(updateNotice ? { updateAvailable: updateNotice } : {}),

@@ -4,6 +4,7 @@ import type {
   PermissionDecision,
 } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
+import type { SwitchSession } from './sessions-picker.js';
 
 /**
  * Generic shape of a boot-progress step. We keep this loose so the
@@ -59,4 +60,15 @@ export interface InteractiveSessionProps {
    * without the user having to type a first prompt.
    */
   readonly resumed?: boolean;
+  /**
+   * Host capability that re-points the TUI onto a different session (or a fresh
+   * one) in place: it closes the live session, re-opens the runner socket for
+   * the new one, and resolves with the new `Session` to re-mount onto. Powers
+   * the `/sessions` switcher.
+   *
+   * Omit it on transports that can't re-bootstrap in place (a thin client
+   * attached to an external `moxxy serve`, whose runner owns a single fixed
+   * session); `/sessions` then degrades to an explanatory notice.
+   */
+  readonly switchSession?: SwitchSession;
 }

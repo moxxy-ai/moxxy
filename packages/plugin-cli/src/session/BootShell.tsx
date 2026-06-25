@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box } from 'ink';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { BootScreen, type BootEvent, type BootEventId } from '../components/BootScreen.js';
@@ -7,6 +7,8 @@ import { FooterHints } from '../components/FooterHints.js';
 import { SessionView } from './SessionView.js';
 import { SystemNotice } from './OverlayOrNotice.js';
 import { useVoiceInput } from './use-voice-input.js';
+import { clearTerminalScreen } from './helpers.js';
+import type { SessionSwitchTarget } from './sessions-picker.js';
 import type { InteractiveSessionProps } from './props.js';
 
 /**
@@ -23,6 +25,7 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   version,
   updateAvailable,
   resumed,
+  switchSession,
 }) => {
   const [session, setSession] = useState<Session | null>(eagerSession ?? null);
   const [bootEvents, setBootEvents] = useState<ReadonlyArray<BootEvent>>([]);
@@ -34,7 +37,47 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   // then do we swap to the chat view — prevents the splash from
   // flashing past on fast boots.
   const [initialPrompt, setInitialPrompt] = useState<string | null>(null);
+  // True once the user has switched sessions at least once. A switched-into
+  // session always lands directly in the chat view (skips the first-prompt
+  // gate) — the user explicitly chose it, so re-typing a prompt to enter would
+  // be surprising.
+  const [landedViaSwitch, setLandedViaSwitch] = useState(false);
+  // Guards against overlapping switches (a second pick while the first is still
+  // booting). Off the render path — purely a re-entrancy latch.
+  const switchingRef = useRef(false);
+  // Surfaced as a notice on the switched-into session once it mounts.
+  const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const startedAt = React.useMemo(() => Date.now(), []);
+
+  // Resolves on a successful switch (the view re-mounts onto the new session);
+  // REJECTS on failure so the caller (SessionView's picker handler) can surface
+  // the error on the still-live session — a keyed re-mount wouldn't fire, since
+  // the session id is unchanged.
+  const handleSwitchSession = useCallback(
+    async (target: SessionSwitchTarget): Promise<void> => {
+      if (!switchSession) throw new Error('switching sessions is not available');
+      if (switchingRef.current) throw new Error('a session switch is already in progress');
+      switchingRef.current = true;
+      try {
+        const next = await switchSession(target);
+        // Wipe the prior conversation's scrollback so the switched-into session
+        // renders cleanly from the top — the old session's Static lines would
+        // otherwise linger above.
+        clearTerminalScreen();
+        setLandedViaSwitch(true);
+        setInitialPrompt(null);
+        setSwitchNotice(
+          target.kind === 'new'
+            ? 'started a new session — your previous conversation stays saved'
+            : 'switched session',
+        );
+        setSession(next);
+      } finally {
+        switchingRef.current = false;
+      }
+    },
+    [switchSession],
+  );
 
   useEffect(() => {
     if (eagerSession || !bootstrap) return;
@@ -78,9 +121,10 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   // Splash phase: render the BootScreen until the user submits the
   // first prompt. The input unlocks the moment a session resolves; the
   // submission flips us into the chat view AND becomes the first turn.
-  // Resumed sessions skip the splash entirely — the user wants to land
-  // back in their conversation without re-typing anything.
-  if (!session || (initialPrompt == null && !resumed)) {
+  // Resumed sessions (and sessions reached via the /sessions switcher)
+  // skip the splash entirely — the user wants to land back in their
+  // conversation without re-typing anything.
+  if (!session || (initialPrompt == null && !resumed && !landedViaSwitch)) {
     return (
       <Box flexDirection="column">
         <BootScreen
@@ -109,13 +153,20 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   }
 
   return (
+    // Key by session id so switching fully re-mounts the view — every
+    // session-keyed hook (event stream, turn runner, permission queue) resets to
+    // the new session instead of carrying the prior one's state across.
     <SessionView
+      key={session.id}
       session={session}
       registerInteractiveResolver={registerInteractiveResolver}
       {...(initialPrompt ? { initialPrompt } : {})}
+      {...(switchNotice ? { initialNotice: switchNotice } : {})}
       {...(model ? { model } : {})}
       {...(version ? { version } : {})}
       {...(updateAvailable ? { updateAvailable } : {})}
+      canSwitchSession={Boolean(switchSession)}
+      onSwitchSession={handleSwitchSession}
     />
   );
 };
