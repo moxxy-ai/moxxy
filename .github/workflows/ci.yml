@@ -2,12 +2,19 @@ name: CI
 
 # Branch model: `development` is the integration branch — every feature PR
 # targets it and must be green here. `main` is the production branch, updated
-# ONLY by a `development → main` release PR (which also runs CI). So CI runs on
-# pushes + PRs to BOTH branches; the changeset gate applies only to feature PRs
-# (→ development), since a dev→main release PR carries no NEW changeset.
+# ONLY by a `development → main` release PR.
+#
+# Triggers are deliberately NON-overlapping to avoid double runs: `pull_request`
+# covers every PR (feature → development AND release development → main), and
+# `push` covers ONLY `main` (post-release validation of the merged result).
+# `development` is intentionally NOT in `push` — it would double every commit
+# (one push run + one pull_request run from the open dev→main PR), and direct
+# pushes to development are `[skip ci]` bot commits (prepare-release, sync-back).
+# The changeset gate applies only to feature PRs (→ development); a dev→main
+# release PR carries no NEW changeset.
 on:
   push:
-    branches: [main, development]
+    branches: [main]
   pull_request:
     branches: [main, development]
 
