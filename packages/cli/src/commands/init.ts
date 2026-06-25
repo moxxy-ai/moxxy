@@ -8,6 +8,13 @@ import type { ParsedArgv } from '../argv.js';
 import { cliVersion } from '../version.js';
 import { runSetupWizard } from '../wizard/run-setup-wizard.js';
 import { buildProviderAuthContext } from '../wizard/auth-context.js';
+import { PROVIDER_CATALOG, resolveProvider } from '../provision/provider-catalog.js';
+import {
+  installPluginPackage,
+  resolveCatalogPackageName,
+  INSTALLABLE_PLUGIN_CATALOG,
+} from '@moxxy/plugin-plugins-admin';
+import { setPluginEnabled } from '@moxxy/config';
 import { renderLogo } from '../logo.js';
 import { cancel, isCancel, note, password } from '@clack/prompts';
 import { colors } from '../colors.js';
@@ -73,14 +80,27 @@ async function runInteractiveInit(
   await vault.open();
 
   const providerDefs = session.providers.list();
-  const defsByName = new Map(providerDefs.map((d) => [d.name, d] as const));
+  const loadedNames = new Set(providerDefs.map((d) => d.name));
 
-  const providers = providerDefs.map((p) => {
+  const loadedChoices = providerDefs.map((p) => {
     const description = providerDescription(p);
     return description === undefined
       ? { id: p.name, label: titleCase(p.name) }
       : { id: p.name, label: titleCase(p.name), description };
   });
+  // Also offer first-party providers that aren't currently registered (a slim
+  // build hasn't bundled them). Selecting one installs + enables it on demand
+  // via `ensureProvider` below. When every provider is bundled this list is
+  // empty and the wizard is unchanged.
+  const catalogChoices = PROVIDER_CATALOG.filter((c) => !loadedNames.has(c.slug)).map((c) => ({
+    id: c.slug,
+    label: c.label,
+    description:
+      c.auth === 'oauth'
+        ? `OAuth · installs on first use`
+        : `installs on first use${c.defaultModel ? ` · ${c.defaultModel}` : ''}`,
+  }));
+  const providers = [...loadedChoices, ...catalogChoices];
   const models = Object.fromEntries(
     providerDefs.map((p) => [p.name, p.models.map((m) => ({ id: m.id, label: m.id }))]),
   );
@@ -107,6 +127,29 @@ async function runInteractiveInit(
     async saveApiKey(providerId: string, key: string): Promise<void> {
       await vault.set(canonicalKey(providerId), key, [providerId]);
     },
+    async ensureProvider(
+      providerId: string,
+    ): Promise<{ models: ReadonlyArray<{ id: string; label: string }>; authKind: ProviderAuthKind } | null> {
+      let def = session.providers.list().find((p) => p.name === providerId);
+      if (!def) {
+        // Catalog-only provider (a slim build hasn't bundled it) — install +
+        // enable it from npm, then it registers on the host reload.
+        const entry = resolveProvider(providerId);
+        if (!entry) return null;
+        // Install the latest published version. (Pinning to the CLI version is
+        // the fixed-changeset-group future state; today providers publish on
+        // their own cadence, so latest is what actually resolves.)
+        await installPluginPackage({ packageName: entry.packageName });
+        await setPluginEnabled(entry.packageName, true);
+        await session.pluginHost.reload();
+        def = session.providers.list().find((p) => p.name === providerId);
+      }
+      if (!def) return null;
+      return {
+        models: def.models.map((m) => ({ id: m.id, label: m.id })),
+        authKind: providerAuthKind(def),
+      };
+    },
     async writeConfig(yaml: string): Promise<string> {
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, yaml);
@@ -119,7 +162,7 @@ async function runInteractiveInit(
       return await validateProviderKey(providerId, key, session.providers);
     },
     async loginOAuth(providerId: string): Promise<void> {
-      const def = defsByName.get(providerId);
+      const def = session.providers.list().find((p) => p.name === providerId);
       if (!def || def.auth?.kind !== 'oauth') {
         throw new MoxxyError({
           code: 'OAUTH_FLOW_NOT_SUPPORTED',
@@ -135,7 +178,23 @@ async function runInteractiveInit(
       const ctx = buildProviderAuthContext(vault, { headless: false });
       await def.auth.login(ctx);
     },
+    async installPlugins(ids: ReadonlyArray<string>): Promise<void> {
+      for (const id of ids) {
+        const pkg = resolveCatalogPackageName(id);
+        await installPluginPackage({ packageName: pkg });
+        await setPluginEnabled(pkg, true);
+      }
+      // One reload after the batch so the new tools/contributions go live.
+      await session.pluginHost.reload();
+    },
   };
+
+  // Optional extra plugins offered in the wizard (installable catalog).
+  const availablePlugins = INSTALLABLE_PLUGIN_CATALOG.map((e) => ({
+    id: e.id,
+    label: e.label,
+    description: e.description,
+  }));
 
   await runSetupWizard({
     providers,
@@ -144,6 +203,7 @@ async function runInteractiveInit(
     embedders,
     controller,
     authKinds,
+    availablePlugins,
     ...(cliVersion() ? { version: cliVersion()! } : {}),
   });
 

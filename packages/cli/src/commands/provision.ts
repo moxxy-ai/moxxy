@@ -1,6 +1,5 @@
 import { bootSessionWithConfig, stringFlag } from '../argv-helpers.js';
 import { closeSession } from '../setup/close-session.js';
-import { cliVersion } from '../version.js';
 import type { ParsedArgv } from '../argv.js';
 import { provision, type ProvisionSpec } from '../provision/provision.js';
 import { installPluginPackage, resolveCatalogPackageName } from '@moxxy/plugin-plugins-admin';
@@ -42,7 +41,8 @@ export async function runProvisionCommand(argv: ParsedArgv): Promise<number> {
         await setCategoryDefault('provider', w.providerSlug);
         if (w.model) await setProviderModel(w.providerSlug, w.model);
       },
-      ...(cliVersion() ? { cliVersion: cliVersion() } : {}),
+      // No cliVersion → install the latest published provider (the fixed-group
+      // pin-to-cliVersion is a future state once versions are aligned).
       log: (m) => process.stderr.write(`moxxy provision: ${m}\n`),
     });
 

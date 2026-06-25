@@ -2,7 +2,16 @@
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    [
+      "@moxxy/cli",
+      "@moxxy/sdk",
+      "@moxxy/core",
+      "@moxxy/config",
+      "@moxxy/agent",
+      "@moxxy/plugin-provider-*"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "development",
