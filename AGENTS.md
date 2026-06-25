@@ -196,7 +196,7 @@ So: **branch off `development`, PR back into `development`. Releases to `main` a
 1. **`prepare-release.yml`** runs daily (cron) — or on-demand via its `workflow_dispatch`. If changesets are pending on `development`, it consolidates them into **one** `changeset version` bump committed to `development`, then opens (or updates) the `development → main` PR. Land as many changeset-carrying PRs during the day as you like; they batch into the single daily bump.
 2. Review + **merge the `development → main` PR**. The push to `main` runs `release.yml` → npm publish (+ desktop). Because the bump already happened on `development`, this merge never conflicts.
 
-**Cutting a release:** run the **Open release PR** workflow (Actions tab → `workflow_dispatch`) — it opens (or reuses) a `development → main` PR listing the pending changesets. Review it and merge; the push to `main` then runs `release.yml` (which opens the changesets "Version Packages" PR and publishes once that merges).
+> **Always merge `development → main` with a real MERGE commit, never squash.** Squashing flattens away main's history, so main stops being an ancestor of development and the *next* release conflicts. (This is exactly what bit the first release after the redesign.)
 
 ## Releasing (changesets)
 
