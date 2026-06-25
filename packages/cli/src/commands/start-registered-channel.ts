@@ -1,6 +1,7 @@
 import {
   connectRemoteSession,
   isRunnerUp,
+  platformSocket,
   runnerSocketPath,
   startRunnerServer,
   type RemoteSession,
@@ -8,6 +9,7 @@ import {
 } from '@moxxy/runner';
 import type { Session } from '@moxxy/core';
 import { startChannelWith } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import type { ClientSession, SessionLike } from '@moxxy/sdk';
 import {
   argvToSetupOptions,
@@ -46,10 +48,48 @@ type _SessionIsSessionLike = _AssertAssignable<Session, SessionLike>;
  *    runner socket so other clients can attach too (Option A).
  */
 export async function startRegisteredChannel(name: string, argv: ParsedArgv): Promise<number> {
+  applyDedicatedRunnerEnv(name, argv);
   const standalone = hasBoolFlag(argv, 'standalone');
   const mode = chooseClientMode({ standalone, runnerUp: standalone ? false : await isRunnerUp() });
   if (mode === 'attach') return runAttachedChannel(name, argv);
   return runSelfHostedChannel(name, argv, mode === 'standalone');
+}
+
+/**
+ * A channel may declare itself a "dedicated runner": it runs as its OWN agent
+ * thread, isolated from whatever runner is serving the desktop/TUI, so it can
+ * act separately from the user's own work. We achieve that purely by addressing
+ * — a distinct runner socket + a stable sticky session id — with NO runner
+ * protocol change: one dedicated runner is still one Session, today's invariant.
+ *
+ * The env is set BEFORE `chooseClientMode`/`isRunnerUp` run, so the channel
+ * probes its own (empty) socket, falls into self-host mode, and boots an
+ * isolated Session instead of attaching to the user's main runner. The stable
+ * `MOXXY_SESSION_ID` persists that session's history across restarts.
+ *
+ * `slack` is dedicated by default (the whole point is to operate independently);
+ * any channel can opt in with `--dedicated` or `MOXXY_DEDICATED_RUNNER=1`. A
+ * caller that already pinned the socket/session id (e.g. the desktop supervisor)
+ * always wins — we only fill in what is unset.
+ */
+function applyDedicatedRunnerEnv(name: string, argv: ParsedArgv): void {
+  const dedicated =
+    name === 'slack' ||
+    hasBoolFlag(argv, 'dedicated') ||
+    process.env.MOXXY_DEDICATED_RUNNER === '1';
+  if (!dedicated) return;
+  if (!process.env.MOXXY_RUNNER_SOCKET) {
+    process.env.MOXXY_RUNNER_SOCKET = platformSocket(
+      `channel-${name}`,
+      moxxyPath(`channel-${name}.sock`),
+    );
+  }
+  if (!process.env.MOXXY_SESSION_ID) {
+    process.env.MOXXY_SESSION_ID = `moxxy-channel-${name}`;
+  }
+  if (!process.env.MOXXY_SESSION_SOURCE && name === 'slack') {
+    process.env.MOXXY_SESSION_SOURCE = 'slack';
+  }
 }
 
 /** Thin-client mode: run the channel against a RemoteSession. */

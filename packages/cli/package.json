@@ -81,6 +81,7 @@
     "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-channel-http": "workspace:*",
     "@moxxy/plugin-channel-mobile": "workspace:*",
+    "@moxxy/plugin-channel-slack": "workspace:*",
     "@moxxy/plugin-channel-web": "workspace:*",
     "@moxxy/plugin-cli": "workspace:*",
     "@moxxy/plugin-collab": "workspace:*",

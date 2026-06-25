@@ -29,6 +29,7 @@ import { cliPlugin } from '@moxxy/plugin-cli';
 import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { webChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
+import { slackPlugin } from '@moxxy/plugin-channel-slack';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { terminalPlugin } from '@moxxy/plugin-terminal';
 import { subagentsPlugin } from '@moxxy/plugin-subagents';
@@ -151,6 +152,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
     // Discovery-loadable: resolves the vault from the service registry in onInit.
     { name: '@moxxy/plugin-telegram', plugin: telegramPlugin },
+    // Discovery-loadable: resolves the vault from the service registry in onInit;
+    // opens its Events-API ingest tunnel via the proxy relay. Runs on its own
+    // dedicated runner (see start-registered-channel applyDedicatedRunnerEnv).
+    { name: '@moxxy/plugin-channel-slack', plugin: slackPlugin },
     { name: '@moxxy/plugin-browser', plugin: browserPlugin },
     // Shared terminal surface + `terminal` tool. node-pty is an optional native
     // peer dep, so the surface availability (real PTY vs piped fallback) is
