@@ -192,6 +192,8 @@ Two long-lived branches:
 
 So: **branch off `development`, PR back into `development`. Releases to `main` are on-demand**, when you choose to cut one. Never target `main` with a feature PR.
 
+**Cutting a release:** run the **Open release PR** workflow (Actions tab → `workflow_dispatch`) — it opens (or reuses) a `development → main` PR listing the pending changesets. Review it and merge; the push to `main` then runs `release.yml` (which opens the changesets "Version Packages" PR and publishes once that merges).
+
 ## Releasing (changesets)
 
 Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every feature PR (→ `development`) must include a changeset — CI (the `Changeset present` job) fails it without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`. (A `development → main` release PR needs no new changeset — it carries the ones already merged.)
