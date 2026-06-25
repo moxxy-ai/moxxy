@@ -33,6 +33,7 @@ import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
 import { EventStoreRegistry } from './registries/event-stores.js';
+import { ServiceRegistryImpl } from './registries/services.js';
 import { jsonlEventStore } from './sessions/jsonl-event-store.js';
 import { RequirementRegistry } from './requirements.js';
 import { PermissionEngine } from './permissions/engine.js';
@@ -132,6 +133,8 @@ export class Session implements ClientSession, SessionRuntime {
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
+  /** Inter-plugin service registry — plugins publish/consume services in onInit. */
+  readonly services: ServiceRegistryImpl;
   readonly requirements: RequirementRegistry;
   readonly permissions: PermissionEngine;
   /** Current PermissionResolver. Update via `setPermissionResolver(r)`. */
@@ -216,6 +219,7 @@ export class Session implements ClientSession, SessionRuntime {
     this.embedders = new EmbedderRegistry();
     this.isolators = new IsolatorRegistry();
     this.workflowExecutors = new WorkflowExecutorRegistry();
+    this.services = new ServiceRegistryImpl();
     this.eventStores = new EventStoreRegistry();
     // Seed the built-in JSONL store as the protected floor — the storage backend
     // behind the event log always exists and can be swapped but never removed.
@@ -386,6 +390,7 @@ export class Session implements ClientSession, SessionRuntime {
       cwd: this.cwd,
       log: this.log.asReader(),
       env: this.envSnapshot,
+      services: this.services,
     };
   }
 

@@ -37,6 +37,7 @@ export async function* dispatchToolCall(
       cwd: ctx.cwd,
       log: ctx.log,
       env: ctx.env,
+      services: ctx.services,
       turnId: ctx.turnId,
       iteration,
       call: { callId: asToolCallId(t.id), name: t.name, input: t.input },

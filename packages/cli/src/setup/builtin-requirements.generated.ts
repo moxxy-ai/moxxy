@@ -15,6 +15,13 @@ export const BUILTIN_REQUIREMENTS: Readonly<
       "hint": "Enable @moxxy/plugin-subagents — deep-research fans out sub-queries via ctx.subagents."
     }
   ],
+  "@moxxy/plugin-oauth": [
+    {
+      "kind": "plugin",
+      "name": "@moxxy/plugin-vault",
+      "hint": "oauth resolves the vault from the service registry to store tokens; @moxxy/plugin-vault must load first"
+    }
+  ],
   "@moxxy/plugin-stt-whisper-codex": [
     {
       "kind": "plugin",

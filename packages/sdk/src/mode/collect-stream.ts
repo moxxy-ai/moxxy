@@ -147,6 +147,7 @@ export async function collectProviderStream(
     cwd: ctx.cwd,
     log: ctx.log,
     env: ctx.env,
+    services: ctx.services,
     turnId: ctx.turnId,
     iteration: opts.iteration ?? 0,
   });

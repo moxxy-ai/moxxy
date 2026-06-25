@@ -131,6 +131,16 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
   const plugin = definePlugin({
     name: '@moxxy/plugin-vault',
     version: '0.0.0',
+    // Publish the secret store on the inter-plugin service registry so sibling
+    // plugins (oauth, telegram, mcp, …) can resolve it in their own onInit
+    // instead of being hand-built with `{ vault }` — the seam that lets them be
+    // discovery-loaded. Consumers declare a requirement on @moxxy/plugin-vault
+    // so this onInit runs first.
+    hooks: {
+      onInit: (ctx) => {
+        ctx.services.register('vault', vault);
+      },
+    },
     commands: [vaultCmd],
     tools: [
       defineTool({

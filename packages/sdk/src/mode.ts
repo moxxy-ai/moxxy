@@ -2,6 +2,7 @@ import type { CacheStrategyDef } from './cache-strategy.js';
 import type { CompactorDef } from './compactor.js';
 import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { HookDispatcher } from './hooks.js';
+import type { ServiceRegistry } from './services.js';
 import type { SessionId, TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
 import type { PermissionResolver } from './permission.js';
@@ -106,6 +107,8 @@ export interface ModeContext {
   readonly approval?: ApprovalResolver;
   readonly hooks: HookDispatcher;
   readonly pluginHost: PluginHostHandle;
+  /** Inter-plugin service registry (mirrors {@link AppContext.services}). */
+  readonly services: ServiceRegistry;
   readonly signal: AbortSignal;
   readonly maxIterations?: number;
   /**
