@@ -12,13 +12,16 @@ const base = {
 describe('renderYaml', () => {
   it('renders a minimal single-provider config (anthropic + tfidf)', () => {
     const yaml = renderYaml({ ...base, providers: ['anthropic'] });
-    expect(yaml).toContain('provider:');
-    expect(yaml).toContain('name: anthropic');
-    expect(yaml).toContain('model: claude-sonnet-4-6');
-    expect(yaml).toContain('apiKey: ${vault:ANTHROPIC_API_KEY}');
-    expect(yaml).toContain('mode: default');
-    // TF-IDF is the default — no embeddings block emitted.
-    expect(yaml).not.toContain('embeddings:');
+    expect(yaml).toContain('plugins:');
+    expect(yaml).toContain('  provider:');
+    expect(yaml).toContain('    default: anthropic');
+    expect(yaml).toContain('        model: claude-sonnet-4-6');
+    expect(yaml).toContain('  mode:');
+    expect(yaml).toContain('    default: default');
+    // The key lives in the vault under its canonical name — no apiKey ref.
+    expect(yaml).not.toContain('apiKey');
+    // TF-IDF is the floor — no embedder block emitted.
+    expect(yaml).not.toContain('embedder:');
     // No fallbacks for single-provider setup.
     expect(yaml).not.toContain('fallbacks:');
   });
@@ -41,40 +44,54 @@ describe('renderYaml', () => {
       providers: ['anthropic', 'openai'],
       primary: 'openai',
     });
-    expect(yaml).toContain('name: openai');
-    expect(yaml).toContain('apiKey: ${vault:OPENAI_API_KEY}');
+    expect(yaml).toContain('    default: openai');
     expect(yaml).toMatch(/- anthropic/);
   });
 
-  it('emits an embeddings block when embedder is not tfidf', () => {
+  it('emits an embedder block when embedder is not tfidf', () => {
     const yaml = renderYaml({ ...base, providers: ['anthropic'], embedder: 'openai' });
-    expect(yaml).toContain('embeddings:');
-    expect(yaml).toContain('provider: openai');
+    expect(yaml).toContain('  embedder:');
+    expect(yaml).toContain('    default: openai');
   });
 
-  it('skips the model line when no model is selected', () => {
+  it('skips the items/model block when no model is selected', () => {
     const yaml = renderYaml({ ...base, providers: ['anthropic'], model: null });
     expect(yaml).not.toMatch(/^\s*model:/m);
-    // Provider block still emitted
-    expect(yaml).toContain('name: anthropic');
+    expect(yaml).not.toContain('items:');
+    // Provider default still emitted.
+    expect(yaml).toContain('    default: anthropic');
   });
 
   it('honors the chosen mode strategy', () => {
     const yaml = renderYaml({ ...base, providers: ['anthropic'], mode: 'research' });
-    expect(yaml).toContain('mode: research');
+    expect(yaml).toContain('  mode:');
+    expect(yaml).toContain('    default: research');
   });
 
   it('output starts with a generator comment', () => {
     const yaml = renderYaml({ ...base, providers: ['anthropic'] });
-    expect(yaml.startsWith('# moxxy.config.yaml')).toBe(true);
+    expect(yaml.startsWith('# ~/.moxxy/config.yaml')).toBe(true);
   });
 
-  it('vault placeholder uses the canonical uppercase provider name', () => {
+  it('never writes an apiKey ref — the vault holds the key by canonical name', () => {
     const yaml = renderYaml({ ...base, providers: ['openai'], primary: 'openai' });
-    expect(yaml).toContain('${vault:OPENAI_API_KEY}');
+    expect(yaml).not.toContain('apiKey');
+    expect(yaml).not.toContain('config:');
   });
 
-  it('produces a config that parses as valid YAML', async () => {
+  it('emits a security block only when opted in', () => {
+    const off = renderYaml({ ...base, providers: ['anthropic'] });
+    expect(off).not.toContain('security:');
+    const on = renderYaml({
+      ...base,
+      providers: ['anthropic'],
+      security: { enabled: true, isolator: 'inproc' },
+    });
+    expect(on).toContain('security:');
+    expect(on).toContain('  enabled: true');
+  });
+
+  it('produces a config that parses into the unified plugins tree', async () => {
     const yaml = renderYaml({
       ...base,
       providers: ['anthropic', 'openai'],
@@ -82,50 +99,17 @@ describe('renderYaml', () => {
     });
     const yamlMod = (await import('yaml')) as typeof import('yaml');
     const parsed = yamlMod.parse(yaml);
-    expect(parsed.provider.name).toBe('anthropic');
-    expect(parsed.provider.fallbacks).toEqual(['openai']);
-    expect(parsed.embeddings.provider).toBe('transformers');
-    expect(parsed.mode).toBe('default');
-  });
-
-  it('omits the apiKey vault line when the primary provider authenticates via OAuth', () => {
-    const yaml = renderYaml({
-      ...base,
-      providers: ['openai-codex'],
-      primary: 'openai-codex',
-      model: null,
-      authKinds: { 'openai-codex': 'oauth' },
-    });
-    expect(yaml).toContain('name: openai-codex');
-    // OAuth providers persist tokens under a provider-specific vault key,
-    // not a generic *_API_KEY entry — the config must not reference one.
-    expect(yaml).not.toContain('apiKey:');
-    expect(yaml).not.toContain('config:');
-  });
-
-  it('still emits apiKey for an API-key primary even when a fallback is OAuth', () => {
-    const yaml = renderYaml({
-      ...base,
-      providers: ['anthropic', 'openai-codex'],
-      primary: 'anthropic',
-      authKinds: { 'openai-codex': 'oauth' },
-    });
-    expect(yaml).toContain('apiKey: ${vault:ANTHROPIC_API_KEY}');
-    expect(yaml).toMatch(/- openai-codex/);
-  });
-
-  it('keeps the vault placeholder unquoted (loader matches it literally)', () => {
-    const yaml = renderYaml({ ...base, providers: ['anthropic'] });
-    // Must NOT be wrapped in quotes despite containing a `:` — the config
-    // loader recognizes the bare ${vault:...} form.
-    expect(yaml).toContain('apiKey: ${vault:ANTHROPIC_API_KEY}');
-    expect(yaml).not.toContain('apiKey: "${vault:');
+    expect(parsed.plugins.provider.default).toBe('anthropic');
+    expect(parsed.plugins.provider.items.anthropic.model).toBe('claude-sonnet-4-6');
+    expect(parsed.plugins.provider.fallbacks).toEqual(['openai']);
+    expect(parsed.plugins.embedder.default).toBe('transformers');
+    expect(parsed.plugins.mode.default).toBe('default');
   });
 
   it('produces VALID yaml even when ids carry YAML-special characters (worst case)', async () => {
-    // Hostile / unexpected ids: a `:` in a model id, a `#` in an embedder, a
-    // leading-dash mode, whitespace + quote in an isolator. None of these can
-    // be allowed to silently corrupt the generated config file.
+    // Hostile / unexpected ids: a `:` in the provider (used as a map key!), a
+    // `#` in an embedder, a leading-dash mode, whitespace + quote in the model.
+    // None of these can be allowed to silently corrupt the generated config.
     const yaml = renderYaml({
       apiKeys: {},
       providers: ['my:provider', 'other'],
@@ -133,18 +117,18 @@ describe('renderYaml', () => {
       model: 'gpt-4 #turbo: "fast"',
       mode: '-weird mode',
       embedder: 'em#bed',
-      security: { enabled: true, isolator: 'iso lator"x' },
+      security: { enabled: true },
     });
     const yamlMod = (await import('yaml')) as typeof import('yaml');
     // The whole document must still parse — no thrown YAMLParseError, no
     // truncated/aliased value.
     const parsed = yamlMod.parse(yaml);
-    expect(parsed.provider.name).toBe('my:provider');
-    expect(parsed.provider.model).toBe('gpt-4 #turbo: "fast"');
-    expect(parsed.provider.fallbacks).toEqual(['other']);
-    expect(parsed.mode).toBe('-weird mode');
-    expect(parsed.embeddings.provider).toBe('em#bed');
-    expect(parsed.security.isolator).toBe('iso lator"x');
+    expect(parsed.plugins.provider.default).toBe('my:provider');
+    expect(parsed.plugins.provider.items['my:provider'].model).toBe('gpt-4 #turbo: "fast"');
+    expect(parsed.plugins.provider.fallbacks).toEqual(['other']);
+    expect(parsed.plugins.mode.default).toBe('-weird mode');
+    expect(parsed.plugins.embedder.default).toBe('em#bed');
+    expect(parsed.security.enabled).toBe(true);
   });
 });
 

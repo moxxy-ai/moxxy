@@ -2,6 +2,29 @@
   "name": "@moxxy/plugin-provider-zai",
   "version": "0.21.0",
   "description": "z.ai (Zhipu GLM) LLMProvider plugin for moxxy. Ships two providers: `zai` (pay-as-you-go, OpenAI-compatible endpoint) and `zai-coding-plan` (GLM Coding Plan, Anthropic-compatible endpoint).",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "zai",
+    "zhipu",
+    "glm",
+    "llm"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-zai"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

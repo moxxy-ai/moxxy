@@ -1,5 +1,3 @@
-import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
 import { bootSessionWithConfig } from '../argv-helpers.js';
 import { closeSession } from '../setup/close-session.js';
 import { canonicalKey } from '../provider-keys.js';
@@ -14,11 +12,11 @@ import {
   resolveCatalogPackageName,
   INSTALLABLE_PLUGIN_CATALOG,
 } from '@moxxy/plugin-plugins-admin';
-import { setPluginEnabled } from '@moxxy/config';
+import { applyInitConfig, setPluginEnabled } from '@moxxy/config';
 import { renderLogo } from '../logo.js';
 import { cancel, isCancel, note, password } from '@clack/prompts';
 import { colors } from '../colors.js';
-import type { ProviderAuthKind } from '@moxxy/plugin-cli';
+import type { ProviderAuthKind, SetupSelections } from '@moxxy/plugin-cli';
 import { MoxxyError, type ProviderDef } from '@moxxy/sdk';
 
 /**
@@ -121,8 +119,6 @@ async function runInteractiveInit(
     { id: 'none', label: 'None', description: 'Keyword recall only' },
   ];
 
-  const target = path.join(process.cwd(), 'moxxy.config.yaml');
-
   const controller = {
     async saveApiKey(providerId: string, key: string): Promise<void> {
       await vault.set(canonicalKey(providerId), key, [providerId]);
@@ -150,10 +146,19 @@ async function runInteractiveInit(
         authKind: providerAuthKind(def),
       };
     },
-    async writeConfig(yaml: string): Promise<string> {
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.writeFile(target, yaml);
-      return target;
+    async writeConfig(selections: SetupSelections): Promise<string> {
+      // Persist into ~/.moxxy/config.yaml (the unified store), merging with the
+      // package ledger ensureProvider/installPlugins already wrote there — no
+      // legacy-shaped file dropped in the project cwd. The wizard's
+      // single-provider pick means no fallbacks today, but pass them through.
+      return applyInitConfig({
+        provider: selections.primary,
+        model: selections.model,
+        fallbacks: selections.providers.filter((p) => p !== selections.primary),
+        mode: selections.mode,
+        embedder: selections.embedder,
+        ...(selections.security?.enabled ? { security: { enabled: true } } : {}),
+      });
     },
     async testKey(
       providerId: string,

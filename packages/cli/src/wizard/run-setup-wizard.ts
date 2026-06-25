@@ -11,7 +11,12 @@ import {
   select,
   spinner,
 } from '@clack/prompts';
-import { renderYaml, type ProviderAuthKind, type SetupChoice } from '@moxxy/plugin-cli';
+import {
+  renderYaml,
+  type ProviderAuthKind,
+  type SetupChoice,
+  type SetupSelections,
+} from '@moxxy/plugin-cli';
 import { colors } from '../colors.js';
 
 export interface EnsureProviderResult {
@@ -21,7 +26,13 @@ export interface EnsureProviderResult {
 
 export interface SetupWizardController {
   saveApiKey(providerId: string, key: string): Promise<void>;
-  writeConfig(yaml: string): Promise<string>;
+  /**
+   * Persist the user's selections. Receives the structured selections (NOT a
+   * pre-rendered YAML string) so the implementation can merge them into the
+   * unified `~/.moxxy/config.yaml` tree without clobbering the package ledger
+   * the wizard already wrote. Returns the path written, for the "Wrote …" line.
+   */
+  writeConfig(selections: SetupSelections): Promise<string>;
   /**
    * Make the picked provider available before collecting credentials: a bundled
    * provider resolves instantly; a catalog-only one is installed from npm +
@@ -110,7 +121,7 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
       `${colors.bold('1.')} Pick an LLM provider`,
       `${colors.bold('2.')} Paste your API key (stored encrypted in the vault)`,
       `${colors.bold('3.')} Choose a default model, mode, and memory embedder`,
-      `${colors.bold('4.')} Review and write ${colors.bold('moxxy.config.yaml')} into the project`,
+      `${colors.bold('4.')} Review and write your ${colors.bold('~/.moxxy/config.yaml')}`,
     ].join('\n'),
     'What this will do',
   );
@@ -254,9 +265,9 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     ...(securityEnabled ? { security: { enabled: true, isolator: 'inproc' } } : {}),
   };
 
-  // Step 8 — review
+  // Step 8 — review (preview of the unified tree written to ~/.moxxy/config.yaml)
   const yaml = renderYaml(selections);
-  note(yaml, 'Step 8 — Review (moxxy.config.yaml)');
+  note(yaml, 'Step 8 — Review (~/.moxxy/config.yaml)');
 
   const confirmedRaw = await confirm({
     message: 'Save config and store keys in the vault?',
@@ -267,14 +278,14 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
 
   // Persist. An OAuth provider's tokens were stored inline in step 2 (the
   // OAuth flow is interactive and can't be reduced to a fire-and-forget write
-  // here), so this stage only needs to persist the API key and rendered YAML.
+  // here), so this stage only needs to persist the API key and the selections.
   const persist = spinner();
   persist.start('Writing config and storing keys');
   if (providerKind !== 'oauth') {
     const key = apiKeys[provider];
     if (key) await opts.controller.saveApiKey(provider, key);
   }
-  const configPath = await opts.controller.writeConfig(yaml);
+  const configPath = await opts.controller.writeConfig(selections);
   persist.stop(`Wrote ${colors.bold(configPath)}`);
 
   // Install any optional plugins the user picked (best-effort; the controller
