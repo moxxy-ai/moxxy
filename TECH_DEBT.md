@@ -129,11 +129,17 @@ or recorded-on-purpose decision.
   its next launch. Never fires on the common path (an active CLI keeps its token
   fresh, so moxxy only ever reads). A native Keychain binding that preserves the ACL
   on update would remove the caveat. `packages/plugin-provider-claude-code/src/cli-creds.ts`.
-- [low, verify] Codex installed-CLI borrow is unit-tested (read/write/resolution) but
-  not live-rotated end-to-end — the local `~/.codex/auth.json` is months stale, so a
-  live run would refresh + write back the user's real codex token. Verify the
-  refresh+write-back against a fresh `codex` login before relying on it.
-  `packages/plugin-provider-openai-codex/src/cli-creds.ts`.
+- [note] Codex installed-CLI borrow is live-verified end-to-end: a stale
+  `~/.codex/auth.json` (access token 23h expired) auto-refreshed + wrote the rotated
+  bundle back (token went +240h, all fields preserved), then `gpt-5.5`/`5.4`/`5.4-mini`
+  returned real completions with NO billing gate (ChatGPT plan is in-plan, unlike
+  claude's extra-usage policy). `packages/plugin-provider-openai-codex/src/cli-creds.ts`.
+- [low] ChatGPT-account Codex rejects some catalog models with a 400 ("not supported
+  when using Codex with a ChatGPT account") — `gpt-5.2` and the `-codex` variants
+  (incl. `DEFAULT_CODEX_MODEL = gpt-5.3-codex`) fail; base models `gpt-5.5/5.4/5.4-mini`
+  work. run-turn defaults to `models[0]` (gpt-5.5) so the out-of-box path is fine, but
+  the provider's own `defaultModel` fallback would 400 on the OAuth path. Consider a
+  ChatGPT-vs-API-key-aware default. `packages/plugin-provider-openai-codex/src/models.ts`.
 - [note] Subscription OAuth tokens used by third-party apps (claude-code/openai-codex
   borrowing the installed CLI's token) are metered by the vendor against pay-as-you-go
   "extra usage", NOT plan limits — a real agentic request can 400 with "Add more at
