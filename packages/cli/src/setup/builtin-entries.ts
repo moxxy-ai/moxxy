@@ -12,7 +12,7 @@ import { xaiPlugin } from '@moxxy/plugin-provider-xai';
 import { googlePlugin } from '@moxxy/plugin-provider-google';
 import { localPlugin } from '@moxxy/plugin-provider-local';
 import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
-import { buildWhisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
+import { whisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { goalModePlugin } from '@moxxy/mode-goal';
@@ -25,7 +25,7 @@ import {
   buildMemoryConsolidatePlugin,
   type MemoryStore,
 } from '@moxxy/plugin-memory';
-import { buildTelegramPlugin } from '@moxxy/plugin-telegram';
+import { telegramPlugin } from '@moxxy/plugin-telegram';
 import { buildMcpAdminPluginWithApi } from '@moxxy/plugin-mcp';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
@@ -115,8 +115,9 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/plugin-vault', plugin: vaultPlugin },
     { name: '@moxxy/plugin-stt-whisper', plugin: buildWhisperPlugin() },
     {
+      // Discovery-loadable: resolves the vault from the service registry in onInit.
       name: '@moxxy/plugin-stt-whisper-codex',
-      plugin: buildWhisperCodexPlugin({ vault }),
+      plugin: whisperCodexPlugin,
     },
     { name: '@moxxy/plugin-memory', plugin: memoryPlugin },
     {
@@ -155,7 +156,8 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
       }),
     },
     { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
-    { name: '@moxxy/plugin-telegram', plugin: buildTelegramPlugin({ vault }) },
+    // Discovery-loadable: resolves the vault from the service registry in onInit.
+    { name: '@moxxy/plugin-telegram', plugin: telegramPlugin },
     { name: '@moxxy/plugin-browser', plugin: browserPlugin },
     // Shared terminal surface + `terminal` tool. node-pty is an optional native
     // peer dep, so the surface availability (real PTY vs piped fallback) is

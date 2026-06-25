@@ -26,7 +26,14 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "cli"
-    }
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-vault",
+        "hint": "telegram resolves the vault from the service registry for its bot token + pairing; @moxxy/plugin-vault must load first"
+      }
+    ]
   },
   "dependencies": {
     "@clack/prompts": "catalog:",

@@ -1,4 +1,4 @@
-import { definePlugin, defineTranscriber, type Plugin } from '@moxxy/sdk';
+import { definePlugin, defineTranscriber, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 import {
   CodexOAuthTranscriber,
   OPENAI_CODEX_TRANSCRIBER_NAME,
@@ -32,9 +32,44 @@ export interface BuildWhisperCodexPluginOptions {
 export function buildWhisperCodexPlugin(
   opts: BuildWhisperCodexPluginOptions,
 ): Plugin {
+  const { vault, ...rest } = opts;
+  return makeWhisperCodexPlugin(() => vault, rest);
+}
+
+/**
+ * Discovery-loadable default export: resolves the vault from the inter-plugin
+ * service registry in `onInit`. Requires `@moxxy/plugin-vault` to load first
+ * (declared in `package.json` `moxxy.requirements`). `baseUrl`/`fetch`/
+ * `sessionIdProvider`/`requestTimeoutMs` fall back to their `createClient`
+ * config/defaults when the host doesn't inject them.
+ */
+export const whisperCodexPlugin: Plugin = (() => {
+  let resolved: CodexOAuthVault | null = null;
+  const getVault = (): CodexOAuthVault => {
+    if (!resolved) {
+      throw new Error(
+        '@moxxy/plugin-stt-whisper-codex: the "vault" service is unavailable — @moxxy/plugin-vault must load first',
+      );
+    }
+    return resolved;
+  };
+  const hooks: LifecycleHooks = {
+    onInit: (ctx) => {
+      resolved = ctx.services.require<CodexOAuthVault>('vault');
+    },
+  };
+  return makeWhisperCodexPlugin(getVault, {}, hooks);
+})();
+
+function makeWhisperCodexPlugin(
+  getVault: () => CodexOAuthVault,
+  opts: Omit<BuildWhisperCodexPluginOptions, 'vault'>,
+  hooks?: LifecycleHooks,
+): Plugin {
   return definePlugin({
     name: '@moxxy/plugin-stt-whisper-codex',
     version: '0.0.0',
+    ...(hooks ? { hooks } : {}),
     transcribers: [
       defineTranscriber({
         name: OPENAI_CODEX_TRANSCRIBER_NAME,
@@ -58,7 +93,7 @@ export function buildWhisperCodexPlugin(
           const sessionIdProvider =
             configSessionIdProvider ?? opts.sessionIdProvider;
           const merged: CodexOAuthTranscriberOptions = {
-            vault: opts.vault,
+            vault: getVault(),
             ...(baseUrl ? { baseUrl } : {}),
             ...(opts.fetch ? { fetch: opts.fetch } : {}),
             ...(sessionIdProvider ? { sessionIdProvider } : {}),

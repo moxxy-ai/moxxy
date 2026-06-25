@@ -34,6 +34,19 @@ export const BUILTIN_REQUIREMENTS: Readonly<
       "name": "@moxxy/plugin-stt-whisper",
       "state": "registered",
       "hint": "Enable @moxxy/plugin-stt-whisper for shared audio helpers."
+    },
+    {
+      "kind": "plugin",
+      "name": "@moxxy/plugin-vault",
+      "state": "registered",
+      "hint": "whisper-codex resolves the vault from the service registry for the Codex OAuth token; @moxxy/plugin-vault must load first."
+    }
+  ],
+  "@moxxy/plugin-telegram": [
+    {
+      "kind": "plugin",
+      "name": "@moxxy/plugin-vault",
+      "hint": "telegram resolves the vault from the service registry for its bot token + pairing; @moxxy/plugin-vault must load first"
     }
   ]
 } as const satisfies Readonly<

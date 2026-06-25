@@ -1,4 +1,4 @@
-import { defineChannel, defineTool, definePlugin, z, type Plugin } from '@moxxy/sdk';
+import { defineChannel, defineTool, definePlugin, z, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { Api } from 'grammy';
 import { TelegramChannel } from './channel.js';
@@ -39,16 +39,47 @@ const TOKEN_KEY = TELEGRAM_TOKEN_KEY;
 const AUTHORIZED_CHAT_KEY = TELEGRAM_AUTHORIZED_CHAT_KEY;
 
 export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
+  // Host-injected vault (available immediately).
+  return makeTelegramPlugin(() => opts.vault);
+}
+
+/**
+ * Discovery-loadable default export: resolves the vault from the inter-plugin
+ * service registry in `onInit` (the vault plugin publishes `'vault'`). Requires
+ * `@moxxy/plugin-vault` to load first (declared in `package.json`
+ * `moxxy.requirements`). The channel + tools read the vault via `getVault()`,
+ * so resolution is deferred to call time — after `onInit` has wired it.
+ */
+export const telegramPlugin: Plugin = (() => {
+  let resolved: VaultStore | null = null;
+  const getVault = (): VaultStore => {
+    if (!resolved) {
+      throw new Error(
+        '@moxxy/plugin-telegram: the "vault" service is unavailable — @moxxy/plugin-vault must load first',
+      );
+    }
+    return resolved;
+  };
+  const hooks: LifecycleHooks = {
+    onInit: (ctx) => {
+      resolved = ctx.services.require<VaultStore>('vault');
+    },
+  };
+  return makeTelegramPlugin(getVault, hooks);
+})();
+
+function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): Plugin {
   return definePlugin({
     name: '@moxxy/plugin-telegram',
     version: '0.0.0',
+    ...(hooks ? { hooks } : {}),
     channels: [
       defineChannel({
         name: 'telegram',
         description: 'Telegram bot channel via grammy. TOFU + code-pairing authorization.',
         create: (deps) =>
           new TelegramChannel({
-            vault: opts.vault,
+            vault: getVault(),
             token: (deps.options?.['token'] as string | undefined) ?? undefined,
             logger: deps.logger as never,
           }),
@@ -56,7 +87,7 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
           const envToken = process.env.MOXXY_TELEGRAM_TOKEN;
           if (envToken) return { ok: true };
           try {
-            const stored = await opts.vault.has(TOKEN_KEY);
+            const stored = await getVault().has(TOKEN_KEY);
             if (stored) return { ok: true };
             return {
               ok: false,
@@ -155,7 +186,7 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
         }),
         permission: { action: 'prompt' },
         handler: async ({ token }) => {
-          await opts.vault.set(TOKEN_KEY, token, ['telegram']);
+          await getVault().set(TOKEN_KEY, token, ['telegram']);
           return `stored Telegram token (${token.split(':')[0]}:…) in vault`;
         },
       }),
@@ -164,8 +195,8 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
         description: 'Report whether a Telegram token + an authorized chat are configured.',
         inputSchema: z.object({}),
         handler: async () => {
-          const hasToken = await opts.vault.has(TOKEN_KEY);
-          const authorized = await opts.vault.get(AUTHORIZED_CHAT_KEY);
+          const hasToken = await getVault().has(TOKEN_KEY);
+          const authorized = await getVault().get(AUTHORIZED_CHAT_KEY);
           return {
             tokenConfigured: hasToken,
             authorizedChatId: parseChatId(authorized),
@@ -187,14 +218,14 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
         }),
         permission: { action: 'prompt' },
         handler: async ({ text, chatId, parseMode }) => {
-          const token = process.env.MOXXY_TELEGRAM_TOKEN ?? (await opts.vault.get(TOKEN_KEY));
+          const token = process.env.MOXXY_TELEGRAM_TOKEN ?? (await getVault().get(TOKEN_KEY));
           if (!token) {
             throw new Error(
               'no Telegram bot token configured (set MOXXY_TELEGRAM_TOKEN or run `moxxy init` to store one)',
             );
           }
           const targetChat =
-            chatId ?? parseChatId(await opts.vault.get(AUTHORIZED_CHAT_KEY));
+            chatId ?? parseChatId(await getVault().get(AUTHORIZED_CHAT_KEY));
           if (!targetChat) {
             throw new Error(
               'no authorized chat — run `moxxy channels telegram pair` first or pass `chatId` explicitly',
@@ -215,7 +246,7 @@ export function buildTelegramPlugin(opts: BuildTelegramPluginOptions): Plugin {
         inputSchema: z.object({}),
         permission: { action: 'prompt' },
         handler: async () => {
-          const removed = await opts.vault.delete(AUTHORIZED_CHAT_KEY);
+          const removed = await getVault().delete(AUTHORIZED_CHAT_KEY);
           return removed ? 'unpaired' : 'no pairing was active';
         },
       }),
