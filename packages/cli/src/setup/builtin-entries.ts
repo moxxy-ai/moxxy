@@ -39,7 +39,7 @@ import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { providerAdminPlugin } from '@moxxy/plugin-provider-admin';
 import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
 import { commandsPlugin } from '@moxxy/plugin-commands';
-import { buildViewPlugin } from '@moxxy/plugin-view';
+import { viewPlugin } from '@moxxy/plugin-view';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
 import { oauthPlugin } from '@moxxy/plugin-oauth';
 import { voiceAdminPlugin } from '@moxxy/plugin-voice-admin';
@@ -86,6 +86,12 @@ export interface BuiltinEntriesArgs {
  */
 export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
   const { session, rawConfig, vaultPlugin, memoryPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
+
+  // Publish the shared web-surface ref so the (discovery-loadable) view plugin
+  // can read it in onInit — the same mutable ref the web channel writes via its
+  // `publishSurface` closure below. Registered here (before onInit dispatch) so
+  // it's available when the view plugin's onInit runs.
+  session.services.register('viewSurface', viewSurface);
 
   return [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
@@ -182,15 +188,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/plugin-commands', plugin: commandsPlugin },
     // Agent-authored UIs: present_view parses the model's JSX-like view-spec
     // (via the session's active, swappable view renderer) into a validated AST
-    // that the web surface renders as interactive UI. The renderer is reached
-    // through a closure since ToolContext exposes no session handle.
-    {
-      name: '@moxxy/plugin-view',
-      plugin: buildViewPlugin({
-        getRenderer: () => session.viewRenderers.getActive(),
-        getSurface: () => viewSurface.current,
-      }),
-    },
+    // that the web surface renders as interactive UI. Discovery-loadable:
+    // resolves the 'viewRenderers' registry + the 'viewSurface' ref from the
+    // service registry in onInit (no host closure).
+    { name: '@moxxy/plugin-view', plugin: viewPlugin },
     // Subagents are a swappable block: this plugin owns the
     // dispatch_agent tool and the auto-detection skill. Drop it
     // (`config.plugins['@moxxy/plugin-subagents'].enabled = false`) and

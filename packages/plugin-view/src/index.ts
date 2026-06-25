@@ -2,6 +2,7 @@ import {
   defineTool,
   definePlugin,
   z,
+  type LifecycleHooks,
   type Plugin,
   type ViewDoc,
   type ViewNode,
@@ -63,7 +64,7 @@ export interface BuildViewPluginOptions {
   getSurface?: () => ViewSurface | null;
 }
 
-export function buildViewPlugin(opts: BuildViewPluginOptions): Plugin {
+export function buildViewPlugin(opts: BuildViewPluginOptions, hooks?: LifecycleHooks): Plugin {
   const presentView = defineTool({
     name: 'present_view',
     description:
@@ -175,8 +176,43 @@ export function buildViewPlugin(opts: BuildViewPluginOptions): Plugin {
   return definePlugin({
     name: '@moxxy/plugin-view',
     tools: [presentView],
+    ...(hooks ? { hooks } : {}),
   });
 }
+
+/** Minimal views of the services view consumes — avoids importing @moxxy/core. */
+interface ActiveRendererSource {
+  getActive(): ViewRendererDef | null;
+}
+interface ViewSurfaceRef {
+  readonly current: ViewSurface | null;
+}
+
+/**
+ * Discovery-loadable default export. Resolves the active view-renderer registry
+ * (`'viewRenderers'`) and the shared web-surface ref (`'viewSurface'`, published
+ * by the host + written by the web channel) from the inter-plugin service
+ * registry in `onInit`, so `present_view` reaches them without a host-injected
+ * `{ getRenderer, getSurface }` closure. Both reads are lazy (at tool-call time),
+ * and degrade to "no renderer"/"no surface" if the host hasn't published them.
+ */
+export const viewPlugin: Plugin = (() => {
+  let renderers: ActiveRendererSource | null = null;
+  let surface: ViewSurfaceRef | null = null;
+  const hooks: LifecycleHooks = {
+    onInit: (ctx) => {
+      renderers = ctx.services.get<ActiveRendererSource>('viewRenderers') ?? null;
+      surface = ctx.services.get<ViewSurfaceRef>('viewSurface') ?? null;
+    },
+  };
+  return buildViewPlugin(
+    {
+      getRenderer: () => renderers?.getActive() ?? null,
+      getSurface: () => surface?.current ?? null,
+    },
+    hooks,
+  );
+})();
 
 export interface PresentViewResult {
   readonly ok: boolean;
