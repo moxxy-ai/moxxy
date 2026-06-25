@@ -289,6 +289,13 @@ export interface LoadedPluginView {
   readonly version: string;
   /** Contribution categories (e.g. `['provider']`, `['tool','command']`). */
   readonly kinds: ReadonlyArray<string>;
+  /**
+   * True when discovered from `~/.moxxy/plugins` (installed on demand), false/
+   * absent when statically bundled into the binary. Lets surfaces distinguish
+   * "installed" from "built-in". Optional so a thin-client `RemoteSession` may
+   * omit it (treated as built-in).
+   */
+  readonly installed?: boolean;
 }
 
 /** One swappable contribution within a {@link CategoryView}. */

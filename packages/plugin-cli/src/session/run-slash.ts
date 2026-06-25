@@ -364,17 +364,21 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
     });
   }
 
-  // 2. Enable/disable axis — every installed package, kernel ones marked.
+  // 2. Enable/disable axis — every loaded package, badged by source: a kernel
+  // `core` package (can't disable), an on-demand `installed` one (from
+  // ~/.moxxy/plugins), or a `built-in` (bundled into the binary).
   const pkgOptions: ListPickerOption[] = [];
   for (const p of [...loaded].sort((a, b) => a.name.localeCompare(b.name))) {
     const isCore = core.has(p.name);
+    const badge = isCore ? 'core' : p.installed ? 'installed' : 'built-in';
+    const badgeColor = isCore ? 'cyan' : p.installed ? 'yellow' : 'green';
     pkgOptions.push({
       // Kernel packages can't be disabled — a `::core` selection just explains why.
       id: isCore ? `${p.name}::core` : `${p.name}::disable`,
       label: shortPluginName(p.name),
       description: `${p.kinds && p.kinds.length ? p.kinds.join(', ') : 'plugin'} · @${p.version}`,
-      badge: isCore ? 'core' : 'on',
-      badgeColor: isCore ? 'cyan' : 'green',
+      badge,
+      badgeColor,
     });
   }
   for (const name of [...disabled].sort()) {

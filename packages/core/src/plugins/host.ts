@@ -70,12 +70,20 @@ export class PluginHost implements PluginHostHandle {
     name: string;
     version: string;
     loaded: boolean;
+    /**
+     * True when this plugin was DISCOVERED from `~/.moxxy/plugins` (installed on
+     * demand), false when it was statically bundled into the binary. Discovered
+     * plugins carry a manifest (registerDiscovered); bundled ones don't
+     * (registerStatic). Lets the UI tell "built-in" from "installed".
+     */
+    installed: boolean;
     kinds: ReadonlyArray<string>;
   }> {
     return [...this.loaded.values()].map((r) => ({
       name: r.plugin.name,
       version: r.plugin.version,
       loaded: true,
+      installed: r.manifest != null,
       kinds: contributionKinds(r),
     }));
   }
