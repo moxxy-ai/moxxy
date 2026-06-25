@@ -196,6 +196,8 @@ So: **branch off `development`, PR back into `development`. Releases to `main` a
 1. **`prepare-release.yml`** runs daily (cron) — or on-demand via its `workflow_dispatch`. If changesets are pending on `development`, it consolidates them into **one** `changeset version` bump committed to `development`, then opens (or updates) the `development → main` PR. Land as many changeset-carrying PRs during the day as you like; they batch into the single daily bump.
 2. Review + **merge the `development → main` PR**. The push to `main` runs `release.yml` → npm publish (+ desktop). Because the bump already happened on `development`, this merge never conflicts.
 
+**Cutting a release:** run the **Open release PR** workflow (Actions tab → `workflow_dispatch`) — it opens (or reuses) a `development → main` PR listing the pending changesets. Review it and merge; the push to `main` then runs `release.yml` (which opens the changesets "Version Packages" PR and publishes once that merges).
+
 ## Releasing (changesets)
 
 Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every feature PR (→ `development`) must include a changeset — CI (the `Changeset present` job) fails it without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`. (A `development → main` release PR needs no new changeset — it carries the ones already merged.)

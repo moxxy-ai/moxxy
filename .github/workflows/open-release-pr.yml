@@ -1,0 +1,78 @@
+name: Open release PR
+
+# On-demand: open (or reuse) a `development → main` release PR. Merging it is a
+# production release — the push to `main` then triggers `release.yml` (which opens
+# the changesets "Version Packages" PR, and publishes once that merges).
+#
+# Run it from the Actions tab (it's a workflow_dispatch). The PR body lists the
+# pending changesets so you can see exactly what the release will version/publish.
+#
+# Note: a PR opened by the built-in GITHUB_TOKEN does not itself start CI — but
+# every commit on `development` was already gated by CI before it landed, and the
+# push to `main` on merge runs CI again, so the release is doubly covered.
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: 'Release PR title'
+        required: false
+        default: 'Release: development → main'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  open-release-pr:
+    name: Open development → main PR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open or reuse the release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+
+          # Nothing to ship if development is already in sync with main.
+          if git diff --quiet origin/main origin/development; then
+            echo "::notice::development is already in sync with main — nothing to release."
+            exit 0
+          fi
+
+          existing="$(gh pr list --base main --head development --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            url="$(gh pr view "$existing" --json url --jq .url)"
+            echo "::notice::Release PR already open: $url"
+            exit 0
+          fi
+
+          # Compose a body that lists the pending changesets (what gets
+          # versioned + published when this merges).
+          {
+            echo "## Release: \`development\` → \`main\`"
+            echo
+            echo "Merging this promotes \`development\` to production. The push to \`main\` then"
+            echo "triggers the **Release** workflow (opens the changesets \"Version Packages\" PR;"
+            echo "publishes npm + desktop once that merges)."
+            echo
+            echo "### Pending changesets"
+            found=0
+            for f in .changeset/*.md; do
+              base="$(basename "$f")"
+              [ "$base" = "README.md" ] && continue
+              [ -f "$f" ] || continue
+              found=1
+              echo "- \`$base\`"
+            done
+            [ "$found" = 0 ] && echo "_(none — nothing will be versioned/published)_"
+          } > /tmp/release-body.md
+
+          gh pr create --base main --head development \
+            --title "$TITLE" --body-file /tmp/release-body.md
+          echo "Opened release PR."
