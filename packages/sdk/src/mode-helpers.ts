@@ -30,5 +30,6 @@ export {
   createStuckLoopDetector,
   type StuckLoopDetector,
   type StuckSignal,
+  type LoopGuardSettings,
 } from './mode/stuck-loop.js';
 export { stableHash } from './mode/stable-hash.js';

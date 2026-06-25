@@ -241,6 +241,7 @@ export {
   type ProjectedMessages,
   type StuckLoopDetector,
   type StuckSignal,
+  type LoopGuardSettings,
 } from './mode-helpers.js';
 export {
   dispatchToolCall,

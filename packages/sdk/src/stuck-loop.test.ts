@@ -3,7 +3,7 @@ import { createStuckLoopDetector, stableHash } from './mode-helpers.js';
 
 describe('createStuckLoopDetector', () => {
   it('trips on exact-input repeats at repeatThreshold', () => {
-    const d = createStuckLoopDetector(); // repeatThreshold 3
+    const d = createStuckLoopDetector({ repeatThreshold: 3 });
     const input = { x: 1 };
     expect(d.record('Read', input).stuck).toBe(false);
     expect(d.record('Read', input).stuck).toBe(false);
@@ -11,8 +11,21 @@ describe('createStuckLoopDetector', () => {
     expect(sig).toMatchObject({ stuck: true, count: 3, kind: 'exact' });
   });
 
+  it('uses a generous default exact threshold (does not trip on a few repeats)', () => {
+    const d = createStuckLoopDetector(); // default repeatThreshold = 8
+    const input = { x: 1 };
+    for (let i = 0; i < 7; i++) expect(d.record('Read', input).stuck).toBe(false);
+    expect(d.record('Read', input).stuck).toBe(true); // 8th identical call trips
+  });
+
+  it('never trips when disabled (relies on maxIterations alone)', () => {
+    const d = createStuckLoopDetector({ enabled: false, repeatThreshold: 2 });
+    const input = { x: 1 };
+    for (let i = 0; i < 20; i++) expect(d.record('Read', input).stuck).toBe(false);
+  });
+
   it('trips on same-target near-dups even when volatile args vary', () => {
-    const d = createStuckLoopDetector(); // nearThreshold 5
+    const d = createStuckLoopDetector({ repeatThreshold: 3 }); // nearThreshold → 5
     const url = 'https://example.com/big';
     // Same url, different maxBytes each time — exact check never fires.
     for (let i = 0; i < 4; i++) {
@@ -44,7 +57,7 @@ describe('createStuckLoopDetector', () => {
   // dispatch path; a throw there crashes the whole turn. These assert it stays
   // total on hostile/partial input — the worst case the provider can hand us.
   it('does not throw recording a tool input with a circular reference', () => {
-    const d = createStuckLoopDetector();
+    const d = createStuckLoopDetector({ repeatThreshold: 3 });
     const input: Record<string, unknown> = { a: 1 };
     input.self = input;
     expect(() => d.record('weird', input)).not.toThrow();

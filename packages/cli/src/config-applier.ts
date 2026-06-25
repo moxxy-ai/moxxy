@@ -105,6 +105,11 @@ export function buildSessionConfigApplier(
       applied.push('reasoning');
     }
 
+    if (!deepEqual(next.context?.loopGuard, last.context?.loopGuard)) {
+      session.loopGuard = next.context?.loopGuard;
+      applied.push('loopGuard');
+    }
+
     if (next.hookTimeoutMs !== last.hookTimeoutMs) {
       // The dispatcher reads its timeout at construction. v0: pending.
       pending.push('hookTimeoutMs (restart required)');

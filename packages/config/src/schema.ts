@@ -121,6 +121,22 @@ export const contextConfigSchema = z.object({
   reasoning: z
     .union([z.boolean(), z.object({ effort: z.enum(['low', 'medium', 'high']).optional() })])
     .optional(),
+  /**
+   * Stuck-loop guard tuning. The guard bails a turn early when the model keeps
+   * making the same tool call; `maxIterations` is the hard backstop. Raise the
+   * thresholds if legitimately-repeated work is being cut short, or set
+   * `enabled: false` to disable the guard and rely on `maxIterations` alone.
+   */
+  loopGuard: z
+    .object({
+      enabled: z.boolean().optional(),
+      windowSize: z.number().int().positive().optional(),
+      repeatThreshold: z.number().int().positive().optional(),
+      nearWindowSize: z.number().int().positive().optional(),
+      nearThreshold: z.number().int().positive().optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export const moxxyConfigSchema = z.object({

@@ -201,6 +201,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // carried when the user customizes or disables it.
   if (config.context?.elision) session.elisionSettings = config.context.elision;
   if (config.context?.lazyTools) session.lazyTools = true;
+  if (config.context?.loopGuard) session.loopGuard = config.context.loopGuard;
 
   // No separate preferences overlay anymore: the persisted provider/mode IS the
   // manifest default, already applied by activateProvider + applyPluginsTree

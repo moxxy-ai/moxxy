@@ -34,6 +34,27 @@ export interface StuckLoopDetector {
   record(toolName: string, input: unknown): StuckSignal;
 }
 
+/**
+ * User-tunable loop-guard settings (config `context.loopGuard`). All optional —
+ * omitted fields use the defaults below. Set `enabled: false` to turn the guard
+ * off entirely and rely solely on the mode's `maxIterations` cap.
+ */
+export interface LoopGuardSettings {
+  readonly enabled?: boolean;
+  readonly windowSize?: number;
+  readonly repeatThreshold?: number;
+  readonly nearWindowSize?: number;
+  readonly nearThreshold?: number;
+}
+
+/** Default exact-repeat window + trip count. Deliberately generous: the
+ *  `maxIterations` cap (500 in default mode) is the real runaway backstop, so
+ *  this only needs to catch a *tight* same-call loop, not legitimately repeated
+ *  work (re-reading a file, re-running `git status` across steps, a couple of
+ *  retries). Tunable via `context.loopGuard`. */
+export const DEFAULT_LOOP_WINDOW_SIZE = 12;
+export const DEFAULT_LOOP_REPEAT_THRESHOLD = 8;
+
 /** Identity arguments that pin "the same target" across volatile-arg variation,
  *  best-first. The first present string field wins. */
 const IDENTITY_ARG_KEYS = ['url', 'file_path', 'path', 'command', 'cmd', 'query', 'pattern'];
@@ -48,19 +69,13 @@ function identityArg(input: unknown): string | null {
   return null;
 }
 
-export function createStuckLoopDetector(
-  opts: {
-    windowSize?: number;
-    repeatThreshold?: number;
-    nearWindowSize?: number;
-    nearThreshold?: number;
-  } = {},
-): StuckLoopDetector {
-  const windowSize = opts.windowSize ?? 8;
-  const repeatThreshold = opts.repeatThreshold ?? 3;
+export function createStuckLoopDetector(opts: LoopGuardSettings = {}): StuckLoopDetector {
+  const enabled = opts.enabled ?? true;
+  const windowSize = opts.windowSize ?? DEFAULT_LOOP_WINDOW_SIZE;
+  const repeatThreshold = opts.repeatThreshold ?? DEFAULT_LOOP_REPEAT_THRESHOLD;
   // Near-dups need a higher count + a wider window (they're spread out across a
   // burst of other calls), and tolerate a couple of legit "bigger refetch" tries.
-  const nearWindowSize = opts.nearWindowSize ?? Math.max(windowSize * 2, 16);
+  const nearWindowSize = opts.nearWindowSize ?? Math.max(windowSize * 2, 24);
   const nearThreshold = opts.nearThreshold ?? Math.max(repeatThreshold + 2, 5);
   const recent: string[] = [];
   const recentNear: string[] = [];
@@ -68,6 +83,8 @@ export function createStuckLoopDetector(
     windowSize,
     repeatThreshold,
     record(toolName, input): StuckSignal {
+      // Disabled → never trip (rely on the maxIterations cap alone).
+      if (!enabled) return { stuck: false, count: 0, kind: 'exact' };
       const key = `${toolName}|${stableHash(input)}`;
       recent.push(key);
       if (recent.length > windowSize) recent.shift();
