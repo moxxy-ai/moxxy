@@ -36,7 +36,7 @@ import { terminalPlugin } from '@moxxy/plugin-terminal';
 import { subagentsPlugin } from '@moxxy/plugin-subagents';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
 import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
-import { buildProviderAdminPluginWithApi } from '@moxxy/plugin-provider-admin';
+import { providerAdminPlugin } from '@moxxy/plugin-provider-admin';
 import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import { buildViewPlugin } from '@moxxy/plugin-view';
@@ -316,23 +316,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // ~/.moxxy/providers.json; the plugin's onInit re-registers them on
     // every boot. Pairs with the `add-provider` skill which walks the
     // model through gathering baseURL + models + key.
-    (() => {
-      const { plugin, api } = buildProviderAdminPluginWithApi({
-        providerRegistry: session.providers,
-        // Rebuild the ACTIVE provider's instance after a configure()/provider_add
-        // replace() drops its cached instance — otherwise getActive() throws on
-        // the next turn. Resolve credentials via the same boot-installed resolver
-        // the runner's setActive path uses (installed by activateProvider; read
-        // lazily here since it's set after plugins are built).
-        resolveActiveConfig: (name) =>
-          session.credentialResolver ? session.credentialResolver(name) : {},
-      });
-      // Stash the api on the session so the desktop (via the runner's
-      // `provider.configure`) can edit a stored provider without going
-      // through the model. Mirrors the mcpAdmin stash below.
-      session.providerAdmin = api;
-      return { name: '@moxxy/plugin-provider-admin', plugin };
-    })(),
+    // Discovery-loadable: resolves the providers registry + the credential
+    // accessor from the service registry in onInit, and publishes its admin api
+    // as the 'providerAdmin' service — which core's Session.providerAdmin getter
+    // exposes to the runner's `provider.configure` + the desktop. No host stash.
+    { name: '@moxxy/plugin-provider-admin', plugin: providerAdminPlugin },
     // Admin tools (mcp_add_server, mcp_list_servers, mcp_remove_server,
     // mcp_test_server) plus the boot-time lazy attach. Passing the
     // session's live tool registry enables both hot-attach for runtime

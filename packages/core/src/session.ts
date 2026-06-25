@@ -175,7 +175,6 @@ export class Session implements ClientSession, SessionRuntime {
   readyProviders?: Set<string>;
   credentialResolver?: CredentialResolver;
   mcpAdmin?: McpAdminView;
-  providerAdmin?: ProviderAdminView;
   workflows?: WorkflowsView;
   pluginsAdmin?: PluginsAdminView;
   readonly dispatcher: HookDispatcherImpl;
@@ -231,6 +230,16 @@ export class Session implements ClientSession, SessionRuntime {
     this.services.register('providers', this.providers);
     this.services.register('viewRenderers', this.viewRenderers);
     this.services.register('synthesizers', this.synthesizers);
+    // A stable accessor for the active provider's stored credentials. The
+    // resolver itself is installed late (by activateProvider, after plugins are
+    // built), so close over `this` and read it lazily at call time — lets
+    // provider-admin rebuild a reconfigured provider's instance without a
+    // host-injected `resolveActiveConfig` closure.
+    this.services.register(
+      'resolveCredentials',
+      (name: string): Promise<Record<string, unknown>> | Record<string, unknown> =>
+        this.credentialResolver ? this.credentialResolver(name) : {},
+    );
     this.eventStores = new EventStoreRegistry();
     // Seed the built-in JSONL store as the protected floor — the storage backend
     // behind the event log always exists and can be swapped but never removed.
@@ -391,6 +400,16 @@ export class Session implements ClientSession, SessionRuntime {
    * snapshot out from under another.
    */
   private envSnapshot: Readonly<NodeJS.ProcessEnv> | null = null;
+
+  /**
+   * The provider-admin capability (configure/refresh stored providers), read by
+   * the runner's provider handlers + the desktop. The @moxxy/plugin-provider-admin
+   * plugin publishes it on the service registry in its onInit, so discovery-loading
+   * it needs no host stash. (RemoteSession sets its own field for thin clients.)
+   */
+  get providerAdmin(): ProviderAdminView | undefined {
+    return this.services.get<ProviderAdminView>('providerAdmin');
+  }
 
   appContext(): AppContext {
     if (!this.envSnapshot) {

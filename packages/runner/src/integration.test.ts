@@ -1184,11 +1184,13 @@ describe('provider management (protocol v7)', () => {
     const provider = new FakeProvider({ script: [textReply('hi')] });
     const session = buildSession(provider);
     const configured: Array<{ name: string; patch: unknown }> = [];
-    session.providerAdmin = {
-      configure: async (name, patch) => {
+    // Session.providerAdmin is a getter over the 'providerAdmin' service the
+    // provider-admin plugin publishes in onInit — emulate that here.
+    session.services.register('providerAdmin', {
+      configure: async (name: string, patch: unknown) => {
         configured.push({ name, patch });
       },
-    };
+    });
     const server = await startRunnerServer(session, { socketPath });
     servers.push(server);
     const remote = await attach(socketPath);

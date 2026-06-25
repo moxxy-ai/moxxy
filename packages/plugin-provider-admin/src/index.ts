@@ -603,3 +603,55 @@ export function buildProviderAdminPlugin(
     },
   });
 }
+
+/**
+ * Discovery-loadable default export. Resolves the provider registry (`'providers'`)
+ * and the credential accessor (`'resolveCredentials'`) from the inter-plugin
+ * service registry in `onInit`, then publishes its admin api as the
+ * `'providerAdmin'` service (which core's `Session.providerAdmin` getter exposes
+ * to the runner + desktop) — replacing the host stash + `{ providerRegistry,
+ * resolveActiveConfig }` closure. A lazy `Proxy` defers every registry call to
+ * the resolved instance, so the tools + the stored-provider re-registration run
+ * unchanged once `onInit` has wired it.
+ */
+type CredResolver = (name: string) => Promise<Record<string, unknown>> | Record<string, unknown>;
+
+export const providerAdminPlugin: Plugin = (() => {
+  let resolvedRegistry: ProviderRegistryLike | null = null;
+  let resolveCreds: CredResolver | null = null;
+
+  const lazyRegistry = new Proxy({} as ProviderRegistryLike, {
+    get(_target, prop) {
+      if (!resolvedRegistry) {
+        throw new Error(
+          '@moxxy/plugin-provider-admin: the "providers" service is unavailable — the host must publish it',
+        );
+      }
+      const value = (resolvedRegistry as unknown as Record<string | symbol, unknown>)[prop];
+      return typeof value === 'function'
+        ? (value as (...args: unknown[]) => unknown).bind(resolvedRegistry)
+        : value;
+    },
+  });
+
+  const { plugin, api } = buildProviderAdminPluginWithApi({
+    providerRegistry: lazyRegistry,
+    resolveActiveConfig: (name) => (resolveCreds ? resolveCreds(name) : {}),
+  });
+  const innerOnInit = plugin.hooks?.onInit;
+
+  return definePlugin({
+    ...plugin,
+    hooks: {
+      ...plugin.hooks,
+      onInit: async (ctx) => {
+        resolvedRegistry = ctx.services.get<ProviderRegistryLike>('providers') ?? null;
+        resolveCreds = ctx.services.get<CredResolver>('resolveCredentials') ?? null;
+        ctx.services.register('providerAdmin', api);
+        // Now that the registry is resolved, run the stored-provider
+        // re-registration (it drives the lazy registry).
+        await innerOnInit?.(ctx);
+      },
+    },
+  });
+})();
