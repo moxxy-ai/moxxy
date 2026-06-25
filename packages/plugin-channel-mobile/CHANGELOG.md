@@ -1,5 +1,25 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [2ccd62e]
+- Updated dependencies [9bff8a1]
+- Updated dependencies [497e9a1]
+- Updated dependencies [bddaa83]
+- Updated dependencies [e3491a9]
+- Updated dependencies [5c1c334]
+- Updated dependencies [238e434]
+- Updated dependencies [2ccd62e]
+  - @moxxy/sdk@0.20.0
+  - @moxxy/core@0.7.0
+  - @moxxy/desktop-ipc-contract@0.12.1
+  - @moxxy/e2e@0.1.5
+  - @moxxy/ipc-server-ws@0.1.35
+  - @moxxy/plugin-tunnel-proxy@0.1.5
+  - @moxxy/workspace-registry@0.2.5
+
 ## 0.2.6
 
 ### Patch Changes
