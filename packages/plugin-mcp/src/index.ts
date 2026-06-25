@@ -20,6 +20,7 @@ export { defaultClientFactory } from './client.js';
 export {
   buildMcpAdminPlugin,
   buildMcpAdminPluginWithApi,
+  mcpAdminPlugin,
   mcpConfigPath,
   readMcpConfig,
   removeServerFromConfig,

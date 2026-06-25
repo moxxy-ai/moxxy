@@ -26,7 +26,7 @@ import {
   type MemoryStore,
 } from '@moxxy/plugin-memory';
 import { telegramPlugin } from '@moxxy/plugin-telegram';
-import { buildMcpAdminPluginWithApi } from '@moxxy/plugin-mcp';
+import { mcpAdminPlugin } from '@moxxy/plugin-mcp';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
@@ -43,7 +43,6 @@ import { buildViewPlugin } from '@moxxy/plugin-view';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
 import { oauthPlugin } from '@moxxy/plugin-oauth';
 import { voiceAdminPlugin } from '@moxxy/plugin-voice-admin';
-import { resolveString } from '@moxxy/plugin-vault';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
 
@@ -86,7 +85,7 @@ export interface BuiltinEntriesArgs {
  * builtin set; do not reorder.
  */
 export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
-  const { session, rawConfig, vault, vaultPlugin, memoryPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
+  const { session, rawConfig, vaultPlugin, memoryPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
 
   return [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
@@ -322,26 +321,12 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // exposes to the runner's `provider.configure` + the desktop. No host stash.
     { name: '@moxxy/plugin-provider-admin', plugin: providerAdminPlugin },
     // Admin tools (mcp_add_server, mcp_list_servers, mcp_remove_server,
-    // mcp_test_server) plus the boot-time lazy attach. Passing the
-    // session's live tool registry enables both hot-attach for runtime
-    // adds AND lazy stub registration in onInit for saved servers.
-    (() => {
-      const { plugin, api } = buildMcpAdminPluginWithApi({
-        toolRegistry: session.tools,
-        skillRegistry: session.skills,
-        userSkillsDir: rawConfig.skills?.userDir,
-        // Resolve `${vault:NAME}` placeholders in MCP env/header values at
-        // connect time. The persisted catalog (and tool args the model sees)
-        // keep the placeholder; the plaintext never leaves the connect path.
-        secretResolver: (value) => resolveString(value, vault),
-      });
-      // Stash the api on the session so the TUI / CLI can call
-      // enableAndAttach + detach without going through the model. `mcpAdmin` is
-      // a typed optional capability on Session (McpAdminView); McpAdminApi
-      // structurally satisfies it.
-      session.mcpAdmin = api;
-      return { name: '@moxxy/plugin-mcp-admin', plugin };
-    })(),
+    // mcp_test_server) plus the boot-time lazy attach. Discovery-loadable:
+    // resolves the tools + skills registries + the 'resolveSecrets' resolver
+    // from the service registry in onInit, and publishes its runtime control
+    // api as the 'mcpAdmin' service (exposed via Session.mcpAdmin getter to the
+    // runner + desktop). No host stash. userSkillsDir defaults to ~/.moxxy/skills.
+    { name: '@moxxy/plugin-mcp-admin', plugin: mcpAdminPlugin },
     {
       name: '@moxxy/synthesize-skill',
       // Thread the SAME directory set the boot scan uses so reload_skills

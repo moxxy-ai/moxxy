@@ -6,6 +6,7 @@
 export {
   buildMcpAdminPlugin,
   buildMcpAdminPluginWithApi,
+  mcpAdminPlugin,
   mcpConfigPath,
   readMcpConfig,
   removeServerFromConfig,

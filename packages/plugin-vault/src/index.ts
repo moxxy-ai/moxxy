@@ -10,6 +10,7 @@ import {
 } from '@moxxy/sdk';
 import { moxxyPath } from '@moxxy/sdk/server';
 import { createCombinedKeySource, type MasterKeySource } from './keysource.js';
+import { resolveString } from './placeholder.js';
 import { VaultStore } from './store.js';
 
 export { VaultStore, VaultPassphraseError } from './store.js';
@@ -139,6 +140,13 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
     hooks: {
       onInit: (ctx) => {
         ctx.services.register('vault', vault);
+        // Also publish a `${vault:NAME}`-placeholder resolver so consumers (mcp's
+        // server env/headers) can resolve secrets without depending on the vault
+        // package's `resolveString` helper directly.
+        ctx.services.register(
+          'resolveSecrets',
+          (value: string): Promise<string> => resolveString(value, vault),
+        );
       },
     },
     commands: [vaultCmd],

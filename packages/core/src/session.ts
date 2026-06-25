@@ -174,7 +174,6 @@ export class Session implements ClientSession, SessionRuntime {
    */
   readyProviders?: Set<string>;
   credentialResolver?: CredentialResolver;
-  mcpAdmin?: McpAdminView;
   workflows?: WorkflowsView;
   pluginsAdmin?: PluginsAdminView;
   readonly dispatcher: HookDispatcherImpl;
@@ -230,6 +229,7 @@ export class Session implements ClientSession, SessionRuntime {
     this.services.register('providers', this.providers);
     this.services.register('viewRenderers', this.viewRenderers);
     this.services.register('synthesizers', this.synthesizers);
+    this.services.register('skills', this.skills);
     // A stable accessor for the active provider's stored credentials. The
     // resolver itself is installed late (by activateProvider, after plugins are
     // built), so close over `this` and read it lazily at call time — lets
@@ -409,6 +409,15 @@ export class Session implements ClientSession, SessionRuntime {
    */
   get providerAdmin(): ProviderAdminView | undefined {
     return this.services.get<ProviderAdminView>('providerAdmin');
+  }
+
+  /**
+   * The MCP-admin capability (enable/detach/list MCP servers), read by the
+   * runner's mcp handlers + the desktop. @moxxy/plugin-mcp publishes it on the
+   * service registry in its onInit. (RemoteSession sets its own field.)
+   */
+  get mcpAdmin(): McpAdminView | undefined {
+    return this.services.get<McpAdminView>('mcpAdmin');
   }
 
   appContext(): AppContext {
