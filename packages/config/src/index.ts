@@ -35,6 +35,7 @@ export {
 // Comment-preserving writers for ~/.moxxy/config.yaml — the single store that
 // replaced ~/.moxxy/preferences.json (runtime provider/mode/model/disabled).
 export {
+  applyInitConfig,
   clearPluginState,
   defaultUserConfigPath,
   isPluginDisabled,
@@ -46,5 +47,6 @@ export {
   setPluginEnabled,
   setProviderEnabled,
   setProviderModel,
+  type InitConfigSelections,
   type UserConfigOptions,
 } from './user-config.js';

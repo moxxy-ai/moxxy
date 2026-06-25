@@ -135,6 +135,65 @@ export async function setProviderEnabled(
   });
 }
 
+// --- first-run wizard (moxxy init) ----------------------------------------
+
+/** The subset of `moxxy init` selections that map onto the unified config tree. */
+export interface InitConfigSelections {
+  /** Active provider contribution name (`plugins.provider.default`). */
+  readonly provider: string;
+  /** Default model for the provider (`plugins.provider.items.<name>.model`). */
+  readonly model?: string | null;
+  /** Ordered fallback provider names (`plugins.provider.fallbacks`); the primary is dropped. */
+  readonly fallbacks?: ReadonlyArray<string>;
+  /** Loop strategy (`plugins.mode.default`). */
+  readonly mode: string;
+  /** Memory embedder (`plugins.embedder.default`); the `tfidf` floor is left unwritten. */
+  readonly embedder: string;
+  /** Opt-in plugin-security toggle (top-level `security.enabled`). */
+  readonly security?: { readonly enabled: boolean };
+}
+
+/**
+ * Persist the interactive `moxxy init` wizard's selections into
+ * `~/.moxxy/config.yaml` — the same store `moxxy provision` and the runtime
+ * quick-switches write, so init no longer drops a legacy-shaped file in the
+ * project cwd that the clean-slate schema silently ignores.
+ *
+ * One atomic read-modify-write over the parsed Document, so the package ledger
+ * the wizard already wrote (enabling the provider + extra packages via
+ * {@link setPluginEnabled}) and any user comments survive the merge. Like
+ * `provision`, the provider's API key lives in the vault under its canonical
+ * name and the credential resolver finds it there — so no `${vault:...}` ref is
+ * written here.
+ */
+export async function applyInitConfig(
+  sel: InitConfigSelections,
+  opts: UserConfigOptions = {},
+): Promise<string> {
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  await configMutex.run(async () => {
+    const doc = await readUserConfigDoc(configPath);
+    doc.setIn(['plugins', 'provider', 'default'], sel.provider);
+    if (sel.model) {
+      doc.setIn(['plugins', 'provider', 'items', sel.provider, 'model'], sel.model);
+    }
+    const fallbacks = (sel.fallbacks ?? []).filter((f) => f !== sel.provider);
+    if (fallbacks.length > 0) {
+      doc.setIn(['plugins', 'provider', 'fallbacks'], doc.createNode(fallbacks));
+    }
+    doc.setIn(['plugins', 'mode', 'default'], sel.mode);
+    // tfidf is the built-in floor — only persist a non-default embedder.
+    if (sel.embedder && sel.embedder !== 'tfidf') {
+      doc.setIn(['plugins', 'embedder', 'default'], sel.embedder);
+    }
+    if (sel.security?.enabled) {
+      doc.setIn(['security', 'enabled'], true);
+    }
+    await writeUserConfigDoc(configPath, doc);
+  });
+  return configPath;
+}
+
 /**
  * The persisted active model — the default provider's `model` item option
  * (`plugins.provider.items.<default>.model`). The user-level equivalent of the

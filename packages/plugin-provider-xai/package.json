@@ -2,6 +2,28 @@
   "name": "@moxxy/plugin-provider-xai",
   "version": "0.21.0",
   "description": "xAI (Grok) LLMProvider plugin for moxxy. Streams the OpenAI-compatible xAI API (https://api.x.ai/v1).",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "xai",
+    "grok",
+    "llm"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-xai"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
