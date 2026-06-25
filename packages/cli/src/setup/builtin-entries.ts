@@ -22,7 +22,7 @@ import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
 import {
-  buildMemoryConsolidatePlugin,
+  memoryConsolidatePlugin,
   type MemoryStore,
 } from '@moxxy/plugin-memory';
 import { telegramPlugin } from '@moxxy/plugin-telegram';
@@ -86,7 +86,7 @@ export interface BuiltinEntriesArgs {
  * builtin set; do not reorder.
  */
 export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
-  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
+  const { session, rawConfig, vault, vaultPlugin, memoryPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
 
   return [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
@@ -121,8 +121,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     },
     { name: '@moxxy/plugin-memory', plugin: memoryPlugin },
     {
+      // Discovery-loadable: resolves the memory store ('memory', published by
+      // @moxxy/plugin-memory above) + the active provider ('providers') from the
+      // service registry in onInit.
       name: '@moxxy/memory-consolidate',
-      plugin: buildMemoryConsolidatePlugin(memory, () => session.providers.getActive()),
+      plugin: memoryConsolidatePlugin,
     },
     { name: '@moxxy/plugin-cli', plugin: cliPlugin },
     // Cross-session token usage. onShutdown folds this run's provider_response

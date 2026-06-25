@@ -1,4 +1,11 @@
-import { z, defineTool, definePlugin, type LLMProvider, type Plugin } from '@moxxy/sdk';
+import {
+  z,
+  defineTool,
+  definePlugin,
+  type LifecycleHooks,
+  type LLMProvider,
+  type Plugin,
+} from '@moxxy/sdk';
 import type { MemoryStore} from './store.js';
 import { memoryTypeSchema, type MemoryEntry, type MemoryType } from './store.js';
 
@@ -390,27 +397,76 @@ export interface BuildMemoryConsolidateOptions {
   readonly autoNudgeThreshold?: number;
 }
 
+/** Minimal view of the provider registry — just what consolidation needs (the
+ *  active provider at call time). The host publishes the full registry under
+ *  `'providers'`; this avoids importing `@moxxy/core`'s concrete type. */
+interface ActiveProviderSource {
+  getActive(): LLMProvider | null;
+}
+
 export function buildMemoryConsolidatePlugin(
   store: MemoryStore,
   getProvider: () => LLMProvider,
   opts: BuildMemoryConsolidateOptions = {},
 ): Plugin {
+  // Host-injected store + provider accessor (available immediately).
+  return makeMemoryConsolidatePlugin(() => store, getProvider, opts);
+}
+
+/**
+ * Discovery-loadable default export: resolves the long-term store (`'memory'`,
+ * published by @moxxy/plugin-memory) and the active provider (via the `'providers'`
+ * registry) from the inter-plugin service registry in `onInit`, so it no longer
+ * needs the `(store, getProvider)` closure. @moxxy/plugin-memory is registered
+ * first, so its onInit publishes the store before this one resolves it.
+ */
+export const memoryConsolidatePlugin: Plugin = (() => {
+  let store: MemoryStore | null = null;
+  let providers: ActiveProviderSource | null = null;
+  const onInit: LifecycleHooks['onInit'] = (ctx) => {
+    store = ctx.services.get<MemoryStore>('memory') ?? null;
+    providers = ctx.services.get<ActiveProviderSource>('providers') ?? null;
+  };
+  return makeMemoryConsolidatePlugin(
+    () => {
+      if (!store) {
+        throw new Error(
+          '@moxxy/memory-consolidate: the "memory" service is unavailable — @moxxy/plugin-memory must load first',
+        );
+      }
+      return store;
+    },
+    () => {
+      const p = providers?.getActive();
+      if (!p) {
+        throw new Error('@moxxy/memory-consolidate: no active provider to consolidate with');
+      }
+      return p;
+    },
+    {},
+    onInit,
+  );
+})();
+
+function makeMemoryConsolidatePlugin(
+  getStore: () => MemoryStore,
+  getProvider: () => LLMProvider,
+  opts: BuildMemoryConsolidateOptions = {},
+  extraOnInit?: LifecycleHooks['onInit'],
+): Plugin {
   const threshold = opts.autoNudgeThreshold ?? 30;
   let nudged = false;
 
-  return definePlugin({
-    name: '@moxxy/memory-consolidate',
-    version: '0.0.0',
-    hooks:
-      threshold > 0
-        ? {
-            onBeforeProviderCall: async (req) => {
+  const nudgeHook: LifecycleHooks =
+    threshold > 0
+      ? {
+          onBeforeProviderCall: async (req) => {
               if (nudged) return; // one nudge per session
               // Count only — capStatus() serves the in-memory index-row cache,
               // so a below-threshold store doesn't re-scan + re-parse every
               // memory file on every single provider call for the whole session
               // (store.list() did a full disk read+parse each time).
-              const count = (await store.capStatus()).count;
+              const count = (await getStore().capStatus()).count;
               if (count <= threshold) return;
               nudged = true;
               const hint =
@@ -419,7 +475,15 @@ export function buildMemoryConsolidatePlugin(
               return { ...req, system: (req.system ?? '') + hint };
             },
           }
-        : {},
+        : {};
+
+  const hooks: LifecycleHooks = extraOnInit
+    ? { ...nudgeHook, onInit: extraOnInit }
+    : nudgeHook;
+  return definePlugin({
+    name: '@moxxy/memory-consolidate',
+    version: '0.0.0',
+    hooks,
     tools: [
       defineTool({
         name: 'memory_consolidate',
@@ -433,7 +497,7 @@ export function buildMemoryConsolidatePlugin(
         }),
         permission: { action: 'prompt' },
         handler: async ({ tag, dryRun }) => {
-          const outcome = await consolidateMemory(store, getProvider(), {
+          const outcome = await consolidateMemory(getStore(), getProvider(), {
             ...(tag ? { tag } : {}),
             ...(dryRun !== undefined ? { dryRun } : {}),
           });
@@ -445,7 +509,7 @@ export function buildMemoryConsolidatePlugin(
         description: 'Return the consolidation plan (clusters that would be merged) without invoking the model.',
         inputSchema: z.object({ tag: z.string().optional() }),
         handler: async ({ tag }) => {
-          const all = await store.list();
+          const all = await getStore().list();
           return planConsolidation(all, { ...(tag ? { tag } : {}) });
         },
       }),
