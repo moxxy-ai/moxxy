@@ -1,4 +1,4 @@
-import { definePlugin, type Plugin } from '@moxxy/sdk';
+import { definePlugin, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import {
   buildOauthAuthorizeTool,
@@ -101,7 +101,45 @@ export interface BuildOauthPluginOpts {
  * (OpenAI's non-standard flavor). New dialects ship their own adapter.
  */
 export function buildOauthPlugin(opts: BuildOauthPluginOpts): Plugin {
-  const deps: OAuthToolDeps = { vault: opts.vault };
+  // Host-injected vault (available immediately).
+  return makeOauthPlugin(() => opts.vault);
+}
+
+/**
+ * Discovery-loadable default export: resolves the vault from the inter-plugin
+ * service registry in `onInit` (the vault plugin publishes `'vault'`). Requires
+ * `@moxxy/plugin-vault` to load first (declared in `package.json`
+ * `moxxy.requirements`), so its `onInit` registers the service before this one
+ * consumes it. The tools read `deps.vault` lazily via a getter, so they resolve
+ * the store at call time — after `onInit` has wired it.
+ */
+export const oauthPlugin: Plugin = (() => {
+  let resolved: VaultStore | null = null;
+  const getVault = (): VaultStore => {
+    if (!resolved) {
+      throw new Error(
+        '@moxxy/plugin-oauth: the "vault" service is unavailable — @moxxy/plugin-vault must load first',
+      );
+    }
+    return resolved;
+  };
+  const hooks: LifecycleHooks = {
+    onInit: (ctx) => {
+      resolved = ctx.services.require<VaultStore>('vault');
+    },
+  };
+  return makeOauthPlugin(getVault, hooks);
+})();
+
+function makeOauthPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): Plugin {
+  // The getter satisfies `OAuthToolDeps.vault` while deferring resolution to call
+  // time, so the same tools work whether the vault is host-injected or resolved
+  // from the service registry in onInit.
+  const deps: OAuthToolDeps = {
+    get vault(): VaultStore {
+      return getVault();
+    },
+  };
   return definePlugin({
     name: '@moxxy/plugin-oauth',
     version: '0.0.0',
@@ -110,5 +148,6 @@ export function buildOauthPlugin(opts: BuildOauthPluginOpts): Plugin {
       buildOauthGetTokenTool(deps),
       buildOauthClearTool(deps),
     ],
+    ...(hooks ? { hooks } : {}),
   });
 }

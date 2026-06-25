@@ -110,6 +110,7 @@ export async function* runTurn(
       turnId,
       cwd: appCtx.cwd,
       env: appCtx.env,
+      services: appCtx.services,
       model,
       systemPrompt: opts.systemPrompt,
       provider,

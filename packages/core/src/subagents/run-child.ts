@@ -447,6 +447,7 @@ function buildChildContext(
     turnId: childTurnId,
     cwd: parentAppCtx.cwd,
     env: parentAppCtx.env,
+    services: parentAppCtx.services,
     model,
     ...(spec.systemPrompt !== undefined ? { systemPrompt: spec.systemPrompt } : {}),
     provider: parentSession.providers.getActive(),

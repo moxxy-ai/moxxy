@@ -3,12 +3,18 @@ import type { EventLogReader } from './log.js';
 import type { PendingToolCall } from './permission.js';
 import type { ProviderRequest } from './provider.js';
 import type { SessionId, TurnId } from './ids.js';
+import type { ServiceRegistry } from './services.js';
 
 export interface AppContext {
   readonly sessionId: SessionId;
   readonly cwd: string;
   readonly log: EventLogReader;
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * Inter-plugin service registry — publish a service in `onInit` for sibling
+   * plugins to consume in theirs. See {@link ServiceRegistry}.
+   */
+  readonly services: ServiceRegistry;
 }
 
 export interface TurnContext extends AppContext {

@@ -41,7 +41,7 @@ import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import { buildViewPlugin } from '@moxxy/plugin-view';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
-import { buildOauthPlugin } from '@moxxy/plugin-oauth';
+import { oauthPlugin } from '@moxxy/plugin-oauth';
 import { buildVoiceAdminPlugin } from '@moxxy/plugin-voice-admin';
 import { resolveString } from '@moxxy/plugin-vault';
 import type { VaultStore } from '@moxxy/plugin-vault';
@@ -169,7 +169,9 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // Generic OAuth 2.0 + PKCE client. Adds oauth_authorize /
     // oauth_get_token / oauth_clear_token tools that any skill can
     // chain (Google OAuth → MCP env, GitHub OAuth → API calls, …).
-    { name: '@moxxy/plugin-oauth', plugin: buildOauthPlugin({ vault }) },
+    // Discovery-loadable: resolves the vault from the service registry in
+    // onInit (vault registers it first), no `{ vault }` injection needed.
+    { name: '@moxxy/plugin-oauth', plugin: oauthPlugin },
     // Universal slash commands (/info, /clear, /new, /exit, /help)
     // shared across every channel via session.commands. Disable to
     // hide them everywhere — channel-local commands keep working.

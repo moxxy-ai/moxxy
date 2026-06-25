@@ -352,6 +352,8 @@ export type {
   HookDispatcher,
 } from './hooks.js';
 
+export type { ServiceRegistry } from './services.js';
+
 export type {
   PluginKind,
   PluginSpec,

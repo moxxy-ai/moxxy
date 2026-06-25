@@ -29,7 +29,14 @@
       "entry": "./dist/index.js",
       "kind": "tools",
       "skills": "./skills"
-    }
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-vault",
+        "hint": "oauth resolves the vault from the service registry to store tokens; @moxxy/plugin-vault must load first"
+      }
+    ]
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
