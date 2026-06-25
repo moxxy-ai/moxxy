@@ -1,5 +1,6 @@
-import { definePlugin, type Plugin } from '@moxxy/sdk';
+import { definePlugin, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 import { moxxyPath } from '@moxxy/sdk/server';
+import type { McpSecretResolver } from './secrets.js';
 import { readMcpConfig } from './config-io.js';
 import { createMcpRuntime } from './runtime.js';
 import { createMcpUsageSkillWriter } from './skill.js';
@@ -8,6 +9,8 @@ import { buildListServersTool } from './tools/list.js';
 import { buildRemoveServerTool } from './tools/remove.js';
 import { buildTestServerTool } from './tools/test.js';
 import type {
+  AdminSkillRegistryLike,
+  AdminToolRegistryLike,
   BuildMcpAdminPluginOptions,
   McpAdminApi,
   McpStoredConfig,
@@ -42,6 +45,62 @@ export function buildMcpAdminPluginWithApi(
 export function buildMcpAdminPlugin(opts: BuildMcpAdminPluginOptions = { toolRegistry: null }): Plugin {
   return buildMcpAdminPluginInternal(opts).plugin;
 }
+
+function lazyRegistryProxy<T extends object>(get: () => T | null, label: string): T {
+  return new Proxy({} as T, {
+    get(_target, prop) {
+      const resolved = get();
+      if (!resolved) {
+        throw new Error(`@moxxy/plugin-mcp: the "${label}" service is unavailable — the host must publish it`);
+      }
+      const value = (resolved as unknown as Record<string | symbol, unknown>)[prop];
+      return typeof value === 'function'
+        ? (value as (...args: unknown[]) => unknown).bind(resolved)
+        : value;
+    },
+  });
+}
+
+/**
+ * Discovery-loadable default export. Resolves the tool + skill registries and
+ * the secret resolver from the inter-plugin service registry in `onInit` (the
+ * host publishes `'tools'`/`'skills'`; the vault plugin publishes `'resolveSecrets'`),
+ * then publishes its runtime control api as the `'mcpAdmin'` service — which
+ * core's `Session.mcpAdmin` getter exposes to the runner + desktop. Lazy
+ * `Proxy`s defer every registry call to the resolved instance, so the tools +
+ * the boot-time lazy-stub registration run unchanged once `onInit` has wired it.
+ */
+export const mcpAdminPlugin: Plugin = (() => {
+  let resolvedTools: AdminToolRegistryLike | null = null;
+  let resolvedSkills: AdminSkillRegistryLike | null = null;
+  let resolvedSecrets: McpSecretResolver | null = null;
+
+  const lazyTools = lazyRegistryProxy<AdminToolRegistryLike>(() => resolvedTools, 'tools');
+  const lazySkills = lazyRegistryProxy<AdminSkillRegistryLike>(() => resolvedSkills, 'skills');
+  const secretResolver: McpSecretResolver = (value) =>
+    resolvedSecrets ? resolvedSecrets(value) : Promise.resolve(value);
+
+  const { plugin, api } = buildMcpAdminPluginWithApi({
+    toolRegistry: lazyTools,
+    skillRegistry: lazySkills,
+    secretResolver,
+  });
+  const innerOnInit = plugin.hooks?.onInit;
+
+  const hooks: LifecycleHooks = {
+    ...plugin.hooks,
+    onInit: async (ctx) => {
+      resolvedTools = ctx.services.get<AdminToolRegistryLike>('tools') ?? null;
+      resolvedSkills = ctx.services.get<AdminSkillRegistryLike>('skills') ?? null;
+      resolvedSecrets = ctx.services.get<McpSecretResolver>('resolveSecrets') ?? null;
+      ctx.services.register('mcpAdmin', api);
+      // Now the registry is resolved → register lazy stubs for saved servers.
+      await innerOnInit?.(ctx);
+    },
+  };
+
+  return definePlugin({ ...plugin, hooks });
+})();
 
 /**
  * Build the MCP admin plugin: tools that let the agent register and
