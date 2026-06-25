@@ -3,6 +3,7 @@ import { Box } from 'ink';
 import { useApp } from 'ink';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
+import { isSelectableMode } from '@moxxy/sdk';
 import { setCategoryDefault } from '@moxxy/config';
 import { ChatView } from '../components/ChatView.js';
 import { StatusLine } from '../components/StatusLine.js';
@@ -177,7 +178,10 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // survives across sessions. setSystemNotice forces the re-render that
   // refreshes the footer's mode label.
   const cycleMode = React.useCallback(() => {
-    const modes = session.modes.list();
+    // Only cycle user-selectable modes — special modes (e.g. collaborative,
+    // entered via /collab) are hidden from the Shift+Tab cycle the same way they
+    // are from the /mode picker. See ModeDef.special / isSelectableMode.
+    const modes = session.modes.list().filter(isSelectableMode);
     if (modes.length === 0) return;
     let current: string;
     try {

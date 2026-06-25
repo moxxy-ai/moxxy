@@ -109,7 +109,10 @@ describe('handleCallback — model/mode persistence failure (u110-5)', () => {
         replace: vi.fn(),
         setActive: vi.fn(),
       },
-      modes: { setActive: vi.fn() },
+      modes: {
+        setActive: vi.fn(),
+        list: () => [{ name: 'default' }, { name: 'goal' }],
+      },
       credentialResolver: undefined,
     }) as unknown as CallbackState['session'];
 

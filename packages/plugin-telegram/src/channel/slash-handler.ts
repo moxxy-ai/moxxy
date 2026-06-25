@@ -1,4 +1,5 @@
 import { type Bot, type Context, InlineKeyboard } from 'grammy';
+import { isSelectableMode } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 
 export interface SlashState {
@@ -169,7 +170,9 @@ async function renderModelPicker(
 }
 
 async function renderModePicker(ctx: Context, session: Session): Promise<void> {
-  const modes = session.modes.list();
+  // Special modes (e.g. collaborative, entered via /collab) are hidden from the
+  // picker the same way they are in the TUI. See ModeDef.special.
+  const modes = session.modes.list().filter(isSelectableMode);
   if (modes.length === 0) {
     await ctx.reply('no modes registered');
     return;
