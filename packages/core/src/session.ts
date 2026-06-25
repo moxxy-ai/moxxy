@@ -1,6 +1,7 @@
 import type {
   AppContext,
   ClientSession,
+  EmittedEvent,
   MoxxyEvent,
   RunTurnOptions,
   SessionId,
@@ -230,6 +231,7 @@ export class Session implements ClientSession, SessionRuntime {
     this.services.register('viewRenderers', this.viewRenderers);
     this.services.register('synthesizers', this.synthesizers);
     this.services.register('skills', this.skills);
+    this.services.register('tunnelProviders', this.tunnelProviders);
     // A stable accessor for the active provider's stored credentials. The
     // resolver itself is installed late (by activateProvider, after plugins are
     // built), so close over `this` and read it lazily at call time — lets
@@ -239,6 +241,21 @@ export class Session implements ClientSession, SessionRuntime {
       'resolveCredentials',
       (name: string): Promise<Record<string, unknown>> | Record<string, unknown> =>
         this.credentialResolver ? this.credentialResolver(name) : {},
+    );
+    // A live registry-name snapshot (per kind) + a writable event-append fn, for
+    // plugins (self-update) that need them in onInit without a host closure.
+    // appendEvent is the writable counterpart to the read-only `ctx.log`.
+    this.services.register('registrySnapshot', () => ({
+      tools: this.tools.list().map((t) => t.name),
+      agents: this.agents.list().map((a) => a.name),
+      providers: this.providers.list().map((p) => p.name),
+      modes: this.modes.list().map((m) => m.name),
+      compactors: this.compactors.list().map((c) => c.name),
+      channels: this.channels.list().map((c) => c.name),
+    }));
+    this.services.register(
+      'appendEvent',
+      (event: EmittedEvent): Promise<void> => this.log.append(event).then(() => undefined),
     );
     this.eventStores = new EventStoreRegistry();
     // Seed the built-in JSONL store as the protected floor — the storage backend
@@ -297,6 +314,9 @@ export class Session implements ClientSession, SessionRuntime {
       ...(opts.pluginDiscoveryPaths ? { userPaths: opts.pluginDiscoveryPaths } : {}),
       ...(opts.isPluginDisabled ? { isDisabled: opts.isPluginDisabled } : {}),
     });
+    // Published after construction (the host is built late) so a discovery-loaded
+    // plugin (self-update) can reach reload/unload/listSkipped in its onInit.
+    this.services.register('pluginHost', this.pluginHost);
 
     // Fan every appended event out to plugin `onEvent` hooks. Without this
     // wiring the hook is dead code — declared on the SDK, dispatched by

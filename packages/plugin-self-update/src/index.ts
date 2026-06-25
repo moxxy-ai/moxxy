@@ -1,7 +1,12 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
+  asPluginId,
   definePlugin,
   defineTool,
   z,
+  type EmittedEvent,
+  type LifecycleHooks,
   type Plugin,
   type ToolContext,
   type ToolDef,
@@ -50,7 +55,7 @@ export {
   type CoreInstallInfo,
 } from './core-update.js';
 
-export function buildSelfUpdatePlugin(deps: SelfUpdateDeps): Plugin {
+export function buildSelfUpdatePlugin(deps: SelfUpdateDeps, hooks?: LifecycleHooks): Plugin {
   const tools: ToolDef[] = [
     classifyTool(deps),
     beginTool(deps),
@@ -60,8 +65,85 @@ export function buildSelfUpdatePlugin(deps: SelfUpdateDeps): Plugin {
     statusTool(deps),
   ];
   if (deps.coreUpdate?.enabled !== false) tools.push(...coreTools(deps, import.meta.url));
-  return definePlugin({ name: PLUGIN_ID, version: '0.0.0', tools });
+  return definePlugin({ name: PLUGIN_ID, version: '0.0.0', tools, ...(hooks ? { hooks } : {}) });
 }
+
+interface PluginHostLike {
+  reload(): Promise<void>;
+  unload(name: string): Promise<void>;
+  listSkipped(): ReadonlyArray<{ pluginName: string; packageName?: string; message: string }>;
+}
+
+/**
+ * Discovery-loadable default export. Resolves the plugin host (`'pluginHost'`),
+ * the registry-name snapshot (`'registrySnapshot'`), the writable event-append
+ * (`'appendEvent'` — the counterpart to the read-only `ctx.log`) and this
+ * plugin's config options (`'getPluginOptions'`) from the inter-plugin service
+ * registry in `onInit`, instead of the host `SelfUpdateDeps` closure.
+ *
+ * The Tier-2 core-update tools are gated at BUILD time on
+ * `MOXXY_NO_CORE_UPDATE` (the env the desktop sets to hide them); the softer
+ * `allowCoreUpdate`/`repoUrl` config prefs are resolved in `onInit` and applied
+ * to `coreUpdate.repoUrlOverride` + the GC retention.
+ */
+export const selfUpdatePlugin: Plugin = (() => {
+  let host: PluginHostLike | null = null;
+  let snapshotFn: (() => RegistrySnapshot) | null = null;
+  let appendEvent: ((e: EmittedEvent) => Promise<void>) | null = null;
+  let options: Record<string, unknown> = {};
+
+  const deps: SelfUpdateDeps = {
+    moxxyDir: path.join(os.homedir(), '.moxxy'),
+    reload: () => host?.reload() ?? Promise.resolve(),
+    unload: (name) => host?.unload(name) ?? Promise.resolve(),
+    snapshot: () => (snapshotFn ? snapshotFn() : {}),
+    skipped: () =>
+      (host?.listSkipped() ?? []).map((s) => ({
+        pluginName: s.pluginName,
+        ...(s.packageName ? { packageName: s.packageName } : {}),
+        message: s.message,
+      })),
+    emit: (e) =>
+      appendEvent
+        ? appendEvent({
+            type: 'plugin_event',
+            pluginId: asPluginId(PLUGIN_ID),
+            subtype: e.subtype,
+            payload: e.payload,
+            sessionId: e.sessionId,
+            turnId: e.turnId,
+            source: 'plugin',
+          })
+        : Promise.resolve(),
+    get maxTxnRetained(): number | undefined {
+      return typeof options.maxTxnRetained === 'number' ? options.maxTxnRetained : undefined;
+    },
+    coreUpdate: {
+      // Gated at build on the env (the desktop sets MOXXY_NO_CORE_UPDATE=1 to
+      // hide the tools); the config `allowCoreUpdate` pref can't gate build-time
+      // tool inclusion under discovery-loading, but repoUrl is honored at run.
+      enabled: process.env.MOXXY_NO_CORE_UPDATE !== '1',
+      fromUrl: import.meta.url,
+      get repoUrlOverride(): string | undefined {
+        return typeof options.repoUrl === 'string' ? options.repoUrl : undefined;
+      },
+    },
+  };
+
+  const hooks: LifecycleHooks = {
+    onInit: (ctx) => {
+      host = ctx.services.get<PluginHostLike>('pluginHost') ?? null;
+      snapshotFn = ctx.services.get<() => RegistrySnapshot>('registrySnapshot') ?? null;
+      appendEvent = ctx.services.get<(e: EmittedEvent) => Promise<void>>('appendEvent') ?? null;
+      const getOptions = ctx.services.get<(pkg: string) => Record<string, unknown> | undefined>(
+        'getPluginOptions',
+      );
+      options = getOptions?.(PLUGIN_ID) ?? {};
+    },
+  };
+
+  return buildSelfUpdatePlugin(deps, hooks);
+})();
 
 // ── self_update_classify ────────────────────────────────────────────────────
 function classifyTool(deps: SelfUpdateDeps): ToolDef {
