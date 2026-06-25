@@ -206,7 +206,41 @@ export interface ModeDef {
    * accent badge while this mode is active. See {@link ModeBadge}.
    */
   readonly badge?: ModeBadge;
+  /**
+   * Marks a "special" mode — one the user does NOT pick from `/mode`. Set this
+   * and the mode is, uniformly across every surface (TUI, mobile, desktop):
+   *   - **hidden** from every mode list / picker (presence), and
+   *   - **refused** by the normal mode-switch by name (execution) — it can only
+   *     be entered through its own invocation (a slash command, a spawned
+   *     agent's `MOXXY_MODE`, …) via the raw registry `setActive`.
+   * The mode stays registered + runnable; it's just never *offered* or
+   * name-switched. Extensible: any number of special modes (collaborative today,
+   * more later) opt in the same way. See {@link isSelectableMode}.
+   */
+  readonly special?: ModeSpecial;
   run(ctx: ModeContext): AsyncIterable<MoxxyEvent>;
+}
+
+/** Descriptor for a {@link ModeDef.special} mode — see that field. */
+export interface ModeSpecial {
+  /**
+   * Human-facing entry point that enters this mode, e.g. `'collab'` (the
+   * `/collab` command). Surfaced when the user tries to pick/switch it ("entered
+   * via /collab") so the UI can point at the right action.
+   */
+  readonly invokedBy?: string;
+}
+
+/**
+ * Whether a mode is user-selectable — i.e. NOT a {@link ModeDef.special} mode.
+ * The single predicate every surface (TUI/mobile/desktop mode lists + the
+ * by-name mode-switch) uses to filter/refuse special modes uniformly. The
+ * parameter is intentionally loose (`{ special? }`) so it also applies to the
+ * minimal `{ name }` rows the swap-UI registries expose — non-mode defs simply
+ * carry no `special` and are always selectable.
+ */
+export function isSelectableMode(mode: { readonly special?: unknown }): boolean {
+  return mode.special === undefined;
 }
 
 /**

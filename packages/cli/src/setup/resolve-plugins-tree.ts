@@ -33,9 +33,14 @@ export function providerSlot(config: MoxxyConfig): ProviderSlot {
   return config.plugins?.provider ?? {};
 }
 
-/** The active provider contribution name (defaults to `anthropic`). */
-export function providerDefault(config: MoxxyConfig): string {
-  return config.plugins?.provider?.default ?? 'anthropic';
+/**
+ * The configured active provider contribution name, or undefined when none is
+ * set. No hardcoded fallback: providers are unbundled + installed on demand, so
+ * a fresh config genuinely has no provider until `init`/`provision` writes one
+ * (the caller then runs setup rather than pointing at a missing provider).
+ */
+export function providerDefault(config: MoxxyConfig): string | undefined {
+  return config.plugins?.provider?.default;
 }
 
 /** Per-item options (model/config) for a provider, defaulting to the active one. */

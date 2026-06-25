@@ -1,5 +1,5 @@
 import { runTurn, type Session } from '@moxxy/core';
-import { MoxxyError, type CategoryView, type Plugin } from '@moxxy/sdk';
+import { MoxxyError, isSelectableMode, type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import {
   INSTALLABLE_PLUGIN_CATALOG,
@@ -127,7 +127,9 @@ export interface BuiltBuiltinsCore {
 /** Wire the plugin-management slice that backs the TUI `/plugins` picker. */
 /** Minimal active-def surface a category registry exposes for the swap UI. */
 interface CategoryRegistryLike {
-  list(): ReadonlyArray<{ name: string }>;
+  // `special?` lets the mode registry's special-mode marker flow through to the
+  // swap UI filter (isSelectableMode); non-mode defs simply omit it.
+  list(): ReadonlyArray<{ name: string; special?: unknown }>;
   getActiveName(): string | null;
   getFloorName?(): string | null;
   setActive(name: string): unknown;
@@ -165,7 +167,10 @@ function buildCategoryViews(session: Session): ReadonlyArray<CategoryView> {
       category,
       active,
       floor: r.getFloorName?.() ?? null,
-      items: r.list().map((d) => ({ name: d.name, isDefault: d.name === active })),
+      // Special modes (e.g. the collaborative system) are not swap-default
+      // targets — drop them from the swap axis. Harmless for non-mode kinds
+      // (their defs carry no `special`).
+      items: r.list().filter(isSelectableMode).map((d) => ({ name: d.name, isDefault: d.name === active })),
     });
   }
   return out;

@@ -4,15 +4,18 @@ import { runCollaborativeMode } from './collab-loop.js';
 import { collabArchitectMode, collabPeerMode } from './modes.js';
 
 /**
- * @moxxy/mode-collaborative — agentic collaborative mode. The `collaborative`
- * mode is the user-selectable coordinator; `collab-architect` and `collab-peer`
- * are the internal modes the spawned agent processes run.
+ * @moxxy/mode-collaborative — agentic collaborative mode. All three modes are
+ * `special` (see {@link ModeDef.special}): the collaborative system is a
+ * separate flow entered via the `/collab` command, never picked from `/mode` —
+ * `collaborative` is the coordinator; `collab-architect`/`collab-peer` are the
+ * internal roles the spawned agent processes run (via `MOXXY_MODE`).
  */
 export const collaborativeMode: ModeDef = defineMode({
   name: COLLAB_MODE_NAME,
   description:
     'Agentic collaborative: a team of separate agents (an architect + implementers) work in parallel on one task.',
   badge: { label: 'TEAM', tone: 'attention' },
+  special: { invokedBy: 'collab' },
   run: runCollaborativeMode,
 });
 

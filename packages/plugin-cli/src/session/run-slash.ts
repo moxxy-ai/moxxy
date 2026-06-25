@@ -3,6 +3,7 @@ import { clearUsageStats } from '@moxxy/core';
 import { setCategoryDefault } from '@moxxy/config';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
+import { isSelectableMode } from '@moxxy/sdk';
 import type { ListPickerOption, ListPickerTab } from '../components/ListPicker.js';
 import type { Overlay, Picker } from './types.js';
 import { formatTokensShort } from './helpers.js';
@@ -490,16 +491,11 @@ function startCollab(deps: SlashDeps, arg: string): void {
   if (objective) deps.submitPrompt(objective);
 }
 
-// Collaboration is launched via `/collab <goal>` (single-flight), not the mode
-// picker; its peer modes are internal. Hidden from `/mode`.
-const COLLAB_HIDDEN_MODES: ReadonlySet<string> = new Set([
-  'collaborative',
-  'collab-architect',
-  'collab-peer',
-]);
-
 function openModePicker(deps: SlashDeps, arg = ''): void {
-  const modes = deps.session.modes.list().filter((m) => !COLLAB_HIDDEN_MODES.has(m.name));
+  const all = deps.session.modes.list();
+  // Special modes (e.g. the collaborative system, entered via /collab) are never
+  // listed or name-switched here — see ModeDef.special / isSelectableMode.
+  const modes = all.filter(isSelectableMode);
   if (modes.length === 0) {
     deps.setSystemNotice('no modes registered');
     return;
@@ -508,8 +504,14 @@ function openModePicker(deps: SlashDeps, arg = ''): void {
   // otherwise (no arg, or no match) fall back to the interactive picker.
   const target = arg.trim().toLowerCase();
   if (target) {
-    if (COLLAB_HIDDEN_MODES.has(target)) {
-      deps.setSystemNotice('Use /collab <goal> to run a collaborative team (only one runs at a time).');
+    const special = all.find((m) => m.name.toLowerCase() === target && !isSelectableMode(m));
+    if (special) {
+      const via = special.special?.invokedBy;
+      deps.setSystemNotice(
+        via
+          ? `"${special.name}" is a special mode — run /${via} to enter it.`
+          : `"${special.name}" is a special mode and can't be selected directly.`,
+      );
       return;
     }
     const match = modes.find((m) => m.name.toLowerCase() === target);
