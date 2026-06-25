@@ -121,7 +121,77 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
   });
 }
 
-/** Default instance for plugin discovery (no session wiring). The CLI uses the builder. */
-export const webChannelPlugin: Plugin = buildWebChannelPlugin();
+interface TunnelRegistryLike {
+  getActive(): TunnelProviderDef | null;
+  list(): ReadonlyArray<TunnelProviderDef>;
+  setActive(name: string): void;
+}
+interface SurfaceRef {
+  current: { url: string; nextViewId: () => string } | null;
+}
+interface ControlsRef {
+  current: WebSurfaceControls | null;
+}
+
+/**
+ * Discovery-loadable default export. Resolves the tunnel registry
+ * (`'tunnelProviders'`), the shared web-surface ref (`'viewSurface'`, read by the
+ * view plugin) + web-controls ref (`'webControls'`) and the configured default
+ * tunnel (`'webDefaultTunnel'`) from the inter-plugin service registry in
+ * `onInit`, instead of the host `{ getTunnel, publishSurface, … }` closure. A
+ * lazy `tunnels` object keeps the `web_set_tunnel`/`web_tunnel_status` tools +
+ * the boot tunnel-apply hook present (built before onInit), deferring every
+ * registry call to the resolved instance.
+ */
+export const webChannelPlugin: Plugin = (() => {
+  let tp: TunnelRegistryLike | null = null;
+  let surfaceRef: SurfaceRef | null = null;
+  let controlsRef: ControlsRef | null = null;
+  let defaultTunnel: string | undefined;
+
+  const tunnels: TunnelControls = {
+    list: () => tp?.list().map((p) => p.name) ?? [],
+    active: () => tp?.getActive()?.name ?? null,
+    setActive: (n) => {
+      tp?.setActive(n);
+    },
+    isAvailable: async (n) => {
+      const p = tp?.list().find((x) => x.name === n);
+      return p?.isAvailable ? p.isAvailable() : true;
+    },
+  };
+  const opts: BuildWebChannelOptions = {
+    getTunnel: () => tp?.getActive() ?? null,
+    publishSurface: (s) => {
+      if (surfaceRef) surfaceRef.current = s;
+    },
+    publishControls: (c) => {
+      if (controlsRef) controlsRef.current = c;
+    },
+    getControls: () => controlsRef?.current ?? null,
+    tunnels,
+    get defaultTunnel(): string | undefined {
+      return defaultTunnel;
+    },
+  };
+
+  const plugin = buildWebChannelPlugin(opts);
+  const innerOnInit = plugin.hooks?.onInit;
+
+  return definePlugin({
+    ...plugin,
+    hooks: {
+      ...plugin.hooks,
+      onInit: (ctx) => {
+        tp = ctx.services.get<TunnelRegistryLike>('tunnelProviders') ?? null;
+        surfaceRef = ctx.services.get<SurfaceRef>('viewSurface') ?? null;
+        controlsRef = ctx.services.get<ControlsRef>('webControls') ?? null;
+        defaultTunnel = ctx.services.get<string>('webDefaultTunnel') ?? undefined;
+        // Now the refs are resolved → apply the persisted/default tunnel on boot.
+        return innerOnInit?.(ctx);
+      },
+    },
+  });
+})();
 
 export default webChannelPlugin;

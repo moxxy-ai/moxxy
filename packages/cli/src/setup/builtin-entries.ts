@@ -1,7 +1,5 @@
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { buildSynthesizeSkillPlugin, type Session } from '@moxxy/core';
-import { asPluginId, type CategoryView, type Plugin } from '@moxxy/sdk';
+import { type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import { anthropicPlugin } from '@moxxy/plugin-provider-anthropic';
 import { openaiPlugin } from '@moxxy/plugin-provider-openai';
@@ -29,13 +27,13 @@ import { telegramPlugin } from '@moxxy/plugin-telegram';
 import { mcpAdminPlugin } from '@moxxy/plugin-mcp';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
-import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
+import { webChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { terminalPlugin } from '@moxxy/plugin-terminal';
 import { subagentsPlugin } from '@moxxy/plugin-subagents';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
-import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
+import { selfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { providerAdminPlugin } from '@moxxy/plugin-provider-admin';
 import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
 import { commandsPlugin } from '@moxxy/plugin-commands';
@@ -92,6 +90,22 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
   // `publishSurface` closure below. Registered here (before onInit dispatch) so
   // it's available when the view plugin's onInit runs.
   session.services.register('viewSurface', viewSurface);
+  // Per-package config options accessor (the host owns the parsed config), so a
+  // discovery-loaded plugin (self-update) can read its own options in onInit.
+  session.services.register(
+    'getPluginOptions',
+    (pkg: string): Record<string, unknown> | undefined => rawConfig.plugins?.packages?.[pkg]?.options,
+  );
+  // The shared web-controls ref (written by the web channel, read by its
+  // web_set_tunnel tool) + the configured default tunnel — for the
+  // discovery-loadable web channel to resolve in onInit.
+  session.services.register('webControls', webControls);
+  session.services.register(
+    'webDefaultTunnel',
+    typeof (rawConfig.channels as { web?: { tunnel?: unknown } } | undefined)?.web?.tunnel === 'string'
+      ? (rawConfig.channels as { web?: { tunnel?: string } }).web!.tunnel
+      : undefined,
+  );
 
   return [
     { name: '@moxxy/plugin-provider-anthropic', plugin: anthropicPlugin },
@@ -138,31 +152,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // aggregate). Surfaced in the /usage panel; reset via /usage clear.
     { name: '@moxxy/plugin-usage-stats', plugin: buildUsageStatsPlugin() },
     { name: '@moxxy/plugin-channel-http', plugin: httpChannelPlugin },
-    {
-      name: '@moxxy/plugin-channel-web',
-      plugin: buildWebChannelPlugin({
-        getTunnel: () => session.tunnelProviders.getActive(),
-        publishSurface: (s) => {
-          viewSurface.current = s;
-        },
-        publishControls: (c) => {
-          webControls.current = c;
-        },
-        getControls: () => webControls.current,
-        tunnels: {
-          list: () => session.tunnelProviders.list().map((p) => p.name),
-          active: () => session.tunnelProviders.getActive()?.name ?? null,
-          setActive: (n) => session.tunnelProviders.setActive(n),
-          isAvailable: async (n) => {
-            const p = session.tunnelProviders.list().find((x) => x.name === n);
-            return p?.isAvailable ? p.isAvailable() : true;
-          },
-        },
-        ...(typeof (rawConfig.channels as { web?: { tunnel?: unknown } } | undefined)?.web?.tunnel === 'string'
-          ? { defaultTunnel: (rawConfig.channels as { web?: { tunnel?: string } }).web!.tunnel }
-          : {}),
-      }),
-    },
+    // Discovery-loadable: resolves tunnelProviders + the shared viewSurface +
+    // webControls refs + the configured default tunnel from the service registry
+    // in onInit (the refs are published above; web writes viewSurface, view reads it).
+    { name: '@moxxy/plugin-channel-web', plugin: webChannelPlugin },
     { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
     // Discovery-loadable: resolves the vault from the service registry in onInit.
     { name: '@moxxy/plugin-telegram', plugin: telegramPlugin },
@@ -236,69 +229,12 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // modify auto-restores the previous version. Disable this plugin
     // (`config.plugins['@moxxy/plugin-self-update'].enabled = false`) to
     // lock the code base.
-    {
-      name: '@moxxy/plugin-self-update',
-      plugin: buildSelfUpdatePlugin({
-        moxxyDir: path.join(os.homedir(), '.moxxy'),
-        reload: () => session.pluginHost.reload(),
-        unload: (name) => session.pluginHost.unload(name),
-        snapshot: () => ({
-          tools: session.tools.list().map((t) => t.name),
-          agents: session.agents.list().map((a) => a.name),
-          providers: session.providers.list().map((p) => p.name),
-          modes: session.modes.list().map((l) => l.name),
-          compactors: session.compactors.list().map((c) => c.name),
-          channels: session.channels.list().map((c) => c.name),
-        }),
-        skipped: () =>
-          session.pluginHost.listSkipped().map((s) => ({
-            pluginName: s.pluginName,
-            ...(s.packageName ? { packageName: s.packageName } : {}),
-            message: s.message,
-          })),
-        emit: (e) =>
-          session.log
-            .append({
-              type: 'plugin_event',
-              pluginId: asPluginId('@moxxy/plugin-self-update'),
-              subtype: e.subtype,
-              payload: e.payload,
-              sessionId: e.sessionId,
-              turnId: e.turnId,
-              source: 'plugin',
-            })
-            .then(() => undefined),
-        ...(typeof rawConfig.plugins?.packages?.['@moxxy/plugin-self-update']?.options
-          ?.maxTxnRetained === 'number'
-          ? {
-              maxTxnRetained: rawConfig.plugins.packages['@moxxy/plugin-self-update']!.options!
-                .maxTxnRetained as number,
-            }
-          : {}),
-        // Tier-2 core-patching is on by default; set
-        // options.allowCoreUpdate = false to hide the self_update_core_* tools.
-        // options.repoUrl overrides the git source (needed if @moxxy/core's
-        // published package.json lacks a `repository` field).
-        //
-        // MOXXY_NO_CORE_UPDATE=1 hard-disables Tier-2 regardless of config —
-        // the desktop sets this on the runner spawn because core patches
-        // (git clone + build + dist overlay + restart) can't work inside a
-        // read-only, packaged .app and would only confuse the model.
-        coreUpdate: {
-          enabled:
-            process.env.MOXXY_NO_CORE_UPDATE !== '1' &&
-            rawConfig.plugins?.packages?.['@moxxy/plugin-self-update']?.options?.allowCoreUpdate !==
-              false,
-          ...(typeof rawConfig.plugins?.packages?.['@moxxy/plugin-self-update']?.options?.repoUrl ===
-          'string'
-            ? {
-                repoUrlOverride: rawConfig.plugins.packages['@moxxy/plugin-self-update']!.options!
-                  .repoUrl as string,
-              }
-            : {}),
-        },
-      }),
-    },
+    // Discovery-loadable: resolves pluginHost + registrySnapshot + appendEvent
+    // (the writable counterpart to the read-only onInit ctx.log) + this plugin's
+    // config options from the service registry in onInit. The Tier-2 core-update
+    // tools are gated at build on MOXXY_NO_CORE_UPDATE (the env the desktop sets
+    // to hide them); allowCoreUpdate/repoUrl prefs resolve at run.
+    { name: '@moxxy/plugin-self-update', plugin: selfUpdatePlugin },
     // Voice/TTS control — lets the agent switch which text-to-speech backend
     // read-aloud surfaces (the desktop's speaker button) use, without a
     // settings UI. `set_voice` activates a registered synthesizer by name, or
