@@ -33,7 +33,7 @@ import { buildWebChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { terminalPlugin } from '@moxxy/plugin-terminal';
-import { buildSubagentsPlugin } from '@moxxy/plugin-subagents';
+import { subagentsPlugin } from '@moxxy/plugin-subagents';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
 import { buildSelfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { buildProviderAdminPluginWithApi } from '@moxxy/plugin-provider-admin';
@@ -42,7 +42,7 @@ import { commandsPlugin } from '@moxxy/plugin-commands';
 import { buildViewPlugin } from '@moxxy/plugin-view';
 import { computerControlPlugin } from '@moxxy/plugin-computer-control';
 import { oauthPlugin } from '@moxxy/plugin-oauth';
-import { buildVoiceAdminPlugin } from '@moxxy/plugin-voice-admin';
+import { voiceAdminPlugin } from '@moxxy/plugin-voice-admin';
 import { resolveString } from '@moxxy/plugin-vault';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
@@ -196,15 +196,12 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // Agent kinds (researcher, code-reviewer, ...) come from OTHER plugins
     // via `PluginSpec.agents`; the closure here reads the live registry.
     {
+      // Discovery-loadable: resolves the agents + tools registries from the
+      // service registry in onInit (the host publishes them). The live
+      // parent-tool snapshot still defaults a child to the parent's tools MINUS
+      // dispatch_agent — cutting unbounded recursive fan-out (8^N sessions).
       name: '@moxxy/plugin-subagents',
-      plugin: buildSubagentsPlugin({
-        getAgent: (name) => session.agents.get(name),
-        // Wire the live parent tool snapshot so a child that neither the caller
-        // nor its kind restricts is defaulted to the parent's tools MINUS
-        // dispatch_agent — cutting unbounded recursive fan-out (8^N sessions).
-        // Same snapshot the plugins-admin entry uses below.
-        getToolNames: () => session.tools.list().map((t) => t.name),
-      }),
+      plugin: subagentsPlugin,
     },
     // Runtime plugin management — exposes install_plugin / uninstall_plugin
     // (npm into ~/.moxxy/plugins) and enable_plugin / disable_plugin (config-
@@ -306,8 +303,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // what's available + which is active. A synthesizer authored via
     // self-update auto-activates on load, so this is for switching afterwards.
     {
+      // Discovery-loadable: resolves the synthesizers registry from the
+      // service registry in onInit (the host publishes it).
       name: '@moxxy/voice-admin',
-      plugin: buildVoiceAdminPlugin(session),
+      plugin: voiceAdminPlugin,
     },
     // Provider admin tools (provider_add, provider_list, provider_remove,
     // provider_test). Persists OpenAI-compatible vendor registrations to

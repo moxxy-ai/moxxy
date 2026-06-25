@@ -1,4 +1,21 @@
 /**
+ * Minimal read-only view of a name-keyed registry. The host publishes its core
+ * registries (agents, tools, …) on the {@link ServiceRegistry} under these
+ * names, so a discovery-loaded plugin can resolve one in `onInit` (e.g.
+ * `ctx.services.require<NamedRegistry<AgentDef>>('agents')`) without importing
+ * `@moxxy/core`'s concrete registry types. Core's `DefMapRegistry`-based
+ * registries satisfy it structurally.
+ *
+ * Well-known service names the host publishes: `'agents'`, `'tools'`,
+ * `'providers'`, `'viewRenderers'`, `'synthesizers'`.
+ */
+export interface NamedRegistry<T> {
+  get(name: string): T | undefined;
+  list(): ReadonlyArray<T>;
+  has(name: string): boolean;
+}
+
+/**
  * Inter-plugin service registry. A plugin can **publish** a named service in its
  * `onInit` hook (e.g. the vault plugin publishes its secret store) and another
  * plugin can **consume** it in its own `onInit` — decoupling cross-plugin

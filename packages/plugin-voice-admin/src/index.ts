@@ -1,5 +1,5 @@
-import { type Session } from '@moxxy/core';
-import { definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
+import { type Session, type SynthesizerRegistry } from '@moxxy/core';
+import { definePlugin, defineTool, z, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 
 /**
  * Voice/TTS control plugin — lets the agent switch which text-to-speech backend
@@ -14,6 +14,36 @@ import { definePlugin, defineTool, z, type Plugin } from '@moxxy/sdk';
  * and wired into the cli's builtin `entries` list.
  */
 export function buildVoiceAdminPlugin(session: Session): Plugin {
+  return makeVoiceAdminPlugin(() => session.synthesizers);
+}
+
+/**
+ * Discovery-loadable default export: resolves the synthesizer registry from the
+ * inter-plugin service registry in `onInit` (the host publishes `'synthesizers'`),
+ * so the tools control the live session's TTS backend without a host-injected
+ * `session` closure.
+ */
+export const voiceAdminPlugin: Plugin = (() => {
+  let reg: SynthesizerRegistry | null = null;
+  const hooks: LifecycleHooks = {
+    onInit: (ctx) => {
+      reg = ctx.services.get<SynthesizerRegistry>('synthesizers') ?? null;
+    },
+  };
+  return makeVoiceAdminPlugin(() => {
+    if (!reg) {
+      throw new Error(
+        '@moxxy/voice-admin: the "synthesizers" registry is unavailable — the host must publish it',
+      );
+    }
+    return reg;
+  }, hooks);
+})();
+
+function makeVoiceAdminPlugin(
+  getSynths: () => SynthesizerRegistry,
+  hooks?: LifecycleHooks,
+): Plugin {
   // 'system' (the OS voice) plus every registered synthesizer — the one
   // list both tools speak in terms of (list_voices' result and
   // set_voice's "unknown name" hint). The synthesizer namespace is
@@ -22,7 +52,7 @@ export function buildVoiceAdminPlugin(session: Session): Plugin {
   // otherwise it would be listed twice.
   const voiceNames = (): string[] => [
     'system',
-    ...session.synthesizers
+    ...getSynths()
       .list()
       .map((s) => s.name)
       .filter((n) => n !== 'system'),
@@ -30,6 +60,7 @@ export function buildVoiceAdminPlugin(session: Session): Plugin {
   return definePlugin({
     name: '@moxxy/voice-admin',
     version: '0.0.1',
+    ...(hooks ? { hooks } : {}),
     tools: [
       defineTool({
         name: 'list_voices',
@@ -40,7 +71,7 @@ export function buildVoiceAdminPlugin(session: Session): Plugin {
         inputSchema: z.object({}),
         permission: { action: 'allow' },
         handler: () => ({
-          active: session.synthesizers.getActiveName() ?? 'system',
+          active: getSynths().getActiveName() ?? 'system',
           available: voiceNames(),
         }),
       }),
@@ -68,16 +99,16 @@ export function buildVoiceAdminPlugin(session: Session): Plugin {
           // synthesizer claims that name. A backend literally named 'system'
           // (registrations are attacker-influenced) is otherwise permanently
           // unreachable; fall through to activate it.
-          if (synthesizer === 'system' && !session.synthesizers.has('system')) {
-            session.synthesizers.clearActive();
+          if (synthesizer === 'system' && !getSynths().has('system')) {
+            getSynths().clearActive();
             return { active: 'system' };
           }
-          if (!session.synthesizers.has(synthesizer)) {
+          if (!getSynths().has(synthesizer)) {
             throw new Error(
               `No synthesizer named "${synthesizer}". Available: ${voiceNames().join(', ')}.`,
             );
           }
-          session.synthesizers.setActive(synthesizer);
+          getSynths().setActive(synthesizer);
           return { active: synthesizer };
         },
       }),
