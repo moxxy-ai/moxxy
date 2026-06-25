@@ -22,6 +22,7 @@ export {
   planConsolidation,
   consolidateMemory,
   buildMemoryConsolidatePlugin,
+  memoryConsolidatePlugin,
   type ConsolidatePlan,
   type ConsolidateOptions,
   type ConsolidationOutcome,
@@ -34,6 +35,16 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
   const plugin = definePlugin({
     name: '@moxxy/plugin-memory',
     version: '0.0.0',
+    // Publish the long-term store on the inter-plugin service registry so the
+    // sibling @moxxy/memory-consolidate plugin can resolve it in its own onInit
+    // instead of being hand-built with the store — the seam that lets both be
+    // discovery-loaded. memory-consolidate is registered after this plugin, so
+    // this onInit runs first.
+    hooks: {
+      onInit: (ctx) => {
+        ctx.services.register('memory', store);
+      },
+    },
     // The zero-dep TF-IDF embedder, contributed as a selectable embedder so it
     // sits in the same registry as openai/transformers/custom ones.
     embedders: [
