@@ -144,6 +144,8 @@ describe('IPC payload validation', () => {
   });
 
   it('bounds local focus-window movement and resize payloads', () => {
+    expect(() => validateIpcInput('focus.toggle', undefined)).not.toThrow();
+    expect(() => validateIpcInput('focus.toggle', { sneaky: true })).toThrow();
     expect(() => validateIpcInput('focus.moveBy', { dx: 10, dy: -12 })).not.toThrow();
     expect(() =>
       validateIpcInput('focus.dragStart', { screenX: -1200, screenY: 240 }),

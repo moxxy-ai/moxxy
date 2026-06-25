@@ -535,6 +535,10 @@ export interface IpcCommands {
   // Local desktop IPC only: deliberately excluded from REMOTE_ALLOWED_COMMANDS.
   // See remote.test.ts.
   // Exported inline in the command map to keep the boundary compact.
+  /** Toggle focus mode from trusted local desktop UI. This follows the same
+   *  main-process controller path as the app menu, tray menu, and global
+   *  shortcut. Local desktop IPC only. */
+  'focus.toggle': () => Promise<void>;
   'focus.close': () => Promise<void>;
   'focus.restoreMain': () => Promise<void>;
   /** Resize the focus window. Keeps the nearer screen edge pinned so the

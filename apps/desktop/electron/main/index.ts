@@ -434,6 +434,10 @@ async function createWindow(): Promise<void> {
   ipcMain.handle('focus.close', () => {
     closeFocusWindow();
   });
+  ipcMain.removeHandler('focus.toggle');
+  ipcMain.handle('focus.toggle', () => {
+    return focusMode.toggle();
+  });
   ipcMain.removeHandler('focus.restoreMain');
   ipcMain.handle('focus.restoreMain', () => {
     return focusMode.restoreMain();

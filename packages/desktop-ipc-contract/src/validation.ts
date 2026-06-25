@@ -152,6 +152,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
+  'focus.toggle': z.undefined(),
   'focus.moveBy': z.object({ dx: focusDelta, dy: focusDelta }).strict(),
   'focus.dragStart': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
   'focus.dragMove': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
