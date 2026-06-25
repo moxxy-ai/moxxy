@@ -29,6 +29,7 @@ import { OverlayOrNotice } from './OverlayOrNotice.js';
 import { InteractiveZone } from './InteractiveZone.js';
 import type { InteractiveSessionProps } from './props.js';
 import type { Overlay, Picker } from './types.js';
+import type { SessionSwitchTarget } from './sessions-picker.js';
 
 interface SessionViewProps {
   readonly session: Session;
@@ -42,6 +43,22 @@ interface SessionViewProps {
    * have to retype it after the view transitions.
    */
   readonly initialPrompt?: string;
+  /**
+   * One-shot notice shown when the view mounts (e.g. "switched session"). Unlike
+   * `initialPrompt` it doesn't start a turn — it just seeds the notice strip.
+   */
+  readonly initialNotice?: string;
+  /**
+   * Whether the host can re-bootstrap onto a different session. Gates whether
+   * `/sessions` opens the switcher (true) or shows a degrade notice (false).
+   */
+  readonly canSwitchSession?: boolean;
+  /**
+   * Ask the host to switch the TUI onto another session. BootShell owns the
+   * session state + re-mount; this resolves on success and rejects on failure so
+   * the picker handler can surface the error on the still-live session.
+   */
+  readonly onSwitchSession?: (target: SessionSwitchTarget) => Promise<void>;
 }
 
 export const SessionView: React.FC<SessionViewProps> = ({
@@ -51,10 +68,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
   version,
   updateAvailable,
   initialPrompt,
+  initialNotice,
+  canSwitchSession,
+  onSwitchSession,
 }) => {
   const { exit } = useApp();
   const stream = useEventStream(session);
-  const [systemNotice, setSystemNotice] = useState<string | null>(null);
+  const [systemNotice, setSystemNotice] = useState<string | null>(initialNotice ?? null);
   // Structured ephemeral overlay (mutually exclusive with systemNotice).
   // /skills and /tools render through here so they get full-color
   // typography instead of being squeezed into the yellow notice strip.
@@ -187,8 +207,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setSystemNotice,
         setActiveModelOverride,
         refreshMcpStatus,
+        ...(onSwitchSession ? { requestSessionSwitch: onSwitchSession } : {}),
       }),
-    [session, providerName, refreshMcpStatus],
+    [session, providerName, refreshMcpStatus, onSwitchSession],
   );
 
   // Channel-side handler for `session-action` outputs returned by
@@ -269,6 +290,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         queueRef: turn.queueRef,
         setQueueCount: turn.setQueueCount,
         performSessionAction,
+        canSwitchSession: canSwitchSession ?? false,
         // Start a turn directly (e.g. /goal kicking off autonomous work)
         // without clearing the just-set system notice. Objectives are plain
         // text, so no image-attachment resolution is needed.

@@ -40,6 +40,11 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
     argumentHint: '[mode]',
     aliases: ['loop'],
   },
+  {
+    name: 'sessions',
+    description: 'Switch between your conversations — opens a picker (+ new session)',
+    aliases: ['switch'],
+  },
   { name: 'mcp', description: 'Enable / disable / remove MCP servers' },
   { name: 'plugins', description: 'Plug / unplug & install plugins — opens a tabbed picker' },
   {

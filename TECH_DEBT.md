@@ -40,6 +40,17 @@ or recorded-on-purpose decision.
   on the `moxxy mobile` runner to make it airtight. `packages/plugin-channel-mobile`.
 - [note] Stress-test multi-session with a desk's SECOND (UUID) session — the first
   session has id === desk id, which masks pool-key regressions. `packages/desktop-host`.
+- [low] TUI `/sessions` switcher only works in self-host/standalone mode (the TUI
+  owns the boot, so it can re-bootstrap onto a different session in place). In
+  ATTACH mode (thin client against an external `moxxy serve`) the runner owns a
+  single fixed session, so the switcher degrades to a notice. True attach-mode
+  switching needs a runner-side session pool (like desktop's `RunnerPool`) or a
+  spawn-a-second-runner flow; deferred as the larger architectural change.
+  `packages/cli/src/commands/run-tui.ts`, `packages/plugin-cli/src/session/sessions-picker.ts`.
+- [low] TUI `/sessions` switch re-runs the full `setupSessionWithConfig` per switch
+  (re-discovers plugins, re-fires onInit daemons for the new session). Correct but
+  not cheap; a warm-registry / session-pool reuse would make switching instant.
+  `packages/cli/src/commands/run-tui.ts`.
 
 ## Runner / protocol & architecture
 
