@@ -5,7 +5,10 @@ class FakeMainWindow {
   destroyed = false;
   minimized = false;
   fullScreen = false;
+  delayLeaveFullScreen = false;
   readonly calls: string[] = [];
+  private pendingLeaveFullScreen = false;
+  private readonly leaveFullScreenListeners = new Set<() => void>();
 
   isDestroyed(): boolean {
     return this.destroyed;
@@ -38,7 +41,39 @@ class FakeMainWindow {
 
   setFullScreen(value: boolean): void {
     this.calls.push(`setFullScreen:${String(value)}`);
+    if (!value && this.delayLeaveFullScreen) {
+      this.pendingLeaveFullScreen = true;
+      return;
+    }
     this.fullScreen = value;
+    if (!value) {
+      this.emitLeaveFullScreen();
+    }
+  }
+
+  once(event: 'leave-full-screen', listener: () => void): void {
+    if (event === 'leave-full-screen') {
+      this.leaveFullScreenListeners.add(listener);
+    }
+  }
+
+  off(event: 'leave-full-screen', listener: () => void): void {
+    if (event === 'leave-full-screen') {
+      this.leaveFullScreenListeners.delete(listener);
+    }
+  }
+
+  finishLeavingFullScreen(): void {
+    if (!this.pendingLeaveFullScreen) return;
+    this.pendingLeaveFullScreen = false;
+    this.fullScreen = false;
+    this.emitLeaveFullScreen();
+  }
+
+  private emitLeaveFullScreen(): void {
+    const listeners = [...this.leaveFullScreenListeners];
+    this.leaveFullScreenListeners.clear();
+    for (const listener of listeners) listener();
   }
 }
 
@@ -109,12 +144,40 @@ describe('FocusModeController', () => {
     });
 
     await controller.toggle();
-    expect(mainWindow.calls).toEqual(['hide']);
+    expect(mainWindow.calls).toEqual(['setFullScreen:false', 'hide']);
 
-    mainWindow.fullScreen = false;
     await controller.toggle();
 
-    expect(mainWindow.calls).toEqual(['hide', 'show', 'setFullScreen:true', 'focus']);
+    expect(mainWindow.calls).toEqual([
+      'setFullScreen:false',
+      'hide',
+      'show',
+      'setFullScreen:true',
+      'focus',
+    ]);
+  });
+
+  it('waits for macOS to leave native fullscreen before hiding the main window', async () => {
+    const mainWindow = new FakeMainWindow();
+    mainWindow.fullScreen = true;
+    mainWindow.delayLeaveFullScreen = true;
+    const controller = createFocusModeController({
+      showFocus: vi.fn(async () => undefined),
+      closeFocus: vi.fn(),
+      isFocusOpen: vi.fn(() => false),
+      getMainWindow: vi.fn(() => mainWindow),
+    });
+
+    const enter = controller.enterFocusMode();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mainWindow.calls).toEqual(['setFullScreen:false']);
+
+    mainWindow.finishLeavingFullScreen();
+    await enter;
+
+    expect(mainWindow.calls).toEqual(['setFullScreen:false', 'hide']);
   });
 
   it('does not hide the main window when showing the focus widget fails', async () => {
