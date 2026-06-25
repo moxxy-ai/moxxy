@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/tools-builtin",
   "private": true,
-  "version": "0.0.32",
+  "version": "0.0.33",
   "description": "Built-in tools shipped with moxxy: Read, Edit, Write, Bash, Grep, Glob.",
   "type": "module",
   "main": "./dist/index.js",

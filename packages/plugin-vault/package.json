@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-vault",
-  "version": "0.0.32",
+  "version": "0.0.33",
   "description": "Encrypted secret storage for moxxy. AES-256-GCM at rest. Master key from OS keychain (@napi-rs/keyring) or passphrase fallback.",
   "keywords": [
     "moxxy",

@@ -1,5 +1,41 @@
 # @moxxy/desktop
 
+## 0.24.4
+
+### Patch Changes
+
+- 5449862: fix(desktop): provision API-key providers on demand during onboarding
+
+  The slim-kernel redesign stopped bundling API-key providers (anthropic, openai,
+  …) into the CLI — they install on demand from npm. But the desktop's onboarding
+  had no install step: picking the default `anthropic` (or any API-key provider)
+  saved the key, then `setActive` threw "Provider not registered" and the
+  onboarding / provider-recovery gate looped forever. Only the two bundled OAuth
+  providers (claude-code, openai-codex) yielded a working desktop.
+
+  Onboarding now runs the CLI's headless provisioner — a new
+  `onboarding.provisionProvider` IPC that shells out to `moxxy provision <slug>`
+  (the key was already stored via `saveProviderKey`) to install + enable the
+  package and write `plugins.provider.default`, then restarts the runner so it
+  discovers the freshly-installed package and its boot activation makes the
+  provider active. OAuth providers keep their bundled `setProvider` path.
+
+- Updated dependencies [1a7e4c3]
+- Updated dependencies [2cf7695]
+  - @moxxy/cli@0.21.1
+  - @moxxy/sdk@0.21.1
+  - @moxxy/chat-model@0.3.10
+  - @moxxy/client-core@0.12.3
+  - @moxxy/client-platform-web@0.1.38
+  - @moxxy/desktop-host@0.10.5
+  - @moxxy/desktop-ipc-contract@0.12.3
+  - @moxxy/ipc-server-ws@0.1.37
+  - @moxxy/plugin-channel-mobile@0.2.9
+  - @moxxy/plugin-stt-whisper-codex@0.0.33
+  - @moxxy/plugin-vault@0.0.33
+  - @moxxy/runner@0.2.24
+  - @moxxy/workflows-builder@0.1.21
+
 ## 0.24.3
 
 ### Patch Changes

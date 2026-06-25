@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "moxxy command-line binary. Subcommand dispatcher consuming the moxxy SDK.",
   "keywords": [
     "moxxy",

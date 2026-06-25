@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-tunnel-proxy",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Self-hosted tunnel provider for moxxy. Dials the proxy relay over an outbound control WebSocket, proves ownership of a keypair-derived subdomain (uuid.proxy.moxxy.ai), and pipes each inbound connection to a local port — a native-Node replacement for the cloudflared/ngrok subprocess providers.",
   "type": "module",
   "main": "./dist/index.js",
