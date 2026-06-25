@@ -464,6 +464,32 @@ describe('FocusWidget bidirectional sync', () => {
     });
   });
 
+  it('keeps long assistant preview text scrollable instead of truncating it', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-scrollable-preview',
+        seq: 23,
+        ts: 23,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-scrollable-preview',
+        delta:
+          'To jest długa odpowiedź do dymku focus mode, która ma wystarczająco dużo tekstu, żeby przekroczyć kilka linii i wymusić przewijanie w obrębie samego dymku zamiast ucinania treści po kilku zdaniach. Finalny fragment do przewijania musi nadal być dostępny w treści.',
+      } as MoxxyEvent,
+    });
+
+    const previewButton = await screen.findByRole('button', {
+      name: /open latest reply/i,
+    });
+    expect(previewButton.textContent).toContain('Finalny fragment do przewijania');
+    expect(previewButton.textContent?.endsWith('...')).toBe(false);
+    expect(previewButton.getAttribute('style')).toContain('overflow-y: auto');
+  });
+
   it('reserves enough window height for a three-line inactive preview', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
@@ -472,8 +498,8 @@ describe('FocusWidget bidirectional sync', () => {
       workspaceId: 'ws-test',
       event: {
         id: 'e-preview-height',
-        seq: 23,
-        ts: 23,
+        seq: 24,
+        ts: 24,
         sessionId: 's-test',
         type: 'assistant_chunk',
         turnId: 't-preview-height',

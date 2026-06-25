@@ -19,14 +19,11 @@ interface AssistantPreviewCandidate {
 }
 
 const PREVIEW_TTL_MS = 8_000;
-const PREVIEW_MAX_CHARS = 180;
 const CANDIDATE_CACHE_MAX = 64;
 const candidateCache = new Map<string, AssistantPreviewCandidate>();
 
 function compactPreviewText(text: string): string {
-  const compact = text.trim().replace(/\s+/g, ' ');
-  if (compact.length <= PREVIEW_MAX_CHARS) return compact;
-  return `${compact.slice(0, PREVIEW_MAX_CHARS - 1)}...`;
+  return text.trim().replace(/\s+/g, ' ');
 }
 
 function cachedCandidate(
