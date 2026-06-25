@@ -1,10 +1,15 @@
 name: CI
 
+# Branch model: `development` is the integration branch — every feature PR
+# targets it and must be green here. `main` is the production branch, updated
+# ONLY by a `development → main` release PR (which also runs CI). So CI runs on
+# pushes + PRs to BOTH branches; the changeset gate applies only to feature PRs
+# (→ development), since a dev→main release PR carries no NEW changeset.
 on:
   push:
-    branches: [main]
+    branches: [main, development]
   pull_request:
-    branches: [main]
+    branches: [main, development]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -22,9 +27,11 @@ jobs:
   changeset:
     name: Changeset present
     runs-on: ubuntu-latest
-    # Only PRs have a base branch to diff against; the push-to-main run is the
-    # merge result and doesn't need the gate.
-    if: github.event_name == 'pull_request'
+    # Only PRs have a base branch to diff against, and only FEATURE PRs (those
+    # targeting `development`) must add one. A `development → main` release PR
+    # carries the already-merged changesets, not new ones, so it's exempt — as
+    # is the push-to-branch merge result.
+    if: github.event_name == 'pull_request' && github.base_ref == 'development'
     steps:
       - uses: actions/checkout@v4
         with:

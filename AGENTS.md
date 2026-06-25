@@ -183,9 +183,18 @@ not a separate chore someone else does.
 
 ---
 
+## Branching model
+
+Two long-lived branches:
+
+- **`development`** — the integration branch and the repo **default**. Every feature/fix PR targets it and must be green here (build + typecheck + lint + test + `Changeset present` + deps). This is where continuous development happens.
+- **`main`** — the **production** branch. It is updated **only** by a release: a `development → main` PR (CI runs, but the changeset gate is skipped — the changesets already merged into `development`). Merging that PR (a push to `main`) triggers `release.yml` (version + npm/desktop publish). You can also trigger a release manually via the **Release** workflow's `workflow_dispatch`.
+
+So: **branch off `development`, PR back into `development`. Releases to `main` are on-demand**, when you choose to cut one. Never target `main` with a feature PR.
+
 ## Releasing (changesets)
 
-Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every PR must include a changeset — CI (the `Changeset present` job) fails the PR without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`.
+Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every feature PR (→ `development`) must include a changeset — CI (the `Changeset present` job) fails it without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`. (A `development → main` release PR needs no new changeset — it carries the ones already merged.)
 
 - **Published packages:** only `@moxxy/cli` and `@moxxy/sdk` (everything else is `private` and bundled into the CLI binary by tsup). The private **`@moxxy/desktop`** also rides changesets — naming it cuts a desktop installer release (it is never published to npm), and because the desktop depends on `@moxxy/cli` / `@moxxy/sdk`, a CLI/SDK bump cascades a patch bump to it automatically.
 - **Add one:** `pnpm changeset` → pick the package(s) + bump (patch / minor / major) + write a one-line summary. This drops a file in `.changeset/`. Commit it with your PR.
