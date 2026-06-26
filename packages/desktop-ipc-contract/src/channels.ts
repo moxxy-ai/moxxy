@@ -77,8 +77,13 @@ export interface ChannelRuntimeStatus {
   readonly startedAtMs?: number;
   /** The channel's runtime connect value, rendered per `descriptor.connect`:
    *  Slack's public Request URL once the tunnel is up, or Telegram's resolved
-   *  `t.me/<bot>` link. Absent until resolved (or if the channel has none). */
+   *  `t.me/<bot>` link (while pairing, the `?start=<code>` deep link). Absent
+   *  until resolved (or if the channel has none). */
   readonly requestUrl?: string;
+  /** The "connect the other side" step is satisfied — e.g. a Telegram chat
+   *  paired. The panel shows "✓ Connected" instead of the connect QR/URL. Absent
+   *  for channels with no discrete connected state (Slack). */
+  readonly connected?: boolean;
   /** Last spawn/runtime error, surfaced so the UI can show why it stopped. */
   readonly error?: string;
 }

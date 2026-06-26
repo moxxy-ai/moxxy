@@ -37,6 +37,17 @@ export interface Channel<TStartOpts = unknown> {
    * the dedicated-runner host and written to the channel's status file.
    */
   readonly requestUrl?: string | null;
+
+  /**
+   * Whether the channel's "connect the other side" step is satisfied — e.g.
+   * Telegram has paired a chat. A control surface shows a "✓ Connected"
+   * affordance instead of the connect QR/URL once this is true. `undefined` for
+   * channels with no discrete connected state (e.g. Slack, whose Request URL
+   * stays relevant for the channel's lifetime). Written to the status file and
+   * mirrored by the dedicated-runner host. Pair with {@link ChannelHandle.onConnectChange}
+   * to learn when it flips after start.
+   */
+  readonly connected?: boolean;
 }
 
 export interface ChannelHandle {
@@ -48,6 +59,16 @@ export interface ChannelHandle {
 
   /** Request graceful shutdown. Implementations should abort any in-flight work. */
   stop(reason?: string): Promise<void>;
+
+  /**
+   * Subscribe to post-start changes in the channel's connect-state
+   * ({@link Channel.requestUrl} / {@link Channel.connected}) — e.g. a chat
+   * pairing. The dedicated-runner host uses this to re-publish the channel's
+   * status file so a watching panel updates live (swap the QR for "Connected")
+   * without polling the channel object. Optional: channels whose connect-state
+   * is fixed at start (Slack) omit it. Returns an unsubscribe function.
+   */
+  onConnectChange?(listener: () => void): () => void;
 }
 
 /**

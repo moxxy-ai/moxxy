@@ -16,11 +16,7 @@ import { TelegramPermissionResolver } from './permission.js';
 import { TelegramApprovalResolver } from './approval.js';
 import { FramePump } from './channel/frame-pump.js';
 import { TypingIndicator } from './channel/typing-indicator.js';
-import {
-  PairingHandler,
-  type PairingConfirmResult,
-  type PairingIssuedEvent,
-} from './channel/pairing-handler.js';
+import { PairingHandler } from './channel/pairing-handler.js';
 import { askForPermission } from './channel/permission-prompt.js';
 import { askForApproval } from './channel/approval-prompt.js';
 import { publishBotCommands } from './channel/slash-handler.js';
@@ -34,18 +30,27 @@ import { handleVoiceMessage } from './channel/voice-handler.js';
 
 const TOKEN_KEY = 'telegram_bot_token';
 
-export type { PairingIssuedEvent, PairingConfirmResult } from './channel/pairing-handler.js';
+export type { PairingConfirmResult } from './channel/pairing-handler.js';
 
 export interface TelegramStartOpts extends ChannelStartOptsBase {
   readonly session: Session;
   /**
-   * If true, open a pairing window on startup. The window waits for the
-   * user to send /start to the bot in Telegram; when /start lands the
-   * bot DMs a 6-digit code to that chat. The host (terminal wizard)
-   * subscribes via `onPairingIssued` and prompts the user to paste the
-   * code, then calls `confirmPairingCode` to finalize.
+   * If true (and no chat is paired yet), open a host-issued QR pairing window on
+   * startup: mint a code, publish a `t.me/<bot>?start=<code>` deep link as the
+   * connect value, and pair whichever chat presents that code back (deep-link tap
+   * or a plain 6-digit message). Set by the `moxxy channels telegram pair` command
+   * (which renders the deep link as a terminal QR and waits via `onPaired`).
    */
   readonly pair?: boolean;
+  /**
+   * The channel is running on its own dedicated runner under a GUI control
+   * surface (the desktop Channels panel) rather than a terminal. Equivalent to
+   * `pair` for the unpaired case — `start()` opens the same host-issued QR
+   * pairing window instead of throwing — so the desktop pairs with the identical
+   * mechanism. Threaded by the CLI from `ChannelDef.dedicatedRunner` /
+   * `--dedicated` / `MOXXY_DEDICATED_RUNNER`.
+   */
+  readonly dedicated?: boolean;
 }
 
 export interface TelegramChannelOptions {
@@ -66,8 +71,18 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   private bot: Bot | null = null;
   // The resolved bot's `t.me/<botname>` link (from getMe at start), published as
   // this channel's `requestUrl` connect value so control surfaces can render a
-  // QR / "open the bot" step. Null until resolved (or if getMe failed).
+  // QR / "open the bot" step. While a host-issued pairing window is open it
+  // carries the `?start=<code>` deep-link payload. Null until resolved (or if
+  // getMe failed).
   private botLink: string | null = null;
+  // The host-issued pairing code embedded in `botLink`'s `?start=` payload, set
+  // when `start()` opens a host pairing window (dedicated + unpaired). Null
+  // otherwise (terminal pairing, or already paired).
+  private hostPairingCode: string | null = null;
+  // Listeners notified when this channel's connect-state changes (i.e. a chat
+  // just paired). The dedicated-runner host subscribes via the handle to
+  // re-publish the channel's status file. See `onConnectChange` on the handle.
+  private readonly connectListeners = new Set<() => void>();
   private busy = false;
   private currentChatId: number | null = null;
   // Last chat we ran a turn for — the target for mirroring turns this channel
@@ -110,12 +125,33 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       vault: opts.vault,
       ...(opts.logger ? { logger: opts.logger } : {}),
     });
+    // A completed pairing flips this channel's connect-state to "connected";
+    // notify the host so it can swap the QR for a "✓ Connected" affordance.
+    this.pairing.onPaired(() => this.notifyConnectChange());
   }
 
   /** This channel's connect value (see {@link Channel.requestUrl}): the resolved
-   *  bot's `t.me` link, surfaced by control surfaces as a QR / open-bot step. */
+   *  bot's `t.me` link, surfaced by control surfaces as a QR / open-bot step.
+   *  While a host pairing window is open it includes the `?start=<code>` payload. */
   get requestUrl(): string | null {
     return this.botLink;
+  }
+
+  /** Whether the "connect the other side" step is satisfied — i.e. a chat is
+   *  paired (see {@link Channel.connected}). A host shows "✓ Connected" instead
+   *  of the pairing QR once this is true. */
+  get connected(): boolean {
+    return this.pairing.phase() === 'paired';
+  }
+
+  private notifyConnectChange(): void {
+    for (const listener of this.connectListeners) {
+      try {
+        listener();
+      } catch (err) {
+        this.opts.logger?.warn?.('telegram connect-change listener threw', { err: String(err) });
+      }
+    }
   }
 
   async start(startOpts: TelegramStartOpts): Promise<ChannelHandle> {
@@ -138,13 +174,23 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     }
     await this.pairing.loadAuthorized();
 
-    if (startOpts.pair) {
-      this.pairing.beginWindow();
-      this.opts.logger?.info?.('telegram pairing window open');
-    } else if (this.pairing.phase() !== 'paired') {
-      throw new Error(
-        'No Telegram chat is paired yet. Run `moxxy channels telegram pair` to start a pairing window first.',
-      );
+    // Open the single host-issued QR pairing window when a pairing surface asked
+    // for it (`pair`, the terminal `pair` command) OR when running GUI-supervised
+    // on a dedicated runner (the desktop) and no chat is paired yet. The code is
+    // minted now so we can embed it in the `t.me/<bot>?start=<code>` deep link
+    // below; the surface renders that as a QR, and pairing completes when the
+    // user taps START (or sends the digits) — no terminal round-trip. Only a
+    // headless start with neither signal still errors with a pairing hint.
+    const dedicated = startOpts.dedicated === true || process.env.MOXXY_DEDICATED_RUNNER === '1';
+    if (this.pairing.phase() !== 'paired') {
+      if (startOpts.pair || dedicated) {
+        this.hostPairingCode = this.pairing.beginHostWindow();
+        this.opts.logger?.info?.('telegram pairing window open');
+      } else {
+        throw new Error(
+          'No Telegram chat is paired yet. Run `moxxy channels telegram pair` to pair, or start it from the desktop Channels panel.',
+        );
+      }
     }
 
     this.bot = new Bot(token);
@@ -207,7 +253,14 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     try {
       await bot.init();
       const username = bot.botInfo.username;
-      if (username) this.botLink = `https://t.me/${username}`;
+      if (username) {
+        // Embed the host-issued code as the `?start=` deep-link payload so a scan
+        // → tap-START round-trips `/start <code>` back to us, pairing with zero
+        // typing. Plain `t.me/<bot>` once paired (or in terminal-pair mode).
+        this.botLink = this.hostPairingCode
+          ? `https://t.me/${username}?start=${this.hostPairingCode}`
+          : `https://t.me/${username}`;
+      }
     } catch (err) {
       this.opts.logger?.warn?.('telegram: could not resolve bot identity (getMe)', {
         error: err instanceof Error ? err.message : String(err),
@@ -217,6 +270,12 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     const running = bot.start({ drop_pending_updates: false });
     this.handle = {
       running,
+      // Let the dedicated-runner host re-publish our status file when a chat
+      // pairs (connect-state → connected), so its panel swaps QR for "Connected".
+      onConnectChange: (listener) => {
+        this.connectListeners.add(listener);
+        return () => this.connectListeners.delete(listener);
+      },
       stop: async (reason = 'shutdown') => {
         // Abort the in-flight turn FIRST so the model loop stops generating
         // tokens / executing side-effecting tools the moment the operator
@@ -238,10 +297,6 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     return this.handle;
   }
 
-  beginPairingWindow(): void {
-    this.pairing.beginWindow();
-  }
-
   pairingPhase(): ReturnType<PairingHandler['phase']> {
     return this.pairing.phase();
   }
@@ -250,12 +305,13 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     this.pairing.unpair();
   }
 
-  onPairingIssued(listener: (e: PairingIssuedEvent) => void): () => void {
-    return this.pairing.onIssued(listener);
-  }
-
-  async confirmPairingCode(rawInput: string): Promise<PairingConfirmResult> {
-    return this.pairing.confirmCode(rawInput);
+  /**
+   * Subscribe to "a chat just paired" — fires once when the host-issued QR
+   * pairing completes. The `moxxy channels telegram pair` command uses this to
+   * print success and stop waiting; returns an unsubscribe function.
+   */
+  onPaired(listener: (chatId: number) => void): () => void {
+    return this.pairing.onPaired(listener);
   }
 
   private handleVoice(ctx: Context, token: string): Promise<void> {
@@ -307,8 +363,26 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
           this.yolo = value;
         },
         runUserTurn: (c, chatId, text) => this.runUserTurn(c, chatId, text),
+        tryHostPair: (chatId, text) => this.tryHostPair(ctx, chatId, text),
       },
     );
+  }
+
+  /**
+   * Plain-message fallback for host-issued pairing: if a host window is open and
+   * an unauthorized chat sends exactly the 6-digit code, pair it (covers clients
+   * that don't auto-deliver the `?start=` deep-link payload). Returns true when
+   * the message was a pairing attempt we handled (paired, or a wrong-code reply)
+   * so the caller doesn't also emit the generic "not paired" rejection.
+   */
+  private async tryHostPair(ctx: Context, chatId: number, text: string): Promise<boolean> {
+    if (this.pairing.phase() !== 'awaiting-host-code') return false;
+    const normalized = text.replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(normalized)) return false;
+    const result = await this.pairing.confirmChatCode(chatId, normalized);
+    if (result.ok) return true; // confirmChatCode greeted + fired onPaired
+    await ctx.reply(result.message);
+    return true;
   }
 
   /**

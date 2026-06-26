@@ -75,13 +75,15 @@ const makeHarness = (over: Partial<TextHandlerState> = {}): Harness => {
     permissionResolver: { abortAll: vi.fn() } as never,
     framePump: { resetRenderer: vi.fn() } as never,
   };
+  const tryHostPair = vi.fn(async () => false);
   const cb: TextHandlerCallbacks = {
     setAwaitingApprovalText,
     toggleYolo: () => false,
     setYolo: () => undefined,
     runUserTurn,
+    tryHostPair,
   };
-  return { state, deps, cb, runUserTurn, resolvePendingWithText, setAwaitingApprovalText };
+  return { state, deps, cb, runUserTurn, resolvePendingWithText, setAwaitingApprovalText, tryHostPair };
 };
 
 describe('handleTextMessage — authorization gate', () => {
