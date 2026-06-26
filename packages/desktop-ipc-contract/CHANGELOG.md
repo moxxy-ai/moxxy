@@ -1,5 +1,58 @@
 # @moxxy/desktop-ipc-contract
 
+## 0.13.0
+
+### Minor Changes
+
+- f980349: Run Slack & Telegram channels from the desktop, each on its own dedicated runner.
+
+  - **Apps → Channels** (new sub-tab): per channel, enter its secrets (stored in
+    the vault), Start/Stop its dedicated-runner subprocess, and — for Slack — copy
+    the public Request URL to paste into the Slack app once its proxy tunnel opens.
+    The channel runs as a separate isolated session, so its conversation is
+    intentionally not shown in the workspace sidebar; the panel manages the runner.
+  - New IPC: `channels.list` / `channels.saveConfig` / `channels.start` /
+    `channels.stop` + a `channels.status` event (host-only — NOT remote-reachable).
+    A `ChannelSupervisor` in `@moxxy/desktop-host` spawns `moxxy <channel>` with
+    `MOXXY_DEDICATED_RUNNER=1`, supervises it, and reads the channel's status file
+    for the Request URL. Secrets are written to the same in-process vault the runner
+    reads, keyed by the names each channel plugin uses (a small static catalog).
+  - A dedicated channel runner now publishes a tiny status file
+    (`~/.moxxy/channel-<name>.status.json`) with its pid + public ingest URL while
+    running, removed on shutdown — so a supervisor can observe it without the runner
+    protocol. New `@moxxy/sdk/server` helpers (`writeChannelStatus` /
+    `readChannelStatus` / `clearChannelStatus`) + an optional `Channel.requestUrl`
+    getter back this.
+
+### Patch Changes
+
+- 48542df: Make "runs on a dedicated runner" a property a channel declares, and give
+  Telegram the same dedicated-runner treatment as Slack.
+
+  - `ChannelDef` gains optional `dedicatedRunner?: boolean` and
+    `sessionSource?: SessionSource`. A channel now declares for itself that it
+    should run on its own isolated runner (a distinct runner socket plus a sticky
+    session, separate from the runner serving your desktop/TUI). The CLI reads
+    this generically — there's no longer a hardcoded `name === 'slack'` check.
+    `--dedicated` / `MOXXY_DEDICATED_RUNNER=1` remain runtime opt-ins, and a
+    caller that already pinned the socket/session id/source (e.g. a supervisor)
+    still wins.
+  - `@moxxy/plugin-telegram` now declares `dedicatedRunner: true` +
+    `sessionSource: 'telegram'`, so the Telegram bot runs on its own dedicated,
+    isolated runner with persistent history (`moxxy-channel-telegram`), matching
+    Slack. Telegram long-polls, so this needs no tunnel/webhook.
+  - `@moxxy/plugin-channel-slack` now declares its dedicated-runner behavior
+    explicitly (previously implicit in the CLI). No behavior change.
+  - `SessionSource` gains `'telegram'`. `DeskSession.source` in
+    `@moxxy/desktop-ipc-contract` now references the single `SessionSource` source
+    of truth in `@moxxy/sdk` instead of a hand-copied union.
+
+- Updated dependencies [48542df]
+- Updated dependencies [f980349]
+- Updated dependencies [1dc1697]
+- Updated dependencies [069cd0e]
+  - @moxxy/sdk@0.22.0
+
 ## 0.12.3
 
 ### Patch Changes

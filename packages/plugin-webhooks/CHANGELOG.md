@@ -1,5 +1,16 @@
 # @moxxy/plugin-webhooks
 
+## 0.2.4
+
+### Patch Changes
+
+- Updated dependencies [48542df]
+- Updated dependencies [f980349]
+- Updated dependencies [1dc1697]
+- Updated dependencies [069cd0e]
+  - @moxxy/sdk@0.22.0
+  - @moxxy/plugin-tunnel-proxy@0.1.8
+
 ## 0.2.3
 
 ### Patch Changes

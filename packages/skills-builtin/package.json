@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/skills-builtin",
   "private": true,
-  "version": "0.0.33",
+  "version": "0.0.34",
   "description": "Skills bundled with moxxy.",
   "type": "module",
   "main": "./dist/index.js",
