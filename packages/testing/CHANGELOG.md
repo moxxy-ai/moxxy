@@ -1,5 +1,13 @@
 # @moxxy/testing
 
+## 0.0.40
+
+### Patch Changes
+
+- Updated dependencies [aec6e0e]
+  - @moxxy/sdk@0.23.0
+  - @moxxy/core@0.23.0
+
 ## 0.0.39
 
 ### Patch Changes
