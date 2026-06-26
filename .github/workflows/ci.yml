@@ -1,17 +1,17 @@
 name: CI
 
 # Branch model: `development` is the integration branch — every feature PR
-# targets it and must be green here. `main` is the production branch, updated
-# ONLY by a `development → main` release PR.
+# targets it and must be green here. `main` is the production branch,
+# MACHINE-ADVANCED by `release.yml` (a `git commit-tree` copy of development),
+# never via a human PR.
 #
-# Triggers are deliberately NON-overlapping to avoid double runs: `pull_request`
-# covers every PR (feature → development AND release development → main), and
-# `push` covers ONLY `main` (post-release validation of the merged result).
-# `development` is intentionally NOT in `push` — it would double every commit
-# (one push run + one pull_request run from the open dev→main PR), and direct
-# pushes to development are `[skip ci]` bot commits (prepare-release, sync-back).
-# The changeset gate applies only to feature PRs (→ development); a dev→main
-# release PR carries no NEW changeset.
+# Triggers: `pull_request` covers feature PRs (→ development). `push` covers
+# `main`, but release commits are `Release: v… [skip ci]`, so post-release pushes
+# self-skip — this trigger only fires if `main` is ever pushed some other way.
+# `development` is intentionally NOT in `push`: direct pushes to it are the
+# release workflow's `[skip ci]` bot commits (the version bump + any tombstone
+# bumps), and feature work arrives via `pull_request` runs. The changeset gate
+# applies only to feature PRs (→ development).
 on:
   push:
     branches: [main]
@@ -35,9 +35,8 @@ jobs:
     name: Changeset present
     runs-on: ubuntu-latest
     # Only PRs have a base branch to diff against, and only FEATURE PRs (those
-    # targeting `development`) must add one. A `development → main` release PR
-    # carries the already-merged changesets, not new ones, so it's exempt — as
-    # is the push-to-branch merge result.
+    # targeting `development`) must add one. `main` is machine-advanced by the
+    # release workflow (no PR), so nothing else reaches this gate.
     if: github.event_name == 'pull_request' && github.base_ref == 'development'
     steps:
       - uses: actions/checkout@v4

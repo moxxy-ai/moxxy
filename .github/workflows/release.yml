@@ -1,65 +1,73 @@
 name: Release
 
-# Production publish pipeline. PUBLISH-ONLY — versioning lives on `development`.
+# Single, self-contained release pipeline. Runs on `development` (daily cron +
+# on-demand dispatch) and does EVERYTHING in one run: version → advance `main` →
+# publish to npm → cut the desktop. There is NO `development → main` PR, NO
+# `push: main` trigger, and NO sync-back — so there is nothing to merge (hence no
+# conflicts) and no second workflow that has to fire.
 #
-# Branch model: feature PRs land on `development` (each carrying a changeset);
-# `main` is production. VERSIONING happens on development via prepare-release.yml
-# (daily/on-demand `changeset version`, batching the day's changesets into one
-# bump) which then opens the `development → main` PR. Merging that PR — or running
-# this workflow via `workflow_dispatch` — ends as a push to `main`, which triggers
-# everything below.
+# WHY THIS SHAPE (the conflict post-mortem): the previous design squash-merged a
+# `development → main` PR and relied on a separate `sync-back.yml` (on `push:
+# main`) to repair the ancestry a squash breaks. That sync-back NEVER fired —
+# GitHub does not start workflows for `GITHUB_TOKEN` pushes, and `main`'s tip is
+# moved by tokened pushes — so `main` drifted out of `development`'s ancestry and
+# the next `development → main` 3-way-conflicted on version/changelog files, every
+# time. This workflow deletes the entire failure class: conflict-freedom is now a
+# property of git's object model, not of a workflow remembering to run.
 #
-# main NEVER runs `changeset version` (no `version` input on the changesets action
-# below). Because main never edits version files, it is always an ancestor of
-# development on those files → `development → main` is conflict-free by
-# construction. On push to main this job simply PUBLISHES every non-private
-# workspace package whose version is not yet on npm (the bumps already landed via
-# the merge), then cuts the desktop release when its version changed.
+# HOW `main` IS ADVANCED (cannot conflict): the "Advance main" step builds a new
+# commit with `git commit-tree` whose TREE is exactly development's and whose sole
+# PARENT is the current `origin/main`, then fast-forwards `main` to it. That is a
+# pure tree COPY, not a merge — no merge-base, no 3-way, no hunks to reconcile —
+# so it is physically incapable of conflicting, no matter how the two histories
+# relate. `main` becomes a clean, linear list of `Release: v…` commits (one per
+# release; `git log --first-parent main` is the release story).
 #
-# The desktop rides the same rails. `@moxxy/desktop` is private (npm never
-# touches it) but it is NOT in `.changeset` ignore, so changesets versions it
-# like any other package — directly when a changeset names it, or via
+# DESKTOP rides the same rails. `@moxxy/desktop` is private (npm never touches it)
+# but it is NOT in `.changeset` ignore, so changesets versions it like any other
+# package — directly when a changeset names it, or via
 # `updateInternalDependencies: patch` when a dependency it declares (e.g.
-# @moxxy/cli, @moxxy/sdk) is released. So "release the desktop when it changes"
-# is just "include it in a changeset" — no bespoke change detection.
+# @moxxy/cli, @moxxy/sdk) is released. "Release the desktop when it changes" is
+# just "include it in a changeset" — no bespoke change detection. The `cut` step
+# decides the release (version + pinned sha) and flips a job output; the
+# `desktop-build` matrix builds installers from that sha in the SAME run, and only
+# AFTER every leg succeeds does `desktop-release` push the `desktop-v<version>`
+# tag + create the (draft) GitHub Release (tag-after-build — a failed build never
+# burns the version).
 #
-# When the merged Version PR bumped the desktop, the `version-publish` job's
-# "cut" step decides the release (version + pinned commit sha) and flips a job
-# output; the `desktop-build` matrix builds the installers from that sha in the
-# SAME run, and only AFTER every build leg succeeds does `desktop-release` push
-# the `desktop-v<version>` tag + create the (draft) GitHub Release. Tag-last
-# ordering means a failed installer build leaves NO tag behind, so the version
-# isn't burned — the next run's cut step sees no tag and re-releases it. No
-# cross-workflow dispatch, no auto-opened PR.
-#
-# Mode 2 runs through `scripts/safe-publish.mjs` rather than `changesets
-# publish`. That wrapper skips packages already on the registry, auto-bumps
-# past tombstoned versions (committing those bumps back to main), and emits the
-# `🦋  New tag: ...` markers `changesets/action` greps for so GitHub releases
-# are still created automatically.
+# Publishing runs through `scripts/safe-publish.mjs` (not `changesets publish`):
+# it skips packages already on the registry, auto-bumps past tombstoned versions
+# (committing those bumps to `development`, the checked-out branch), and emits the
+# `🦋  New tag: ...` markers `changesets/action` greps for so per-package GitHub
+# releases are still created automatically. It is idempotent, so a catch-up run /
+# re-run is always safe.
 #
 # Required repo secret:
 #   - NPM_TOKEN: npm automation token with publish rights for the @moxxy scope.
 # GITHUB_TOKEN is provided automatically.
 on:
-  push:
-    branches: [main]
-  # Manual on-demand release (e.g. to re-run a publish, or to release without a
-  # dev→main merge). Same job, same changesets-driven modes.
-  workflow_dispatch:
+  schedule:
+    # 06:00 UTC daily — at most one release per day. Land as many
+    # changeset-carrying PRs on `development` during the day as you like; they
+    # accumulate and batch into the single daily `changeset version` bump.
+    # (Drop this `schedule:` and keep only `workflow_dispatch` to make releases
+    # manual-trigger-only — the mechanism is identical either way.)
+    - cron: '0 6 * * *'
+  # On-demand release: cut one off-schedule, or re-run a publish. Same job.
+  workflow_dispatch: {}
 
 # Serialise releases. We do not cancel in flight because cancelling a
 # publish midway can leave one package on the registry and another not.
 concurrency: release
 
 permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+  contents: write        # push development (version bump), main (release commit), tags
+  pull-requests: write   # changesets/action initialises with it (publish-only here)
+  id-token: write        # npm provenance
 
 jobs:
   version-publish:
-    name: Version / publish
+    name: Version / publish / advance main
     runs-on: ubuntu-latest
     outputs:
       desktop-release: ${{ steps.cut.outputs.release }}
@@ -68,9 +76,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The safe-publish script may commit follow-up version bumps when
-          # it walks past tombstoned npm slots. Fetch enough history that
-          # the resulting `git push` is a fast-forward.
+          # Versioning + publishing live on `development`; `main` is advanced from
+          # it below. fetch-depth 0 so the version-bump and tombstone-bump pushes
+          # are fast-forwards and `commit-tree` can read `origin/main`.
+          ref: development
           fetch-depth: 0
 
       - name: Install pnpm
@@ -94,12 +103,35 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # PUBLISH-ONLY. `main` never runs `changeset version` — versioning happens
-      # on `development` (prepare-release.yml), so changesets are already consumed
-      # by the time `development → main` merges. Omitting the `version` input means
-      # this never opens a "Version Packages" PR on main, so main never edits
-      # version files → `development → main` is conflict-free by construction.
-      # `hasChangesets` is still emitted (false on main) and gates the desktop cut.
+      # 1. VERSION — batch the day's accumulated changesets into ONE bump,
+      # committed to `development`. Skipped (no-op) when nothing is pending, so a
+      # catch-up / re-run still advances main + publishes below. `[skip ci]`: the
+      # gate already ran on every PR that landed each changeset; the bump itself is
+      # mechanical (package versions + CHANGELOGs).
+      - name: Version development (if changesets pending)
+        id: version
+        run: |
+          set -euo pipefail
+          pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')"
+          if [ "$pending" = "0" ]; then
+            echo "No pending changesets — nothing to version."
+            exit 0
+          fi
+          echo "Versioning $pending pending changeset(s) into one bump."
+          pnpm dlx @changesets/cli@2.27.10 version
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: version packages [skip ci]"
+          git push origin HEAD:development
+
+      # 2. PUBLISH — publish every non-private package whose version is not yet on
+      # npm. Idempotent: skips already-published versions and auto-bumps past
+      # tombstoned slots (committing those bumps to `development`, the checked-out
+      # branch). We versioned above, so there are no pending changesets here →
+      # `changesets/action` goes straight to publish and emits `hasChangesets=false`
+      # (the desktop-cut gate). It still parses safe-publish's `🦋 New tag:` lines
+      # to create the per-package GitHub releases.
       - name: Publish to npm
         id: changesets
         uses: changesets/action@v1
@@ -110,29 +142,44 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # Decide whether to cut a desktop release. The desktop version COMMITTED on
-      # main is the source of truth: if there is no `desktop-v<version>` tag yet,
-      # this bump hasn't been released. This step only DECIDES (version + the
-      # pinned commit sha the desktop jobs must build); the tag itself is pushed
-      # by the `desktop-release` job AFTER every installer build succeeds — see
-      # the ORDERING INVARIANT there. Pushing the tag here (the old behaviour)
-      # permanently burned the version whenever a desktop build failed: this
-      # guard would then see the existing tag and refuse to ever re-release it.
-      # The desktop jobs below are gated by the `release` output and check out
-      # the `sha` output, NOT the tag — so nothing downstream needs the tag to
-      # exist yet, and there's still no cross-workflow dispatch to coax past
-      # GitHub's "GITHUB_TOKEN tag pushes don't start runs" guard.
+      # 3. ADVANCE main — make `main` exactly development's content as ONE clean
+      # `Release: v…` commit. This is a tree COPY, not a merge: `commit-tree` builds
+      # a commit whose tree is development's HEAD tree and whose only parent is
+      # `origin/main`, then we fast-forward `main` to it. No merge-base, no 3-way,
+      # no hunks → it CANNOT conflict, regardless of how the two histories relate.
+      # Runs AFTER publish so `main` reflects any tombstone bumps safe-publish
+      # pushed to development. Skipped when main already equals development (no
+      # empty commit). The push uses GITHUB_TOKEN + `[skip ci]` and intentionally
+      # triggers nothing — everything already ran in this same workflow run.
+      - name: Advance main to development (clean release commit)
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          devtree="$(git rev-parse 'HEAD^{tree}')"
+          if [ "$devtree" = "$(git rev-parse 'origin/main^{tree}')" ]; then
+            echo "main already equals development — nothing to release."
+            exit 0
+          fi
+          ver="$(node -p "require('./packages/cli/package.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          newmain="$(git commit-tree "$devtree" -p origin/main -m "Release: v$ver [skip ci]")"
+          git push origin "$newmain:main"
+          echo "Advanced main to $newmain (Release: v$ver)."
+
+      # 4. CUT desktop — decide whether to release the desktop. The desktop version
+      # in the working tree (== development == main's new tree) is the source of
+      # truth: if there is no `desktop-v<version>` tag yet, this bump hasn't been
+      # released. This step only DECIDES (version + the pinned commit sha the
+      # desktop jobs build); the tag is pushed by `desktop-release` AFTER every
+      # installer leg succeeds (the ORDERING INVARIANT there). The desktop jobs are
+      # gated by the `release` output and check out the `sha` output, NOT the tag.
       #
-      # GUARD (`hasChangesets == 'false'`): only run on a publish run, never on a
-      # mode-1 run that just opened/updated the Version PR. In mode 1 the `version`
-      # command above has ALREADY bumped apps/desktop/package.json IN THE WORKING
-      # TREE to the next, still-unreleased version — reading it here would tag
-      # `desktop-v<next>` prematurely while the desktop-build job (which checks out
-      # the un-bumped commit) ships lower-versioned artifacts under that tag. That
-      # is exactly how desktop-v0.0.17 ended up carrying 0.0.16 builds (and a
-      # missing moxxy-app-bundle-0.0.17.json.gz → updater 404). When
-      # `hasChangesets == 'false'` the Version PR has merged (or there was nothing
-      # to version): the working tree equals main HEAD, so the version is real.
+      # GUARD (`hasChangesets == 'false'`): always true here — we consumed the
+      # changesets in step 1 before `changesets/action` ran. Kept as the assertion
+      # that the working tree is a settled version, never a mid-bump tree (the
+      # desktop-v0.0.17 incident: tagging `desktop-v<next>` while the build legs
+      # shipped lower-versioned artifacts under it).
       - name: Cut desktop release on version bump
         id: cut
         if: steps.changesets.outputs.hasChangesets == 'false'
@@ -149,9 +196,10 @@ jobs:
           echo "release=true" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # Pin the exact commit the desktop jobs build and the eventual tag
-          # points at. HEAD here includes any follow-up bumps safe-publish
-          # committed (it pushes them to main before we get here), so artifact
-          # versions and the tag can never diverge (PR #85's invariant).
+          # points at. HEAD here (development) includes any tombstone bumps
+          # safe-publish committed to development before we get here, so artifact
+          # versions and the tag can never diverge (PR #85's invariant). It is the
+          # same tree we just copied onto main.
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # ── Desktop installers ─────────────────────────────────────────────────────
