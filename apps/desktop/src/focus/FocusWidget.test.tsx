@@ -23,8 +23,10 @@ import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/re
 import { __setApiOverride } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import type { AskRequest } from '@moxxy/desktop-ipc-contract';
+import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
 import { FocusWidget } from './FocusWidget';
+import { __resetThemeForTests } from '@/lib/useTheme';
+import { style as focusStyle } from './focus-styles';
 
 interface IpcSpy {
   invokes: Array<{ channel: string; args: unknown }>;
@@ -34,6 +36,7 @@ interface IpcSpy {
 interface FakeApiOptions {
   readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
   readonly hasTranscriber?: boolean;
+  readonly theme?: ThemePreference;
 }
 
 function event(
@@ -68,6 +71,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const subs = new Map<string, Set<(payload: unknown) => void>>();
   const historyEvents = options.historyEvents ?? [];
   const hasTranscriber = options.hasTranscriber ?? true;
+  const theme = options.theme ?? 'system';
 
   __setApiOverride({
     invoke: ((channel: string, args: unknown) => {
@@ -112,6 +116,12 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       if (channel === 'session.hasTranscriber') {
         return Promise.resolve(hasTranscriber);
       }
+      if (channel === 'prefs.read') {
+        return Promise.resolve({ theme });
+      }
+      if (channel === 'prefs.update') {
+        return Promise.resolve({ theme: (args as { theme?: ThemePreference }).theme ?? theme });
+      }
       return Promise.resolve(undefined);
     }) as never,
     subscribe: ((channel: string, cb: (payload: unknown) => void) => {
@@ -137,6 +147,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
 }
 
 beforeEach(() => {
+  __resetThemeForTests();
   // Each test gets a fresh workspace chat so latest-line / sending
   // states don't bleed across cases.
   chatStore.drop('ws-test');
@@ -147,7 +158,11 @@ afterEach(() => {
   for (const ask of askStore.getAll()) askStore.resolve(ask.requestId);
   cleanup();
   __setApiOverride(null);
+  __resetThemeForTests();
 });
+
+const themeAttr = (): string | undefined => document.documentElement.dataset.theme;
+const focusCss = (): string => document.getElementById('focus-keyframes')?.textContent ?? '';
 
 describe('FocusWidget stages', () => {
   it('renders the inactive square with a visible activate button', () => {
@@ -155,6 +170,41 @@ describe('FocusWidget stages', () => {
     render(<FocusWidget />);
     const button = screen.getByRole('button', { name: /click to expand/i });
     expect(button).toBeTruthy();
+  });
+
+  it('renders the inactive square without native button chrome', () => {
+    installFakeApi({ theme: 'dark' });
+    render(<FocusWidget />);
+
+    const button = screen.getByRole('button', { name: /click to expand/i });
+    expect(button.getAttribute('style')).toContain('appearance: none');
+    expect(focusStyle.inactiveButton).toMatchObject({
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      outline: 'none',
+    });
+  });
+
+  it('keeps the collapsed window tight to the inactive square', async () => {
+    const spy = installFakeApi({ theme: 'dark' });
+    render(<FocusWidget />);
+
+    await waitFor(() => {
+      const resize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width?: number; height?: number }).width === 44 &&
+          (i.args as { width?: number; height?: number }).height === 44,
+      );
+      expect(resize).toBeTruthy();
+    });
+
+    const button = screen.getByRole('button', { name: /click to expand/i });
+    expect(button.getAttribute('style')).toContain('width: 44px');
+    expect(button.getAttribute('style')).toContain('height: 44px');
+    expect(focusStyle.inactiveRoot).toMatchObject({
+      background: 'var(--focus-panel-bg)',
+    });
   });
 
   it('inactive → active fires focus.resize and shows the action row', async () => {
@@ -280,6 +330,60 @@ describe('FocusWidget stages', () => {
     });
     expect(spy.invokes.some((i) => i.channel === 'focus.moveBy')).toBe(false);
     expect(screen.queryByRole('button', { name: /^text$/i })).toBeNull();
+  });
+});
+
+describe('FocusWidget theme', () => {
+  it('mirrors the persisted desktop dark theme onto the focus document', async () => {
+    installFakeApi({ theme: 'dark' });
+    render(<FocusWidget />);
+
+    await waitFor(() => expect(themeAttr()).toBe('dark'));
+  });
+
+  it('styles the preview bubble and mini-text controls through focus theme variables', async () => {
+    const spy = installFakeApi({ theme: 'light' });
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-themed-preview',
+        seq: 25,
+        ts: 25,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-themed-preview',
+        delta: 'theme-aware preview reply',
+      } as MoxxyEvent,
+    });
+
+    const previewButton = await screen.findByRole('button', {
+      name: /open latest reply/i,
+    });
+    expect(previewButton.getAttribute('style')).toContain(
+      'background: var(--focus-preview-bg)',
+    );
+    expect(previewButton.getAttribute('style')).toContain(
+      'color: var(--focus-preview-text)',
+    );
+
+    fireEvent.click(previewButton);
+
+    const input = await screen.findByPlaceholderText(
+      /ask moxxy|no active workspace/i,
+    );
+    expect(input.getAttribute('style')).toContain('background: var(--focus-input-bg)');
+    expect(input.getAttribute('style')).toContain('color: var(--focus-text)');
+  });
+
+  it('injects a local dark-token block for the standalone focus bundle', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    expect(focusCss()).toContain('[data-theme="dark"]');
+    expect(focusCss()).toContain('--focus-panel-bg: #161823');
+    expect(focusCss()).toContain('--focus-preview-bg: rgba(22, 24, 35, 0.96)');
   });
 });
 
@@ -504,6 +608,7 @@ describe('FocusWidget bidirectional sync', () => {
     });
     expect(previewButton.textContent).toContain('Finalny fragment do przewijania');
     expect(previewButton.textContent?.endsWith('...')).toBe(false);
+    expect(previewButton.getAttribute('style')).toContain('max-height: 84px');
     expect(previewButton.getAttribute('style')).toContain('overflow-y: auto');
   });
 

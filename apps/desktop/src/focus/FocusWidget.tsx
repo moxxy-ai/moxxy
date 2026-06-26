@@ -3,7 +3,7 @@
  *
  * Stages:
  *
- *   inactive    44×44   logo only. Click → ACTIVE.
+ *   inactive    44×44   logo tile. Click → ACTIVE.
  *
  *   active     232×56   logo + voice + text + restore-main + close.
  *                       Mic button starts an in-place recording overlay
@@ -33,6 +33,7 @@ import { ConnectionBridge, useActiveWorkspaceId } from '@moxxy/client-core';
 import { Inactive } from './Inactive';
 import { Active } from './Active';
 import { MiniText } from './MiniText';
+import { useTheme } from '@/lib/useTheme';
 import { useFocusTileGesture, type FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import { useInactiveReplyPreview } from './useInactiveReplyPreview';
 import { useFocusAsk } from './useFocusAsk';
@@ -63,6 +64,7 @@ const SIZE: Record<Stage, { width: number; height: number }> = {
 // ---- Top-level wrapper ---------------------------------------------------
 
 export function FocusWidget(): JSX.Element {
+  useTheme();
   const workspaceId = useActiveWorkspaceId();
   return (
     <>

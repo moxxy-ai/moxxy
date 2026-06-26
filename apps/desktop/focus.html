@@ -43,6 +43,17 @@
         border-radius: 12px;
         -webkit-app-region: drag;
       }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body,
+        #root {
+          color: #e8eaf6;
+        }
+        #boot-fallback {
+          background: rgba(22, 24, 35, 0.96);
+          border: 1px solid rgba(148, 163, 184, 0.22);
+        }
+      }
     </style>
   </head>
   <body>

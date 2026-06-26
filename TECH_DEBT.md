@@ -16,6 +16,11 @@ or recorded-on-purpose decision.
 - [low, ux, RESOLVED 2026-06-25] `SkillGallery` now uses the shared
   `<SearchBox />` primitive and has regression tests for filtering by name and
   description. `apps/desktop/src/settings/skills/SkillGallery.tsx`.
+- [low, ux, RESOLVED 2026-06-26] Focus Mode's collapsed dark tile no longer
+  exposes the white Electron webContents background at anti-aliased corners; the
+  native focus window is shaped and the tile paints theme-aware backing color.
+  `packages/desktop-host/src/focus-window.ts`,
+  `apps/desktop/src/focus/focus-styles.ts`.
 
 ## Standing practices
 

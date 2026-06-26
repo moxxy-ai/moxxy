@@ -1,6 +1,6 @@
 /**
- * Stage 1: inactive — the 44×44 logo-only square. Clicking it expands
- * the widget to the active stage.
+ * Stage 1: inactive — a 44×44 logo-only square inside a tiny transparent
+ * window gutter. Clicking it expands the widget to the active stage.
  */
 
 import { LogoMark, ReplyPreviewButton } from './focus-primitives';

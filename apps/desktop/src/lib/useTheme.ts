@@ -10,8 +10,8 @@
  * `useTheme()` mount in App and the Appearance settings tab share state —
  * picking a theme in settings applies instantly without a prefs re-fetch.
  *
- * NOTE: the focus widget (src/focus/**) deliberately does NOT mount this —
- * it's an always-on-top vibrancy window that stays light by design.
+ * Focus mode mounts this controller too. It keeps its own standalone CSS
+ * variables, but uses the same `<html data-theme>` switch as the main app.
  */
 
 import { useEffect, useSyncExternalStore } from 'react';
