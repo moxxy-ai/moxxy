@@ -76,11 +76,11 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
       ],
       hasWebhookUrl: false,
       runHint:
-        'Message your bot on Telegram, then send the pairing code it replies with to authorize your chat.',
+        'Scan the QR (or open the link) and tap START in Telegram to pair your chat — no code to type.',
       connect: {
         kind: 'qr',
         title: 'Connect your Telegram',
-        hint: 'Scan the code, or open the link, and send /start to your bot — then send the pairing code it replies with.',
+        hint: 'Scan the QR with your phone (or tap Open in Telegram), then press START — your chat pairs automatically.',
         openable: true,
         openLabel: 'Open in Telegram',
       },

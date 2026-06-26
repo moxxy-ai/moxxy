@@ -1,8 +1,8 @@
 {
   "name": "@moxxy/plugin-telegram",
   "private": true,
-  "version": "0.1.1",
-  "description": "Telegram channel for moxxy via grammy. Treats Telegram chats as a bidirectional channel: prompts in, assistant + tool prompts out, inline-keyboard permission flow, TOFU + code-pairing authorization.",
+  "version": "0.1.2",
+  "description": "Telegram channel for moxxy via grammy. Treats Telegram chats as a bidirectional channel: prompts in, assistant + tool prompts out, inline-keyboard permission flow, QR deep-link chat pairing.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -41,12 +41,14 @@
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
     "@moxxy/sdk": "workspace:*",
-    "grammy": "^1.30.0"
+    "grammy": "^1.30.0",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
+    "@types/qrcode": "^1.5.5",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

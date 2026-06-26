@@ -31,6 +31,10 @@ export interface TextHandlerCallbacks {
   readonly toggleYolo: () => boolean;
   readonly setYolo: (value: boolean) => void;
   readonly runUserTurn: (ctx: Context, chatId: number, text: string) => Promise<void>;
+  /** Host-issued pairing fallback: try to pair an unauthorized chat whose message
+   *  is the 6-digit code. Returns true when handled (so we skip the generic
+   *  "not paired" reply). See {@link TelegramChannel.tryHostPair}. */
+  readonly tryHostPair: (chatId: number, text: string) => Promise<boolean>;
 }
 
 /**
@@ -49,6 +53,9 @@ export async function handleTextMessage(
   if (!chatId || !text) return;
 
   if (!deps.pairing.isAuthorized(chatId)) {
+    // Host-issued pairing: a bare 6-digit message from an unpaired chat may be
+    // the code presented back to us. If so, pair and stop here.
+    if (await cb.tryHostPair(chatId, text)) return;
     await ctx.reply(
       'This bot is paired with a different chat (or not paired yet). Run `moxxy telegram pair` to (re-)pair.',
     );

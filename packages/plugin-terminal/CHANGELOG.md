@@ -1,5 +1,12 @@
 # @moxxy/plugin-terminal
 
+## 0.0.23
+
+### Patch Changes
+
+- Updated dependencies [f71c8bd]
+  - @moxxy/sdk@0.24.0
+
 ## 0.0.22
 
 ### Patch Changes

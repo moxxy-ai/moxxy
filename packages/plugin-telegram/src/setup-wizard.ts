@@ -46,9 +46,10 @@ type Action = 'set-token' | 'pair' | 'unpair' | 'start' | 'quit';
  *   - token, not paired   -> "Pair this terminal" + "Change token" + "Quit"
  *   - token + paired      -> "Start bot" + "Unpair" + "Change token" + "Quit"
  *
- * Pairing is driven by the wizard end-to-end: the wizard opens a pair
- * window, the bot waits for /start, on /start it DMs a 6-digit code to
- * the user, and the user pastes the code back into this wizard.
+ * Pairing is driven by the wizard end-to-end via the host-issued QR flow: the
+ * wizard opens a pair window, prints a `t.me/<bot>?start=<code>` QR, and the user
+ * scans it (or opens the link) and taps START to pair — the same mechanism the
+ * desktop Channels panel uses.
  */
 export async function runTelegramWizard(ctx: ChannelSubcommandContext): Promise<number> {
   const vault = ctx.deps.vault as VaultStore;
@@ -135,7 +136,7 @@ async function pickAction(state: State): Promise<Action | null> {
     options.push({
       value: 'pair',
       label: 'Pair a Telegram chat',
-      hint: 'bot sends you a code in chat; paste it here',
+      hint: 'scan a QR (or open the link) and tap START in Telegram',
     });
   }
   options.push({

@@ -17,16 +17,16 @@ export { TelegramPermissionResolver, type PendingPermission } from './permission
 export { TelegramApprovalResolver, type PendingApproval } from './approval.js';
 export {
   createPairingState,
-  beginPairing,
+  beginHostIssuedPairing,
   handleStart,
-  submitTerminalCode,
+  submitChatCode,
   isAuthorized,
   clearPairing,
   type PairingPhase,
   type PairingState,
   type PairingDecision,
 } from './pairing.js';
-export type { PairingIssuedEvent, PairingConfirmResult } from './channel.js';
+export type { PairingConfirmResult } from './channel.js';
 export { TurnRenderer, splitForTelegram } from './render.js';
 export { markdownToTelegramHtml } from './format.js';
 
@@ -78,7 +78,7 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
     channels: [
       defineChannel({
         name: 'telegram',
-        description: 'Telegram bot channel via grammy. TOFU + code-pairing authorization.',
+        description: 'Telegram bot channel via grammy. QR deep-link chat pairing.',
         // Like Slack, run on a dedicated, isolated runner (separate socket +
         // sticky session) so the bot keeps its own persistent history apart from
         // the user's desktop/TUI work. Telegram long-polls (no tunnel needed).
@@ -100,11 +100,11 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
           ],
           hasRequestUrl: false,
           runHint:
-            'Message your bot on Telegram, then send the pairing code it replies with to authorize your chat.',
+            'Scan the QR (or open the link) and tap START in Telegram to pair your chat — no code to type.',
           connect: {
             kind: 'qr',
             title: 'Connect your Telegram',
-            hint: 'Scan the code, or open the link, and send /start to your bot — then send the pairing code it replies with.',
+            hint: 'Scan the QR with your phone (or tap Open in Telegram), then press START — your chat pairs automatically.',
             openable: true,
             openLabel: 'Open in Telegram',
           },
@@ -153,16 +153,16 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
           },
           pair: {
             description:
-              'Open a pairing window. Send /start to your bot in Telegram; it will DM a 6-digit code to paste back in the terminal.',
+              'Open a pairing window and print a QR. Scan it (or open the link) and tap START in Telegram to pair your chat — the same mechanism the desktop uses.',
             run: async (ctx) => {
-              // Pairing requires an interactive terminal - the user
-              // must paste the bot-issued code into a prompt. In a
-              // headless invocation we bail with a clear message
-              // instead of silently starting a bot that nobody can
-              // confirm.
+              // Pairing renders a QR for the user to scan, so it needs an
+              // interactive terminal. In a headless invocation we bail with a
+              // clear message instead of starting a bot nobody can pair. (The
+              // desktop Channels panel pairs the same way without a TTY — it
+              // renders the QR in the GUI.)
               if (process.stdin.isTTY !== true) {
                 process.stderr.write(
-                  'Pairing needs a TTY. Run `moxxy telegram` (interactively) on a workstation, then copy the resulting vault to this host.\n',
+                  'Pairing needs a TTY to show the QR. Run `moxxy channels telegram pair` on a workstation, or pair from the desktop Channels panel.\n',
                 );
                 return 1;
               }

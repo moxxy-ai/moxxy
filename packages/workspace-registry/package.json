@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/workspace-registry",
   "private": true,
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "Shared Moxxy workspace and session registry used by CLI, desktop, and mobile surfaces.",
   "type": "module",
   "main": "./dist/index.js",
