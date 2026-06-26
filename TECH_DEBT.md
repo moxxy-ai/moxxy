@@ -11,6 +11,17 @@ scannable summary. Git history holds the full prior journal if you need it.
 Severity tags: `[critical]`/`[high]`/`[med]`/`[low]`, `[note]` = standing practice
 or recorded-on-purpose decision.
 
+## Resolved ledger
+
+- [low, ux, RESOLVED 2026-06-25] `SkillGallery` now uses the shared
+  `<SearchBox />` primitive and has regression tests for filtering by name and
+  description. `apps/desktop/src/settings/skills/SkillGallery.tsx`.
+- [low, ux, RESOLVED 2026-06-26] Focus Mode's collapsed dark tile no longer
+  exposes the white Electron webContents background at anti-aliased corners; the
+  native focus window is shaped and the tile paints theme-aware backing color.
+  `packages/desktop-host/src/focus-window.ts`,
+  `apps/desktop/src/focus/focus-styles.ts`.
+
 ## Standing practices
 
 - **Own debt like a CTO** — read this file before non-trivial work, retire ≥1 item
@@ -260,8 +271,3 @@ or recorded-on-purpose decision.
 - [med] plugin-memory `EmbeddingIndex` stays separate from the SDK
   `CachedEmbeddingProvider` (different keying/bounding/persistence/eviction) — leave
   as-is; revisit only if `EmbeddingIndex` is reworked anyway. `packages/plugin-memory/`.
-
-## Skills gallery
-
-- [low, ux] `SkillGallery` hand-rolls its search input instead of the shared
-  `<SearchBox />` — swap and delete the duplicate. `apps/desktop/src/settings/skills/SkillGallery.tsx`.

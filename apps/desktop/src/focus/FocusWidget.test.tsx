@@ -19,19 +19,64 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
-import { chatStore } from '@moxxy/client-core';
+import { askStore, chatStore } from '@moxxy/client-core';
+import type { MoxxyEvent } from '@moxxy/sdk';
+import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
 import { FocusWidget } from './FocusWidget';
+import { __resetThemeForTests } from '@/lib/useTheme';
+import { style as focusStyle } from './focus-styles';
 
 interface IpcSpy {
   invokes: Array<{ channel: string; args: unknown }>;
   emit: (channel: string, payload: unknown) => void;
 }
 
-function installFakeApi(): IpcSpy {
+interface FakeApiOptions {
+  readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
+  readonly hasTranscriber?: boolean;
+  readonly theme?: ThemePreference;
+}
+
+interface FakeMedia {
+  matches: boolean;
+  fire: () => void;
+}
+
+function event(
+  seq: number,
+  patch: Partial<MoxxyEvent> & { type: MoxxyEvent['type']; turnId?: string },
+): MoxxyEvent {
+  return {
+    id: `e-${seq}`,
+    seq,
+    ts: seq,
+    sessionId: 's-test',
+    turnId: patch.turnId ?? `t-${seq}`,
+    ...patch,
+  } as MoxxyEvent;
+}
+
+function permissionAsk(requestId = 'ask-focus-1'): AskRequest {
+  return {
+    requestId,
+    workspaceId: 'ws-test',
+    kind: 'permission',
+    tool: {
+      name: 'Bash',
+      description: 'Run a shell command',
+      input: { command: 'pnpm build' },
+    },
+  };
+}
+
+function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const invokes: Array<{ channel: string; args: unknown }> = [];
   const subs = new Map<string, Set<(payload: unknown) => void>>();
+  const historyEvents = options.historyEvents ?? [];
+  const hasTranscriber = options.hasTranscriber ?? true;
+  const theme = options.theme ?? 'system';
 
   __setApiOverride({
     invoke: ((channel: string, args: unknown) => {
@@ -52,11 +97,35 @@ function installFakeApi(): IpcSpy {
       if (channel === 'connection.activeWorkspace') {
         return Promise.resolve('ws-test');
       }
+      if (channel === 'chat.loadHistory') {
+        return Promise.resolve({ events: historyEvents, prevCursor: null });
+      }
+      if (channel === 'focus.resize') {
+        return Promise.resolve({ horizontalAnchor: 'right' });
+      }
+      if (channel === 'focus.moveBy') {
+        return Promise.resolve({ horizontalAnchor: 'right' });
+      }
+      if (
+        channel === 'focus.dragStart' ||
+        channel === 'focus.dragMove'
+      ) {
+        return Promise.resolve({ horizontalAnchor: 'right' });
+      }
+      if (channel === 'focus.dragEnd') {
+        return Promise.resolve(undefined);
+      }
       if (channel === 'session.runTurn') {
         return Promise.resolve({ turnId: 't-1' });
       }
       if (channel === 'session.hasTranscriber') {
-        return Promise.resolve(true);
+        return Promise.resolve(hasTranscriber);
+      }
+      if (channel === 'prefs.read') {
+        return Promise.resolve({ theme });
+      }
+      if (channel === 'prefs.update') {
+        return Promise.resolve({ theme: (args as { theme?: ThemePreference }).theme ?? theme });
       }
       return Promise.resolve(undefined);
     }) as never,
@@ -82,15 +151,47 @@ function installFakeApi(): IpcSpy {
   };
 }
 
+function installMatchMedia(initialMatches: boolean): FakeMedia {
+  const listeners = new Set<() => void>();
+  const state: FakeMedia = {
+    matches: initialMatches,
+    fire: () => {
+      for (const l of listeners) l();
+    },
+  };
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      media: query,
+      get matches() {
+        return state.matches;
+      },
+      addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+      removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+    }),
+  });
+  return state;
+}
+
 beforeEach(() => {
+  installMatchMedia(false);
+  __resetThemeForTests();
   // Each test gets a fresh workspace chat so latest-line / sending
   // states don't bleed across cases.
-  chatStore.clear('ws-test');
+  chatStore.drop('ws-test');
+  for (const ask of askStore.getAll()) askStore.resolve(ask.requestId);
 });
 
 afterEach(() => {
+  for (const ask of askStore.getAll()) askStore.resolve(ask.requestId);
+  cleanup();
   __setApiOverride(null);
+  __resetThemeForTests();
 });
+
+const themeAttr = (): string | undefined => document.documentElement.dataset.theme;
+const focusCss = (): string => document.getElementById('focus-keyframes')?.textContent ?? '';
 
 describe('FocusWidget stages', () => {
   it('renders the inactive square with a visible activate button', () => {
@@ -98,6 +199,41 @@ describe('FocusWidget stages', () => {
     render(<FocusWidget />);
     const button = screen.getByRole('button', { name: /click to expand/i });
     expect(button).toBeTruthy();
+  });
+
+  it('renders the inactive square without native button chrome', () => {
+    installFakeApi({ theme: 'dark' });
+    render(<FocusWidget />);
+
+    const button = screen.getByRole('button', { name: /click to expand/i });
+    expect(button.getAttribute('style')).toContain('appearance: none');
+    expect(focusStyle.inactiveButton).toMatchObject({
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      outline: 'none',
+    });
+  });
+
+  it('keeps the collapsed window tight to the inactive square', async () => {
+    const spy = installFakeApi({ theme: 'dark' });
+    render(<FocusWidget />);
+
+    await waitFor(() => {
+      const resize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width?: number; height?: number }).width === 44 &&
+          (i.args as { width?: number; height?: number }).height === 44,
+      );
+      expect(resize).toBeTruthy();
+    });
+
+    const button = screen.getByRole('button', { name: /click to expand/i });
+    expect(button.getAttribute('style')).toContain('width: 44px');
+    expect(button.getAttribute('style')).toContain('height: 44px');
+    expect(focusStyle.inactiveRoot).toMatchObject({
+      background: 'var(--focus-panel-bg)',
+    });
   });
 
   it('inactive → active fires focus.resize and shows the action row', async () => {
@@ -152,16 +288,7 @@ describe('FocusWidget stages', () => {
   });
 
   it('hides the mic button when the runner has no transcriber', async () => {
-    // Custom fake — hasTranscriber returns false.
-    __setApiOverride({
-      invoke: ((channel: string) => {
-        if (channel === 'connection.snapshotAll') return Promise.resolve([]);
-        if (channel === 'connection.activeWorkspace') return Promise.resolve('ws-test');
-        if (channel === 'session.hasTranscriber') return Promise.resolve(false);
-        return Promise.resolve(undefined);
-      }) as never,
-      subscribe: (() => () => undefined) as never,
-    } as never);
+    installFakeApi({ hasTranscriber: false });
     render(<FocusWidget />);
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
     // Text / restore / close stay visible; mic is gone.
@@ -197,9 +324,135 @@ describe('FocusWidget stages', () => {
     fireEvent.click(screen.getByRole('button', { name: /open main window/i }));
     expect(spy.invokes.some((i) => i.channel === 'focus.restoreMain')).toBe(true);
   });
+
+  it('dragging the inactive square tracks screen coordinates and does not expand it', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    const square = screen.getByRole('button', { name: /click to expand/i });
+    fireEvent.mouseDown(square, {
+      button: 0,
+      clientX: 10,
+      clientY: 10,
+      screenX: 610,
+      screenY: 410,
+    });
+    fireEvent.mouseMove(square, {
+      clientX: 14,
+      clientY: 13,
+      screenX: 690,
+      screenY: 470,
+    });
+    fireEvent.mouseUp(square, {
+      clientX: 14,
+      clientY: 13,
+      screenX: 690,
+      screenY: 470,
+    });
+
+    await waitFor(() => {
+      expect(spy.invokes.some((i) => i.channel === 'focus.dragStart')).toBe(true);
+      const move = spy.invokes.find((i) => i.channel === 'focus.dragMove');
+      expect(move).toBeTruthy();
+      expect(move!.args).toEqual({ screenX: 690, screenY: 470 });
+      expect(spy.invokes.some((i) => i.channel === 'focus.dragEnd')).toBe(true);
+    });
+    expect(spy.invokes.some((i) => i.channel === 'focus.moveBy')).toBe(false);
+    expect(screen.queryByRole('button', { name: /^text$/i })).toBeNull();
+  });
+});
+
+describe('FocusWidget theme', () => {
+  it('mirrors the persisted desktop dark theme onto the focus document', async () => {
+    installFakeApi({ theme: 'dark' });
+    render(<FocusWidget />);
+
+    await waitFor(() => expect(themeAttr()).toBe('dark'));
+  });
+
+  it('resolves the system desktop theme to the OS dark scheme inside focus mode', async () => {
+    installMatchMedia(true);
+    installFakeApi({ theme: 'system' });
+    render(<FocusWidget />);
+
+    await waitFor(() => expect(themeAttr()).toBe('dark'));
+  });
+
+  it('styles the preview bubble and mini-text controls through focus theme variables', async () => {
+    const spy = installFakeApi({ theme: 'light' });
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-themed-preview',
+        seq: 25,
+        ts: 25,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-themed-preview',
+        delta: 'theme-aware preview reply',
+      } as MoxxyEvent,
+    });
+
+    const previewButton = await screen.findByRole('button', {
+      name: /open latest reply/i,
+    });
+    expect(previewButton.getAttribute('style')).toContain(
+      'background: var(--focus-preview-bg)',
+    );
+    expect(previewButton.getAttribute('style')).toContain(
+      'color: var(--focus-preview-text)',
+    );
+
+    fireEvent.click(previewButton);
+
+    const input = await screen.findByPlaceholderText(
+      /ask moxxy|no active workspace/i,
+    );
+    expect(input.getAttribute('style')).toContain('background: var(--focus-input-bg)');
+    expect(input.getAttribute('style')).toContain('color: var(--focus-text)');
+  });
+
+  it('injects a local dark-token block for the standalone focus bundle', () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    expect(focusCss()).toContain('[data-theme="dark"]');
+    expect(focusCss()).toContain('--focus-panel-bg: #161823');
+    expect(focusCss()).toContain('--focus-preview-bg: rgba(22, 24, 35, 0.96)');
+  });
 });
 
 describe('FocusWidget bidirectional sync', () => {
+  it('hydrates the active workspace history and shows the latest user/assistant block in mini-text', async () => {
+    const spy = installFakeApi({
+      historyEvents: [
+        event(1, { type: 'user_prompt', turnId: 't-history', source: 'user', text: 'cached user prompt' } as never),
+        event(2, {
+          type: 'assistant_message',
+          turnId: 't-history',
+          source: 'model',
+          content: 'cached assistant answer',
+          stopReason: 'end_turn',
+        } as never),
+      ],
+    });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    await waitFor(() => {
+      const load = spy.invokes.find((i) => i.channel === 'chat.loadHistory');
+      expect(load).toBeTruthy();
+      expect((load!.args as { workspaceId: string }).workspaceId).toBe('ws-test');
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/cached assistant answer/i)).toBeTruthy();
+    });
+  });
+
   it('sending from mini-text invokes session.runTurn for the active workspace', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
@@ -229,7 +482,7 @@ describe('FocusWidget bidirectional sync', () => {
   });
 
   it('a runner.event flowing into chatStore surfaces in mini-text latest line', async () => {
-    installFakeApi();
+    const spy = installFakeApi();
     render(<FocusWidget />);
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
@@ -238,13 +491,17 @@ describe('FocusWidget bidirectional sync', () => {
     // Simulate the runner streaming an assistant_chunk event — this
     // is what bindWindow's SessionDriver delivers to the focus
     // window when the main window sends a turn.
-    chatStore.dispatch('ws-test', {
-      type: 'event',
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
       event: {
+        id: 'e-incoming',
+        seq: 10,
+        ts: 10,
+        sessionId: 's-test',
         type: 'assistant_chunk',
         turnId: 't-incoming',
         delta: 'response from the main window',
-      } as never,
+      } as MoxxyEvent,
     });
 
     await waitFor(() => {
@@ -273,5 +530,331 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       expect(screen.getByText('newest').tagName).toBe('STRONG');
     });
+  });
+
+  it('shows an inactive assistant preview bubble and opens mini-text when the square is clicked', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview',
+        seq: 20,
+        ts: 20,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview',
+        delta: 'live reply while collapsed',
+      } as MoxxyEvent,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    });
+    expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
+  });
+
+  it('opens mini-text when the inactive preview text is clicked', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-click',
+        seq: 21,
+        ts: 21,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-click',
+        delta: 'clickable preview reply',
+      } as MoxxyEvent,
+    });
+
+    const previewButton = await screen.findByRole('button', {
+      name: /open latest reply/i,
+    });
+    fireEvent.click(previewButton);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    });
+    expect(screen.getByText(/clickable preview reply/i)).toBeTruthy();
+  });
+
+  it('shows assistant preview beside the active controls', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-active-preview',
+        seq: 22,
+        ts: 22,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-active-preview',
+        delta: 'reply while controls are open',
+      } as MoxxyEvent,
+    });
+
+    await screen.findByText(/reply while controls are open/i);
+    expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
+
+    await waitFor(() => {
+      const previewResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 600,
+      );
+      expect(previewResize).toBeTruthy();
+      expect((previewResize!.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+    });
+  });
+
+  it('keeps long assistant preview text scrollable instead of truncating it', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-scrollable-preview',
+        seq: 23,
+        ts: 23,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-scrollable-preview',
+        delta:
+          'To jest długa odpowiedź do dymku focus mode, która ma wystarczająco dużo tekstu, żeby przekroczyć kilka linii i wymusić przewijanie w obrębie samego dymku zamiast ucinania treści po kilku zdaniach. Finalny fragment do przewijania musi nadal być dostępny w treści.',
+      } as MoxxyEvent,
+    });
+
+    const previewButton = await screen.findByRole('button', {
+      name: /open latest reply/i,
+    });
+    expect(previewButton.textContent).toContain('Finalny fragment do przewijania');
+    expect(previewButton.textContent?.endsWith('...')).toBe(false);
+    expect(previewButton.getAttribute('style')).toContain('max-height: 84px');
+    expect(previewButton.getAttribute('style')).toContain('overflow-y: auto');
+  });
+
+  it('reserves enough window height for a three-line inactive preview', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-height',
+        seq: 24,
+        ts: 24,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-height',
+        delta:
+          'Tak — jest kilka sensownych sposobów na tworzenie napisów w locie, zależnie od tego, czy chodzi Ci o szybki podgląd czy finalny eksport.',
+      } as MoxxyEvent,
+    });
+
+    await screen.findByText(/tworzenie napisów/i);
+
+    await waitFor(() => {
+      const previewResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 400,
+      );
+      expect(previewResize).toBeTruthy();
+      expect((previewResize!.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+    });
+  });
+
+  it('keeps the inactive preview window size stable while assistant chunks stream', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-1',
+        seq: 21,
+        ts: 21,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-size',
+        delta: 'first live chunk',
+      } as MoxxyEvent,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/first live chunk/i)).toBeTruthy();
+    });
+
+    const resizeCountAfterFirstPreview = spy.invokes.filter(
+      (i) => i.channel === 'focus.resize',
+    ).length;
+
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: {
+        id: 'e-preview-2',
+        seq: 22,
+        ts: 22,
+        sessionId: 's-test',
+        type: 'assistant_chunk',
+        turnId: 't-preview-size',
+        delta: ' and second live chunk',
+      } as MoxxyEvent,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/first live chunk and second live chunk/i)).toBeTruthy();
+    });
+
+    const resizeCountAfterSecondPreview = spy.invokes.filter(
+      (i) => i.channel === 'focus.resize',
+    ).length;
+    expect(resizeCountAfterSecondPreview).toBe(resizeCountAfterFirstPreview);
+  });
+
+  it('shows a pending permission as an inactive focus toast and answers from it', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', permissionAsk('ask-focus-toast'));
+
+    await screen.findByRole('group', { name: /permission required/i });
+    expect(screen.getByText(/bash/i)).toBeTruthy();
+    expect(screen.getByText(/pnpm build/i)).toBeTruthy();
+
+    await waitFor(() => {
+      const askResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 520,
+      );
+      expect(askResize).toBeTruthy();
+      expect((askResize!.args as { height: number }).height).toBeGreaterThanOrEqual(130);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^allow$/i }));
+
+    await waitFor(() => {
+      const respond = spy.invokes.find((i) => i.channel === 'ask.respond');
+      expect(respond).toBeTruthy();
+      expect(respond!.args).toEqual({
+        requestId: 'ask-focus-toast',
+        response: { mode: 'allow_session' },
+      });
+    });
+  });
+
+  it('keeps the inactive sidecar gutter transparent behind permission cards', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', permissionAsk('ask-focus-transparent-gutter'));
+
+    const card = await screen.findByRole('group', { name: /permission required/i });
+    expect(card.parentElement?.getAttribute('style')).toContain('background: transparent');
+    expect(focusStyle.inactiveRootWithPreview).toMatchObject({
+      background: 'transparent',
+    });
+  });
+
+  it('renders permission body markdown instead of showing raw markdown markers', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', {
+      ...permissionAsk('ask-focus-markdown'),
+      tool: {
+        name: 'Bash',
+        description: 'Run **trusted checks** before continuing.\n\n- Verify build output',
+        input: { command: 'pnpm build' },
+      },
+    });
+
+    const card = await screen.findByRole('group', { name: /permission required/i });
+    expect(card.textContent).not.toContain('**trusted checks**');
+    expect(within(card).getByText('trusted checks').tagName.toLowerCase()).toBe('strong');
+    expect(within(card).getByText('Verify build output').closest('li')).toBeTruthy();
+  });
+
+  it('keeps a pending permission visible inside mini-text until it is answered', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', permissionAsk('ask-focus-mini'));
+
+    await screen.findByRole('group', { name: /permission required/i });
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    });
+    expect(screen.getByRole('group', { name: /permission required/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /always allow/i }));
+
+    await waitFor(() => {
+      const respond = spy.invokes.find((i) => i.channel === 'ask.respond');
+      expect(respond).toBeTruthy();
+      expect(respond!.args).toEqual({
+        requestId: 'ask-focus-mini',
+        response: { mode: 'allow_always' },
+      });
+    });
+  });
+
+  it('reserves enough active-toast height for permission details and action buttons', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    spy.emit('ask.request', {
+      ...permissionAsk('ask-focus-tall-toast'),
+      tool: {
+        name: 'nutrition_search_usda',
+        description:
+          'Search USDA FoodData Central for generic ingredients and return verified nutrition data.',
+        input: {
+          query: 'chicken breast cooked roasted skinless with rice and vegetables',
+          pageSize: 3,
+        },
+      },
+    });
+
+    await screen.findByRole('group', { name: /permission required/i });
+    expect(screen.getByRole('button', { name: /^deny$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^allow$/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /always allow/i })).toBeTruthy();
+
+    await waitFor(() => {
+      const askResize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width: number; height: number }).width >= 600,
+      );
+      expect(askResize).toBeTruthy();
+      expect((askResize!.args as { height: number }).height).toBeGreaterThanOrEqual(210);
+    });
+  });
+
+  it('keeps enough markdown body space above permission details', () => {
+    expect(Number(focusStyle.focusAskBody.maxHeight)).toBeGreaterThanOrEqual(66);
+    expect(Number.parseInt(String(focusStyle.focusAskDetail.margin), 10)).toBeGreaterThanOrEqual(9);
   });
 });

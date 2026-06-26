@@ -29,6 +29,10 @@ vi.mock('./Transcript', () => ({
 }));
 
 vi.mock('@moxxy/client-core', () => ({
+  api: () => ({
+    invoke: vi.fn(async () => undefined),
+    subscribe: () => () => undefined,
+  }),
   useChat: () => ({
     events: chatState.events,
     extensions: [],

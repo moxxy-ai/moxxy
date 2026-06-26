@@ -29,13 +29,25 @@ export { readPrefs, updatePrefs } from './prefs.js';
 export { sweepStaleSockets } from './sweep-sockets.js';
 export { watchSessionsForChanges } from './sessions-watcher.js';
 export {
+  bindMainWindowFocusDismissal,
   bindMainWindowMinimize,
+  beginFocusWindowDrag,
   closeFocusWindow,
+  endFocusWindowDrag,
+  moveFocusWindowDrag,
+  moveFocusWindowBy,
   resizeFocusWindow,
   showFocusWindow,
   toggleFocusWindow,
   isFocusOpen,
+  type FocusWindowPlacement,
 } from './focus-window.js';
+export {
+  createFocusModeController,
+  type FocusModeController,
+  type FocusModeControllerDeps,
+  type FocusModeMainWindow,
+} from './focus-mode-controller.js';
 export {
   installContentSecurityPolicy,
   installMediaPermissions,

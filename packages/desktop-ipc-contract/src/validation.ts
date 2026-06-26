@@ -134,6 +134,9 @@ const scheduleId = z.string().min(1).max(256);
 const webhookId = z.string().min(1).max(256);
 /** A target session id (same shape as a session/desk id), or null to clear it. */
 const sessionRef = z.string().min(1).max(256).nullable();
+const focusDelta = z.number().finite().min(-10_000).max(10_000);
+const focusScreenPoint = z.number().finite().min(-100_000).max(100_000);
+const focusSize = z.number().finite().int().min(40).max(800);
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
@@ -153,6 +156,18 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
+  'focus.toggle': z.undefined(),
+  'focus.moveBy': z.object({ dx: focusDelta, dy: focusDelta }).strict(),
+  'focus.dragStart': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
+  'focus.dragMove': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
+  'focus.dragEnd': z.undefined(),
+  'focus.resize': z
+    .object({
+      width: focusSize,
+      height: focusSize,
+      resizable: z.boolean().optional(),
+    })
+    .strict(),
   'onboarding.openExternal': z.object({ url: httpUrl }),
   'onboarding.saveProviderKey': z.object({
     provider: providerName,

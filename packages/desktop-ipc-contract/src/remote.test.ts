@@ -57,6 +57,12 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       // the runner's generation config.
       'settings.setReasoning',
       'app.updateCli',
+      'focus.toggle' as IpcCommandName,
+      'focus.dragStart' as IpcCommandName,
+      'focus.dragMove' as IpcCommandName,
+      'focus.dragEnd' as IpcCommandName,
+      'focus.moveBy' as IpcCommandName,
+      'focus.resize',
       'prefs.update',
       'workflows.save',
       'workflows.validateDraft',

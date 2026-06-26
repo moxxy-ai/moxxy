@@ -69,6 +69,7 @@ export function RailMenu({
         aria-label="Open context menu"
         aria-haspopup="menu"
         aria-expanded={open}
+        title="Open context menu"
         onClick={() => setOpen((o) => !o)}
         style={{
           width: 34,
