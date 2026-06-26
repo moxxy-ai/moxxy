@@ -1,5 +1,13 @@
 # @moxxy/plugin-channel-web
 
+## 0.1.10
+
+### Patch Changes
+
+- Updated dependencies [f71c8bd]
+  - @moxxy/sdk@0.24.0
+  - @moxxy/plugin-tunnel-proxy@0.1.10
+
 ## 0.1.9
 
 ### Patch Changes
