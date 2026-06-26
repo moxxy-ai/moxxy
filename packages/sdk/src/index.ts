@@ -375,6 +375,7 @@ export type {
   ChannelDef,
   ChannelConfigField,
   ChannelConfigDescriptor,
+  ChannelConnectStep,
   ChannelAvailability,
   ChannelRegistry,
   ChannelSubcommand,

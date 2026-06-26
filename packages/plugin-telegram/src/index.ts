@@ -101,6 +101,13 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
           hasRequestUrl: false,
           runHint:
             'Message your bot on Telegram, then send the pairing code it replies with to authorize your chat.',
+          connect: {
+            kind: 'qr',
+            title: 'Connect your Telegram',
+            hint: 'Scan the code, or open the link, and send /start to your bot — then send the pairing code it replies with.',
+            openable: true,
+            openLabel: 'Open in Telegram',
+          },
         },
         create: (deps) =>
           new TelegramChannel({

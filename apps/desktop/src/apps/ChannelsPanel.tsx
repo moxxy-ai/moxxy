@@ -2,17 +2,19 @@
  * Channels sub-view of the Apps surface. Lists the communication channels the
  * desktop can run (Slack, Telegram), each on its own dedicated, isolated runner.
  * Per channel: enter its secrets (stored in the vault), Start/Stop the runner,
- * and — for Slack — copy the public Request URL to paste into the Slack app once
- * the tunnel is up. Content-only — the Apps header is owned by {@link AppsPanel}.
+ * and — once running — a declarative "connect step" (the channel's descriptor
+ * says how to render it: Slack's Request URL to paste, Telegram's t.me QR + link
+ * to open). Content-only — the Apps header is owned by {@link AppsPanel}.
  *
  * The channel's conversation is intentionally NOT shown here (it runs as a
  * separate isolated session); this panel manages the runner, not its chat.
  */
 
 import { useState } from 'react';
-import { useChannels } from '@moxxy/client-core';
+import { api, useChannels } from '@moxxy/client-core';
 import { Button, Icon, Skeleton, TextInput } from '@moxxy/desktop-ui';
-import type { ChannelEntry } from '@moxxy/desktop-ipc-contract';
+import type { ChannelDescriptor, ChannelEntry } from '@moxxy/desktop-ipc-contract';
+import { QrCode } from '../components/QrCode';
 
 export function ChannelsPanel(): JSX.Element {
   const channels = useChannels();
@@ -236,12 +238,17 @@ function ChannelCard({
         </div>
       )}
 
-      {/* Running affordances: Slack's Request URL + the per-channel run hint */}
-      {status.running && descriptor.hasWebhookUrl && (
-        <RequestUrlRow url={status.requestUrl} />
-      )}
-      {status.running && descriptor.runHint && (
-        <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>{descriptor.runHint}</div>
+      {/* Running affordances: the declarative per-channel connect step (QR / URL /
+          instructions). Channels without a `connect` fall back to the legacy hint. */}
+      {status.running && descriptor.connect ? (
+        <ConnectStep connect={descriptor.connect} url={status.requestUrl} />
+      ) : (
+        status.running &&
+        descriptor.runHint && (
+          <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
+            {descriptor.runHint}
+          </div>
+        )
       )}
       {status.error && (
         <div
@@ -256,17 +263,89 @@ function ChannelCard({
   );
 }
 
-/** Slack's public Request URL with a copy button — shown once its tunnel opens.
- *  While the URL is still resolving it reads as a muted placeholder. */
-function RequestUrlRow({ url }: { readonly url?: string }): JSX.Element {
-  const [copied, setCopied] = useState(false);
-  if (!url) {
+/** The declarative per-channel connect step, shown once the channel is running.
+ *  The descriptor's `kind` picks the presentation; the runtime value is the
+ *  channel's `requestUrl` (Slack's Request URL, Telegram's t.me link). A new
+ *  channel plugs in by declaring a `connect` — no edits here. */
+function ConnectStep({
+  connect,
+  url,
+}: {
+  readonly connect: NonNullable<ChannelDescriptor['connect']>;
+  readonly url?: string;
+}): JSX.Element {
+  if (connect.kind === 'instructions') {
     return (
-      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
-        Opening the proxy tunnel — the Request URL will appear here…
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {connect.title && <ConnectTitle>{connect.title}</ConnectTitle>}
+        <ol
+          style={{
+            margin: 0,
+            paddingLeft: '1.1rem',
+            fontSize: '0.78rem',
+            color: 'var(--color-text-dim)',
+          }}
+        >
+          {(connect.steps ?? []).map((s) => (
+            <li key={s} style={{ marginBottom: 3 }}>
+              {s}
+            </li>
+          ))}
+        </ol>
       </div>
     );
   }
+  // 'qr' and 'url' both render a runtime value; until it resolves, show a hint.
+  if (!url) {
+    return (
+      <div style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
+        {connect.kind === 'qr'
+          ? 'Connecting — the link will appear here once the bot is reachable…'
+          : 'Opening the proxy tunnel — the Request URL will appear here…'}
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {connect.title && <ConnectTitle>{connect.title}</ConnectTitle>}
+      {connect.kind === 'qr' && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0' }}>
+          <QrCode
+            value={url}
+            size={180}
+            alt={connect.title ?? 'Connect QR code'}
+            testId="channel-connect-qr"
+          />
+        </div>
+      )}
+      <ConnectUrlRow url={url} openable={connect.openable} openLabel={connect.openLabel} />
+      {connect.hint && (
+        <div style={{ fontSize: '0.74rem', color: 'var(--color-text-dim)' }}>{connect.hint}</div>
+      )}
+    </div>
+  );
+}
+
+function ConnectTitle({ children }: { readonly children: string }): JSX.Element {
+  return (
+    <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-text)' }}>
+      {children}
+    </span>
+  );
+}
+
+/** A connect value (URL / link) with Copy and — when `openable` — an "open
+ *  externally" button via the https-validated onboarding.openExternal IPC. */
+function ConnectUrlRow({
+  url,
+  openable,
+  openLabel,
+}: {
+  readonly url: string;
+  readonly openable?: boolean;
+  readonly openLabel?: string;
+}): JSX.Element {
+  const [copied, setCopied] = useState(false);
   return (
     <div
       style={{
@@ -279,7 +358,6 @@ function RequestUrlRow({ url }: { readonly url?: string }): JSX.Element {
         borderRadius: 9,
       }}
     >
-      <span style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>Request URL</span>
       <span
         className="mono"
         title={url}
@@ -294,6 +372,17 @@ function RequestUrlRow({ url }: { readonly url?: string }): JSX.Element {
       >
         {url}
       </span>
+      {openable && (
+        <Button
+          variant="chip"
+          onClick={() => void api().invoke('onboarding.openExternal', { url })}
+          style={{ borderRadius: 9 }}
+          data-testid="channel-connect-open"
+        >
+          <Icon name="globe" size={14} />
+          {openLabel ?? 'Open'}
+        </Button>
+      )}
       <Button
         variant="chip"
         onClick={() => {

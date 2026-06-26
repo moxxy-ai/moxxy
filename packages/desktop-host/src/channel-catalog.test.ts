@@ -38,4 +38,29 @@ describe('CHANNEL_CATALOG', () => {
     expect(CHANNEL_CATALOG.slack?.descriptor.hasWebhookUrl).toBe(true);
     expect(CHANNEL_CATALOG.telegram?.descriptor.hasWebhookUrl).toBe(false);
   });
+
+  // The `connect` descriptor is exactly what the Channels panel renders as the
+  // post-start "connect the other side" step, so a typo'd/missing kind is caught
+  // here rather than by eyeballing the running app.
+  it('Telegram declares a QR connect step that opens the bot link', () => {
+    const connect = CHANNEL_CATALOG.telegram?.descriptor.connect;
+    expect(connect?.kind).toBe('qr');
+    // The t.me link is an https URL the user OPENS (not pastes) → open affordance.
+    expect(connect?.openable).toBe(true);
+    expect(connect?.openLabel).toBeTruthy();
+  });
+
+  it('Slack declares a URL connect step the user pastes (not opens)', () => {
+    const connect = CHANNEL_CATALOG.slack?.descriptor.connect;
+    expect(connect?.kind).toBe('url');
+    expect(connect?.openable).toBeFalsy();
+  });
+
+  it('every declared connect kind is one the renderer handles', () => {
+    const handled = new Set(['qr', 'url', 'instructions']);
+    for (const entry of listChannelCatalog()) {
+      const c = entry.descriptor.connect;
+      if (c) expect(handled.has(c.kind)).toBe(true);
+    }
+  });
 });

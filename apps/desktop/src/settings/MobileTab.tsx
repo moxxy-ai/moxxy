@@ -14,73 +14,10 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import QRCode from 'qrcode';
 import { useMobileGateway } from '@moxxy/client-core';
 import { Button, Icon } from '@moxxy/desktop-ui';
+import { QrCode } from '../components/QrCode';
 import { Section, Switch } from './settings-primitives';
-
-/** Render a connect URL as a scannable QR (SVG). Pure-JS via the `qrcode`
- *  package's `toString` — no canvas, builds cleanly in the renderer. The SVG
- *  is wrapped in an <img> data URL rather than injected via
- *  dangerouslySetInnerHTML: an <img>-referenced SVG runs in the browser's
- *  restricted mode (no scripts, no external fetches), so even a compromised
- *  `qrcode` package cannot inject executable markup into the privileged
- *  renderer DOM. */
-function QrCode({ value }: { readonly value: string }): JSX.Element {
-  const [src, setSrc] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    setFailed(false);
-    QRCode.toString(value, { type: 'svg', margin: 1, width: 220 })
-      .then((markup) => {
-        if (alive) setSrc(`data:image/svg+xml;utf8,${encodeURIComponent(markup)}`);
-      })
-      .catch(() => {
-        if (alive) setFailed(true);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [value]);
-
-  if (failed) {
-    return (
-      <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-red)' }}>
-        Could not render the QR code. Use the connect URL below instead.
-      </p>
-    );
-  }
-  return (
-    <div
-      data-testid="mobile-qr"
-      style={{
-        width: 220,
-        height: 220,
-        // Deliberate literal: QR codes need a white quiet zone for scanner
-        // contrast in BOTH themes — never theme this surface.
-        background: '#fff',
-        borderRadius: 14,
-        padding: 10,
-        border: '1px solid var(--color-card-border)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {src && (
-        <img
-          src={src}
-          alt="Pairing QR code"
-          width={200}
-          height={200}
-          style={{ display: 'block' }}
-        />
-      )}
-    </div>
-  );
-}
 
 export function MobileTab(): JSX.Element {
   const { status, loading, busy, error, setEnabled, rotateToken } = useMobileGateway();
@@ -268,7 +205,7 @@ export function MobileTab(): JSX.Element {
         {/* Pairing surface */}
         {status.enabled && status.connectUrl && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
-            <QrCode value={status.connectUrl} />
+            <QrCode value={status.connectUrl} testId="mobile-qr" />
 
             <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-muted)' }}>

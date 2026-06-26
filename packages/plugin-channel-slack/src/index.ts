@@ -138,6 +138,11 @@ function makeSlackPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): Pl
           hasRequestUrl: true,
           runHint:
             'Paste the Request URL into your Slack app → Event Subscriptions, subscribe to the app_mention bot event, then mention the bot in a channel to pair.',
+          connect: {
+            kind: 'url',
+            title: 'Request URL',
+            hint: 'Paste this into your Slack app → Event Subscriptions, subscribe to the app_mention bot event, then mention the bot in a channel to pair.',
+          },
         },
         create: (deps) => {
           const options = deps.options;

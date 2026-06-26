@@ -21,6 +21,27 @@ export interface ChannelConfigField {
   readonly help?: string;
 }
 
+/**
+ * Declares how the renderer presents a channel's post-start "connect" step (the
+ * "now connect the other side" affordance). The runtime VALUE this renders is the
+ * channel's {@link ChannelRuntimeStatus.requestUrl} (Slack's Request URL,
+ * Telegram's `t.me/<bot>` link); this only says HOW to render it, so a new
+ * channel plugs in by declaring a `kind` rather than shipping bespoke UI. Mirrors
+ * `ChannelConnectStep` in `@moxxy/sdk` (the desktop catalog is a manual copy of
+ * the plugin descriptors — see channel-catalog.ts).
+ */
+export interface ChannelConnectStep {
+  /** `qr` → QR + the value; `url` → copyable URL to paste; `instructions` → static steps. */
+  readonly kind: 'qr' | 'url' | 'instructions';
+  readonly title?: string;
+  readonly hint?: string;
+  /** Value is an https URL the user should OPEN (not paste) → show an open button. */
+  readonly openable?: boolean;
+  readonly openLabel?: string;
+  /** For `kind: 'instructions'` — static steps, no runtime value. */
+  readonly steps?: ReadonlyArray<string>;
+}
+
 /** Static description of a runnable channel (its identity + what it needs). */
 export interface ChannelDescriptor {
   /** Channel id == the CLI subcommand (`slack`, `telegram`). */
@@ -40,6 +61,9 @@ export interface ChannelDescriptor {
   /** Guidance shown once the channel is running (e.g. "paste the Request URL
    *  into Slack → Event Subscriptions, then mention the bot to pair"). */
   readonly runHint?: string;
+  /** How to render the post-start connect step (QR / URL / instructions). When
+   *  present, the renderer uses this instead of the bare `hasWebhookUrl` URL row. */
+  readonly connect?: ChannelConnectStep;
 }
 
 /** Live runtime status of a channel's dedicated runner. */
@@ -51,7 +75,9 @@ export interface ChannelRuntimeStatus {
   readonly running: boolean;
   readonly pid?: number;
   readonly startedAtMs?: number;
-  /** Public ingest URL once the tunnel is up (Slack); absent otherwise. */
+  /** The channel's runtime connect value, rendered per `descriptor.connect`:
+   *  Slack's public Request URL once the tunnel is up, or Telegram's resolved
+   *  `t.me/<bot>` link. Absent until resolved (or if the channel has none). */
   readonly requestUrl?: string;
   /** Last spawn/runtime error, surfaced so the UI can show why it stopped. */
   readonly error?: string;
