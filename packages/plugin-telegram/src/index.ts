@@ -1,6 +1,8 @@
 import { defineChannel, defineTool, definePlugin, z, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { Api } from 'grammy';
+import { Api, GrammyError } from 'grammy';
+import { markdownToTelegramHtml } from './format.js';
+import { stripHtml } from './channel/html.js';
 import { TelegramChannel } from './channel.js';
 import { TELEGRAM_AUTHORIZED_CHAT_KEY, TELEGRAM_TOKEN_KEY, parseChatId } from './keys.js';
 import { runTelegramWizard } from './setup-wizard.js';
@@ -212,13 +214,19 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
         name: 'telegram_send_message',
         description:
           'Push a one-off message to the currently authorized Telegram chat. Use this from a ' +
-          "scheduled prompt to deliver results without an interactive channel running. The " +
-          'message is sent via the Bot API directly — no streaming, no formatting. Requires ' +
+          'scheduled prompt to deliver results without an interactive channel running. By ' +
+          'default the text is rendered with the same rich Markdown→Telegram formatting as ' +
+          'interactive replies (bold, code, `> [!type]` callouts, `||spoilers||`, etc.); pass ' +
+          'an explicit `parseMode` to send the raw text under that parse mode instead. Requires ' +
           'a stored bot token + a paired chat (run `moxxy channels telegram pair` once).',
         inputSchema: z.object({
           text: z.string().min(1).max(4096),
           /** Optional override; defaults to the vault-paired chat id. */
           chatId: z.number().int().optional(),
+          /**
+           * Force a specific Telegram parse mode and send `text` verbatim under
+           * it. Omit to get the default Markdown→HTML rendering (recommended).
+           */
           parseMode: z.enum(['MarkdownV2', 'Markdown', 'HTML']).optional(),
         }),
         permission: { action: 'prompt' },
@@ -241,7 +249,27 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
           // bot info). This is a one-off send — no long-polling — so the Bot
           // wrapper was pure overhead per invocation.
           const api = new Api(token);
-          await api.sendMessage(targetChat, text, parseMode ? { parse_mode: parseMode } : {});
+          if (parseMode) {
+            // Explicit mode → caller owns the markup; send text verbatim.
+            await api.sendMessage(targetChat, text, { parse_mode: parseMode });
+          } else {
+            // Default → render Markdown to Telegram HTML for the same rich look
+            // as interactive replies, falling back to plain text if the model's
+            // text produced an entity Telegram can't parse (rare).
+            const html = markdownToTelegramHtml(text);
+            try {
+              await api.sendMessage(targetChat, html, {
+                parse_mode: 'HTML',
+                link_preview_options: { is_disabled: true },
+              });
+            } catch (err) {
+              if (err instanceof GrammyError && /can't parse entities|Bad Request: can't parse/i.test(err.description ?? '')) {
+                await api.sendMessage(targetChat, stripHtml(html));
+              } else {
+                throw err;
+              }
+            }
+          }
           return { delivered: true, chatId: targetChat, length: text.length };
         },
       }),

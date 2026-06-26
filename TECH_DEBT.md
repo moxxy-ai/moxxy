@@ -167,6 +167,16 @@ or recorded-on-purpose decision.
   `https.Server` + dev-build pinning only if direct-LAN encryption ever matters.
 - [low] Web-preview path-prefix rewriting only matters if a non-base-path-aware HTTP
   app appears. `packages/plugin-channel-web/`.
+- [low] Telegram rich-formatting is "simple yet powerful" but the powerful half is
+  doc-only: the model isn't TOLD about `~~strike~~`/`||spoiler||`/`> [!type]` callouts,
+  so it uses them only when a prompt/skill asks. The auto-wins (collapse the tool trace,
+  render standard Markdown) need no model awareness. If we want the model to reach for
+  collapsible callouts on its own, inject a one-line capability note into the session
+  when the Telegram channel is active (no prompt-injection seam for channels exists yet).
+  `packages/plugin-telegram/src/format.ts`.
+- [low] The final-frame activity collapse (`<blockquote expandable>`) is always-on with
+  a fixed 4-line threshold; if anyone wants it off, promote it to a per-chat `/details`
+  toggle or a `TelegramChannelOptions` flag. `packages/plugin-telegram/src/render.ts`.
 
 ## Workflows
 

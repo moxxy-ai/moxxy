@@ -9,12 +9,26 @@
  * AREN'T part of formatting — one stray `.` in a sentence breaks the
  * whole message. HTML only needs three escapes (`< > &`) in text
  * segments, and Telegram's HTML mode supports every tag we need
- * (`<b>`, `<i>`, `<code>`, `<pre>`, `<a>`, `<blockquote>`).
+ * (`<b>`, `<i>`, `<s>`, `<tg-spoiler>`, `<code>`, `<pre>`, `<a>`,
+ * `<blockquote>` / `<blockquote expandable>`).
  *
  * Telegram has no native headings or list elements, so:
  *   - `#`, `##`, `###` headings → bold text on their own line.
  *   - `- item` / `* item` bullets → `• item` (bullet glyph).
  *   - `1. item` numbered → kept as-is (the digit is fine).
+ *
+ * Beyond CommonMark we also map a few extensions so the model can lean
+ * on Telegram's richer surface without learning a new syntax:
+ *   - `~~strike~~`           → `<s>` strikethrough.
+ *   - `||spoiler||`          → `<tg-spoiler>` (tap-to-reveal hidden text).
+ *   - `> [!note] Heading`    → a titled, emoji-tagged callout blockquote.
+ *   - `> [!details]- Title`  → a COLLAPSED (expandable) callout — the
+ *                              load-bearing "hide the details" box. The
+ *                              trailing `-` forces collapsed, `+` forces
+ *                              open; some types (details/example/faq)
+ *                              collapse by default.
+ *   - a plain `>` quote that runs long auto-collapses into an
+ *     `<blockquote expandable>` so a wall of quoted text stays tidy.
  *
  * Code blocks are emitted as `<pre><code class="language-xxx">…</code></pre>`,
  * inline code as `<code>…</code>`. Everything inside code is escaped
@@ -48,13 +62,16 @@ export function markdownToTelegramHtml(md: string): string {
   // break is the conventional substitution.
   working = working.replace(/^(#{1,6})\s+(.*)$/gm, (_, _hashes, text) => `<b>${String(text)}</b>`);
 
-  // Block quotes (>) — Telegram supports <blockquote>. Wrap consecutive
-  // quote lines into one block.
+  // Block quotes (>) — Telegram supports <blockquote> and, since Bot API
+  // 7.0, <blockquote expandable> (a collapsible "show more" box). Wrap
+  // consecutive quote lines into one block and let `renderBlockquote`
+  // decide collapsed-vs-open from an optional `[!callout]` marker or the
+  // quote's length.
   working = working.replace(/((?:^&gt;[^\n]*\n?)+)/gm, (m: string) => {
     const stripped = m
       .replace(/&gt; ?/g, '')
       .replace(/\n$/, '');
-    return `<blockquote>${stripped}</blockquote>\n`;
+    return `${renderBlockquote(stripped)}\n`;
   });
 
   // Bullet list items → bullet glyph. Match leading whitespace +
@@ -66,6 +83,14 @@ export function markdownToTelegramHtml(md: string): string {
   working = working.replace(/\*\*([^*\n]+)\*\*/g, (_, body) => `<b>${String(body)}</b>`);
   // Bold __text__
   working = working.replace(/__([^_\n]+)__/g, (_, body) => `<b>${String(body)}</b>`);
+
+  // Strikethrough ~~text~~ → <s>. (GitHub flavour; a single `~` stays
+  // literal so it never eats a stray tilde in prose.)
+  working = working.replace(/~~([^~\n]+)~~/g, (_, body) => `<s>${String(body)}</s>`);
+
+  // Spoiler ||text|| → <tg-spoiler> (Telegram's tap-to-reveal). Content
+  // can't span a `|` so a single bar / table pipe is left untouched.
+  working = working.replace(/\|\|([^|\n]+)\|\|/g, (_, body) => `<tg-spoiler>${String(body)}</tg-spoiler>`);
 
   // Italic *text* and _text_. Use lookarounds to avoid matching
   // mid-word underscores (`some_var_name`) and stray bullets.
@@ -97,6 +122,102 @@ export function markdownToTelegramHtml(md: string): string {
   working = working.replace(/ FENCE(\d+) /g, (_, i) => fences[Number(i)] ?? '');
 
   return working;
+}
+
+/**
+ * GitHub / Obsidian-style callout types we recognise as the first line of a
+ * blockquote (`[!note]`, `[!warning]`, …). Each maps to a leading emoji, a
+ * default title, and whether the box collapses by default. `fold: true` types
+ * (details / example / faq) start COLLAPSED — they're meant for "extra info you
+ * can open if you want", which is exactly the detail-hiding the channel is for.
+ */
+const CALLOUTS: Record<string, { emoji: string; label: string; fold: boolean }> = {
+  note: { emoji: 'ℹ️', label: 'Note', fold: false },
+  info: { emoji: 'ℹ️', label: 'Info', fold: false },
+  tip: { emoji: '💡', label: 'Tip', fold: false },
+  hint: { emoji: '💡', label: 'Hint', fold: false },
+  important: { emoji: '❗', label: 'Important', fold: false },
+  warning: { emoji: '⚠️', label: 'Warning', fold: false },
+  caution: { emoji: '⚠️', label: 'Caution', fold: false },
+  danger: { emoji: '🚨', label: 'Danger', fold: false },
+  error: { emoji: '🚨', label: 'Error', fold: false },
+  success: { emoji: '✅', label: 'Success', fold: false },
+  done: { emoji: '✅', label: 'Done', fold: false },
+  question: { emoji: '❓', label: 'Question', fold: false },
+  faq: { emoji: '❓', label: 'FAQ', fold: true },
+  quote: { emoji: '💬', label: 'Quote', fold: false },
+  details: { emoji: '📋', label: 'Details', fold: true },
+  example: { emoji: '📋', label: 'Example', fold: true },
+};
+
+/** A quote this big collapses into an expandable box even without a marker. */
+const LONG_QUOTE_LINES = 4;
+const LONG_QUOTE_CHARS = 280;
+
+/**
+ * Render the (already HTML-escaped) inner text of a `>` blockquote into a
+ * Telegram `<blockquote>` / `<blockquote expandable>`.
+ *
+ * Three shapes, in order of precedence:
+ *   1. Recognised callout — first line is `[!type]`, optionally `+`/`-` then a
+ *      title. Emits a bold `emoji Title` header line, then the body; collapses
+ *      when the marker is `-` or the type folds by default.
+ *   2. Long plain quote — no marker but ≥4 lines / ≥280 chars → expandable so a
+ *      wall of quoted text doesn't dominate the chat.
+ *   3. Short plain quote — a normal, always-open `<blockquote>`.
+ *
+ * The close tag is always `</blockquote>` (the `expandable` lives only on the
+ * open tag — Telegram rejects it on the close).
+ */
+function renderBlockquote(stripped: string): string {
+  const callout = parseCallout(stripped);
+  let inner: string;
+  let expandable: boolean;
+  if (callout) {
+    inner = callout.body ? `${callout.header}\n${callout.body}` : callout.header;
+    expandable = callout.expandable;
+  } else {
+    inner = stripped;
+    expandable = isLongQuote(stripped);
+  }
+  const open = expandable ? '<blockquote expandable>' : '<blockquote>';
+  return `${open}${inner}</blockquote>`;
+}
+
+interface ParsedCallout {
+  readonly header: string;
+  readonly body: string;
+  readonly expandable: boolean;
+}
+
+/**
+ * Parse a `[!type]`/`[!type]-`/`[!type]+ Title` first line. Returns null when
+ * the first line isn't a RECOGNISED callout, so an unknown `[!whatever]` is left
+ * as ordinary quote text rather than guessing a rendering for it.
+ */
+function parseCallout(stripped: string): ParsedCallout | null {
+  const nl = stripped.indexOf('\n');
+  const firstLine = nl === -1 ? stripped : stripped.slice(0, nl);
+  const rest = nl === -1 ? '' : stripped.slice(nl + 1);
+  const m = /^\[!(\w+)\]([+-]?)[ \t]*(.*)$/.exec(firstLine.trim());
+  if (!m) return null;
+  const meta = CALLOUTS[m[1]!.toLowerCase()];
+  if (!meta) return null;
+  const fold = m[2];
+  const title = m[3]!.trim() || meta.label;
+  return {
+    header: `<b>${meta.emoji} ${title}</b>`,
+    body: rest,
+    expandable: fold === '-' ? true : fold === '+' ? false : meta.fold,
+  };
+}
+
+/** True when a plain quote is long enough to be worth collapsing. */
+function isLongQuote(stripped: string): boolean {
+  if (stripped.length >= LONG_QUOTE_CHARS) return true;
+  let lines = 1;
+  for (let i = 0; i < stripped.length; i++) if (stripped[i] === '\n') lines++;
+  return lines >= LONG_QUOTE_LINES;
 }
 
 /** Schemes we let through as a clickable `<a href>`. */
