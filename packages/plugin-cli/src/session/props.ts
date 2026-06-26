@@ -1,4 +1,5 @@
 import type {
+  ChannelDef,
   PendingToolCall,
   PermissionContext,
   PermissionDecision,
@@ -25,6 +26,18 @@ export interface InteractiveBootStep {
   readonly error?: string;
 }
 
+/**
+ * Minimal structural view of the encrypted vault the `/channels` panel needs to
+ * read/write a channel's secrets. Kept structural (not the concrete
+ * `@moxxy/plugin-vault` `VaultStore`) so plugin-cli takes no dependency on the
+ * vault package — the host passes its already-open `VaultStore`, which satisfies
+ * this shape.
+ */
+export interface VaultLike {
+  has(name: string): Promise<boolean>;
+  set(name: string, value: string): Promise<void>;
+}
+
 export interface InteractiveSessionProps {
   /**
    * Pre-resolved session. When omitted, `bootstrap` must be provided and
@@ -41,6 +54,21 @@ export interface InteractiveSessionProps {
   readonly registerInteractiveResolver: (
     prompt: (call: PendingToolCall, ctx: PermissionContext) => Promise<PermissionDecision>,
   ) => void;
+  /**
+   * Accessor for the host's already-open vault, used by the `/channels` panel to
+   * store channel secrets. Returns null when no local vault is available (e.g. a
+   * thin client attached to an external runner) — the panel then degrades config
+   * to a hint. An accessor (not a value) because the vault is created during
+   * `bootstrap`, after these props are first rendered.
+   */
+  readonly getVault?: () => VaultLike | null;
+  /**
+   * The channels registered at boot (full {@link ChannelDef}s), for the
+   * `/channels` panel — the TUI's `ClientSession` doesn't expose the channel
+   * registry, so the host (which booted the full session) supplies it. An
+   * accessor because the registry is populated during `bootstrap`.
+   */
+  readonly getChannels?: () => ReadonlyArray<ChannelDef>;
   readonly model?: string;
   /**
    * Optional version string surfaced in the logo + session-info panel.

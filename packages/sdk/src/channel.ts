@@ -162,6 +162,45 @@ export interface ChannelDef<TStartOpts = unknown> {
    * to the usual env/default resolution.
    */
   readonly sessionSource?: SessionSource;
+  /**
+   * Declarative config the channel needs to run (its secret fields + where they
+   * live in the vault, plus pairing hints). This is what a control surface — the
+   * TUI `/channels` panel, `moxxy channels start`, the desktop "Channels" panel —
+   * renders to let the user configure + start the channel WITHOUT hardcoding a
+   * per-channel table. The channel self-describes here; the vault keys named are
+   * the same ones the channel actually reads at boot (its `keys.ts`). Channels
+   * with no setup (web/http) omit this.
+   */
+  readonly config?: ChannelConfigDescriptor;
+}
+
+/** One secret/config input a channel exposes for a control surface to collect. */
+export interface ChannelConfigField {
+  /** Option key (e.g. `botToken`). Stable identifier within the channel. */
+  readonly name: string;
+  /** Short human label (e.g. `Bot token`). */
+  readonly label: string;
+  /** The vault key the channel reads this value from (e.g. `slack_bot_token`). */
+  readonly vaultKey: string;
+  /** Must be present for the channel to count as "configured". */
+  readonly required?: boolean;
+  /** Treat as a secret — mask the input and never echo the stored value. */
+  readonly secret?: boolean;
+  /** Placeholder shown in an empty input (e.g. `xoxb-…`). */
+  readonly placeholder?: string;
+  /** One-line guidance on where to obtain the value. */
+  readonly help?: string;
+}
+
+/** What a channel declares about being configured + run from a control surface. */
+export interface ChannelConfigDescriptor {
+  /** The fields to collect, in display order. */
+  readonly fields: ReadonlyArray<ChannelConfigField>;
+  /** The channel exposes a public ingest URL (Slack's Request URL) once started,
+   *  so a control surface should poll for + surface it. */
+  readonly hasRequestUrl?: boolean;
+  /** Post-start pairing/setup instructions to show the user. */
+  readonly runHint?: string;
 }
 
 export interface ChannelAvailability {

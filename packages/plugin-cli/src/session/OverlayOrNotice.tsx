@@ -7,9 +7,12 @@ import { ToolsPanel } from '../components/ToolsPanel.js';
 import { AgentsPanel } from '../components/AgentsPanel.js';
 import { UsagePanel } from '../components/UsagePanel.js';
 import { WorkflowsPanel } from '../components/WorkflowsPanel.js';
+import { ChannelsPanel } from '../components/ChannelsPanel.js';
 import { Colors, noColor } from '../theme.js';
 import { deriveMcpServers } from './helpers.js';
+import type { ChannelDef } from '@moxxy/sdk';
 import type { Overlay } from './types.js';
+import type { VaultLike } from './props.js';
 
 interface OverlayOrNoticeProps {
   overlay: Overlay;
@@ -18,6 +21,8 @@ interface OverlayOrNoticeProps {
   events: ReadonlyArray<MoxxyEvent>;
   contextWindow?: number | null;
   contextTokens?: number | null;
+  getVault?: () => VaultLike | null;
+  getChannels?: () => ReadonlyArray<ChannelDef>;
   onClose: () => void;
 }
 
@@ -28,6 +33,8 @@ export const OverlayOrNotice: React.FC<OverlayOrNoticeProps> = ({
   events,
   contextWindow,
   contextTokens,
+  getVault,
+  getChannels,
   onClose,
 }) => {
   if (overlay?.kind === 'skills') {
@@ -44,6 +51,15 @@ export const OverlayOrNotice: React.FC<OverlayOrNoticeProps> = ({
   }
   if (overlay?.kind === 'workflows') {
     return <WorkflowsPanel view={session.workflows ?? null} onClose={onClose} />;
+  }
+  if (overlay?.kind === 'channels') {
+    return (
+      <ChannelsPanel
+        channels={getChannels?.() ?? []}
+        vault={getVault?.() ?? null}
+        onClose={onClose}
+      />
+    );
   }
   if (overlay?.kind === 'agents') {
     return (
