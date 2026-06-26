@@ -107,8 +107,21 @@ export function startChannel(id: string): void {
   // `MOXXY_DEDICATED_RUNNER=1` forces the isolated runner even if the channel
   // didn't declare it; declared channels (slack/telegram) get it either way. We
   // deliberately do NOT set MOXXY_SESSION_SOURCE — the channel stamps its own.
+  //
+  // The remaining two mirror `moxxy serve` (see runner-supervisor.spawnServe),
+  // for the same reasons — a desktop-spawned channel runner lives in the same
+  // read-only packaged app and must not behave like a standalone CLI:
+  //  - MOXXY_NO_WEB_SURFACE: a remote channel (Telegram) otherwise co-attaches a
+  //    web surface and opens a proxy tunnel during startup (start-registered-
+  //    channel), BEFORE it writes its status file. If that tunnel is slow or
+  //    unreachable the write never runs and the panel's connect step (QR /
+  //    Request URL) hangs on "Connecting…"; it also races the fixed web port
+  //    (4040) with serve and every other channel runner. The desktop owns the
+  //    UI, so opt out.
+  //  - MOXXY_NO_CORE_UPDATE: Tier-2 self_update_core_* can't patch a read-only
+  //    .app; hide those tools here as serve does.
   const child = spawnCli(cli, [id], {
-    env: { MOXXY_DEDICATED_RUNNER: '1' },
+    env: { MOXXY_DEDICATED_RUNNER: '1', MOXXY_NO_WEB_SURFACE: '1', MOXXY_NO_CORE_UPDATE: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

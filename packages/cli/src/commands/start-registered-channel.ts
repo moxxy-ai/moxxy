@@ -236,19 +236,20 @@ async function runSelfHostedChannel(
     ...collectExtraFlags(argv),
   });
 
-  // Co-attach the web surface to the SAME session (on by default) so
-  // present_view renders and the agent can hand the user a URL even when the
-  // primary channel is e.g. telegram. The primary's permission resolver governs.
-  const webHandle = name === 'web' ? null : await coAttachWebSurface({ primary: name, session, vault, config });
-
   // Publish a status file ONLY for a dedicated channel runner, so an
   // out-of-process supervisor (the desktop "Channels" panel) can observe
-  // readiness + the public ingest URL (Slack's Request URL) without the runner
-  // protocol. `channel.requestUrl` is set by the time `start()` resolved (Slack
-  // opens its tunnel during start); null for channels with no inbound endpoint.
+  // readiness + the channel's connect value (Slack's Request URL, Telegram's
+  // resolved `t.me/<bot>` link) without the runner protocol. `channel.requestUrl`
+  // is set by the time `start()` resolved (Slack opens its tunnel during start,
+  // Telegram resolves its bot link via getMe); null for channels with none.
   // We are the SOLE writer of this file: the initial write captures pid/startedAt,
   // and `onConnectChange` re-publishes the same record (stable startedAt) when the
   // channel's connect-state flips — e.g. a Telegram chat pairs (connected:true).
+  //
+  // Write this BEFORE co-attaching the web surface: the status reflects the
+  // channel's OWN readiness, which must not be held hostage to the (optional)
+  // co-attached web surface — opening its proxy tunnel can be slow or hang, and
+  // that must never delay the supervisor seeing the connect step.
   if (dedicated) {
     const startedAt = new Date().toISOString();
     const publishStatus = (): void => {
@@ -264,6 +265,13 @@ async function runSelfHostedChannel(
     publishStatus();
     handle.onConnectChange?.(publishStatus);
   }
+
+  // Co-attach the web surface to the SAME session (on by default) so
+  // present_view renders and the agent can hand the user a URL even when the
+  // primary channel is e.g. telegram. The primary's permission resolver governs.
+  // The desktop opts out (MOXXY_NO_WEB_SURFACE) — it owns the UI and a channel
+  // runner must not race the fixed web port / open a tunnel of its own.
+  const webHandle = name === 'web' ? null : await coAttachWebSurface({ primary: name, session, vault, config });
 
   // Re-entrancy guard (mirrors runAttachedChannel): a second Ctrl-C, or
   // SIGINT+SIGTERM arriving close together, must not run teardown twice —

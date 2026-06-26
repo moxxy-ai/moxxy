@@ -30,6 +30,11 @@ import { handleVoiceMessage } from './channel/voice-handler.js';
 
 const TOKEN_KEY = 'telegram_bot_token';
 
+/** Cap on the up-front `getMe` (bot identity → `t.me` connect link). It must
+ *  never gate channel startup: if Telegram is slow/unreachable, we proceed
+ *  without the link rather than wedge `start()` (and the readiness it unblocks). */
+const BOT_IDENTITY_TIMEOUT_MS = 8_000;
+
 export type { PairingConfirmResult } from './channel/pairing-handler.js';
 
 export interface TelegramStartOpts extends ChannelStartOptsBase {
@@ -246,12 +251,29 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
 
     // Resolve the bot's own identity up front (getMe) so a control surface can
     // show a `t.me/<botname>` connect step. grammy caches this on `bot.botInfo`,
-    // and `bot.start()` below reuses it instead of calling getMe again. Non-fatal:
-    // a transient getMe failure must not block the channel from starting — the
-    // poll loop surfaces a genuinely invalid token on its own.
+    // and `bot.start()` below reuses it instead of calling getMe again. Non-fatal
+    // AND non-blocking: a transient getMe failure must not block the channel from
+    // starting — and neither must a STALLED one. We bound it with a timeout so a
+    // slow/unreachable Telegram can't wedge `start()` (which gates bot polling,
+    // the web-surface co-attach, and the dedicated runner's status file). On
+    // timeout/error we proceed without the link; the poll loop surfaces a
+    // genuinely invalid token on its own. (We race a timer rather than pass
+    // grammy an AbortSignal — its `init(signal)` types the param against the
+    // `abort-controller` polyfill, not the global signal.)
     const bot = this.bot;
+    const init = bot.init();
+    init.catch(() => undefined); // a late rejection (post-timeout) isn't unhandled
     try {
-      await bot.init();
+      await Promise.race([
+        init,
+        new Promise<never>((_, reject) => {
+          const t = setTimeout(
+            () => reject(new Error(`getMe timed out after ${BOT_IDENTITY_TIMEOUT_MS}ms`)),
+            BOT_IDENTITY_TIMEOUT_MS,
+          );
+          t.unref?.();
+        }),
+      ]);
       const username = bot.botInfo.username;
       if (username) {
         // Embed the host-issued code as the `?start=` deep-link payload so a scan
