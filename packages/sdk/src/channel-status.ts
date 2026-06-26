@@ -22,8 +22,14 @@ export interface ChannelRunStatus {
   /** The session source the runner stamped (e.g. `slack`). */
   readonly source?: string;
   /** Public ingest URL (e.g. Slack's Events Request URL) once the tunnel is up;
-   *  null for channels with no inbound endpoint (Telegram long-polls). */
+   *  null for channels with no inbound endpoint (Telegram long-polls). While a
+   *  Telegram host-pairing window is open this carries the `?start=<code>`
+   *  deep-link the panel renders as a QR. */
   readonly requestUrl?: string | null;
+  /** The "connect the other side" step is satisfied (e.g. a Telegram chat
+   *  paired) — a supervisor swaps the connect QR/URL for a "✓ Connected" note.
+   *  Absent for channels with no discrete connected state (Slack). */
+  readonly connected?: boolean;
 }
 
 /** `~/.moxxy/channel-<name>.status.json` (honors `$MOXXY_HOME`). */

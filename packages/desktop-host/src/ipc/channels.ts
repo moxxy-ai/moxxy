@@ -37,6 +37,7 @@ function statusOf(id: string, configured: boolean): ChannelRuntimeStatus {
     ...(rt.pid !== undefined ? { pid: rt.pid } : {}),
     ...(rt.startedAtMs !== undefined ? { startedAtMs: rt.startedAtMs } : {}),
     ...(rt.requestUrl !== undefined ? { requestUrl: rt.requestUrl } : {}),
+    ...(rt.connected !== undefined ? { connected: rt.connected } : {}),
     ...(rt.error !== undefined ? { error: rt.error } : {}),
   };
 }

@@ -238,9 +238,24 @@ function ChannelCard({
         </div>
       )}
 
-      {/* Running affordances: the declarative per-channel connect step (QR / URL /
+      {/* Running affordances: once the other side is connected (e.g. a Telegram
+          chat paired) the connect step is done — show a "✓ Connected" note.
+          Otherwise render the declarative per-channel connect step (QR / URL /
           instructions). Channels without a `connect` fall back to the legacy hint. */}
-      {status.running && descriptor.connect ? (
+      {status.running && status.connected ? (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: '0.78rem',
+            color: 'var(--color-green)',
+          }}
+        >
+          <Icon name="check" size={14} />
+          Connected
+        </div>
+      ) : status.running && descriptor.connect ? (
         <ConnectStep connect={descriptor.connect} url={status.requestUrl} />
       ) : (
         status.running &&

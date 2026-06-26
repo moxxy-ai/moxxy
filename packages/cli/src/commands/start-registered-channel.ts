@@ -225,10 +225,14 @@ async function runSelfHostedChannel(
     }
   }
 
-  // The in-process Session satisfies ClientSession; the seam holds.
+  // The in-process Session satisfies ClientSession; the seam holds. `dedicated`
+  // is threaded so a channel that pairs the other side (Telegram) knows it runs
+  // under a GUI host with no terminal — it self-serves a host-issued pairing
+  // window + QR instead of demanding `moxxy channels telegram pair`.
   const handle = await startChannelWith(channel, {
     session,
     model: stringFlag(argv, 'model'),
+    dedicated,
     ...collectExtraFlags(argv),
   });
 
@@ -242,14 +246,23 @@ async function runSelfHostedChannel(
   // readiness + the public ingest URL (Slack's Request URL) without the runner
   // protocol. `channel.requestUrl` is set by the time `start()` resolved (Slack
   // opens its tunnel during start); null for channels with no inbound endpoint.
+  // We are the SOLE writer of this file: the initial write captures pid/startedAt,
+  // and `onConnectChange` re-publishes the same record (stable startedAt) when the
+  // channel's connect-state flips — e.g. a Telegram chat pairs (connected:true).
   if (dedicated) {
-    writeChannelStatus({
-      name,
-      pid: process.pid,
-      startedAt: new Date().toISOString(),
-      ...(process.env.MOXXY_SESSION_SOURCE ? { source: process.env.MOXXY_SESSION_SOURCE } : {}),
-      requestUrl: channel.requestUrl ?? null,
-    });
+    const startedAt = new Date().toISOString();
+    const publishStatus = (): void => {
+      writeChannelStatus({
+        name,
+        pid: process.pid,
+        startedAt,
+        ...(process.env.MOXXY_SESSION_SOURCE ? { source: process.env.MOXXY_SESSION_SOURCE } : {}),
+        requestUrl: channel.requestUrl ?? null,
+        ...(channel.connected !== undefined ? { connected: channel.connected } : {}),
+      });
+    };
+    publishStatus();
+    handle.onConnectChange?.(publishStatus);
   }
 
   // Re-entrancy guard (mirrors runAttachedChannel): a second Ctrl-C, or

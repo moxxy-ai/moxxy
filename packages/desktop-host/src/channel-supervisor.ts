@@ -23,10 +23,14 @@ import type { ChannelRuntimeStatus } from '@moxxy/desktop-ipc-contract';
 import { augmentedPaths, resolveMoxxyCli, spawnCli } from './cli-resolver';
 import { broadcastHostEvent } from './event-bus';
 
-/** How long to keep polling the status file for the public Request URL after a
- *  channel starts (its tunnel opens within a second or two). */
+/** How often / how long to poll the status file after a channel starts. A
+ *  channel publishes its connect value fast (Slack's Request URL within a second
+ *  or two; Telegram's pairing deep link at start), but the connect-state can flip
+ *  much later — when the user actually scans the QR and pairs — so we keep
+ *  watching for several minutes (the poll also stops the moment `connected`
+ *  becomes true, or the process exits). */
 const URL_POLL_INTERVAL_MS = 700;
-const URL_POLL_TIMEOUT_MS = 30_000;
+const URL_POLL_TIMEOUT_MS = 5 * 60_000;
 /** Cap the stderr we retain per channel for error reporting (avoid unbounded). */
 const STDERR_TAIL_CAP = 4096;
 
@@ -35,6 +39,7 @@ interface ChannelProc {
   readonly pid: number;
   readonly startedAtMs: number;
   requestUrl?: string;
+  connected?: boolean;
   error?: string;
   stderrTail: string;
   urlPoll?: ReturnType<typeof setInterval>;
@@ -52,6 +57,7 @@ export interface ChannelRuntime {
   readonly pid?: number;
   readonly startedAtMs?: number;
   readonly requestUrl?: string;
+  readonly connected?: boolean;
   readonly error?: string;
 }
 
@@ -63,6 +69,7 @@ export function channelRuntime(id: string): ChannelRuntime {
     pid: p.pid,
     startedAtMs: p.startedAtMs,
     ...(p.requestUrl ? { requestUrl: p.requestUrl } : {}),
+    ...(p.connected !== undefined ? { connected: p.connected } : {}),
     ...(p.error ? { error: p.error } : {}),
   };
 }
@@ -80,6 +87,7 @@ function broadcast(id: string, extra?: Partial<ChannelRuntimeStatus>): void {
     ...(rt.pid !== undefined ? { pid: rt.pid } : {}),
     ...(rt.startedAtMs !== undefined ? { startedAtMs: rt.startedAtMs } : {}),
     ...(rt.requestUrl !== undefined ? { requestUrl: rt.requestUrl } : {}),
+    ...(rt.connected !== undefined ? { connected: rt.connected } : {}),
     ...(rt.error !== undefined ? { error: rt.error } : {}),
     ...extra,
   });
@@ -133,16 +141,27 @@ export function startChannel(id: string): void {
     finalize(id, entry);
   });
 
-  // Poll the channel's status file for its public Request URL (Slack). Stops
-  // once found, on timeout, or when the process goes away.
+  // Poll the channel's status file for its connect value (Slack's Request URL,
+  // Telegram's pairing deep link) AND its connect-state (Telegram pairing).
+  // Broadcasts on any change; stops once the channel reports connected, on
+  // timeout, or when the process goes away.
   entry.urlPoll = setInterval(() => {
     if (!procs.has(id)) return stopUrlPoll(entry);
     const status = readChannelStatus(id);
+    let changed = false;
     if (status?.requestUrl && status.requestUrl !== entry.requestUrl) {
       entry.requestUrl = status.requestUrl;
-      stopUrlPoll(entry);
-      broadcast(id);
-    } else if (Date.now() - entry.urlPollStartedAt > URL_POLL_TIMEOUT_MS) {
+      changed = true;
+    }
+    if (status?.connected !== undefined && status.connected !== entry.connected) {
+      entry.connected = status.connected;
+      changed = true;
+    }
+    if (changed) broadcast(id);
+    // Once the other side is connected (paired) there's nothing left to watch.
+    // Otherwise keep polling until the cap — the pairing transition can land
+    // minutes after start, when the user finally scans the QR.
+    if (entry.connected === true || Date.now() - entry.urlPollStartedAt > URL_POLL_TIMEOUT_MS) {
       stopUrlPoll(entry);
     }
   }, URL_POLL_INTERVAL_MS);

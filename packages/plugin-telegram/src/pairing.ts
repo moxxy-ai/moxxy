@@ -1,26 +1,29 @@
 import { randomCode } from '@moxxy/plugin-vault';
 
 /**
- * Pairing state machine — bot-issued code direction.
+ * Pairing state machine — one mechanism, host-issued QR code.
  *
- * Flow:
- *   1. Terminal opens a pairing window (`beginPairing`).
- *   2. User sends /start to the bot in Telegram (`handleStart`).
- *      The bot generates a 6-digit code and DMs it back to that chat.
- *   3. User reads the code in Telegram and pastes it into the moxxy
- *      terminal (`submitTerminalCode`). On match the chat is authorized.
+ * A control surface (the desktop "Channels" panel, or `moxxy channels telegram
+ * pair` in a terminal) opens a window with `beginHostIssuedPairing`: the 6-digit
+ * code is generated UP FRONT so the surface can embed it in a
+ * `t.me/<bot>?start=<code>` deep link and render that as a QR. The user scans /
+ * opens the link and taps START — the bot receives `/start <code>` — or simply
+ * sends the 6 digits as a message. `submitChatCode` matches the presented code
+ * and authorizes that chat.
  *
- * Why this direction (vs. the older "terminal shows code, user types it
- * in Telegram"): copying digits *out* of an auth-trusted device is the
- * natural pattern (Authy / Signal device-link / GitHub mobile all work
- * this way), and the terminal can validate the code synchronously
- * inside the wizard instead of waiting for a chat round-trip.
+ * Why this single direction (it replaced an older bot-issues-a-code /
+ * paste-in-the-terminal flow): it works identically whether the surface is a GUI
+ * with no terminal (the desktop) or a terminal (the `pair` command renders the
+ * QR inline) — one affordance everywhere, zero manual code entry — while keeping
+ * the "prove you can see the host's screen" security property (the code only
+ * ever lived on the surface).
  */
 
 export type PairingPhase =
   | 'idle'
-  | 'awaiting-start'
-  | 'awaiting-terminal'
+  // Host generated a code and is waiting for a chat to present it (via a
+  // `?start=<code>` deep link or a plain message). See `beginHostIssuedPairing`.
+  | 'awaiting-host-code'
   | 'paired'
   | 'expired';
 
@@ -36,16 +39,12 @@ export interface PairingDecision {
   readonly state: PairingState;
   readonly action:
     | { kind: 'reject'; message: string }
-    | { kind: 'issue-code'; message: string; code: string; chatId: number }
     | { kind: 'paired'; chatId: number }
     | { kind: 'still-paired'; chatId: number }
     | { kind: 'mismatch'; message: string }
     | { kind: 'expired'; message: string }
-    | { kind: 'not-pending'; message: string }
-    | { kind: 'wait'; message: string };
+    | { kind: 'not-pending'; message: string };
 }
-
-const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
 export function createPairingState(opts: { authorizedChatId?: number | null } = {}): PairingState {
   return {
@@ -58,40 +57,44 @@ export function createPairingState(opts: { authorizedChatId?: number | null } = 
 }
 
 /**
- * Open a pairing window from the terminal side. The state flips to
- * `awaiting-start`; no code is generated yet — the code is created when
- * /start arrives so it can be DM'd to the chat that initiated it.
+ * Open a host-issued pairing window. The code is generated immediately so the
+ * surface can embed it in the deep link / QR it shows the user.
+ *
+ * No TTL by default: the window's lifetime is the channel process's lifetime
+ * while unpaired (the surface tears it down by stopping the channel), and the
+ * security boundary is "could see the host's screen", not a clock. A caller may
+ * still pass a `ttlMs` to bound it.
  */
-export function beginPairing(
+export function beginHostIssuedPairing(
   state: PairingState,
+  code: string = randomCode(6),
   now: number = Date.now(),
-  ttlMs: number = DEFAULT_TTL_MS,
-): PairingState {
+  ttlMs: number | null = null,
+): { state: PairingState; code: string } {
   return {
-    ...state,
-    phase: 'awaiting-start',
-    code: null,
-    pendingChatId: null,
-    expiresAt: now + ttlMs,
+    state: {
+      ...state,
+      phase: 'awaiting-host-code',
+      code,
+      pendingChatId: null,
+      expiresAt: ttlMs == null ? null : now + ttlMs,
+    },
+    code,
   };
 }
 
 /**
- * Called when the bot receives a /start from `chatId`.
+ * Called when the bot receives a BARE `/start` (no code payload) — i.e. the user
+ * opened the chat manually rather than via the pairing deep link. The code path
+ * for a `/start <code>` payload (and plain-message codes) is `submitChatCode`.
  *
  * Behavior depends on phase:
  *   - paired (same chat)   → still-paired (already authorized; greet)
  *   - paired (other chat)  → reject (the bot is owned by someone else)
- *   - idle / expired       → reject with hint to run the wizard
- *   - awaiting-start       → generate code, transition to awaiting-terminal, return code to DM
- *   - awaiting-terminal    → re-issue the same code to the same chat;
- *                            tell a different chat to wait its turn
+ *   - awaiting-host-code   → reject with a nudge to use the QR / send the code
+ *   - idle / expired       → reject with a nudge to start pairing
  */
-export function handleStart(
-  state: PairingState,
-  chatId: number,
-  now: number = Date.now(),
-): PairingDecision {
+export function handleStart(state: PairingState, chatId: number): PairingDecision {
   if (state.authorizedChatId === chatId && state.phase === 'paired') {
     return { state, action: { kind: 'still-paired', chatId } };
   }
@@ -101,108 +104,60 @@ export function handleStart(
       action: { kind: 'reject', message: 'This bot is paired with a different chat. Access denied.' },
     };
   }
-  if (state.phase === 'idle' || state.phase === 'expired') {
+  if (state.phase === 'awaiting-host-code') {
     return {
       state,
       action: {
         kind: 'reject',
         message:
-          'No pairing window is open. Run `moxxy channels telegram pair` in your terminal first, then send /start again.',
+          'Scan the QR (or open the link) shown in moxxy, or send the 6-digit code it shows, to finish pairing.',
       },
     };
   }
-  if (state.expiresAt !== null && now > state.expiresAt) {
-    return {
-      state: { ...state, phase: 'expired', code: null, pendingChatId: null, expiresAt: null },
-      action: { kind: 'expired', message: 'Pairing window expired. Re-run `moxxy channels telegram pair`.' },
-    };
-  }
-  if (state.phase === 'awaiting-terminal') {
-    if (state.pendingChatId === chatId && state.code) {
-      return {
-        state,
-        action: {
-          kind: 'issue-code',
-          chatId,
-          code: state.code,
-          message: 'Your pairing code is still active:',
-        },
-      };
-    }
-    return {
-      state,
-      action: {
-        kind: 'wait',
-        message:
-          'Another chat started pairing first. Wait for that window to finish or expire, then try again.',
-      },
-    };
-  }
-  // awaiting-start → issue a new code for this chat. Preserve the
-  // original expiry set by `beginPairing` so the user can't extend the
-  // window by re-triggering /start.
-  const code = randomCode(6);
-  const nextState: PairingState = {
-    ...state,
-    phase: 'awaiting-terminal',
-    code,
-    pendingChatId: chatId,
-  };
   return {
-    state: nextState,
+    state,
     action: {
-      kind: 'issue-code',
-      chatId,
-      code,
+      kind: 'reject',
       message:
-        'Your pairing code is valid for 5 minutes. Paste it into the moxxy terminal to authorize this chat.',
+        'No pairing window is open. Start pairing from the moxxy desktop Channels panel, or run `moxxy channels telegram pair`.',
     },
   };
 }
 
 /**
- * Called when the user pastes a code in the moxxy terminal.
+ * Called when a chat PRESENTS a host-issued code — either as the payload of a
+ * `/start <code>` deep link or as a plain 6-digit message. On match the chat is
+ * authorized.
  */
-export function submitTerminalCode(
+export function submitChatCode(
   state: PairingState,
-  rawInput: string,
+  chatId: number,
+  rawCode: string,
   now: number = Date.now(),
 ): PairingDecision {
-  if (state.phase === 'paired' && state.authorizedChatId !== null) {
-    return { state, action: { kind: 'still-paired', chatId: state.authorizedChatId } };
+  if (state.phase === 'paired' && state.authorizedChatId === chatId) {
+    return { state, action: { kind: 'still-paired', chatId } };
   }
-  if (state.phase === 'idle') {
+  if (state.authorizedChatId !== null && state.authorizedChatId !== chatId) {
     return {
       state,
-      action: { kind: 'not-pending', message: 'No pairing in progress.' },
+      action: { kind: 'reject', message: 'This bot is paired with a different chat. Access denied.' },
     };
   }
-  if (state.phase === 'awaiting-start') {
-    return {
-      state,
-      action: {
-        kind: 'not-pending',
-        message: 'No /start received yet — open Telegram and send /start to your bot first.',
-      },
-    };
+  if (state.phase !== 'awaiting-host-code') {
+    return { state, action: { kind: 'not-pending', message: 'No pairing window is open.' } };
   }
-  if (state.phase === 'expired' || (state.expiresAt !== null && now > state.expiresAt)) {
+  if (state.expiresAt !== null && now > state.expiresAt) {
     return {
       state: { ...state, phase: 'expired', code: null, pendingChatId: null, expiresAt: null },
-      action: { kind: 'expired', message: 'Pairing window expired. Re-run `moxxy channels telegram pair`.' },
+      action: { kind: 'expired', message: 'Pairing window expired. Start the channel again to retry.' },
     };
   }
-  const normalized = rawInput.replace(/\s+/g, '');
-  if (!/^\d{6}$/.test(normalized)) {
+  const normalized = rawCode.replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(normalized) || normalized !== state.code) {
     return {
       state,
-      action: { kind: 'mismatch', message: 'Enter the 6-digit code (digits only).' },
-    };
-  }
-  if (normalized !== state.code || state.pendingChatId === null) {
-    return {
-      state,
-      action: { kind: 'mismatch', message: "Code didn't match. Check the digits and try again." },
+      action: { kind: 'mismatch', message: "Code didn't match. Check the digits shown in moxxy and try again." },
     };
   }
   return {
@@ -211,9 +166,9 @@ export function submitTerminalCode(
       code: null,
       pendingChatId: null,
       expiresAt: null,
-      authorizedChatId: state.pendingChatId,
+      authorizedChatId: chatId,
     },
-    action: { kind: 'paired', chatId: state.pendingChatId },
+    action: { kind: 'paired', chatId },
   };
 }
 
