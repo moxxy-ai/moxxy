@@ -9,7 +9,9 @@ import { SlackChannel, type SlackChannelOptions } from './channel.js';
 import {
   SLACK_AUTHORIZED_KEY,
   SLACK_BOT_TOKEN_ENV,
+  SLACK_BOT_TOKEN_KEY,
   SLACK_SIGNING_SECRET_ENV,
+  SLACK_SIGNING_SECRET_KEY,
   parseAuthorization,
   resolveBotToken,
   resolveSigningSecret,
@@ -110,6 +112,33 @@ function makeSlackPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): Pl
         // The CLI reads these generically — no per-channel name list.
         dedicatedRunner: true,
         sessionSource: 'slack',
+        // Self-described config so a control surface (TUI `/channels`, `moxxy
+        // channels start`) can configure + run Slack without a hardcoded table.
+        // The vault keys named here are the ones the channel reads at boot.
+        config: {
+          fields: [
+            {
+              name: 'botToken',
+              label: 'Bot token',
+              vaultKey: SLACK_BOT_TOKEN_KEY,
+              required: true,
+              secret: true,
+              placeholder: 'xoxb-…',
+              help: 'Slack app → OAuth & Permissions → Bot User OAuth Token',
+            },
+            {
+              name: 'signingSecret',
+              label: 'Signing secret',
+              vaultKey: SLACK_SIGNING_SECRET_KEY,
+              required: true,
+              secret: true,
+              help: 'Slack app → Basic Information → App Credentials → Signing Secret',
+            },
+          ],
+          hasRequestUrl: true,
+          runHint:
+            'Paste the Request URL into your Slack app → Event Subscriptions, subscribe to the app_mention bot event, then mention the bot in a channel to pair.',
+        },
         create: (deps) => {
           const options = deps.options;
           const allowedTools = readAllowedTools(options);

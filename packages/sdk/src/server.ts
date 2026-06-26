@@ -34,6 +34,16 @@ export {
   readChannelStatus,
   clearChannelStatus,
 } from './channel-status.js';
+// Process-independent control of dedicated channel runners (start detached,
+// discover via status files, stop) — shared by the TUI `/channels` panel and the
+// `moxxy channels start|stop|status` subcommands (node:child_process + node:fs).
+export {
+  spawnDedicatedChannel,
+  isPidAlive,
+  liveChannelStatus,
+  listLiveChannelStatuses,
+  stopDedicatedChannel,
+} from './channel-control.js';
 export {
   resolveChannelToken,
   rotateChannelToken,

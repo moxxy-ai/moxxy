@@ -373,6 +373,8 @@ export type {
   ChannelStartOptsBase,
   ChannelFactoryDeps,
   ChannelDef,
+  ChannelConfigField,
+  ChannelConfigDescriptor,
   ChannelAvailability,
   ChannelRegistry,
   ChannelSubcommand,

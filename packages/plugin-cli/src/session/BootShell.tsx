@@ -21,6 +21,8 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
   session: eagerSession,
   bootstrap,
   registerInteractiveResolver,
+  getVault,
+  getChannels,
   model,
   version,
   updateAvailable,
@@ -160,6 +162,8 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
       key={session.id}
       session={session}
       registerInteractiveResolver={registerInteractiveResolver}
+      {...(getVault ? { getVault } : {})}
+      {...(getChannels ? { getChannels } : {})}
       {...(initialPrompt ? { initialPrompt } : {})}
       {...(switchNotice ? { initialNotice: switchNotice } : {})}
       {...(model ? { model } : {})}

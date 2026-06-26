@@ -84,6 +84,24 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
         // the user's desktop/TUI work. Telegram long-polls (no tunnel needed).
         dedicatedRunner: true,
         sessionSource: 'telegram',
+        // Self-described config so a control surface (TUI `/channels`, `moxxy
+        // channels start`) can configure + run Telegram without a hardcoded table.
+        config: {
+          fields: [
+            {
+              name: 'token',
+              label: 'Bot token',
+              vaultKey: TELEGRAM_TOKEN_KEY,
+              required: true,
+              secret: true,
+              placeholder: '123456:ABC-DEF…',
+              help: 'Create a bot with @BotFather and paste its token',
+            },
+          ],
+          hasRequestUrl: false,
+          runHint:
+            'Message your bot on Telegram, then send the pairing code it replies with to authorize your chat.',
+        },
         create: (deps) =>
           new TelegramChannel({
             vault: getVault(),

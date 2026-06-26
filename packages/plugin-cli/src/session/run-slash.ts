@@ -136,6 +136,10 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return openModePicker(deps, args);
     case 'plugins':
       return openPluginsPicker(deps);
+    case 'channels':
+      deps.setSystemNotice(null);
+      deps.setOverlay({ kind: 'channels' });
+      return;
     case 'goal':
       return startGoal(deps, args);
     case 'collab':

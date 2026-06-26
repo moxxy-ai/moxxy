@@ -48,6 +48,10 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
   { name: 'mcp', description: 'Enable / disable / remove MCP servers' },
   { name: 'plugins', description: 'Plug / unplug & install plugins — opens a tabbed picker' },
   {
+    name: 'channels',
+    description: 'Run Slack / Telegram bots on their own runner — configure, start, stop',
+  },
+  {
     name: 'goal',
     description: 'Work autonomously until the objective is delivered (switches mode + auto-approves; Esc stops)',
     argumentHint: '<objective>',
