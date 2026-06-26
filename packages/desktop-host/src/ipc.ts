@@ -55,6 +55,7 @@ import { registerSettingsHandlers } from './ipc/settings';
 import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
 import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
+import { registerChannelsHandlers } from './ipc/channels';
 
 export function registerIpcHandlers(
   buses: ReadonlyArray<CommandBus>,
@@ -98,6 +99,7 @@ export function registerIpcHandlers(
     registerVaultHandlers();
     registerChatHandlers(pool);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
+    registerChannelsHandlers();
   }
 }
 

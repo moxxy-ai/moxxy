@@ -21,6 +21,7 @@ import type {
 import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 import type { MobileGatewayStatus } from './mobile.js';
+import type { ChannelEntry, ChannelRuntimeStatus } from './channels.js';
 import type {
   ProviderEntry,
   McpServerEntry,
@@ -490,6 +491,26 @@ export interface IpcCommands {
    *  or pass `sessionId: null` to clear the binding. Maps to the trigger's stored
    *  `ownerSessionId`; the existing queue/drain routes the delivery. */
   'webhooks.setTargetSession': (args: { id: string; sessionId: string | null }) => Promise<WebhookSummary | null>;
+
+  // ---- Communication channels (Slack / Telegram on dedicated runners) --
+  // Host-only (run a local subprocess + read/write the vault): deliberately NOT
+  // in REMOTE_ALLOWED_COMMANDS, so a paired phone can't start a channel or save
+  // its secrets.
+  /** Every runnable channel with its descriptor (config fields, webhook-url
+   *  affordance) + live status (configured / running / requestUrl). */
+  'channels.list': () => Promise<ReadonlyArray<ChannelEntry>>;
+  /** Store a channel's secrets/settings in the vault (values keyed by
+   *  ChannelConfigField.name). Returns the refreshed status (now configured). */
+  'channels.saveConfig': (args: {
+    channelId: string;
+    values: Record<string, string>;
+  }) => Promise<ChannelRuntimeStatus>;
+  /** Start the channel on its own dedicated, isolated runner subprocess.
+   *  Rejects if it isn't configured yet. Streams live updates via
+   *  `channels.status`; resolves with the post-start status. */
+  'channels.start': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
+  /** Stop the channel's dedicated-runner subprocess. */
+  'channels.stop': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
 
   // ---- Desktop apps gallery (install lifecycle) ------------------------
   // All host-only (native pickers + filesystem + a network download). They are

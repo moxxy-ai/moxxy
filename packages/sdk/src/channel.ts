@@ -26,6 +26,15 @@ export interface Channel<TStartOpts = unknown> {
    * resolves when the channel exits gracefully.
    */
   start(opts: TStartOpts): Promise<ChannelHandle>;
+
+  /**
+   * The public ingest URL this channel exposes once running — e.g. Slack's
+   * Events Request URL after its proxy tunnel opens — or null when it has none
+   * (Telegram long-polls). Read by the dedicated-runner host to publish the URL
+   * the user must paste into the provider's config. Optional: channels with no
+   * inbound endpoint omit it.
+   */
+  readonly requestUrl?: string | null;
 }
 
 export interface ChannelHandle {

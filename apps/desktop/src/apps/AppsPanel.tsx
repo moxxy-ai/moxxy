@@ -6,14 +6,16 @@ import { AppCard } from './AppCard';
 import { WorkflowsPanel } from '../workflows/WorkflowsPanel';
 import { SchedulesPanel } from './SchedulesPanel';
 import { WebhooksPanel } from './WebhooksPanel';
+import { ChannelsPanel } from './ChannelsPanel';
 import './builtins';
 
 /** Apps sub-surfaces. `gallery` is the installable-app grid (the landing); the
- *  other three are the ambient-automation surfaces reached from the header's
- *  right-side sub-nav chips. */
-type AppsTab = 'gallery' | 'workflows' | 'schedules' | 'webhooks';
+ *  others are the channel + ambient-automation surfaces reached from the
+ *  header's right-side sub-nav chips. */
+type AppsTab = 'gallery' | 'channels' | 'workflows' | 'schedules' | 'webhooks';
 
 const SUB_TABS = [
+  { id: 'channels', label: 'Channels' },
   { id: 'workflows', label: 'Workflows' },
   { id: 'schedules', label: 'Schedules' },
   { id: 'webhooks', label: 'Webhooks' },
@@ -77,6 +79,7 @@ export function AppsPanel({
         />
       </ViewHeader>
       {tab === 'gallery' && <Gallery onOpen={setOpenId} />}
+      {tab === 'channels' && <ChannelsPanel />}
       {tab === 'workflows' && <WorkflowsPanel embedded onView={onView} />}
       {tab === 'schedules' && <SchedulesPanel />}
       {tab === 'webhooks' && <WebhooksPanel />}

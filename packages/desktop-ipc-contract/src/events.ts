@@ -7,6 +7,7 @@ import type { DeepLinkPayload } from './deep-link.js';
 import type { MobileGatewayStatus } from './mobile.js';
 import type { AppInstallProgress } from './apps.js';
 import type { DesksOverview } from './desks.js';
+import type { ChannelRuntimeStatus } from './channels.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -87,4 +88,8 @@ export interface IpcEvents {
   /** Streamed during `apps.install` — one event per download/verify step so the
    *  Apps gallery can show a progress bar while an app's assets download. */
   'apps.install.progress': AppInstallProgress;
+  /** A channel's dedicated-runner status changed (started / stopped / crashed,
+   *  or its public Request URL became available) — the Channels panel re-renders
+   *  that channel's card without polling. */
+  'channels.status': ChannelRuntimeStatus;
 }

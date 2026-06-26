@@ -9,7 +9,7 @@ import {
 } from '@moxxy/runner';
 import type { Session } from '@moxxy/core';
 import { startChannelWith } from '@moxxy/sdk';
-import { moxxyPath } from '@moxxy/sdk/server';
+import { moxxyPath, writeChannelStatus, clearChannelStatus } from '@moxxy/sdk/server';
 import type { ClientSession, SessionLike, SessionSource } from '@moxxy/sdk';
 import {
   argvToSetupOptions,
@@ -68,11 +68,11 @@ export async function startRegisteredChannel(
   argv: ParsedArgv,
   dedicated: DedicatedRunnerOpts = {},
 ): Promise<number> {
-  applyDedicatedRunnerEnv(name, argv, dedicated);
+  const isDedicated = applyDedicatedRunnerEnv(name, argv, dedicated);
   const standalone = hasBoolFlag(argv, 'standalone');
   const mode = chooseClientMode({ standalone, runnerUp: standalone ? false : await isRunnerUp() });
   if (mode === 'attach') return runAttachedChannel(name, argv);
-  return runSelfHostedChannel(name, argv, mode === 'standalone');
+  return runSelfHostedChannel(name, argv, mode === 'standalone', isDedicated);
 }
 
 /**
@@ -98,12 +98,12 @@ export function applyDedicatedRunnerEnv(
   name: string,
   argv: ParsedArgv,
   opts: DedicatedRunnerOpts,
-): void {
+): boolean {
   const dedicated =
     opts.dedicatedRunner === true ||
     hasBoolFlag(argv, 'dedicated') ||
     process.env.MOXXY_DEDICATED_RUNNER === '1';
-  if (!dedicated) return;
+  if (!dedicated) return false;
   if (!process.env.MOXXY_RUNNER_SOCKET) {
     process.env.MOXXY_RUNNER_SOCKET = platformSocket(
       `channel-${name}`,
@@ -116,6 +116,7 @@ export function applyDedicatedRunnerEnv(
   if (!process.env.MOXXY_SESSION_SOURCE && opts.sessionSource) {
     process.env.MOXXY_SESSION_SOURCE = opts.sessionSource;
   }
+  return true;
 }
 
 /** Thin-client mode: run the channel against a RemoteSession. */
@@ -190,6 +191,7 @@ async function runSelfHostedChannel(
   name: string,
   argv: ParsedArgv,
   standalone: boolean,
+  dedicated: boolean,
 ): Promise<number> {
   // `skipKeyPrompt: true` - channels like telegram run for hours; if the model
   // key resolves later from env/vault when a turn fires, that's fine. The
@@ -235,6 +237,21 @@ async function runSelfHostedChannel(
   // primary channel is e.g. telegram. The primary's permission resolver governs.
   const webHandle = name === 'web' ? null : await coAttachWebSurface({ primary: name, session, vault, config });
 
+  // Publish a status file ONLY for a dedicated channel runner, so an
+  // out-of-process supervisor (the desktop "Channels" panel) can observe
+  // readiness + the public ingest URL (Slack's Request URL) without the runner
+  // protocol. `channel.requestUrl` is set by the time `start()` resolved (Slack
+  // opens its tunnel during start); null for channels with no inbound endpoint.
+  if (dedicated) {
+    writeChannelStatus({
+      name,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      ...(process.env.MOXXY_SESSION_SOURCE ? { source: process.env.MOXXY_SESSION_SOURCE } : {}),
+      requestUrl: channel.requestUrl ?? null,
+    });
+  }
+
   // Re-entrancy guard (mirrors runAttachedChannel): a second Ctrl-C, or
   // SIGINT+SIGTERM arriving close together, must not run teardown twice —
   // session.close() firing twice can double-flush plugin state (memory
@@ -249,6 +266,7 @@ async function runSelfHostedChannel(
     // runner socket + bound ports — a second Ctrl-C is swallowed by `stopping`.
     const force = setTimeout(() => process.exit(0), 4000);
     force.unref?.();
+    if (dedicated) clearChannelStatus(name);
     await webHandle?.stop('SIGINT').catch(() => undefined);
     await runnerServer?.close().catch(() => undefined);
     await handle.stop('SIGINT');

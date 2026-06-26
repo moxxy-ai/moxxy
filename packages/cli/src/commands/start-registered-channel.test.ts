@@ -41,18 +41,20 @@ describe('applyDedicatedRunnerEnv', () => {
     expect(process.env.MOXXY_SESSION_SOURCE).toBe('slack');
   });
 
-  it('is generic over the channel name and source (telegram)', () => {
-    applyDedicatedRunnerEnv('telegram', argv(), {
+  it('returns true and is generic over the channel name and source (telegram)', () => {
+    const dedicated = applyDedicatedRunnerEnv('telegram', argv(), {
       dedicatedRunner: true,
       sessionSource: 'telegram',
     });
+    expect(dedicated).toBe(true);
     expect(process.env.MOXXY_RUNNER_SOCKET).toContain('channel-telegram');
     expect(process.env.MOXXY_SESSION_ID).toBe('moxxy-channel-telegram');
     expect(process.env.MOXXY_SESSION_SOURCE).toBe('telegram');
   });
 
-  it('does nothing for an undeclared channel with no flag/env opt-in', () => {
-    applyDedicatedRunnerEnv('web', argv(), {});
+  it('returns false and does nothing for an undeclared channel with no opt-in', () => {
+    const dedicated = applyDedicatedRunnerEnv('web', argv(), {});
+    expect(dedicated).toBe(false);
     expect(process.env.MOXXY_RUNNER_SOCKET).toBeUndefined();
     expect(process.env.MOXXY_SESSION_ID).toBeUndefined();
     expect(process.env.MOXXY_SESSION_SOURCE).toBeUndefined();
