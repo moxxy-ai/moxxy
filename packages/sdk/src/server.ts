@@ -25,6 +25,25 @@ export {
 // options type is re-exported from the main barrel like other erased types.
 export { CrossProcessFireLock } from './cross-process-lock.js';
 export { readRequestBody, bearerTokenMatches } from './http-utils.js';
+// Dedicated-channel run-status file: a channel publishes readiness + its public
+// ingest URL so the desktop "Channels" supervisor can observe it out-of-process
+// (node:fs). The `ChannelRunStatus` *type* rides the main barrel like the others.
+export {
+  channelStatusPath,
+  writeChannelStatus,
+  readChannelStatus,
+  clearChannelStatus,
+} from './channel-status.js';
+// Process-independent control of dedicated channel runners (start detached,
+// discover via status files, stop) — shared by the TUI `/channels` panel and the
+// `moxxy channels start|stop|status` subcommands (node:child_process + node:fs).
+export {
+  spawnDedicatedChannel,
+  isPidAlive,
+  liveChannelStatus,
+  listLiveChannelStatuses,
+  stopDedicatedChannel,
+} from './channel-control.js';
 export {
   resolveChannelToken,
   rotateChannelToken,

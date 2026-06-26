@@ -51,5 +51,5 @@ One thin SKILL.md per task; read only what the task needs. Frontmatter
 |---|---|
 | tech-debt-journal | Operating TECH_DEBT.md: read-before-work, retire ≥1, A-intake |
 | audit-wave | Deep audit pattern: parallel agents → adversarial verify → fix waves |
-| release-flow | Changesets → Version PR → safe-publish → desktop draft → self-update |
+| release-flow | One workflow on development → version → advance main (tree-copy) → safe-publish → desktop draft → self-update |
 | security-invariants | Load-bearing security rules every change must preserve |

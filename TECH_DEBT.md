@@ -11,6 +11,17 @@ scannable summary. Git history holds the full prior journal if you need it.
 Severity tags: `[critical]`/`[high]`/`[med]`/`[low]`, `[note]` = standing practice
 or recorded-on-purpose decision.
 
+## Resolved ledger
+
+- [low, ux, RESOLVED 2026-06-25] `SkillGallery` now uses the shared
+  `<SearchBox />` primitive and has regression tests for filtering by name and
+  description. `apps/desktop/src/settings/skills/SkillGallery.tsx`.
+- [low, ux, RESOLVED 2026-06-26] Focus Mode's collapsed dark tile no longer
+  exposes the white Electron webContents background at anti-aliased corners; the
+  native focus window is shaped and the tile paints theme-aware backing color.
+  `packages/desktop-host/src/focus-window.ts`,
+  `apps/desktop/src/focus/focus-styles.ts`.
+
 ## Standing practices
 
 - **Own debt like a CTO** — read this file before non-trivial work, retire ≥1 item
@@ -40,6 +51,11 @@ or recorded-on-purpose decision.
   on the `moxxy mobile` runner to make it airtight. `packages/plugin-channel-mobile`.
 - [note] Stress-test multi-session with a desk's SECOND (UUID) session — the first
   session has id === desk id, which masks pool-key regressions. `packages/desktop-host`.
+- [low] `SessionSource` literals are still hand-listed in one runtime spot:
+  `sessionSource()`'s validator in `packages/cli/src/setup/persistence.ts` (a type
+  can't be enumerated at runtime). `DeskSession.source` in `@moxxy/desktop-ipc-contract`
+  was unified onto the SDK type (2026-06-26); when adding a source, update the
+  union in `@moxxy/sdk` event-store.ts AND that guard.
 - [low] TUI `/sessions` switcher only works in self-host/standalone mode (the TUI
   owns the boot, so it can re-bootstrap onto a different session in place). In
   ATTACH mode (thin client against an external `moxxy serve`) the runner owns a
@@ -137,18 +153,57 @@ or recorded-on-purpose decision.
 
 ## Channels, relay & HTTP
 
+- [low] Desktop channel catalog is now a MIRROR, not the only copy: each channel
+  self-describes its config on `ChannelDef.config` (`fields`/`vaultKey`/
+  `hasRequestUrl`/`runHint`), which the TUI `/channels` panel + `moxxy channels`
+  read from the live registry. The desktop `channel-catalog.ts` still hand-copies
+  it because the Electron main avoids booting plugin discovery; a
+  `moxxy channels describe --json` (or a drift test asserting the desktop catalog
+  matches each plugin's `def.config`) would remove the remaining duplication.
+  `packages/desktop-host/src/channel-catalog.ts`.
+- [low] Desktop-spawned channels are killed on app quit (a best-effort
+  `process.once('exit')` SIGTERM in `channel-supervisor.ts`). The TUI/CLI surfaces
+  now run channels DETACHED + status-file-discovered (`@moxxy/sdk/server`
+  `channel-control.ts`: `spawn`/`liveChannelStatus`/`listLiveChannelStatuses`/
+  `stop`), so they survive their launcher and re-adopt across restarts. The
+  desktop supervisor could converge onto the same status-file model (discover +
+  optionally adopt rather than always child-handle + kill-on-quit).
+  `packages/desktop-host/src/channel-supervisor.ts`.
 - [med] Relay is the single-instance sole remote path — no fallback; needs uptime
   monitoring + redeploy story (decide on an emergency escape hatch). `plugin-tunnel-proxy`.
 - [med] Channel→core prod dependency — `plugin-cli`/`plugin-telegram` still import
   core helpers; hoist provider-neutral ones into the SDK. 
 - [med] Shared HTTP-channel server base — `createServer`/`listen`/health/routing is
-  replicated across `plugin-channel-http`/`-web`/`webhooks`/`ipc-server-ws`; an
-  optional `HttpChannelServer` base would dedupe (larger refactor, lower payoff).
+  replicated across `plugin-channel-http`/`-web`/`webhooks`/`ipc-server-ws`/
+  `plugin-channel-slack` (the Slack ingest server is a 6th copy); an optional
+  `HttpChannelServer` base would dedupe (larger refactor, lower payoff).
+- [med, slack v1] Slack channel runs a SINGLE global `busy` single-flight — one
+  turn at a time across ALL threads/channels (a 2nd @mention while busy gets a
+  "still working" reply and is dropped). Per-thread concurrency (a turn per
+  thread, the isolation seam supports it) is deferred. `packages/plugin-channel-slack/`.
+- [med, slack v1, security] Slack channel is AUTONOMOUS — allow-list auto-approve
+  with no human-in-the-loop (mirrors the HTTP channel). There is no Slack
+  Interactivity button-approval flow; the operator must scope `allowedTools`
+  narrowly at setup (every auto-approved call is logged). Revisit human-in-the-loop
+  via Slack Interactivity (a 2nd Request URL) for v2. `packages/plugin-channel-slack/`.
+- [low, slack v1] Slack replies stream as PLAIN TEXT via `chat.update` (no
+  Block Kit / mrkdwn formatting, no message split for very long replies). A
+  Telegram-style renderer + Block Kit would improve fidelity. `packages/plugin-channel-slack/`.
 - [med, security] LAN pairing is cleartext `ws://` (RN/Expo can't trust a self-signed
   cert for a private IP); the secure phone path is the tunnel (`wss://`). Add optional
   `https.Server` + dev-build pinning only if direct-LAN encryption ever matters.
 - [low] Web-preview path-prefix rewriting only matters if a non-base-path-aware HTTP
   app appears. `packages/plugin-channel-web/`.
+- [low] Telegram rich-formatting is "simple yet powerful" but the powerful half is
+  doc-only: the model isn't TOLD about `~~strike~~`/`||spoiler||`/`> [!type]` callouts,
+  so it uses them only when a prompt/skill asks. The auto-wins (collapse the tool trace,
+  render standard Markdown) need no model awareness. If we want the model to reach for
+  collapsible callouts on its own, inject a one-line capability note into the session
+  when the Telegram channel is active (no prompt-injection seam for channels exists yet).
+  `packages/plugin-telegram/src/format.ts`.
+- [low] The final-frame activity collapse (`<blockquote expandable>`) is always-on with
+  a fixed 4-line threshold; if anyone wants it off, promote it to a per-chat `/details`
+  toggle or a `TelegramChannelOptions` flag. `packages/plugin-telegram/src/render.ts`.
 
 ## Workflows
 
@@ -220,8 +275,3 @@ or recorded-on-purpose decision.
 - [med] plugin-memory `EmbeddingIndex` stays separate from the SDK
   `CachedEmbeddingProvider` (different keying/bounding/persistence/eviction) — leave
   as-is; revisit only if `EmbeddingIndex` is reworked anyway. `packages/plugin-memory/`.
-
-## Skills gallery
-
-- [low, ux] `SkillGallery` hand-rolls its search input instead of the shared
-  `<SearchBox />` — swap and delete the duplicate. `apps/desktop/src/settings/skills/SkillGallery.tsx`.

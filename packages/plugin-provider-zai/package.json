@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-zai",
-  "version": "0.21.1",
+  "version": "0.22.0",
   "description": "z.ai (Zhipu GLM) LLMProvider plugin for moxxy. Ships two providers: `zai` (pay-as-you-go, OpenAI-compatible endpoint) and `zai-coding-plan` (GLM Coding Plan, Anthropic-compatible endpoint).",
   "keywords": [
     "moxxy",

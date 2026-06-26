@@ -119,6 +119,10 @@ const commandName = z
  *  must never traverse: lowercase letters/digits/hyphen only. */
 const appId = z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/, 'invalid app id');
 
+/** Channel id == the CLI subcommand spawned as `moxxy <channelId>`, so pin it to
+ *  a non-traversing, non-flag slug: lowercase letters/digits/hyphen only. */
+const channelId = z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/, 'invalid channel id');
+
 /** Workflow names come from workflow filenames — bounded, no traversal. */
 const workflowName = z
   .string()
@@ -130,6 +134,9 @@ const scheduleId = z.string().min(1).max(256);
 const webhookId = z.string().min(1).max(256);
 /** A target session id (same shape as a session/desk id), or null to clear it. */
 const sessionRef = z.string().min(1).max(256).nullable();
+const focusDelta = z.number().finite().min(-10_000).max(10_000);
+const focusScreenPoint = z.number().finite().min(-100_000).max(100_000);
+const focusSize = z.number().finite().int().min(40).max(800);
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
@@ -149,6 +156,18 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
+  'focus.toggle': z.undefined(),
+  'focus.moveBy': z.object({ dx: focusDelta, dy: focusDelta }).strict(),
+  'focus.dragStart': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
+  'focus.dragMove': z.object({ screenX: focusScreenPoint, screenY: focusScreenPoint }).strict(),
+  'focus.dragEnd': z.undefined(),
+  'focus.resize': z
+    .object({
+      width: focusSize,
+      height: focusSize,
+      resizable: z.boolean().optional(),
+    })
+    .strict(),
   'onboarding.openExternal': z.object({ url: httpUrl }),
   'onboarding.saveProviderKey': z.object({
     provider: providerName,
@@ -325,6 +344,17 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'apps.status': z.object({ appId }),
   'apps.install': z.object({ appId }),
   'apps.uninstall': z.object({ appId }),
+  // Channels: channelId is spawned as `moxxy <channelId>`, so pin it to a
+  // non-traversing slug. saveConfig carries secrets — bound the field count +
+  // each value's length so a hostile renderer can't OOM the host / bloat the
+  // vault (the keys are bounded field ids; values are tokens).
+  'channels.list': z.undefined(),
+  'channels.saveConfig': z.object({
+    channelId,
+    values: z.record(z.string().min(1).max(64), z.string().max(8192)),
+  }),
+  'channels.start': z.object({ channelId }),
+  'channels.stop': z.object({ channelId }),
   // Anonymizer: parseDocument reads a file (bound the path), saveRedacted writes
   // one (bound name + cap content so a renderer can't OOM main). pickDocument
   // takes nothing — pin it to "nothing" so no args can be smuggled across.

@@ -4,6 +4,7 @@ import { Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../../shell/ViewHeader';
 import { RailMenu } from './RailMenu';
 import type { RailPane } from '../../shell/ContextRail';
+import { useFocusModeToggle } from './useFocusModeToggle';
 
 export function Header({
   phase: _phase,
@@ -31,6 +32,7 @@ export function Header({
   readonly disabledViewReason?: string;
 }): JSX.Element {
   const [searchOpen, setSearchOpen] = useState(searchQuery !== null);
+  const toggleFocusMode = useFocusModeToggle();
   return (
     <ViewHeader>
       <ViewSwitcher
@@ -81,6 +83,9 @@ export function Header({
           <Icon name="search" size={18} />
         </IconButton>
       )}
+      <IconButton aria-label="Toggle focus mode" onClick={toggleFocusMode}>
+        <Icon name="focus" size={18} />
+      </IconButton>
       <IconButton
         aria-label="Rename workspace"
         onClick={onRename}
@@ -95,12 +100,16 @@ export function Header({
 
 function IconButton({
   children,
+  title,
+  'aria-label': ariaLabel,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element {
   return (
     <button
       type="button"
       className="btn-icon"
+      aria-label={ariaLabel}
+      title={title ?? (typeof ariaLabel === 'string' ? ariaLabel : undefined)}
       style={{
         width: 34,
         height: 34,

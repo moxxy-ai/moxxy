@@ -10,6 +10,7 @@ import type { SVGProps } from 'react';
 
 export type IconName =
   | 'search'
+  | 'focus'
   | 'bell'
   | 'pencil'
   | 'send'
@@ -75,6 +76,16 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.5-3.5" />
+    </>
+  ),
+  focus: (
+    <>
+      <path d="M3.5 8V5.2a1.7 1.7 0 0 1 1.7-1.7H8" />
+      <path d="M16 3.5h2.8a1.7 1.7 0 0 1 1.7 1.7V8" />
+      <path d="M20.5 16v2.8a1.7 1.7 0 0 1-1.7 1.7H16" />
+      <path d="M8 20.5H5.2a1.7 1.7 0 0 1-1.7-1.7V16" />
+      <path d="M5.2 12s2.7-4.1 6.8-4.1 6.8 4.1 6.8 4.1-2.7 4.1-6.8 4.1-6.8-4.1-6.8-4.1Z" />
+      <circle cx="12" cy="12" r="2.15" />
     </>
   ),
   bell: (

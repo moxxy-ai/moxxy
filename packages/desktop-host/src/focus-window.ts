@@ -12,8 +12,22 @@
 
 import { BrowserWindow, screen } from 'electron';
 import { lockDownNavigation } from './security';
+import {
+  moveFocusBounds,
+  moveFocusBoundsFromPointer,
+  resizeFocusBounds,
+  type FocusBounds,
+  type FocusDragStart,
+  type FocusHorizontalAnchor,
+  type FocusScreenPoint,
+  type FocusWorkArea,
+} from './focus-window-geometry';
 
 let focusWindow: BrowserWindow | null = null;
+let focusDragStart: FocusDragStart | null = null;
+
+const COLLAPSED_FOCUS_SIZE = 44;
+const COLLAPSED_FOCUS_RADIUS = 16;
 
 interface CreateOpts {
   readonly devUrl?: string;
@@ -32,6 +46,66 @@ interface CreateOpts {
    *  connection.changed) into the secondary surface. Returns an
    *  unbind fn that runs when the window closes. */
   readonly attach?: (win: BrowserWindow) => () => void;
+}
+
+export interface FocusWindowPlacement {
+  readonly horizontalAnchor: FocusHorizontalAnchor;
+}
+
+interface FocusWindowShapeRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+type ShapeableBrowserWindow = BrowserWindow & {
+  readonly setShape?: (rects: FocusWindowShapeRect[]) => void;
+  readonly invalidateShadow?: () => void;
+};
+
+export function roundedRectWindowShape(
+  width: number,
+  height: number,
+  radius: number,
+): FocusWindowShapeRect[] {
+  const clampedRadius = Math.max(0, Math.min(radius, Math.floor(Math.min(width, height) / 2)));
+  const rects: FocusWindowShapeRect[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    const inTopCorner = y < clampedRadius;
+    const inBottomCorner = y >= height - clampedRadius;
+    let inset = 0;
+
+    if (inTopCorner || inBottomCorner) {
+      const centerY = inTopCorner ? clampedRadius - 0.5 : height - clampedRadius - 0.5;
+      const dy = Math.abs(y + 0.5 - centerY);
+      inset = Math.ceil(clampedRadius - Math.sqrt(Math.max(0, clampedRadius ** 2 - dy ** 2)));
+    }
+
+    rects.push({
+      x: inset,
+      y,
+      width: Math.max(0, width - inset * 2),
+      height: 1,
+    });
+  }
+
+  return rects;
+}
+
+function applyFocusWindowShape(win: BrowserWindow, width: number, height: number, resizable: boolean): void {
+  const shapeable = win as ShapeableBrowserWindow;
+  if (typeof shapeable.setShape !== 'function') return;
+
+  if (resizable || width !== COLLAPSED_FOCUS_SIZE || height !== COLLAPSED_FOCUS_SIZE) {
+    shapeable.setShape([]);
+    shapeable.invalidateShadow?.();
+    return;
+  }
+
+  shapeable.setShape(roundedRectWindowShape(width, height, COLLAPSED_FOCUS_RADIUS));
+  shapeable.invalidateShadow?.();
 }
 
 export function isFocusOpen(): boolean {
@@ -53,6 +127,7 @@ export function closeFocusWindow(): void {
     focusWindow.close();
     focusWindow = null;
   }
+  focusDragStart = null;
 }
 
 /** Spawn (or focus) the floating widget. Anchored to the bottom-
@@ -78,41 +153,69 @@ export function resizeFocusWindow(
   width: number,
   height: number,
   resizable = false,
-): void {
-  if (!focusWindow || focusWindow.isDestroyed()) return;
+): FocusWindowPlacement | null {
+  if (!focusWindow || focusWindow.isDestroyed()) return null;
   // Edge-resize grabs are only wanted for the mini-text panel; the small
   // inactive tile / active pill stay fixed. Toggle before setBounds so the
   // new size isn't clamped by a stale resizable state.
   focusWindow.setResizable(resizable);
-  const work = screen.getPrimaryDisplay().workArea;
-  const [prevW = 0, prevH = 0] = focusWindow.getSize();
-  const [prevX = 0, prevY = 0] = focusWindow.getPosition();
-
-  const widgetCenterX = prevX + prevW / 2;
-  const workCenterX = work.x + work.width / 2;
-  const pinRight = widgetCenterX >= workCenterX;
-
-  let nextX: number;
-  if (pinRight) {
-    // Right edge of the new bounds equals right edge of the old.
-    nextX = prevX + prevW - width;
-  } else {
-    // Left edge stays put — new width grows / shrinks to the right.
-    nextX = prevX;
-  }
-
-  // Centre Y is preserved so the widget doesn't bounce vertically.
-  let nextY = prevY + (prevH - height) / 2;
-
-  // Clamp so we never end up off-screen.
-  nextX = Math.max(work.x + 4, Math.min(nextX, work.x + work.width - width - 4));
-  nextY = Math.max(work.y + 4, Math.min(nextY, work.y + work.height - height - 4));
+  const current = focusWindow.getBounds() as FocusBounds;
+  const workArea = screen.getDisplayMatching(current).workArea as FocusWorkArea;
+  const placement = resizeFocusBounds({
+    current,
+    nextSize: { width, height },
+    workArea,
+  });
 
   // animate: false → snap, no overshoot.
-  focusWindow.setBounds(
-    { x: Math.round(nextX), y: Math.round(nextY), width, height },
-    false,
-  );
+  focusWindow.setBounds(placement.bounds, false);
+  applyFocusWindowShape(focusWindow, placement.bounds.width, placement.bounds.height, resizable);
+  return { horizontalAnchor: placement.horizontalAnchor };
+}
+
+export function moveFocusWindowBy(dx: number, dy: number): FocusWindowPlacement | null {
+  if (!focusWindow || focusWindow.isDestroyed()) return null;
+  const current = focusWindow.getBounds() as FocusBounds;
+  const workArea = screen.getDisplayMatching(current).workArea as FocusWorkArea;
+  const placement = moveFocusBounds({
+    current,
+    delta: { dx, dy },
+    workArea,
+  });
+  focusWindow.setBounds(placement.bounds, false);
+  return { horizontalAnchor: placement.horizontalAnchor };
+}
+
+export function beginFocusWindowDrag(pointer: FocusScreenPoint): FocusWindowPlacement | null {
+  if (!focusWindow || focusWindow.isDestroyed()) return null;
+  const bounds = focusWindow.getBounds() as FocusBounds;
+  const workArea = screen.getDisplayMatching(bounds).workArea as FocusWorkArea;
+  focusDragStart = { bounds, pointer };
+  return {
+    horizontalAnchor:
+      bounds.x + bounds.width / 2 >= workArea.x + workArea.width / 2 ? 'right' : 'left',
+  };
+}
+
+export function moveFocusWindowDrag(pointer: FocusScreenPoint): FocusWindowPlacement | null {
+  if (!focusWindow || focusWindow.isDestroyed() || !focusDragStart) return null;
+  const targetBounds = {
+    ...focusDragStart.bounds,
+    x: focusDragStart.bounds.x + (pointer.screenX - focusDragStart.pointer.screenX),
+    y: focusDragStart.bounds.y + (pointer.screenY - focusDragStart.pointer.screenY),
+  };
+  const workArea = screen.getDisplayMatching(targetBounds).workArea as FocusWorkArea;
+  const placement = moveFocusBoundsFromPointer({
+    dragStart: focusDragStart,
+    pointer,
+    workArea,
+  });
+  focusWindow.setBounds(placement.bounds, false);
+  return { horizontalAnchor: placement.horizontalAnchor };
+}
+
+export function endFocusWindowDrag(): void {
+  focusDragStart = null;
 }
 
 export async function showFocusWindow(opts: CreateOpts): Promise<void> {
@@ -123,11 +226,13 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   }
 
   const work = screen.getPrimaryDisplay().workArea;
-  // Start small — a 44×44 floating tile holding the logo. The
+  // Start small — a 44×44 floating tile holding the logo. The native
+  // window is shaped to the same rounded rect so the white webContents
+  // background cannot show through the tile's anti-aliased corners.
   // renderer's FocusWidget calls focus.resize when the user clicks
   // to expand to the menu (200×52) or the full panel (340×…).
-  const width = 44;
-  const height = 44;
+  const width = COLLAPSED_FOCUS_SIZE;
+  const height = COLLAPSED_FOCUS_SIZE;
   const margin = 24;
   const win = new BrowserWindow({
     title: 'MoxxyAI · Focus',
@@ -176,12 +281,14 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   if (typeof win.setVisibleOnAllWorkspaces === 'function') {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
+  applyFocusWindowShape(win, width, height, false);
 
   focusWindow = win;
   const unbindAttach = opts.attach?.(win);
   win.on('closed', () => {
     unbindAttach?.();
     if (focusWindow === win) focusWindow = null;
+    focusDragStart = null;
   });
 
   // Load the *dedicated* focus.html entry. It has its own bundle, its
@@ -205,6 +312,7 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     }
   } catch (e) {
     if (focusWindow === win) focusWindow = null;
+    focusDragStart = null;
     if (!win.isDestroyed()) win.destroy();
     throw e instanceof Error ? e : new Error(String(e));
   }
@@ -217,10 +325,7 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
  *  changes (Space transitions, full-screen slides) and the user
  *  surprised by a mini widget every time is worse than the user
  *  having to press one key. */
-export function bindMainWindowMinimize(
-  mainWindow: BrowserWindow,
-  _opts: CreateOpts,
-): void {
+export function bindMainWindowFocusDismissal(mainWindow: BrowserWindow): void {
   // If the user explicitly restores the main window, the widget is
   // redundant — drop it so we don't end up with both surfaces fighting
   // for the same input.
@@ -230,4 +335,11 @@ export function bindMainWindowMinimize(
   mainWindow.on('focus', () => {
     closeFocusWindow();
   });
+}
+
+export function bindMainWindowMinimize(
+  mainWindow: BrowserWindow,
+  _opts: CreateOpts,
+): void {
+  bindMainWindowFocusDismissal(mainWindow);
 }

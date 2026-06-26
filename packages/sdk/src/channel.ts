@@ -1,5 +1,6 @@
 import type { PermissionResolver } from './permission.js';
 import type { ClientSession } from './client-session.js';
+import type { SessionSource } from './event-store.js';
 
 /**
  * A Channel is a bidirectional surface that drives a Session: it feeds user
@@ -25,6 +26,15 @@ export interface Channel<TStartOpts = unknown> {
    * resolves when the channel exits gracefully.
    */
   start(opts: TStartOpts): Promise<ChannelHandle>;
+
+  /**
+   * The public ingest URL this channel exposes once running — e.g. Slack's
+   * Events Request URL after its proxy tunnel opens — or null when it has none
+   * (Telegram long-polls). Read by the dedicated-runner host to publish the URL
+   * the user must paste into the provider's config. Optional: channels with no
+   * inbound endpoint omit it.
+   */
+  readonly requestUrl?: string | null;
 }
 
 export interface ChannelHandle {
@@ -134,6 +144,63 @@ export interface ChannelDef<TStartOpts = unknown> {
    * starts the channel.
    */
   readonly interactiveCommand?: string;
+  /**
+   * Declare that this channel runs on its OWN dedicated, isolated runner: a
+   * distinct runner socket (`channel-<name>.sock`) + a stable sticky session id
+   * (`moxxy-channel-<name>`), so the channel acts as its own agent thread,
+   * separate from whatever runner serves the desktop/TUI. NO runner-protocol
+   * change — one dedicated runner is still one Session. Channels that should
+   * operate autonomously (slack, telegram) set this; the CLI reads it generically
+   * (see `applyDedicatedRunnerEnv`) so no per-channel name list is needed. Any
+   * channel can also opt in at runtime via `--dedicated` / `MOXXY_DEDICATED_RUNNER=1`.
+   */
+  readonly dedicatedRunner?: boolean;
+  /**
+   * The {@link SessionSource} to stamp on this channel's sessions when it runs
+   * dedicated (persisted into the meta sidecar; surfaces filter history by it).
+   * Only honored alongside `dedicatedRunner`. When unset, the source falls back
+   * to the usual env/default resolution.
+   */
+  readonly sessionSource?: SessionSource;
+  /**
+   * Declarative config the channel needs to run (its secret fields + where they
+   * live in the vault, plus pairing hints). This is what a control surface — the
+   * TUI `/channels` panel, `moxxy channels start`, the desktop "Channels" panel —
+   * renders to let the user configure + start the channel WITHOUT hardcoding a
+   * per-channel table. The channel self-describes here; the vault keys named are
+   * the same ones the channel actually reads at boot (its `keys.ts`). Channels
+   * with no setup (web/http) omit this.
+   */
+  readonly config?: ChannelConfigDescriptor;
+}
+
+/** One secret/config input a channel exposes for a control surface to collect. */
+export interface ChannelConfigField {
+  /** Option key (e.g. `botToken`). Stable identifier within the channel. */
+  readonly name: string;
+  /** Short human label (e.g. `Bot token`). */
+  readonly label: string;
+  /** The vault key the channel reads this value from (e.g. `slack_bot_token`). */
+  readonly vaultKey: string;
+  /** Must be present for the channel to count as "configured". */
+  readonly required?: boolean;
+  /** Treat as a secret — mask the input and never echo the stored value. */
+  readonly secret?: boolean;
+  /** Placeholder shown in an empty input (e.g. `xoxb-…`). */
+  readonly placeholder?: string;
+  /** One-line guidance on where to obtain the value. */
+  readonly help?: string;
+}
+
+/** What a channel declares about being configured + run from a control surface. */
+export interface ChannelConfigDescriptor {
+  /** The fields to collect, in display order. */
+  readonly fields: ReadonlyArray<ChannelConfigField>;
+  /** The channel exposes a public ingest URL (Slack's Request URL) once started,
+   *  so a control surface should poll for + surface it. */
+  readonly hasRequestUrl?: boolean;
+  /** Post-start pairing/setup instructions to show the user. */
+  readonly runHint?: string;
 }
 
 export interface ChannelAvailability {

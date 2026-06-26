@@ -9,12 +9,20 @@
  */
 
 import { api } from '@moxxy/client-core';
-import { ActionButton, Dot, LogoMark } from './focus-primitives';
+import { ActionButton, Dot, LogoMark, ReplyPreviewButton } from './focus-primitives';
 import { MicIcon, PencilIcon, WindowIcon, XIcon } from './focus-icons';
 import { SpectroBackground } from './SpectroBackground';
 import { style } from './focus-styles';
+import { FocusAskCard } from './FocusAskCard';
+import type { FocusTileHorizontalAnchor } from './useFocusTileGesture';
+import type { InactiveReplyPreview } from './useInactiveReplyPreview';
+import type { FocusAskPrompt } from './useFocusAsk';
 
 export function Active({
+  preview,
+  ask,
+  horizontalAnchor,
+  width,
   hasTranscriber,
   recording,
   transcribing,
@@ -22,7 +30,12 @@ export function Active({
   onToggleMic,
   onCollapse,
   onText,
+  onPreviewActivate,
 }: {
+  readonly preview: InactiveReplyPreview | null;
+  readonly ask: FocusAskPrompt | null;
+  readonly horizontalAnchor: FocusTileHorizontalAnchor;
+  readonly width: number;
   readonly hasTranscriber: boolean;
   readonly recording: boolean;
   readonly transcribing: boolean;
@@ -30,9 +43,16 @@ export function Active({
   readonly onToggleMic: () => void;
   readonly onCollapse: () => void;
   readonly onText: () => void;
+  readonly onPreviewActivate: () => void;
 }): JSX.Element {
-  return (
-    <div style={style.activeRoot}>
+  const bar = (
+    <div
+      style={{
+        ...style.activeRoot,
+        ...(preview || ask ? style.activeRootWithPreview : null),
+        ...(preview || ask ? { width } : null),
+      }}
+    >
       {analyser && recording && <SpectroBackground analyser={analyser} />}
       <button
         type="button"
@@ -74,6 +94,24 @@ export function Active({
           <WindowIcon />
         </ActionButton>
       </div>
+    </div>
+  );
+
+  if (!preview && !ask) return bar;
+
+  return (
+    <div
+      style={{
+        ...style.activeRootWithPreviewBubble,
+        flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
+      }}
+    >
+      {bar}
+      {ask ? (
+        <FocusAskCard prompt={ask} variant="toast" />
+      ) : preview ? (
+        <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
+      ) : null}
     </div>
   );
 }

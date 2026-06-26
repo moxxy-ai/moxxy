@@ -189,26 +189,30 @@ not a separate chore someone else does.
 
 Two long-lived branches:
 
-- **`development`** — the integration branch and the repo **default**. Every feature/fix PR targets it and must be green here (build + typecheck + lint + test + `Changeset present` + deps). This is where continuous development happens **and where versioning happens**.
-- **`main`** — the **production** branch, **publish-only**. It is updated **only** by a `development → main` release PR and it **never runs `changeset version`** — so it never edits version files. That keeps `main` always an ancestor of `development` on those files, so **`development → main` is conflict-free by construction**. Merging the PR (a push to `main`) triggers `release.yml`, which **publishes** the already-bumped packages to npm + cuts the desktop release.
+- **`development`** — the integration branch and the repo **default**. Every feature/fix PR targets it and must be green here (build + typecheck + lint + test + `Changeset present` + deps). This is where continuous development happens **and where versioning + releasing run from**.
+- **`main`** — the **production** branch, **publish-only and machine-advanced**. You never push it, never open a PR into it, and never feature-branch off it. The **Release** workflow advances it to exactly `development`'s content as one clean `Release: v…` commit per release; `git log --first-parent main` is the release history.
 
-So: **branch off `development`, PR back into `development`. Releases to `main` are on-demand**, never more than the daily version cadence. Never target `main` with a feature PR.
+So: **branch off `development`, PR back into `development`. Never target `main`.**
 
-**Cutting a release** (versioning happens on `development`, at most once a day):
-1. **`prepare-release.yml`** runs daily (cron) — or on-demand via its `workflow_dispatch`. If changesets are pending on `development`, it consolidates them into **one** `changeset version` bump committed to `development`, then opens (or updates) the `development → main` PR. Land as many changeset-carrying PRs during the day as you like; they batch into the single daily bump.
-2. Review + **SQUASH-merge the `development → main` PR** (one tidy commit on `main` per release). The push to `main` runs `release.yml` → npm publish (+ desktop), and `sync-back.yml` → merges `main` back into `development`.
+**Cutting a release** — one workflow, `.github/workflows/release.yml`, runs on `development` (daily `cron` 06:00 UTC + on-demand `workflow_dispatch`). In a **single run** it:
+1. **Versions** — if changesets are pending on `development`, consolidates them into **one** `changeset version` bump committed to `development` (land as many changeset-carrying PRs during the day as you like; they batch into the daily bump).
+2. **Publishes** the bumped packages to npm via `scripts/safe-publish.mjs` (idempotent — skips versions already on the registry).
+3. **Advances `main`** — copies development's tree onto `main` as one `Release: v…` commit via `git commit-tree` (tree = development, parent = current `origin/main`), then fast-forwards `main`.
+4. **Cuts the desktop** release when `@moxxy/desktop`'s version changed.
 
-> **Why the sync-back exists (and why you can squash):** a squash drops development's HEAD from main's history, so main stops being an ancestor of development and the *next* dev→main would 3-way-conflict on version files. `sync-back.yml` records main's squash commit back into development (a content-free `-X ours` merge — it can't conflict), restoring the ancestry. So `main` stays a clean, additive list of release squash-commits, and releases never conflict. Don't disable the sync-back.
+> **Why this can never conflict (the old failure, fixed):** advancing `main` is a tree **copy**, not a merge — `commit-tree` makes a commit whose tree is development's and whose parent is `origin/main`, so there is no merge-base, no 3-way, no hunks to reconcile. Conflict-freedom is a property of git's object model, not of any workflow firing. The previous design squash-merged a `development → main` PR and leaned on a `sync-back.yml` (`on: push: main`) to repair the ancestry a squash breaks — but GitHub never fires workflows for `GITHUB_TOKEN` pushes, so the sync-back never ran, `main` drifted out of ancestry, and every `dev → main` PR re-conflicted. There is **no `development → main` PR, no squash-merge, and no sync-back** anymore.
 
 ## Releasing (changesets)
 
-Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every feature PR (→ `development`) must include a changeset — CI (the `Changeset present` job) fails it without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`. (A `development → main` release PR needs no new changeset — it carries the ones already merged.)
+Versioning and publishing are driven by **changesets** — there is no manual `npm version` / `npm publish`. **Every feature PR (→ `development`) must include a changeset — CI (the `Changeset present` job) fails it without one.** A change that releases nothing (docs / CI / tests) still needs one: add an empty changeset with `pnpm changeset --empty`. (There is no separate release PR — the daily Release workflow versions and ships whatever changesets merged to `development` that day.)
 
 - **Published packages:** only `@moxxy/cli` and `@moxxy/sdk` (everything else is `private` and bundled into the CLI binary by tsup). The private **`@moxxy/desktop`** also rides changesets — naming it cuts a desktop installer release (it is never published to npm), and because the desktop depends on `@moxxy/cli` / `@moxxy/sdk`, a CLI/SDK bump cascades a patch bump to it automatically.
 - **Add one:** `pnpm changeset` → pick the package(s) + bump (patch / minor / major) + write a one-line summary. This drops a file in `.changeset/`. Commit it with your PR.
-- **What happens, in order:**
-  1. **On `development`** (`prepare-release.yml`, daily/on-demand): `changeset version` bumps `package.json` versions, writes changelogs, and deletes the consumed changesets — all committed to `development` — then opens the `development → main` PR.
-  2. **On merge to `main`** (`.github/workflows/release.yml`): no `changeset version` here (publish-only) — it just **publishes** the already-bumped packages via `scripts/safe-publish.mjs` and cuts the desktop release. main never opens a "Version Packages" PR, which is what makes `development → main` conflict-free.
+- **What happens, in order** (all in `.github/workflows/release.yml`, on `development`, daily/on-demand):
+  1. **Version:** `changeset version` bumps `package.json` versions, writes changelogs, deletes the consumed changesets — committed to `development`.
+  2. **Publish:** `scripts/safe-publish.mjs` publishes the bumped packages to npm (idempotent — re-runs skip versions already on the registry).
+  3. **Advance `main`:** development's tree is copied onto `main` as one `Release: v…` commit (`git commit-tree`, parent = `origin/main`) and fast-forwarded — a tree copy that cannot conflict, no PR, no merge.
+  4. **Desktop:** if `@moxxy/desktop`'s version changed, the installers build and a **draft** `desktop-v<version>` release is cut (tag pushed only after every build leg succeeds).
 - **Publish uses `pnpm publish`, not `npm publish`** — pnpm rewrites the `workspace:*` and `catalog:` protocols to real version ranges. `npm publish` ships them verbatim and the tarball becomes uninstallable (`EUNSUPPORTEDPROTOCOL "workspace:"`). Don't change `safe-publish.mjs` back to `npm publish`.
 
 ## Quick commands

@@ -5,7 +5,7 @@ import { argvToSetupOptions, hasBoolFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import { probeSession, type SetupResult } from '../setup.js';
 import { runTuiWithBootstrap } from './run-tui.js';
-import { startRegisteredChannel } from './start-registered-channel.js';
+import { startRegisteredChannel, type DedicatedRunnerOpts } from './start-registered-channel.js';
 
 /**
  * Smart channel dispatcher. Routes the `moxxy <channel>` invocation
@@ -29,6 +29,12 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
   // default UI, not a cross-package concern.)
   if (name === 'tui') return runTuiWithBootstrap(argv);
 
+  // The channel's dedicated-runner declaration, captured from the registry
+  // during the probe below. `applyDedicatedRunnerEnv` runs before any session
+  // boots and so can't resolve the def itself — the probe is the earliest point
+  // the registry exists, so we read it here and thread it into the headless run.
+  let dedicated: DedicatedRunnerOpts = {};
+
   // Light boot (a probe: no init hooks/daemons, no persistence, closed before
   // the headless runner below boots the REAL session) to read the channel
   // registry without activating a provider: the interactive-command path
@@ -48,6 +54,10 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
         );
         return { code: 2 };
       }
+      dedicated = {
+        ...(def.dedicatedRunner !== undefined ? { dedicatedRunner: def.dedicatedRunner } : {}),
+        ...(def.sessionSource !== undefined ? { sessionSource: def.sessionSource } : {}),
+      };
 
       // A channel may declare an interactive setup subcommand shown by default
       // for TTY users. Bypass on:
@@ -85,7 +95,7 @@ export async function runChannelByName(name: string, argv: ParsedArgv): Promise<
 
   // Probe is closed; the headless path boots the real session (with init
   // hooks, so the daemons run exactly once, in the session that owns them).
-  return startRegisteredChannel(name, argv);
+  return startRegisteredChannel(name, argv, dedicated);
 }
 
 /**

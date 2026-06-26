@@ -21,6 +21,7 @@ import type {
 import type { ScheduleSummary, SchedulerDeleteResult } from './scheduler.js';
 import type { WebhookSummary, WebhookDeleteResult } from './webhooks.js';
 import type { MobileGatewayStatus } from './mobile.js';
+import type { ChannelEntry, ChannelRuntimeStatus } from './channels.js';
 import type {
   ProviderEntry,
   McpServerEntry,
@@ -491,6 +492,26 @@ export interface IpcCommands {
    *  `ownerSessionId`; the existing queue/drain routes the delivery. */
   'webhooks.setTargetSession': (args: { id: string; sessionId: string | null }) => Promise<WebhookSummary | null>;
 
+  // ---- Communication channels (Slack / Telegram on dedicated runners) --
+  // Host-only (run a local subprocess + read/write the vault): deliberately NOT
+  // in REMOTE_ALLOWED_COMMANDS, so a paired phone can't start a channel or save
+  // its secrets.
+  /** Every runnable channel with its descriptor (config fields, webhook-url
+   *  affordance) + live status (configured / running / requestUrl). */
+  'channels.list': () => Promise<ReadonlyArray<ChannelEntry>>;
+  /** Store a channel's secrets/settings in the vault (values keyed by
+   *  ChannelConfigField.name). Returns the refreshed status (now configured). */
+  'channels.saveConfig': (args: {
+    channelId: string;
+    values: Record<string, string>;
+  }) => Promise<ChannelRuntimeStatus>;
+  /** Start the channel on its own dedicated, isolated runner subprocess.
+   *  Rejects if it isn't configured yet. Streams live updates via
+   *  `channels.status`; resolves with the post-start status. */
+  'channels.start': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
+  /** Stop the channel's dedicated-runner subprocess. */
+  'channels.stop': (args: { channelId: string }) => Promise<ChannelRuntimeStatus>;
+
   // ---- Desktop apps gallery (install lifecycle) ------------------------
   // All host-only (native pickers + filesystem + a network download). They are
   // deliberately NOT in REMOTE_ALLOWED_COMMANDS — a paired phone can't trigger
@@ -538,6 +559,15 @@ export interface IpcCommands {
   'prefs.update': (patch: Partial<DesktopPrefs>) => Promise<DesktopPrefs>;
 
   // Focus-mode window control (from the floating widget back to main).
+  // Returned by focus-window geometry calls so the renderer can keep any
+  // collapsed reply preview on the inward-facing side of the tile.
+  // Local desktop IPC only: deliberately excluded from REMOTE_ALLOWED_COMMANDS.
+  // See remote.test.ts.
+  // Exported inline in the command map to keep the boundary compact.
+  /** Toggle focus mode from trusted local desktop UI. This follows the same
+   *  main-process controller path as the app menu, tray menu, and global
+   *  shortcut. Local desktop IPC only. */
+  'focus.toggle': () => Promise<void>;
   'focus.close': () => Promise<void>;
   'focus.restoreMain': () => Promise<void>;
   /** Resize the focus window. Keeps the nearer screen edge pinned so the
@@ -548,7 +578,29 @@ export interface IpcCommands {
     width: number;
     height: number;
     resizable?: boolean;
-  }) => Promise<void>;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** Move the focus window by a renderer-measured pointer delta. This stays
+   *  local-only because remote/mobile clients must not be able to move the
+   *  user's desktop window. */
+  'focus.moveBy': (args: {
+    dx: number;
+    dy: number;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** Start a native focus-tile drag session at a global screen point. The host
+   *  captures the current BrowserWindow bounds so later dragMove calls can set
+   *  absolute target bounds instead of accumulating stale renderer deltas. */
+  'focus.dragStart': (args: {
+    screenX: number;
+    screenY: number;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** Move the focus window to the current global pointer position relative to
+   *  the captured dragStart origin. Local desktop IPC only. */
+  'focus.dragMove': (args: {
+    screenX: number;
+    screenY: number;
+  }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
+  /** End the host-side focus-tile drag session. */
+  'focus.dragEnd': () => Promise<void>;
 
   /** Provider list for the given workspace (defaults to active). */
   'settings.providers': (args?: { workspaceId?: string }) => Promise<ReadonlyArray<ProviderEntry>>;

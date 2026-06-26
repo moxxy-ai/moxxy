@@ -344,6 +344,14 @@ async function runSelfHostedTui(
   let bootedSession: Session | null = null;
   let runnerServer: RunnerServer | null = null;
   let webHandle: ChannelHandle | null = null;
+  // The live vault from the most recent boot, exposed to the TUI (via getVault)
+  // so the `/channels` panel can store channel secrets in the SAME already-open
+  // vault — re-opening a second VaultStore could re-trigger a passphrase prompt
+  // mid-render and corrupt the Ink screen. Structural type to keep it loose.
+  let bootedVault: { has(n: string): Promise<boolean>; set(n: string, v: string): Promise<void> } | null = null;
+  // Channel defs registered at boot, exposed to the `/channels` panel (the TUI's
+  // ClientSession doesn't carry the channel registry).
+  let bootedChannels: ReturnType<Session['channels']['list']> = [];
   let shuttingDown = false;
   // Serializes session switches against each other and against shutdown so a
   // switch in flight can't race a SIGINT teardown (or a second switch).
@@ -388,6 +396,8 @@ async function runSelfHostedTui(
       ...(opts.freshSessionId ? { sessionId: opts.freshSessionId } : {}),
     });
     bootedSession = result.session;
+    bootedVault = result.vault;
+    bootedChannels = result.session.channels.list();
     // Option A: open the socket so other clients can attach while this TUI is
     // open. A lost race (someone else bound first) just means we run without
     // sharing — not an error.
@@ -470,6 +480,8 @@ async function runSelfHostedTui(
       registerInteractiveResolver: (handler) => {
         promptHandler = handler;
       },
+      getVault: () => bootedVault,
+      getChannels: () => bootedChannels,
       switchSession,
       ...(effectiveModel ? { model: effectiveModel } : {}),
       ...(version ? { version } : {}),

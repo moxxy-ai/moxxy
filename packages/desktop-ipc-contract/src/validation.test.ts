@@ -143,6 +143,42 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('mobileGateway.status', { sneaky: 1 })).toThrow();
   });
 
+  it('bounds local focus-window movement and resize payloads', () => {
+    expect(() => validateIpcInput('focus.toggle', undefined)).not.toThrow();
+    expect(() => validateIpcInput('focus.toggle', { sneaky: true })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: 10, dy: -12 })).not.toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragStart', { screenX: -1200, screenY: 240 }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragMove', { screenX: 3200, screenY: 1800 }),
+    ).not.toThrow();
+    expect(() => validateIpcInput('focus.dragEnd', undefined)).not.toThrow();
+    expect(() =>
+      validateIpcInput('focus.resize', { width: 320, height: 76, resizable: false }),
+    ).not.toThrow();
+
+    expect(() => validateIpcInput('focus.moveBy', { dx: Number.POSITIVE_INFINITY, dy: 0 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: Number.NaN, dy: 0 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: 10_001, dy: 0 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: 0, dy: -10_001 })).toThrow();
+    expect(() => validateIpcInput('focus.moveBy', { dx: 0, dy: 0, sneaky: true })).toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragStart', { screenX: Number.NaN, screenY: 0 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragMove', { screenX: 100_001, screenY: 0 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('focus.dragMove', { screenX: 0, screenY: 0, sneaky: true }),
+    ).toThrow();
+    expect(() => validateIpcInput('focus.dragEnd', { sneaky: true })).toThrow();
+
+    expect(() => validateIpcInput('focus.resize', { width: 39, height: 44 })).toThrow();
+    expect(() => validateIpcInput('focus.resize', { width: 44, height: 801 })).toThrow();
+    expect(() => validateIpcInput('focus.resize', { width: Number.NaN, height: 44 })).toThrow();
+  });
+
   it('allows mobileGatewayEnabled in prefs.update', () => {
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: true })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { mobileGatewayEnabled: 'x' })).toThrow();
@@ -230,6 +266,39 @@ describe('IPC payload validation', () => {
       expect(() => validateIpcInput(cmd, { appId: 'a'.repeat(65) })).toThrow();
       expect(() => validateIpcInput(cmd, {})).toThrow();
     }
+  });
+
+  it('confines channels.* channelId to a non-traversing slug', () => {
+    // channelId is spawned as `moxxy <channelId>`, so it must be a strict slug —
+    // no traversal, no separators, no leading dash (a flag), bounded length.
+    for (const cmd of ['channels.start', 'channels.stop'] as const) {
+      expect(() => validateIpcInput(cmd, { channelId: 'slack' })).not.toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: '../evil' })).toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: '-rf' })).toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: 'Slack' })).toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: '' })).toThrow();
+      expect(() => validateIpcInput(cmd, {})).toThrow();
+    }
+  });
+
+  it('bounds channels.saveConfig field count + value size (OOM/vault-bloat guard)', () => {
+    expect(() =>
+      validateIpcInput('channels.saveConfig', {
+        channelId: 'slack',
+        values: { botToken: 'xoxb-abc', signingSecret: 'sek' },
+      }),
+    ).not.toThrow();
+    // Oversized secret value is rejected.
+    expect(() =>
+      validateIpcInput('channels.saveConfig', {
+        channelId: 'slack',
+        values: { botToken: 'x'.repeat(8193) },
+      }),
+    ).toThrow();
+    // A traversing channelId is rejected even with a valid values bag.
+    expect(() =>
+      validateIpcInput('channels.saveConfig', { channelId: '../x', values: {} }),
+    ).toThrow();
   });
 
   it('bounds anonymizer.parseDocument path + pins pickDocument to no payload', () => {

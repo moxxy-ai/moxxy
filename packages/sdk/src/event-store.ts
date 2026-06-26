@@ -13,7 +13,7 @@ import type { SessionId } from './ids.js';
  */
 
 /** Originating channel of a session (persisted into the meta sidecar). */
-export type SessionSource = 'cli' | 'tui' | 'desktop' | 'mobile';
+export type SessionSource = 'cli' | 'tui' | 'desktop' | 'mobile' | 'slack' | 'telegram';
 
 /**
  * The single per-session metadata record (the JSONL impl writes it to

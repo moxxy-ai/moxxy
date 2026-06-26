@@ -1,0 +1,55 @@
+{
+  "name": "@moxxy/plugin-channel-slack",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Slack bot channel for moxxy. Ingests Slack Events API over the proxy relay, drives the Session, and streams threaded replies. Autonomous allow-list permission model (no human in the loop).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "cli"
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-vault",
+        "hint": "slack resolves the vault from the service registry for its bot token + signing secret + pairing; @moxxy/plugin-vault must load first"
+      }
+    ]
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:",
+    "@moxxy/config": "workspace:*",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/plugin-tunnel-proxy": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

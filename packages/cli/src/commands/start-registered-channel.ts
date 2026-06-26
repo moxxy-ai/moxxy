@@ -1,6 +1,7 @@
 import {
   connectRemoteSession,
   isRunnerUp,
+  platformSocket,
   runnerSocketPath,
   startRunnerServer,
   type RemoteSession,
@@ -8,7 +9,8 @@ import {
 } from '@moxxy/runner';
 import type { Session } from '@moxxy/core';
 import { startChannelWith } from '@moxxy/sdk';
-import type { ClientSession, SessionLike } from '@moxxy/sdk';
+import { moxxyPath, writeChannelStatus, clearChannelStatus } from '@moxxy/sdk/server';
+import type { ClientSession, SessionLike, SessionSource } from '@moxxy/sdk';
 import {
   argvToSetupOptions,
   bootSessionWithConfig,
@@ -37,6 +39,19 @@ type _SessionIsClientSession = _AssertAssignable<Session, ClientSession>;
 type _SessionIsSessionLike = _AssertAssignable<Session, SessionLike>;
 
 /**
+ * What a channel declares (via its {@link ChannelDef}) about running on its own
+ * dedicated runner. Resolved by the dispatcher from the channel registry and
+ * threaded in — `applyDedicatedRunnerEnv` runs before any session boots, so it
+ * can't look the def up itself.
+ */
+export interface DedicatedRunnerOpts {
+  /** The channel declared `dedicatedRunner: true`. */
+  readonly dedicatedRunner?: boolean;
+  /** The channel's declared `sessionSource` (stamped when running dedicated). */
+  readonly sessionSource?: SessionSource;
+}
+
+/**
  * Run a registered channel by name, headlessly (no wizard, no TUI hand-off).
  *
  * Like `moxxy tui`, a channel is a thin client of the runner:
@@ -44,12 +59,64 @@ type _SessionIsSessionLike = _AssertAssignable<Session, SessionLike>;
  *    the channel against a RemoteSession.
  *  - otherwise -> boot a local session and, unless `--standalone`, open the
  *    runner socket so other clients can attach too (Option A).
+ *
+ * `dedicated` carries the channel's own `ChannelDef` declaration (resolved by
+ * the dispatcher); see {@link applyDedicatedRunnerEnv}.
  */
-export async function startRegisteredChannel(name: string, argv: ParsedArgv): Promise<number> {
+export async function startRegisteredChannel(
+  name: string,
+  argv: ParsedArgv,
+  dedicated: DedicatedRunnerOpts = {},
+): Promise<number> {
+  const isDedicated = applyDedicatedRunnerEnv(name, argv, dedicated);
   const standalone = hasBoolFlag(argv, 'standalone');
   const mode = chooseClientMode({ standalone, runnerUp: standalone ? false : await isRunnerUp() });
   if (mode === 'attach') return runAttachedChannel(name, argv);
-  return runSelfHostedChannel(name, argv, mode === 'standalone');
+  return runSelfHostedChannel(name, argv, mode === 'standalone', isDedicated);
+}
+
+/**
+ * A channel may declare itself a "dedicated runner": it runs as its OWN agent
+ * thread, isolated from whatever runner is serving the desktop/TUI, so it can
+ * act separately from the user's own work. We achieve that purely by addressing
+ * — a distinct runner socket + a stable sticky session id — with NO runner
+ * protocol change: one dedicated runner is still one Session, today's invariant.
+ *
+ * The env is set BEFORE `chooseClientMode`/`isRunnerUp` run, so the channel
+ * probes its own (empty) socket, falls into self-host mode, and boots an
+ * isolated Session instead of attaching to the user's main runner. The stable
+ * `MOXXY_SESSION_ID` persists that session's history across restarts.
+ *
+ * Whether a channel is dedicated is DECLARED by the channel itself
+ * (`ChannelDef.dedicatedRunner`, resolved by the dispatcher and passed in via
+ * `opts`) — the CLI keeps no per-channel name list. Any channel can also opt in
+ * at runtime with `--dedicated` or `MOXXY_DEDICATED_RUNNER=1`. A caller that
+ * already pinned the socket/session id/source (e.g. the desktop supervisor)
+ * always wins — we only fill in what is unset.
+ */
+export function applyDedicatedRunnerEnv(
+  name: string,
+  argv: ParsedArgv,
+  opts: DedicatedRunnerOpts,
+): boolean {
+  const dedicated =
+    opts.dedicatedRunner === true ||
+    hasBoolFlag(argv, 'dedicated') ||
+    process.env.MOXXY_DEDICATED_RUNNER === '1';
+  if (!dedicated) return false;
+  if (!process.env.MOXXY_RUNNER_SOCKET) {
+    process.env.MOXXY_RUNNER_SOCKET = platformSocket(
+      `channel-${name}`,
+      moxxyPath(`channel-${name}.sock`),
+    );
+  }
+  if (!process.env.MOXXY_SESSION_ID) {
+    process.env.MOXXY_SESSION_ID = `moxxy-channel-${name}`;
+  }
+  if (!process.env.MOXXY_SESSION_SOURCE && opts.sessionSource) {
+    process.env.MOXXY_SESSION_SOURCE = opts.sessionSource;
+  }
+  return true;
 }
 
 /** Thin-client mode: run the channel against a RemoteSession. */
@@ -124,6 +191,7 @@ async function runSelfHostedChannel(
   name: string,
   argv: ParsedArgv,
   standalone: boolean,
+  dedicated: boolean,
 ): Promise<number> {
   // `skipKeyPrompt: true` - channels like telegram run for hours; if the model
   // key resolves later from env/vault when a turn fires, that's fine. The
@@ -169,6 +237,21 @@ async function runSelfHostedChannel(
   // primary channel is e.g. telegram. The primary's permission resolver governs.
   const webHandle = name === 'web' ? null : await coAttachWebSurface({ primary: name, session, vault, config });
 
+  // Publish a status file ONLY for a dedicated channel runner, so an
+  // out-of-process supervisor (the desktop "Channels" panel) can observe
+  // readiness + the public ingest URL (Slack's Request URL) without the runner
+  // protocol. `channel.requestUrl` is set by the time `start()` resolved (Slack
+  // opens its tunnel during start); null for channels with no inbound endpoint.
+  if (dedicated) {
+    writeChannelStatus({
+      name,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      ...(process.env.MOXXY_SESSION_SOURCE ? { source: process.env.MOXXY_SESSION_SOURCE } : {}),
+      requestUrl: channel.requestUrl ?? null,
+    });
+  }
+
   // Re-entrancy guard (mirrors runAttachedChannel): a second Ctrl-C, or
   // SIGINT+SIGTERM arriving close together, must not run teardown twice —
   // session.close() firing twice can double-flush plugin state (memory
@@ -183,6 +266,7 @@ async function runSelfHostedChannel(
     // runner socket + bound ports — a second Ctrl-C is swallowed by `stopping`.
     const force = setTimeout(() => process.exit(0), 4000);
     force.unref?.();
+    if (dedicated) clearChannelStatus(name);
     await webHandle?.stop('SIGINT').catch(() => undefined);
     await runnerServer?.close().catch(() => undefined);
     await handle.stop('SIGINT');

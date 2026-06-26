@@ -113,7 +113,14 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
     this.session = startOpts.session;
     this.model = startOpts.model;
 
-    const token = this.opts.token ?? (await this.opts.vault.get(TOKEN_KEY));
+    // Precedence mirrors Slack (and this channel's own `isAvailable` gate +
+    // error message): an explicit option wins, then the `MOXXY_TELEGRAM_TOKEN`
+    // env override, then the vault. Without the env fallback a headless
+    // `moxxy channels start telegram` that set the env var would pass the
+    // availability check but then fail to boot — the gate and the channel must
+    // agree on where the token comes from.
+    const token =
+      this.opts.token ?? process.env.MOXXY_TELEGRAM_TOKEN?.trim() ?? (await this.opts.vault.get(TOKEN_KEY));
     if (!token) {
       throw new Error(
         `Telegram bot token not found. Store one via vault_set('${TOKEN_KEY}', ...) or set MOXXY_TELEGRAM_TOKEN.`,

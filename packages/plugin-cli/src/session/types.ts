@@ -13,6 +13,7 @@ export type Overlay =
   | { kind: 'agents' }
   | { kind: 'usage' }
   | { kind: 'workflows' }
+  | { kind: 'channels' }
   | null;
 
 export type Picker =

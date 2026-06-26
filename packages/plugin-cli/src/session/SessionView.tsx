@@ -35,6 +35,8 @@ import type { SessionSwitchTarget } from './sessions-picker.js';
 interface SessionViewProps {
   readonly session: Session;
   readonly registerInteractiveResolver: InteractiveSessionProps['registerInteractiveResolver'];
+  readonly getVault?: InteractiveSessionProps['getVault'];
+  readonly getChannels?: InteractiveSessionProps['getChannels'];
   readonly model?: string;
   readonly version?: string;
   readonly updateAvailable?: { readonly latest: string };
@@ -65,6 +67,8 @@ interface SessionViewProps {
 export const SessionView: React.FC<SessionViewProps> = ({
   session,
   registerInteractiveResolver,
+  getVault,
+  getChannels,
   model,
   version,
   updateAvailable,
@@ -381,6 +385,8 @@ export const SessionView: React.FC<SessionViewProps> = ({
         events={stream.events}
         contextWindow={contextWindow}
         contextTokens={contextUsed}
+        {...(getVault ? { getVault } : {})}
+        {...(getChannels ? { getChannels } : {})}
         onClose={() => setOverlay(null)}
       />
       <InteractiveZone

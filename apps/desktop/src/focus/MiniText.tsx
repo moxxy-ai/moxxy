@@ -18,13 +18,17 @@ import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';
 import { useLatestBlock } from './useLatestBlock';
 import type { LatestBlock } from './useLatestBlock';
 import { style } from './focus-styles';
+import { FocusAskCard } from './FocusAskCard';
+import type { FocusAskPrompt } from './useFocusAsk';
 
 export function MiniText({
   workspaceId,
+  ask,
   onBack,
   transcribing = false,
 }: {
   readonly workspaceId: string | null;
+  readonly ask: FocusAskPrompt | null;
   readonly onBack: () => void;
   /** True while a voice clip is being transcribed (before it's sent) — so
    *  opening the panel on mic-stop shows progress, not a stale message. */
@@ -57,6 +61,7 @@ export function MiniText({
     <div style={style.panel}>
       <MiniHeader title="Text" onBack={onBack} />
       <div ref={bodyRef} style={style.panelBody}>
+        {ask && <FocusAskCard prompt={ask} variant="panel" />}
         {latest && <LatestMessage block={latest} />}
         {showThinking && (
           <ThinkingLine label={transcribing ? 'transcribing…' : 'working…'} />
@@ -132,7 +137,7 @@ function ThinkingLine({ label }: { readonly label: string }): JSX.Element {
       <Dot delay={0} />
       <Dot delay={160} />
       <Dot delay={320} />
-      <span style={{ color: '#ec4899', fontWeight: 600, fontSize: 13 }}>{label}</span>
+      <span style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: 13 }}>{label}</span>
     </div>
   );
 }
@@ -149,7 +154,7 @@ function LatestMessage({ block }: { readonly block: LatestBlock }): JSX.Element 
             fontWeight: 700,
             textTransform: 'uppercase',
             letterSpacing: '0.06em',
-            color: '#94a3b8',
+            color: 'var(--focus-dim)',
             marginBottom: 6,
           }}
         >
@@ -163,6 +168,6 @@ function LatestMessage({ block }: { readonly block: LatestBlock }): JSX.Element 
 
 function IdleLine({ label }: { readonly label: string }): JSX.Element {
   return (
-    <div style={{ fontSize: 12.5, color: '#64748b', fontStyle: 'italic' }}>{label}</div>
+    <div style={{ fontSize: 12.5, color: 'var(--focus-muted)', fontStyle: 'italic' }}>{label}</div>
   );
 }

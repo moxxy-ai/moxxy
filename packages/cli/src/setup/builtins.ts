@@ -74,6 +74,7 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/plugin-channel-web': { hardRequirements: false, reason: 'web surface is standalone; token auto-generated' },
   '@moxxy/plugin-channel-mobile': { hardRequirements: false, reason: 'mobile WS bridge is standalone; token auto-generated' },
   '@moxxy/plugin-telegram': { hardRequirements: false, reason: 'vault is injected by bootstrap closure' },
+  '@moxxy/plugin-channel-slack': { hardRequirements: false, reason: 'vault + proxy tunnel resolved from the service registry (both builtin); runs on its own dedicated runner' },
   '@moxxy/plugin-browser': { hardRequirements: false, reason: 'browser runtime is diagnosed at tool/runtime level' },
   '@moxxy/plugin-terminal': { hardRequirements: false, reason: 'node-pty is optional; falls back to a piped shell' },
   '@moxxy/plugin-computer-control': { hardRequirements: false, reason: 'platform constraints are handled by tools' },

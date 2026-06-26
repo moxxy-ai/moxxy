@@ -15,6 +15,13 @@ export const BUILTIN_REQUIREMENTS: Readonly<
       "hint": "Enable @moxxy/plugin-subagents — deep-research fans out sub-queries via ctx.subagents."
     }
   ],
+  "@moxxy/plugin-channel-slack": [
+    {
+      "kind": "plugin",
+      "name": "@moxxy/plugin-vault",
+      "hint": "slack resolves the vault from the service registry for its bot token + signing secret + pairing; @moxxy/plugin-vault must load first"
+    }
+  ],
   "@moxxy/plugin-oauth": [
     {
       "kind": "plugin",
