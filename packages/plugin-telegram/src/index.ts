@@ -77,6 +77,11 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
       defineChannel({
         name: 'telegram',
         description: 'Telegram bot channel via grammy. TOFU + code-pairing authorization.',
+        // Like Slack, run on a dedicated, isolated runner (separate socket +
+        // sticky session) so the bot keeps its own persistent history apart from
+        // the user's desktop/TUI work. Telegram long-polls (no tunnel needed).
+        dedicatedRunner: true,
+        sessionSource: 'telegram',
         create: (deps) =>
           new TelegramChannel({
             vault: getVault(),

@@ -10,7 +10,7 @@ import {
 import type { Session } from '@moxxy/core';
 import { startChannelWith } from '@moxxy/sdk';
 import { moxxyPath } from '@moxxy/sdk/server';
-import type { ClientSession, SessionLike } from '@moxxy/sdk';
+import type { ClientSession, SessionLike, SessionSource } from '@moxxy/sdk';
 import {
   argvToSetupOptions,
   bootSessionWithConfig,
@@ -39,6 +39,19 @@ type _SessionIsClientSession = _AssertAssignable<Session, ClientSession>;
 type _SessionIsSessionLike = _AssertAssignable<Session, SessionLike>;
 
 /**
+ * What a channel declares (via its {@link ChannelDef}) about running on its own
+ * dedicated runner. Resolved by the dispatcher from the channel registry and
+ * threaded in — `applyDedicatedRunnerEnv` runs before any session boots, so it
+ * can't look the def up itself.
+ */
+export interface DedicatedRunnerOpts {
+  /** The channel declared `dedicatedRunner: true`. */
+  readonly dedicatedRunner?: boolean;
+  /** The channel's declared `sessionSource` (stamped when running dedicated). */
+  readonly sessionSource?: SessionSource;
+}
+
+/**
  * Run a registered channel by name, headlessly (no wizard, no TUI hand-off).
  *
  * Like `moxxy tui`, a channel is a thin client of the runner:
@@ -46,9 +59,16 @@ type _SessionIsSessionLike = _AssertAssignable<Session, SessionLike>;
  *    the channel against a RemoteSession.
  *  - otherwise -> boot a local session and, unless `--standalone`, open the
  *    runner socket so other clients can attach too (Option A).
+ *
+ * `dedicated` carries the channel's own `ChannelDef` declaration (resolved by
+ * the dispatcher); see {@link applyDedicatedRunnerEnv}.
  */
-export async function startRegisteredChannel(name: string, argv: ParsedArgv): Promise<number> {
-  applyDedicatedRunnerEnv(name, argv);
+export async function startRegisteredChannel(
+  name: string,
+  argv: ParsedArgv,
+  dedicated: DedicatedRunnerOpts = {},
+): Promise<number> {
+  applyDedicatedRunnerEnv(name, argv, dedicated);
   const standalone = hasBoolFlag(argv, 'standalone');
   const mode = chooseClientMode({ standalone, runnerUp: standalone ? false : await isRunnerUp() });
   if (mode === 'attach') return runAttachedChannel(name, argv);
@@ -67,14 +87,20 @@ export async function startRegisteredChannel(name: string, argv: ParsedArgv): Pr
  * isolated Session instead of attaching to the user's main runner. The stable
  * `MOXXY_SESSION_ID` persists that session's history across restarts.
  *
- * `slack` is dedicated by default (the whole point is to operate independently);
- * any channel can opt in with `--dedicated` or `MOXXY_DEDICATED_RUNNER=1`. A
- * caller that already pinned the socket/session id (e.g. the desktop supervisor)
+ * Whether a channel is dedicated is DECLARED by the channel itself
+ * (`ChannelDef.dedicatedRunner`, resolved by the dispatcher and passed in via
+ * `opts`) — the CLI keeps no per-channel name list. Any channel can also opt in
+ * at runtime with `--dedicated` or `MOXXY_DEDICATED_RUNNER=1`. A caller that
+ * already pinned the socket/session id/source (e.g. the desktop supervisor)
  * always wins — we only fill in what is unset.
  */
-function applyDedicatedRunnerEnv(name: string, argv: ParsedArgv): void {
+export function applyDedicatedRunnerEnv(
+  name: string,
+  argv: ParsedArgv,
+  opts: DedicatedRunnerOpts,
+): void {
   const dedicated =
-    name === 'slack' ||
+    opts.dedicatedRunner === true ||
     hasBoolFlag(argv, 'dedicated') ||
     process.env.MOXXY_DEDICATED_RUNNER === '1';
   if (!dedicated) return;
@@ -87,8 +113,8 @@ function applyDedicatedRunnerEnv(name: string, argv: ParsedArgv): void {
   if (!process.env.MOXXY_SESSION_ID) {
     process.env.MOXXY_SESSION_ID = `moxxy-channel-${name}`;
   }
-  if (!process.env.MOXXY_SESSION_SOURCE && name === 'slack') {
-    process.env.MOXXY_SESSION_SOURCE = 'slack';
+  if (!process.env.MOXXY_SESSION_SOURCE && opts.sessionSource) {
+    process.env.MOXXY_SESSION_SOURCE = opts.sessionSource;
   }
 }
 
