@@ -30,6 +30,64 @@ describe('focus-window geometry', () => {
     expect(result.bounds).toEqual({ x: 24, y: 696, width: 220, height: 52 });
   });
 
+  it('restores a remembered tile position when collapsing from a clamped top panel', () => {
+    const tile = { x: 932, y: 24, width: 44, height: 44 };
+    const expanded = resizeFocusBounds({
+      current: tile,
+      nextSize: { width: 380, height: 440 },
+      workArea,
+    });
+
+    expect(expanded.bounds).toEqual({ x: 596, y: 4, width: 380, height: 440 });
+
+    const collapsed = resizeFocusBounds({
+      current: expanded.bounds,
+      nextSize: { width: 44, height: 44 },
+      restoreBounds: tile,
+      workArea,
+    });
+
+    expect(collapsed.bounds).toEqual(tile);
+  });
+
+  it('restores the active pill around the remembered tile after a clamped mini chat', () => {
+    const tile = { x: 932, y: 24, width: 44, height: 44 };
+    const expanded = resizeFocusBounds({
+      current: tile,
+      nextSize: { width: 380, height: 440 },
+      workArea,
+    });
+
+    const active = resizeFocusBounds({
+      current: expanded.bounds,
+      nextSize: { width: 232, height: 56 },
+      restoreBounds: tile,
+      workArea,
+    });
+
+    expect(active.bounds).toEqual({ x: 744, y: 18, width: 232, height: 56 });
+  });
+
+  it('restores a remembered tile position when collapsing from a clamped bottom panel', () => {
+    const tile = { x: 932, y: 732, width: 44, height: 44 };
+    const expanded = resizeFocusBounds({
+      current: tile,
+      nextSize: { width: 380, height: 440 },
+      workArea,
+    });
+
+    expect(expanded.bounds).toEqual({ x: 596, y: 356, width: 380, height: 440 });
+
+    const collapsed = resizeFocusBounds({
+      current: expanded.bounds,
+      nextSize: { width: 44, height: 44 },
+      restoreBounds: tile,
+      workArea,
+    });
+
+    expect(collapsed.bounds).toEqual(tile);
+  });
+
   it('clamps moved bounds to the work area and reports the final anchor', () => {
     const result = moveFocusBounds({
       current: { x: 960, y: 780, width: 44, height: 44 },

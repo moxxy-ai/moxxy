@@ -55,18 +55,21 @@ function clampBounds(bounds: FocusBounds, workArea: FocusWorkArea): FocusBounds 
 export function resizeFocusBounds({
   current,
   nextSize,
+  restoreBounds,
   workArea,
 }: {
   readonly current: FocusBounds;
   readonly nextSize: Pick<FocusBounds, 'width' | 'height'>;
+  readonly restoreBounds?: FocusBounds | null;
   readonly workArea: FocusWorkArea;
 }): FocusPlacement {
-  const horizontalAnchor = anchorFor(current, workArea);
+  const resizeSource = restoreBounds ?? current;
+  const horizontalAnchor = anchorFor(resizeSource, workArea);
   const nextX =
     horizontalAnchor === 'right'
-      ? current.x + current.width - nextSize.width
-      : current.x;
-  const nextY = current.y + (current.height - nextSize.height) / 2;
+      ? resizeSource.x + resizeSource.width - nextSize.width
+      : resizeSource.x;
+  const nextY = resizeSource.y + (resizeSource.height - nextSize.height) / 2;
   const bounds = clampBounds(
     { x: nextX, y: nextY, width: nextSize.width, height: nextSize.height },
     workArea,
