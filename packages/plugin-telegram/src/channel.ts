@@ -64,6 +64,10 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   readonly approvalResolver: TelegramApprovalResolver;
   private readonly opts: TelegramChannelOptions;
   private bot: Bot | null = null;
+  // The resolved bot's `t.me/<botname>` link (from getMe at start), published as
+  // this channel's `requestUrl` connect value so control surfaces can render a
+  // QR / "open the bot" step. Null until resolved (or if getMe failed).
+  private botLink: string | null = null;
   private busy = false;
   private currentChatId: number | null = null;
   // Last chat we ran a turn for — the target for mirroring turns this channel
@@ -106,6 +110,12 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       vault: opts.vault,
       ...(opts.logger ? { logger: opts.logger } : {}),
     });
+  }
+
+  /** This channel's connect value (see {@link Channel.requestUrl}): the resolved
+   *  bot's `t.me` link, surfaced by control surfaces as a QR / open-bot step. */
+  get requestUrl(): string | null {
+    return this.botLink;
   }
 
   async start(startOpts: TelegramStartOpts): Promise<ChannelHandle> {
@@ -188,7 +198,23 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       paired: this.pairing.phase() === 'paired',
     });
 
-    const running = this.bot.start({ drop_pending_updates: false });
+    // Resolve the bot's own identity up front (getMe) so a control surface can
+    // show a `t.me/<botname>` connect step. grammy caches this on `bot.botInfo`,
+    // and `bot.start()` below reuses it instead of calling getMe again. Non-fatal:
+    // a transient getMe failure must not block the channel from starting — the
+    // poll loop surfaces a genuinely invalid token on its own.
+    const bot = this.bot;
+    try {
+      await bot.init();
+      const username = bot.botInfo.username;
+      if (username) this.botLink = `https://t.me/${username}`;
+    } catch (err) {
+      this.opts.logger?.warn?.('telegram: could not resolve bot identity (getMe)', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    const running = bot.start({ drop_pending_updates: false });
     this.handle = {
       running,
       stop: async (reason = 'shutdown') => {

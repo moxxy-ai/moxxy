@@ -28,11 +28,13 @@ export interface Channel<TStartOpts = unknown> {
   start(opts: TStartOpts): Promise<ChannelHandle>;
 
   /**
-   * The public ingest URL this channel exposes once running — e.g. Slack's
-   * Events Request URL after its proxy tunnel opens — or null when it has none
-   * (Telegram long-polls). Read by the dedicated-runner host to publish the URL
-   * the user must paste into the provider's config. Optional: channels with no
-   * inbound endpoint omit it.
+   * The channel's runtime "connect value" — published once running and surfaced
+   * by control surfaces per the channel's declared {@link ChannelConnectStep}.
+   * Its meaning depends on `connect.kind`: for Slack it is the Events Request URL
+   * the user pastes into the app (after its proxy tunnel opens); for Telegram it
+   * is the `https://t.me/<botname>` link of the resolved bot. Null when the
+   * channel has no connect value yet (still resolving) or none at all. Read by
+   * the dedicated-runner host and written to the channel's status file.
    */
   readonly requestUrl?: string | null;
 }
@@ -201,6 +203,40 @@ export interface ChannelConfigDescriptor {
   readonly hasRequestUrl?: boolean;
   /** Post-start pairing/setup instructions to show the user. */
   readonly runHint?: string;
+  /** How a control surface should present the "now connect the other side" step
+   *  once the channel is running — declaratively, so each channel renders the
+   *  same way without per-channel UI code. See {@link ChannelConnectStep}. */
+  readonly connect?: ChannelConnectStep;
+}
+
+/**
+ * Declares how a control surface (TUI `/channels`, the desktop Channels panel)
+ * presents a channel's post-start "connect" step. The runtime VALUE this step
+ * renders is the channel's {@link Channel.requestUrl} (Slack's Request URL,
+ * Telegram's `t.me/<bot>` link); this descriptor only says how to render it, so
+ * a new channel plugs in by declaring a `kind` rather than shipping bespoke UI.
+ */
+export interface ChannelConnectStep {
+  /**
+   * Presentation of the channel's runtime connect value:
+   * - `qr`: render a QR of the value plus the value itself (e.g. scan/open a
+   *   `t.me/<bot>` link, or a mobile pairing URL).
+   * - `url`: show the value as a copyable URL the user pastes elsewhere
+   *   (Slack's Events Request URL).
+   * - `instructions`: static `steps`, no runtime value.
+   */
+  readonly kind: 'qr' | 'url' | 'instructions';
+  /** Heading for the step, e.g. "Connect your Telegram". */
+  readonly title?: string;
+  /** One-line helper under the value, e.g. "Scan, or open the link and send /start". */
+  readonly hint?: string;
+  /** When true and the value is an https URL the user should OPEN (not paste),
+   *  a control surface may show an "open externally" affordance. */
+  readonly openable?: boolean;
+  /** Label for the open affordance, e.g. "Open in Telegram". */
+  readonly openLabel?: string;
+  /** For `kind: 'instructions'` — static steps shown verbatim (no runtime value). */
+  readonly steps?: ReadonlyArray<string>;
 }
 
 export interface ChannelAvailability {
