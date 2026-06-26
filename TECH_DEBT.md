@@ -40,6 +40,11 @@ or recorded-on-purpose decision.
   on the `moxxy mobile` runner to make it airtight. `packages/plugin-channel-mobile`.
 - [note] Stress-test multi-session with a desk's SECOND (UUID) session — the first
   session has id === desk id, which masks pool-key regressions. `packages/desktop-host`.
+- [low] `SessionSource` literals are still hand-listed in one runtime spot:
+  `sessionSource()`'s validator in `packages/cli/src/setup/persistence.ts` (a type
+  can't be enumerated at runtime). `DeskSession.source` in `@moxxy/desktop-ipc-contract`
+  was unified onto the SDK type (2026-06-26); when adding a source, update the
+  union in `@moxxy/sdk` event-store.ts AND that guard.
 - [low] TUI `/sessions` switcher only works in self-host/standalone mode (the TUI
   owns the boot, so it can re-bootstrap onto a different session in place). In
   ATTACH mode (thin client against an external `moxxy serve`) the runner owns a

@@ -1,5 +1,6 @@
 import type { PermissionResolver } from './permission.js';
 import type { ClientSession } from './client-session.js';
+import type { SessionSource } from './event-store.js';
 
 /**
  * A Channel is a bidirectional surface that drives a Session: it feeds user
@@ -134,6 +135,24 @@ export interface ChannelDef<TStartOpts = unknown> {
    * starts the channel.
    */
   readonly interactiveCommand?: string;
+  /**
+   * Declare that this channel runs on its OWN dedicated, isolated runner: a
+   * distinct runner socket (`channel-<name>.sock`) + a stable sticky session id
+   * (`moxxy-channel-<name>`), so the channel acts as its own agent thread,
+   * separate from whatever runner serves the desktop/TUI. NO runner-protocol
+   * change — one dedicated runner is still one Session. Channels that should
+   * operate autonomously (slack, telegram) set this; the CLI reads it generically
+   * (see `applyDedicatedRunnerEnv`) so no per-channel name list is needed. Any
+   * channel can also opt in at runtime via `--dedicated` / `MOXXY_DEDICATED_RUNNER=1`.
+   */
+  readonly dedicatedRunner?: boolean;
+  /**
+   * The {@link SessionSource} to stamp on this channel's sessions when it runs
+   * dedicated (persisted into the meta sidecar; surfaces filter history by it).
+   * Only honored alongside `dedicatedRunner`. When unset, the source falls back
+   * to the usual env/default resolution.
+   */
+  readonly sessionSource?: SessionSource;
 }
 
 export interface ChannelAvailability {

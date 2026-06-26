@@ -1,5 +1,7 @@
 // ---------- Desks ---------------------------------------------------------
 
+import type { SessionSource } from '@moxxy/sdk';
+
 /** One conversation under a desk. Each session is backed by its own
  *  runner process (the pool keys supervisors by session id) with its
  *  own sticky runner log (`~/.moxxy/sessions/<id>.jsonl`) and chat
@@ -14,7 +16,9 @@ export interface DeskSession {
   eventCount?: number;
   provider?: string | null;
   model?: string | null;
-  source?: 'desktop' | 'tui' | 'mobile' | 'cli' | 'slack';
+  /** Originating channel; the single source of truth is `@moxxy/sdk`'s
+   *  {@link SessionSource} (was a hand-copied union — kept in lockstep here). */
+  source?: SessionSource;
 }
 
 export interface Desk {

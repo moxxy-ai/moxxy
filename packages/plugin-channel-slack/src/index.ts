@@ -105,6 +105,11 @@ function makeSlackPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): Pl
         name: 'slack',
         description:
           'Slack bot channel: ingests the Events API over the proxy relay and streams threaded replies. Autonomous allow-list permissions (no human in the loop).',
+        // Runs on its own dedicated, isolated runner (separate socket + sticky
+        // session) so the bot operates independently of the user's desktop/TUI.
+        // The CLI reads these generically — no per-channel name list.
+        dedicatedRunner: true,
+        sessionSource: 'slack',
         create: (deps) => {
           const options = deps.options;
           const allowedTools = readAllowedTools(options);
