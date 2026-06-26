@@ -25,9 +25,11 @@ import {
 
 let focusWindow: BrowserWindow | null = null;
 let focusDragStart: FocusDragStart | null = null;
+let focusTileBounds: FocusBounds | null = null;
 
 const COLLAPSED_FOCUS_SIZE = 44;
 const COLLAPSED_FOCUS_RADIUS = 16;
+const COMPACT_FOCUS_MAX_HEIGHT = 56;
 
 interface CreateOpts {
   readonly devUrl?: string;
@@ -108,6 +110,22 @@ function applyFocusWindowShape(win: BrowserWindow, width: number, height: number
   shapeable.invalidateShadow?.();
 }
 
+function isCompactFocusSize(bounds: Pick<FocusBounds, 'width' | 'height'>): boolean {
+  return bounds.height <= COMPACT_FOCUS_MAX_HEIGHT;
+}
+
+function rememberCompactFocusTileBounds(bounds: FocusBounds, workArea: FocusWorkArea): void {
+  if (!isCompactFocusSize(bounds)) return;
+  focusTileBounds = resizeFocusBounds({
+    current: bounds,
+    nextSize: {
+      width: COLLAPSED_FOCUS_SIZE,
+      height: COLLAPSED_FOCUS_SIZE,
+    },
+    workArea,
+  }).bounds;
+}
+
 export function isFocusOpen(): boolean {
   return !!focusWindow && !focusWindow.isDestroyed();
 }
@@ -128,6 +146,7 @@ export function closeFocusWindow(): void {
     focusWindow = null;
   }
   focusDragStart = null;
+  focusTileBounds = null;
 }
 
 /** Spawn (or focus) the floating widget. Anchored to the bottom-
@@ -161,15 +180,19 @@ export function resizeFocusWindow(
   focusWindow.setResizable(resizable);
   const current = focusWindow.getBounds() as FocusBounds;
   const workArea = screen.getDisplayMatching(current).workArea as FocusWorkArea;
+  rememberCompactFocusTileBounds(current, workArea);
+  const restoreBounds = isCompactFocusSize({ width, height }) ? focusTileBounds : null;
   const placement = resizeFocusBounds({
     current,
     nextSize: { width, height },
+    restoreBounds,
     workArea,
   });
 
   // animate: false → snap, no overshoot.
   focusWindow.setBounds(placement.bounds, false);
   applyFocusWindowShape(focusWindow, placement.bounds.width, placement.bounds.height, resizable);
+  rememberCompactFocusTileBounds(placement.bounds, workArea);
   return { horizontalAnchor: placement.horizontalAnchor };
 }
 
@@ -183,6 +206,7 @@ export function moveFocusWindowBy(dx: number, dy: number): FocusWindowPlacement 
     workArea,
   });
   focusWindow.setBounds(placement.bounds, false);
+  rememberCompactFocusTileBounds(placement.bounds, workArea);
   return { horizontalAnchor: placement.horizontalAnchor };
 }
 
@@ -190,6 +214,7 @@ export function beginFocusWindowDrag(pointer: FocusScreenPoint): FocusWindowPlac
   if (!focusWindow || focusWindow.isDestroyed()) return null;
   const bounds = focusWindow.getBounds() as FocusBounds;
   const workArea = screen.getDisplayMatching(bounds).workArea as FocusWorkArea;
+  rememberCompactFocusTileBounds(bounds, workArea);
   focusDragStart = { bounds, pointer };
   return {
     horizontalAnchor:
@@ -211,6 +236,7 @@ export function moveFocusWindowDrag(pointer: FocusScreenPoint): FocusWindowPlace
     workArea,
   });
   focusWindow.setBounds(placement.bounds, false);
+  rememberCompactFocusTileBounds(placement.bounds, workArea);
   return { horizontalAnchor: placement.horizontalAnchor };
 }
 
@@ -234,12 +260,18 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   const width = COLLAPSED_FOCUS_SIZE;
   const height = COLLAPSED_FOCUS_SIZE;
   const margin = 24;
+  const initialBounds = {
+    x: work.x + work.width - width - margin,
+    y: work.y + work.height - height - margin,
+    width,
+    height,
+  };
   const win = new BrowserWindow({
     title: 'MoxxyAI · Focus',
     width,
     height,
-    x: work.x + work.width - width - margin,
-    y: work.y + work.height - height - margin,
+    x: initialBounds.x,
+    y: initialBounds.y,
     minWidth: 40,
     minHeight: 40,
     // Generous ceiling so the mini-text panel can be dragged bigger to
@@ -284,11 +316,14 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   applyFocusWindowShape(win, width, height, false);
 
   focusWindow = win;
+  focusTileBounds =
+    typeof win.getBounds === 'function' ? (win.getBounds() as FocusBounds) : initialBounds;
   const unbindAttach = opts.attach?.(win);
   win.on('closed', () => {
     unbindAttach?.();
     if (focusWindow === win) focusWindow = null;
     focusDragStart = null;
+    focusTileBounds = null;
   });
 
   // Load the *dedicated* focus.html entry. It has its own bundle, its
