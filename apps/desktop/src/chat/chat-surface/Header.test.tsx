@@ -110,7 +110,9 @@ describe('chat Header focus mode action', () => {
     const pathData = Array.from(focusIcon?.querySelectorAll('path') ?? []).map((path) =>
       path.getAttribute('d'),
     );
-    expect(pathData).toContain('M3.7 12s3.2-5 8.3-5 8.3 5 8.3 5-3.2 5-8.3 5-8.3-5-8.3-5Z');
-    expect(focusIcon?.querySelector('circle[cx="12"][cy="12"][r="2.65"]')).toBeTruthy();
+    expect(pathData).toContain(
+      'M5.2 12s2.7-4.1 6.8-4.1 6.8 4.1 6.8 4.1-2.7 4.1-6.8 4.1-6.8-4.1-6.8-4.1Z',
+    );
+    expect(focusIcon?.querySelector('circle[cx="12"][cy="12"][r="2.15"]')).toBeTruthy();
   });
 });

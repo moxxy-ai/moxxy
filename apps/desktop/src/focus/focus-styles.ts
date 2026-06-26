@@ -45,6 +45,7 @@ export const style = {
     justifyContent: 'flex-start',
     gap: 12,
     padding: '10px 12px',
+    background: 'transparent',
   },
   inactiveButton: {
     width: 44,
@@ -155,13 +156,14 @@ export const style = {
     fontSize: 12,
     lineHeight: '16px',
     color: 'var(--focus-ask-body)',
-    overflow: 'hidden',
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
+    maxHeight: 68,
+    overflowX: 'hidden',
+    overflowY: 'auto',
+    overscrollBehavior: 'contain',
+    wordBreak: 'break-word',
   },
   focusAskDetail: {
-    margin: '7px 0 0',
+    margin: '10px 0 0',
     maxHeight: 30,
     padding: '5px 7px',
     overflow: 'hidden',
@@ -458,9 +460,9 @@ if (typeof document !== 'undefined') {
       --focus-composer-bg: #ffffff;
       --focus-input-bg: #f8fafc;
       --focus-input-border: rgba(15, 23, 42, 0.12);
-      --focus-ask-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
-      --focus-ask-border: rgba(236, 72, 153, 0.34);
-      --focus-ask-shadow: 0 22px 54px rgba(15, 23, 42, 0.22);
+      --focus-ask-bg: rgba(255, 255, 255, 0.97);
+      --focus-ask-border: rgba(15, 23, 42, 0.14);
+      --focus-ask-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
       --focus-ask-text: #0f172a;
       --focus-ask-title: #0f172a;
       --focus-ask-body: #475569;
@@ -505,8 +507,8 @@ if (typeof document !== 'undefined') {
       --focus-composer-bg: #101117;
       --focus-input-bg: #121420;
       --focus-input-border: #262a3c;
-      --focus-ask-bg: linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.96));
-      --focus-ask-border: rgba(236, 72, 153, 0.34);
+      --focus-ask-bg: rgba(22, 24, 35, 0.97);
+      --focus-ask-border: rgba(148, 163, 184, 0.22);
       --focus-ask-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
       --focus-ask-text: #f8fafc;
       --focus-ask-title: #ffffff;
@@ -549,8 +551,8 @@ if (typeof document !== 'undefined') {
         --focus-composer-bg: #101117;
         --focus-input-bg: #121420;
         --focus-input-border: #262a3c;
-        --focus-ask-bg: linear-gradient(145deg, rgba(15, 23, 42, 0.98), rgba(30, 41, 59, 0.96));
-        --focus-ask-border: rgba(236, 72, 153, 0.34);
+        --focus-ask-bg: rgba(22, 24, 35, 0.97);
+        --focus-ask-border: rgba(148, 163, 184, 0.22);
         --focus-ask-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
         --focus-ask-text: #f8fafc;
         --focus-ask-title: #ffffff;
@@ -566,6 +568,9 @@ if (typeof document !== 'undefined') {
         --focus-ask-danger-text: #fecaca;
         color-scheme: dark;
       }
+    }
+    .focus-ask-markdown > :last-child {
+      margin-bottom: 0 !important;
     }
     @keyframes focus-thinking {
       0%, 100% { transform: translateY(0); opacity: 0.4; }

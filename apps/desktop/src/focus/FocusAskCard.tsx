@@ -1,4 +1,5 @@
 import { style } from './focus-styles';
+import { FocusMarkdown } from './FocusMarkdown';
 import type { FocusAskPrompt, FocusAskTone } from './useFocusAsk';
 
 export function FocusAskCard({
@@ -23,7 +24,7 @@ export function FocusAskCard({
         <span style={style.focusAskDot} aria-hidden />
       </div>
       <h2 style={style.focusAskTitle}>{prompt.title}</h2>
-      <p style={style.focusAskBody}>{prompt.body}</p>
+      <FocusMarkdown text={prompt.body} style={style.focusAskBody} />
       {prompt.detail ? <pre style={style.focusAskDetail}>{prompt.detail}</pre> : null}
       {prompt.textInput ? (
         <textarea

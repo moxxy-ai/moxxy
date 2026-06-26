@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
@@ -37,6 +37,11 @@ interface FakeApiOptions {
   readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
   readonly hasTranscriber?: boolean;
   readonly theme?: ThemePreference;
+}
+
+interface FakeMedia {
+  matches: boolean;
+  fire: () => void;
 }
 
 function event(
@@ -146,7 +151,31 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   };
 }
 
+function installMatchMedia(initialMatches: boolean): FakeMedia {
+  const listeners = new Set<() => void>();
+  const state: FakeMedia = {
+    matches: initialMatches,
+    fire: () => {
+      for (const l of listeners) l();
+    },
+  };
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: (query: string) => ({
+      media: query,
+      get matches() {
+        return state.matches;
+      },
+      addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+      removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+    }),
+  });
+  return state;
+}
+
 beforeEach(() => {
+  installMatchMedia(false);
   __resetThemeForTests();
   // Each test gets a fresh workspace chat so latest-line / sending
   // states don't bleed across cases.
@@ -336,6 +365,14 @@ describe('FocusWidget stages', () => {
 describe('FocusWidget theme', () => {
   it('mirrors the persisted desktop dark theme onto the focus document', async () => {
     installFakeApi({ theme: 'dark' });
+    render(<FocusWidget />);
+
+    await waitFor(() => expect(themeAttr()).toBe('dark'));
+  });
+
+  it('resolves the system desktop theme to the OS dark scheme inside focus mode', async () => {
+    installMatchMedia(true);
+    installFakeApi({ theme: 'system' });
     render(<FocusWidget />);
 
     await waitFor(() => expect(themeAttr()).toBe('dark'));
@@ -723,6 +760,38 @@ describe('FocusWidget bidirectional sync', () => {
     });
   });
 
+  it('keeps the inactive sidecar gutter transparent behind permission cards', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', permissionAsk('ask-focus-transparent-gutter'));
+
+    const card = await screen.findByRole('group', { name: /permission required/i });
+    expect(card.parentElement?.getAttribute('style')).toContain('background: transparent');
+    expect(focusStyle.inactiveRootWithPreview).toMatchObject({
+      background: 'transparent',
+    });
+  });
+
+  it('renders permission body markdown instead of showing raw markdown markers', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    spy.emit('ask.request', {
+      ...permissionAsk('ask-focus-markdown'),
+      tool: {
+        name: 'Bash',
+        description: 'Run **trusted checks** before continuing.\n\n- Verify build output',
+        input: { command: 'pnpm build' },
+      },
+    });
+
+    const card = await screen.findByRole('group', { name: /permission required/i });
+    expect(card.textContent).not.toContain('**trusted checks**');
+    expect(within(card).getByText('trusted checks').tagName.toLowerCase()).toBe('strong');
+    expect(within(card).getByText('Verify build output').closest('li')).toBeTruthy();
+  });
+
   it('keeps a pending permission visible inside mini-text until it is answered', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
@@ -782,5 +851,10 @@ describe('FocusWidget bidirectional sync', () => {
       expect(askResize).toBeTruthy();
       expect((askResize!.args as { height: number }).height).toBeGreaterThanOrEqual(210);
     });
+  });
+
+  it('keeps enough markdown body space above permission details', () => {
+    expect(Number(focusStyle.focusAskBody.maxHeight)).toBeGreaterThanOrEqual(66);
+    expect(Number.parseInt(String(focusStyle.focusAskDetail.margin), 10)).toBeGreaterThanOrEqual(9);
   });
 });
