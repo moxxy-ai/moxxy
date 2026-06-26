@@ -1,5 +1,30 @@
 # @moxxy/desktop
 
+## 0.25.0
+
+### Minor Changes
+
+- aec6e0e: Declarative per-channel "connect step" in the desktop Channels panel. A channel now declares how its post-start "connect the other side" affordance is presented (`ChannelConnectStep` on `ChannelConfigDescriptor`: `kind: 'qr' | 'url' | 'instructions'`), and the desktop renders it uniformly — no per-channel UI code.
+
+  Telegram is the first consumer: on start it resolves its bot's `@username` (grammy `getMe`) and publishes a `https://t.me/<bot>` link through the existing `requestUrl` status spine, which the panel shows as a **QR + "Open in Telegram"** link. Slack's Request URL folds into the same mechanism (`kind: 'url'`). The QR renderer is shared between the Mobile gateway and the Channels panel.
+
+### Patch Changes
+
+- Updated dependencies [aec6e0e]
+  - @moxxy/sdk@0.23.0
+  - @moxxy/chat-model@0.3.12
+  - @moxxy/cli@0.23.0
+  - @moxxy/client-core@0.13.1
+  - @moxxy/client-platform-web@0.1.40
+  - @moxxy/desktop-host@0.11.1
+  - @moxxy/desktop-ipc-contract@0.13.1
+  - @moxxy/ipc-server-ws@0.1.39
+  - @moxxy/plugin-channel-mobile@0.2.11
+  - @moxxy/plugin-stt-whisper-codex@0.0.35
+  - @moxxy/plugin-vault@0.0.35
+  - @moxxy/runner@0.2.26
+  - @moxxy/workflows-builder@0.1.23
+
 ## 0.24.5
 
 ### Patch Changes

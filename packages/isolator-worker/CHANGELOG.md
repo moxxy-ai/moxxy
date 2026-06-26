@@ -1,5 +1,13 @@
 # @moxxy/isolator-worker
 
+## 0.0.35
+
+### Patch Changes
+
+- Updated dependencies [aec6e0e]
+  - @moxxy/sdk@0.23.0
+  - @moxxy/plugin-security@0.0.35
+
 ## 0.0.34
 
 ### Patch Changes

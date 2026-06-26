@@ -48,6 +48,11 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
       hasWebhookUrl: true,
       runHint:
         'Paste the Request URL into your Slack app → Event Subscriptions, subscribe to the app_mention bot event, then mention the bot in a channel to pair.',
+      connect: {
+        kind: 'url',
+        title: 'Request URL',
+        hint: 'Paste this into your Slack app → Event Subscriptions, subscribe to the app_mention bot event, then mention the bot in a channel to pair.',
+      },
     },
     vaultKeys: { botToken: 'slack_bot_token', signingSecret: 'slack_signing_secret' },
     requiredKeys: ['slack_bot_token', 'slack_signing_secret'],
@@ -72,6 +77,13 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
       hasWebhookUrl: false,
       runHint:
         'Message your bot on Telegram, then send the pairing code it replies with to authorize your chat.',
+      connect: {
+        kind: 'qr',
+        title: 'Connect your Telegram',
+        hint: 'Scan the code, or open the link, and send /start to your bot — then send the pairing code it replies with.',
+        openable: true,
+        openLabel: 'Open in Telegram',
+      },
     },
     vaultKeys: { botToken: 'telegram_bot_token' },
     requiredKeys: ['telegram_bot_token'],
