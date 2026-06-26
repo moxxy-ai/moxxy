@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/mode-default",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Default loop strategy (mode) for moxxy — a Claude Code-style ReAct tool-use loop. Register it into an @moxxy/core Session to give your agent its turn-by-turn reasoning + tool-calling behaviour.",
   "keywords": [
     "moxxy",

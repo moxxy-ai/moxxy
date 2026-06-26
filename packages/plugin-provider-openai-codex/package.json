@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-openai-codex",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "description": "OpenAI Codex (ChatGPT Pro/Plus OAuth) LLMProvider plugin for moxxy. Streams against https://chatgpt.com/backend-api/codex/responses using PKCE-based OAuth tokens.",
   "keywords": [
     "moxxy",

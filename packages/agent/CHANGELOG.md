@@ -1,5 +1,15 @@
 # @moxxy/agent
 
+## 0.24.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.24.1
+- @moxxy/core@0.24.1
+- @moxxy/plugin-provider-anthropic@0.24.1
+- @moxxy/plugin-provider-openai@0.24.1
+- @moxxy/mode-default@0.1.14
+
 ## 0.24.0
 
 ### Patch Changes

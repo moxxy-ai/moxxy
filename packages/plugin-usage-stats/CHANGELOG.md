@@ -1,5 +1,12 @@
 # @moxxy/plugin-usage-stats
 
+## 0.0.42
+
+### Patch Changes
+
+- @moxxy/sdk@0.24.1
+- @moxxy/core@0.24.1
+
 ## 0.0.41
 
 ### Patch Changes

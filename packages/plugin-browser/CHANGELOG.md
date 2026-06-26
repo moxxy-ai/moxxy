@@ -1,5 +1,11 @@
 # @moxxy/plugin-browser
 
+## 0.0.41
+
+### Patch Changes
+
+- @moxxy/sdk@0.24.1
+
 ## 0.0.40
 
 ### Patch Changes

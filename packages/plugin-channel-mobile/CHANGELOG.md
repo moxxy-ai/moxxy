@@ -1,5 +1,17 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.2.13
+
+### Patch Changes
+
+- @moxxy/sdk@0.24.1
+- @moxxy/core@0.24.1
+- @moxxy/desktop-ipc-contract@0.13.3
+- @moxxy/e2e@0.1.11
+- @moxxy/ipc-server-ws@0.1.41
+- @moxxy/plugin-tunnel-proxy@0.1.11
+- @moxxy/workspace-registry@0.2.11
+
 ## 0.2.12
 
 ### Patch Changes

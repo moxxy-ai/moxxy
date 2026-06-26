@@ -1,5 +1,11 @@
 # @moxxy/plugin-provider-openai
 
+## 0.24.1
+
+### Patch Changes
+
+- @moxxy/sdk@0.24.1
+
 ## 0.24.0
 
 ### Patch Changes

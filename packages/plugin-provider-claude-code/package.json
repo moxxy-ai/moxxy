@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-claude-code",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "description": "Claude subscription (Pro/Max) LLMProvider plugin for moxxy. Talks to the standard Anthropic Messages API using a Claude Code OAuth token from `claude setup-token` or an in-app sign-in.",
   "keywords": [
     "moxxy",
