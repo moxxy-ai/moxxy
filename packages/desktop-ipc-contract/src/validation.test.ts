@@ -232,6 +232,39 @@ describe('IPC payload validation', () => {
     }
   });
 
+  it('confines channels.* channelId to a non-traversing slug', () => {
+    // channelId is spawned as `moxxy <channelId>`, so it must be a strict slug —
+    // no traversal, no separators, no leading dash (a flag), bounded length.
+    for (const cmd of ['channels.start', 'channels.stop'] as const) {
+      expect(() => validateIpcInput(cmd, { channelId: 'slack' })).not.toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: '../evil' })).toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: '-rf' })).toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: 'Slack' })).toThrow();
+      expect(() => validateIpcInput(cmd, { channelId: '' })).toThrow();
+      expect(() => validateIpcInput(cmd, {})).toThrow();
+    }
+  });
+
+  it('bounds channels.saveConfig field count + value size (OOM/vault-bloat guard)', () => {
+    expect(() =>
+      validateIpcInput('channels.saveConfig', {
+        channelId: 'slack',
+        values: { botToken: 'xoxb-abc', signingSecret: 'sek' },
+      }),
+    ).not.toThrow();
+    // Oversized secret value is rejected.
+    expect(() =>
+      validateIpcInput('channels.saveConfig', {
+        channelId: 'slack',
+        values: { botToken: 'x'.repeat(8193) },
+      }),
+    ).toThrow();
+    // A traversing channelId is rejected even with a valid values bag.
+    expect(() =>
+      validateIpcInput('channels.saveConfig', { channelId: '../x', values: {} }),
+    ).toThrow();
+  });
+
   it('bounds anonymizer.parseDocument path + pins pickDocument to no payload', () => {
     expect(() => validateIpcInput('anonymizer.parseDocument', { path: '/a/b.txt' })).not.toThrow();
     expect(() => validateIpcInput('anonymizer.parseDocument', { path: '' })).toThrow();

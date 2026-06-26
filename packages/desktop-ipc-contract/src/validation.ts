@@ -119,6 +119,10 @@ const commandName = z
  *  must never traverse: lowercase letters/digits/hyphen only. */
 const appId = z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/, 'invalid app id');
 
+/** Channel id == the CLI subcommand spawned as `moxxy <channelId>`, so pin it to
+ *  a non-traversing, non-flag slug: lowercase letters/digits/hyphen only. */
+const channelId = z.string().min(1).max(64).regex(/^[a-z][a-z0-9-]*$/, 'invalid channel id');
+
 /** Workflow names come from workflow filenames — bounded, no traversal. */
 const workflowName = z
   .string()
@@ -325,6 +329,17 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'apps.status': z.object({ appId }),
   'apps.install': z.object({ appId }),
   'apps.uninstall': z.object({ appId }),
+  // Channels: channelId is spawned as `moxxy <channelId>`, so pin it to a
+  // non-traversing slug. saveConfig carries secrets — bound the field count +
+  // each value's length so a hostile renderer can't OOM the host / bloat the
+  // vault (the keys are bounded field ids; values are tokens).
+  'channels.list': z.undefined(),
+  'channels.saveConfig': z.object({
+    channelId,
+    values: z.record(z.string().min(1).max(64), z.string().max(8192)),
+  }),
+  'channels.start': z.object({ channelId }),
+  'channels.stop': z.object({ channelId }),
   // Anonymizer: parseDocument reads a file (bound the path), saveRedacted writes
   // one (bound name + cap content so a renderer can't OOM main). pickDocument
   // takes nothing — pin it to "nothing" so no args can be smuggled across.

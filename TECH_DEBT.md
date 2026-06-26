@@ -142,6 +142,18 @@ or recorded-on-purpose decision.
 
 ## Channels, relay & HTTP
 
+- [low] Desktop channel catalog hand-copies each channel's vault key names +
+  config fields (`packages/desktop-host/src/channel-catalog.ts`) so the Channels
+  panel can render a form without booting plugin discovery in the Electron main.
+  The plugins' `keys.ts` stay the source of truth (a unit test pins the copy). A
+  `moxxy channels describe --json` command sourcing it from each `ChannelDef`
+  (now that `dedicatedRunner`/`sessionSource`/`requestUrl` are declarative) would
+  remove the duplication.
+- [low] Desktop-spawned channels are killed on app quit (a best-effort
+  `process.once('exit')` SIGTERM in `channel-supervisor.ts`); no cross-restart
+  re-adoption of an already-running channel by its status-file pid. Fine for v1
+  (no orphans, each session starts clean); revisit if channels should outlive the
+  desktop. `packages/desktop-host/src/channel-supervisor.ts`.
 - [med] Relay is the single-instance sole remote path — no fallback; needs uptime
   monitoring + redeploy story (decide on an emergency escape hatch). `plugin-tunnel-proxy`.
 - [med] Channel→core prod dependency — `plugin-cli`/`plugin-telegram` still import

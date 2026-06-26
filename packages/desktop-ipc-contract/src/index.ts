@@ -76,6 +76,14 @@ export type { WebhookLastResult, WebhookSummary, WebhookDeleteResult } from './w
 // ---------- Mobile gateway (WebSocket bridge) ------------------------------
 export type { MobileGatewayStatus } from './mobile.js';
 
+// ---------- Communication channels (Slack / Telegram on dedicated runners) -
+export type {
+  ChannelConfigField,
+  ChannelDescriptor,
+  ChannelRuntimeStatus,
+  ChannelEntry,
+} from './channels.js';
+
 // ---------- Settings -------------------------------------------------------
 export type {
   ProviderEntry,
