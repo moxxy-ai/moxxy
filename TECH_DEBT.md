@@ -142,8 +142,21 @@ or recorded-on-purpose decision.
 - [med] Channel→core prod dependency — `plugin-cli`/`plugin-telegram` still import
   core helpers; hoist provider-neutral ones into the SDK. 
 - [med] Shared HTTP-channel server base — `createServer`/`listen`/health/routing is
-  replicated across `plugin-channel-http`/`-web`/`webhooks`/`ipc-server-ws`; an
-  optional `HttpChannelServer` base would dedupe (larger refactor, lower payoff).
+  replicated across `plugin-channel-http`/`-web`/`webhooks`/`ipc-server-ws`/
+  `plugin-channel-slack` (the Slack ingest server is a 6th copy); an optional
+  `HttpChannelServer` base would dedupe (larger refactor, lower payoff).
+- [med, slack v1] Slack channel runs a SINGLE global `busy` single-flight — one
+  turn at a time across ALL threads/channels (a 2nd @mention while busy gets a
+  "still working" reply and is dropped). Per-thread concurrency (a turn per
+  thread, the isolation seam supports it) is deferred. `packages/plugin-channel-slack/`.
+- [med, slack v1, security] Slack channel is AUTONOMOUS — allow-list auto-approve
+  with no human-in-the-loop (mirrors the HTTP channel). There is no Slack
+  Interactivity button-approval flow; the operator must scope `allowedTools`
+  narrowly at setup (every auto-approved call is logged). Revisit human-in-the-loop
+  via Slack Interactivity (a 2nd Request URL) for v2. `packages/plugin-channel-slack/`.
+- [low, slack v1] Slack replies stream as PLAIN TEXT via `chat.update` (no
+  Block Kit / mrkdwn formatting, no message split for very long replies). A
+  Telegram-style renderer + Block Kit would improve fidelity. `packages/plugin-channel-slack/`.
 - [med, security] LAN pairing is cleartext `ws://` (RN/Expo can't trust a self-signed
   cert for a private IP); the secure phone path is the tunnel (`wss://`). Add optional
   `https.Server` + dev-build pinning only if direct-LAN encryption ever matters.

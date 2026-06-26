@@ -14,7 +14,7 @@ export interface DeskSession {
   eventCount?: number;
   provider?: string | null;
   model?: string | null;
-  source?: 'desktop' | 'tui' | 'mobile' | 'cli';
+  source?: 'desktop' | 'tui' | 'mobile' | 'cli' | 'slack';
 }
 
 export interface Desk {
