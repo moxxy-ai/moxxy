@@ -27,3 +27,8 @@ Run & control channels (Slack / Telegram) directly from the TUI and the CLI.
   off the per-channel status file (process-independent): `spawnDedicatedChannel`,
   `liveChannelStatus`, `listLiveChannelStatuses`, `stopDedicatedChannel`,
   `isPidAlive` — stale files (a crashed runner's dead pid) self-heal on read.
+- Fix: the Telegram channel now honors the `MOXXY_TELEGRAM_TOKEN` env override at
+  start (precedence: explicit option → env → vault), matching its own
+  `isAvailable` gate and error message + Slack's behavior. Previously a headless
+  start with only the env var set passed the availability check but then failed to
+  boot ("token not found").
