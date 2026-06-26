@@ -164,6 +164,56 @@ describe('TurnRenderer', () => {
     const second = r.accept(baseEvent({ type: 'plugin_event', pluginId: asPluginId('p'), subtype: 'noop', payload: null, source: 'plugin' }, 1));
     expect(second.hasUpdate).toBe(false);
   });
+
+  // Push `n` tool calls (request + ok result) into a renderer.
+  const withTools = (n: number): TurnRenderer => {
+    const r = new TurnRenderer();
+    for (let i = 0; i < n; i++) {
+      const id = asToolCallId(`c${i}`);
+      r.accept(baseEvent({ type: 'tool_call_requested', callId: id, name: `Tool${i}`, input: {}, source: 'model' }, i * 2));
+      r.accept(baseEvent({ type: 'tool_result', callId: id, ok: true, output: 'ok', source: 'tool' }, i * 2 + 1));
+    }
+    return r;
+  };
+
+  it('folds a long activity trace into an expandable box with a summary on the final frame', () => {
+    const r = withTools(4);
+    const snap = r.snapshot({ collapse: true });
+    expect(snap.activityHtml).toContain('<blockquote expandable>');
+    expect(snap.activityHtml).toContain('🔧 <b>4 steps</b>');
+    // The tool lines are still in the (collapsed) box.
+    expect(snap.activityHtml).toContain('<code>Tool3</code>');
+  });
+
+  it('keeps the activity open (no expandable) while streaming', () => {
+    const r = withTools(5);
+    const snap = r.snapshot(); // default collapse=false
+    expect(snap.activityHtml).toContain('<blockquote>');
+    expect(snap.activityHtml).not.toContain('expandable');
+    expect(snap.activityHtml).not.toContain('🔧');
+  });
+
+  it('keeps a short activity trace inline even on the final frame', () => {
+    const r = withTools(2); // below the collapse threshold
+    const snap = r.snapshot({ collapse: true });
+    expect(snap.activityHtml).toContain('<blockquote>');
+    expect(snap.activityHtml).not.toContain('expandable');
+  });
+
+  it('uses singular "step" for a single-tool collapsed trace', () => {
+    // One tool + a skill banner + 2 notices = 4 lines, enough to collapse,
+    // but only ONE tool call → "1 step".
+    const r = new TurnRenderer();
+    r.accept(baseEvent({ type: 'skill_invoked', name: 'demo', source: 'system' }, 0));
+    const id = asToolCallId('only');
+    r.accept(baseEvent({ type: 'tool_call_requested', callId: id, name: 'Read', input: {}, source: 'model' }, 1));
+    r.accept(baseEvent({ type: 'tool_result', callId: id, ok: true, output: 'ok', source: 'tool' }, 2));
+    r.accept(baseEvent({ type: 'skill_created', name: 's1', source: 'system' }, 3));
+    r.accept(baseEvent({ type: 'skill_created', name: 's2', source: 'system' }, 4));
+    const snap = r.snapshot({ collapse: true });
+    expect(snap.activityHtml).toContain('<blockquote expandable>');
+    expect(snap.activityHtml).toContain('🔧 <b>1 step</b>');
+  });
 });
 
 describe('splitForTelegram', () => {
@@ -263,5 +313,38 @@ describe('splitForTelegram', () => {
     expect(recombined).toContain('x'.repeat(40));
     // Generous bound — the old quadratic path blew well past this on 82KB.
     expect(elapsed).toBeLessThan(2000);
+  });
+
+  it('reopens a hyphenated <tg-spoiler> across a cut (never emits </tg>)', () => {
+    const body = 'b'.repeat(60);
+    const html = 'a'.repeat(40) + '<tg-spoiler>' + body + '</tg-spoiler>' + 'c'.repeat(40);
+    let cut = false;
+    for (let limit = 30; limit < html.length; limit++) {
+      const parts = splitForTelegram(html, limit);
+      if (parts.length > 1) cut = true;
+      for (const part of parts) {
+        expect(isBalancedHtml(part)).toBe(true);
+        // The buggy path closed the spoiler with the truncated `</tg>`.
+        expect(part).not.toContain('</tg>');
+      }
+      // The spoiler body survives once the wrapper tags are stripped.
+      const recombined = parts.join('').replace(/<\/?tg-spoiler>/g, '');
+      expect(recombined).toContain(body);
+    }
+    expect(cut).toBe(true);
+  });
+
+  it('closes and reopens a <blockquote expandable> across the cut', () => {
+    // No newlines inside, body far over the limit → the box itself must split.
+    const html = '<blockquote expandable>' + 'q'.repeat(300) + '</blockquote>';
+    const parts = splitForTelegram(html, 100);
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) expect(isBalancedHtml(part)).toBe(true);
+    // Every continuation head reopens the box WITH its `expandable` attribute.
+    for (const tail of parts.slice(1)) {
+      expect(tail.startsWith('<blockquote expandable>')).toBe(true);
+    }
+    const recombined = parts.join('').replace(/<\/?blockquote[^>]*>/g, '');
+    expect(recombined).toContain('q'.repeat(300));
   });
 });

@@ -50,12 +50,50 @@ State machine: `packages/plugin-telegram/src/pairing.ts`.
 |---|---|
 | `telegram_set_token` | Store a token in the vault under `telegram_bot_token`. |
 | `telegram_status` | Token + paired-chat state (no secrets). |
-| `telegram_send_message` | Push a one-off message to the authorized chat. |
+| `telegram_send_message` | Push a one-off message to the authorized chat (rich Markdown→Telegram formatting by default; explicit `parseMode` opts out). |
 | `telegram_unpair` | Forget the authorized chat. |
 
 `telegram_send_message` is the link that makes the scheduler useful
 from the Telegram side — `--channel telegram` schedules expect the
 prompt to call it.
+
+## Message formatting
+
+The channel renders the model's Markdown into Telegram-flavoured HTML
+(`packages/plugin-telegram/src/format.ts`). The goal is **simple yet
+powerful**: plain Markdown already looks great, and a few extensions
+unlock Telegram's richer surface without a new syntax to learn.
+
+**Automatic — no model effort.** Standard Markdown maps to native
+Telegram styling: `**bold**`, `*italic*`, `` `code` ``, ```` ```fenced
+code``` ````, `[links](…)`, headings (→ bold), and `- bullets` (→ `•`).
+The per-turn **tool-activity trace** (which tools ran, with timings) is
+shown live while the agent works, then — on the final message — folds
+into an **expandable blockquote** topped with a `🔧 N steps` summary, so
+the finished reply leads with the answer and the noise is one tap away.
+
+**Opt-in — when the model wants to hide or emphasise detail:**
+
+| Markdown | Renders as |
+|---|---|
+| `~~struck~~` | strikethrough (`<s>`) |
+| `\|\|spoiler\|\|` | tap-to-reveal spoiler (`<tg-spoiler>`) |
+| `> [!note] Title` | titled, emoji-tagged callout box |
+| `> [!details]- Title` | **collapsed** (expandable) callout — the box stays closed until tapped |
+| `> [!warning]+ Title` | callout forced **open** (`+`) |
+| a long plain `>` quote | auto-collapses into an expandable box |
+
+Callout types: `note`/`info` ℹ️, `tip`/`hint` 💡, `important` ❗,
+`warning`/`caution` ⚠️, `danger`/`error` 🚨, `success`/`done` ✅,
+`question`/`faq` ❓, `quote` 💬, `details`/`example` 📋. `details`,
+`example`, and `faq` collapse by default; a trailing `-` forces any
+callout collapsed, `+` forces it open. Unknown `[!types]` are left as
+plain quote text. Use `[!details]-` to tuck verbose internals (logs,
+reasoning, raw payloads) behind a tap while keeping the headline visible.
+
+Long messages are split at safe boundaries and each part stays valid
+HTML — an open `<blockquote expandable>` / `<pre>` fence is closed and
+reopened across the cut (`splitForTelegram`).
 
 ## Slash commands
 

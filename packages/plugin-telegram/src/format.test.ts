@@ -89,4 +89,71 @@ describe('markdownToTelegramHtml', () => {
     expect(out).not.toContain('<i>');
     expect(out).toContain('var_name_here');
   });
+
+  it('renders ~~strikethrough~~ as <s>', () => {
+    const out = markdownToTelegramHtml('this is ~~gone~~ now');
+    expect(out).toContain('<s>gone</s>');
+  });
+
+  it('leaves a single ~ tilde literal', () => {
+    const out = markdownToTelegramHtml('about ~5 minutes');
+    expect(out).not.toContain('<s>');
+    expect(out).toContain('~5 minutes');
+  });
+
+  it('renders ||spoiler|| as <tg-spoiler>', () => {
+    const out = markdownToTelegramHtml('the answer is ||42||');
+    expect(out).toContain('<tg-spoiler>42</tg-spoiler>');
+  });
+
+  it("doesn't turn a single | into a spoiler", () => {
+    const out = markdownToTelegramHtml('a | b | c');
+    expect(out).not.toContain('tg-spoiler');
+  });
+
+  it('renders a [!note] callout as a titled, always-open blockquote', () => {
+    const out = markdownToTelegramHtml('> [!note] Heads up\n> read this carefully');
+    expect(out).toContain('<blockquote><b>ℹ️ Heads up</b>');
+    expect(out).toContain('read this carefully');
+    expect(out).not.toContain('expandable');
+  });
+
+  it('uses the type name as the title when none is given', () => {
+    const out = markdownToTelegramHtml('> [!warning]\n> careful');
+    expect(out).toContain('<b>⚠️ Warning</b>');
+  });
+
+  it('collapses a [!details]- callout into an expandable box', () => {
+    const out = markdownToTelegramHtml('> [!details]- Internals\n> gory detail one\n> gory detail two');
+    expect(out).toContain('<blockquote expandable><b>📋 Internals</b>');
+    expect(out).toContain('gory detail one');
+  });
+
+  it('collapses fold-by-default callout types (details) even without a marker', () => {
+    expect(markdownToTelegramHtml('> [!details] X\n> y')).toContain('<blockquote expandable>');
+  });
+
+  it('honours a trailing + to force a fold-by-default callout open', () => {
+    const out = markdownToTelegramHtml('> [!faq]+ Q?\n> A.');
+    expect(out).toContain('<blockquote><b>❓ Q?</b>');
+    expect(out).not.toContain('expandable');
+  });
+
+  it('auto-collapses a long plain quote into an expandable box', () => {
+    const out = markdownToTelegramHtml('> one\n> two\n> three\n> four');
+    expect(out).toContain('<blockquote expandable>');
+    expect(out).toContain('four');
+  });
+
+  it('keeps a short plain quote as a normal blockquote', () => {
+    const out = markdownToTelegramHtml('> just one line');
+    expect(out).toContain('<blockquote>just one line</blockquote>');
+    expect(out).not.toContain('expandable');
+  });
+
+  it('leaves an unrecognised [!type] as literal quote text', () => {
+    const out = markdownToTelegramHtml('> [!bogus] hello');
+    expect(out).toContain('<blockquote>[!bogus] hello</blockquote>');
+    expect(out).not.toContain('expandable');
+  });
 });

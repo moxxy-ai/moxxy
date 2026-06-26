@@ -75,13 +75,42 @@ bot polls for the click and resumes the loop. Approvals needing text
 follow-up (e.g. a "Redraft with feedback" gate) capture your next
 message as the feedback.
 
+## Rich message formatting
+
+Replies are rendered with Telegram's HTML formatting. Plain Markdown
+already looks right — `**bold**`, `*italic*`, `` `code` ``, fenced code,
+links, headings, and bullets all map to native styling — so the agent
+needs no special knowledge for a clean message.
+
+What it gets for free:
+
+- **Collapsible tool trace.** While the agent works you see its tool
+  calls live; once the reply is final, a busy trace folds into an
+  expandable `🔧 N steps` box so the answer leads and the steps are one
+  tap away.
+- **File diffs** render as highlighted `diff` code blocks with an
+  added/removed summary.
+
+What the agent can reach for to hide or stress detail:
+
+- `~~strikethrough~~` and `||spoiler||` (tap-to-reveal).
+- **Callout boxes** via `> [!type] Title`. Add a trailing `-` to start
+  the box **collapsed** (`> [!details]- Raw logs`) — perfect for tucking
+  verbose internals behind a tap — or `+` to force it open. Types:
+  `note`, `tip`, `important`, `warning`, `danger`, `success`, `question`,
+  `quote`, `details`, `example`. A long plain `>` quote also auto-folds
+  into an expandable box.
+
+Ask the agent things like *"keep the summary short and put the full
+reasoning in a collapsed details box"* and it can author exactly that.
+
 ## Tools the plugin contributes
 
 | Tool | Purpose |
 |---|---|
 | `telegram_set_token` | Store a token in the vault under `telegram_bot_token`. |
 | `telegram_status` | Report token + paired-chat state (no secrets). |
-| `telegram_send_message` | Push a one-off message to the authorized chat. Useful from scheduled prompts. |
+| `telegram_send_message` | Push a one-off message to the authorized chat (rich Markdown→Telegram formatting by default — bold, callouts, spoilers). Useful from scheduled prompts. |
 | `telegram_unpair` | Forget the authorized chat. |
 
 `telegram_send_message` is what makes the scheduler useful from the

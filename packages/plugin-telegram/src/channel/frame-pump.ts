@@ -76,7 +76,9 @@ export class FramePump {
   async flush(final: boolean): Promise<void> {
     this.cancelTimer();
     if (!this.bot || !this.chatId) return;
-    const snap = this.renderer.snapshot();
+    // Only the FINAL frame collapses the activity trace into its expandable
+    // box — mid-stream frames keep it open so the user watches work land live.
+    const snap = this.renderer.snapshot({ collapse: final });
     const html = composeFrame(snap);
     if (!html || html === this.lastSentFrame) {
       // Nothing rendered yet AND it's the final flush — must produce
