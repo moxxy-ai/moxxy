@@ -1,6 +1,6 @@
 import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { IpcEvents, MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import type { ConnectionSnapshot, IpcEvents, MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import type { MoxxyEvent } from '@moxxy/sdk';
 
 import { configureTransport } from './transport.js';
@@ -11,7 +11,25 @@ import { ConnectionBridge, connectionStore } from './useConnection.js';
 
 type EventHandler<K extends keyof IpcEvents> = (payload: IpcEvents[K]) => void;
 
-function fakeApi(workspaceId: string): {
+function connectedSnapshot(workspaceId: string): ConnectionSnapshot {
+  return {
+    phase: {
+      phase: 'connected',
+      socket: '',
+      sessionId: workspaceId,
+      activeProvider: 'openai-codex',
+      activeMode: 'default',
+    },
+    cliPath: null,
+    attempts: 0,
+    log: [],
+  };
+}
+
+function fakeApi(
+  workspaceId: string,
+  opts: { readonly snapshot?: () => ConnectionSnapshot } = {},
+): {
   api: MoxxyApi;
   emit: <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]) => void;
   invoke: ReturnType<typeof vi.fn>;
@@ -20,21 +38,7 @@ function fakeApi(workspaceId: string): {
   const subscriptions = new Map<keyof IpcEvents, Set<EventHandler<keyof IpcEvents>>>();
   const invoke = vi.fn(async (cmd: string) => {
     if (cmd === 'connection.snapshotAll') {
-      return [
-        {
-          workspaceId,
-          phase: {
-            phase: 'connected',
-            socket: '',
-            sessionId: workspaceId,
-            activeProvider: 'openai-codex',
-            activeMode: 'default',
-          },
-          cliPath: null,
-          attempts: 0,
-          log: [],
-        },
-      ];
+      return [{ workspaceId, ...(opts.snapshot?.() ?? connectedSnapshot(workspaceId)) }];
     }
     if (cmd === 'connection.activeWorkspace') return workspaceId;
     if (cmd === 'chat.append') return undefined;
@@ -99,6 +103,43 @@ describe('client bridges after transport replacement', () => {
 
     await waitFor(() => expect(connectionStore.active$()).toBe('session-new'));
     expect(second.invoke).toHaveBeenCalledWith('connection.snapshotAll');
+  });
+
+  it('re-primes a cold-start loading snapshot when the initial connection event was missed', async () => {
+    const workspaceId = 'session-cold-start-resync';
+    let connected = false;
+    const bridge = fakeApi(workspaceId, {
+      snapshot: () =>
+        connected
+          ? connectedSnapshot(workspaceId)
+          : {
+              phase: {
+                phase: 'spawning',
+                cliPath: '/tmp/moxxy',
+                socket: '/tmp/moxxy.sock',
+                pid: 123,
+              },
+              cliPath: '/tmp/moxxy',
+              attempts: 0,
+              log: [],
+            },
+    });
+    configureTransport(bridge.api);
+    render(<ConnectionBridge />);
+
+    await waitFor(() =>
+      expect(connectionStore.get(workspaceId)?.phase.phase).toBe('spawning'),
+    );
+
+    connected = true;
+
+    await waitFor(
+      () => expect(connectionStore.get(workspaceId)?.phase.phase).toBe('connected'),
+      { timeout: 2500 },
+    );
+    expect(
+      bridge.invoke.mock.calls.filter(([cmd]) => cmd === 'connection.snapshotAll').length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it('re-subscribes chat events on the newly configured transport', async () => {
