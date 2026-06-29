@@ -1,6 +1,11 @@
 import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ConnectionSnapshot, IpcEvents, MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import type {
+  ConnectionSnapshot,
+  DesksOverview,
+  IpcEvents,
+  MoxxyApi,
+} from '@moxxy/desktop-ipc-contract';
 import type { MoxxyEvent } from '@moxxy/sdk';
 
 import { configureTransport } from './transport.js';
@@ -8,6 +13,7 @@ import { ChatStoreBridge } from './useChat.js';
 import { chatStore } from './chatStore.js';
 import { askStore } from './askStore.js';
 import { ConnectionBridge, connectionStore } from './useConnection.js';
+import { __resetDesksStoreForTests, desksStore } from './useDesks.js';
 
 type EventHandler<K extends keyof IpcEvents> = (payload: IpcEvents[K]) => void;
 
@@ -28,7 +34,10 @@ function connectedSnapshot(workspaceId: string): ConnectionSnapshot {
 
 function fakeApi(
   workspaceId: string,
-  opts: { readonly snapshot?: () => ConnectionSnapshot } = {},
+  opts: {
+    readonly snapshot?: () => ConnectionSnapshot;
+    readonly desksOverview?: DesksOverview;
+  } = {},
 ): {
   api: MoxxyApi;
   emit: <K extends keyof IpcEvents>(channel: K, payload: IpcEvents[K]) => void;
@@ -41,6 +50,7 @@ function fakeApi(
       return [{ workspaceId, ...(opts.snapshot?.() ?? connectedSnapshot(workspaceId)) }];
     }
     if (cmd === 'connection.activeWorkspace') return workspaceId;
+    if (cmd === 'desks.list' && opts.desksOverview) return opts.desksOverview;
     if (cmd === 'chat.append') return undefined;
     if (cmd === 'chat.migrate') return undefined;
     throw new Error(`unexpected ${cmd}`);
@@ -84,8 +94,10 @@ function userPrompt(workspaceId: string, id: string, text: string): MoxxyEvent {
 
 afterEach(() => {
   act(() => {
+    __resetDesksStoreForTests();
     connectionStore.setActive(null);
   });
+  vi.useRealTimers();
 });
 
 describe('client bridges after transport replacement', () => {
@@ -274,5 +286,42 @@ describe('client bridges after transport replacement', () => {
     expect(bridge.invoke).not.toHaveBeenCalledWith('chat.clearLog', {
       workspaceId: 'clear-sync',
     });
+  });
+
+  it('refreshes desks when a user prompt lands on a New session placeholder', async () => {
+    vi.useFakeTimers();
+    const overview: DesksOverview = {
+      activeId: 'desk-a',
+      desks: [
+        {
+          id: 'desk-a',
+          name: 'Desk A',
+          cwd: '/repo',
+          color: '#3b82f6',
+          createdAt: 1,
+          activeSessionId: 'session-new',
+          sessions: [{ id: 'session-new', name: 'New session', createdAt: 1 }],
+        },
+      ],
+    };
+    const bridge = fakeApi('session-new', { desksOverview: overview });
+    configureTransport(bridge.api);
+    await act(async () => {
+      await desksStore.refresh();
+    });
+    expect(bridge.invoke.mock.calls.filter(([cmd]) => cmd === 'desks.list')).toHaveLength(1);
+    render(<ChatStoreBridge />);
+
+    act(() => {
+      bridge.emit('runner.event', {
+        workspaceId: 'session-new',
+        event: userPrompt('session-new', 'event-title-refresh', 'first real prompt'),
+      });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(bridge.invoke.mock.calls.filter(([cmd]) => cmd === 'desks.list')).toHaveLength(2);
   });
 });

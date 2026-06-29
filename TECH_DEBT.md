@@ -21,6 +21,11 @@ or recorded-on-purpose decision.
   native focus window is shaped and the tile paints theme-aware backing color.
   `packages/desktop-host/src/focus-window.ts`,
   `apps/desktop/src/focus/focus-styles.ts`.
+- [low, sessions, RESOLVED 2026-06-29] Resumed desktop sessions now hydrate
+  stale sidecar titles from JSONL history and dedupe legacy `.meta.json` rows,
+  so the workspace sidebar no longer falls back to duplicate/stuck
+  `New session` labels. `packages/core/src/sessions/persistence.ts`,
+  `packages/workspace-registry/src/index.ts`.
 
 ## Standing practices
 

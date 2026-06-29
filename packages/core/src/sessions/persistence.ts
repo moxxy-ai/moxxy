@@ -6,10 +6,10 @@
  *
  * Layout:
  *   ~/.moxxy/sessions/
- *     <sessionId>.meta.json      per-session metadata sidecar (one per session)
+ *     <sessionId>.json           per-session metadata sidecar (one per session)
  *     <sessionId>.jsonl          one MoxxyEvent per line
  *
- * Each session writes only its OWN `.meta.json` sidecar (write-temp-rename), so
+ * Each session writes only its OWN `.json` sidecar (write-temp-rename), so
  * two concurrent moxxy processes can't drop each other's row the way a shared
  * `index.json` read-modify-write would. `readIndex` assembles the sidecars (and
  * a legacy `index.json`, if present, for back-compat). JSONL appends are
@@ -180,6 +180,10 @@ export class SessionPersistence {
    * reuses the same Session object.
    */
   attach(log: EventLogLike): () => void {
+    const initialStats = statsFromEventLogLike(this.id, log);
+    if (initialStats && initialStats.parsedEvents > 0) {
+      this.applyLogStats(initialStats);
+    }
     void this.ensureReady()
       .then(() => this.scheduleIndexWrite())
       .catch(() => undefined);
@@ -412,6 +416,7 @@ export class SessionPersistence {
         const handle = await fs.open(this.logPath, 'a');
         await handle.close();
         const existing = await readMetaSidecar(this.dir, this.id);
+        const stats = await matchingSessionStatsFromLog(this.id, this.logPath);
         if (existing) {
           this.meta = {
             ...this.meta,
@@ -421,12 +426,25 @@ export class SessionPersistence {
             groupId: existing.groupId ?? null,
           };
         }
+        if (stats && stats.parsedEvents > 0) {
+          this.applyLogStats(stats);
+        }
       })().catch((err) => {
         this.ready = null;
         throw err;
       });
     }
     return this.ready;
+  }
+
+  private applyLogStats(stats: SessionLogStats): void {
+    this.meta = {
+      ...this.meta,
+      eventCount: stats.eventCount,
+      firstPrompt: stats.firstPrompt,
+      provider: stats.provider ?? this.meta.provider,
+      model: stats.model ?? this.meta.model,
+    };
   }
 }
 
@@ -459,49 +477,64 @@ async function hydrateMetaFirstPrompt(meta: SessionMeta, dir: string): Promise<S
   };
 }
 
-async function matchingSessionStatsFromLog(
-  sessionId: string,
-  logPath: string,
-): Promise<{
+interface SessionLogStats {
   eventCount: number;
   firstPrompt: string | null;
   parsedEvents: number;
   provider: string | null;
   model: string | null;
-} | null> {
+}
+
+function statsFromEvents(sessionId: string, events: Iterable<MoxxyEvent>): SessionLogStats {
+  let eventCount = 0;
+  let parsedEvents = 0;
+  let firstPrompt: string | null = null;
+  let provider: string | null = null;
+  let model: string | null = null;
+  for (const event of events) {
+    parsedEvents += 1;
+    if (!eventBelongsToSession(event, sessionId)) continue;
+    eventCount += 1;
+    if (firstPrompt === null && event.type === 'user_prompt') {
+      // Mirror the write-time label (SessionPersistence.enqueueAppend):
+      // code-point-aware slice + non-string coercion, so a hydrated index row
+      // matches the meta the live append wrote (no surrogate split, never null
+      // for a present prompt).
+      firstPrompt = firstPromptLabel(event.text);
+    }
+    const header = providerHeaderFromEvent(event);
+    if (header.provider !== undefined) provider = header.provider;
+    if (header.model !== undefined) model = header.model;
+  }
+  return { eventCount, firstPrompt, parsedEvents, provider, model };
+}
+
+function statsFromEventLogLike(sessionId: string, log: EventLogLike): SessionLogStats | null {
+  const snapshot = log as { slice?: (from?: number, to?: number) => ReadonlyArray<MoxxyEvent> };
+  if (typeof snapshot.slice !== 'function') return null;
+  return statsFromEvents(sessionId, snapshot.slice());
+}
+
+async function matchingSessionStatsFromLog(
+  sessionId: string,
+  logPath: string,
+): Promise<SessionLogStats | null> {
   let raw: string;
   try {
     raw = await fs.readFile(logPath, 'utf8');
   } catch {
     return null;
   }
-  let eventCount = 0;
-  let parsedEvents = 0;
-  let firstPrompt: string | null = null;
-  let provider: string | null = null;
-  let model: string | null = null;
+  const events: MoxxyEvent[] = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      const event = JSON.parse(line) as MoxxyEvent;
-      parsedEvents += 1;
-      if (!eventBelongsToSession(event, sessionId)) continue;
-      eventCount += 1;
-      if (firstPrompt === null && event.type === 'user_prompt') {
-        // Mirror the write-time label (SessionPersistence.enqueueAppend):
-        // code-point-aware slice + non-string coercion, so a hydrated index row
-        // matches the meta the live append wrote (no surrogate split, never null
-        // for a present prompt).
-        firstPrompt = firstPromptLabel(event.text);
-      }
-      const header = providerHeaderFromEvent(event);
-      if (header.provider !== undefined) provider = header.provider;
-      if (header.model !== undefined) model = header.model;
+      events.push(JSON.parse(line) as MoxxyEvent);
     } catch {
       // A corrupt line should not hide a later valid prompt.
     }
   }
-  return { eventCount, firstPrompt, parsedEvents, provider, model };
+  return statsFromEvents(sessionId, events);
 }
 
 function providerHeaderFromEvent(event: MoxxyEvent): { provider?: string | null; model?: string | null } {
@@ -924,6 +957,15 @@ export async function seedSessionMeta(
  */
 const metaCache = new Map<string, { mtimeMs: number; size: number; meta: SessionMeta }>();
 
+interface ParsedMetaFile {
+  readonly meta: SessionMeta;
+  readonly canonical: boolean;
+}
+
+export interface ListSessionMetasOptions {
+  readonly hydrateStale?: boolean;
+}
+
 /**
  * One pass over the sessions dir: a single `readdir` yields BOTH the `<id>.json`
  * metadata files and the set of `<id>` ids that have an event log, so callers
@@ -948,37 +990,66 @@ async function readSessionsDir(dir: string): Promise<{ metas: SessionMeta[]; log
   }
   const live = new Set(files.map((d) => path.join(dir, d.name)));
   for (const key of metaCache.keys()) if (!live.has(key)) metaCache.delete(key);
-  const metas = await mapWithConcurrency(files, READ_INDEX_CONCURRENCY, async (d) => {
+  const parsedFiles = await mapWithConcurrency(files, READ_INDEX_CONCURRENCY, async (d) => {
     const file = path.join(dir, d.name);
     try {
       const stat = await fs.stat(file);
       const cached = metaCache.get(file);
-      if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
-        return cached.meta;
+      const parsed =
+        cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size
+          ? cached.meta
+          : null;
+      if (parsed) {
+        return { meta: parsed, canonical: d.name === `${parsed.id}.json` };
       }
-      const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
-      if (!isSessionMeta(parsed)) return null;
-      metaCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, meta: parsed });
-      return parsed;
+      const raw = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+      if (!isSessionMeta(raw)) return null;
+      metaCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, meta: raw });
+      return { meta: raw, canonical: d.name === `${raw.id}.json` };
     } catch {
       return null;
     }
   });
-  return { metas: metas.filter((m): m is SessionMeta => m !== null), logs };
+  const deduped = new Map<string, ParsedMetaFile>();
+  for (const parsed of parsedFiles) {
+    if (!parsed) continue;
+    const existing = deduped.get(parsed.meta.id);
+    if (!existing || (parsed.canonical && !existing.canonical)) {
+      deduped.set(parsed.meta.id, parsed);
+    }
+  }
+  return { metas: [...deduped.values()].map((entry) => entry.meta), logs };
+}
+
+function shouldHydrateMeta(meta: SessionMeta): boolean {
+  return meta.eventCount === 0 || meta.firstPrompt === null;
+}
+
+async function maybeHydrateSessionMetas(
+  metas: ReadonlyArray<SessionMeta>,
+  dir: string,
+  opts: ListSessionMetasOptions,
+): Promise<SessionMeta[]> {
+  if (!opts.hydrateStale) return [...metas];
+  return mapWithConcurrency(metas, READ_INDEX_CONCURRENCY, async (meta) =>
+    shouldHydrateMeta(meta) ? hydrateMetaFirstPrompt(meta, dir) : meta,
+  );
 }
 
 /**
- * List every session from its `<id>.json` (mtime-cached, no `.jsonl` re-read) —
- * the cheap read the workspace list/search uses on every `desks.list`. Sessions
- * whose `.jsonl` is gone are dropped (a deleted session never lingers). Use
- * {@link readIndex} when you need the jsonl-hydrated picker view. Sorted
- * most-recent-activity first.
+ * List every session from its `<id>.json` sidecar (mtime-cached). By default
+ * this is the cheap read the workspace list/search can call frequently. Callers
+ * that need to survive stale legacy sidecars can opt into targeted `.jsonl`
+ * hydration for rows whose counters/name seed are empty.
  */
-export async function listSessionMetas(dir = defaultSessionsDir()): Promise<SessionMeta[]> {
+export async function listSessionMetas(
+  dir = defaultSessionsDir(),
+  opts: ListSessionMetasOptions = {},
+): Promise<SessionMeta[]> {
   const { metas, logs } = await readSessionsDir(dir);
-  return metas
-    .filter((meta) => logs.has(meta.id))
-    .sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
+  const present = metas.filter((meta) => logs.has(meta.id));
+  const hydrated = await maybeHydrateSessionMetas(present, dir, opts);
+  return hydrated.sort((a, b) => b.lastActivity.localeCompare(a.lastActivity));
 }
 
 /**

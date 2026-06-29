@@ -62,6 +62,32 @@ function writeSession(input: {
   writeFileSync(path.join(sessionsDir, `${input.id}.jsonl`), '', 'utf8');
 }
 
+function writeSessionWithLog(input: {
+  id: string;
+  cwd: string;
+  source?: WorkspaceSessionSource;
+  groupId?: string | null;
+  title?: string | null;
+  firstPrompt?: string | null;
+  logPrompt: string;
+}): void {
+  writeSession(input);
+  writeFileSync(
+    path.join(sessionsDir, `${input.id}.jsonl`),
+    JSON.stringify({
+      id: `${input.id}-event-1`,
+      seq: 0,
+      ts: 1,
+      sessionId: input.id,
+      turnId: 'turn-1',
+      source: 'user',
+      type: 'user_prompt',
+      text: input.logPrompt,
+    }) + '\n',
+    'utf8',
+  );
+}
+
 const registry = (): WorkspaceRegistry => new WorkspaceRegistry();
 
 describe('WorkspaceRegistry — derived session list', () => {
@@ -131,6 +157,24 @@ describe('WorkspaceRegistry — derived session list', () => {
     expect(byId.get('renamed')).toBe('My deep dive');
     expect(byId.get('prompted')).toBe('explain the build');
     expect(byId.get('blank')).toBe('New session');
+  });
+
+  it('uses the event log first prompt when a desktop sidecar is stale', async () => {
+    const reg = registry();
+    await reg.create({ name: 'Proj', cwd: path.join(home, 'proj') });
+    writeSessionWithLog({
+      id: 'stale-desktop',
+      cwd: path.join(home, 'proj'),
+      source: 'desktop',
+      firstPrompt: null,
+      logPrompt: 'actual first prompt from jsonl',
+    });
+
+    const byId = new Map(
+      (await reg.list()).flatMap((d) => d.sessions).map((s) => [s.id, s.name]),
+    );
+
+    expect(byId.get('stale-desktop')).toBe('actual first prompt from jsonl');
   });
 });
 

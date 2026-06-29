@@ -10,6 +10,7 @@ import {
   deleteSession,
   readEventPage,
   readIndex,
+  listSessionMetas,
   restoreEvents,
   type SessionMeta,
 } from './persistence.js';
@@ -111,6 +112,96 @@ describe('SessionPersistence', () => {
     expect(restored?.firstPrompt).toBe('restored from log');
   });
 
+  it('hydrates stale sidecar stats when attaching to a restored log', async () => {
+    const dir = await makeTempDir();
+    const id = '01RESTOREDMETAHYDRATE00000';
+    const restoredLog = new EventLog([
+      {
+        id: 'e1',
+        seq: 0,
+        ts: 1,
+        sessionId: id as never,
+        turnId: 't1' as never,
+        source: 'user',
+        type: 'user_prompt',
+        text: 'restored prompt becomes sidebar title',
+      },
+      {
+        id: 'e2',
+        seq: 1,
+        ts: 2,
+        sessionId: id as never,
+        turnId: 't1' as never,
+        source: 'system',
+        type: 'provider_request',
+        provider: 'openai-codex',
+        model: 'gpt-5.5',
+      },
+    ]);
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const detach = persistence.attach(restoredLog);
+
+    await persistence.flush();
+    const sidecar = JSON.parse(await fs.readFile(path.join(dir, `${id}.json`), 'utf8')) as SessionMeta;
+
+    expect(sidecar).toMatchObject({
+      id,
+      eventCount: 2,
+      firstPrompt: 'restored prompt becomes sidebar title',
+      provider: 'openai-codex',
+      model: 'gpt-5.5',
+    });
+
+    detach();
+  });
+
+  it('keeps user-owned title and groupId when hydrating restored log stats', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01RESTOREDKEEPSTITLE000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.json`),
+      JSON.stringify(
+        {
+          ...meta(id),
+          title: 'Manual title',
+          groupId: 'desk-a',
+          firstPrompt: null,
+          eventCount: 0,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    const restoredLog = new EventLog([
+      {
+        id: 'e1',
+        seq: 0,
+        ts: 1,
+        sessionId: id as never,
+        turnId: 't1' as never,
+        source: 'user',
+        type: 'user_prompt',
+        text: 'automatic prompt title',
+      },
+    ]);
+    const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+    const detach = persistence.attach(restoredLog);
+
+    await persistence.flush();
+    const sidecar = JSON.parse(await fs.readFile(path.join(dir, `${id}.json`), 'utf8')) as SessionMeta;
+
+    expect(sidecar).toMatchObject({
+      title: 'Manual title',
+      groupId: 'desk-a',
+      firstPrompt: 'automatic prompt title',
+      eventCount: 1,
+    });
+
+    detach();
+  });
+
   it('readIndex refreshes provider and model from the latest provider event', async () => {
     const dir = await makeTempDir();
     await fs.mkdir(dir, { recursive: true });
@@ -156,6 +247,33 @@ describe('SessionPersistence', () => {
     expect(restored).toMatchObject({
       provider: 'session-provider',
       model: 'session-model',
+    });
+  });
+
+  it('deduplicates canonical and legacy metadata files by session id', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01DEDUPMETA00000000000000';
+    await fs.writeFile(path.join(dir, `${id}.jsonl`), '', 'utf8');
+    await fs.writeFile(
+      path.join(dir, `${id}.meta.json`),
+      JSON.stringify({ ...meta(id), title: 'Legacy title', firstPrompt: 'legacy prompt', eventCount: 1 }),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(dir, `${id}.json`),
+      JSON.stringify({ ...meta(id), title: 'Canonical title', firstPrompt: 'canonical prompt', eventCount: 2 }),
+      'utf8',
+    );
+
+    const rows = await listSessionMetas(dir);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id,
+      title: 'Canonical title',
+      firstPrompt: 'canonical prompt',
+      eventCount: 2,
     });
   });
 
