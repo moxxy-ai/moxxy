@@ -98,7 +98,15 @@ export async function* runCollaborative(ctx: ModeContext, deps: CollabDeps): Asy
 
   // Global single-flight: only one collaboration runs at a time (each spawns a
   // fleet of agent processes). Refuse rather than thrash resources.
-  const lock = tryAcquireCollabLock({ sessionId: String(ctx.sessionId), task, startedAtMs: Date.now() });
+  // The coordinator now runs as its own headless runner process (`moxxy collab`),
+  // which sets MOXXY_RUNNER_SOCKET to its own socket. Record it in the lock so a
+  // UI can discover where to attach without knowing the run id.
+  const lock = tryAcquireCollabLock({
+    sessionId: String(ctx.sessionId),
+    task,
+    startedAtMs: Date.now(),
+    runnerSocket: process.env.MOXXY_RUNNER_SOCKET?.trim() || '',
+  });
   if (!lock.ok) {
     yield await ctx.emit(plugin(ctx, 'collab_blocked', { reason: 'already-running', holderTask: lock.holder.task }));
     yield await ctx.emit(

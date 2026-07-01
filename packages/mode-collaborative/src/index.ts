@@ -31,6 +31,7 @@ export {
   COLLAB_MODE_NAME,
   COLLAB_ARCHITECT_MODE_NAME,
   COLLAB_PEER_MODE_NAME,
+  collabCoordinatorSocketPath,
 } from './constants.js';
 export { resolveCollabConfig, DEFAULT_COLLAB_CONFIG, type CollabConfig } from './config.js';
 export {

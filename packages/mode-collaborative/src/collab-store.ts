@@ -39,12 +39,16 @@ export function collabRunsDir(): string {
 }
 
 /** The coordinator's single-flight lock record. `pid` is the only field handed
- *  to `process.kill` for the liveness probe; the rest are display-only. */
+ *  to `process.kill` for the liveness probe; the rest are display-only EXCEPT
+ *  `runnerSocket`, which a UI reads to attach to the (headless) coordinator's
+ *  runner and drive/monitor the run. Empty string when unknown (older lock, or a
+ *  coordinator without a runner socket). */
 export interface CollabLockInfo {
   readonly pid: number;
   readonly sessionId: string;
   readonly task: string;
   readonly startedAtMs: number;
+  readonly runnerSocket: string;
 }
 
 /**
@@ -69,6 +73,7 @@ export function parseCollabLock(raw: string): CollabLockInfo | null {
     sessionId: typeof rec.sessionId === 'string' ? rec.sessionId : '',
     task: typeof rec.task === 'string' ? rec.task : '',
     startedAtMs: typeof rec.startedAtMs === 'number' ? rec.startedAtMs : 0,
+    runnerSocket: typeof rec.runnerSocket === 'string' ? rec.runnerSocket : '',
   };
 }
 

@@ -299,6 +299,16 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setQueueCount: turn.setQueueCount,
         performSessionAction,
         canSwitchSession: canSwitchSession ?? false,
+        // `/collab` re-points the TUI onto the dedicated coordinator via the same
+        // in-place switch machinery `/sessions` uses (so it needs the host's
+        // switch capability). A collab switch carries the goal to auto-submit.
+        ...(onSwitchSession
+          ? {
+              requestCollab: (goal?: string) => {
+                void onSwitchSession({ kind: 'collab', ...(goal ? { goal } : {}) });
+              },
+            }
+          : {}),
         // Start a turn directly (e.g. /goal kicking off autonomous work)
         // without clearing the just-set system notice. Objectives are plain
         // text, so no image-attachment resolution is needed.

@@ -1,4 +1,5 @@
 import type {
+  ApprovalDecision,
   MoxxyEvent,
   SessionInfo,
   OpenSurfaceResult,
@@ -296,10 +297,34 @@ export interface IpcCommands {
     readonly task?: string;
     readonly startedAtMs?: number;
   }>;
+  /** Start a collaboration on the DEDICATED coordinator runner (`moxxy collab`),
+   *  separate from every chat session. `cwd` (the repo to work in) defaults to the
+   *  given workspace's directory. The coordinator drives the goal turn; its events
+   *  arrive via `collab.event`, its roster approval via `collab.approval`. */
+  'collab.start': (args: { workspaceId?: string; goal: string }) => Promise<{
+    readonly started: boolean;
+  }>;
+  /** Seed a freshly-mounted Collaborate panel with the coordinator's current
+   *  event log (the live `collab.event` stream continues from there). */
+  'collab.snapshot': () => Promise<ReadonlyArray<MoxxyEvent>>;
+  /** Run a step-in command on the coordinator session (collab_say / collab_direct
+   *  / collab_pause / collab_resume) — the Collaborate panel's human-in-the-loop
+   *  controls. Never touches a chat session. */
+  'collab.command': (args: { name: string; args: string }) => Promise<{
+    readonly kind: 'text' | 'session-action' | 'noop' | 'error';
+    readonly text?: string;
+    readonly message?: string;
+    readonly notice?: string;
+  }>;
+  /** Answer the coordinator's roster-approval checkpoint from the panel. */
+  'collab.respondApproval': (args: {
+    requestId: string;
+    decision: ApprovalDecision;
+  }) => Promise<void>;
   /** End the active collaboration: abort its coordinator turn (whose finally
    *  tears the team down + archives) and force-release the global single-flight
    *  lock so a new one can start — even if the holder is a stale/crashed run. */
-  'collab.end': (args: { workspaceId?: string }) => Promise<{
+  'collab.end': (args?: { workspaceId?: string }) => Promise<{
     readonly ended: boolean;
     readonly abortedTurns: number;
     readonly clearedTask?: string;

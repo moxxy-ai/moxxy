@@ -31,6 +31,13 @@ export interface SlashDeps {
    * session).
    */
   canSwitchSession?: boolean;
+  /**
+   * Re-point the TUI onto the dedicated collaboration coordinator (spawning a
+   * fresh `moxxy collab` runner, or attaching to a live one). Powers `/collab`.
+   * Absent on transports that can't re-bootstrap in place (same gate as
+   * {@link canSwitchSession}) — `/collab` then degrades to a notice.
+   */
+  requestCollab?: (goal?: string) => void;
 }
 
 export function runSlash(cmd: string, deps: SlashDeps): void {
@@ -522,40 +529,27 @@ function startGoal(deps: SlashDeps, arg: string): void {
 }
 
 /**
- * `/collab <goal>` — the agentic-collaborative entry point. Switches to the
- * `collaborative` mode and, when a goal is given, kicks it off immediately: an
- * architect agent designs the plan + contracts and PROPOSES a roster, which
- * surfaces as the usual approval prompt (review/launch/cancel) — then the team
- * of agents runs in parallel and their live status renders inline as the
- * `◆ collab` block. Step in anytime with /collab_say, /collab_direct,
- * /collab_pause, /collab_resume. Bare `/collab` just arms the mode.
- *
- * Unlike /goal it does NOT force yolo: the roster-approval checkpoint (and any
- * conflict escalation) is intentional human-in-the-loop. The spawned peer
- * agents auto-approve inside their own processes.
+ * `/collab <goal>` — the agentic-collaborative entry point. Collaboration is a
+ * SEPARATE feature: rather than taking over the current chat session (flipping
+ * its mode + flooding its thread with the team's activity), it re-points the TUI
+ * onto a DEDICATED coordinator runner (`moxxy collab`) with its own session.
+ * `/collab <goal>` spawns a fresh coordinator and auto-submits the goal — an
+ * architect designs the plan + proposes a roster (the usual review/launch/cancel
+ * approval), then the team runs and its live status renders as the `◆ collab`
+ * block. Bare `/collab` attaches to a running collaboration to view it. Step in
+ * with /collab_say, /collab_direct, /collab_pause, /collab_resume. Return to your
+ * chat anytime with /sessions — the collaboration keeps running.
  */
 function startCollab(deps: SlashDeps, arg: string): void {
   const objective = arg.trim();
-  const COLLAB_MODE = 'collaborative';
-  if (!deps.session.modes.list().some((m) => m.name === COLLAB_MODE)) {
-    deps.setSystemNotice('collaborative mode is not available (mode-collaborative plugin not loaded)');
-    return;
-  }
-  try {
-    deps.session.modes.setActive(COLLAB_MODE);
-    void setCategoryDefault('mode', COLLAB_MODE).catch(() => undefined);
-  } catch (err) {
+  if (!deps.requestCollab) {
     deps.setSystemNotice(
-      `failed to switch to collaborative mode: ${err instanceof Error ? err.message : String(err)}`,
+      'collaboration runs on its own runner and needs an in-place session switch, which isn’t available here (attached to an external `moxxy serve`). Start it from the desktop Collaborate panel instead.',
     );
     return;
   }
-  deps.setSystemNotice(
-    objective
-      ? '👥 collaborative mode — the architect is designing the plan; you’ll be asked to approve the team roster. Press Esc to stop.'
-      : '👥 collaborative mode on. Send the goal as the next message — an architect will propose a team for you to approve.',
-  );
-  if (objective) deps.submitPrompt(objective);
+  deps.setSystemNotice(null);
+  deps.requestCollab(objective || undefined);
 }
 
 function openModePicker(deps: SlashDeps, arg = ''): void {
