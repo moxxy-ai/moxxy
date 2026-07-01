@@ -29,6 +29,8 @@ import {
   type ComposerAttachment,
 } from './composer/useComposerAttachments';
 import { useComposerSubmit } from './composer/useComposerSubmit';
+import { useAttachmentImagePreviews } from './image-preview/useAttachmentImagePreviews';
+import type { ImagePreviewItem } from './image-preview/types';
 
 /** Past this height the composer textarea stops growing and scrolls
  *  internally (≈ 8 lines at the composer's font/line metrics). */
@@ -46,6 +48,7 @@ interface ComposerProps {
     attachments?: ReadonlyArray<ComposerAttachment>,
   ) => void;
   readonly onAbort: () => void;
+  readonly onPreviewImage?: (image: ImagePreviewItem) => void;
 }
 
 /**
@@ -73,6 +76,7 @@ export function Composer({
   workspaceId,
   onSend,
   onAbort,
+  onPreviewImage,
 }: ComposerProps): JSX.Element {
   const [draft, setDraft] = useState('');
   const [hasTranscriber, setHasTranscriber] = useState(false);
@@ -101,6 +105,7 @@ export function Composer({
     onAttach,
     onPaste,
   } = useComposerAttachments(focusInput);
+  const attachmentPreviews = useAttachmentImagePreviews(workspaceId, attachments);
 
   const setDraftEmpty = useCallback(() => setDraft(''), []);
   const closeGoal = useCallback(() => setGoalOpen(false), []);
@@ -303,6 +308,8 @@ export function Composer({
               key={a.path}
               name={a.name}
               path={a.path}
+              preview={attachmentPreviews.get(a.path)}
+              onPreview={onPreviewImage}
               onRemove={() => removeAttachment(a.path)}
             />
           ))}

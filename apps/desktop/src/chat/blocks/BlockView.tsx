@@ -5,6 +5,7 @@ import { ToolBlock } from './ToolBlock';
 import { SubagentView } from './SubagentView';
 import { SubagentGroupView } from './SubagentGroupView';
 import { CollaborationCard } from './CollaborationCard';
+import type { ImagePreviewItem } from '../image-preview/types';
 
 /**
  * One transcript block, rendered from the shared @moxxy/chat-model fold.
@@ -21,10 +22,16 @@ import { CollaborationCard } from './CollaborationCard';
  * The in-flight streaming assistant text is NOT a block — Transcript
  * renders it via {@link StreamingAssistant} at the tail.
  */
-export function BlockView({ block }: { readonly block: FoldedBlock }): JSX.Element | null {
+export function BlockView({
+  block,
+  onPreviewImage,
+}: {
+  readonly block: FoldedBlock;
+  readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+}): JSX.Element | null {
   switch (block.kind) {
     case 'event':
-      return <EventBlockView event={block.event} />;
+      return <EventBlockView event={block.event} onPreviewImage={onPreviewImage} />;
     case 'tool-call':
       return (
         <ToolBlock
