@@ -31,6 +31,14 @@ or recorded-on-purpose decision.
   avoid false completion notifications on transient background disconnects.
   `apps/mobile/src/liveActivity.ts`,
   `apps/mobile/ios/MoxxyLiveActivityExtension/MoxxyLiveActivityWidget.swift`.
+- [med, mobile, RESOLVED 2026-07-02] Moxxy Mobile now flushes the latest active
+  Live Activity snapshot when iOS backgrounds the app, treats streaming assistant
+  transcript as active work even when turn flags lag, dedupes same-session native
+  ActivityKit activities, and keeps the lock-screen badge/detail compact.
+  `apps/mobile/src/liveActivity.ts`,
+  `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
+  `apps/mobile/ios/MoxxyMobileGateway/MoxxyLiveActivity.swift`,
+  `apps/mobile/ios/MoxxyLiveActivityExtension/MoxxyLiveActivityWidget.swift`.
 
 ## Standing practices
 
@@ -80,14 +88,14 @@ or recorded-on-purpose decision.
 
 ## Mobile / Live Activity
 
-- [med, mobile] Moxxy Mobile's Live Activity can only update from local JS while
-  the app process is alive; if the phone is locked/suspended before a desktop
-  turn starts or while it continues, iOS may pause the WS client and no local
-  ActivityKit update can be sent. Correct end-to-end background fidelity needs a
-  push-backed ActivityKit update path (per-activity push token + APNs update/end
-  from a relay/host) or an equivalent server-side bridge. Until then the mobile
-  app should avoid false completion notifications on disconnect and keep the last
-  known live state. `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
+- [med, mobile, PARTIALLY DONE] Moxxy Mobile's Live Activity can only update from
+  local JS while the app process is alive. Local backgrounding now flushes the
+  latest known active state and native duplicates are cleaned up, but if the
+  phone is already fully suspended before a desktop turn starts, iOS may pause
+  the WS client before any local ActivityKit update can be sent. Remaining:
+  correct end-to-end background fidelity needs a push-backed ActivityKit update
+  path (per-activity push token + APNs update/end from a relay/host) or an
+  equivalent server-side bridge. `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
   `apps/mobile/ios/MoxxyMobileGateway/MoxxyLiveActivity.swift`.
 
 ## Runner / protocol & architecture

@@ -4,6 +4,7 @@ import {
   deriveMoxxyLiveActivitySnapshot,
   deriveMoxxyLiveActivityTransition,
   planMoxxyLiveActivitySync,
+  selectMoxxyLiveActivityBackgroundFlush,
   type MoxxyLiveActivityClient,
   type MoxxyLiveActivitySnapshot,
 } from '../liveActivity';
@@ -20,6 +21,7 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
   const lastSentRef = useRef<MoxxyLiveActivitySnapshot | null>(null);
   const lastSentAtRef = useRef(0);
   const pendingRef = useRef<Extract<MoxxyLiveActivitySnapshot, { readonly active: true }> | null>(null);
+  const latestActiveRef = useRef<ActiveMoxxyLiveActivitySnapshot | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
   const notificationsRequestedRef = useRef(false);
@@ -91,6 +93,7 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
     const transition = deriveMoxxyLiveActivityTransition(previousRef.current, next, chat.items);
 
     if (transition.kind === 'start-or-update') {
+      latestActiveRef.current = transition.snapshot;
       const plan = planMoxxyLiveActivitySync({
         lastSent: lastSentRef.current,
         next: transition.snapshot,
@@ -119,6 +122,7 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
       ]);
       previousRef.current = null;
       lastSentRef.current = null;
+      latestActiveRef.current = null;
       lastSentAtRef.current = 0;
       return;
     }
@@ -134,10 +138,14 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') return;
       const pending = pendingRef.current;
-      if (!pending) return;
+      const snapshotToFlush = selectMoxxyLiveActivityBackgroundFlush({
+        pending,
+        latestActive: latestActiveRef.current,
+      });
+      if (!snapshotToFlush) return;
       pendingRef.current = null;
       clearPendingTimer();
-      void send(pending);
+      void send(snapshotToFlush);
     });
     return () => subscription.remove();
   }, [clearPendingTimer, send]);

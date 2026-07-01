@@ -75,12 +75,14 @@ class MoxxyLiveActivity: NSObject {
     }
 
     Task {
-      let activity = self.findActivity(sessionId: payload.attributes.sessionId)
-      await activity?.end(
-        using: payload.contentState,
-        dismissalPolicy: .after(Date().addingTimeInterval(20))
-      )
-      if activity?.id == self.activeActivityId {
+      let activities = self.activities(forSessionId: payload.attributes.sessionId)
+      for activity in activities {
+        await activity.end(
+          using: payload.contentState,
+          dismissalPolicy: .after(Date().addingTimeInterval(20))
+        )
+      }
+      if let activeActivityId, activities.contains(where: { $0.id == activeActivityId }) {
         self.activeActivityId = nil
       }
       resolve(nil)
@@ -139,24 +141,58 @@ class MoxxyLiveActivity: NSObject {
   private func activity(
     for payload: LiveActivityPayload
   ) async throws -> Activity<MoxxyActivityAttributes> {
-    if let existing = findActivity(sessionId: payload.attributes.sessionId) {
+    if let existing = preferredActivity(from: activities(forSessionId: payload.attributes.sessionId)) {
+      await endDuplicateActivities(
+        keeping: existing.id,
+        forSessionId: payload.attributes.sessionId,
+        contentState: payload.contentState
+      )
       return existing
     }
     if let activeActivityId,
        let active = Activity<MoxxyActivityAttributes>.activities.first(where: { $0.id == activeActivityId }) {
       await active.end(dismissalPolicy: .immediate)
+      self.activeActivityId = nil
     }
-    return try Activity.request(
+    let activity = try Activity.request(
       attributes: payload.attributes,
       contentState: payload.contentState,
       pushType: nil
     )
+    await endDuplicateActivities(
+      keeping: activity.id,
+      forSessionId: payload.attributes.sessionId,
+      contentState: payload.contentState
+    )
+    return activity
   }
 
   @available(iOS 16.1, *)
-  private func findActivity(sessionId: String) -> Activity<MoxxyActivityAttributes>? {
-    Activity<MoxxyActivityAttributes>.activities.first { activity in
+  private func activities(forSessionId sessionId: String) -> [Activity<MoxxyActivityAttributes>] {
+    Activity<MoxxyActivityAttributes>.activities.filter { activity in
       activity.attributes.sessionId == sessionId
+    }
+  }
+
+  @available(iOS 16.1, *)
+  private func preferredActivity(
+    from activities: [Activity<MoxxyActivityAttributes>]
+  ) -> Activity<MoxxyActivityAttributes>? {
+    if let activeActivityId,
+       let active = activities.first(where: { $0.id == activeActivityId }) {
+      return active
+    }
+    return activities.first
+  }
+
+  @available(iOS 16.1, *)
+  private func endDuplicateActivities(
+    keeping activityId: String,
+    forSessionId sessionId: String,
+    contentState: MoxxyActivityAttributes.ContentState
+  ) async {
+    for activity in activities(forSessionId: sessionId) where activity.id != activityId {
+      await activity.end(using: contentState, dismissalPolicy: .immediate)
     }
   }
 }

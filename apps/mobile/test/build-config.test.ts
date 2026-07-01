@@ -68,4 +68,22 @@ describe('mobile app build config', () => {
     expect(widget).toContain('context.state.title');
     expect(widget).toContain('context.state.subtitle');
   });
+
+  it('keeps the Live Activity lock-screen badge compact and truncates detail text', () => {
+    const widget = readFileSync(mobileLiveActivityWidgetPath, 'utf8');
+
+    expect(widget).toContain('activityDetail(for: context.state)');
+    expect(widget).toContain('compactStatusLabel(for: context.state)');
+    expect(widget).toContain('.truncationMode(.tail)');
+    expect(widget).toContain('.minimumScaleFactor');
+    expect(widget).not.toContain('Text(percent(context.state.progress))');
+  });
+
+  it('ends duplicate native Live Activities for the same session', () => {
+    const bridge = readFileSync(mobileLiveActivityBridgePath, 'utf8');
+
+    expect(bridge).toContain('activities(forSessionId:');
+    expect(bridge).toContain('endDuplicateActivities');
+    expect(bridge).toMatch(/for activity in activities\(forSessionId:[\s\S]*await activity\.end/);
+  });
 });

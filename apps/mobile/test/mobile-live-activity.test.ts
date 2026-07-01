@@ -5,6 +5,7 @@ import {
   deriveMoxxyLiveActivitySnapshot,
   deriveMoxxyLiveActivityTransition,
   planMoxxyLiveActivitySync,
+  selectMoxxyLiveActivityBackgroundFlush,
   type MoxxyLiveActivitySnapshot,
 } from '../src/liveActivity';
 import { emptyMobileState, type MobileState } from '../src/protocol';
@@ -60,8 +61,134 @@ describe('mobile live activity state', () => {
       active: true,
       phase: 'tool',
       progress: 0.55,
-      detail: 'Running web_fetch',
-      currentTool: 'web_fetch',
+      detail: 'Web · fetching',
+      currentTool: 'Web',
+    });
+  });
+
+  it('uses readable tool labels for long MCP tool identifiers', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Open the PDF' },
+      {
+        id: 't1',
+        type: 'tool_call_requested',
+        callId: 'call-1',
+        name: 'mcp__playwright-pdf__browser_navigate',
+        input: { url: 'https://example.com' },
+      },
+    ]);
+
+    const snapshot = deriveMoxxyLiveActivitySnapshot({
+      state: baseState({ sending: true, activeTurnId: 'turn-1' }),
+      transcript,
+    });
+
+    expect(snapshot).toMatchObject({
+      active: true,
+      phase: 'tool',
+      detail: 'MCP · browser navigate',
+      currentTool: 'Browser',
+    });
+  });
+
+  it('uses a terminal-specific label for Bash tool calls', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Run tests' },
+      { id: 't1', type: 'tool_call_requested', callId: 'call-1', name: 'Bash', input: { command: 'pnpm test' } },
+    ]);
+
+    const snapshot = deriveMoxxyLiveActivitySnapshot({
+      state: baseState({ sending: true, activeTurnId: 'turn-1' }),
+      transcript,
+    });
+
+    expect(snapshot).toMatchObject({
+      active: true,
+      phase: 'tool',
+      detail: 'Terminal · executing Bash',
+      currentTool: 'Bash',
+    });
+  });
+
+  it('uses readable labels for file-writing tool calls', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Update the file' },
+      { id: 't1', type: 'tool_call_requested', callId: 'call-1', name: 'Write', input: { file_path: 'notes.md' } },
+    ]);
+
+    expect(deriveMoxxyLiveActivitySnapshot({
+      state: baseState({ sending: true, activeTurnId: 'turn-1' }),
+      transcript,
+    })).toMatchObject({
+      active: true,
+      phase: 'tool',
+      detail: 'Files · writing',
+      currentTool: 'Files',
+    });
+  });
+
+  it('stays active while assistant text is streaming even if turn flags briefly lag', () => {
+    const transcript = buildChatTranscript(
+      [
+        { id: 'u1', type: 'user_prompt', text: 'Write a checklist' },
+        { id: 'a1', type: 'assistant_chunk', delta: 'Pierwszy punkt' },
+      ],
+      '',
+    );
+
+    const snapshot = deriveMoxxyLiveActivitySnapshot({
+      state: baseState({ sending: false, activeTurnId: null, streamingText: '' }),
+      transcript,
+    });
+
+    expect(snapshot).toMatchObject({
+      active: true,
+      phase: 'working',
+      progress: 0.45,
+      detail: 'Writing response',
+    });
+  });
+
+  it('ignores stale streaming text once a newer user turn exists', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Write a checklist' },
+      { id: 'a1', type: 'assistant_chunk', delta: 'Pierwszy punkt' },
+      { id: 'u2', type: 'user_prompt', text: 'Thanks' },
+    ]);
+
+    expect(deriveMoxxyLiveActivitySnapshot({
+      state: baseState({ sending: false, activeTurnId: null, streamingText: '' }),
+      transcript,
+    })).toEqual({ active: false, reason: 'idle' });
+  });
+
+  it('does not keep an old running tool active after a final assistant message', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Search' },
+      { id: 't1', type: 'tool_call_requested', callId: 'call-1', name: 'web_fetch', input: { url: 'https://example.com' } },
+      { id: 'a1', type: 'assistant_message', content: 'Found it.' },
+    ]);
+
+    expect(deriveMoxxyLiveActivitySnapshot({
+      state: baseState({ sending: false, activeTurnId: null }),
+      transcript,
+    })).toEqual({ active: false, reason: 'idle' });
+  });
+
+  it('shows writing instead of a stale tool once assistant output starts streaming', () => {
+    const transcript = buildChatTranscript([
+      { id: 'u1', type: 'user_prompt', text: 'Search then explain' },
+      { id: 't1', type: 'tool_call_requested', callId: 'call-1', name: 'web_fetch', input: { url: 'https://example.com' } },
+      { id: 'a1', type: 'assistant_chunk', delta: 'Here is what I found' },
+    ]);
+
+    expect(deriveMoxxyLiveActivitySnapshot({
+      state: baseState({ sending: false, activeTurnId: null }),
+      transcript,
+    })).toMatchObject({
+      active: true,
+      phase: 'working',
+      detail: 'Writing response',
     });
   });
 
@@ -322,5 +449,21 @@ describe('mobile live activity sync planning', () => {
       lastSentAt: 1000,
       minUpdateMs: 1500,
     })).toEqual({ kind: 'send' });
+  });
+
+  it('flushes the latest active snapshot when the phone backgrounds even without a deferred update', () => {
+    expect(selectMoxxyLiveActivityBackgroundFlush({
+      pending: null,
+      latestActive: activeSnapshot,
+    })).toBe(activeSnapshot);
+  });
+
+  it('prefers a deferred update over the older active snapshot when the phone backgrounds', () => {
+    const pending = { ...activeSnapshot, detail: 'Writing response', progress: 0.45 };
+
+    expect(selectMoxxyLiveActivityBackgroundFlush({
+      pending,
+      latestActive: activeSnapshot,
+    })).toBe(pending);
   });
 });

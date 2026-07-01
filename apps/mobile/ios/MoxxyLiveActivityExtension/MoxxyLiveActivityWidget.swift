@@ -21,16 +21,19 @@ struct MoxxyLiveActivityWidget: Widget {
           MoxxyIslandTitle(context: context)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Text(percent(context.state.progress))
+          Text(statusLabel(for: context.state))
             .font(.caption.bold())
             .foregroundStyle(MoxxyLiveActivityStyle.accent)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
         }
         DynamicIslandExpandedRegion(.bottom) {
           VStack(alignment: .leading, spacing: 8) {
             MoxxyProgressRail(progress: context.state.progress)
-            Text(context.state.detail)
+            Text(activityDetail(for: context.state))
               .font(.caption)
               .lineLimit(1)
+              .truncationMode(.tail)
               .foregroundStyle(.white.opacity(0.82))
           }
         }
@@ -38,9 +41,11 @@ struct MoxxyLiveActivityWidget: Widget {
         Image(systemName: iconName(for: context.state.phase))
           .foregroundStyle(MoxxyLiveActivityStyle.accent)
       } compactTrailing: {
-        Text(percent(context.state.progress))
+        Text(compactStatusLabel(for: context.state))
           .font(.caption2.bold())
-          .foregroundStyle(.white)
+          .foregroundStyle(MoxxyLiveActivityStyle.accent)
+          .lineLimit(1)
+          .minimumScaleFactor(0.72)
       } minimal: {
         Image(systemName: iconName(for: context.state.phase))
           .foregroundStyle(MoxxyLiveActivityStyle.accent)
@@ -71,17 +76,24 @@ private struct MoxxyLiveActivityLockScreenView: View {
             .font(.headline.weight(.semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
-          Text(context.state.detail)
+            .truncationMode(.tail)
+          Text(activityDetail(for: context.state))
             .font(.subheadline)
             .foregroundStyle(.white.opacity(0.72))
             .lineLimit(1)
+            .truncationMode(.tail)
+            .minimumScaleFactor(0.86)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
 
         Spacer(minLength: 8)
 
         Text(statusLabel(for: context.state))
           .font(.caption.weight(.bold))
           .foregroundStyle(statusColor(for: context.state.phase))
+          .lineLimit(1)
+          .fixedSize(horizontal: true, vertical: false)
           .padding(.horizontal, 10)
           .padding(.vertical, 6)
           .background(statusColor(for: context.state.phase).opacity(0.16), in: Capsule())
@@ -118,11 +130,14 @@ private struct MoxxyIslandTitle: View {
         Text(activityTitle(for: context))
           .font(.caption.bold())
           .lineLimit(1)
-        Text(context.state.detail)
+          .truncationMode(.tail)
+        Text(activityDetail(for: context.state))
           .font(.caption2)
           .foregroundStyle(.secondary)
           .lineLimit(1)
+          .truncationMode(.tail)
       }
+      .layoutPriority(1)
     }
   }
 }
@@ -167,7 +182,24 @@ private func statusLabel(for state: MoxxyActivityAttributes.ContentState) -> Str
   case "tool":
     return state.currentTool ?? "Tool"
   case "subagents":
-    return "\(max(state.subagentCount, 1)) agents"
+    return "Agents"
+  default:
+    return "Live"
+  }
+}
+
+private func compactStatusLabel(for state: MoxxyActivityAttributes.ContentState) -> String {
+  switch state.phase {
+  case "waiting":
+    return "Ask"
+  case "completed":
+    return "Done"
+  case "failed":
+    return "!"
+  case "tool":
+    return state.currentTool ?? "Tool"
+  case "subagents":
+    return "AI"
   default:
     return "Live"
   }
@@ -203,10 +235,6 @@ private func iconName(for phase: String) -> String {
   }
 }
 
-private func percent(_ progress: Double) -> String {
-  "\(Int((min(max(progress, 0), 1) * 100).rounded()))%"
-}
-
 private func activityTitle(for context: ActivityViewContext<MoxxyActivityAttributes>) -> String {
   if let title = context.state.title, !title.isEmpty {
     return title
@@ -219,4 +247,12 @@ private func activitySubtitle(for context: ActivityViewContext<MoxxyActivityAttr
     return subtitle
   }
   return context.attributes.subtitle
+}
+
+private func activityDetail(for state: MoxxyActivityAttributes.ContentState) -> String {
+  let detail = state.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+  guard detail.count > 48 else {
+    return detail
+  }
+  return "\(detail.prefix(47))…"
 }
