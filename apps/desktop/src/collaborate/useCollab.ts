@@ -44,8 +44,11 @@ export function useCollab(workspaceId?: string): UseCollab {
     // attaches to a coordinator started elsewhere so the desktop can view it).
     void api()
       .invoke('collab.snapshot')
+      // Never trust the payload into `pairToolEvents` (which iterates it): a
+      // malformed/empty IPC response must degrade to an empty stream, not crash
+      // the panel render.
       .then((evs) => {
-        if (alive) setEvents(evs as MoxxyEvent[]);
+        if (alive) setEvents(Array.isArray(evs) ? (evs as MoxxyEvent[]) : []);
       })
       .catch(() => undefined);
 
