@@ -1,5 +1,11 @@
 # @moxxy/core
 
+## 0.25.0
+
+### Patch Changes
+
+- @moxxy/sdk@0.25.0
+
 ## 0.24.1
 
 ### Patch Changes

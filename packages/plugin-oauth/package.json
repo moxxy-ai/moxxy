@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-oauth",
-  "version": "0.0.37",
+  "version": "0.0.38",
   "description": "Generic OAuth 2.0 + PKCE client. Loopback callback server, vault-backed token storage, refresh helpers. Bundled skills for Google Workspace + arbitrary providers.",
   "keywords": [
     "moxxy",

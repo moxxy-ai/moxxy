@@ -1,5 +1,11 @@
 # @moxxy/plugin-scheduler
 
+## 0.1.8
+
+### Patch Changes
+
+- @moxxy/sdk@0.25.0
+
 ## 0.1.7
 
 ### Patch Changes
