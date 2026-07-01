@@ -123,6 +123,10 @@ export function useMoxxyLiveActivity(client: MoxxyLiveActivityClient = moxxyLive
       return;
     }
 
+    if (transition.kind === 'retain') {
+      return;
+    }
+
     previousRef.current = next;
   }, [chat.items, clearPendingTimer, client, next, requestNotificationsOnce, schedule, send]);
 

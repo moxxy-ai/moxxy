@@ -97,6 +97,62 @@ describe('mobile live activity state', () => {
     });
   });
 
+  it('derives the visible session and workspace labels from the mobile workspace index', () => {
+    const snapshot = deriveMoxxyLiveActivitySnapshot({
+      state: baseState({
+        session: { id: 'session-2', workspaceId: 'desk-tata', live: true },
+        activeWorkspaceId: 'session-2',
+        sessions: [
+          {
+            id: 'session-2',
+            workspaceId: 'desk-tata',
+            name: 'Sprawdź faktury',
+            firstPrompt: 'Fallback prompt',
+          },
+        ],
+        workspaces: [
+          {
+            id: 'desk-tata',
+            name: 'Tata',
+            title: 'Fallback desk',
+          },
+        ],
+        sending: true,
+        activeTurnId: 'turn-2',
+      }),
+      transcript: [],
+    });
+
+    expect(snapshot).toMatchObject({
+      active: true,
+      sessionId: 'session-2',
+      workspaceId: 'desk-tata',
+      title: 'Sprawdź faktury',
+      subtitle: 'Tata',
+    });
+  });
+
+  it('retains the active live activity when the phone temporarily disconnects in the background', () => {
+    const previous: MoxxyLiveActivitySnapshot = {
+      active: true,
+      phase: 'working',
+      progress: 0.35,
+      sessionId: 'session-1',
+      workspaceId: 'session-1',
+      title: 'Deep research QA',
+      subtitle: 'Tata',
+      detail: 'Thinking',
+      pendingCount: 0,
+      subagentCount: 0,
+    };
+
+    expect(deriveMoxxyLiveActivityTransition(
+      previous,
+      { active: false, reason: 'disconnected' },
+      [],
+    )).toEqual({ kind: 'retain' });
+  });
+
   it('emits a completed transition after an active turn finishes with an assistant message', () => {
     const previous: MoxxyLiveActivitySnapshot = {
       active: true,
@@ -236,6 +292,16 @@ describe('mobile live activity sync planning', () => {
       lastSentAt: 1000,
       minUpdateMs: 1500,
     })).toEqual({ kind: 'defer', dueAt: 2500 });
+  });
+
+  it('sends immediately when the visible workspace label changes', () => {
+    expect(planMoxxyLiveActivitySync({
+      lastSent: activeSnapshot,
+      next: { ...activeSnapshot, subtitle: 'Invoices' },
+      now: 1100,
+      lastSentAt: 1000,
+      minUpdateMs: 1500,
+    })).toEqual({ kind: 'send' });
   });
 
   it('sends urgent waiting states immediately even inside the throttle window', () => {

@@ -35,6 +35,7 @@ export type MoxxyLiveActivitySnapshot =
 
 export type MoxxyLiveActivityTransition =
   | { readonly kind: 'none' }
+  | { readonly kind: 'retain' }
   | { readonly kind: 'start-or-update'; readonly snapshot: ActiveMoxxyLiveActivitySnapshot }
   | {
       readonly kind: 'end';
@@ -151,6 +152,7 @@ export function deriveMoxxyLiveActivityTransition(
 ): MoxxyLiveActivityTransition {
   if (current.active) return { kind: 'start-or-update', snapshot: current };
   if (!previous?.active) return { kind: 'none' };
+  if (current.reason === 'disconnected') return { kind: 'retain' };
 
   const failed = lastRenderedItem(transcript)?.kind === 'error' || latestSubagentGroup(transcript)?.status === 'failed';
   const snapshot: ActiveMoxxyLiveActivitySnapshot = {
@@ -238,6 +240,9 @@ function snapshotKey(snapshot: MoxxyLiveActivitySnapshot): string {
   if (!snapshot.active) return `inactive:${snapshot.reason}`;
   return [
     snapshot.sessionId,
+    snapshot.workspaceId,
+    snapshot.title,
+    snapshot.subtitle,
     snapshot.phase,
     snapshot.detail,
     snapshot.currentTool ?? '',
@@ -253,15 +258,41 @@ function isUrgent(
   if (next.phase === 'waiting' && previous.phase !== 'waiting') return true;
   if (next.phase === 'failed' || next.phase === 'completed') return true;
   if (previous.sessionId !== next.sessionId) return true;
+  if (previous.workspaceId !== next.workspaceId) return true;
+  if (previous.title !== next.title) return true;
+  if (previous.subtitle !== next.subtitle) return true;
   return false;
 }
 
 function baseSnapshot(state: MobileState): ActiveMoxxyLiveActivitySnapshot {
   const session = state.session ?? {};
-  const workspaceId = state.activeWorkspaceId ?? textOf(session.workspaceId, textOf(session.id, 'workspace'));
-  const sessionId = textOf(session.id, workspaceId);
-  const title = truncate(textOf(session.name, textOf(session.title, 'Moxxy is working')), 48);
-  const subtitle = truncate(textOf(session.workspaceName, textOf(session.workspaceTitle, 'Moxxy')), 48);
+  const selectedSession = findRecordById(state.sessions, state.activeWorkspaceId);
+  const sessionId = textOf(session.id, textOf(selectedSession?.id, state.activeWorkspaceId ?? 'workspace'));
+  const workspaceId = textOf(
+    selectedSession?.workspaceId,
+    textOf(session.workspaceId, state.activeWorkspaceId ?? sessionId),
+  );
+  const workspace = findRecordById(state.workspaces, workspaceId);
+  const title = truncate(
+    textOf(
+      selectedSession?.name,
+      textOf(
+        selectedSession?.firstPrompt,
+        textOf(session.name, textOf(session.title, 'Moxxy is working')),
+      ),
+    ),
+    48,
+  );
+  const subtitle = truncate(
+    textOf(
+      workspace?.name,
+      textOf(
+        workspace?.title,
+        textOf(session.workspaceName, textOf(session.workspaceTitle, 'Moxxy')),
+      ),
+    ),
+    48,
+  );
 
   return {
     active: true,
@@ -309,4 +340,12 @@ function truncate(value: string, maxLength: number): string {
 
 function textOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function findRecordById(
+  records: ReadonlyArray<Record<string, unknown>>,
+  id: string | null,
+): Record<string, unknown> | null {
+  if (!id) return null;
+  return records.find((record) => textOf(record.id) === id) ?? null;
 }

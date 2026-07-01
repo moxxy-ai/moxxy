@@ -190,6 +190,9 @@ private struct LiveActivityPayload {
       subtitle: subtitle
     )
     contentState = MoxxyActivityAttributes.ContentState(
+      workspaceId: workspaceId,
+      title: title,
+      subtitle: subtitle,
       phase: phase,
       detail: detail,
       currentTool: currentTool,

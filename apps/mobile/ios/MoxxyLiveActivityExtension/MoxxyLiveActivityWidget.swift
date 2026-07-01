@@ -67,7 +67,7 @@ private struct MoxxyLiveActivityLockScreenView: View {
         .frame(width: 44, height: 44)
 
         VStack(alignment: .leading, spacing: 3) {
-          Text(context.attributes.title)
+          Text(activityTitle(for: context))
             .font(.headline.weight(.semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
@@ -90,7 +90,7 @@ private struct MoxxyLiveActivityLockScreenView: View {
       MoxxyProgressRail(progress: context.state.progress)
 
       HStack(spacing: 8) {
-        Label(context.attributes.subtitle, systemImage: "folder")
+        Label(activitySubtitle(for: context), systemImage: "folder")
         Spacer(minLength: 10)
         if context.state.subagentCount > 0 {
           Label("\(context.state.subagentCount)", systemImage: "person.3")
@@ -115,7 +115,7 @@ private struct MoxxyIslandTitle: View {
       Image(systemName: iconName(for: context.state.phase))
         .foregroundStyle(MoxxyLiveActivityStyle.accent)
       VStack(alignment: .leading, spacing: 1) {
-        Text(context.attributes.title)
+        Text(activityTitle(for: context))
           .font(.caption.bold())
           .lineLimit(1)
         Text(context.state.detail)
@@ -205,4 +205,18 @@ private func iconName(for phase: String) -> String {
 
 private func percent(_ progress: Double) -> String {
   "\(Int((min(max(progress, 0), 1) * 100).rounded()))%"
+}
+
+private func activityTitle(for context: ActivityViewContext<MoxxyActivityAttributes>) -> String {
+  if let title = context.state.title, !title.isEmpty {
+    return title
+  }
+  return context.attributes.title
+}
+
+private func activitySubtitle(for context: ActivityViewContext<MoxxyActivityAttributes>) -> String {
+  if let subtitle = context.state.subtitle, !subtitle.isEmpty {
+    return subtitle
+  }
+  return context.attributes.subtitle
 }

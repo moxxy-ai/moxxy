@@ -26,6 +26,11 @@ or recorded-on-purpose decision.
   so the workspace sidebar no longer falls back to duplicate/stuck
   `New session` labels. `packages/core/src/sessions/persistence.ts`,
   `packages/workspace-registry/src/index.ts`.
+- [med, mobile, RESOLVED 2026-07-01] Moxxy Mobile Live Activity taps now route to
+  an existing chat route, derive labels from real session/workspace state, and
+  avoid false completion notifications on transient background disconnects.
+  `apps/mobile/src/liveActivity.ts`,
+  `apps/mobile/ios/MoxxyLiveActivityExtension/MoxxyLiveActivityWidget.swift`.
 
 ## Standing practices
 
@@ -72,6 +77,18 @@ or recorded-on-purpose decision.
   (re-discovers plugins, re-fires onInit daemons for the new session). Correct but
   not cheap; a warm-registry / session-pool reuse would make switching instant.
   `packages/cli/src/commands/run-tui.ts`.
+
+## Mobile / Live Activity
+
+- [med, mobile] Moxxy Mobile's Live Activity can only update from local JS while
+  the app process is alive; if the phone is locked/suspended before a desktop
+  turn starts or while it continues, iOS may pause the WS client and no local
+  ActivityKit update can be sent. Correct end-to-end background fidelity needs a
+  push-backed ActivityKit update path (per-activity push token + APNs update/end
+  from a relay/host) or an equivalent server-side bridge. Until then the mobile
+  app should avoid false completion notifications on disconnect and keep the last
+  known live state. `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
+  `apps/mobile/ios/MoxxyMobileGateway/MoxxyLiveActivity.swift`.
 
 ## Runner / protocol & architecture
 
