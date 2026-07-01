@@ -3,8 +3,15 @@ import { UserBlock } from './UserBlock';
 import { TriggerBlock } from './TriggerBlock';
 import { AssistantBlock } from './AssistantBlock';
 import { ReasoningBlock } from './ReasoningBlock';
+import type { ImagePreviewItem } from '../image-preview/types';
 
-export function EventBlockView({ event }: { readonly event: MoxxyEvent }): JSX.Element | null {
+export function EventBlockView({
+  event,
+  onPreviewImage,
+}: {
+  readonly event: MoxxyEvent;
+  readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+}): JSX.Element | null {
   switch (event.type) {
     case 'user_prompt':
       // A machine-initiated turn (fired webhook/schedule/workflow) renders as a
@@ -12,7 +19,11 @@ export function EventBlockView({ event }: { readonly event: MoxxyEvent }): JSX.E
       return event.origin ? (
         <TriggerBlock origin={event.origin} text={event.text} />
       ) : (
-        <UserBlock text={event.text} attachments={event.attachments} />
+        <UserBlock
+          text={event.text}
+          attachments={event.attachments}
+          onPreviewImage={onPreviewImage}
+        />
       );
     case 'assistant_message':
       return <AssistantBlock text={event.content} streaming={false} stopReason={event.stopReason} />;

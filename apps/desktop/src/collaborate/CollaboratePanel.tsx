@@ -1,11 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { api, useChat } from '@moxxy/client-core';
+import { api } from '@moxxy/client-core';
 import type { CollabRunSummary } from '@moxxy/desktop-ipc-contract';
+import type { ApprovalDecision } from '@moxxy/sdk';
 import { pairToolEvents } from '@moxxy/chat-model';
 import type { CollabMsgView, CollabTaskView } from '@moxxy/chat-model';
 import { Button, Icon } from '@moxxy/desktop-ui';
 import { ViewHeader, ViewSwitcher, type View } from '../shell/ViewHeader';
 import { useFocusTrap } from '../chat/useFocusTrap';
+import { useCollab, type CollabApproval } from './useCollab';
 import { dotColor, filterCollabMessages, latestCollab, taskChipBg } from './collab-view';
 
 function taskChip(status: string): React.CSSProperties {
@@ -35,8 +37,10 @@ export function CollaboratePanel({
   readonly disabledViews?: ReadonlyArray<View>;
   readonly disabledViewReason?: string;
 }): JSX.Element {
-  const chat = useChat(workspaceId);
-  const blocks = useMemo(() => pairToolEvents(chat.events), [chat.events]);
+  // The coordinator runs on its OWN dedicated runner (never this workspace's chat
+  // session); useCollab reads its live stream + roster-approval checkpoint.
+  const coord = useCollab(workspaceId);
+  const blocks = useMemo(() => pairToolEvents(coord.events), [coord.events]);
   const collab = useMemo(() => latestCollab(blocks), [blocks]);
 
   const [channel, setChannel] = useState<string>('all');
@@ -104,39 +108,39 @@ export function CollaboratePanel({
     };
   }, [workspaceId]);
 
+  // Step-in on the COORDINATOR session (not a chat session).
   const runCmd = async (name: string, args: string): Promise<void> => {
-    await api().invoke('session.runCommand', { workspaceId, name, args }).catch(() => undefined);
+    await coord.command(name, args);
   };
 
   const running = collab != null && collab.completedAtMs === null;
 
-  // Start a collaboration FROM THE TAB (not chat): switch this workspace's
-  // session to collaborative mode and submit the goal as its turn. The global
-  // single-flight lock (runner side) still guarantees only one runs at a time.
+  // Start a collaboration on the DEDICATED coordinator runner. No chat session is
+  // mode-switched or written to. The global single-flight lock (runner side)
+  // guarantees only one runs at a time.
   const startCollaboration = async (): Promise<void> => {
     const g = goal.trim();
     if (!g || starting) return;
     setStarting(true);
     setGoal('');
     try {
-      await api().invoke('session.setMode', { workspaceId, mode: 'collaborative' });
-      await api().invoke('session.runTurn', { workspaceId, prompt: g });
+      await coord.start(g, workspaceId);
       setForceStart(false);
     } catch {
-      // surfaced as an error/assistant message in the session log
+      // surfaced as an error/assistant message on the coordinator's own log
     } finally {
       setStarting(false);
     }
   };
 
-  // End the current collaboration for good: aborts the coordinator (its finally
+  // End the current collaboration for good: stops the coordinator (its finally
   // archives the run + cleans up) and force-releases the global lock, so a new
   // one can start — even if the current run is wedged or the lock is stale.
   const endCollaboration = async (): Promise<void> => {
     if (ending) return;
     setEnding(true);
     try {
-      await api().invoke('collab.end', { workspaceId });
+      await coord.end();
       const r = await api().invoke('collab.active').catch(() => null);
       setGlobalActive(r);
       setForceStart(true); // drop to the start composer for a fresh run
@@ -253,6 +257,11 @@ export function CollaboratePanel({
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         {header}
+        {coord.approval && (
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--color-card-border)' }}>
+            <CollabApprovalCard approval={coord.approval} onRespond={coord.respondApproval} />
+          </div>
+        )}
         <div
           style={{
             flex: 1,
@@ -346,6 +355,11 @@ export function CollaboratePanel({
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {header}
+      {coord.approval && (
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--color-card-border)' }}>
+          <CollabApprovalCard approval={coord.approval} onRespond={coord.respondApproval} />
+        </div>
+      )}
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         {/* LEFT RAIL — agents · tasks · contracts */}
         <aside
@@ -491,6 +505,80 @@ export function CollaboratePanel({
           onClose={() => setSelectedTask(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** The coordinator's roster-approval checkpoint — the single human gate in a
+ *  collaboration. Rendered inline in the Collaborate panel (never the chat ask
+ *  sheet) and answered via `collab.respondApproval`. */
+function CollabApprovalCard({
+  approval,
+  onRespond,
+}: {
+  readonly approval: CollabApproval;
+  readonly onRespond: (requestId: string, decision: ApprovalDecision) => void;
+}): JSX.Element {
+  const { request, requestId } = approval;
+  const [text, setText] = useState('');
+  const textOption = request.options.find((o) => o.requestsText);
+  return (
+    <div
+      role="group"
+      aria-label={request.title}
+      style={{
+        border: '1px solid var(--color-primary)',
+        borderRadius: 12,
+        padding: 14,
+        background: 'color-mix(in srgb, var(--color-primary) 8%, var(--color-surface))',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--color-text)' }}>{request.title}</div>
+      {request.body && (
+        <div style={{ fontSize: 12.5, whiteSpace: 'pre-wrap', color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
+          {request.body}
+        </div>
+      )}
+      {textOption && (
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={textOption.textPrompt || 'Add a note…'}
+          rows={2}
+          style={{
+            resize: 'vertical',
+            padding: '8px 10px',
+            borderRadius: 8,
+            border: '1px solid var(--color-card-border)',
+            background: 'var(--color-input-soft)',
+            fontSize: 13,
+            color: 'var(--color-text)',
+            fontFamily: 'inherit',
+          }}
+        />
+      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {request.options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            className={opt.danger ? 'btn-chip' : 'btn-cta'}
+            onClick={() =>
+              onRespond(requestId, {
+                optionId: opt.id,
+                ...(opt.requestsText && text.trim() ? { text: text.trim() } : {}),
+              })
+            }
+            title={opt.description}
+            style={{ padding: '6px 14px', borderRadius: 9, fontWeight: 600, ...(opt.danger ? { color: 'var(--color-red)' } : {}) }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

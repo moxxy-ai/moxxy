@@ -17,7 +17,7 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
-import { persistImageBlob } from '../attachments.js';
+import { persistImageBlob, previewImageAttachment } from '../attachments.js';
 import { broadcastHostEvent } from '../event-bus.js';
 import { getSessionModel, setSessionModel } from '../session-models.js';
 import {
@@ -146,11 +146,41 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       return { active: false };
     }
   });
-  handle('collab.end', async ({ workspaceId }) => {
-    // Abort the coordinator turn (its finally tears the team down + archives),
-    // then force-release the global lock so a new collaboration can start —
-    // covering a stale lock from a crashed run whose coordinator is unreachable.
-    const abortedTurns = resolveDriver(pool, workspaceId)?.abortActiveTurns() ?? 0;
+  handle('collab.start', async ({ workspaceId, goal }) => {
+    // Start on the DEDICATED coordinator runner — never a chat session. The
+    // coordinator works in the target workspace's bound folder. Dynamically
+    // imported so the collab/runner stack stays off the Electron boot path.
+    const cwd = resolveSupervisor(pool, workspaceId)?.getCwd();
+    if (!cwd) throw new IpcError('no-workspace', 'bind a folder before collaborating');
+    const { startCollab } = await import('../collab-supervisor');
+    return startCollab({ cwd, goal });
+  });
+  handle('collab.snapshot', async () => {
+    // Seed a freshly-mounted panel — and opportunistically attach to a
+    // coordinator started elsewhere (e.g. from the TUI) so the desktop can view it.
+    const { ensureCollabAttached, collabSnapshot } = await import('../collab-supervisor');
+    await ensureCollabAttached().catch(() => undefined);
+    return collabSnapshot() as never;
+  });
+  handle('collab.command', async ({ name, args }) => {
+    const { runCollabCommand } = await import('../collab-supervisor');
+    return (await runCollabCommand(name, args)) as never;
+  });
+  handle('collab.respondApproval', async ({ requestId, decision }) => {
+    const { respondCollabApproval } = await import('../collab-supervisor');
+    respondCollabApproval(requestId, decision);
+  });
+  handle('collab.end', async () => {
+    // Stop the dedicated coordinator (abort its turn — whose finally archives the
+    // run — then terminate the process), then force-release the global lock so a
+    // new collaboration can start even if a stale/crashed run left it held.
+    let abortedTurns = 0;
+    try {
+      const { stopCollab } = await import('../collab-supervisor');
+      abortedTurns = (await stopCollab()).abortedTurns;
+    } catch {
+      // best-effort
+    }
     let clearedTask: string | undefined;
     try {
       // forceReleaseCollabLock removes the lock regardless of holder and returns
@@ -327,5 +357,16 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // here). Mirrors session.pickAttachment, which remembers its picked path.
     await rememberPickedAttachment(saved.path);
     return saved;
+  });
+  handle('session.previewAttachment', async ({ workspaceId, path, name }) => {
+    const { supervisor } = resolveCtx(pool, { workspaceId }, { requireSession: false });
+    const cwd = supervisor.getCwd();
+    const { authorized } = await authorizeAttachments(
+      [{ path, name }],
+      cwd ? [cwd] : [],
+    );
+    const [att] = authorized;
+    if (!att) return null;
+    return previewImageAttachment(att.path, att.name);
   });
 }

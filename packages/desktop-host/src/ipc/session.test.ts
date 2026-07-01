@@ -21,7 +21,7 @@
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -218,9 +218,11 @@ describe('session.* attachment provenance', () => {
   let provenanceHandlers: Map<string, Handler>;
   let driverRunTurn: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     __resetPickedAttachments();
+    await rm(CWD, { recursive: true, force: true });
+    await mkdir(CWD, { recursive: true });
     const { bus, handlers } = fakeBus();
     provenanceHandlers = handlers;
     // A pool whose single workspace reports a cwd (a root for authz to test
@@ -236,8 +238,9 @@ describe('session.* attachment provenance', () => {
     registerSessionHandlers(pool);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     unpublishDriver(WS);
+    await rm(CWD, { recursive: true, force: true });
   });
 
   const invoke = (channel: string, args?: unknown): Promise<unknown> =>
@@ -284,5 +287,74 @@ describe('session.* attachment provenance', () => {
     } finally {
       await rm(stray, { force: true });
     }
+  });
+
+  it('previews a remembered image attachment without sending it', async () => {
+    const saved = (await invoke('session.saveImageAttachment', {
+      dataBase64: PNG_1x1,
+      mediaType: 'image/png',
+      name: 'browser-capture.png',
+    })) as { path: string; name: string };
+
+    try {
+      await expect(
+        invoke('session.previewAttachment', {
+          workspaceId: WS,
+          path: saved.path,
+          name: saved.name,
+        }),
+      ).resolves.toEqual({
+        kind: 'image',
+        name: 'browser-capture.png',
+        mediaType: 'image/png',
+        base64: PNG_1x1,
+        byteLength: Buffer.from(PNG_1x1, 'base64').byteLength,
+      });
+    } finally {
+      await rm(saved.path, { force: true });
+    }
+  });
+
+  it('returns null when the authorized attachment is not an image', async () => {
+    const textPath = path.join(CWD, 'notes.txt');
+    await writeFile(textPath, 'hello');
+
+    await expect(
+      invoke('session.previewAttachment', {
+        workspaceId: WS,
+        path: textPath,
+        name: 'notes.txt',
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('returns null for an image path that was not picked and is outside the workspace', async () => {
+    const stray = path.join(os.tmpdir(), `session-preview-stray-${process.pid}.png`);
+    await writeFile(stray, Buffer.from(PNG_1x1, 'base64'));
+
+    try {
+      await expect(
+        invoke('session.previewAttachment', {
+          workspaceId: WS,
+          path: stray,
+          name: 'stray.png',
+        }),
+      ).resolves.toBeNull();
+    } finally {
+      await rm(stray, { force: true });
+    }
+  });
+
+  it('returns null when an authorized image exceeds the attachment image limit', async () => {
+    const huge = path.join(CWD, 'huge.png');
+    await writeFile(huge, Buffer.alloc(8 * 1024 * 1024 + 1));
+
+    await expect(
+      invoke('session.previewAttachment', {
+        workspaceId: WS,
+        path: huge,
+        name: 'huge.png',
+      }),
+    ).resolves.toBeNull();
   });
 });

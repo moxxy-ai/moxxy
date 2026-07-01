@@ -1,5 +1,14 @@
 # @moxxy/plugin-telegram
 
+## 0.1.4
+
+### Patch Changes
+
+- @moxxy/sdk@0.25.0
+- @moxxy/core@0.25.0
+- @moxxy/config@0.25.0
+- @moxxy/plugin-vault@0.0.38
+
 ## 0.1.3
 
 ### Patch Changes

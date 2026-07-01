@@ -43,6 +43,17 @@ export function collabRunId(sessionId: string, turnId: string): string {
   return `${tail(sessionId)}-${tail(turnId)}-${suffix}`;
 }
 
+/** The dedicated collaboration coordinator's runner socket. The coordinator now
+ *  runs as its own headless runner process (`moxxy collab`) — never inside a chat
+ *  session — and UIs attach here to drive/monitor the run. Stable because the
+ *  single-flight lock guarantees one coordinator at a time, so a UI can attach
+ *  without knowing the run id; the path is ALSO recorded in the lock for
+ *  authoritative discovery. Kept short (macOS caps unix-socket paths at ~104
+ *  chars) and homedir-based (not MOXXY_HOME) to match the run/socket helpers. */
+export function collabCoordinatorSocketPath(): string {
+  return join(homedir(), '.moxxy', 'collab', 'coordinator.sock');
+}
+
 /** Per-run directory holding the hub + peer sockets. */
 export function collabRunDir(runId: string): string {
   return join(homedir(), '.moxxy', 'collab', runId);

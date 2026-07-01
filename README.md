@@ -45,16 +45,15 @@
   <a href="#-developer-guide">Developer guide</a>
 </p>
 
-<!--
-  HERO DEMO  ▸ replace the placehold.co src below with a real GIF/MP4.
-  WHAT TO SHOW: a ~20–30s loop — `moxxy init` → ask a question in the TUI →
-  the agent runs a tool (e.g. edits a file / runs a command) → streams the answer.
-  Suggested size: 1280×640. Drop the file at assets/hero-demo.gif and point src there.
--->
 <p align="center">
-  <a href="#-see-it-in-action">
-    <img src="https://placehold.co/1280x640/0d1117/58a6ff.png?text=moxxy+%E2%80%94+30-second+demo" alt="moxxy demo" width="760" />
-  </a>
+  <video src="assets/moxxy-ai-video.mp4" controls muted loop playsinline width="760">
+    <a href="assets/moxxy-ai-video.mp4">Watch the moxxy animated video presentation</a>
+  </video>
+  
+
+https://github.com/user-attachments/assets/f3d19a78-e578-4c6b-aa3e-6eafa250ed8a
+
+
 </p>
 
 ---

@@ -1,5 +1,26 @@
 # @moxxy/cli
 
+## 0.25.0
+
+### Minor Changes
+
+- f346b38: Make collaboration a fully separate feature that never touches your chats or their sessions.
+
+  Previously `/collab` (and the desktop Collaborate tab) ran the coordinator **inside the active chat session** — it flipped that session's mode to `collaborative` and streamed the whole team's activity into the chat's own event log, so a collaboration polluted the chat thread and its transcript.
+
+  Now the coordinator runs on its **own dedicated runner** — a new internal `moxxy collab` command that boots its own headless Session + runner socket, hosts the collab hub, and spawns the architect/implementer team exactly as before.
+
+  - **Desktop:** the Collaborate panel supervises that coordinator (`CollabSupervisor`) and drives it over a dedicated `collab.*` IPC surface + `collab.event` / `collab.approval` broadcasts (a private `useCollab` hook, not `useChat`). The roster-approval checkpoint is answered inline in the panel.
+  - **TUI:** `/collab <goal>` re-points the terminal onto the coordinator's own session (via the same in-place switch `/sessions` uses) and auto-submits the goal there — the roster approval and the live `◆ collab` block render as usual, but on the coordinator's session, not your chat. Bare `/collab` attaches to a running collaboration to view it; `/sessions` returns you to chat while the collaboration keeps running.
+
+  Either way, a collaboration is entirely decoupled from every chat session — no mode-switch, no events in a chat's thread. The roster-approval checkpoint (the one human-in-the-loop gate) is preserved because the attaching UI drives the goal turn, so the coordinator's approval is forwarded to it. The single-flight lock now also records the coordinator's runner socket so a UI can discover and attach to a running coordinator (including one started elsewhere).
+
+### Patch Changes
+
+- dc343bd: Fix Codex `gpt-5.5` / `gpt-5.4` advertising a 1,000,000-token context window when the ChatGPT-plan Codex backend only serves ~400k for these gpt-5-family models. The inflated window pushed the proactive compactor's `estimatedTokens > 0.75 * contextWindow` gate out to ~750k — unreachable before the backend rejected the request — so long sessions always fell through to the reactive compact-on-overflow retry ("context window exceeded — compacted older turns, retrying") instead of compacting cleanly ahead of the limit. Set both to `400_000`, matching the rest of the Codex catalog, so the proactive compactor trips before overflow.
+- eb04333: Hydrate resumed session metadata from JSONL history so workspace titles do not fall back to New session.
+  - @moxxy/sdk@0.25.0
+
 ## 0.24.1
 
 ### Patch Changes

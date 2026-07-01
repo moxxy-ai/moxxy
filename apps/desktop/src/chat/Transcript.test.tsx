@@ -19,6 +19,7 @@ import { Transcript } from './Transcript';
 
 interface CapturedProps {
   followOutput: (isAtBottom: boolean) => false | 'smooth' | 'auto';
+  atTopStateChange?: (atTop: boolean) => void;
   atBottomStateChange: (atBottom: boolean) => void;
   atBottomThreshold: number;
   firstItemIndex: number;
@@ -155,6 +156,33 @@ describe('Transcript stick-to-bottom wiring', () => {
     );
     expect(captured.props?.firstItemIndex).toBe(before - 1);
     expect(screen.queryByTestId('scroll-to-bottom-unread')).not.toBeInTheDocument();
+  });
+
+  it('requests older history when hasOlder appears while the scroller is already at the top', () => {
+    const onReachedTop = vi.fn();
+    const e1 = userPrompt('e1', 'newest');
+    const { rerender } = render(
+      <Transcript
+        events={[e1]}
+        extensions={[]}
+        streamingText=""
+        hasOlder={false}
+        onReachedTop={onReachedTop}
+      />,
+    );
+
+    act(() => captured.props?.atTopStateChange?.(true));
+    rerender(
+      <Transcript
+        events={[e1]}
+        extensions={[]}
+        streamingText=""
+        hasOlder
+        onReachedTop={onReachedTop}
+      />,
+    );
+
+    expect(onReachedTop).toHaveBeenCalledTimes(1);
   });
 
   it('anchors pagination when an older page expands the head tool group', () => {

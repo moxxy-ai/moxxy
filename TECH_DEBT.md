@@ -13,6 +13,19 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, collab, RESOLVED 2026-07-01] Collaboration is now a SEPARATE feature on
+  BOTH surfaces: the coordinator runs on its own dedicated `moxxy collab` runner
+  (own Session + socket), never inside a chat session — no mode-flip, no team
+  activity in a chat's thread. Desktop: the Collaborate panel supervises it
+  (`CollabSupervisor`) over dedicated `collab.*` IPC + `collab.event`/`collab.approval`
+  (a private `useCollab` hook, not `useChat`). TUI: `/collab` re-points the terminal
+  onto the coordinator's own session via the in-place session switch (auto-submits
+  the goal via `initialPrompt`; bare `/collab` attaches-to-view), reusing the whole
+  SessionView (transcript, `CollabScopeView`, approval, step-in). `packages/cli/src/commands/{collab,run-tui}.ts`,
+  `packages/desktop-host/src/collab-supervisor.ts`,
+  `packages/plugin-cli/src/session/{run-slash,BootShell,SessionView,sessions-picker}.*`,
+  `packages/mode-collaborative/src/{constants,collab-store,collab-lock}.ts`,
+  `apps/desktop/src/collaborate/{useCollab.ts,CollaboratePanel.tsx}`.
 - [low, ux, RESOLVED 2026-06-25] `SkillGallery` now uses the shared
   `<SearchBox />` primitive and has regression tests for filtering by name and
   description. `apps/desktop/src/settings/skills/SkillGallery.tsx`.
@@ -21,6 +34,11 @@ or recorded-on-purpose decision.
   native focus window is shaped and the tile paints theme-aware backing color.
   `packages/desktop-host/src/focus-window.ts`,
   `apps/desktop/src/focus/focus-styles.ts`.
+- [low, sessions, RESOLVED 2026-06-29] Resumed desktop sessions now hydrate
+  stale sidecar titles from JSONL history and dedupe legacy `.meta.json` rows,
+  so the workspace sidebar no longer falls back to duplicate/stuck
+  `New session` labels. `packages/core/src/sessions/persistence.ts`,
+  `packages/workspace-registry/src/index.ts`.
 
 ## Standing practices
 
@@ -150,6 +168,17 @@ or recorded-on-purpose decision.
   Anthropic round-trips fully. `packages/plugin-provider-*/`.
 - [low] Hardcoded catalogs span 5+ providers and drift — a shared
   OpenAI-compatible-vendor catalog or `/v1/models`-backed refresh would self-update.
+- [med] Advertised `contextWindow` values are trusted blindly by the proactive
+  compactor (`estimatedTokens > 0.75 * contextWindow`, `compactor-summarize`). When
+  a catalog overshoots the backend-enforced window, the proactive gate becomes
+  unreachable and every long session degrades to the reactive compact-on-overflow
+  retry (`turn-iterator.ts` `isContextOverflowError`). Fixed one instance (Codex
+  gpt-5.5/gpt-5.4 1M→400k) but the failure mode is latent for any future catalog
+  drift; consider calibrating the effective window from real provider `usage` /
+  observed overflow rather than the static descriptor. Related: `resolveModelContext`
+  (`packages/sdk/src/compactor-helpers.ts`) silently falls back to `models[0]` on an
+  exact-id miss, so an unlisted/variant model id (e.g. a `[1m]` suffix) resolves the
+  wrong window with no signal.
 
 ## Channels, relay & HTTP
 

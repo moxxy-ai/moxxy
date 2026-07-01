@@ -21,10 +21,24 @@ import {
 } from './collab-store.js';
 
 describe('parseCollabLock', () => {
-  it('parses a well-formed lock record', () => {
+  it('parses a well-formed lock record (incl. the runner socket a UI attaches to)', () => {
+    expect(
+      parseCollabLock(
+        JSON.stringify({
+          pid: 1234,
+          sessionId: 's1',
+          task: 'do a thing',
+          startedAtMs: 1000,
+          runnerSocket: '/tmp/c.sock',
+        }),
+      ),
+    ).toEqual({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000, runnerSocket: '/tmp/c.sock' });
+  });
+
+  it('defaults a missing runnerSocket (older lock) to empty string', () => {
     expect(
       parseCollabLock(JSON.stringify({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000 })),
-    ).toEqual({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000 });
+    ).toEqual({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000, runnerSocket: '' });
   });
 
   it('defaults / coerces wrong-typed optional fields to safe values (never trusts them)', () => {
@@ -33,12 +47,18 @@ describe('parseCollabLock', () => {
       sessionId: '',
       task: '',
       startedAtMs: 0,
+      runnerSocket: '',
     });
-    expect(parseCollabLock(JSON.stringify({ pid: 42, sessionId: 99, task: { x: 1 }, startedAtMs: 'soon' }))).toEqual({
+    expect(
+      parseCollabLock(
+        JSON.stringify({ pid: 42, sessionId: 99, task: { x: 1 }, startedAtMs: 'soon', runnerSocket: 5 }),
+      ),
+    ).toEqual({
       pid: 42,
       sessionId: '',
       task: '',
       startedAtMs: 0,
+      runnerSocket: '',
     });
   });
 
@@ -102,8 +122,17 @@ describe('paths + readCollabLock', () => {
     // Point the lock at a path directly under `home` (no nested dir to create).
     process.env.MOXXY_COLLAB_LOCK = join(home, 'lock.json');
     expect(readCollabLock()).toBeNull(); // nothing written yet
-    writeFileSync(join(home, 'lock.json'), JSON.stringify({ pid: process.pid, sessionId: 'x', task: 't', startedAtMs: 7 }));
-    expect(readCollabLock()).toEqual({ pid: process.pid, sessionId: 'x', task: 't', startedAtMs: 7 });
+    writeFileSync(
+      join(home, 'lock.json'),
+      JSON.stringify({ pid: process.pid, sessionId: 'x', task: 't', startedAtMs: 7, runnerSocket: '/tmp/x.sock' }),
+    );
+    expect(readCollabLock()).toEqual({
+      pid: process.pid,
+      sessionId: 'x',
+      task: 't',
+      startedAtMs: 7,
+      runnerSocket: '/tmp/x.sock',
+    });
     writeFileSync(join(home, 'lock.json'), '{ truncated');
     expect(readCollabLock()).toBeNull();
   });

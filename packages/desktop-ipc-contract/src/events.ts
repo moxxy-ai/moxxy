@@ -1,4 +1,4 @@
-import type { MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
+import type { ApprovalRequest, MoxxyEvent, SurfaceDataMessage } from '@moxxy/sdk';
 
 import type { AskRequest } from './ask.js';
 import type { ConnectionPhase } from './connection.js';
@@ -92,4 +92,17 @@ export interface IpcEvents {
    *  or its public Request URL became available) — the Channels panel re-renders
    *  that channel's card without polling. */
   'channels.status': ChannelRuntimeStatus;
+  /** A live event from the dedicated collaboration coordinator (`moxxy collab`),
+   *  forwarded off its own runner. The Collaborate panel folds these into its
+   *  view; they NEVER enter a chat session's `runner.event` stream — that is what
+   *  keeps collaborate a separate feature. */
+  'collab.event': { event: MoxxyEvent };
+  /** The coordinator's roster-approval checkpoint (the single human gate). The
+   *  panel renders it inline and answers via `collab.respondApproval`. */
+  'collab.approval': { requestId: string; request: ApprovalRequest };
+  /** A collab approval was answered (or the run ended) — drop the inline card. */
+  'collab.approval.resolved': { requestId: string };
+  /** The coordinator's liveness/task changed (started / ended / crashed) — the
+   *  panel reflects it without polling `collab.active`. */
+  'collab.status': { running: boolean; task?: string };
 }

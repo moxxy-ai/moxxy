@@ -2,6 +2,9 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { api, getTransportRevision, subscribeTransport } from './transport.js';
 import { createListenerSet } from './externalStore.js';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
+import { isRunnerLoadingPhase } from './useSessionInfoReady.js';
+
+const CONNECTION_LOADING_RESYNC_MS = 750;
 
 /**
  * Module-level store of every supervised workspace's connection
@@ -67,45 +70,82 @@ export function ConnectionBridge(): null {
 
   useEffect(() => {
     let cancelled = false;
-    void api()
-      .invoke('connection.snapshotAll')
-      .then((snapshots) => {
+    let loadingResync: ReturnType<typeof setTimeout> | null = null;
+
+    const clearLoadingResync = (): void => {
+      if (loadingResync !== null) clearTimeout(loadingResync);
+      loadingResync = null;
+    };
+
+    const applySnapshot = (
+      workspaceId: string,
+      phase: ConnectionPhase,
+    ): void => {
+      const prev = connectionStore.get(workspaceId);
+      connectionStore.setSnapshot(workspaceId, {
+        phase,
+        // Prefer values carried by the fresh phase over the previous
+        // snapshot — otherwise a rapid reconnect (where snapshotAll hasn't
+        // re-primed) shows a stale cliPath / attempt count. `log` only ever
+        // arrives via snapshotAll, so it still falls back to prev.
+        cliPath: 'cliPath' in phase ? phase.cliPath : (prev?.cliPath ?? null),
+        attempts: phase.phase === 'reconnecting' ? phase.attempt : (prev?.attempts ?? 0),
+        log: prev?.log ?? [],
+      });
+    };
+
+    const scheduleLoadingResync = (): void => {
+      if (cancelled || loadingResync !== null) return;
+      loadingResync = setTimeout(() => {
+        loadingResync = null;
+        void refreshConnectionState();
+      }, CONNECTION_LOADING_RESYNC_MS);
+    };
+
+    const resyncIfActiveStillLoading = (): void => {
+      const active = connectionStore.active$();
+      if (!active) return;
+      const activeSnapshot = connectionStore.get(active);
+      if (!activeSnapshot || isRunnerLoadingPhase(activeSnapshot.phase)) {
+        scheduleLoadingResync();
+      } else {
+        clearLoadingResync();
+      }
+    };
+
+    const refreshConnectionState = async (): Promise<void> => {
+      try {
+        const snapshots = await api().invoke('connection.snapshotAll');
         if (cancelled) return;
         for (const s of snapshots) {
           const { workspaceId, ...snapshot } = s;
           connectionStore.setSnapshot(workspaceId, snapshot);
         }
-      })
-      .catch(() => {
+      } catch {
         /* preload missing */
-      });
-    void api()
-      .invoke('connection.activeWorkspace')
-      .then((id) => {
+      }
+      try {
+        const id = await api().invoke('connection.activeWorkspace');
         if (!cancelled) connectionStore.setActive(id);
-      })
-      .catch(() => {});
+      } catch {
+        /* preload missing */
+      }
+      if (!cancelled) resyncIfActiveStillLoading();
+    };
 
     const unsub = api().subscribe(
       'connection.changed',
       // payload type is inferred from the channel literal via SubscribeFn.
       ({ workspaceId, phase }) => {
-        const prev = connectionStore.get(workspaceId);
-        connectionStore.setSnapshot(workspaceId, {
-          phase,
-          // Prefer values carried by the fresh phase over the previous
-          // snapshot — otherwise a rapid reconnect (where snapshotAll hasn't
-          // re-primed) shows a stale cliPath / attempt count. `log` only ever
-          // arrives via snapshotAll, so it still falls back to prev.
-          cliPath: 'cliPath' in phase ? phase.cliPath : (prev?.cliPath ?? null),
-          attempts: phase.phase === 'reconnecting' ? phase.attempt : (prev?.attempts ?? 0),
-          log: prev?.log ?? [],
-        });
+        applySnapshot(workspaceId, phase);
+        resyncIfActiveStillLoading();
       },
     );
+    void refreshConnectionState();
 
     return () => {
       cancelled = true;
+      clearLoadingResync();
       unsub();
     };
   }, [transportRevision]);

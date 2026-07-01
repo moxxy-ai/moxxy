@@ -54,10 +54,19 @@ export function tryAcquireCollabLock(args: {
   sessionId: string;
   task: string;
   startedAtMs: number;
+  /** The coordinator runner socket a UI attaches to, recorded so readers can
+   *  discover it without knowing the run id. Defaults to '' when unknown. */
+  runnerSocket?: string;
 }): { ok: true } | { ok: false; holder: CollabLockInfo } {
   const path = collabLockPath();
   mkdirSync(dirname(path), { recursive: true });
-  const info: CollabLockInfo = { pid: process.pid, ...args };
+  const info: CollabLockInfo = {
+    pid: process.pid,
+    sessionId: args.sessionId,
+    task: args.task,
+    startedAtMs: args.startedAtMs,
+    runnerSocket: args.runnerSocket ?? '',
+  };
   const payload = JSON.stringify(info);
 
   // Bounded retries: each EEXIST either reports a live holder (fail) or reclaims

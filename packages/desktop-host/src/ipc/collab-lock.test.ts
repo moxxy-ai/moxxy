@@ -21,23 +21,29 @@ import { collabLockPath, parseCollabLock } from '@moxxy/mode-collaborative';
 describe('parseCollabLock (collab.active/end on-disk lock guard)', () => {
   it('parses a well-formed lock record', () => {
     const info = parseCollabLock(
-      JSON.stringify({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000 }),
+      JSON.stringify({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000, runnerSocket: '/tmp/c.sock' }),
     );
-    expect(info).toEqual({ pid: 1234, sessionId: 's1', task: 'do a thing', startedAtMs: 1000 });
+    expect(info).toEqual({
+      pid: 1234,
+      sessionId: 's1',
+      task: 'do a thing',
+      startedAtMs: 1000,
+      runnerSocket: '/tmp/c.sock',
+    });
   });
 
   it('defaults missing optional string/number fields rather than throwing', () => {
     const info = parseCollabLock(JSON.stringify({ pid: 42 }));
-    expect(info).toEqual({ pid: 42, sessionId: '', task: '', startedAtMs: 0 });
+    expect(info).toEqual({ pid: 42, sessionId: '', task: '', startedAtMs: 0, runnerSocket: '' });
   });
 
   it('coerces wrong-typed optional fields to safe defaults (never trusts them)', () => {
     const info = parseCollabLock(
-      JSON.stringify({ pid: 42, sessionId: 99, task: { x: 1 }, startedAtMs: 'soon' }),
+      JSON.stringify({ pid: 42, sessionId: 99, task: { x: 1 }, startedAtMs: 'soon', runnerSocket: 5 }),
     );
     // pid is the only field handed to process.kill; the rest are display-only
     // and must degrade to empty/zero, not propagate a wrong type to the UI.
-    expect(info).toEqual({ pid: 42, sessionId: '', task: '', startedAtMs: 0 });
+    expect(info).toEqual({ pid: 42, sessionId: '', task: '', startedAtMs: 0, runnerSocket: '' });
   });
 
   it('returns null on truncated / non-JSON (a half-written lock)', () => {

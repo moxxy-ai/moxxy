@@ -20,6 +20,7 @@ import { runResumeCommand } from './commands/resume.js';
 import { runServiceCommand } from './commands/service.js';
 import { runServeCommand } from './commands/serve.js';
 import { runAgentCommand } from './commands/agent.js';
+import { runCollabCommand } from './commands/collab.js';
 import { runSessionsCommand } from './commands/sessions.js';
 import { runSecurityCommand } from './commands/security.js';
 import { runSelfUpdateCommand } from './commands/self-update.js';
@@ -218,6 +219,8 @@ const COMMANDS: Record<string, CommandHandler> = {
   serve: runServeCommand,
   // Internal: a collaboration peer runner spawned by `collaborative` mode.
   agent: runAgentCommand,
+  // The dedicated collaboration coordinator runner (spawned by the collaborate UI).
+  collab: runCollabCommand,
   sessions: runSessionsCommand,
   security: runSecurityCommand,
   skills: runSkillsCommand,

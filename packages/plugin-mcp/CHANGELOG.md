@@ -1,5 +1,11 @@
 # @moxxy/plugin-mcp
 
+## 0.0.38
+
+### Patch Changes
+
+- @moxxy/sdk@0.25.0
+
 ## 0.0.37
 
 ### Patch Changes

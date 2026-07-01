@@ -5,33 +5,35 @@
  * trigger on close. The pre-fix modal was a click-only div with none of this, so
  * a keyboard/AT user had no way to dismiss it and could Tab out into the
  * obscured page behind the scrim.
+ *
+ * The panel reads its collaboration from the dedicated coordinator via `useCollab`
+ * (not a chat session), so we mock that hook to render a running collaboration
+ * with a claimed board item — the task chip whose modal we exercise.
  */
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { __setApiOverride, chatStore } from '@moxxy/client-core';
-import type { MoxxyEvent } from '@moxxy/sdk';
-import { CollaboratePanel } from './CollaboratePanel';
+import { __setApiOverride } from '@moxxy/client-core';
 
-let seq = 0;
-function ce(subtype: string, payload: unknown): MoxxyEvent {
-  seq += 1;
-  return {
-    type: 'plugin_event',
-    id: `e${seq}`,
-    ts: seq * 1000,
-    sessionId: 's',
-    turnId: 't',
-    source: 'plugin',
-    pluginId: '@moxxy/mode-collaborative',
-    subtype,
-    payload,
-  } as unknown as MoxxyEvent;
-}
-
-const WS = 'ws-collab';
-
-function seedCollab(): void {
-  for (const event of [
+// A running collaboration whose board has one claimed item ("api.ts") — folded
+// by pairToolEvents into the task chip the TaskModal opens from. Built via
+// vi.hoisted so the (hoisted) vi.mock factory below can reference it.
+const seeded = vi.hoisted(() => {
+  let seq = 0;
+  const ce = (subtype: string, payload: unknown): unknown => {
+    seq += 1;
+    return {
+      type: 'plugin_event',
+      id: `e${seq}`,
+      ts: seq * 1000,
+      sessionId: 's',
+      turnId: 't',
+      source: 'plugin',
+      pluginId: '@moxxy/mode-collaborative',
+      subtype,
+      payload,
+    };
+  };
+  return [
     ce('collab_started', { task: 'build the thing', parallel: true }),
     ce('collab_agent_spawned', { id: 'backend', role: 'implementer' }),
     ce('collab_board_update', {
@@ -39,10 +41,25 @@ function seedCollab(): void {
       action: 'claim',
       item: { id: 't1', title: 'api.ts', status: 'claimed', owner: 'backend', paths: ['src/api.ts'], detail: 'build the api' },
     }),
-  ]) {
-    chatStore.dispatch(WS, { type: 'event', event: event as never });
-  }
-}
+  ];
+});
+
+vi.mock('./useCollab', () => ({
+  useCollab: () => ({
+    events: seeded,
+    running: true,
+    task: 'build the thing',
+    approval: null,
+    start: async () => {},
+    end: async () => {},
+    command: async () => {},
+    respondApproval: () => {},
+  }),
+}));
+
+import { CollaboratePanel } from './CollaboratePanel';
+
+const WS = 'ws-collab';
 
 beforeEach(() => {
   __setApiOverride({
@@ -52,12 +69,10 @@ beforeEach(() => {
     }) as never,
     subscribe: (() => () => {}) as never,
   } as never);
-  chatStore.clear(WS);
 });
 
 afterEach(() => {
   __setApiOverride(null);
-  chatStore.clear(WS);
 });
 
 function openTaskModal(): HTMLElement {
@@ -69,7 +84,6 @@ function openTaskModal(): HTMLElement {
 
 describe('CollaboratePanel TaskModal accessibility', () => {
   it('opens a labelled dialog (role=dialog, aria-modal, aria-labelledby title)', () => {
-    seedCollab();
     render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
     openTaskModal();
 
@@ -82,7 +96,6 @@ describe('CollaboratePanel TaskModal accessibility', () => {
   });
 
   it('moves focus into the dialog on open (not left on the obscured trigger)', () => {
-    seedCollab();
     render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
     const trigger = openTaskModal();
     const dialog = screen.getByRole('dialog');
@@ -91,7 +104,6 @@ describe('CollaboratePanel TaskModal accessibility', () => {
   });
 
   it('closes on Escape and restores focus to the trigger', () => {
-    seedCollab();
     render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
     const trigger = openTaskModal();
 
@@ -102,7 +114,6 @@ describe('CollaboratePanel TaskModal accessibility', () => {
   });
 
   it('has an accessible close button', () => {
-    seedCollab();
     render(<CollaboratePanel onView={() => {}} workspaceId={WS} />);
     openTaskModal();
     const close = screen.getByRole('button', { name: /close/i });

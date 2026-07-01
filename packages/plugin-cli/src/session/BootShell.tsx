@@ -67,11 +67,16 @@ export const InteractiveSession: React.FC<InteractiveSessionProps> = ({
         // otherwise linger above.
         clearTerminalScreen();
         setLandedViaSwitch(true);
-        setInitialPrompt(null);
+        // A collab switch WITH a goal auto-submits it as the coordinator's first
+        // turn — SessionView owns the submission (so its approval resolver is set
+        // before the roster checkpoint arrives). Other switches carry no prompt.
+        setInitialPrompt(target.kind === 'collab' && target.goal ? target.goal : null);
         setSwitchNotice(
           target.kind === 'new'
             ? 'started a new session — your previous conversation stays saved'
-            : 'switched session',
+            : target.kind === 'collab'
+              ? '👥 collaboration — an architect will propose a team for you to approve (Esc leaves it running; /sessions to return to chat)'
+              : 'switched session',
         );
         setSession(next);
       } finally {
