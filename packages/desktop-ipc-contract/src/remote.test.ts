@@ -57,6 +57,7 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       // the runner's generation config.
       'settings.setReasoning',
       'app.updateCli',
+      'session.previewAttachment',
       'focus.toggle' as IpcCommandName,
       'focus.dragStart' as IpcCommandName,
       'focus.dragMove' as IpcCommandName,

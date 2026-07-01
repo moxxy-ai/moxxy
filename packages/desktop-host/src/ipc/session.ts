@@ -17,7 +17,7 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 
 import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
-import { persistImageBlob } from '../attachments.js';
+import { persistImageBlob, previewImageAttachment } from '../attachments.js';
 import { broadcastHostEvent } from '../event-bus.js';
 import { getSessionModel, setSessionModel } from '../session-models.js';
 import {
@@ -357,5 +357,16 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     // here). Mirrors session.pickAttachment, which remembers its picked path.
     await rememberPickedAttachment(saved.path);
     return saved;
+  });
+  handle('session.previewAttachment', async ({ workspaceId, path, name }) => {
+    const { supervisor } = resolveCtx(pool, { workspaceId }, { requireSession: false });
+    const cwd = supervisor.getCwd();
+    const { authorized } = await authorizeAttachments(
+      [{ path, name }],
+      cwd ? [cwd] : [],
+    );
+    const [att] = authorized;
+    if (!att) return null;
+    return previewImageAttachment(att.path, att.name);
   });
 }

@@ -9,6 +9,7 @@ import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { StreamingReasoning } from './blocks/StreamingReasoning';
 import { JumpToLatest, useNewContentBelow } from './JumpToLatest';
+import type { ImagePreviewItem } from './image-preview/types';
 
 interface TranscriptProps {
   readonly events: ReadonlyArray<MoxxyEvent>;
@@ -24,15 +25,22 @@ interface TranscriptProps {
   readonly hasOlder?: boolean;
   /** Fired when the user scrolls to the top edge — load the older page. */
   readonly onReachedTop?: () => void;
+  readonly onPreviewImage?: (image: ImagePreviewItem) => void;
 }
 
 /** Memoised per-block so a streaming chunk (which only changes
  *  `streamingText`) doesn't repaint settled rows. */
 const MemoBlock = memo(
-  function MemoBlock({ block }: { readonly block: FoldedBlock }): JSX.Element | null {
-    return <BlockView block={block} />;
+  function MemoBlock({
+    block,
+    onPreviewImage,
+  }: {
+    readonly block: FoldedBlock;
+    readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+  }): JSX.Element | null {
+    return <BlockView block={block} onPreviewImage={onPreviewImage} />;
   },
-  (a, b) => blocksEquivalent(a.block, b.block),
+  (a, b) => blocksEquivalent(a.block, b.block) && a.onPreviewImage === b.onPreviewImage,
 );
 
 /** Row gutter — Virtuoso measures each item, so spacing rides on the row
@@ -69,7 +77,15 @@ function findAnchoredIndex(nodes: ReadonlyArray<RenderNode>, previousHead: Rende
   return nodes.findIndex((node) => containsToolAnchor(node, anchorId));
 }
 
-function Row({ node, workspaceId }: { readonly node: RenderNode; readonly workspaceId?: string }): JSX.Element {
+function Row({
+  node,
+  workspaceId,
+  onPreviewImage,
+}: {
+  readonly node: RenderNode;
+  readonly workspaceId?: string;
+  readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+}): JSX.Element {
   return (
     <div style={ROW}>
       {node.kind === 'ext' ? (
@@ -77,7 +93,7 @@ function Row({ node, workspaceId }: { readonly node: RenderNode; readonly worksp
       ) : node.kind === 'tool-group' ? (
         <ToolGroupView tools={node.tools} />
       ) : (
-        <MemoBlock block={node.block} />
+        <MemoBlock block={node.block} onPreviewImage={onPreviewImage} />
       )}
     </div>
   );
@@ -104,6 +120,7 @@ export function Transcript({
   workspaceId,
   hasOlder,
   onReachedTop,
+  onPreviewImage,
 }: TranscriptProps): JSX.Element {
   // Fold only when committed events / extensions change — never on a
   // streaming tick (the events array reference is stable across chunks). The
@@ -198,7 +215,9 @@ export function Transcript({
         initialTopMostItemIndex={Math.max(0, nodes.length - 1)}
         {...(hasOlder && onReachedTop ? { startReached: onReachedTop } : {})}
         computeItemKey={(_i, node) => keyOf(node)}
-        itemContent={(_i, node) => <Row node={node} workspaceId={workspaceId} />}
+        itemContent={(_i, node) => (
+          <Row node={node} workspaceId={workspaceId} onPreviewImage={onPreviewImage} />
+        )}
         components={{
           Footer: () => (
             <div style={{ padding: '0 24px 12px' }}>

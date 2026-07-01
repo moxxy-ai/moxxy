@@ -13,6 +13,8 @@ import { SuggestedActions } from './chat-surface/SuggestedActions';
 import { ErrorToast } from './chat-surface/ErrorToast';
 import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
 import { deriveSuggestions } from './chat-surface/suggestions';
+import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
+import { useImagePreview } from './image-preview/useImagePreview';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -95,6 +97,7 @@ export function ChatSurface({
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
+  const imagePreview = useImagePreview();
   // workspaceId is a SESSION id (the runner-pool routing key) — resolve the
   // desk that owns it (first sessions share their desk's id, so old ids work).
   const activeDesk = deskForWorkspace(desks.desks, workspaceId);
@@ -182,6 +185,7 @@ export function ChatSurface({
             workspaceId={workspaceId}
             hasOlder={!searchQuery && chat.hasOlder}
             onReachedTop={chat.loadOlder}
+            onPreviewImage={imagePreview.open}
           />
         )}
       </div>
@@ -197,8 +201,10 @@ export function ChatSurface({
         workspaceId={workspaceId}
         onSend={(p, atts) => void chat.send(p, atts)}
         onAbort={() => void chat.abort()}
+        onPreviewImage={imagePreview.open}
       />
       {chat.error && <ErrorToast text={chat.error} />}
+      <ImagePreviewModal image={imagePreview.image} onClose={imagePreview.close} />
       {renameOpen && activeDesk && (
         <RenameWorkspaceModal
           desk={activeDesk}

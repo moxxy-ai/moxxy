@@ -85,6 +85,38 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('bounds local session.previewAttachment payloads', () => {
+    const cmd = 'session.previewAttachment';
+    expect(() =>
+      validateIpcInput(cmd, {
+        workspaceId: 'workspace-1',
+        path: '/tmp/moxxy-screen.png',
+        name: 'moxxy-screen.png',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput(cmd, {
+        path: '/tmp/moxxy-screen.png',
+        name: 'moxxy-screen.png',
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      validateIpcInput(cmd, { workspaceId: '', path: '/tmp/moxxy-screen.png', name: 'x.png' }),
+    ).toThrow();
+    expect(() => validateIpcInput(cmd, { path: '', name: 'x.png' })).toThrow();
+    expect(() =>
+      validateIpcInput(cmd, { path: 'x'.repeat(4097), name: 'x.png' }),
+    ).toThrow();
+    expect(() => validateIpcInput(cmd, { path: '/tmp/x.png', name: '' })).toThrow();
+    expect(() =>
+      validateIpcInput(cmd, { path: '/tmp/x.png', name: 'x'.repeat(1025) }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput(cmd, { path: '/tmp/x.png', name: 'x.png', sneaky: true }),
+    ).toThrow();
+  });
+
   it('bounds desks.rename name', () => {
     expect(() => validateIpcInput('desks.rename', { id: 'd1', name: 'New name' })).not.toThrow();
     expect(() => validateIpcInput('desks.rename', { id: 'd1', name: '' })).toThrow();

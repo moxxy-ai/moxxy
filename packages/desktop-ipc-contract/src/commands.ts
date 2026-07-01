@@ -74,6 +74,14 @@ export interface CollabRunSummary {
   readonly brief?: string;
 }
 
+export interface ImageAttachmentPreview {
+  readonly kind: 'image';
+  readonly name: string;
+  readonly mediaType: string;
+  readonly base64: string;
+  readonly byteLength: number;
+}
+
 /**
  * Every invokable IPC command the renderer can call. The preload
  * surface is built mechanically from this; misnaming a command in the
@@ -363,6 +371,14 @@ export interface IpcCommands {
     /** Optional source filename; a friendly default is used otherwise. */
     name?: string;
   }) => Promise<PromptAttachment>;
+  /** Local desktop-only preview for staged image attachments. The host still
+   *  provenance-gates the path before reading it; unauthorized, oversized, or
+   *  non-image files return null. */
+  'session.previewAttachment': (args: {
+    workspaceId?: string;
+    path: string;
+    name: string;
+  }) => Promise<ImageAttachmentPreview | null>;
 
   // ---- Workspace filesystem browsing ------------------------------------
   /** List one directory inside the workspace's cwd. Relative paths

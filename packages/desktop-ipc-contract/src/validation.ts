@@ -266,6 +266,13 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       })
       .optional(),
   }),
+  'session.previewAttachment': z
+    .object({
+      workspaceId: optionalWorkspace,
+      path: z.string().min(1).max(4096),
+      name: z.string().min(1).max(1024),
+    })
+    .strict(),
   // Runs an arbitrary registered slash command — the audit flagged this as the
   // one mutating session command without a schema, so lock the name to a
   // registry slug and bound the free-text args.

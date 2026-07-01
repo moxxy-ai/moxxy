@@ -1,32 +1,6 @@
-import { useEffect, useState } from 'react';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { Icon } from '@moxxy/desktop-ui';
-
-/** Decode a base64 attachment payload into a Blob object URL so the renderer
- *  holds a single off-DOM Blob instead of a multi-MB `data:` string baked into
- *  an attribute (re-parsed on every mount). Returns null until ready / on
- *  decode failure (caller falls back to nothing rather than a broken img). */
-function useImageObjectUrl(content: string, mediaType: string): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let revoked = false;
-    let objectUrl: string | null = null;
-    try {
-      const binary = atob(content);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      objectUrl = URL.createObjectURL(new Blob([bytes], { type: mediaType }));
-      if (!revoked) setUrl(objectUrl);
-    } catch {
-      setUrl(null);
-    }
-    return () => {
-      revoked = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [content, mediaType]);
-  return url;
-}
+import { imagePreviewSrc, type ImagePreviewItem } from '../image-preview/types';
 
 /** Rough byte size of an attachment's payload, for the chip label. Base64
  *  (image/document) decodes to ~3/4 its length; inline text is its own length. */
@@ -43,23 +17,46 @@ function humanSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function ImageThumb({ att }: { readonly att: UserPromptAttachment }): JSX.Element | null {
-  const src = useImageObjectUrl(att.content, att.mediaType ?? 'image/png');
-  if (!src) return null;
+function ImageThumb({
+  att,
+  onPreviewImage,
+}: {
+  readonly att: UserPromptAttachment;
+  readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+}): JSX.Element {
+  const image = {
+    name: att.name ?? 'attached image',
+    mediaType: att.mediaType ?? 'image/png',
+    base64: att.content,
+  };
   return (
-    <img
-      src={src}
-      alt={att.name ?? 'attached image'}
-      title={att.name}
+    <button
+      type="button"
+      aria-label={`Preview attached image ${image.name}`}
+      title={image.name}
+      onClick={() => onPreviewImage?.(image)}
       style={{
-        maxWidth: 180,
-        maxHeight: 180,
+        padding: 0,
+        background: 'transparent',
+        border: 'none',
         borderRadius: 12,
-        border: '1px solid var(--color-card-border)',
-        objectFit: 'cover',
-        boxShadow: '0 6px 18px -12px rgba(0,0,0,0.5)',
+        lineHeight: 0,
+        cursor: onPreviewImage ? 'zoom-in' : 'default',
       }}
-    />
+    >
+      <img
+        src={imagePreviewSrc(image)}
+        alt={image.name}
+        style={{
+          maxWidth: 180,
+          maxHeight: 180,
+          borderRadius: 12,
+          border: '1px solid var(--color-card-border)',
+          objectFit: 'cover',
+          boxShadow: '0 6px 18px -12px rgba(0,0,0,0.5)',
+        }}
+      />
+    </button>
   );
 }
 
@@ -102,9 +99,11 @@ function FileChip({ att }: { readonly att: UserPromptAttachment }): JSX.Element 
 export function UserBlock({
   text,
   attachments,
+  onPreviewImage,
 }: {
   readonly text: string;
   readonly attachments?: ReadonlyArray<UserPromptAttachment>;
+  readonly onPreviewImage?: (image: ImagePreviewItem) => void;
 }): JSX.Element {
   const items = attachments ?? [];
   const hasAttachments = items.length > 0;
@@ -132,7 +131,11 @@ export function UserBlock({
         >
           {items.map((att, i) =>
             att.kind === 'image' ? (
-              <ImageThumb key={`${att.name ?? 'img'}-${i}`} att={att} />
+              <ImageThumb
+                key={`${att.name ?? 'img'}-${i}`}
+                att={att}
+                onPreviewImage={onPreviewImage}
+              />
             ) : (
               <FileChip key={`${att.name ?? att.kind}-${i}`} att={att} />
             ),
