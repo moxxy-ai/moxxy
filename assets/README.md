@@ -1,8 +1,6 @@
 # README media
 
-Assets referenced by the top-level `README.md`. The three demo slots currently
-point at [placehold.co](https://placehold.co) placeholders — swap each for a real
-GIF (or MP4) and update the `src` in `README.md`.
+Assets referenced by the top-level `README.md`.
 
 | File to add | README slot | What it should show | Suggested size |
 |---|---|---|---|
@@ -12,6 +10,7 @@ GIF (or MP4) and update the `src` in `README.md`.
 
 Already present:
 
+- `moxxy-ai-video.mp4` — animated moxxy video presentation used in the README hero.
 - `moxxy-mascot.gif` — the moxxy character animation (brand accent in the "Why moxxy?" section). Copied from `apps/desktop/public/new-animation.gif`.
 
 ## Capturing the TUI

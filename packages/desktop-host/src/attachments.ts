@@ -439,6 +439,38 @@ export async function buildAttachments(
   return out;
 }
 
+export interface ImageAttachmentPreview {
+  readonly kind: 'image';
+  readonly name: string;
+  readonly mediaType: string;
+  readonly base64: string;
+  readonly byteLength: number;
+}
+
+export async function previewImageAttachment(
+  absPath: string,
+  name: string,
+): Promise<ImageAttachmentPreview | null> {
+  const mediaType = IMAGE_MEDIA_TYPES[path.extname(absPath).toLowerCase()];
+  if (!mediaType) return null;
+
+  try {
+    const size = (await stat(absPath)).size;
+    if (size > MAX_IMAGE_BYTES) return null;
+    const buf = await readFile(absPath);
+    if (buf.byteLength > MAX_IMAGE_BYTES) return null;
+    return {
+      kind: 'image',
+      name,
+      mediaType,
+      base64: buf.toString('base64'),
+      byteLength: buf.byteLength,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build a `file` attachment for content too large to inline every turn. The
  * model gets a head excerpt plus a note telling it where the full text lives so
