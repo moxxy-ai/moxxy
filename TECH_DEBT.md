@@ -13,6 +13,19 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, collab, RESOLVED 2026-07-01] Collaboration is now a SEPARATE feature on
+  BOTH surfaces: the coordinator runs on its own dedicated `moxxy collab` runner
+  (own Session + socket), never inside a chat session — no mode-flip, no team
+  activity in a chat's thread. Desktop: the Collaborate panel supervises it
+  (`CollabSupervisor`) over dedicated `collab.*` IPC + `collab.event`/`collab.approval`
+  (a private `useCollab` hook, not `useChat`). TUI: `/collab` re-points the terminal
+  onto the coordinator's own session via the in-place session switch (auto-submits
+  the goal via `initialPrompt`; bare `/collab` attaches-to-view), reusing the whole
+  SessionView (transcript, `CollabScopeView`, approval, step-in). `packages/cli/src/commands/{collab,run-tui}.ts`,
+  `packages/desktop-host/src/collab-supervisor.ts`,
+  `packages/plugin-cli/src/session/{run-slash,BootShell,SessionView,sessions-picker}.*`,
+  `packages/mode-collaborative/src/{constants,collab-store,collab-lock}.ts`,
+  `apps/desktop/src/collaborate/{useCollab.ts,CollaboratePanel.tsx}`.
 - [low, ux, RESOLVED 2026-06-25] `SkillGallery` now uses the shared
   `<SearchBox />` primitive and has regression tests for filtering by name and
   description. `apps/desktop/src/settings/skills/SkillGallery.tsx`.

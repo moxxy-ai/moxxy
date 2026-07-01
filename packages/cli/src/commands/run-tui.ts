@@ -23,7 +23,9 @@ import {
   type RunnerServer,
 } from '@moxxy/runner';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { collabCoordinatorSocketPath, readActiveCollab } from '@moxxy/mode-collaborative';
+import type { ClientSession } from '@moxxy/sdk';
 import { probeSession, setupSessionWithConfig, type BootStep } from '../setup.js';
 
 /** Best-effort recovery for "I had an older `moxxy serve` running
@@ -341,9 +343,16 @@ async function runSelfHostedTui(
   // Capture the resolved session + optional runner so shutdown can fire
   // `onShutdown` hooks and release the socket. These are re-pointed in place
   // when the user switches sessions via `/sessions` (see `switchSession`).
-  let bootedSession: Session | null = null;
+  // ClientSession (not the concrete core Session) because a `/collab` switch
+  // re-points the TUI onto the dedicated coordinator via a RemoteSession, which
+  // is a ClientSession, not a locally-booted core Session.
+  let bootedSession: ClientSession | null = null;
   let runnerServer: RunnerServer | null = null;
   let webHandle: ChannelHandle | null = null;
+  // The dedicated `moxxy collab` coordinator process, when a `/collab` spawned
+  // one. Kept so shutdown can reap it (it dies with the TUI, like the old in-chat
+  // collab did); switching AWAY only drops the client, leaving the run alive.
+  let collabChild: ChildProcess | null = null;
   // The live vault from the most recent boot, exposed to the TUI (via getVault)
   // so the `/channels` panel can store channel secrets in the SAME already-open
   // vault — re-opening a second VaultStore could re-trigger a passphrase prompt
@@ -435,6 +444,17 @@ async function runSelfHostedTui(
     // Let an in-flight switch settle so we never close a half-booted session.
     await switching.catch(() => undefined);
     await teardownCurrent(signal);
+    // Reap the collaboration coordinator we spawned (if any) — it's tied to our
+    // process group, but SIGTERM lets its finally archive the run + release the
+    // lock cleanly rather than dying abruptly with us.
+    if (collabChild) {
+      try {
+        collabChild.kill('SIGTERM');
+      } catch {
+        /* already gone */
+      }
+      collabChild = null;
+    }
   };
 
   const onSignal = (signal: NodeJS.Signals): void => {
@@ -450,9 +470,59 @@ async function runSelfHostedTui(
    * given). The TUI re-mounts onto the returned session. Serialized via
    * `switching` so overlapping picks / a racing shutdown can't interleave.
    */
+  /**
+   * Attach the TUI to the dedicated collaboration coordinator. Bare `/collab`
+   * (no goal) attaches to a live coordinator to view it; with a goal — or when
+   * none is running — spawn a fresh `moxxy collab` runner and connect. The goal
+   * itself is auto-submitted by the re-mounted SessionView (via initialPrompt),
+   * so its approval resolver is set before the roster checkpoint arrives.
+   */
+  const attachOrSpawnCollab = async (goal?: string): Promise<ClientSession> => {
+    if (!goal) {
+      const active = readActiveCollab();
+      const runningSocket = active?.runnerSocket?.trim();
+      if (runningSocket && (await isRunnerUp(runningSocket))) {
+        return connectRemoteSession({ role: 'tui', socketPath: runningSocket, replay: 'full' });
+      }
+    }
+    const entry = process.argv[1];
+    if (!entry) throw new Error('cannot locate the moxxy CLI entrypoint to start a collaboration');
+    const socket = collabCoordinatorSocketPath();
+    // Reap a coordinator we spawned earlier before starting a fresh one.
+    if (collabChild) {
+      try {
+        collabChild.kill('SIGTERM');
+      } catch {
+        /* already gone */
+      }
+      collabChild = null;
+    }
+    // `detached: false` ties the coordinator to the TUI's process group, so it
+    // dies with the TUI — matching the old in-chat collab's lifetime.
+    collabChild = spawn(process.execPath, [entry, 'collab'], {
+      cwd: tuiOpts.cwd ?? process.cwd(),
+      env: {
+        ...process.env,
+        MOXXY_DEDICATED_RUNNER: '1',
+        MOXXY_RUNNER_SOCKET: socket,
+        MOXXY_SESSION_ID: `collab-${Date.now().toString(36)}`,
+      },
+      stdio: ['ignore', 'ignore', 'ignore'],
+      detached: false,
+    });
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline && !(await isRunnerUp(socket))) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    if (!(await isRunnerUp(socket))) {
+      throw new Error('the collaboration coordinator did not start in time');
+    }
+    return connectRemoteSession({ role: 'tui', socketPath: socket, replay: 'full' });
+  };
+
   const switchSession = async (
-    target: { kind: 'new' } | { kind: 'resume'; id: string },
-  ): Promise<Session> => {
+    target: { kind: 'new' } | { kind: 'resume'; id: string } | { kind: 'collab'; goal?: string },
+  ): Promise<ClientSession> => {
     if (shuttingDown) throw new Error('shutting down');
     let resolveDone!: () => void;
     const done = new Promise<void>((r) => {
@@ -464,6 +534,13 @@ async function runSelfHostedTui(
       await prev.catch(() => undefined);
       if (shuttingDown) throw new Error('shutting down');
       await teardownCurrent('switch');
+      if (target.kind === 'collab') {
+        // The coordinator RemoteSession becomes the live session; teardownCurrent
+        // on the next switch closes the client (the run keeps going).
+        const session = await attachOrSpawnCollab(target.goal);
+        bootedSession = session;
+        return session;
+      }
       return await bootSession(target.kind === 'resume' ? { resumeSessionId: target.id } : {});
     } finally {
       resolveDone();

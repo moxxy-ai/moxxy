@@ -5,9 +5,17 @@ import type { ListPickerOption } from '../components/ListPicker.js';
 /**
  * What the TUI asks the host to switch to. `{ kind: 'new' }` boots a fresh
  * session (empty log); `{ kind: 'resume', id }` re-bootstraps the host onto the
- * persisted session with that id (seeding its event log from disk).
+ * persisted session with that id (seeding its event log from disk);
+ * `{ kind: 'collab', goal? }` re-points the TUI onto the DEDICATED collaboration
+ * coordinator (a separate `moxxy collab` runner — never a chat session), attaching
+ * to a live one or spawning a fresh one. When a goal is given it's auto-submitted
+ * as the coordinator's first turn (so the roster-approval checkpoint is forwarded
+ * to the TUI); bare `/collab` attaches to a running collaboration to view it.
  */
-export type SessionSwitchTarget = { kind: 'new' } | { kind: 'resume'; id: string };
+export type SessionSwitchTarget =
+  | { kind: 'new' }
+  | { kind: 'resume'; id: string }
+  | { kind: 'collab'; goal?: string };
 
 /**
  * Host-provided capability the TUI calls when the user picks an entry in the
