@@ -18,6 +18,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  defaultSessionsDir,
   deleteSession,
   listSessionMetas,
   seedSessionMeta,
@@ -311,7 +312,9 @@ export class WorkspaceRegistry {
    *  sidecars, grouped by cwd, with active pointers validated. */
   private async derive(): Promise<{ activeId: string | null; desks: Desk[] }> {
     const doc = await this.loadDoc();
-    const listings = (await listSessionMetas()).filter(shouldShow);
+    const listings = (
+      await listSessionMetas(defaultSessionsDir(), { hydrateStale: true })
+    ).filter(shouldShow);
     const desks = deriveDesks(doc, listings);
     const activeId = desks.some((d) => d.id === doc.activeId)
       ? doc.activeId

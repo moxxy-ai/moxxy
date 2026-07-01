@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import { blocksEquivalent, IncrementalFold, type Block as FoldedBlock } from '@moxxy/chat-model';
@@ -128,6 +128,7 @@ export function Transcript({
   // mounts the list at the bottom, so the jump affordance must not flash
   // before the first `atBottomStateChange` callback lands.
   const [atBottom, setAtBottom] = useState(true);
+  const [atTop, setAtTop] = useState(false);
 
   // Changes on APPENDS only (new last row or streaming chunk) — stable
   // across upward-pagination prepends, so paging in history never fakes an
@@ -141,6 +142,13 @@ export function Transcript({
     // flips `atBottom` back on and resumes `followOutput`.
     virtuosoRef.current?.scrollToIndex({ index: 'LAST', align: 'end', behavior: 'auto' });
   }, []);
+
+  // Virtuoso fires `startReached` on a top-edge transition. On cold start the
+  // scroller can already be at the top before `hasOlder` flips on, so replay
+  // the request when older history becomes available while the user is there.
+  useEffect(() => {
+    if (hasOlder && atTop && onReachedTop) onReachedTop();
+  }, [atTop, hasOlder, nodes.length, onReachedTop]);
 
   // Track how many rows have been prepended so far and shift
   // firstItemIndex by that amount. Detect a prepend by finding where the
@@ -184,6 +192,7 @@ export function Transcript({
         // ~80px of slack so trackpad jitter / a sub-row nudge near the bottom
         // doesn't flip stick-to-bottom off (default is a razor-thin 4px).
         atBottomThreshold={80}
+        atTopStateChange={setAtTop}
         atBottomStateChange={setAtBottom}
         firstItemIndex={firstItemIndex}
         initialTopMostItemIndex={Math.max(0, nodes.length - 1)}

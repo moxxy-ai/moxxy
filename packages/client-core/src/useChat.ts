@@ -83,7 +83,7 @@ function drainNext(workspaceId: string): void {
 
 /** Sessions the desk registry auto-named — the ones whose sidebar title is
  *  derived from the first prompt (host-side, at desks.list time). */
-const AUTO_SESSION_NAME = /^Session \d+$/;
+const AUTO_SESSION_NAME = /^(?:Session \d+|New session)$/;
 let titleRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**

@@ -110,6 +110,17 @@ function applyFocusWindowShape(win: BrowserWindow, width: number, height: number
   shapeable.invalidateShadow?.();
 }
 
+function applyFocusWindowWorkspaceVisibility(win: BrowserWindow): void {
+  win.setAlwaysOnTop(true, 'floating', 1);
+  // Visible across desktops + Spaces so the widget follows you when
+  // you swipe to a different Space (macOS).
+  // `setVisibleOnAllWorkspaces` is a no-op on some platforms; keep the runtime
+  // existence guard but rely on Electron's own types (no casts needed).
+  if (typeof win.setVisibleOnAllWorkspaces === 'function') {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+}
+
 function isCompactFocusSize(bounds: Pick<FocusBounds, 'width' | 'height'>): boolean {
   return bounds.height <= COMPACT_FOCUS_MAX_HEIGHT;
 }
@@ -246,8 +257,10 @@ export function endFocusWindowDrag(): void {
 
 export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   if (focusWindow && !focusWindow.isDestroyed()) {
+    applyFocusWindowWorkspaceVisibility(focusWindow);
     focusWindow.show();
     focusWindow.focus();
+    applyFocusWindowWorkspaceVisibility(focusWindow);
     return;
   }
 
@@ -270,6 +283,8 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     title: 'MoxxyAI · Focus',
     width,
     height,
+    show: false,
+    type: process.platform === 'darwin' ? 'panel' : undefined,
     x: initialBounds.x,
     y: initialBounds.y,
     minWidth: 40,
@@ -305,14 +320,7 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   // from its own document — lock both down (deny window.open too).
   lockDownNavigation(win, { keepWindowOpenHandler: false });
 
-  win.setAlwaysOnTop(true, 'floating', 1);
-  // Visible across desktops + Spaces so the widget follows you when
-  // you swipe to a different Space (macOS).
-  // `setVisibleOnAllWorkspaces` is a no-op on some platforms; keep the runtime
-  // existence guard but rely on Electron's own types (no casts needed).
-  if (typeof win.setVisibleOnAllWorkspaces === 'function') {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  }
+  applyFocusWindowWorkspaceVisibility(win);
   applyFocusWindowShape(win, width, height, false);
 
   focusWindow = win;
@@ -345,6 +353,11 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     } else {
       await win.loadFile(opts.focusHtml);
     }
+    if (win.isDestroyed()) return;
+    applyFocusWindowWorkspaceVisibility(win);
+    win.show();
+    win.focus();
+    applyFocusWindowWorkspaceVisibility(win);
   } catch (e) {
     if (focusWindow === win) focusWindow = null;
     focusDragStart = null;
