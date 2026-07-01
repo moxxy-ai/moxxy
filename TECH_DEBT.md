@@ -150,6 +150,17 @@ or recorded-on-purpose decision.
   Anthropic round-trips fully. `packages/plugin-provider-*/`.
 - [low] Hardcoded catalogs span 5+ providers and drift — a shared
   OpenAI-compatible-vendor catalog or `/v1/models`-backed refresh would self-update.
+- [med] Advertised `contextWindow` values are trusted blindly by the proactive
+  compactor (`estimatedTokens > 0.75 * contextWindow`, `compactor-summarize`). When
+  a catalog overshoots the backend-enforced window, the proactive gate becomes
+  unreachable and every long session degrades to the reactive compact-on-overflow
+  retry (`turn-iterator.ts` `isContextOverflowError`). Fixed one instance (Codex
+  gpt-5.5/gpt-5.4 1M→400k) but the failure mode is latent for any future catalog
+  drift; consider calibrating the effective window from real provider `usage` /
+  observed overflow rather than the static descriptor. Related: `resolveModelContext`
+  (`packages/sdk/src/compactor-helpers.ts`) silently falls back to `models[0]` on an
+  exact-id miss, so an unlisted/variant model id (e.g. a `[1m]` suffix) resolves the
+  wrong window with no signal.
 
 ## Channels, relay & HTTP
 
