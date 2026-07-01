@@ -49,6 +49,11 @@
   <video src="assets/moxxy-ai-video.mp4" controls muted loop playsinline width="760">
     <a href="assets/moxxy-ai-video.mp4">Watch the moxxy animated video presentation</a>
   </video>
+  
+
+https://github.com/user-attachments/assets/f3d19a78-e578-4c6b-aa3e-6eafa250ed8a
+
+
 </p>
 
 ---
