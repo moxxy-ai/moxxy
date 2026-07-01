@@ -10,8 +10,13 @@ import type { ModelDescriptor } from '@moxxy/sdk';
 // `supportsReasoning` — the request already sends `reasoning.summary: 'auto'`;
 // the per-provider toggle decides whether the summary is surfaced.
 export const codexModels: ReadonlyArray<ModelDescriptor> = [
-  { id: 'gpt-5.5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'gpt-5.4', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  // The ChatGPT-plan Codex backend enforces a ~400k window for the gpt-5-family
+  // models it serves, well below the raw API ceiling. Advertising 1M here made
+  // the proactive compactor's `estimatedTokens > 0.75 * contextWindow` gate
+  // unreachable, so every overflow fell through to the reactive
+  // compact-on-overflow retry. Keep these in step with the rest of the catalog.
+  { id: 'gpt-5.5', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.4', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.4-mini', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.3-codex', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.3-codex-spark', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
