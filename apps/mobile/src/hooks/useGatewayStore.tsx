@@ -19,7 +19,8 @@ import {
   useWorkflows as useCoreWorkflows,
 } from '@moxxy/client-core';
 import type { UserPromptAttachment } from '@moxxy/sdk';
-import { createContext, useCallback, useContext, useMemo, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
+import { AppState } from 'react-native';
 import { useAutoApprove } from './useAutoApprove';
 import { useCompactContext } from './useCompactContext';
 import { useComposer } from './useComposer';
@@ -43,6 +44,8 @@ import { useThrottledValue } from './useThrottledValue';
 /** Live-stream coalescing window (~25fps). Bounds how often a token stream
  *  rebuilds the transcript + reconciles the list + auto-scrolls. */
 const STREAM_THROTTLE_MS = 40;
+const ACTIVE_TURN_RECOVERY_INITIAL_MS = 2500;
+const ACTIVE_TURN_RECOVERY_INTERVAL_MS = 10000;
 
 function useDisconnectedGatewayStoreValue(pairing: PairingState) {
   const sendFrame = useCallback(() => undefined, []);
@@ -140,6 +143,37 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
     connected,
     refreshKey: connectedRefreshKey,
   });
+
+  useEffect(() => {
+    if (!workspaceId || !connected || !coreChat.activeTurnId) return;
+    let cancelled = false;
+    let inFlight = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const refresh = () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      void chatStore
+        .refreshLatest(workspaceId)
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = false;
+        });
+    };
+
+    const timeout = setTimeout(() => {
+      refresh();
+      interval = setInterval(refresh, ACTIVE_TURN_RECOVERY_INTERVAL_MS);
+    }, ACTIVE_TURN_RECOVERY_INITIAL_MS);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refresh();
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+      subscription.remove();
+    };
+  }, [connected, coreChat.activeTurnId, workspaceId]);
 
   const sendFrame = useCallback(
     (frame: Record<string, unknown>) => {

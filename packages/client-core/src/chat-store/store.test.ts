@@ -8,7 +8,6 @@ import { describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import type { ChatPersistence } from '../chatPersistence.js';
 import { chatStore } from './store.js';
-import type { ChatPersistence } from '../chatPersistence.js';
 
 let nextId = 0;
 function ws(): string {
@@ -362,6 +361,93 @@ describe('chatStore history loading', () => {
     await chatStore.loadInitial(id);
     expect(retried).toBe(true);
     expect(chatStore.getChat(id).events).toHaveLength(1);
+  });
+
+  it('refreshes latest history and clears a stale active turn when completion was missed', async () => {
+    const id = ws();
+    const turnId = 'missed-complete-turn';
+    const prompt = userPrompt('search the web', turnId);
+    const toolRequest = evt('tool_call_requested', {
+      turnId,
+      callId: 'call-1',
+      name: 'web_fetch',
+      input: { url: 'https://example.com' },
+    });
+    const toolResult = evt('tool_result', {
+      turnId,
+      callId: 'call-1',
+      ok: true,
+      output: 'result',
+    });
+    const finalAnswer = assistant('Found the answer.', turnId);
+
+    chatStore.setPersistence(pagerFor([prompt, toolRequest, toolResult, finalAnswer]).persistence);
+    chatStore.dispatch(id, { type: 'send_started', turnId });
+    chatStore.dispatch(id, { type: 'event', event: prompt });
+    chatStore.dispatch(id, { type: 'event', event: toolRequest });
+    chatStore.dispatch(id, { type: 'event', event: toolResult });
+
+    expect(chatStore.getChat(id)).toMatchObject({
+      sending: true,
+      activeTurnId: turnId,
+    });
+
+    await chatStore.refreshLatest(id);
+
+    const snap = chatStore.getChat(id);
+    expect(snap.events.map((event) => event.id)).toContain(finalAnswer.id);
+    expect(snap.sending).toBe(false);
+    expect(snap.activeTurnId).toBeNull();
+  });
+
+  it('does not clear an active turn when latest recovered history is still mid-tool loop', async () => {
+    const id = ws();
+    const turnId = 'still-running-turn';
+    const prompt = userPrompt('search the web', turnId);
+    const interimText = evt('assistant_message', {
+      turnId,
+      content: 'I will look that up.',
+      stopReason: 'tool_use',
+    });
+    const toolRequest = evt('tool_call_requested', {
+      turnId,
+      callId: 'call-running',
+      name: 'web_fetch',
+      input: { url: 'https://example.com' },
+    });
+
+    chatStore.setPersistence(pagerFor([prompt, interimText, toolRequest]).persistence);
+    chatStore.dispatch(id, { type: 'send_started', turnId });
+    chatStore.dispatch(id, { type: 'event', event: prompt });
+
+    await chatStore.refreshLatest(id);
+
+    expect(chatStore.getChat(id)).toMatchObject({
+      sending: true,
+      activeTurnId: turnId,
+    });
+  });
+
+  it('does not treat a tool-use assistant message as a terminal turn', async () => {
+    const id = ws();
+    const turnId = 'tool-use-message-turn';
+    const prompt = userPrompt('search the web', turnId);
+    const interimText = evt('assistant_message', {
+      turnId,
+      content: 'I will look that up.',
+      stopReason: 'tool_use',
+    });
+
+    chatStore.setPersistence(pagerFor([prompt, interimText]).persistence);
+    chatStore.dispatch(id, { type: 'send_started', turnId });
+    chatStore.dispatch(id, { type: 'event', event: prompt });
+
+    await chatStore.refreshLatest(id);
+
+    expect(chatStore.getChat(id)).toMatchObject({
+      sending: true,
+      activeTurnId: turnId,
+    });
   });
 
   it('walks raw pages bounded, stopping once enough rendered rows are gathered', async () => {

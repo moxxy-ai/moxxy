@@ -18,6 +18,7 @@ const mobileActivityAttributesPath = fileURLToPath(
 const mobileLiveActivityBridgePath = fileURLToPath(
   new URL('../ios/MoxxyMobileGateway/MoxxyLiveActivity.swift', import.meta.url).href,
 );
+const mobileGatewayStorePath = fileURLToPath(new URL('../src/hooks/useGatewayStore.tsx', import.meta.url).href);
 
 describe('mobile app build config', () => {
   it('keeps the full Expo app monorepo-aware with a single React instance', () => {
@@ -85,5 +86,16 @@ describe('mobile app build config', () => {
     expect(bridge).toContain('activities(forSessionId:');
     expect(bridge).toContain('endDuplicateActivities');
     expect(bridge).toMatch(/for activity in activities\(forSessionId:[\s\S]*await activity\.end/);
+  });
+
+  it('keeps mobile active turns recoverable from runner history after missed lifecycle pushes', () => {
+    const gatewayStore = readFileSync(mobileGatewayStorePath, 'utf8');
+
+    expect(gatewayStore).toContain('ACTIVE_TURN_RECOVERY_INITIAL_MS');
+    expect(gatewayStore).toContain('ACTIVE_TURN_RECOVERY_INTERVAL_MS');
+    expect(gatewayStore).toMatch(/setTimeout\(\s*\(\)\s*=>[\s\S]*ACTIVE_TURN_RECOVERY_INITIAL_MS/);
+    expect(gatewayStore).toMatch(/setInterval\(\s*refresh\s*,\s*ACTIVE_TURN_RECOVERY_INTERVAL_MS\s*\)/);
+    expect(gatewayStore).toMatch(/chatStore\s*\.\s*refreshLatest\(\s*workspaceId\s*\)/);
+    expect(gatewayStore).toContain("AppState.addEventListener('change'");
   });
 });
