@@ -19,6 +19,7 @@ import { useGatewayStore } from '@/hooks/useGatewayStore';
 import { useQrScanner } from '@/hooks/useQrScanner';
 import { useStorageState } from '../hooks/storage';
 import { buildPairingUiState } from '@/pairingUi';
+import { submitManualPairingLink } from '@/pairingFlow';
 import { Button, Card } from '@/ui/kit';
 import { MobileIcon, type MobileIconName } from './MobileIcon';
 import { QrScannerSheet } from './QrScannerSheet';
@@ -141,11 +142,11 @@ function PairingScreen() {
   });
 
   const submitManual = () => {
-    const value = link.trim();
-    if (!value) return;
-    Keyboard.dismiss();
-    pairing.setGatewayUrl(value);
-    void pairing.loadPairing();
+    void submitManualPairingLink({
+      dismissKeyboard: Keyboard.dismiss,
+      pairFromQrPayload: pairing.pairFromQrPayload,
+      rawLink: link,
+    });
   };
 
   return (

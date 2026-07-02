@@ -28,6 +28,7 @@ function RootStack() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="chat" />
       <Stack.Screen name="apps" />
       <Stack.Screen name="account" />
       <Stack.Screen name="workflows" />

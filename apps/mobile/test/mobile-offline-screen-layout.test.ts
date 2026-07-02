@@ -45,12 +45,13 @@ describe('mobile navigation architecture', () => {
     }
   });
 
-  it('gates the chat home on a stored pairing, not on the connection', () => {
+  it('gates the chat home on an open pairing, not just a stored token', () => {
     const index = read('app/index.tsx');
     const onboarding = read('src/components/Onboarding.tsx');
-    // The shell renders once a gateway is stored (token), regardless of whether
-    // the transport is currently connected — no full-screen connection loader.
-    expect(index).toContain('store.pairing.token');
+    // A stale stored token should not drop the user into the disconnected chat
+    // shell. Until the bridge is actually open, the pairing/onboarding screen
+    // remains the first surface.
+    expect(index).toContain('store.pairing.transportReady');
     // Onboarding must use the SHARED store pairing (not a private usePairing
     // instance) so a successful scan advances the home-screen gate.
     expect(onboarding).toContain('const { pairing } = useGatewayStore()');

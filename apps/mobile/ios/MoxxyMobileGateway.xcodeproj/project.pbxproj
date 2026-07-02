@@ -481,7 +481,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.moxxy.workspaces;
 				PRODUCT_NAME = MoxxyMobileGateway;
 				SWIFT_OBJC_BRIDGING_HEADER = "MoxxyMobileGateway/MoxxyMobileGateway-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -513,7 +513,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.moxxy.workspaces;
 				PRODUCT_NAME = MoxxyMobileGateway;
 				SWIFT_OBJC_BRIDGING_HEADER = "MoxxyMobileGateway/MoxxyMobileGateway-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -577,7 +577,7 @@
 				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@react-native-community+cli@13.6.9_encoding@0.1._320170d00d64f7d4bd9ced60e7a4b146/node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@react-native-community+cli@13.6.9_encoding@0.1._320170d00d64f7d4bd9ced60e7a4b146/node_modules/react-native";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
@@ -632,7 +632,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
 				MTL_ENABLE_DEBUG_INFO = NO;
-				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@react-native-community+cli@13.6.9_encoding@0.1._320170d00d64f7d4bd9ced60e7a4b146/node_modules/react-native";
+				REACT_NATIVE_PATH = "${PODS_ROOT}/../../../../node_modules/.pnpm/react-native@0.81.5_@babel+core@7.29.7_@react-native-community+cli@13.6.9_encoding@0.1._320170d00d64f7d4bd9ced60e7a4b146/node_modules/react-native";
 				SDKROOT = iphoneos;
 				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				USE_HERMES = true;
@@ -657,7 +657,8 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces.MoxxyLiveActivityExtension";
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.moxxy.workspaces.MoxxyLiveActivityExtension;
 				PRODUCT_NAME = MoxxyLiveActivityExtension;
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -683,7 +684,8 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "ai.moxxy.workspaces.MoxxyLiveActivityExtension";
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = ai.moxxy.workspaces.MoxxyLiveActivityExtension;
 				PRODUCT_NAME = MoxxyLiveActivityExtension;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;

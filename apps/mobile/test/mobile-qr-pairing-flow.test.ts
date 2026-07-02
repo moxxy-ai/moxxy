@@ -3,6 +3,7 @@ import { parsePairingQrPayload } from '../src/pairingQr';
 import {
   MOBILE_QR_SCAN_ROUTE,
   openWaitingRoomPairing,
+  submitManualPairingLink,
 } from '../src/pairingFlow';
 import {
   describeQrScannerError,
@@ -41,6 +42,21 @@ describe('mobile QR pairing flow', () => {
       code: 'fresh-token',
       gatewayUrl: 'wss://fresh.example.test/mobile',
     });
+  });
+
+  it('pairs directly from a manually pasted gateway URL', async () => {
+    const dismissKeyboard = vi.fn();
+    const pairFromQrPayload = vi.fn().mockResolvedValue(undefined);
+    const rawLink = '  ws://127.0.0.1:8765/?t=manual-token  ';
+
+    await submitManualPairingLink({
+      dismissKeyboard,
+      pairFromQrPayload,
+      rawLink,
+    });
+
+    expect(dismissKeyboard).toHaveBeenCalledOnce();
+    expect(pairFromQrPayload).toHaveBeenCalledWith('ws://127.0.0.1:8765/?t=manual-token');
   });
 
   it('rejects non-Moxxy QR content before attempting to pair', () => {

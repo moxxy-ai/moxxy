@@ -39,6 +39,32 @@ or recorded-on-purpose decision.
   so the workspace sidebar no longer falls back to duplicate/stuck
   `New session` labels. `packages/core/src/sessions/persistence.ts`,
   `packages/workspace-registry/src/index.ts`.
+- [med, mobile, RESOLVED 2026-07-01] Moxxy Mobile Live Activity taps now route to
+  an existing chat route, derive labels from real session/workspace state, and
+  avoid false completion notifications on transient background disconnects.
+  `apps/mobile/src/liveActivity.ts`,
+  `apps/mobile/ios/MoxxyLiveActivityExtension/MoxxyLiveActivityWidget.swift`.
+- [med, mobile, RESOLVED 2026-07-02] Moxxy Mobile now flushes the latest active
+  Live Activity snapshot when iOS backgrounds the app, treats streaming assistant
+  transcript as active work even when turn flags lag, dedupes same-session native
+  ActivityKit activities, and keeps the lock-screen badge/detail compact.
+  `apps/mobile/src/liveActivity.ts`,
+  `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
+  `apps/mobile/ios/MoxxyMobileGateway/MoxxyLiveActivity.swift`,
+  `apps/mobile/ios/MoxxyLiveActivityExtension/MoxxyLiveActivityWidget.swift`.
+- [med, mobile, RESOLVED 2026-07-02] Moxxy Mobile active turns now reconcile
+  missed lifecycle completion pushes from the runner's authoritative history,
+  so a foregrounded/reconnected phone does not keep showing Thinking/Live
+  Activity after desktop already received the final answer.
+  `packages/client-core/src/chat-store/store.ts`,
+  `apps/mobile/src/hooks/useGatewayStore.tsx`.
+- [med, mobile, RESOLVED 2026-07-02] Moxxy Mobile reconnect recovery now also
+  reconstructs missed turn starts from runner history and performs a one-shot
+  foreground/reconnect refresh even before `activeTurnId` is known, so Live
+  Activity can restart from authoritative state after the phone missed the
+  `runner.turn.started` push.
+  `packages/client-core/src/chat-store/store.ts`,
+  `apps/mobile/src/hooks/useGatewayStore.tsx`.
 
 ## Standing practices
 
@@ -85,6 +111,23 @@ or recorded-on-purpose decision.
   (re-discovers plugins, re-fires onInit daemons for the new session). Correct but
   not cheap; a warm-registry / session-pool reuse would make switching instant.
   `packages/cli/src/commands/run-tui.ts`.
+
+## Mobile / Live Activity
+
+- [med, mobile, PARTIALLY DONE] Moxxy Mobile's Live Activity can only update from
+  local JS while the app process is alive. Local backgrounding now flushes the
+  latest known active state, native duplicates are cleaned up, and foregrounded
+  clients can recover missed starts/completions from runner history, but if the
+  phone is already fully suspended before a desktop turn starts, iOS may pause
+  the WS client before any local ActivityKit update can be sent. Confirmed on
+  2026-07-02 with iPhone 17 Simulator: a desktop-gateway turn started while the
+  mobile app was locked produced runner/tool events, but no lock-screen Live
+  Activity or completion notification until the app was foregrounded. Remaining:
+  correct end-to-end background fidelity needs a push-backed ActivityKit update
+  path (per-activity push token + APNs update/end from a relay/host) or an
+  equivalent server-side bridge.
+  `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
+  `apps/mobile/ios/MoxxyMobileGateway/MoxxyLiveActivity.swift`.
 
 ## Runner / protocol & architecture
 

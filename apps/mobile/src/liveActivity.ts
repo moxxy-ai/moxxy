@@ -35,6 +35,7 @@ export type MoxxyLiveActivitySnapshot =
 
 export type MoxxyLiveActivityTransition =
   | { readonly kind: 'none' }
+  | { readonly kind: 'retain' }
   | { readonly kind: 'start-or-update'; readonly snapshot: ActiveMoxxyLiveActivitySnapshot }
   | {
       readonly kind: 'end';
@@ -92,7 +93,18 @@ export function deriveMoxxyLiveActivitySnapshot(input: {
     };
   }
 
-  const subagents = latestSubagentGroup(input.transcript);
+  const hasStreamingResponse =
+    input.state.streamingText.trim().length > 0 || Boolean(latestStreamingAssistant(input.transcript));
+  if (hasStreamingResponse) {
+    return {
+      ...base,
+      phase: 'working',
+      progress: 0.45,
+      detail: 'Writing response',
+    };
+  }
+
+  const subagents = latestActiveSubagentGroup(input.transcript);
   if (subagents?.status === 'running') {
     return {
       ...base,
@@ -105,12 +117,13 @@ export function deriveMoxxyLiveActivitySnapshot(input: {
 
   const tool = latestRunningTool(input.transcript);
   if (tool) {
+    const toolDisplay = liveActivityToolDisplay(tool.name);
     return {
       ...base,
       phase: 'tool',
       progress: 0.55,
-      detail: `Running ${tool.name}`,
-      currentTool: tool.name,
+      detail: toolDisplay.detail,
+      currentTool: toolDisplay.badge,
     };
   }
 
@@ -136,8 +149,8 @@ export function deriveMoxxyLiveActivitySnapshot(input: {
     return {
       ...base,
       phase: 'working',
-      progress: input.state.streamingText.trim().length > 0 ? 0.45 : 0.35,
-      detail: input.state.streamingText.trim().length > 0 ? 'Writing response' : 'Thinking',
+      progress: 0.35,
+      detail: 'Thinking',
     };
   }
 
@@ -151,6 +164,7 @@ export function deriveMoxxyLiveActivityTransition(
 ): MoxxyLiveActivityTransition {
   if (current.active) return { kind: 'start-or-update', snapshot: current };
   if (!previous?.active) return { kind: 'none' };
+  if (current.reason === 'disconnected') return { kind: 'retain' };
 
   const failed = lastRenderedItem(transcript)?.kind === 'error' || latestSubagentGroup(transcript)?.status === 'failed';
   const snapshot: ActiveMoxxyLiveActivitySnapshot = {
@@ -190,6 +204,13 @@ export function planMoxxyLiveActivitySync(input: {
   const dueAt = input.lastSentAt + input.minUpdateMs;
   if (input.now >= dueAt) return { kind: 'send' };
   return { kind: 'defer', dueAt };
+}
+
+export function selectMoxxyLiveActivityBackgroundFlush(input: {
+  readonly pending: ActiveMoxxyLiveActivitySnapshot | null;
+  readonly latestActive: ActiveMoxxyLiveActivitySnapshot | null;
+}): ActiveMoxxyLiveActivitySnapshot | null {
+  return input.pending ?? input.latestActive;
 }
 
 export function createMoxxyLiveActivityClient(options: {
@@ -238,6 +259,9 @@ function snapshotKey(snapshot: MoxxyLiveActivitySnapshot): string {
   if (!snapshot.active) return `inactive:${snapshot.reason}`;
   return [
     snapshot.sessionId,
+    snapshot.workspaceId,
+    snapshot.title,
+    snapshot.subtitle,
     snapshot.phase,
     snapshot.detail,
     snapshot.currentTool ?? '',
@@ -253,15 +277,41 @@ function isUrgent(
   if (next.phase === 'waiting' && previous.phase !== 'waiting') return true;
   if (next.phase === 'failed' || next.phase === 'completed') return true;
   if (previous.sessionId !== next.sessionId) return true;
+  if (previous.workspaceId !== next.workspaceId) return true;
+  if (previous.title !== next.title) return true;
+  if (previous.subtitle !== next.subtitle) return true;
   return false;
 }
 
 function baseSnapshot(state: MobileState): ActiveMoxxyLiveActivitySnapshot {
   const session = state.session ?? {};
-  const workspaceId = state.activeWorkspaceId ?? textOf(session.workspaceId, textOf(session.id, 'workspace'));
-  const sessionId = textOf(session.id, workspaceId);
-  const title = truncate(textOf(session.name, textOf(session.title, 'Moxxy is working')), 48);
-  const subtitle = truncate(textOf(session.workspaceName, textOf(session.workspaceTitle, 'Moxxy')), 48);
+  const selectedSession = findRecordById(state.sessions, state.activeWorkspaceId);
+  const sessionId = textOf(session.id, textOf(selectedSession?.id, state.activeWorkspaceId ?? 'workspace'));
+  const workspaceId = textOf(
+    selectedSession?.workspaceId,
+    textOf(session.workspaceId, state.activeWorkspaceId ?? sessionId),
+  );
+  const workspace = findRecordById(state.workspaces, workspaceId);
+  const title = truncate(
+    textOf(
+      selectedSession?.name,
+      textOf(
+        selectedSession?.firstPrompt,
+        textOf(session.name, textOf(session.title, 'Moxxy is working')),
+      ),
+    ),
+    48,
+  );
+  const subtitle = truncate(
+    textOf(
+      workspace?.name,
+      textOf(
+        workspace?.title,
+        textOf(session.workspaceName, textOf(session.workspaceTitle, 'Moxxy')),
+      ),
+    ),
+    48,
+  );
 
   return {
     active: true,
@@ -280,8 +330,27 @@ function baseSnapshot(state: MobileState): ActiveMoxxyLiveActivitySnapshot {
 function latestRunningTool(transcript: ReadonlyArray<TranscriptItem>): ToolGroupTranscriptItem['tools'][number] | null {
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const item = transcript[index];
+    if (isToolBoundary(item)) return null;
     if (item?.kind !== 'tool-group') continue;
     return item.tools.find((tool) => tool.status === 'running') ?? null;
+  }
+  return null;
+}
+
+function latestStreamingAssistant(transcript: ReadonlyArray<TranscriptItem>): TranscriptItem | null {
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const item = transcript[index];
+    if (item?.kind === 'assistant') return item.streaming ? item : null;
+    if (item?.kind === 'user' || item?.kind === 'error') return null;
+  }
+  return null;
+}
+
+function latestActiveSubagentGroup(transcript: ReadonlyArray<TranscriptItem>): SubagentGroupTranscriptItem | null {
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    const item = transcript[index];
+    if (isToolBoundary(item)) return null;
+    if (item?.kind === 'subagent-group') return item;
   }
   return null;
 }
@@ -292,6 +361,10 @@ function latestSubagentGroup(transcript: ReadonlyArray<TranscriptItem>): Subagen
     if (item?.kind === 'subagent-group') return item;
   }
   return null;
+}
+
+function isToolBoundary(item: TranscriptItem | undefined): boolean {
+  return item?.kind === 'assistant' || item?.kind === 'user' || item?.kind === 'error';
 }
 
 function lastRenderedItem(transcript: ReadonlyArray<TranscriptItem>): TranscriptItem | null {
@@ -307,6 +380,78 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 1)}…`;
 }
 
+function liveActivityToolDisplay(name: string): { readonly badge: string; readonly detail: string } {
+  const raw = name.trim() || 'Tool';
+  const action = normalizedToolAction(raw);
+  const lowerRaw = raw.toLowerCase();
+  const lowerAction = action.toLowerCase();
+  if (lowerAction === 'bash' || lowerRaw === 'bash' || lowerAction.includes('shell')) {
+    return { badge: 'Bash', detail: 'Terminal · executing Bash' };
+  }
+  if (lowerRaw === 'web_fetch' || lowerAction === 'web fetch' || lowerAction.includes('web fetch')) {
+    return { badge: 'Web', detail: 'Web · fetching' };
+  }
+  if (lowerAction.includes('web search') || lowerAction.includes('search web')) {
+    return { badge: 'Web', detail: 'Web · searching' };
+  }
+  if (isMcpTool(raw)) {
+    return {
+      badge: mcpToolBadge(lowerRaw, lowerAction),
+      detail: truncate(`MCP · ${action}`, 42),
+    };
+  }
+  if (lowerAction === 'read' || lowerAction === 'write' || lowerAction === 'edit') {
+    return { badge: 'Files', detail: `Files · ${fileToolVerb(lowerAction)}` };
+  }
+  if (lowerAction === 'grep' || lowerAction === 'glob') {
+    return { badge: 'Search', detail: 'Files · searching' };
+  }
+  return {
+    badge: truncate(titleBadge(action), 10),
+    detail: truncate(`Tool · ${action}`, 42),
+  };
+}
+
+function normalizedToolAction(name: string): string {
+  const raw = name.trim() || 'Tool';
+  const parts = raw.split('__').filter(Boolean);
+  const value = parts.length >= 3 && parts[0] === 'mcp' ? parts[parts.length - 1]! : raw;
+  return truncate(value.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Tool', 30);
+}
+
+function isMcpTool(name: string): boolean {
+  const parts = name.split('__').filter(Boolean);
+  return parts.length >= 3 && parts[0] === 'mcp';
+}
+
+function mcpToolBadge(lowerRaw: string, lowerAction: string): string {
+  if (lowerAction.includes('browser') || lowerAction.includes('navigate')) return 'Browser';
+  if (lowerRaw.includes('pdf') || lowerAction.includes('pdf')) return 'PDF';
+  if (lowerAction.includes('bash') || lowerAction.includes('shell')) return 'Bash';
+  if (lowerAction.includes('read') || lowerAction.includes('write') || lowerAction.includes('file')) return 'Files';
+  if (lowerAction.includes('search') || lowerAction.includes('fetch')) return 'Web';
+  return 'MCP';
+}
+
+function titleBadge(value: string): string {
+  const first = value.split(' ')[0] || 'Tool';
+  return `${first.slice(0, 1).toUpperCase()}${first.slice(1)}`;
+}
+
+function fileToolVerb(action: string): string {
+  if (action === 'read') return 'reading';
+  if (action === 'write') return 'writing';
+  return 'editing';
+}
+
 function textOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function findRecordById(
+  records: ReadonlyArray<Record<string, unknown>>,
+  id: string | null,
+): Record<string, unknown> | null {
+  if (!id) return null;
+  return records.find((record) => textOf(record.id) === id) ?? null;
 }

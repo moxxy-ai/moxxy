@@ -4,6 +4,9 @@ import Foundation
 @available(iOS 16.1, *)
 struct MoxxyActivityAttributes: ActivityAttributes {
   struct ContentState: Codable, Hashable {
+    var workspaceId: String?
+    var title: String?
+    var subtitle: String?
     var phase: String
     var detail: String
     var currentTool: String?

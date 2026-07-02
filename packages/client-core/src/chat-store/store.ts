@@ -104,7 +104,6 @@ import {
   buildSnapshot,
   createSlot,
   EMPTY_QUEUE,
-  EMPTY_SNAPSHOT,
   INITIAL_LOADING_SNAPSHOT,
   type ChatSnapshot,
   type QueuedTurn,
@@ -385,6 +384,33 @@ class ChatStore {
     }
   }
 
+  /** Best-effort recovery for thin clients that missed non-persisted lifecycle
+   *  pushes while backgrounded/reconnecting. Pull the latest runner window,
+   *  append any tail events we missed, and clear the active turn if the
+   *  authoritative log now shows that same turn reached a terminal row. */
+  async refreshLatest(workspaceId: string): Promise<void> {
+    const slot = this.ensure(workspaceId);
+    if (!this.persistence) return;
+    const activeTurnId = slot.rt.activeTurnId;
+    const epoch = slot.resetEpoch;
+    const runner = await this.collectRunnerInitial(workspaceId);
+    if (slot.resetEpoch !== epoch || !runner) return;
+
+    let changed = this.appendFreshTail(slot, runner.events);
+    if (activeTurnId && terminalEventForTurn(runner.events, activeTurnId)) {
+      changed = applyAction(slot.rt, { type: 'turn_complete', turnId: activeTurnId, error: null }) || changed;
+    }
+    const openTurnId = latestOpenTurnId(runner.events);
+    if (!slot.rt.activeTurnId && openTurnId) {
+      changed = applyAction(slot.rt, { type: 'send_started', turnId: openTurnId }) || changed;
+    }
+    if (!changed) return;
+    if (this.activeId === workspaceId) slot.lastSeenRev = slot.rt.rev;
+    slot.snap = null;
+    this.unreadDirty = true;
+    this.emit();
+  }
+
   /**
    * Page the RUNNER's authoritative log into a window of at least `minRendered`
    * RENDERED events (newest-first), filtering each raw page with
@@ -443,6 +469,19 @@ class ChatStore {
       slot.rt.log.prepend(fresh);
       for (const e of fresh) slot.rt.seenIds.add(e.id);
     }
+  }
+
+  private appendFreshTail(slot: Slot, events: ReadonlyArray<MoxxyEvent>): boolean {
+    const maxSeq = maxEventSeq(slot.rt.log.toArray());
+    const fresh = uniqueEventsById(events)
+      .filter((event) => !slot.rt.seenIds.has(event.id))
+      .filter((event) => maxSeq === null || eventSeq(event) > maxSeq)
+      .sort((a, b) => eventSeq(a) - eventSeq(b));
+    let changed = false;
+    for (const event of fresh) {
+      changed = applyAction(slot.rt, { type: 'event', event }) || changed;
+    }
+    return changed;
   }
 
   // ---- write side --------------------------------------------------------
@@ -579,3 +618,42 @@ class ChatStore {
 }
 
 export const chatStore = new ChatStore();
+
+function eventSeq(event: MoxxyEvent): number {
+  return typeof event.seq === 'number' && Number.isFinite(event.seq) ? event.seq : Number.NEGATIVE_INFINITY;
+}
+
+function maxEventSeq(events: ReadonlyArray<MoxxyEvent>): number | null {
+  let max: number | null = null;
+  for (const event of events) {
+    const seq = eventSeq(event);
+    if (seq === Number.NEGATIVE_INFINITY) continue;
+    max = max === null ? seq : Math.max(max, seq);
+  }
+  return max;
+}
+
+function terminalEventForTurn(events: ReadonlyArray<MoxxyEvent>, turnId: string): MoxxyEvent | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (event.turnId !== turnId) continue;
+    if (event.type === 'assistant_message') return event.stopReason === 'tool_use' ? null : event;
+    if (event.type === 'abort') return event;
+    if (event.type === 'error') return event.kind === 'fatal' ? event : null;
+  }
+  return null;
+}
+
+function latestOpenTurnId(events: ReadonlyArray<MoxxyEvent>): string | null {
+  const turnId = latestTurnId(events);
+  if (!turnId) return null;
+  return terminalEventForTurn(events, turnId) ? null : turnId;
+}
+
+function latestTurnId(events: ReadonlyArray<MoxxyEvent>): string | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const turnId = events[index]?.turnId;
+    if (typeof turnId === 'string' && turnId.length > 0) return turnId;
+  }
+  return null;
+}
