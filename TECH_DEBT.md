@@ -45,6 +45,13 @@ or recorded-on-purpose decision.
   Activity after desktop already received the final answer.
   `packages/client-core/src/chat-store/store.ts`,
   `apps/mobile/src/hooks/useGatewayStore.tsx`.
+- [med, mobile, RESOLVED 2026-07-02] Moxxy Mobile reconnect recovery now also
+  reconstructs missed turn starts from runner history and performs a one-shot
+  foreground/reconnect refresh even before `activeTurnId` is known, so Live
+  Activity can restart from authoritative state after the phone missed the
+  `runner.turn.started` push.
+  `packages/client-core/src/chat-store/store.ts`,
+  `apps/mobile/src/hooks/useGatewayStore.tsx`.
 
 ## Standing practices
 
@@ -97,12 +104,16 @@ or recorded-on-purpose decision.
 - [med, mobile, PARTIALLY DONE] Moxxy Mobile's Live Activity can only update from
   local JS while the app process is alive. Local backgrounding now flushes the
   latest known active state, native duplicates are cleaned up, and foregrounded
-  clients can recover a missed completion from runner history, but if the phone
-  is already fully suspended before a desktop turn starts, iOS may pause the WS
-  client before any local ActivityKit update can be sent. Remaining: correct
-  end-to-end background fidelity needs a push-backed ActivityKit update path
-  (per-activity push token + APNs update/end from a relay/host) or an equivalent
-  server-side bridge. `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
+  clients can recover missed starts/completions from runner history, but if the
+  phone is already fully suspended before a desktop turn starts, iOS may pause
+  the WS client before any local ActivityKit update can be sent. Confirmed on
+  2026-07-02 with iPhone 17 Simulator: a desktop-gateway turn started while the
+  mobile app was locked produced runner/tool events, but no lock-screen Live
+  Activity or completion notification until the app was foregrounded. Remaining:
+  correct end-to-end background fidelity needs a push-backed ActivityKit update
+  path (per-activity push token + APNs update/end from a relay/host) or an
+  equivalent server-side bridge.
+  `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
   `apps/mobile/ios/MoxxyMobileGateway/MoxxyLiveActivity.swift`.
 
 ## Runner / protocol & architecture

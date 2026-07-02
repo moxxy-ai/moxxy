@@ -93,6 +93,8 @@ describe('mobile app build config', () => {
 
     expect(gatewayStore).toContain('ACTIVE_TURN_RECOVERY_INITIAL_MS');
     expect(gatewayStore).toContain('ACTIVE_TURN_RECOVERY_INTERVAL_MS');
+    expect(gatewayStore).toContain('refresh();');
+    expect(gatewayStore).toMatch(/if\s*\(\s*coreChat\.activeTurnId\s*\)/);
     expect(gatewayStore).toMatch(/setTimeout\(\s*\(\)\s*=>[\s\S]*ACTIVE_TURN_RECOVERY_INITIAL_MS/);
     expect(gatewayStore).toMatch(/setInterval\(\s*refresh\s*,\s*ACTIVE_TURN_RECOVERY_INTERVAL_MS\s*\)/);
     expect(gatewayStore).toMatch(/chatStore\s*\.\s*refreshLatest\(\s*workspaceId\s*\)/);

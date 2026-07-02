@@ -400,6 +400,39 @@ describe('chatStore history loading', () => {
     expect(snap.activeTurnId).toBeNull();
   });
 
+  it('refreshes latest history and restores an active turn when the start push was missed', async () => {
+    const id = ws();
+    const previousTurn = 'previous-turn';
+    const missedTurn = 'missed-start-turn';
+    const previousPrompt = userPrompt('old question', previousTurn);
+    const previousAnswer = assistant('old answer', previousTurn);
+    const prompt = userPrompt('search the web', missedTurn);
+    const toolRequest = evt('tool_call_requested', {
+      turnId: missedTurn,
+      callId: 'call-missed-start',
+      name: 'web_fetch',
+      input: { url: 'https://example.com' },
+    });
+
+    chatStore.setPersistence(
+      pagerFor([previousPrompt, previousAnswer, prompt, toolRequest]).persistence,
+    );
+    chatStore.dispatch(id, { type: 'event', event: previousPrompt });
+    chatStore.dispatch(id, { type: 'event', event: previousAnswer });
+
+    await chatStore.refreshLatest(id);
+
+    const snap = chatStore.getChat(id);
+    expect(snap.events.map((event) => event.id)).toEqual([
+      previousPrompt.id,
+      previousAnswer.id,
+      prompt.id,
+      toolRequest.id,
+    ]);
+    expect(snap.sending).toBe(true);
+    expect(snap.activeTurnId).toBe(missedTurn);
+  });
+
   it('does not clear an active turn when latest recovered history is still mid-tool loop', async () => {
     const id = ws();
     const turnId = 'still-running-turn';

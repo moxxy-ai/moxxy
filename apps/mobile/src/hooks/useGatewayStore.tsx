@@ -145,10 +145,11 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
   });
 
   useEffect(() => {
-    if (!workspaceId || !connected || !coreChat.activeTurnId) return;
+    if (!workspaceId || !connected) return;
     let cancelled = false;
     let inFlight = false;
     let interval: ReturnType<typeof setInterval> | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     const refresh = () => {
       if (cancelled || inFlight) return;
       inFlight = true;
@@ -160,16 +161,19 @@ function useConnectedGatewayStoreValue(pairing: PairingState) {
         });
     };
 
-    const timeout = setTimeout(() => {
-      refresh();
-      interval = setInterval(refresh, ACTIVE_TURN_RECOVERY_INTERVAL_MS);
-    }, ACTIVE_TURN_RECOVERY_INITIAL_MS);
+    refresh();
+    if (coreChat.activeTurnId) {
+      timeout = setTimeout(() => {
+        refresh();
+        interval = setInterval(refresh, ACTIVE_TURN_RECOVERY_INTERVAL_MS);
+      }, ACTIVE_TURN_RECOVERY_INITIAL_MS);
+    }
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') refresh();
     });
     return () => {
       cancelled = true;
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       if (interval) clearInterval(interval);
       subscription.remove();
     };
