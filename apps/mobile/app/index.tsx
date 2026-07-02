@@ -29,12 +29,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export default function HomeScreen() {
   const store = useGatewayStore();
-  // No blocking gateway loader. A neutral backdrop only while the persisted
-  // gateway is read from storage (sub-second); onboarding when nothing is
-  // stored; otherwise the full shell — connected or not. Connection state is
-  // shown inline inside the shell, never as a screen that traps the user.
+  // A neutral backdrop only while the persisted gateway is read from storage
+  // (sub-second). Until the bridge is actually open, keep the pairing surface
+  // as the first screen so stale stored tokens do not drop users into chat.
   if (store.pairing.hydrating) return <Backdrop />;
-  if (!store.pairing.token) return <Onboarding />;
+  if (!store.pairing.transportReady) return <Onboarding />;
   return <Chat />;
 }
 
