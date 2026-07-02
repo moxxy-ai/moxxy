@@ -9,10 +9,10 @@
  * idle preview lines) since nothing else consumes them.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { api } from '@moxxy/client-core';
-import { useChat } from '@moxxy/client-core';
 import { MarkdownBody } from '@/chat/MarkdownBody';
+import { ImagePreviewModal } from '@/chat/image-preview/ImagePreviewModal';
 import { Dot, LogoMark } from './focus-primitives';
 import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';
 import { useLatestBlock } from './useLatestBlock';
@@ -20,6 +20,8 @@ import type { LatestBlock } from './useLatestBlock';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
 import type { FocusAskPrompt } from './useFocusAsk';
+import { FocusAttachmentStrip } from './FocusAttachmentStrip';
+import { useFocusMiniTextComposer } from './useFocusMiniTextComposer';
 
 export function MiniText({
   workspaceId,
@@ -34,70 +36,93 @@ export function MiniText({
    *  opening the panel on mic-stop shows progress, not a stale message. */
   readonly transcribing?: boolean;
 }): JSX.Element {
-  const [draft, setDraft] = useState('');
-  const chat = useChat(workspaceId);
   const latest = useLatestBlock(workspaceId);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const focusInput = useCallback(() => inputRef.current?.focus(), []);
+  const composer = useFocusMiniTextComposer({ workspaceId, focusInput });
 
   // Keep the freshest text in view as the answer streams / transcript lands.
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [latest?.text, chat.sending, transcribing]);
-
-  const submit = (): void => {
-    if (!workspaceId || !draft.trim()) return;
-    void chat.send(draft.trim());
-    setDraft('');
-  };
+  }, [latest?.text, composer.sending, transcribing]);
 
   // Show a "working" indicator while transcribing speech, or while a turn is
   // in flight but the assistant hasn't produced any text yet (otherwise the
   // user's own prompt would sit there with no sign of progress).
   const showThinking =
-    transcribing || (chat.sending && (!latest || latest.who === 'user'));
+    transcribing || (composer.sending && (!latest || latest.who === 'user'));
 
   return (
-    <div style={style.panel}>
-      <MiniHeader title="Text" onBack={onBack} />
-      <div ref={bodyRef} style={style.panelBody}>
-        {ask && <FocusAskCard prompt={ask} variant="panel" />}
-        {latest && <LatestMessage block={latest} />}
-        {showThinking && (
-          <ThinkingLine label={transcribing ? 'transcribing…' : 'working…'} />
-        )}
-        {!latest && !showThinking && (
-          <IdleLine
-            label={workspaceId ? 'Type a quick prompt below.' : 'No active workspace.'}
+    <>
+      <div style={style.panel}>
+        <MiniHeader title="Text" onBack={onBack} />
+        <div ref={bodyRef} style={style.panelBody}>
+          {ask && <FocusAskCard prompt={ask} variant="panel" />}
+          {latest && <LatestMessage block={latest} />}
+          {showThinking && (
+            <ThinkingLine label={transcribing ? 'transcribing…' : 'working…'} />
+          )}
+          {!latest && !showThinking && (
+            <IdleLine
+              label={workspaceId ? 'Type a quick prompt below.' : 'No active workspace.'}
+            />
+          )}
+        </div>
+        <div style={style.composerDock}>
+          <FocusAttachmentStrip
+            attachments={composer.attachments}
+            previews={composer.attachmentPreviews}
+            onPreview={composer.imagePreview.open}
+            onRemove={composer.removeAttachment}
           />
-        )}
+          {composer.attachError && (
+            <div role="status" style={style.focusAttachError}>
+              {composer.attachError}
+            </div>
+          )}
+          <form
+            style={style.composer}
+            onSubmit={(e) => {
+              e.preventDefault();
+              composer.submit();
+            }}
+          >
+            <input
+              ref={inputRef}
+              autoFocus
+              aria-label="Ask Moxxy"
+              placeholder={
+                workspaceId
+                  ? composer.attachments.length > 0
+                    ? 'Ask about the attached image…'
+                    : 'Ask Moxxy…'
+                  : 'No active workspace'
+              }
+              value={composer.draft}
+              onChange={(e) => composer.setDraft(e.target.value)}
+              onPaste={composer.onPaste}
+              disabled={!workspaceId}
+              style={style.input}
+            />
+            <button
+              type="submit"
+              aria-label="Send"
+              disabled={!composer.canSubmit}
+              style={{
+                ...style.send,
+                opacity: composer.canSubmit ? 1 : 0.45,
+                cursor: composer.canSubmit ? 'pointer' : 'not-allowed',
+              }}
+            >
+              <SendIcon />
+            </button>
+          </form>
+        </div>
       </div>
-      <form
-        style={style.composer}
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <input
-          autoFocus
-          aria-label="Ask Moxxy"
-          placeholder={workspaceId ? 'Ask Moxxy…' : 'No active workspace'}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          disabled={!workspaceId}
-          style={style.input}
-        />
-        <button
-          type="submit"
-          aria-label="Send"
-          disabled={!workspaceId || !draft.trim()}
-          style={style.send}
-        >
-          <SendIcon />
-        </button>
-      </form>
-    </div>
+      <ImagePreviewModal image={composer.imagePreview.image} onClose={composer.imagePreview.close} />
+    </>
   );
 }
 

@@ -3,6 +3,11 @@
 /** The user's color-scheme choice. `system` follows the OS (the default). */
 export type ThemePreference = 'light' | 'dark' | 'system';
 
+export interface FocusMiniTextSize {
+  width: number;
+  height: number;
+}
+
 export interface DesktopPrefs {
   onboardingComplete: boolean;
   clerkUserId: string | null;
@@ -20,5 +25,8 @@ export interface DesktopPrefs {
    *  `nativeTheme.themeSource` so window chrome / prefers-color-scheme agree.
    *  Defaults to `system`. */
   theme: ThemePreference;
+  /** Last native size chosen for the Focus Mode mini text composer.
+   *  Null means the renderer should use its built-in default. */
+  focusMiniTextSize: FocusMiniTextSize | null;
   version: 1;
 }

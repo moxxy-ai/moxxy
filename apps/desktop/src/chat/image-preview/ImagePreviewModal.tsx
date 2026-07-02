@@ -1,4 +1,11 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@moxxy/desktop-ui';
 import { imagePreviewSrc, type ImagePreviewItem } from './types';
@@ -6,9 +13,47 @@ import { imagePreviewSrc, type ImagePreviewItem } from './types';
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 3;
 const SCALE_STEP = 0.25;
+const CENTER_PAN = Object.freeze({ x: 0, y: 0 });
 
 function clampScale(value: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
+}
+
+interface PanPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+interface DragState {
+  readonly startPointer: PanPoint;
+  readonly startPan: PanPoint;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function samePan(a: PanPoint, b: PanPoint): boolean {
+  return a.x === b.x && a.y === b.y;
+}
+
+function clampPan(
+  next: PanPoint,
+  scale: number,
+  image: HTMLImageElement | null,
+  viewport: HTMLDivElement | null,
+): PanPoint {
+  if (scale <= 1 || !image || !viewport) return CENTER_PAN;
+  const imageWidth = image.clientWidth || image.naturalWidth;
+  const imageHeight = image.clientHeight || image.naturalHeight;
+  const viewportWidth = viewport.clientWidth;
+  const viewportHeight = viewport.clientHeight;
+  const maxX = Math.max(0, (imageWidth * scale - viewportWidth) / 2);
+  const maxY = Math.max(0, (imageHeight * scale - viewportHeight) / 2);
+  return {
+    x: clamp(next.x, -maxX, maxX),
+    y: clamp(next.y, -maxY, maxY),
+  };
 }
 
 export function ImagePreviewModal({
@@ -19,10 +64,27 @@ export function ImagePreviewModal({
   readonly onClose: () => void;
 }): JSX.Element | null {
   const [scale, setScale] = useState(1);
+  const [pan, setPan] = useState<PanPoint>(CENTER_PAN);
+  const [dragging, setDragging] = useState(false);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
 
   useEffect(() => {
     setScale(1);
+    setPan(CENTER_PAN);
+    setDragging(false);
+    dragRef.current = null;
   }, [image]);
+
+  useEffect(() => {
+    setPan((current) => {
+      const next = scale <= 1
+        ? CENTER_PAN
+        : clampPan(current, scale, imageRef.current, viewportRef.current);
+      return samePan(current, next) ? current : next;
+    });
+  }, [scale]);
 
   useEffect(() => {
     if (!image) return;
@@ -33,9 +95,54 @@ export function ImagePreviewModal({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [image, onClose]);
 
+  useEffect(() => {
+    if (!dragging) return undefined;
+    const onMove = (event: MouseEvent): void => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      event.preventDefault();
+      setPan(
+        clampPan(
+          {
+            x: drag.startPan.x + event.clientX - drag.startPointer.x,
+            y: drag.startPan.y + event.clientY - drag.startPointer.y,
+          },
+          scale,
+          imageRef.current,
+          viewportRef.current,
+        ),
+      );
+    };
+    const onUp = (): void => {
+      dragRef.current = null;
+      setDragging(false);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [dragging, scale]);
+
+  const beginDrag = useCallback(
+    (event: ReactMouseEvent<HTMLImageElement>): void => {
+      if (scale <= 1 || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      dragRef.current = {
+        startPointer: { x: event.clientX, y: event.clientY },
+        startPan: pan,
+      };
+      setDragging(true);
+    },
+    [pan, scale],
+  );
+
   if (!image) return null;
 
   const percent = `${Math.round(scale * 100)}%`;
+  const canPan = scale > 1;
   const modal = (
     <div
       data-testid="image-preview-backdrop"
@@ -51,6 +158,7 @@ export function ImagePreviewModal({
       }}
     >
       <div
+        ref={viewportRef}
         role="dialog"
         aria-modal="true"
         aria-label={image.name}
@@ -66,18 +174,23 @@ export function ImagePreviewModal({
         }}
       >
         <img
+          ref={imageRef}
           src={imagePreviewSrc(image)}
           alt={image.name}
           draggable={false}
+          onMouseDown={beginDrag}
           style={{
             maxWidth: 'min(100%, 1440px)',
             maxHeight: '100%',
             objectFit: 'contain',
-            transform: `scale(${scale})`,
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
             transformOrigin: 'center',
-            transition: 'transform 140ms ease',
+            transition: dragging ? 'none' : 'transform 140ms ease',
             borderRadius: 8,
             boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
+            cursor: dragging ? 'grabbing' : canPan ? 'grab' : 'default',
+            userSelect: 'none',
+            willChange: canPan ? 'transform' : undefined,
           }}
         />
       </div>

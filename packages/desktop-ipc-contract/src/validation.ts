@@ -136,7 +136,16 @@ const webhookId = z.string().min(1).max(256);
 const sessionRef = z.string().min(1).max(256).nullable();
 const focusDelta = z.number().finite().min(-10_000).max(10_000);
 const focusScreenPoint = z.number().finite().min(-100_000).max(100_000);
-const focusSize = z.number().finite().int().min(40).max(800);
+const FOCUS_WINDOW_MAX_SIZE = 1600;
+const FOCUS_MINI_TEXT_MIN_WIDTH = 320;
+const FOCUS_MINI_TEXT_MIN_HEIGHT = 260;
+const focusSize = z.number().finite().int().min(40).max(FOCUS_WINDOW_MAX_SIZE);
+const focusMiniTextSize = z
+  .object({
+    width: z.number().finite().int().min(FOCUS_MINI_TEXT_MIN_WIDTH).max(FOCUS_WINDOW_MAX_SIZE),
+    height: z.number().finite().int().min(FOCUS_MINI_TEXT_MIN_HEIGHT).max(FOCUS_WINDOW_MAX_SIZE),
+  })
+  .strict();
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // No-arg, but spawns a child process (npm install) — pin the payload to
@@ -413,6 +422,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       signedInAt: z.number().nullable().optional(),
       mobileGatewayEnabled: z.boolean().optional(),
       theme: z.enum(['light', 'dark', 'system']).optional(),
+      focusMiniTextSize: focusMiniTextSize.nullable().optional(),
     })
     .strict(),
   // Mobile-gateway control. Both no-arg variants pin the payload to "nothing"

@@ -18,8 +18,8 @@
  *      (the receive side of the bidirectional sync).
  */
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
@@ -37,6 +37,7 @@ interface FakeApiOptions {
   readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
   readonly hasTranscriber?: boolean;
   readonly theme?: ThemePreference;
+  readonly focusMiniTextSize?: { readonly width: number; readonly height: number } | null;
 }
 
 interface FakeMedia {
@@ -77,6 +78,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const historyEvents = options.historyEvents ?? [];
   const hasTranscriber = options.hasTranscriber ?? true;
   const theme = options.theme ?? 'system';
+  const focusMiniTextSize = options.focusMiniTextSize ?? null;
 
   __setApiOverride({
     invoke: ((channel: string, args: unknown) => {
@@ -118,14 +120,31 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       if (channel === 'session.runTurn') {
         return Promise.resolve({ turnId: 't-1' });
       }
+      if (channel === 'session.saveImageAttachment') {
+        return Promise.resolve({ path: '/tmp/moxxy-focus/screen.png', name: 'screen.png' });
+      }
+      if (channel === 'session.previewAttachment') {
+        return Promise.resolve({
+          kind: 'image',
+          name: 'screen.png',
+          mediaType: 'image/png',
+          base64: 'iVBORw0KGgo=',
+          byteLength: 8,
+        });
+      }
       if (channel === 'session.hasTranscriber') {
         return Promise.resolve(hasTranscriber);
       }
       if (channel === 'prefs.read') {
-        return Promise.resolve({ theme });
+        return Promise.resolve({ theme, focusMiniTextSize });
       }
       if (channel === 'prefs.update') {
-        return Promise.resolve({ theme: (args as { theme?: ThemePreference }).theme ?? theme });
+        return Promise.resolve({
+          theme: (args as { theme?: ThemePreference }).theme ?? theme,
+          focusMiniTextSize:
+            (args as { focusMiniTextSize?: { width: number; height: number } | null })
+              .focusMiniTextSize ?? focusMiniTextSize,
+        });
       }
       return Promise.resolve(undefined);
     }) as never,
@@ -184,6 +203,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   for (const ask of askStore.getAll()) askStore.resolve(ask.requestId);
   cleanup();
   __setApiOverride(null);
@@ -192,6 +212,21 @@ afterEach(() => {
 
 const themeAttr = (): string | undefined => document.documentElement.dataset.theme;
 const focusCss = (): string => document.getElementById('focus-keyframes')?.textContent ?? '';
+
+function pasteImage(input: HTMLElement): void {
+  const file = new File(['focus image'], 'screen.png', { type: 'image/png' });
+  fireEvent.paste(input, {
+    clipboardData: {
+      items: [
+        {
+          kind: 'file',
+          type: 'image/png',
+          getAsFile: () => file,
+        },
+      ],
+    },
+  });
+}
 
 describe('FocusWidget stages', () => {
   it('renders the inactive square with a visible activate button', () => {
@@ -478,6 +513,114 @@ describe('FocusWidget bidirectional sync', () => {
       expect((turnCall!.args as { workspaceId: string }).workspaceId).toBe(
         'ws-test',
       );
+    });
+  });
+
+  it('pasting an image in mini-text stages a preview attachment and enables image-only send', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+    pasteImage(input);
+
+    await waitFor(() => {
+      expect(spy.invokes.some((i) => i.channel === 'session.saveImageAttachment')).toBe(true);
+      expect(screen.getByRole('button', { name: /preview screen\.png/i })).toBeTruthy();
+    });
+
+    const send = screen.getByRole('button', { name: /^send$/i }) as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+  });
+
+  it('sends staged mini-text image attachments and clears them after submit', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+    pasteImage(input);
+    await screen.findByRole('button', { name: /preview screen\.png/i });
+
+    fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
+
+    await waitFor(() => {
+      const turnCall = spy.invokes.find((i) => i.channel === 'session.runTurn');
+      expect(turnCall).toBeTruthy();
+      expect((turnCall!.args as { attachments?: ReadonlyArray<{ path: string; name: string }> }).attachments).toEqual([
+        { path: '/tmp/moxxy-focus/screen.png', name: 'screen.png' },
+      ]);
+    });
+    expect(screen.queryByRole('button', { name: /preview screen\.png/i })).toBeNull();
+  });
+
+  it('opens and removes staged mini-text image previews without leaving the panel', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    const input = await screen.findByPlaceholderText(/ask moxxy/i);
+    pasteImage(input);
+    const preview = await screen.findByRole('button', { name: /preview screen\.png/i });
+
+    fireEvent.click(preview);
+    expect(await screen.findByRole('dialog', { name: /screen\.png/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /close image preview/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: /remove screen\.png/i }));
+    expect(screen.queryByRole('button', { name: /preview screen\.png/i })).toBeNull();
+    expect(screen.getByPlaceholderText(/ask moxxy/i)).toBeTruthy();
+  });
+
+  it('uses the persisted mini-text size when opening the text panel', async () => {
+    const spy = installFakeApi({ focusMiniTextSize: { width: 720, height: 620 } });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    await waitFor(() => {
+      const resize = spy.invokes.find(
+        (i) =>
+          i.channel === 'focus.resize' &&
+          (i.args as { width?: number; height?: number }).width === 720 &&
+          (i.args as { width?: number; height?: number }).height === 620,
+      );
+      expect(resize).toBeTruthy();
+    });
+  });
+
+  it('debounces mini-text resize persistence through desktop prefs', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    await screen.findByPlaceholderText(/ask moxxy/i);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 900 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 700 });
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() => {
+      const update = spy.invokes.find(
+        (i) =>
+          i.channel === 'prefs.update' &&
+          (i.args as { focusMiniTextSize?: { width: number; height: number } }).focusMiniTextSize
+            ?.width === 900,
+      );
+      expect(update).toBeTruthy();
+      expect(update!.args).toMatchObject({ focusMiniTextSize: { width: 900, height: 700 } });
     });
   });
 

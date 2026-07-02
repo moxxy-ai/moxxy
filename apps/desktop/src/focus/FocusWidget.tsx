@@ -37,6 +37,10 @@ import { useTheme } from '@/lib/useTheme';
 import { useFocusTileGesture, type FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import { useInactiveReplyPreview } from './useInactiveReplyPreview';
 import { useFocusAsk } from './useFocusAsk';
+import {
+  FOCUS_MINI_TEXT_DEFAULT_SIZE,
+  useFocusMiniTextSize,
+} from './useFocusMiniTextSize';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
@@ -58,7 +62,7 @@ const SIZE: Record<Stage, { width: number; height: number }> = {
   active: { width: ACTIVE_WIDTH_WITH_MIC, height: 56 },
   // Taller default so a few lines of the latest message are readable
   // before the user even resizes; the panel scrolls + is drag-resizable.
-  'mini-text': { width: 380, height: 440 },
+  'mini-text': FOCUS_MINI_TEXT_DEFAULT_SIZE,
 };
 
 // ---- Top-level wrapper ---------------------------------------------------
@@ -93,6 +97,7 @@ function Surface({
   const chromePreview = askVisible ? null : preview;
   const previewVisible = chromePreview !== null;
   const activeWidth = hasTranscriber === false ? ACTIVE_WIDTH_WITHOUT_MIC : ACTIVE_WIDTH_WITH_MIC;
+  const miniTextSize = useFocusMiniTextSize(stage === 'mini-text');
   const openPreview = (): void => {
     dismissPreview();
     setStage('mini-text');
@@ -150,6 +155,9 @@ function Surface({
     let { width, height } = SIZE[stage];
     if (stage === 'active') {
       width = activeWidth;
+    } else if (stage === 'mini-text') {
+      width = miniTextSize.width;
+      height = miniTextSize.height;
     }
     if (stage === 'inactive' && askVisible) {
       width = INACTIVE_ASK_SIZE.width;
@@ -171,7 +179,7 @@ function Surface({
         if (placement?.horizontalAnchor) setHorizontalAnchor(placement.horizontalAnchor);
       })
       .catch(() => undefined);
-  }, [stage, activeWidth, previewVisible, askVisible]);
+  }, [stage, activeWidth, previewVisible, askVisible, miniTextSize.width, miniTextSize.height]);
 
   // Collapsing back to the inactive square hides the recording UI but the voice
   // recorder lives on the always-mounted Surface — so without explicitly

@@ -13,7 +13,7 @@ function samePreview(a: ImagePreviewItem | undefined, b: ImagePreviewItem): bool
 }
 
 export function useAttachmentImagePreviews(
-  workspaceId: string,
+  workspaceId: string | undefined,
   attachments: ReadonlyArray<ComposerAttachment>,
 ): ReadonlyMap<string, ImagePreviewItem> {
   const [previews, setPreviews] = useState<ReadonlyMap<string, ImagePreviewItem>>(

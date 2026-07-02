@@ -13,6 +13,14 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [low, focus, RESOLVED 2026-07-02] Focus Mode mini-chat no longer carries a
+  separate text-only composer path: pasted screenshots now reuse the desktop
+  attachment save/preview/send pipeline, zoomed image previews can be drag-panned,
+  and the mini-text panel remembers the user's native-resized size through local prefs.
+  `apps/desktop/src/focus/`, `apps/desktop/src/chat/image-preview/ImagePreviewModal.tsx`,
+  `apps/desktop/src/chat/composer/useComposerAttachments.ts`,
+  `packages/desktop-ipc-contract/src/{prefs,validation}.ts`,
+  `packages/desktop-host/src/{prefs,focus-window}.ts`.
 - [high, collab, RESOLVED 2026-07-01] Collaboration is now a SEPARATE feature on
   BOTH surfaces: the coordinator runs on its own dedicated `moxxy collab` runner
   (own Session + socket), never inside a chat session — no mode-flip, no team
