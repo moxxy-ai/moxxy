@@ -57,6 +57,7 @@ export { SynthesizerRegistry } from './registries/synthesizers.js';
 export { EmbedderRegistry } from './registries/embedders.js';
 export { IsolatorRegistry as ContributedIsolatorRegistry } from './registries/isolators.js';
 export { EventStoreRegistry } from './registries/event-stores.js';
+export { ReflectorRegistry } from './registries/reflectors.js';
 export { jsonlEventStore } from './sessions/jsonl-event-store.js';
 export type {
   EventStoreDef,

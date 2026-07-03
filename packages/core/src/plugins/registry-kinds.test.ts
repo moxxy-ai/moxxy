@@ -37,6 +37,7 @@ import { EmbedderRegistry } from '../registries/embedders.js';
 import { IsolatorRegistry } from '../registries/isolators.js';
 import { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
 import { EventStoreRegistry } from '../registries/event-stores.js';
+import { ReflectorRegistry } from '../registries/reflectors.js';
 import { RequirementRegistry } from '../requirements.js';
 import { HookDispatcherImpl } from './lifecycle.js';
 import { PluginHost } from './host.js';
@@ -87,6 +88,7 @@ const everyKindPlugin = definePlugin({
       readPage: async () => ({ events: [], prevCursor: null }),
     },
   ],
+  reflectors: [{ name: 'refl-1', reflect: async () => [] }],
 });
 
 function makeHost() {
@@ -108,6 +110,7 @@ function makeHost() {
     isolators: new IsolatorRegistry(),
     workflowExecutors: new WorkflowExecutorRegistry(),
     eventStores: new EventStoreRegistry(),
+    reflectors: new ReflectorRegistry(),
   };
   const requirements = new RequirementRegistry({
     tools: registries.tools,
@@ -147,6 +150,7 @@ function makeHost() {
     isolator: registries.isolators,
     workflowExecutor: registries.workflowExecutors,
     eventStore: registries.eventStores,
+    reflector: registries.reflectors,
   };
   return { host, byKind };
 }

@@ -1,0 +1,80 @@
+{
+  "name": "@moxxy/reflector-default",
+  "version": "0.26.0",
+  "description": "The default learning-loop reflector: watches finished turns and proposes memory/skill improvements as a one-time nudge on the next provider call — never a silent write. The model may act via memory_save/synthesize_skill, which still hit their own permission prompts.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "reflector",
+    "learning-loop",
+    "memory"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/reflector-default"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "reflector"
+    },
+    "requirements": [
+      {
+        "kind": "tool",
+        "name": "memory_save",
+        "state": "active",
+        "optional": true,
+        "hint": "Install @moxxy/plugin-memory so the model can act on memory proposals."
+      },
+      {
+        "kind": "tool",
+        "name": "synthesize_skill",
+        "state": "active",
+        "optional": true,
+        "hint": "synthesize_skill (bundled with the CLI) lets the model act on skill proposals."
+      }
+    ]
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/core": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

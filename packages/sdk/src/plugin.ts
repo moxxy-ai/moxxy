@@ -17,8 +17,9 @@ import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
 import type { EventStoreDef } from './event-store.js';
+import type { ReflectorDef } from './reflector.js';
 
-export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'surface' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor' | 'event-store';
+export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'surface' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor' | 'event-store' | 'reflector';
 
 export interface PluginSpec {
   readonly name: string;
@@ -53,6 +54,14 @@ export interface PluginSpec {
    * boundary, since the store sees every event). See {@link EventStoreDef}.
    */
   readonly eventStores?: ReadonlyArray<EventStoreDef>;
+  /**
+   * Reflector backends — the learning-loop block that watches a finished turn
+   * and *proposes* memory/skill improvements without silently writing. One
+   * active at a time, selected via `plugins.reflector.default`. NULLABLE: core
+   * seeds no floor, so reflection is opt-in — no registered reflector means the
+   * session never reflects. See {@link ReflectorDef}.
+   */
+  readonly reflectors?: ReadonlyArray<ReflectorDef>;
   readonly channels?: ReadonlyArray<ChannelDef>;
   /**
    * Interactive surfaces contributed by the plugin — long-lived panes a human

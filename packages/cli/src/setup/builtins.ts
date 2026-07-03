@@ -150,6 +150,7 @@ const CATEGORY_REGISTRIES: ReadonlyArray<{
   { category: 'viewRenderer', reg: (s) => s.viewRenderers },
   { category: 'tunnelProvider', reg: (s) => s.tunnelProviders },
   { category: 'eventStore', reg: (s) => s.eventStores },
+  { category: 'reflector', reg: (s) => s.reflectors },
 ];
 
 function buildCategoryViews(session: Session): ReadonlyArray<CategoryView> {

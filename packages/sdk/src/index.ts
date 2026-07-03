@@ -193,6 +193,11 @@ export type {
   SessionSource,
 } from './event-store.js';
 export { SESSION_SOURCES } from './event-store.js';
+export type {
+  ReflectorDef,
+  ReflectContext,
+  ReflectionProposal,
+} from './reflector.js';
 // Node-runtime helpers (writeFileAtomic*, moxxyHome/moxxyPath,
 // readRequestBody/bearerTokenMatches, channel-auth) are exported from the
 // './server' subpath, NOT the main barrel — they statically reach node:*
