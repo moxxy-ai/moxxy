@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { groupSimilarPrompts, runSkillsCommand, tokenize, type AuditEntry } from './skills.js';
+import { groupSimilarPrompts, runSkillsCommand, tokenize, usedLabel, type AuditEntry } from './skills.js';
 import type { ParsedArgv } from '../argv.js';
 
 // `removeAuditEntry` is module-private; we exercise it through the public
@@ -116,6 +116,15 @@ describe('tokenize', () => {
     expect(tokenize('Build a CLI for X')).toEqual(['build', 'cli', 'for']);
     expect(tokenize('snake_case-and-dashes')).toEqual(['snake_case-and-dashes']);
     expect(tokenize('go ok no a')).toEqual([]); // all under 3 chars
+  });
+});
+
+describe('usedLabel', () => {
+  it('renders a positive count as its number and everything else as a dash', () => {
+    expect(usedLabel(3)).toBe('3');
+    expect(usedLabel(1)).toBe('1');
+    expect(usedLabel(0)).toBe('-'); // recorded but never invoked
+    expect(usedLabel(undefined)).toBe('-'); // no usage entry at all
   });
 });
 

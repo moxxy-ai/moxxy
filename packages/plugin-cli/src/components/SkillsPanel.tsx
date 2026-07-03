@@ -19,12 +19,20 @@ export interface SkillsPanelProps {
    * tab strip stays hidden.
    */
   readonly mcpServers?: ReadonlyArray<McpServerSummary>;
+  /**
+   * Optional per-skill-name cross-session invocation counts (loaded from
+   * `~/.moxxy/skills/.meta/usage.json`). A `×N` badge is shown for any skill
+   * with a positive count; absent/zero entries render nothing. Best-effort:
+   * omitting this prop just hides the badges.
+   */
+  readonly usage?: Readonly<Record<string, number>>;
   /** Called when the user presses Esc inside the modal. */
   readonly onClose?: () => void;
 }
 
 const NAME_COL = 28;
 const SCOPE_COL = 10;
+const USED_COL = 6;
 const WINDOW = 15;
 const ORDER: ReadonlyArray<SkillScope> = ['user', 'project', 'builtin', 'plugin'];
 
@@ -35,6 +43,31 @@ interface Row {
   readonly name: string;
   readonly scope: string;
   readonly description: string;
+  /** Cross-session invocation count; a `×N` badge when > 0, hidden otherwise. */
+  readonly used?: number;
+}
+
+/**
+ * Build the ordered skill rows for the panel, threading in cross-session
+ * invocation counts keyed by skill name. Pure and exported so it can be
+ * unit-tested without an Ink render harness.
+ */
+export function buildSkillRows(
+  skills: ReadonlyArray<Skill>,
+  usage?: Readonly<Record<string, number>>,
+): Row[] {
+  const out: Row[] = [];
+  for (const s of orderByScope(skills)) {
+    const count = usage?.[s.frontmatter.name];
+    out.push({
+      key: `skill:${s.id}`,
+      name: s.frontmatter.name,
+      scope: s.scope,
+      description: s.frontmatter.description ?? '',
+      ...(count && count > 0 ? { used: count } : {}),
+    });
+  }
+  return out;
 }
 
 /**
@@ -42,22 +75,11 @@ interface Row {
  * list; Esc closes (owned by Modal). When MCP servers are present, a
  * tab strip lets the user flip between skills and MCP servers with ←/→.
  */
-export const SkillsPanel: React.FC<SkillsPanelProps> = ({ skills, mcpServers, onClose }) => {
+export const SkillsPanel: React.FC<SkillsPanelProps> = ({ skills, mcpServers, usage, onClose }) => {
   const hasMcp = !!mcpServers && mcpServers.length > 0;
   const [activeTab, setActiveTab] = React.useState<TabId>('skills');
 
-  const skillRows: Row[] = React.useMemo(() => {
-    const out: Row[] = [];
-    for (const s of orderByScope(skills)) {
-      out.push({
-        key: `skill:${s.id}`,
-        name: s.frontmatter.name,
-        scope: s.scope,
-        description: s.frontmatter.description ?? '',
-      });
-    }
-    return out;
-  }, [skills]);
+  const skillRows: Row[] = React.useMemo(() => buildSkillRows(skills, usage), [skills, usage]);
 
   const mcpRows: Row[] = React.useMemo(() => {
     if (!hasMcp) return [];
@@ -87,7 +109,7 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ skills, mcpServers, on
   const hints = '↑↓ navigate · PgUp/PgDn fast · g/G top/bottom';
   const slice = rows.slice(scroll.visible.start, scroll.visible.end);
   const termWidth = process.stdout.columns ?? 80;
-  const descWidth = Math.max(20, termWidth - NAME_COL - SCOPE_COL - 12);
+  const descWidth = Math.max(20, termWidth - NAME_COL - SCOPE_COL - USED_COL - 12);
 
   return (
     <Modal
@@ -117,6 +139,9 @@ export const SkillsPanel: React.FC<SkillsPanelProps> = ({ skills, mcpServers, on
             </Box>
             <Box width={descWidth}>
               <Text dimColor wrap="truncate">{oneLine(row.description)}</Text>
+            </Box>
+            <Box width={USED_COL} justifyContent="flex-end">
+              {row.used ? <Text dimColor>{`×${row.used}`}</Text> : null}
             </Box>
           </Box>
         );
