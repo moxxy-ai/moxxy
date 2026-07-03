@@ -627,12 +627,6 @@ importers:
       '@moxxy/plugin-vault':
         specifier: workspace:*
         version: link:../plugin-vault
-      '@moxxy/plugin-view':
-        specifier: workspace:*
-        version: link:../plugin-view
-      '@moxxy/plugin-voice-admin':
-        specifier: workspace:*
-        version: link:../plugin-voice-admin
       '@moxxy/plugin-webhooks':
         specifier: workspace:*
         version: link:../plugin-webhooks

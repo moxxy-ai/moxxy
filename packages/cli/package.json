@@ -100,8 +100,6 @@
     "@moxxy/plugin-telegram": "workspace:*",
     "@moxxy/plugin-terminal": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",
-    "@moxxy/plugin-view": "workspace:*",
-    "@moxxy/plugin-voice-admin": "workspace:*",
     "@moxxy/plugin-webhooks": "workspace:*",
     "@moxxy/plugin-workflows": "workspace:*",
     "@moxxy/runner": "workspace:*",

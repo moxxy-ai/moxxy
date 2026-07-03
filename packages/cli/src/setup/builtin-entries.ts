@@ -22,7 +22,6 @@ import {
   type MemoryStore,
 } from '@moxxy/plugin-memory';
 import { telegramPlugin } from '@moxxy/plugin-telegram';
-import { mcpAdminPlugin } from '@moxxy/plugin-mcp';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { webChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
@@ -30,11 +29,9 @@ import { slackPlugin } from '@moxxy/plugin-channel-slack';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { terminalPlugin } from '@moxxy/plugin-terminal';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
-import { selfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { providerAdminPlugin } from '@moxxy/plugin-provider-admin';
+import { mcpAdminPlugin } from '@moxxy/plugin-mcp';
 import { commandsPlugin } from '@moxxy/plugin-commands';
-import { viewPlugin } from '@moxxy/plugin-view';
-import { voiceAdminPlugin } from '@moxxy/plugin-voice-admin';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
 import { buildPluginSnapshot } from './plugin-snapshot.js';
@@ -157,12 +154,21 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // shared across every channel via session.commands. Disable to
     // hide them everywhere — channel-local commands keep working.
     { name: '@moxxy/plugin-commands', plugin: commandsPlugin },
-    // Agent-authored UIs: present_view parses the model's JSX-like view-spec
-    // (via the session's active, swappable view renderer) into a validated AST
-    // that the web surface renders as interactive UI. Discovery-loadable:
-    // resolves the 'viewRenderers' registry + the 'viewSurface' ref from the
-    // service registry in onInit (no host closure).
-    { name: '@moxxy/plugin-view', plugin: viewPlugin },
+    // plugin-view / plugin-self-update / plugin-voice-admin are NOT bundled —
+    // they install on demand from npm (INSTALLABLE_PLUGIN_CATALOG) and load
+    // via discovery, resolving their deps from the service registry in onInit.
+    // (self-update's staged-update finalize in bin.ts is a static lib import
+    // and stays inlined — only the registered plugin instance moves out.)
+    // provider-admin + mcp stay bundled until the desktop seed pack lands:
+    // the desktop Settings panels reach them through the 'providerAdmin' /
+    // 'mcpAdmin' session services on the spawned runner.
+    // Provider admin tools (provider_add/list/remove/test) — persists
+    // OpenAI-compatible vendor registrations to ~/.moxxy/providers.json.
+    // Discovery-loadable; publishes its admin api as 'providerAdmin'.
+    { name: '@moxxy/plugin-provider-admin', plugin: providerAdminPlugin },
+    // MCP admin tools + boot-time lazy attach. Discovery-loadable; publishes
+    // its runtime control api as 'mcpAdmin'.
+    { name: '@moxxy/plugin-mcp', plugin: mcpAdminPlugin },
     // Runtime plugin management — exposes install_plugin / uninstall_plugin
     // (npm into ~/.moxxy/plugins) and enable_plugin / disable_plugin (config-
     // backed plug/unplug of any registered plugin). Hot-reloads via
@@ -180,48 +186,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
         ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
       }),
     },
-    // Self-update — exposes self_update_* tools so the model can author
-    // and apply guardrailed, transactional changes to its OWN plugins /
-    // skills (Tier 1, hot-reloaded) under ~/.moxxy. Every code write is
-    // permission-gated; verify builds+tests+loads the change and a failed
-    // modify auto-restores the previous version. Disable this plugin
-    // (`config.plugins['@moxxy/plugin-self-update'].enabled = false`) to
-    // lock the code base.
-    // Discovery-loadable: resolves pluginHost + registrySnapshot + appendEvent
-    // (the writable counterpart to the read-only onInit ctx.log) + this plugin's
-    // config options from the service registry in onInit. The Tier-2 core-update
-    // tools are gated at build on MOXXY_NO_CORE_UPDATE (the env the desktop sets
-    // to hide them); allowCoreUpdate/repoUrl prefs resolve at run.
-    { name: '@moxxy/plugin-self-update', plugin: selfUpdatePlugin },
-    // Voice/TTS control — lets the agent switch which text-to-speech backend
-    // read-aloud surfaces (the desktop's speaker button) use, without a
-    // settings UI. `set_voice` activates a registered synthesizer by name, or
-    // 'system' to deactivate (fall back to the OS voice). `list_voices` reports
-    // what's available + which is active. A synthesizer authored via
-    // self-update auto-activates on load, so this is for switching afterwards.
-    {
-      // Discovery-loadable: resolves the synthesizers registry from the
-      // service registry in onInit (the host publishes it).
-      name: '@moxxy/voice-admin',
-      plugin: voiceAdminPlugin,
-    },
-    // Provider admin tools (provider_add, provider_list, provider_remove,
-    // provider_test). Persists OpenAI-compatible vendor registrations to
-    // ~/.moxxy/providers.json; the plugin's onInit re-registers them on
-    // every boot. Pairs with the `add-provider` skill which walks the
-    // model through gathering baseURL + models + key.
-    // Discovery-loadable: resolves the providers registry + the credential
-    // accessor from the service registry in onInit, and publishes its admin api
-    // as the 'providerAdmin' service — which core's Session.providerAdmin getter
-    // exposes to the runner's `provider.configure` + the desktop. No host stash.
-    { name: '@moxxy/plugin-provider-admin', plugin: providerAdminPlugin },
-    // Admin tools (mcp_add_server, mcp_list_servers, mcp_remove_server,
-    // mcp_test_server) plus the boot-time lazy attach. Discovery-loadable:
-    // resolves the tools + skills registries + the 'resolveSecrets' resolver
-    // from the service registry in onInit, and publishes its runtime control
-    // api as the 'mcpAdmin' service (exposed via Session.mcpAdmin getter to the
-    // runner + desktop). No host stash. userSkillsDir defaults to ~/.moxxy/skills.
-    { name: '@moxxy/plugin-mcp-admin', plugin: mcpAdminPlugin },
     {
       name: '@moxxy/synthesize-skill',
       // Thread the SAME directory set the boot scan uses so reload_skills

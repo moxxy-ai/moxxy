@@ -163,6 +163,27 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     installSpec: '@moxxy/plugin-usage-stats',
   },
   {
+    id: 'view',
+    label: 'Agent UIs (present_view)',
+    description: 'present_view tool — the agent renders interactive UIs on the web surface.',
+    packageName: '@moxxy/plugin-view',
+    installSpec: '@moxxy/plugin-view',
+  },
+  {
+    id: 'self-update',
+    label: 'Self-update',
+    description: 'self_update_* tools — the agent edits its own plugins/skills, transactionally.',
+    packageName: '@moxxy/plugin-self-update',
+    installSpec: '@moxxy/plugin-self-update',
+  },
+  {
+    id: 'voice-admin',
+    label: 'Voice control',
+    description: 'set_voice / list_voices — switch the active text-to-speech backend.',
+    packageName: '@moxxy/plugin-voice-admin',
+    installSpec: '@moxxy/plugin-voice-admin',
+  },
+  {
     id: 'virtual-office',
     label: 'Virtual Office',
     description: 'Pixel-art UI for running Moxxy with an office view and session picker.',

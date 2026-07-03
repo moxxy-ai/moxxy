@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-provider-admin",
-  "private": true,
   "version": "0.25.0",
   "description": "Model-callable provider admin: provider_add / provider_list / provider_remove / provider_test. Persists user-registered providers to ~/.moxxy/providers.json and hot-registers them in the live session by wrapping the OpenAI-compatible client with a vendor baseURL.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "provider",
+    "admin",
+    "tools"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-provider-admin"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -142,7 +142,7 @@ function buildMcpAdminPluginInternal(
   };
 
   const plugin = definePlugin({
-    name: '@moxxy/plugin-mcp-admin',
+    name: '@moxxy/plugin-mcp',
     version: '0.0.0',
     tools: [
       buildListServersTool(),

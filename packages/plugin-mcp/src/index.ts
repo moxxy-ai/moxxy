@@ -95,3 +95,7 @@ export async function createMcpPlugin(opts: CreateMcpPluginOptions): Promise<Plu
   });
 }
 
+
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export { mcpAdminPlugin as default } from './admin.js';
