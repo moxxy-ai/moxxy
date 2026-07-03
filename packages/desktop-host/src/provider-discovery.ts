@@ -16,6 +16,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { parse as parseYaml } from 'yaml';
 import path from 'node:path';
 import { moxxyHome } from '@moxxy/sdk/server';
 import { resolveMoxxyCli, augmentedPaths, spawnCli } from './cli-resolver';
@@ -61,15 +62,50 @@ interface StoredProvidersConfig {
   readonly providers: ReadonlyArray<StoredProvider>;
 }
 
-/** Read ~/.moxxy/providers.json without depending on the plugin. */
+/**
+ * Read the admin-registered vendors from the unified config
+ * (`plugins.provider.items.<name>.config.kind === 'openai-compat'`) —
+ * the tree that replaced ~/.moxxy/providers.json. Parsed directly with
+ * `yaml` (same pattern as onboarding.ts) so the Electron main never
+ * imports @moxxy/config.
+ */
 async function readStoredProviders(): Promise<StoredProvidersConfig> {
   try {
-    // providers.json is written by the CLI's provider-admin under moxxyHome()
-    // (honors $MOXXY_HOME); a hardcoded ~/.moxxy would miss a relocated home.
-    const p = path.join(moxxyHome(), 'providers.json');
+    const p = path.join(moxxyHome(), 'config.yaml');
     const body = await readFile(p, 'utf8');
-    const json = JSON.parse(body) as StoredProvidersConfig;
-    if (json && Array.isArray(json.providers)) return json;
+    const cfg = parseYaml(body) as {
+      plugins?: {
+        provider?: {
+          items?: Record<
+            string,
+            { model?: string; config?: Record<string, unknown> | undefined }
+          >;
+        };
+      };
+    } | null;
+    const items = cfg?.plugins?.provider?.items ?? {};
+    const providers: StoredProvider[] = [];
+    for (const [name, item] of Object.entries(items)) {
+      const c = item?.config;
+      if (!c || c['kind'] !== 'openai-compat') continue;
+      const models = Array.isArray(c['models'])
+        ? (c['models'] as Array<{ id?: unknown }>).filter(
+            (m): m is { id: string } => typeof m?.id === 'string',
+          )
+        : [];
+      const defaultModel =
+        typeof item.model === 'string' ? item.model : models[0]?.id;
+      if (typeof c['baseURL'] !== 'string' || !defaultModel) continue;
+      providers.push({
+        kind: 'openai-compat',
+        name,
+        baseURL: c['baseURL'],
+        defaultModel,
+        models,
+        ...(typeof c['envVar'] === 'string' ? { envVar: c['envVar'] } : {}),
+      });
+    }
+    return { providers };
   } catch {
     /* missing or malformed */
   }

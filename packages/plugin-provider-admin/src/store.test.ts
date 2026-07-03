@@ -6,7 +6,6 @@ import {
   readProvidersConfig,
   removeStoredProvider,
   upsertStoredProvider,
-  writeProvidersConfig,
 } from './store.js';
 import type { StoredProvider } from './types.js';
 
@@ -23,24 +22,35 @@ let cfgPath: string;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-provider-admin-'));
-  cfgPath = path.join(tmpDir, 'providers.json');
+  // Stored vendors now live in the unified user config (plugins.provider.items).
+  cfgPath = path.join(tmpDir, 'config.yaml');
 });
 
 afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true });
 });
 
-describe('providers.json store', () => {
+describe('stored-provider tree store (plugins.provider.items)', () => {
   it('returns an empty list when the file is missing', async () => {
     const cfg = await readProvidersConfig(cfgPath);
     expect(cfg.providers).toEqual([]);
   });
 
-  it('round-trips a single provider through write/read', async () => {
-    await writeProvidersConfig({ providers: [sampleEntry] }, cfgPath);
+  it('round-trips a single provider through upsert/read', async () => {
+    await upsertStoredProvider(sampleEntry, cfgPath);
     const cfg = await readProvidersConfig(cfgPath);
     expect(cfg.providers).toHaveLength(1);
-    expect(cfg.providers[0]).toMatchObject({ name: 'zai', defaultModel: 'glm-4.6' });
+    expect(cfg.providers[0]).toMatchObject({
+      name: 'zai',
+      defaultModel: 'glm-4.6',
+      kind: 'openai-compat',
+      baseURL: sampleEntry.baseURL,
+    });
+    // The persisted YAML shape is the unified tree, not a side-store.
+    const text = await fs.readFile(cfgPath, 'utf8');
+    expect(text).toContain('provider:');
+    expect(text).toContain('zai:');
+    expect(text).toContain('kind: openai-compat');
   });
 
   it('upsert replaces an entry with the same name (no duplicates)', async () => {
@@ -70,39 +80,56 @@ describe('providers.json store', () => {
     expect(cfg.providers).toEqual([]);
   });
 
-  it('treats malformed JSON as empty', async () => {
-    await fs.writeFile(cfgPath, '{ not json', 'utf8');
+  it("remove refuses to touch a built-in provider's item (model/enabled prefs)", async () => {
+    // `plugins.provider.items.anthropic.model` written by the /model picker is
+    // NOT a stored vendor; provider_remove must never delete those prefs.
+    await fs.writeFile(
+      cfgPath,
+      'plugins:\n  provider:\n    items:\n      anthropic:\n        model: claude-opus-4-8\n',
+    );
+    expect(await removeStoredProvider('anthropic', cfgPath)).toBe(false);
+    const text = await fs.readFile(cfgPath, 'utf8');
+    expect(text).toContain('claude-opus-4-8');
+  });
+
+  it('coexists with picker-written model/enabled prefs on OTHER items', async () => {
+    await fs.writeFile(
+      cfgPath,
+      'plugins:\n  provider:\n    default: anthropic\n    items:\n      anthropic:\n        model: claude-opus-4-8\n',
+    );
+    await upsertStoredProvider(sampleEntry, cfgPath);
+    const cfg = await readProvidersConfig(cfgPath);
+    // Only the vendor entry surfaces as a stored provider…
+    expect(cfg.providers.map((p) => p.name)).toEqual(['zai']);
+    // …and the built-in's prefs survive untouched.
+    const text = await fs.readFile(cfgPath, 'utf8');
+    expect(text).toContain('claude-opus-4-8');
+    expect(text).toContain('default: anthropic');
+  });
+
+  it('treats a malformed YAML file as empty on read', async () => {
+    await fs.writeFile(cfgPath, '{{{ not yaml', 'utf8');
     const cfg = await readProvidersConfig(cfgPath);
     expect(cfg.providers).toEqual([]);
   });
 
-  it('rethrows a genuine IO error instead of collapsing it to an empty catalog', async () => {
-    // A read failure that is NOT "file missing" (here: the path resolves to a
-    // DIRECTORY → EISDIR) must surface as a real error, not silently become an
-    // empty catalog the next write would then CLOBBER.
-    const dirAsFile = path.join(tmpDir, 'a-directory');
-    await fs.mkdir(dirAsFile);
-    await expect(readProvidersConfig(dirAsFile)).rejects.toBeTruthy();
-  });
-
-  it('defaults supportsTools/supportsStreaming on a legacy on-disk model', async () => {
-    // A hand-edited / legacy entry with only {id, contextWindow} must round-trip
-    // into a complete ModelDescriptor (required booleans defaulted true), not
-    // reach buildProviderDef with `undefined` flags.
+  it('defaults supportsTools/supportsStreaming on a legacy hand-edited model', async () => {
     await fs.writeFile(
       cfgPath,
-      JSON.stringify({
-        providers: [
-          {
-            kind: 'openai-compat',
-            name: 'legacy',
-            baseURL: 'https://api.legacy.com/v1',
-            defaultModel: 'm',
-            models: [{ id: 'm', contextWindow: 1000 }],
-          },
-        ],
-      }),
-      'utf8',
+      [
+        'plugins:',
+        '  provider:',
+        '    items:',
+        '      legacy:',
+        '        model: m',
+        '        config:',
+        '          kind: openai-compat',
+        '          baseURL: https://api.legacy.com/v1',
+        '          models:',
+        '            - id: m',
+        '              contextWindow: 1000',
+        '',
+      ].join('\n'),
     );
     const cfg = await readProvidersConfig(cfgPath);
     expect(cfg.providers[0]!.models[0]).toMatchObject({

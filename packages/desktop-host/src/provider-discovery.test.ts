@@ -18,10 +18,40 @@ import {
   fetchProviderModels,
 } from './provider-discovery';
 
+/** Emit the unified-tree YAML (`plugins.provider.items`) the CLI's
+ *  provider-admin now writes — the store that replaced providers.json.
+ *  Accepts the legacy `{providers: [...]}` fixture shape for test brevity;
+ *  a non-array `providers` produces a structurally-bogus items node. */
 function writeProvidersFile(json: unknown): void {
   const dir = path.join(tmp, '.moxxy');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, 'providers.json'), JSON.stringify(json));
+  writeFileSync(path.join(dir, 'config.yaml'), providersToYaml(json));
+}
+
+function providersToYaml(json: unknown): string {
+  const providers = (json as { providers?: unknown })?.providers;
+  if (!Array.isArray(providers)) return 'plugins:\n  provider:\n    items: nope\n';
+  const items = providers
+    .map((p) => {
+      const e = p as Record<string, unknown>;
+      const models = Array.isArray(e['models'])
+        ? (e['models'] as Array<Record<string, unknown>>)
+            .map((m) => `            - id: ${String(m['id'])}\n              contextWindow: ${Number(m['contextWindow'] ?? 1000)}`)
+            .join('\n')
+        : '            []';
+      return [
+        `      ${String(e['name'])}:`,
+        `        model: ${String(e['defaultModel'] ?? '')}`,
+        `        config:`,
+        `          kind: openai-compat`,
+        `          baseURL: ${String(e['baseURL'] ?? '')}`,
+        ...(typeof e['envVar'] === 'string' ? [`          envVar: ${e['envVar']}`] : []),
+        `          models:`,
+        models,
+      ].join('\n');
+    })
+    .join('\n');
+  return `plugins:\n  provider:\n    items:\n${items}\n`;
 }
 
 const savedMoxxyHome = process.env.MOXXY_HOME;
@@ -54,7 +84,7 @@ describe('readAdminProviderNames', () => {
   it('returns [] for a malformed file (degrades, never throws)', async () => {
     const dir = path.join(tmp, '.moxxy');
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, 'providers.json'), '{not json');
+    writeFileSync(path.join(dir, 'config.yaml'), '{{{ not yaml');
     await expect(readAdminProviderNames()).resolves.toEqual([]);
   });
 
@@ -82,8 +112,8 @@ describe('readAdminProviderNames', () => {
       process.env.MOXXY_HOME = relocated;
       // Write ONLY to the relocated home; the default tmp/.moxxy stays empty.
       writeFileSync(
-        path.join(relocated, 'providers.json'),
-        JSON.stringify({
+        path.join(relocated, 'config.yaml'),
+        providersToYaml({
           providers: [
             { kind: 'openai-compat', name: 'relocated', baseURL: 'https://z', defaultModel: 'm', models: [] },
           ],

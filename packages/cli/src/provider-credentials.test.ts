@@ -31,19 +31,22 @@ describe('resolveProviderCredentials', () => {
     // The desktop already resolved this provider's key from ZHIPU_KEY; the
     // CLI/runner used to derive ZAI_API_KEY instead and miss it entirely.
     await fs.writeFile(
-      path.join(tmp, 'providers.json'),
-      JSON.stringify({
-        providers: [
-          {
-            kind: 'openai-compat',
-            name: 'zai',
-            baseURL: 'https://api.z.ai/api/coding/paas/v4',
-            defaultModel: 'glm-4.6',
-            models: [{ id: 'glm-4.6', contextWindow: 200_000, supportsTools: true, supportsStreaming: true }],
-            envVar: 'ZHIPU_KEY',
-          },
-        ],
-      }),
+      path.join(tmp, 'config.yaml'),
+      [
+        'plugins:',
+        '  provider:',
+        '    items:',
+        '      zai:',
+        '        model: glm-4.6',
+        '        config:',
+        '          kind: openai-compat',
+        '          baseURL: https://api.z.ai/api/coding/paas/v4',
+        '          envVar: ZHIPU_KEY',
+        '          models:',
+        '            - id: glm-4.6',
+        '              contextWindow: 200000',
+        '',
+      ].join('\n'),
       'utf8',
     );
     await vault.set('ZHIPU_KEY', 'sk-from-override');
@@ -53,18 +56,21 @@ describe('resolveProviderCredentials', () => {
 
   it('falls back to the canonical <NAME>_API_KEY for stored providers without an override', async () => {
     await fs.writeFile(
-      path.join(tmp, 'providers.json'),
-      JSON.stringify({
-        providers: [
-          {
-            kind: 'openai-compat',
-            name: 'my-vendor',
-            baseURL: 'https://api.example.com/v1',
-            defaultModel: 'm1',
-            models: [{ id: 'm1', contextWindow: 100_000, supportsTools: true, supportsStreaming: true }],
-          },
-        ],
-      }),
+      path.join(tmp, 'config.yaml'),
+      [
+        'plugins:',
+        '  provider:',
+        '    items:',
+        '      my-vendor:',
+        '        model: m1',
+        '        config:',
+        '          kind: openai-compat',
+        '          baseURL: https://api.example.com/v1',
+        '          models:',
+        '            - id: m1',
+        '              contextWindow: 100000',
+        '',
+      ].join('\n'),
       'utf8',
     );
     await vault.set('MY_VENDOR_API_KEY', 'sk-canonical');
