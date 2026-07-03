@@ -436,3 +436,6 @@ async function escalate(deps: SelfUpdateDeps, ctx: ToolContext, journal: Journal
   await writeJournal(deps.moxxyDir, journal);
   await emitSafe(deps, ctx, 'escalated', { txnId: journal.txnId, reason });
 }
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default selfUpdatePlugin;

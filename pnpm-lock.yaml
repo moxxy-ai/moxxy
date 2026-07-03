@@ -555,21 +555,12 @@ importers:
       '@moxxy/mode-collaborative':
         specifier: workspace:*
         version: link:../mode-collaborative
-      '@moxxy/mode-deep-research':
-        specifier: workspace:*
-        version: link:../mode-deep-research
       '@moxxy/mode-default':
         specifier: workspace:*
         version: link:../mode-default
-      '@moxxy/mode-goal':
-        specifier: workspace:*
-        version: link:../mode-goal
       '@moxxy/plugin-browser':
         specifier: workspace:*
         version: link:../plugin-browser
-      '@moxxy/plugin-channel-http':
-        specifier: workspace:*
-        version: link:../plugin-channel-http
       '@moxxy/plugin-channel-mobile':
         specifier: workspace:*
         version: link:../plugin-channel-mobile
@@ -588,9 +579,6 @@ importers:
       '@moxxy/plugin-commands':
         specifier: workspace:*
         version: link:../plugin-commands
-      '@moxxy/plugin-computer-control':
-        specifier: workspace:*
-        version: link:../plugin-computer-control
       '@moxxy/plugin-embeddings-openai':
         specifier: workspace:*
         version: link:../plugin-embeddings-openai
@@ -603,9 +591,6 @@ importers:
       '@moxxy/plugin-memory':
         specifier: workspace:*
         version: link:../plugin-memory
-      '@moxxy/plugin-oauth':
-        specifier: workspace:*
-        version: link:../plugin-oauth
       '@moxxy/plugin-plugins-admin':
         specifier: workspace:*
         version: link:../plugin-plugins-admin
@@ -633,27 +618,15 @@ importers:
       '@moxxy/plugin-stt-whisper-codex':
         specifier: workspace:*
         version: link:../plugin-stt-whisper-codex
-      '@moxxy/plugin-subagents':
-        specifier: workspace:*
-        version: link:../plugin-subagents
       '@moxxy/plugin-telegram':
         specifier: workspace:*
         version: link:../plugin-telegram
       '@moxxy/plugin-terminal':
         specifier: workspace:*
         version: link:../plugin-terminal
-      '@moxxy/plugin-usage-stats':
-        specifier: workspace:*
-        version: link:../plugin-usage-stats
       '@moxxy/plugin-vault':
         specifier: workspace:*
         version: link:../plugin-vault
-      '@moxxy/plugin-view':
-        specifier: workspace:*
-        version: link:../plugin-view
-      '@moxxy/plugin-voice-admin':
-        specifier: workspace:*
-        version: link:../plugin-voice-admin
       '@moxxy/plugin-webhooks':
         specifier: workspace:*
         version: link:../plugin-webhooks
@@ -1225,6 +1198,9 @@ importers:
 
   packages/mode-deep-research:
     dependencies:
+      '@moxxy/plugin-subagents':
+        specifier: workspace:*
+        version: link:../plugin-subagents
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk

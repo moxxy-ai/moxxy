@@ -98,10 +98,11 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     installSpec: '@moxxy/plugin-provider-local',
     provides: [{ category: 'provider', name: 'local' }],
   },
-  // Modes — bundled today, unbundled in the slim wave. While bundled they're
-  // filtered off the Installable tab (already loaded); the `provides` mapping
-  // is what lets /goal and the mode picker offer install-on-first-use once
-  // the packages move out of the binary.
+  // Modes + capability plugins — NOT bundled (the kernel is slim); they
+  // install on demand. The `provides` mapping lets /goal, /mode and
+  // set_default offer install-on-first-use at the point a missing capability
+  // is asked for. (mode-collaborative is still bundled — it unbundles with
+  // the runner flip in a later batch.)
   {
     id: 'mode-goal',
     label: 'Goal mode',
@@ -113,7 +114,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
   {
     id: 'mode-deep-research',
     label: 'Research mode',
-    description: 'Fan-out research: parallel queries + synthesis (needs subagents).',
+    description: 'Fan-out research: parallel queries + synthesis (installs subagents with it).',
     packageName: '@moxxy/mode-deep-research',
     installSpec: '@moxxy/mode-deep-research',
     provides: [{ category: 'mode', name: 'research' }],
@@ -125,6 +126,62 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/mode-collaborative',
     installSpec: '@moxxy/mode-collaborative',
     provides: [{ category: 'mode', name: 'collaborative' }],
+  },
+  {
+    id: 'subagents',
+    label: 'Subagents',
+    description: 'dispatch_agent tool — parallel child agents with scoped tool sets.',
+    packageName: '@moxxy/plugin-subagents',
+    installSpec: '@moxxy/plugin-subagents',
+  },
+  {
+    id: 'oauth',
+    label: 'OAuth client',
+    description: 'Generic OAuth 2.0 + PKCE tools (oauth_authorize / oauth_get_token) for skills.',
+    packageName: '@moxxy/plugin-oauth',
+    installSpec: '@moxxy/plugin-oauth',
+  },
+  {
+    id: 'computer-control',
+    label: 'Computer control (macOS)',
+    description: 'Screenshot, click, type, open, clipboard, AppleScript tools. macOS only.',
+    packageName: '@moxxy/plugin-computer-control',
+    installSpec: '@moxxy/plugin-computer-control',
+  },
+  {
+    id: 'channel-http',
+    label: 'HTTP channel',
+    description: 'Drive moxxy over a local HTTP API (moxxy http).',
+    packageName: '@moxxy/plugin-channel-http',
+    installSpec: '@moxxy/plugin-channel-http',
+  },
+  {
+    id: 'usage-stats',
+    label: 'Usage stats',
+    description: 'Cross-session token usage aggregation behind /usage.',
+    packageName: '@moxxy/plugin-usage-stats',
+    installSpec: '@moxxy/plugin-usage-stats',
+  },
+  {
+    id: 'view',
+    label: 'Agent UIs (present_view)',
+    description: 'present_view tool — the agent renders interactive UIs on the web surface.',
+    packageName: '@moxxy/plugin-view',
+    installSpec: '@moxxy/plugin-view',
+  },
+  {
+    id: 'self-update',
+    label: 'Self-update',
+    description: 'self_update_* tools — the agent edits its own plugins/skills, transactionally.',
+    packageName: '@moxxy/plugin-self-update',
+    installSpec: '@moxxy/plugin-self-update',
+  },
+  {
+    id: 'voice-admin',
+    label: 'Voice control',
+    description: 'set_voice / list_voices — switch the active text-to-speech backend.',
+    packageName: '@moxxy/plugin-voice-admin',
+    installSpec: '@moxxy/plugin-voice-admin',
   },
   {
     id: 'virtual-office',

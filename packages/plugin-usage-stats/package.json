@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-usage-stats",
-  "private": true,
   "version": "0.0.43",
   "description": "Records cross-session token usage. On session close it folds this run's provider_response events by provider/model and merges the delta into ~/.moxxy/usage.json (a forward-going aggregate surfaced in the /usage panel and reset by /usage clear).",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "usage",
+    "tokens",
+    "stats"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-usage-stats"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

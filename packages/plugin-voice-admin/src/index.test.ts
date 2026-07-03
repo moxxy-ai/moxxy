@@ -33,7 +33,7 @@ describe('voice-admin plugin', () => {
   it('registers list_voices and set_voice', () => {
     const session = new Session({ cwd: process.cwd(), logger: silentLogger });
     const plugin = buildVoiceAdminPlugin(session);
-    expect(plugin.name).toBe('@moxxy/voice-admin');
+    expect(plugin.name).toBe('@moxxy/plugin-voice-admin');
     expect((plugin.tools ?? []).map((t) => t.name).sort()).toEqual(['list_voices', 'set_voice']);
   });
 

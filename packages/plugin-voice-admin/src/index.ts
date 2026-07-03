@@ -1,4 +1,4 @@
-import { type Session, type SynthesizerRegistry } from '@moxxy/core';
+import type { Session, SynthesizerRegistry } from '@moxxy/core';
 import { definePlugin, defineTool, z, type LifecycleHooks, type Plugin } from '@moxxy/sdk';
 
 /**
@@ -33,7 +33,7 @@ export const voiceAdminPlugin: Plugin = (() => {
   return makeVoiceAdminPlugin(() => {
     if (!reg) {
       throw new Error(
-        '@moxxy/voice-admin: the "synthesizers" registry is unavailable — the host must publish it',
+        '@moxxy/plugin-voice-admin: the "synthesizers" registry is unavailable — the host must publish it',
       );
     }
     return reg;
@@ -58,7 +58,7 @@ function makeVoiceAdminPlugin(
       .filter((n) => n !== 'system'),
   ];
   return definePlugin({
-    name: '@moxxy/voice-admin',
+    name: '@moxxy/plugin-voice-admin',
     version: '0.0.1',
     ...(hooks ? { hooks } : {}),
     tools: [
@@ -115,3 +115,6 @@ function makeVoiceAdminPlugin(
     ],
   });
 }
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default voiceAdminPlugin;

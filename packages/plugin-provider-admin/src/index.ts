@@ -655,3 +655,6 @@ export const providerAdminPlugin: Plugin = (() => {
     },
   });
 })();
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default providerAdminPlugin;

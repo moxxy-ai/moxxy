@@ -232,3 +232,6 @@ export interface PresentViewResult {
   readonly ast?: ViewDoc;
   readonly errors?: ReadonlyArray<{ message: string; line?: number }>;
 }
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default viewPlugin;

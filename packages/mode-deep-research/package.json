@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/mode-deep-research",
-  "private": true,
   "version": "0.0.38",
   "description": "Deep-research loop strategy for moxxy: decompose the user question into parallel sub-queries, fan out via subagents, synthesize a cited writeup.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "mode",
+    "research",
+    "fan-out"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/mode-deep-research"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -37,7 +57,8 @@
     ]
   },
   "dependencies": {
-    "@moxxy/sdk": "workspace:*"
+    "@moxxy/sdk": "workspace:*",
+    "@moxxy/plugin-subagents": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/core": "workspace:*",

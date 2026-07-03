@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-voice-admin",
-  "private": true,
   "version": "0.0.16",
   "description": "Voice/TTS control for moxxy. set_voice / list_voices let the agent switch which text-to-speech backend read-aloud surfaces use (a registered synthesizer, or 'system' for the OS voice) without a settings UI.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "voice",
+    "tts",
+    "tools"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-voice-admin"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

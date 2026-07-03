@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-computer-control",
-  "private": true,
   "version": "0.0.38",
   "description": "Programmatic control of the host computer (macOS only for now): screenshot, click, type, key, open, clipboard, applescript. Every tool prompts for permission.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "tools",
+    "computer-use",
+    "macos"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-computer-control"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

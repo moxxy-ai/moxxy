@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-channel-http",
-  "private": true,
   "version": "0.0.38",
   "description": "Request-response HTTP channel for moxxy. POST /v1/turn drives one turn synchronously; POST /v1/turn/stream returns Server-Sent Events. Bearer-token auth + allow-list permission flow (no human in the loop).",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "channel",
+    "http",
+    "api"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-channel-http"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

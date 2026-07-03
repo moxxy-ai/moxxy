@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-mcp",
-  "private": true,
   "version": "0.0.38",
   "description": "MCP (Model Context Protocol) client plugin for moxxy — connect to MCP servers and surface their tools.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "mcp",
+    "tools",
+    "model-context-protocol"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-mcp"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
