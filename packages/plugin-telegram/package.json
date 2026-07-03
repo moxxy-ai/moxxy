@@ -53,7 +53,22 @@
         "name": "@moxxy/plugin-vault",
         "hint": "telegram resolves the vault from the service registry for its bot token + pairing; @moxxy/plugin-vault must load first"
       }
-    ]
+    ],
+    "setup": {
+      "title": "Telegram bot",
+      "description": "Create a bot with @BotFather in Telegram (/newbot) and paste its token below. It goes into the encrypted vault. Pairing happens afterwards via QR (`moxxy telegram` → pair).",
+      "fields": [
+        {
+          "key": "botToken",
+          "label": "Bot token",
+          "kind": "secret",
+          "vaultKey": "telegram_bot_token",
+          "required": true,
+          "placeholder": "123456789:AA…",
+          "description": "From @BotFather → /newbot (or /token for an existing bot)."
+        }
+      ]
+    }
   },
   "dependencies": {
     "@clack/prompts": "catalog:",

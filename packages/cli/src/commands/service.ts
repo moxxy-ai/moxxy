@@ -35,9 +35,12 @@ const CATALOG: ReadonlyArray<ServiceSpec> = [
   {
     id: 'serve',
     description:
-      'moxxy serve — every registered channel + scheduler + webhooks in ONE process. ' +
-      'Use this when you want a single background unit instead of separate per-channel units.',
-    execArgs: ['serve'],
+      'moxxy serve --all — every registered channel + scheduler + webhooks in ONE process. ' +
+      'Use this when you want a single background unit instead of separate per-channel units. ' +
+      '(For a bare runner unit — no channels, clients attach — use `moxxy serve --background`.)',
+    // `--all` matches the description above: without it a serve unit starts
+    // NO channels (bare runner) and a paired bot would stay offline.
+    execArgs: ['serve', '--all'],
   },
   {
     id: 'telegram',

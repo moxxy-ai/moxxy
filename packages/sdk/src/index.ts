@@ -371,7 +371,7 @@ export type {
   ResolvedPluginManifest,
 } from './plugin.js';
 
-export { startChannelWith } from './channel.js';
+export { startChannelWith, EXIT_AFTER_PAIR_FLAG, exitAfterPairRequested } from './channel.js';
 export type {
   Channel,
   ChannelHandle,

@@ -9,6 +9,7 @@ import { runPluginsCommand } from './commands/plugins.js';
 import { runChannelsCommand } from './commands/channels.js';
 import { runChannelByName } from './commands/run-channel.js';
 import { runInitCommand } from './commands/init.js';
+import { runOnboardCommand } from './commands/onboard.js';
 import { runProvisionCommand } from './commands/provision.js';
 import { runPermsCommand } from './commands/perms.js';
 import { runConfigCommand } from './commands/config.js';
@@ -55,6 +56,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
   {
     title: 'SETUP',
     rows: [
+      ['onboard', 'guided setup: provider → messaging channel → pairing → background service'],
       ['init', 'interactive first-time setup (provider keys → vault)'],
       ['provision', 'headless setup: install + configure a provider (flags or --spec -)'],
       ['login <provider>', 'OAuth sign-in for providers that don\'t use API keys'],
@@ -181,7 +183,7 @@ function renderHelp(): string {
     `${' '.repeat(RULE_INDENT)}${colors.dim('prompted values are saved back to the vault).')}`,
   );
   out.push('');
-  out.push(`${colors.dim('Run')} ${colors.bold('moxxy init')} ${colors.dim('to get started.')}`);
+  out.push(`${colors.dim('Run')} ${colors.bold('moxxy onboard')} ${colors.dim('to get started.')}`);
   out.push(`${colors.dim('See')} ${colors.bold('moxxy <command> --help')} ${colors.dim('for per-command details.')}`);
 
   return out.join('\n') + '\n';
@@ -206,6 +208,7 @@ const COMMANDS: Record<string, CommandHandler> = {
     return 0;
   },
   init: runInitCommand,
+  onboard: runOnboardCommand,
   provision: runProvisionCommand,
   login: runLoginCommand,
   perms: runPermsCommand,

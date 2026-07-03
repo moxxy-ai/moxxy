@@ -1,6 +1,6 @@
 import { log, outro, spinner } from '@clack/prompts';
 import QRCode from 'qrcode';
-import type { ChannelSubcommandContext } from '@moxxy/sdk';
+import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { SignalChannel } from './channel.js';
 
@@ -69,6 +69,10 @@ export async function runSignalPairFlow(
         'to link a different account, remove this device from Signal → Linked Devices first, ' +
         'then run `moxxy channels signal unpair` and pair again.',
     );
+    if (exitAfterPairRequested(ctx)) {
+      await stopChannel();
+      return 0;
+    }
     log.info('Press Ctrl+C to stop.');
     installSignalHandlers(stopChannel, session);
     await handle.running;
@@ -88,7 +92,7 @@ export async function runSignalPairFlow(
       'The QR expires after a few minutes; re-run `moxxy channels signal pair` if it does.',
   );
 
-  installSignalHandlers(stopChannel, session);
+  const removeSignalHandlers = installSignalHandlers(stopChannel, session);
 
   const spin = spinner();
   spin.start('Waiting for you to scan in Signal...');
@@ -105,6 +109,16 @@ export async function runSignalPairFlow(
     return 1;
   }
   spin.stop(`Linked ✓ — this machine is now a device of ${account}.`);
+
+  if (exitAfterPairRequested(ctx)) {
+    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
+    // starts the channel under its own service afterwards. Our SIGINT
+    // handlers would `process.exit` the orchestrator, so drop them first.
+    removeSignalHandlers();
+    await stopChannel();
+    return 0;
+  }
+
   log.info(
     'Message your own "Note to Self" in Signal to talk to moxxy. The channel is running; press Ctrl+C to stop.',
   );
@@ -116,7 +130,7 @@ export async function runSignalPairFlow(
 function installSignalHandlers(
   stopChannel: () => Promise<void>,
   session: ChannelSubcommandContext['session'],
-): void {
+): () => void {
   let stopping = false;
   const shutdown = async (): Promise<void> => {
     if (stopping) return;
@@ -125,8 +139,13 @@ function installSignalHandlers(
     await session.close('SIGINT').catch(() => undefined);
     process.exit(0);
   };
-  process.once('SIGINT', () => void shutdown());
-  process.once('SIGTERM', () => void shutdown());
+  const onSignal = (): void => void shutdown();
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  return () => {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+  };
 }
 
 /** Render the linking URI as a scannable terminal QR + the raw URI. */

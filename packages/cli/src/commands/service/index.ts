@@ -66,7 +66,14 @@ export async function installAndStartService(spec: ServiceSpec): Promise<Service
     };
   }
   await mkdir(path.dirname(log), { recursive: true });
-  return provider.install(spec, { node: nodeBin(), cli, log, home: homedir() });
+  // Under Electron-as-node (the desktop app running the CLI with
+  // ELECTRON_RUN_AS_NODE), `nodeBin()` is the Electron binary. A unit that
+  // exec's it WITHOUT that env var would boot the full desktop GUI as a
+  // ghost daemon — export it into the unit so the binary stays plain Node.
+  const unitSpec: ServiceSpec = process.versions.electron
+    ? { ...spec, env: { ELECTRON_RUN_AS_NODE: '1', ...spec.env } }
+    : spec;
+  return provider.install(unitSpec, { node: nodeBin(), cli, log, home: homedir() });
 }
 
 export async function stopAndUninstallService(spec: ServiceSpec): Promise<SimpleResult> {

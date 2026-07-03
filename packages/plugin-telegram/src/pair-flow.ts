@@ -1,6 +1,6 @@
 import { log, outro, spinner } from '@clack/prompts';
 import QRCode from 'qrcode';
-import type { ChannelSubcommandContext } from '@moxxy/sdk';
+import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { TelegramChannel } from './channel.js';
 
@@ -95,6 +95,16 @@ export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number
   spin.start('Waiting for you to pair in Telegram...');
   const chatId = await paired;
   spin.stop(`Paired ✓ — chat ${chatId} is authorized.`);
+
+  if (exitAfterPairRequested(ctx)) {
+    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
+    // starts the bot under its own service afterwards. Our SIGINT handlers
+    // would `process.exit` the orchestrator, so drop them first.
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    await stopBot();
+    return 0;
+  }
 
   log.info('Bot is running. Press Ctrl+C to stop.');
   try {
