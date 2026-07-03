@@ -7,6 +7,7 @@ import { runSetupWizard } from '../wizard/run-setup-wizard.js';
 import { buildProviderSetupView } from '../setup/provider-setup.js';
 import { PROVIDER_CATALOG } from '../provision/provider-catalog.js';
 import {
+  findCatalogEntryForContribution,
   installPluginPackagePinned,
   resolveCatalogPackageName,
   INSTALLABLE_PLUGIN_CATALOG,
@@ -140,6 +141,19 @@ async function runInteractiveInit(
       };
     },
     async writeConfig(selections: SetupSelections): Promise<string> {
+      // Slim kernel: a picked default mode that isn't bundled (goal/research)
+      // installs on demand NOW so the written `plugins.mode.default` doesn't
+      // silently floor back to 'default' on first boot.
+      if (!session.modes.list().some((m) => m.name === selections.mode)) {
+        const entry = findCatalogEntryForContribution('mode', selections.mode);
+        if (entry) {
+          await installPluginPackagePinned({
+            packageName: entry.packageName,
+            ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+          });
+          await setPluginEnabled(entry.packageName, true);
+        }
+      }
       // Persist into ~/.moxxy/config.yaml (the unified store), merging with the
       // package ledger ensureProvider/installPlugins already wrote there — no
       // legacy-shaped file dropped in the project cwd. The wizard's

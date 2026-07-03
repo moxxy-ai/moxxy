@@ -13,8 +13,6 @@ import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
 import { whisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
-import { goalModePlugin } from '@moxxy/mode-goal';
-import { deepResearchModePlugin } from '@moxxy/mode-deep-research';
 import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
 import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
@@ -26,21 +24,16 @@ import {
 import { telegramPlugin } from '@moxxy/plugin-telegram';
 import { mcpAdminPlugin } from '@moxxy/plugin-mcp';
 import { cliPlugin } from '@moxxy/plugin-cli';
-import { httpChannelPlugin } from '@moxxy/plugin-channel-http';
 import { webChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { slackPlugin } from '@moxxy/plugin-channel-slack';
 import { browserPlugin } from '@moxxy/plugin-browser';
 import { terminalPlugin } from '@moxxy/plugin-terminal';
-import { subagentsPlugin } from '@moxxy/plugin-subagents';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
 import { selfUpdatePlugin } from '@moxxy/plugin-self-update';
 import { providerAdminPlugin } from '@moxxy/plugin-provider-admin';
-import { buildUsageStatsPlugin } from '@moxxy/plugin-usage-stats';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import { viewPlugin } from '@moxxy/plugin-view';
-import { computerControlPlugin } from '@moxxy/plugin-computer-control';
-import { oauthPlugin } from '@moxxy/plugin-oauth';
 import { voiceAdminPlugin } from '@moxxy/plugin-voice-admin';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
@@ -117,8 +110,10 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/plugin-provider-claude-code', plugin: claudeCodePlugin },
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
     { name: '@moxxy/mode-default', plugin: defaultModePlugin },
-    { name: '@moxxy/mode-goal', plugin: goalModePlugin },
-    { name: '@moxxy/mode-deep-research', plugin: deepResearchModePlugin },
+    // mode-goal / mode-deep-research / plugin-subagents / plugin-oauth /
+    // plugin-computer-control / plugin-channel-http / plugin-usage-stats are
+    // NOT bundled — they install on demand from npm (INSTALLABLE_PLUGIN_CATALOG;
+    // /goal & /mode offer the install at point of use) and load via discovery.
     // Agentic collaborative: a team of separate agent processes (architect +
     // implementers) work in parallel git worktrees (or sequentially without
     // git), coordinated via the @moxxy/plugin-collab hub.
@@ -142,11 +137,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
       plugin: memoryConsolidatePlugin,
     },
     { name: '@moxxy/plugin-cli', plugin: cliPlugin },
-    // Cross-session token usage. onShutdown folds this run's provider_response
-    // usage by provider/model into ~/.moxxy/usage.json (a forward-going
-    // aggregate). Surfaced in the /usage panel; reset via /usage clear.
-    { name: '@moxxy/plugin-usage-stats', plugin: buildUsageStatsPlugin() },
-    { name: '@moxxy/plugin-channel-http', plugin: httpChannelPlugin },
     // Discovery-loadable: resolves tunnelProviders + the shared viewSurface +
     // webControls refs + the configured default tunnel from the service registry
     // in onInit (the refs are published above; web writes viewSurface, view reads it).
@@ -163,17 +153,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // peer dep, so the surface availability (real PTY vs piped fallback) is
     // diagnosed at runtime — the tool always registers for a stable tool list.
     { name: '@moxxy/plugin-terminal', plugin: terminalPlugin },
-    // macOS-only computer control: screenshot, click, type, key,
-    // open, clipboard, applescript. Plugin always registers (so the
-    // model's tool list is stable across hosts); handlers throw a
-    // clear "macOS only" error on Linux/Windows.
-    { name: '@moxxy/plugin-computer-control', plugin: computerControlPlugin },
-    // Generic OAuth 2.0 + PKCE client. Adds oauth_authorize /
-    // oauth_get_token / oauth_clear_token tools that any skill can
-    // chain (Google OAuth → MCP env, GitHub OAuth → API calls, …).
-    // Discovery-loadable: resolves the vault from the service registry in
-    // onInit (vault registers it first), no `{ vault }` injection needed.
-    { name: '@moxxy/plugin-oauth', plugin: oauthPlugin },
     // Universal slash commands (/info, /clear, /new, /exit, /help)
     // shared across every channel via session.commands. Disable to
     // hide them everywhere — channel-local commands keep working.
@@ -184,20 +163,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // resolves the 'viewRenderers' registry + the 'viewSurface' ref from the
     // service registry in onInit (no host closure).
     { name: '@moxxy/plugin-view', plugin: viewPlugin },
-    // Subagents are a swappable block: this plugin owns the
-    // dispatch_agent tool and the auto-detection skill. Drop it
-    // (`config.plugins['@moxxy/plugin-subagents'].enabled = false`) and
-    // the model can't spawn children — the normal single-loop flow runs.
-    // Agent kinds (researcher, code-reviewer, ...) come from OTHER plugins
-    // via `PluginSpec.agents`; the closure here reads the live registry.
-    {
-      // Discovery-loadable: resolves the agents + tools registries from the
-      // service registry in onInit (the host publishes them). The live
-      // parent-tool snapshot still defaults a child to the parent's tools MINUS
-      // dispatch_agent — cutting unbounded recursive fan-out (8^N sessions).
-      name: '@moxxy/plugin-subagents',
-      plugin: subagentsPlugin,
-    },
     // Runtime plugin management — exposes install_plugin / uninstall_plugin
     // (npm into ~/.moxxy/plugins) and enable_plugin / disable_plugin (config-
     // backed plug/unplug of any registered plugin). Hot-reloads via

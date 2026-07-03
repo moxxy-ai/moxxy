@@ -151,3 +151,6 @@ function makeOauthPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks): Pl
     ...(hooks ? { hooks } : {}),
   });
 }
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default oauthPlugin;

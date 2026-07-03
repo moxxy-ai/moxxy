@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/mode-goal",
-  "private": true,
   "version": "0.0.38",
   "description": "Goal mode: state a goal once and the agent works autonomously across many turns until it calls goal_complete (or goal_abandon), guarded by an iteration cap, a token budget, a stuck-loop detector, no-progress detection, and the user's abort.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "mode",
+    "autonomous",
+    "goal"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/mode-goal"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
