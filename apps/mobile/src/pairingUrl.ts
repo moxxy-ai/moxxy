@@ -39,7 +39,7 @@ export function normalizeGatewayUrl(value: string): string {
 function recoverLatestAbsoluteUrl(value: string): string {
   const matches = [...value.matchAll(/(?:https?|wss?):\/\//gi)];
   for (let index = matches.length - 1; index >= 0; index -= 1) {
-    const start = matches[index].index;
+    const start = matches[index]?.index;
     if (typeof start !== 'number') continue;
     const candidate = value.slice(start).trim();
     try {
@@ -69,6 +69,6 @@ function extractHost(hostUri?: string | null): string | null {
   if (!hostUri) return null;
   const withoutProtocol = hostUri.replace(/^[a-z]+:\/\//i, '');
   const hostWithPort = withoutProtocol.split('/')[0] ?? '';
-  const host = hostWithPort.split(':')[0];
+  const host = hostWithPort.split(':')[0] ?? '';
   return host.length > 0 ? host : null;
 }
