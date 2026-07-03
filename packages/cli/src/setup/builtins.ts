@@ -32,7 +32,6 @@ import { workerIsolator } from '@moxxy/isolator-worker';
 import { subprocessIsolator } from '@moxxy/isolator-subprocess';
 import { wasmIsolator } from '@moxxy/isolator-wasm';
 import type { VaultStore } from '@moxxy/plugin-vault';
-import type { MemoryStore } from '@moxxy/plugin-memory';
 import type { WorkflowStore } from '@moxxy/plugin-workflows';
 import {
   buildBuiltinEntries,
@@ -73,8 +72,6 @@ export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequi
   '@moxxy/compactor-summarize': { hardRequirements: false, reason: 'compactor has no plugin dependency' },
   '@moxxy/cache-strategy-stable-prefix': { hardRequirements: false, reason: 'cache strategy has no plugin dependency' },
   '@moxxy/plugin-vault': { hardRequirements: false, reason: 'vault is the base secret store' },
-  '@moxxy/plugin-memory': { hardRequirements: false, reason: 'memory store is created by bootstrap' },
-  '@moxxy/memory-consolidate': { hardRequirements: true, reason: 'requires @moxxy/plugin-memory contributions' },
   '@moxxy/plugin-cli': { hardRequirements: false, reason: 'TUI channel is standalone' },
   '@moxxy/plugin-channel-http': { hardRequirements: false, reason: 'HTTP channel is standalone' },
   '@moxxy/plugin-channel-mobile': { hardRequirements: false, reason: 'mobile WS bridge is standalone; token auto-generated' },
@@ -97,8 +94,6 @@ export interface BuildBuiltinsArgs {
   readonly rawConfig: MoxxyConfig;
   readonly vault: VaultStore;
   readonly vaultPlugin: Plugin;
-  readonly memory: MemoryStore;
-  readonly memoryPlugin: Plugin;
   readonly schedulerRunner: SchedulePromptRunner;
   readonly webhookRunner: WebhookPromptRunner;
   /**
@@ -417,7 +412,7 @@ function buildSecuritySlice(
  * can drive the store/poller without going through a model turn.
  */
 export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
-  const { session, rawConfig, vault, vaultPlugin, memory, memoryPlugin, schedulerRunner, webhookRunner, disabledPackages, logger } = args;
+  const { session, rawConfig, vault, vaultPlugin, schedulerRunner, webhookRunner, disabledPackages, logger } = args;
 
   // Shared handle linking the web surface to present_view: the web channel
   // publishes its live URL + view-id minter here on start; the view tool reads
@@ -445,8 +440,6 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     rawConfig,
     vault,
     vaultPlugin,
-    memory,
-    memoryPlugin,
     viewSurface,
     webControls,
     setPluginEnabledLive,

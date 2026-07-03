@@ -55,6 +55,7 @@ const SEED_PLUGINS = [
   'plugin-channel-slack',
   'plugin-provider-admin',
   'plugin-mcp',
+  'plugin-memory',
 ];
 
 /** First-party runtime deps of seed members — packed so the closure installs

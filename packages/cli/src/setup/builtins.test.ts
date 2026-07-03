@@ -3,7 +3,6 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Session, silentLogger } from '@moxxy/core';
-import { buildMemoryPlugin } from '@moxxy/plugin-memory';
 import { buildVaultPlugin, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { BUILTIN_REQUIREMENT_DECISIONS, buildBuiltinsCore } from './builtins.js';
 
@@ -24,17 +23,11 @@ describe('builtin plugin requirement inventory', () => {
       filePath: path.join(tmp, 'vault.json'),
       keySource: createStaticKeySource(deriveKey('pw', generateSalt())),
     });
-    const { plugin: memoryPlugin, store: memory } = buildMemoryPlugin({
-      dir: path.join(tmp, 'memory'),
-      embedder: null,
-    });
     const built = buildBuiltinsCore({
       session,
       rawConfig: {},
       vault,
       vaultPlugin,
-      memory,
-      memoryPlugin,
       schedulerRunner: { runPrompt: async () => ({ text: '' }) },
       webhookRunner: { runPrompt: async () => ({ text: '' }) },
       logger: silentLogger,
@@ -45,9 +38,8 @@ describe('builtin plugin requirement inventory', () => {
       .filter((name) => BUILTIN_REQUIREMENT_DECISIONS[name] === undefined);
 
     expect(missing).toEqual([]);
-    expect(BUILTIN_REQUIREMENT_DECISIONS['@moxxy/memory-consolidate']).toMatchObject({
-      hardRequirements: true,
-    });
+    // memory(+consolidate, merged into one plugin) is no longer a builtin
+    // entry — the slim wave's last unbundle.
     // stt-whisper-codex is no longer a builtin entry (slim wave) — its
     // requirements gate now reads from the on-disk package.json at discovery.
   });

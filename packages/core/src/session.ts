@@ -243,6 +243,8 @@ export class Session implements ClientSession, SessionRuntime {
     this.services.register('synthesizers', this.synthesizers);
     this.services.register('skills', this.skills);
     this.services.register('tunnelProviders', this.tunnelProviders);
+    // The memory plugin (discovery-loadable) resolves its lazy embedder here.
+    this.services.register('embedders', this.embedders);
     // A stable accessor for the active provider's stored credentials. The
     // resolver itself is installed late (by activateProvider, after plugins are
     // built), so close over `this` and read it lazily at call time — lets

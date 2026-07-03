@@ -326,11 +326,6 @@ or recorded-on-purpose decision.
   discovery-loadable plugins in batches, pin on-demand installs to the CLI
   version (currently `latest`), desktop seed pack, TUI install/connect
   affordances.
-- [med, refactor] `plugin-memory`(+`memory-consolidate`) cannot unbundle as-is:
-  two Plugin instances in one package (discovery loads a single default export),
-  `moxxy memory`/`doctor` import `MemoryStore` directly, and setup builds it
-  with the embedder closure. Needs its own refactor PR (split package or teach
-  discovery multi-plugin entries); until then it stays bundled. `packages/plugin-memory/`.
 - [low, follow-up] EventStore: only the WRITE path routes through the active
   store (`attachSessionPersistence` → `getActive().open()`). The session-scoped
   READS (`restoreSessionEvents`/`readSessionEventPage` in build-session, runner

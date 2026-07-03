@@ -205,6 +205,13 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     installSpec: '@moxxy/plugin-voice-admin',
   },
   {
+    id: 'memory',
+    label: 'Long-term memory',
+    description: 'memory_save/recall + consolidation + the tfidf embedder — persistent memory across sessions.',
+    packageName: '@moxxy/plugin-memory',
+    installSpec: '@moxxy/plugin-memory',
+  },
+  {
     id: 'telegram',
     label: 'Telegram channel',
     description: 'Chat with moxxy from Telegram (moxxy telegram; QR pairing).',

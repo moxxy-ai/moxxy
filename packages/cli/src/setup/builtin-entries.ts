@@ -15,10 +15,6 @@ import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
 import { collabPlugin } from '@moxxy/plugin-collab';
 import { summarizeCompactorPlugin } from '@moxxy/compactor-summarize';
 import { stablePrefixCacheStrategyPlugin } from '@moxxy/cache-strategy-stable-prefix';
-import {
-  memoryConsolidatePlugin,
-  type MemoryStore,
-} from '@moxxy/plugin-memory';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
@@ -48,8 +44,6 @@ export interface BuiltinEntriesArgs {
   readonly rawConfig: MoxxyConfig;
   readonly vault: VaultStore;
   readonly vaultPlugin: Plugin;
-  readonly memory: MemoryStore;
-  readonly memoryPlugin: Plugin;
   readonly viewSurface: ViewSurfaceRef;
   readonly webControls: WebControlsRef;
   readonly setPluginEnabledLive: (packageName: string, enabled: boolean) => Promise<void>;
@@ -67,7 +61,7 @@ export interface BuiltinEntriesArgs {
  * builtin set; do not reorder.
  */
 export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
-  const { session, rawConfig, vaultPlugin, memoryPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
+  const { session, rawConfig, vaultPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
 
   // Publish the shared web-surface ref so the (discovery-loadable) view plugin
   // can read it in onInit — the same mutable ref the web channel writes via its
@@ -112,14 +106,9 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/plugin-vault', plugin: vaultPlugin },
     // plugin-stt-whisper(+codex) are NOT bundled — install on demand / seeded
     // by the desktop; both resolve their deps from the service registry.
-    { name: '@moxxy/plugin-memory', plugin: memoryPlugin },
-    {
-      // Discovery-loadable: resolves the memory store ('memory', published by
-      // @moxxy/plugin-memory above) + the active provider ('providers') from the
-      // service registry in onInit.
-      name: '@moxxy/memory-consolidate',
-      plugin: memoryConsolidatePlugin,
-    },
+    // plugin-memory is NOT bundled — one merged plugin (store + tools +
+    // tfidf embedder + consolidate) installs on demand / rides the desktop
+    // seed, resolving its lazy embedder from the 'embedders' service.
     { name: '@moxxy/plugin-cli', plugin: cliPlugin },
     // plugin-channel-web / plugin-browser / plugin-terminal are NOT bundled —
     // install on demand from npm (or the desktop plugins-seed) and load via

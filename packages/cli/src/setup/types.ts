@@ -100,7 +100,8 @@ export interface SetupResult {
   readonly config: MoxxyConfig;
   readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
   readonly vault: VaultStore;
-  readonly memory: MemoryStore;
+  /** The memory plugin's store ('memory' service); undefined on a slim boot without the plugin. */
+  readonly memory: MemoryStore | undefined;
   /** Scheduler store + poller, surfaced so the CLI subcommands
    *  (`moxxy schedule list|run`) can reach them without a model turn. */
   readonly scheduler: { readonly store: ScheduleStore; readonly poller: SchedulerPoller };
