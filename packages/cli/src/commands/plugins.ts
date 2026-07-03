@@ -8,6 +8,7 @@ import {
   removePluginPackage,
   resolveCatalogEntry,
   resolveCatalogPackageName,
+  resolveInstallSource,
   searchInstallablePlugins,
   setCategoryDefault,
   setPluginEnabled,
@@ -165,11 +166,25 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     printError('plugins install requires a catalog id, npm package, GitHub spec, or path');
     return 2;
   }
-  const spec = buildInstallSpec({
-    target,
-    ...(stringFlag(argv, 'version') ? { version: stringFlag(argv, 'version') } : {}),
-    ...(stringFlag(argv, 'ref') ? { ref: stringFlag(argv, 'ref') } : {}),
-  });
+  const version = stringFlag(argv, 'version');
+  const ref = stringFlag(argv, 'ref');
+  // Explicit --version / --ref always wins: skip the signed-registry lookup
+  // and pass the user's spec through untouched. Otherwise consult the signed
+  // index first (a no-op fallback to the hardcoded catalog while the
+  // maintainer key is unprovisioned) — a signed entry contributes its exact,
+  // signature-covered version as the pin. Pin precedence:
+  // user --version > signed index > cliVersion lockstep > latest.
+  const resolved =
+    version || ref
+      ? undefined
+      : await resolveInstallSource(target);
+  const spec =
+    resolved?.spec ??
+    buildInstallSpec({
+      target,
+      ...(version ? { version } : {}),
+      ...(ref ? { ref } : {}),
+    });
   const entry = resolveCatalogEntry(target);
   try {
     // Bare first-party specs pin to the CLI version (co-published via the
@@ -177,11 +192,17 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     // Explicit --version/--ref specs pass through untouched.
     const result = await installPluginPackagePinned({
       packageName: spec,
+      ...(resolved?.pinnedVersion ? { pinnedVersion: resolved.pinnedVersion } : {}),
       ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
       onWarn: (msg) => process.stderr.write(colors.dim(msg) + '\n'),
     });
+    if (resolved?.origin === 'signed' && resolved.pinnedVersion) {
+      process.stdout.write(
+        colors.dim(`signed registry pin: ${resolved.packageName}@${resolved.pinnedVersion}\n`),
+      );
+    }
     process.stdout.write(
-      `installed ${entry?.packageName ?? spec}\n` +
+      `installed ${resolved?.packageName ?? entry?.packageName ?? spec}\n` +
         `source: ${result.installed}\nplugins dir: ${result.dir}\n` +
         colors.dim('run `moxxy plugins reload` (or restart) to load it\n'),
     );
