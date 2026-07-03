@@ -29,6 +29,13 @@ export const BUILTIN_REQUIREMENTS: Readonly<
       "hint": "slack resolves the vault from the service registry for its bot token + signing secret + pairing; @moxxy/plugin-vault must load first"
     }
   ],
+  "@moxxy/plugin-channel-whatsapp": [
+    {
+      "kind": "plugin",
+      "name": "@moxxy/plugin-vault",
+      "hint": "whatsapp resolves the vault from the service registry for its consent receipt + owner JID + allow-list; @moxxy/plugin-vault must load first"
+    }
+  ],
   "@moxxy/plugin-oauth": [
     {
       "kind": "plugin",

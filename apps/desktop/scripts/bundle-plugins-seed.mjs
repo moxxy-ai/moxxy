@@ -53,6 +53,7 @@ const SEED_PLUGINS = [
   'plugin-stt-whisper-codex',
   'plugin-telegram',
   'plugin-channel-slack',
+  'plugin-channel-whatsapp',
   'plugin-provider-admin',
   'plugin-mcp',
   'plugin-memory',

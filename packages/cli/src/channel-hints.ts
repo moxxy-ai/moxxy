@@ -13,6 +13,7 @@ const CHANNEL_COMMANDS: Readonly<Record<string, string>> = {
   telegram: '@moxxy/plugin-telegram',
   slack: '@moxxy/plugin-channel-slack',
   signal: '@moxxy/plugin-channel-signal',
+  whatsapp: '@moxxy/plugin-channel-whatsapp',
   web: '@moxxy/plugin-channel-web',
   http: '@moxxy/plugin-channel-http',
 };

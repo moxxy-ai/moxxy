@@ -68,7 +68,8 @@ function sessionSource(): SessionSource {
     explicit === 'cli' ||
     explicit === 'slack' ||
     explicit === 'telegram' ||
-    explicit === 'signal'
+    explicit === 'signal' ||
+    explicit === 'whatsapp'
   ) {
     return explicit;
   }
