@@ -29,6 +29,13 @@ export interface PickerHandlerDeps {
    * the "run moxxy init/login" notice.
    */
   openProviderConnect?: (target: { providerId: string; modelId: string }) => void;
+  /**
+   * Re-dispatch a slash line through the normal submit path. Used by the
+   * install-confirm picker to re-run the command that hit the missing
+   * capability (e.g. `/goal fix the build`) after the install lands — the
+   * original code path then finds the contribution registered.
+   */
+  rerunSlash?: (line: string) => void;
 }
 
 export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id: string) => void {
@@ -51,10 +58,75 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     if (kind === 'plugins') {
       return handlePluginAction(id, deps);
     }
+    if (kind === 'install-confirm') {
+      return handleInstallConfirm(picker, id, deps);
+    }
     if (kind === 'sessions') {
       return handleSessionSelected(id, deps);
     }
   };
+}
+
+/**
+ * The shared picker-driven install flow: guard for capability + in-flight,
+ * progress/success/failure notices, then `after` (reopen a picker, re-run a
+ * slash line). Used by the /plugins Installable tab and install-confirm.
+ */
+function runPickerInstall(
+  deps: PickerHandlerDeps,
+  target: string,
+  opts: { reopenPluginsPicker?: boolean; onSuccess?: () => void } = {},
+): void {
+  const admin = deps.session.pluginsAdmin;
+  const install = admin?.install?.bind(admin);
+  if (!install) {
+    deps.setSystemNotice(`to install: run \`moxxy plugins install ${target}\``);
+    return;
+  }
+  if (deps.installInFlightRef?.current) {
+    deps.setSystemNotice('an install is already running — hang on…');
+    return;
+  }
+  if (deps.installInFlightRef) deps.installInFlightRef.current = true;
+  deps.setSystemNotice(`installing ${target} via npm — this can take a minute…`);
+  void (async () => {
+    let ok = false;
+    try {
+      const res = await install(target);
+      const kinds = Object.entries(res.registered)
+        .filter(([, names]) => names && names.length > 0)
+        .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
+        .join('; ');
+      deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
+      ok = true;
+    } catch (err) {
+      deps.setSystemNotice(
+        `install failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      if (deps.installInFlightRef) deps.installInFlightRef.current = false;
+      // Re-open with refreshed state: a success moves the plugin from the
+      // Installable tab into Packages; a failure keeps it installable.
+      if (opts.reopenPluginsPicker) openPluginsPicker(deps);
+    }
+    if (ok) opts.onSuccess?.();
+  })();
+}
+
+/**
+ * `install-confirm` picker: `install` runs the shared install flow and, on
+ * success, re-runs the original slash line so the user continues through the
+ * unmodified code path; anything else closes silently.
+ */
+function handleInstallConfirm(
+  picker: Extract<NonNullable<Picker>, { kind: 'install-confirm' }>,
+  id: string,
+  deps: PickerHandlerDeps,
+): void {
+  if (id !== 'install') return;
+  runPickerInstall(deps, picker.catalogId, {
+    onSuccess: () => deps.rerunSlash?.(picker.rerun),
+  });
 }
 
 /**
@@ -100,36 +172,7 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
   const name = sep >= 0 ? id.slice(0, sep) : id;
   const action = sep >= 0 ? id.slice(sep + 2) : '';
   if (action === 'install') {
-    const install = admin?.install?.bind(admin);
-    if (!install) {
-      deps.setSystemNotice(`to install: run \`moxxy plugins install ${name}\``);
-      return;
-    }
-    if (deps.installInFlightRef?.current) {
-      deps.setSystemNotice('an install is already running — hang on…');
-      return;
-    }
-    if (deps.installInFlightRef) deps.installInFlightRef.current = true;
-    deps.setSystemNotice(`installing ${name} via npm — this can take a minute…`);
-    void (async () => {
-      try {
-        const res = await install(name);
-        const kinds = Object.entries(res.registered)
-          .filter(([, names]) => names && names.length > 0)
-          .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
-          .join('; ');
-        deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
-      } catch (err) {
-        deps.setSystemNotice(
-          `install failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      } finally {
-        if (deps.installInFlightRef) deps.installInFlightRef.current = false;
-        // Re-open with refreshed state: a success moves the plugin from the
-        // Installable tab into Packages; a failure keeps it installable.
-        openPluginsPicker(deps);
-      }
-    })();
+    runPickerInstall(deps, name, { reopenPluginsPicker: true });
     return;
   }
   if (action === 'core') {
@@ -341,6 +384,22 @@ export async function applyProviderModelSwitch(
 }
 
 function handleModeSelected(id: string, deps: PickerHandlerDeps): void {
+  // Catalog modes appended by openModePicker carry `install::<name>` ids —
+  // install the providing package, then re-run `/mode <name>`.
+  if (id.startsWith('install::')) {
+    const modeName = id.slice('install::'.length);
+    const entry = deps.session.pluginsAdmin
+      ?.catalog()
+      .find((e) => e.provides?.some((p) => p.category === 'mode' && p.name === modeName));
+    if (!entry) {
+      deps.setSystemNotice(`no installable package provides mode "${modeName}"`);
+      return;
+    }
+    runPickerInstall(deps, entry.id, {
+      onSuccess: () => deps.rerunSlash?.(`/mode ${modeName}`),
+    });
+    return;
+  }
   try {
     deps.session.modes.setActive(id);
     deps.setSystemNotice(`mode → ${id}`);

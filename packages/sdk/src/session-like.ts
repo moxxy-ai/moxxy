@@ -281,6 +281,9 @@ export interface InstallablePluginView {
   readonly installSpec: string;
   readonly kind?: string;
   readonly startCommand?: string;
+  /** Registry contributions the package provides (category + name) — lets
+   *  surfaces offer install-on-first-use for a missing capability. */
+  readonly provides?: ReadonlyArray<{ readonly category: string; readonly name: string }>;
 }
 
 /** One loaded plugin in {@link PluginsAdminView.loaded}, grouped by `kinds`. */

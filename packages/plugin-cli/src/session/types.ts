@@ -48,6 +48,20 @@ export type Picker =
       title: string;
       serverName: string;
       options: ReadonlyArray<ListPickerOption>;
+    }
+  | {
+      /**
+       * Install-on-first-use confirm: a slash command or picker asked for a
+       * capability whose package isn't installed but the catalog provides.
+       * Picking `install` runs the picker install flow, then re-runs `rerun`
+       * (the original slash line) so the user lands exactly where they were
+       * headed — through the unmodified code path.
+       */
+      kind: 'install-confirm';
+      title: string;
+      options: ReadonlyArray<ListPickerOption>;
+      catalogId: string;
+      rerun: string;
     };
 
 export interface PendingPermission {

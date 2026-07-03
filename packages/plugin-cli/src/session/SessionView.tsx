@@ -220,6 +220,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
     modelId: string;
   } | null>(null);
 
+  // Late-bound so the picker handler (memoized above handleSubmit's
+  // declaration) can re-dispatch a slash line through the normal submit path
+  // — used by install-confirm to re-run the command that hit the missing
+  // capability once its package is installed.
+  const rerunSlashRef = React.useRef<(line: string) => void>(() => undefined);
+
   const handlePickerSelect = React.useMemo(
     () =>
       makePickerHandler({
@@ -231,6 +237,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         refreshMcpStatus,
         installInFlightRef,
         openProviderConnect: setProviderConnect,
+        rerunSlash: (line) => rerunSlashRef.current(line),
         ...(onSwitchSession ? { requestSessionSwitch: onSwitchSession } : {}),
       }),
     [session, providerName, refreshMcpStatus, onSwitchSession],
@@ -362,6 +369,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
     }
 
     await turn.runTurnWith(text, attachments);
+  };
+  rerunSlashRef.current = (line: string) => {
+    void handleSubmit(line);
   };
 
   // Hand off the prompt the user typed on the splash screen. Fires

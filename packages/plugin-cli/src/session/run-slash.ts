@@ -504,9 +504,11 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
 function startGoal(deps: SlashDeps, arg: string): void {
   const objective = arg.trim();
   const GOAL_MODE = 'goal';
-  // The mode is registered globally; if it's somehow absent, say so rather
+  // Missing mode: offer install-on-first-use when the catalog provides it
+  // (post-install the original /goal line re-runs); otherwise say so rather
   // than silently arming yolo with no behavior change.
   if (!deps.session.modes.list().some((m) => m.name === GOAL_MODE)) {
+    if (offerModeInstall(deps, GOAL_MODE, objective ? `/goal ${objective}` : '/goal')) return;
     deps.setSystemNotice('goal mode is not available (mode-goal plugin not loaded)');
     return;
   }
@@ -542,6 +544,13 @@ function startGoal(deps: SlashDeps, arg: string): void {
  */
 function startCollab(deps: SlashDeps, arg: string): void {
   const objective = arg.trim();
+  // The coordinator runner needs the collaborative mode package on disk —
+  // when it isn't loaded here it won't be there either. Offer the install.
+  if (!deps.session.modes.list().some((m) => m.name === 'collaborative')) {
+    if (offerModeInstall(deps, 'collaborative', objective ? `/collab ${objective}` : '/collab')) {
+      return;
+    }
+  }
   if (!deps.requestCollab) {
     deps.setSystemNotice(
       'collaboration runs on its own runner and needs an in-place session switch, which isn’t available here (attached to an external `moxxy serve`). Start it from the desktop Collaborate panel instead.',
@@ -588,6 +597,7 @@ function openModePicker(deps: SlashDeps, arg = ''): void {
       }
       return;
     }
+    if (offerModeInstall(deps, target, `/mode ${target}`)) return;
     deps.setSystemNotice(
       `no mode named "${arg.trim()}". Available: ${modes.map((m) => m.name).join(', ')}`,
     );
@@ -599,7 +609,66 @@ function openModePicker(deps: SlashDeps, arg = ''): void {
     current: s.name === deps.modeName,
     ...(s.description ? { description: truncate(s.description, 80) } : {}),
   }));
+  // Append catalog-provided modes whose package isn't installed, badged so
+  // picking one flows through install-confirm → install → `/mode <name>`.
+  const registered = new Set(all.map((m) => m.name));
+  for (const { entry, name } of installableCatalogModes(deps, registered)) {
+    options.push({
+      id: `install::${name}`,
+      label: name,
+      description: truncate(entry.description, 66),
+      badge: 'installs on first use',
+      badgeColor: 'yellow',
+    });
+  }
   deps.setPicker({ kind: 'mode', title: 'Switch mode', options });
+}
+
+/** Catalog entries providing a mode that isn't registered (install candidates). */
+function installableCatalogModes(
+  deps: SlashDeps,
+  registered: ReadonlySet<string>,
+): Array<{ entry: { id: string; description: string; packageName: string }; name: string }> {
+  const admin = deps.session.pluginsAdmin;
+  if (!admin?.install) return [];
+  const out: Array<{ entry: { id: string; description: string; packageName: string }; name: string }> = [];
+  for (const entry of admin.catalog()) {
+    for (const p of entry.provides ?? []) {
+      if (p.category === 'mode' && !registered.has(p.name)) {
+        out.push({ entry: { id: entry.id, description: entry.label, packageName: entry.packageName }, name: p.name });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Open the install-confirm picker for a mode the catalog can provide.
+ * Returns false when the session can't install or the catalog doesn't know
+ * the mode — callers fall back to their plain notice.
+ */
+function offerModeInstall(deps: SlashDeps, modeName: string, rerun: string): boolean {
+  const admin = deps.session.pluginsAdmin;
+  if (!admin?.install) return false;
+  const entry = admin
+    .catalog()
+    .find((e) => e.provides?.some((p) => p.category === 'mode' && p.name === modeName));
+  if (!entry) return false;
+  deps.setPicker({
+    kind: 'install-confirm',
+    title: `${modeName} mode isn't installed`,
+    catalogId: entry.id,
+    rerun,
+    options: [
+      {
+        id: 'install',
+        label: `Install ${entry.packageName}`,
+        description: 'npm install into ~/.moxxy/plugins, then continue where you left off',
+      },
+      { id: 'cancel', label: 'Cancel', description: 'close without installing' },
+    ],
+  });
+  return true;
 }
 
 /**

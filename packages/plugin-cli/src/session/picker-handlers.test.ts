@@ -203,3 +203,74 @@ describe('makePickerHandler — installable-tab install', () => {
     expect(setSystemNotice).toHaveBeenCalledWith('an install is already running — hang on…');
   });
 });
+
+describe('makePickerHandler — install-on-first-use', () => {
+  it('install-confirm: installs then re-runs the original slash line', async () => {
+    const install = vi.fn(async () => ({ installed: '@moxxy/mode-goal@1.0.0', registered: {} }));
+    const rerunSlash = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setSystemNotice: vi.fn(),
+        rerunSlash,
+        installInFlightRef: { current: false },
+      }),
+    );
+    handle(
+      {
+        kind: 'install-confirm',
+        title: 'goal is not installed',
+        catalogId: 'mode-goal',
+        rerun: '/goal ship it',
+        options: [],
+      },
+      'install',
+    );
+    await new Promise((r) => setImmediate(r));
+    expect(install).toHaveBeenCalledWith('mode-goal');
+    expect(rerunSlash).toHaveBeenCalledWith('/goal ship it');
+  });
+
+  it('install-confirm: cancel does nothing', async () => {
+    const install = vi.fn();
+    const rerunSlash = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        rerunSlash,
+      }),
+    );
+    handle(
+      { kind: 'install-confirm', title: 't', catalogId: 'x', rerun: '/mode x', options: [] },
+      'cancel',
+    );
+    await new Promise((r) => setImmediate(r));
+    expect(install).not.toHaveBeenCalled();
+    expect(rerunSlash).not.toHaveBeenCalled();
+  });
+
+  it('mode picker install:: id installs the providing package then re-runs /mode', async () => {
+    const install = vi.fn(async () => ({ installed: 'x', registered: {} }));
+    const catalog = vi.fn(() => [
+      {
+        id: 'mode-goal',
+        label: 'Goal mode',
+        packageName: '@moxxy/mode-goal',
+        installSpec: '@moxxy/mode-goal',
+        provides: [{ category: 'mode', name: 'goal' }],
+      },
+    ]);
+    const rerunSlash = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install, catalog } } as never,
+        rerunSlash,
+        installInFlightRef: { current: false },
+      }),
+    );
+    handle({ kind: 'mode', title: 'Switch mode', options: [] }, 'install::goal');
+    await new Promise((r) => setImmediate(r));
+    expect(install).toHaveBeenCalledWith('mode-goal');
+    expect(rerunSlash).toHaveBeenCalledWith('/mode goal');
+  });
+});
