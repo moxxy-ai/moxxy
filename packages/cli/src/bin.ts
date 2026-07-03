@@ -11,6 +11,7 @@ import { runChannelByName } from './commands/run-channel.js';
 import { runInitCommand } from './commands/init.js';
 import { runProvisionCommand } from './commands/provision.js';
 import { runPermsCommand } from './commands/perms.js';
+import { runConfigCommand } from './commands/config.js';
 import { runMemoryCommand } from './commands/memory.js';
 import { runMcpCommand } from './commands/mcp.js';
 import { runScheduleCommand } from './commands/schedule.js';
@@ -83,6 +84,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['plugins list|search|install|remove|enable|disable|reload|new', 'find, install + manage plugins'],
       ['self-update status|rollback', 'inspect / roll back self-update transactions'],
       ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
+      ['config show|get|set|path', 'read / edit the moxxy config (user or project scope)'],
       ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
       ['security audit|isolators|status', 'inspect plugin-security isolation state'],
       ['mcp list|enable|disable|remove|path', 'manage Model Context Protocol servers'],
@@ -207,6 +209,7 @@ const COMMANDS: Record<string, CommandHandler> = {
   provision: runProvisionCommand,
   login: runLoginCommand,
   perms: runPermsCommand,
+  config: runConfigCommand,
   memory: runMemoryCommand,
   mcp: runMcpCommand,
   schedule: runScheduleCommand,
