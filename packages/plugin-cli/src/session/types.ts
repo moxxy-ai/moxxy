@@ -62,6 +62,13 @@ export type Picker =
       options: ReadonlyArray<ListPickerOption>;
       catalogId: string;
       rerun: string;
+    }
+  | {
+      /** `/settings` — curated config knobs (SETTINGS_KNOBS); selection
+       *  toggles/cycles the value, persists it, live-applies, and reopens. */
+      kind: 'settings';
+      title: string;
+      options: ReadonlyArray<ListPickerOption>;
     };
 
 export interface PendingPermission {

@@ -10,7 +10,7 @@ import {
   silentLogger,
 } from '@moxxy/core';
 import type { Plugin } from '@moxxy/sdk';
-import { buildConfigPlugin, loadDisabledProviders } from '@moxxy/config';
+import { buildConfigPlugin, loadConfig as loadMergedConfig, loadDisabledProviders } from '@moxxy/config';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './setup/builtin-skills-dir.js';
 import { buildVaultPlugin } from '@moxxy/plugin-vault';
 import { buildMemoryPlugin } from '@moxxy/plugin-memory';
@@ -125,16 +125,30 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     logger,
   });
 
+  // ONE applier instance shared by the config_set/config_reload tools AND the
+  // session's configAdmin view (the TUI /settings panel) — both surfaces
+  // live-apply through identical logic.
+  const configApplier = buildSessionConfigApplier(session, config, builtinsCore, disabledPackages);
+
   const builtins: Array<{ name: string; plugin: Plugin }> = [
     ...builtinsCore,
     {
       name: '@moxxy/plugin-config',
       plugin: buildConfigPlugin({
         cwd: opts.cwd,
-        applier: buildSessionConfigApplier(session, config, builtinsCore, disabledPackages),
+        applier: configApplier,
       }),
     },
   ];
+
+  // Re-read + live-apply seam for UI surfaces. A RemoteSession leaves it
+  // undefined; the /settings panel then reports "applies on restart".
+  session.configAdmin = {
+    apply: async () => {
+      const { config: fresh } = await loadMergedConfig({ cwd: opts.cwd });
+      return configApplier(fresh);
+    },
+  };
 
   const pluginRegistration = await registerPlugins(session, config, builtins, opts.cwd, logger);
   progress({

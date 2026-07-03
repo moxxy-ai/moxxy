@@ -50,3 +50,11 @@ export {
   type InitConfigSelections,
   type UserConfigOptions,
 } from './user-config.js';
+
+export {
+  configWriteMutex,
+  setConfigValue,
+  type ConfigScope,
+  type SetConfigValueOptions,
+  type SetConfigValueResult,
+} from './config-writer.js';

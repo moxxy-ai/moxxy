@@ -1,6 +1,7 @@
 import type React from 'react';
 import { clearUsageStats, readSessionIndex } from '@moxxy/core';
-import { setCategoryDefault } from '@moxxy/config';
+import { loadConfig, setCategoryDefault } from '@moxxy/config';
+import { SETTINGS_KNOBS } from './settings-descriptors.js';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import { isSelectableMode } from '@moxxy/sdk';
@@ -143,6 +144,9 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
       return openModePicker(deps, args);
     case 'plugins':
       return openPluginsPicker(deps);
+    case 'settings':
+    case 'config':
+      return openSettingsPicker(deps);
     case 'channels':
       deps.setSystemNotice(null);
       deps.setOverlay({ kind: 'channels' });
@@ -191,7 +195,7 @@ function handleClearQueue(deps: SlashDeps): void {
   );
 }
 
-function openModelPicker(deps: SlashDeps): void {
+export function openModelPicker(deps: SlashDeps): void {
   // Build a flat list of all (provider, model) pairs across every
   // registered provider — the user can switch BOTH provider and
   // model in one pick. Grouping is by provider name. Providers whose
@@ -318,6 +322,45 @@ export function openSessionsPicker(deps: OpenSessionsPickerDeps): void {
 export interface OpenMcpPickerDeps {
   setPicker: (p: Picker) => void;
   setSystemNotice: (msg: string | null) => void;
+}
+
+/**
+ * `/settings` — the curated config panel. Options come from the pure
+ * SETTINGS_KNOBS table with the CURRENT value as the badge (re-read from
+ * disk on every open so external edits show up). Selection semantics live
+ * in picker-handlers: booleans toggle, enums cycle, links open the matching
+ * picker, readonly rows explain where to edit.
+ */
+export interface OpenSettingsPickerDeps {
+  session: Session;
+  setPicker: (p: Picker) => void;
+  setSystemNotice: (msg: string | null) => void;
+}
+
+export function openSettingsPicker(deps: OpenSettingsPickerDeps): void {
+  void (async () => {
+    try {
+      const { config } = await loadConfig({ cwd: process.cwd() });
+      const options: ListPickerOption[] = SETTINGS_KNOBS.map((k) => {
+        const badge = k.kind === 'link' ? 'open ›' : k.current(config);
+        return {
+          id: k.id,
+          label: k.label,
+          description: truncate(k.description, 66),
+          ...(badge ? { badge, badgeColor: k.kind === 'readonly' ? 'gray' : 'cyan' } : {}),
+        };
+      });
+      deps.setPicker({
+        kind: 'settings',
+        title: 'Settings — enter toggles · esc closes',
+        options,
+      });
+    } catch (err) {
+      deps.setSystemNotice(
+        `failed to load config: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  })();
 }
 
 export function openMcpPicker(deps: OpenMcpPickerDeps): void {
@@ -561,7 +604,7 @@ function startCollab(deps: SlashDeps, arg: string): void {
   deps.requestCollab(objective || undefined);
 }
 
-function openModePicker(deps: SlashDeps, arg = ''): void {
+export function openModePicker(deps: SlashDeps, arg = ''): void {
   const all = deps.session.modes.list();
   // Special modes (e.g. the collaborative system, entered via /collab) are never
   // listed or name-switched here — see ModeDef.special / isSelectableMode.
