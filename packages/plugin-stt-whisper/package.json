@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-stt-whisper",
-  "private": true,
   "version": "0.26.0",
-  "description": "OpenAI Whisper Transcriber for moxxy. Audio bytes → text + segments. Plugs into the session's TranscriberRegistry; channels with audio input (Telegram voice, HTTP multipart) consume it transparently.",
+  "description": "OpenAI Whisper Transcriber for moxxy. Audio bytes \u2192 text + segments. Plugs into the session's TranscriberRegistry; channels with audio input (Telegram voice, HTTP multipart) consume it transparently.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "stt",
+    "whisper",
+    "transcriber"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-stt-whisper"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

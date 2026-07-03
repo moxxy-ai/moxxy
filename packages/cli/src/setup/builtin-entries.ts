@@ -9,8 +9,6 @@ import type { MoxxyConfig } from '@moxxy/config';
 // (provider-credentials.ts) links their token helpers directly.
 import { openaiCodexPlugin } from '@moxxy/plugin-provider-openai-codex';
 import { claudeCodePlugin } from '@moxxy/plugin-provider-claude-code';
-import { buildWhisperPlugin } from '@moxxy/plugin-stt-whisper';
-import { whisperCodexPlugin } from '@moxxy/plugin-stt-whisper-codex';
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
@@ -21,13 +19,9 @@ import {
   memoryConsolidatePlugin,
   type MemoryStore,
 } from '@moxxy/plugin-memory';
-import { telegramPlugin } from '@moxxy/plugin-telegram';
 import { cliPlugin } from '@moxxy/plugin-cli';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
-import { slackPlugin } from '@moxxy/plugin-channel-slack';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
-import { providerAdminPlugin } from '@moxxy/plugin-provider-admin';
-import { mcpAdminPlugin } from '@moxxy/plugin-mcp';
 import { commandsPlugin } from '@moxxy/plugin-commands';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
@@ -116,12 +110,8 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     { name: '@moxxy/compactor-summarize', plugin: summarizeCompactorPlugin },
     { name: '@moxxy/cache-strategy-stable-prefix', plugin: stablePrefixCacheStrategyPlugin },
     { name: '@moxxy/plugin-vault', plugin: vaultPlugin },
-    { name: '@moxxy/plugin-stt-whisper', plugin: buildWhisperPlugin() },
-    {
-      // Discovery-loadable: resolves the vault from the service registry in onInit.
-      name: '@moxxy/plugin-stt-whisper-codex',
-      plugin: whisperCodexPlugin,
-    },
+    // plugin-stt-whisper(+codex) are NOT bundled — install on demand / seeded
+    // by the desktop; both resolve their deps from the service registry.
     { name: '@moxxy/plugin-memory', plugin: memoryPlugin },
     {
       // Discovery-loadable: resolves the memory store ('memory', published by
@@ -137,31 +127,22 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // resolves its own dist/sidecar.js, terminal carries node-pty as its own
     // optional dep (piped-shell fallback without it).
     { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
-    // Discovery-loadable: resolves the vault from the service registry in onInit.
-    { name: '@moxxy/plugin-telegram', plugin: telegramPlugin },
-    // Discovery-loadable: resolves the vault from the service registry in onInit;
-    // opens its Events-API ingest tunnel via the proxy relay. Runs on its own
-    // dedicated runner (see start-registered-channel applyDedicatedRunnerEnv).
-    { name: '@moxxy/plugin-channel-slack', plugin: slackPlugin },
+    // plugin-telegram / plugin-channel-slack are NOT bundled — install on
+    // demand (`moxxy <channel>` prints the install hint when absent) or ride
+    // the desktop plugins-seed; the desktop ChannelSupervisor spawns them on
+    // their dedicated runners from the seeded install.
     // Universal slash commands (/info, /clear, /new, /exit, /help)
     // shared across every channel via session.commands. Disable to
     // hide them everywhere — channel-local commands keep working.
     { name: '@moxxy/plugin-commands', plugin: commandsPlugin },
-    // plugin-view / plugin-self-update / plugin-voice-admin are NOT bundled —
-    // they install on demand from npm (INSTALLABLE_PLUGIN_CATALOG) and load
-    // via discovery, resolving their deps from the service registry in onInit.
-    // (self-update's staged-update finalize in bin.ts is a static lib import
-    // and stays inlined — only the registered plugin instance moves out.)
-    // provider-admin + mcp stay bundled until the desktop seed pack lands:
-    // the desktop Settings panels reach them through the 'providerAdmin' /
-    // 'mcpAdmin' session services on the spawned runner.
-    // Provider admin tools (provider_add/list/remove/test) — persists
-    // OpenAI-compatible vendor registrations to ~/.moxxy/providers.json.
-    // Discovery-loadable; publishes its admin api as 'providerAdmin'.
-    { name: '@moxxy/plugin-provider-admin', plugin: providerAdminPlugin },
-    // MCP admin tools + boot-time lazy attach. Discovery-loadable; publishes
-    // its runtime control api as 'mcpAdmin'.
-    { name: '@moxxy/plugin-mcp', plugin: mcpAdminPlugin },
+    // plugin-view / plugin-self-update / plugin-voice-admin /
+    // plugin-provider-admin / plugin-mcp are NOT bundled — install on demand
+    // or ride the desktop plugins-seed (the seed is what keeps the desktop's
+    // Settings panels working: they reach provider-admin/mcp through the
+    // 'providerAdmin'/'mcpAdmin' session services on the spawned runner).
+    // Library code some cli commands import from provider-admin/self-update/
+    // mcp (key-name helpers, staged-update finalize, mcp.json IO) stays
+    // inlined via static imports — only the plugin instances move out.
     // Runtime plugin management — exposes install_plugin / uninstall_plugin
     // (npm into ~/.moxxy/plugins) and enable_plugin / disable_plugin (config-
     // backed plug/unplug of any registered plugin). Hot-reloads via

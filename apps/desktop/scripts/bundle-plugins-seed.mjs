@@ -48,11 +48,18 @@ const SEED_PLUGINS = [
   'plugin-browser',
   'plugin-terminal',
   'plugin-channel-web',
+  // Slim-wave batches 5+6 (desktop voice, Settings panels, Apps→Channels).
+  'plugin-stt-whisper',
+  'plugin-stt-whisper-codex',
+  'plugin-telegram',
+  'plugin-channel-slack',
+  'plugin-provider-admin',
+  'plugin-mcp',
 ];
 
 /** First-party runtime deps of seed members — packed so the closure installs
  *  from local tarballs (usage-stats→core, oauth→vault, everything→sdk). */
-const CLOSURE = ['sdk', 'core', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e'];
+const CLOSURE = ['sdk', 'core', 'config', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
 
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..');
 const seedDir = path.join(repo, 'apps/desktop/resources/plugins-seed');

@@ -561,9 +561,6 @@ importers:
       '@moxxy/plugin-channel-mobile':
         specifier: workspace:*
         version: link:../plugin-channel-mobile
-      '@moxxy/plugin-channel-slack':
-        specifier: workspace:*
-        version: link:../plugin-channel-slack
       '@moxxy/plugin-cli':
         specifier: workspace:*
         version: link:../plugin-cli
@@ -606,15 +603,6 @@ importers:
       '@moxxy/plugin-self-update':
         specifier: workspace:*
         version: link:../plugin-self-update
-      '@moxxy/plugin-stt-whisper':
-        specifier: workspace:*
-        version: link:../plugin-stt-whisper
-      '@moxxy/plugin-stt-whisper-codex':
-        specifier: workspace:*
-        version: link:../plugin-stt-whisper-codex
-      '@moxxy/plugin-telegram':
-        specifier: workspace:*
-        version: link:../plugin-telegram
       '@moxxy/plugin-vault':
         specifier: workspace:*
         version: link:../plugin-vault
