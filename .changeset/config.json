@@ -10,7 +10,8 @@
       "@moxxy/config",
       "@moxxy/agent",
       "@moxxy/plugin-*",
-      "@moxxy/mode-*"
+      "@moxxy/mode-*",
+      "@moxxy/e2e"
     ]
   ],
   "linked": [],

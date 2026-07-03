@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-browser",
-  "private": true,
   "version": "0.26.0",
   "description": "Browser capabilities for moxxy: web_fetch (zero-deps light tier) + browser_session (Playwright sidecar for JS-heavy / interactive pages).",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "browser",
+    "playwright",
+    "tools"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-browser"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -23,11 +23,8 @@ import {
 } from '@moxxy/plugin-memory';
 import { telegramPlugin } from '@moxxy/plugin-telegram';
 import { cliPlugin } from '@moxxy/plugin-cli';
-import { webChannelPlugin } from '@moxxy/plugin-channel-web';
 import { mobileChannelPlugin } from '@moxxy/plugin-channel-mobile';
 import { slackPlugin } from '@moxxy/plugin-channel-slack';
-import { browserPlugin } from '@moxxy/plugin-browser';
-import { terminalPlugin } from '@moxxy/plugin-terminal';
 import { buildPluginsAdminPlugin } from '@moxxy/plugin-plugins-admin';
 import { providerAdminPlugin } from '@moxxy/plugin-provider-admin';
 import { mcpAdminPlugin } from '@moxxy/plugin-mcp';
@@ -134,10 +131,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
       plugin: memoryConsolidatePlugin,
     },
     { name: '@moxxy/plugin-cli', plugin: cliPlugin },
-    // Discovery-loadable: resolves tunnelProviders + the shared viewSurface +
-    // webControls refs + the configured default tunnel from the service registry
-    // in onInit (the refs are published above; web writes viewSurface, view reads it).
-    { name: '@moxxy/plugin-channel-web', plugin: webChannelPlugin },
+    // plugin-channel-web / plugin-browser / plugin-terminal are NOT bundled —
+    // install on demand from npm (or the desktop plugins-seed) and load via
+    // discovery: web serves its own dist/public next to its module, browser
+    // resolves its own dist/sidecar.js, terminal carries node-pty as its own
+    // optional dep (piped-shell fallback without it).
     { name: '@moxxy/plugin-channel-mobile', plugin: mobileChannelPlugin },
     // Discovery-loadable: resolves the vault from the service registry in onInit.
     { name: '@moxxy/plugin-telegram', plugin: telegramPlugin },
@@ -145,11 +143,6 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
     // opens its Events-API ingest tunnel via the proxy relay. Runs on its own
     // dedicated runner (see start-registered-channel applyDedicatedRunnerEnv).
     { name: '@moxxy/plugin-channel-slack', plugin: slackPlugin },
-    { name: '@moxxy/plugin-browser', plugin: browserPlugin },
-    // Shared terminal surface + `terminal` tool. node-pty is an optional native
-    // peer dep, so the surface availability (real PTY vs piped fallback) is
-    // diagnosed at runtime — the tool always registers for a stable tool list.
-    { name: '@moxxy/plugin-terminal', plugin: terminalPlugin },
     // Universal slash commands (/info, /clear, /new, /exit, /help)
     // shared across every channel via session.commands. Disable to
     // hide them everywhere — channel-local commands keep working.

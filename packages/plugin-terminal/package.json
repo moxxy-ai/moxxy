@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-terminal",
-  "private": true,
   "version": "0.26.0",
   "description": "A shared terminal surface for moxxy: an embedded PTY the user and the agent drive together (the `terminal` tool runs commands; the desktop renders the live session).",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "terminal",
+    "pty",
+    "tools"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-terminal"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -44,5 +64,8 @@
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
   }
 }

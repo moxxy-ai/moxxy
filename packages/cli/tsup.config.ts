@@ -36,12 +36,8 @@ export default defineConfig({
     // (tools-builtin/src/read.ts) still resolves next to the bundled bin.
     // Out-of-process isolators (worker/subprocess/wasm) re-import this URL.
     'read-handler': '../tools-builtin/src/read-handler.ts',
-    // Playwright browser sidecar, run as a child process via
-    // `node dist/sidecar.js`. plugin-browser's `defaultSidecarPath()` resolves
-    // it next to its own module — which, once bundled into bin.js, is dist/ —
-    // so it MUST be emitted here too. Without it, `browser_session` spawns a
-    // missing file and the sidecar exits code=1.
-    sidecar: '../plugin-browser/src/sidecar.ts',
+    // (plugin-browser is no longer bundled; a standalone install resolves its
+    // own dist/sidecar.js next to its module, so no sidecar entry here.)
   },
   format: ['esm'],
   platform: 'node',
@@ -88,17 +84,7 @@ export default defineConfig({
     const skillsDest = path.resolve(here, 'dist/skills');
     await fs.rm(skillsDest, { recursive: true, force: true });
     await fs.cp(skillsSrc, skillsDest, { recursive: true });
-
-    // Copy the web-surface frontend bundle next to the bin. When bundled, the
-    // WebChannel's import.meta.url is dist/bin.js, so it serves from dist/public
-    // — without this copy the browser gets "web surface bundle missing".
-    const webSrc = path.resolve(here, '../plugin-channel-web/dist/public');
-    const webDest = path.resolve(here, 'dist/public');
-    if (await fs.stat(webSrc).then(() => true).catch(() => false)) {
-      await fs.rm(webDest, { recursive: true, force: true });
-      await fs.cp(webSrc, webDest, { recursive: true });
-    } else {
-      console.warn(`[cli build] web frontend missing at ${webSrc} — build @moxxy/plugin-channel-web first`);
-    }
+    // (plugin-channel-web is no longer bundled; a standalone install serves
+    // its own dist/public next to its module, so no dist/public copy here.)
   },
 });
