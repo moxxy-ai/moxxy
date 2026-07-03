@@ -317,9 +317,20 @@ or recorded-on-purpose decision.
 - [note, RESOLVED 2026-06-25] Pillar 2 done: the **EventStore** behind the event
   log is now a registry kind (`eventStore`) with a protected JSONL floor and an
   explicit-opt-in trust boundary, behaviour-identical (thin adapter over
-  `SessionPersistence`). Pillar 3 (slim-core kernel + publish ~40 plugins +
-  init-provisions + desktop seed-pack) remains planned but unstarted. Plan:
-  `~/.claude/plans/i-think-we-need-zany-wirth.md`.
+  `SessionPersistence`). Plan: `~/.claude/plans/i-think-we-need-zany-wirth.md`.
+- [note, updated 2026-07-03] Pillar 3 is HALF done, not unstarted: #363/#364
+  shipped the shared `provision()` engine + `moxxy provision`, reworked `init`
+  (catalog + `ensureProvider` npm-installs on demand), and unbundled the 6
+  API-key providers (published, fixed changeset group). Remaining, tracked in
+  plan `~/.claude/plans/cheerful-booping-nebula.md`: unbundle the ~20 still-private
+  discovery-loadable plugins in batches, pin on-demand installs to the CLI
+  version (currently `latest`), desktop seed pack, TUI install/connect
+  affordances.
+- [med, refactor] `plugin-memory`(+`memory-consolidate`) cannot unbundle as-is:
+  two Plugin instances in one package (discovery loads a single default export),
+  `moxxy memory`/`doctor` import `MemoryStore` directly, and setup builds it
+  with the embedder closure. Needs its own refactor PR (split package or teach
+  discovery multi-plugin entries); until then it stays bundled. `packages/plugin-memory/`.
 - [low, follow-up] EventStore: only the WRITE path routes through the active
   store (`attachSessionPersistence` → `getActive().open()`). The session-scoped
   READS (`restoreSessionEvents`/`readSessionEventPage` in build-session, runner

@@ -27,7 +27,7 @@ const HINTS: Record<FooterHintMode, ReadonlyArray<Hint>> = {
     { key: '/help', action: 'commands', priority: 2 },
     { key: 'Esc', action: 'clear / cancel', priority: 3 },
     { key: '⇧Enter', action: 'newline', priority: 4 },
-    { key: '^B', action: 'toggle skills', priority: 5 },
+    { key: '^O', action: 'tool detail', priority: 5 },
   ],
   picker: [
     { key: '↑↓', action: 'navigate', priority: 1 },
