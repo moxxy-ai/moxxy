@@ -55,6 +55,8 @@ describe('focus-window', () => {
     expect(createdOptions[0]).toMatchObject({
       width: 44,
       height: 44,
+      maxWidth: 1600,
+      maxHeight: 1600,
       show: false,
       type: process.platform === 'darwin' ? 'panel' : undefined,
     });
@@ -257,6 +259,7 @@ describe('focus-window', () => {
       setAlwaysOnTop: vi.fn(),
       setVisibleOnAllWorkspaces: vi.fn(),
       setResizable: vi.fn(),
+      setMinimumSize: vi.fn(),
       setShape: vi.fn(),
       invalidateShadow: vi.fn(),
       getBounds: vi.fn(() => bounds),
@@ -295,5 +298,7 @@ describe('focus-window', () => {
     resizeFocusWindow(232, 56);
 
     expect(bounds).toEqual({ x: 500, y: 100, width: 232, height: 56 });
+    expect(fakeWindow.setMinimumSize).toHaveBeenNthCalledWith(2, 320, 260);
+    expect(fakeWindow.setMinimumSize).toHaveBeenLastCalledWith(40, 40);
   });
 });

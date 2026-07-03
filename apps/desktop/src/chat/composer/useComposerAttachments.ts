@@ -20,6 +20,8 @@ export interface ComposerAttachment {
   readonly name: string;
 }
 
+export type ComposerPasteTarget = HTMLInputElement | HTMLTextAreaElement;
+
 /** Read a Blob/File as base64 (no `data:` prefix) so image bytes can
  *  ride across IPC. FileReader streams large blobs without the
  *  binary-string pitfalls of `btoa(String.fromCharCode(...))`. */
@@ -54,7 +56,7 @@ export interface ComposerAttachments {
   /** Open the native file picker and stage the chosen file. */
   readonly onAttach: () => Promise<void>;
   /** Clipboard paste handler: grabs image blobs, falls through for text. */
-  readonly onPaste: (e: ClipboardEvent<HTMLTextAreaElement>) => void;
+  readonly onPaste: (e: ClipboardEvent<ComposerPasteTarget>) => void;
 }
 
 export function useComposerAttachments(focusInput: () => void): ComposerAttachments {
@@ -114,7 +116,7 @@ export function useComposerAttachments(focusInput: () => void): ComposerAttachme
   );
 
   const onPaste = useCallback(
-    (e: ClipboardEvent<HTMLTextAreaElement>): void => {
+    (e: ClipboardEvent<ComposerPasteTarget>): void => {
       // Grab image blobs off the clipboard (screenshots, copied images).
       // If there are none, fall through to the browser's default paste so
       // text keeps working untouched.

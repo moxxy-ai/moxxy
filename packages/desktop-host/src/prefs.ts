@@ -22,6 +22,7 @@ const DEFAULTS: DesktopPrefs = {
   signedInAt: null,
   mobileGatewayEnabled: false,
   theme: 'system',
+  focusMiniTextSize: null,
   version: 1,
 };
 

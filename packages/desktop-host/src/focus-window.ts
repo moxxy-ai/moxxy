@@ -30,6 +30,9 @@ let focusTileBounds: FocusBounds | null = null;
 const COLLAPSED_FOCUS_SIZE = 44;
 const COLLAPSED_FOCUS_RADIUS = 16;
 const COMPACT_FOCUS_MAX_HEIGHT = 56;
+const FOCUS_WINDOW_MAX_SIZE = 1600;
+const FOCUS_MINI_TEXT_MIN_WIDTH = 320;
+const FOCUS_MINI_TEXT_MIN_HEIGHT = 260;
 
 interface CreateOpts {
   readonly devUrl?: string;
@@ -189,6 +192,10 @@ export function resizeFocusWindow(
   // inactive tile / active pill stay fixed. Toggle before setBounds so the
   // new size isn't clamped by a stale resizable state.
   focusWindow.setResizable(resizable);
+  focusWindow.setMinimumSize(
+    resizable ? FOCUS_MINI_TEXT_MIN_WIDTH : 40,
+    resizable ? FOCUS_MINI_TEXT_MIN_HEIGHT : 40,
+  );
   const current = focusWindow.getBounds() as FocusBounds;
   const workArea = screen.getDisplayMatching(current).workArea as FocusWorkArea;
   rememberCompactFocusTileBounds(current, workArea);
@@ -292,8 +299,8 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     // Generous ceiling so the mini-text panel can be dragged bigger to
     // read a long answer. The inactive tile / active pill keep their
     // small canonical sizes via focus.resize.
-    maxWidth: 800,
-    maxHeight: 800,
+    maxWidth: FOCUS_WINDOW_MAX_SIZE,
+    maxHeight: FOCUS_WINDOW_MAX_SIZE,
     frame: false,
     transparent: true,
     // Starts fixed (the inactive tile). resizeFocusWindow toggles this

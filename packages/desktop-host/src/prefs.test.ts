@@ -34,6 +34,7 @@ describe('readPrefs', () => {
     const p = readPrefs();
     expect(p.onboardingComplete).toBe(false);
     expect(p.theme).toBe('system');
+    expect((p as { focusMiniTextSize?: unknown }).focusMiniTextSize).toBeNull();
     expect(p.version).toBe(1);
   });
 
@@ -50,6 +51,7 @@ describe('readPrefs', () => {
     expect(p.theme).toBe('dark');
     // Unset fields still fall back to defaults.
     expect(p.clerkUserId).toBeNull();
+    expect((p as { focusMiniTextSize?: unknown }).focusMiniTextSize).toBeNull();
   });
 
   it('forces version to 1 even if a stale file claims otherwise', () => {
@@ -60,11 +62,19 @@ describe('readPrefs', () => {
 
 describe('updatePrefs', () => {
   it('persists a patch and returns the merged result', async () => {
-    const next = await updatePrefs({ onboardingComplete: true });
+    const next = await updatePrefs({
+      onboardingComplete: true,
+      focusMiniTextSize: { width: 720, height: 620 },
+    });
     expect(next.onboardingComplete).toBe(true);
+    expect((next as { focusMiniTextSize?: unknown }).focusMiniTextSize).toEqual({
+      width: 720,
+      height: 620,
+    });
     // Persisted to disk atomically.
     const onDisk = JSON.parse(readFileSync(prefsPath(), 'utf8'));
     expect(onDisk.onboardingComplete).toBe(true);
+    expect(onDisk.focusMiniTextSize).toEqual({ width: 720, height: 620 });
   });
 
   it('serializes concurrent updates so neither clobbers the other', async () => {

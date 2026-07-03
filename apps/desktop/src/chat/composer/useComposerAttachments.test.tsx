@@ -6,13 +6,14 @@
  * file-insert CustomEvent. Both were buried in `Composer.tsx`; extracting the
  * hook makes the attach path testable without rendering the whole composer.
  */
-import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The hook reaches @moxxy/client-core (api()/toErrorMessage) and a `@/shell`
 // alias; stub both so the pure attachment logic can be exercised in isolation.
+const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@moxxy/client-core', () => ({
-  api: () => ({ invoke: vi.fn() }),
+  api: () => ({ invoke }),
   toErrorMessage: (e: unknown) => String(e),
 }));
 vi.mock('@/shell/WorkspaceFiles', () => ({
@@ -20,6 +21,10 @@ vi.mock('@/shell/WorkspaceFiles', () => ({
 }));
 
 import { fileToBase64, useComposerAttachments } from './useComposerAttachments';
+
+beforeEach(() => {
+  invoke.mockReset();
+});
 
 describe('fileToBase64', () => {
   it('strips the data: prefix, returning only the base64 payload', async () => {
@@ -69,5 +74,44 @@ describe('useComposerAttachments', () => {
       window.dispatchEvent(new CustomEvent('moxxy:file-insert', { detail: { name: 'y.md' } }));
     });
     expect(result.current.attachments).toEqual([]);
+  });
+
+  it('pastes image files through the save-image IPC and leaves text paste untouched', async () => {
+    invoke.mockResolvedValue({ path: '/tmp/pasted.png', name: 'pasted.png' });
+    const focusInput = vi.fn();
+    const { result } = renderHook(() => useComposerAttachments(focusInput));
+    const image = new File(['png bytes'], 'pasted.png', { type: 'image/png' });
+    const imageEvent = {
+      preventDefault: vi.fn(),
+      clipboardData: {
+        items: [
+          {
+            kind: 'file',
+            type: 'image/png',
+            getAsFile: () => image,
+          },
+        ],
+      },
+    };
+
+    act(() => result.current.onPaste(imageEvent as never));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('session.saveImageAttachment', {
+        dataBase64: expect.any(String),
+        mediaType: 'image/png',
+        name: 'pasted.png',
+      });
+      expect(result.current.attachments).toEqual([{ path: '/tmp/pasted.png', name: 'pasted.png' }]);
+    });
+    expect(imageEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(focusInput).toHaveBeenCalledOnce();
+
+    const textEvent = {
+      preventDefault: vi.fn(),
+      clipboardData: { items: [{ kind: 'string', type: 'text/plain' }] },
+    };
+    act(() => result.current.onPaste(textEvent as never));
+    expect(textEvent.preventDefault).not.toHaveBeenCalled();
   });
 });

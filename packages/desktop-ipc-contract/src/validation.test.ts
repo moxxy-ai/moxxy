@@ -189,6 +189,9 @@ describe('IPC payload validation', () => {
     expect(() =>
       validateIpcInput('focus.resize', { width: 320, height: 76, resizable: false }),
     ).not.toThrow();
+    expect(() =>
+      validateIpcInput('focus.resize', { width: 1600, height: 1600, resizable: true }),
+    ).not.toThrow();
 
     expect(() => validateIpcInput('focus.moveBy', { dx: Number.POSITIVE_INFINITY, dy: 0 })).toThrow();
     expect(() => validateIpcInput('focus.moveBy', { dx: Number.NaN, dy: 0 })).toThrow();
@@ -207,7 +210,7 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('focus.dragEnd', { sneaky: true })).toThrow();
 
     expect(() => validateIpcInput('focus.resize', { width: 39, height: 44 })).toThrow();
-    expect(() => validateIpcInput('focus.resize', { width: 44, height: 801 })).toThrow();
+    expect(() => validateIpcInput('focus.resize', { width: 44, height: 1601 })).toThrow();
     expect(() => validateIpcInput('focus.resize', { width: Number.NaN, height: 44 })).toThrow();
   });
 
@@ -222,6 +225,28 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('prefs.update', { theme: 'system' })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { theme: 'hotdog' })).toThrow();
     expect(() => validateIpcInput('prefs.update', { theme: true })).toThrow();
+  });
+
+  it('bounds focusMiniTextSize in prefs.update', () => {
+    expect(() =>
+      validateIpcInput('prefs.update', { focusMiniTextSize: { width: 320, height: 260 } }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('prefs.update', { focusMiniTextSize: { width: 1600, height: 1600 } }),
+    ).not.toThrow();
+    expect(() => validateIpcInput('prefs.update', { focusMiniTextSize: null })).not.toThrow();
+    expect(() =>
+      validateIpcInput('prefs.update', { focusMiniTextSize: { width: 319, height: 260 } }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('prefs.update', { focusMiniTextSize: { width: 320, height: 259 } }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('prefs.update', { focusMiniTextSize: { width: 1601, height: 440 } }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('prefs.update', { focusMiniTextSize: { width: 380, height: 440, x: 1 } }),
+    ).toThrow();
   });
 
   it('bounds the remote-reachable session.abortTurn turnId', () => {

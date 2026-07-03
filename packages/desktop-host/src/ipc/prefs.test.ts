@@ -19,6 +19,7 @@ const BASE: DesktopPrefs = {
   signedInAt: null,
   mobileGatewayEnabled: false,
   theme: 'system',
+  focusMiniTextSize: null,
   version: 1,
 };
 
@@ -30,6 +31,7 @@ vi.mock('../prefs', () => {
     signedInAt: null,
     mobileGatewayEnabled: false,
     theme: 'system',
+    focusMiniTextSize: null,
     version: 1,
   };
   return {
