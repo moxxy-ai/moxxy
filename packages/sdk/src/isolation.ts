@@ -146,3 +146,70 @@ export const ISOLATION_RANK: Readonly<Record<IsolationStrength, number>> = Objec
   wasm: 5,
   docker: 6,
 });
+
+/**
+ * Widest-wins union of capability declarations — the combined blast radius
+ * if every contributing tool exercised its full declared surface. Used for
+ * package-level views: `moxxy security audit --package`, the install-time
+ * capability report, and (later) signed-index capability manifests.
+ *
+ * Union semantics per axis: fs globs / env vars / commands are set-unions
+ * (sorted, deduped); net takes the strongest mode (`any` > `allowlist` with
+ * merged hosts > `none`); `subprocess` is an OR; `timeMs` / `memMb` take the
+ * max. `undefined` entries (undeclared tools) contribute nothing — callers
+ * report their count separately so a wide-open undeclared tool is never
+ * hidden behind a tidy aggregate.
+ */
+export function aggregateCapabilitySpecs(
+  specs: ReadonlyArray<CapabilitySpec | undefined>,
+): CapabilitySpec {
+  const read = new Set<string>();
+  const write = new Set<string>();
+  const env = new Set<string>();
+  const commands = new Set<string>();
+  const hosts = new Set<string>();
+  let netMode: NetCapability['mode'] | undefined;
+  let subprocess = false;
+  let timeMs: number | undefined;
+  let memMb: number | undefined;
+
+  for (const spec of specs) {
+    if (!spec) continue;
+    for (const g of spec.fs?.read ?? []) read.add(g);
+    for (const g of spec.fs?.write ?? []) write.add(g);
+    if (spec.net) {
+      if (spec.net.mode === 'any') netMode = 'any';
+      else if (spec.net.mode === 'allowlist') {
+        if (netMode !== 'any') netMode = 'allowlist';
+        for (const h of spec.net.hosts) hosts.add(h);
+      } else netMode ??= 'none';
+    }
+    for (const e of spec.env ?? []) env.add(e);
+    if (spec.subprocess) subprocess = true;
+    for (const c of spec.commands ?? []) commands.add(c);
+    if (spec.timeMs !== undefined) timeMs = Math.max(timeMs ?? 0, spec.timeMs);
+    if (spec.memMb !== undefined) memMb = Math.max(memMb ?? 0, spec.memMb);
+  }
+
+  const sorted = (s: Set<string>): string[] => [...s].sort();
+  return {
+    ...(read.size || write.size
+      ? {
+          fs: {
+            ...(read.size ? { read: sorted(read) } : {}),
+            ...(write.size ? { write: sorted(write) } : {}),
+          },
+        }
+      : {}),
+    ...(netMode === 'allowlist'
+      ? { net: { mode: 'allowlist' as const, hosts: sorted(hosts) } }
+      : netMode
+        ? { net: { mode: netMode } }
+        : {}),
+    ...(env.size ? { env: sorted(env) } : {}),
+    ...(timeMs !== undefined ? { timeMs } : {}),
+    ...(memMb !== undefined ? { memMb } : {}),
+    ...(subprocess ? { subprocess: true } : {}),
+    ...(commands.size ? { commands: sorted(commands) } : {}),
+  };
+}

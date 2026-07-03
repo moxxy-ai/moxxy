@@ -159,6 +159,31 @@ describe('buildSecurityPlugin', () => {
     expect(entries.find((e) => e.tool === 'a')?.declared).toBe(true);
     expect(entries.find((e) => e.tool === 'b')?.declared).toBe(false);
   });
+
+  it('audit() attributes tools to plugins when resolvePluginForTool is wired', () => {
+    const reg = new FakeToolRegistry()
+      .add(fakeTool({ name: 'a', isolation: { capabilities: { timeMs: 1000 } } }))
+      .add(fakeTool({ name: 'b' }));
+    const handle = buildSecurityPlugin({
+      config: { enabled: true },
+      toolRegistry: reg,
+      resolvePluginForTool: (name) => (name === 'a' ? '@moxxy/plugin-a' : undefined),
+    });
+    const entries = handle.audit();
+    expect(entries.find((e) => e.tool === 'a')?.plugin).toBe('@moxxy/plugin-a');
+    // Unattributed tools omit the field rather than carrying a placeholder.
+    expect(entries.find((e) => e.tool === 'b')?.plugin).toBeUndefined();
+  });
+
+  it('audit() omits plugin attribution when routing is disabled (null)', () => {
+    const reg = new FakeToolRegistry().add(fakeTool({ name: 'a' }));
+    const handle = buildSecurityPlugin({
+      config: { enabled: true },
+      toolRegistry: reg,
+      resolvePluginForTool: null,
+    });
+    expect(handle.audit()[0]?.plugin).toBeUndefined();
+  });
 });
 
 // u105-2 regression: re-running onInit must NOT double-wrap.

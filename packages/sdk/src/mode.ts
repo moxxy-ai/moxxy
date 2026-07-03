@@ -46,6 +46,13 @@ export interface PluginHostHandle {
     kinds?: ReadonlyArray<string>;
   }>;
   reload(): Promise<void>;
+  /**
+   * The plugin (package) that contributed the named tool, or undefined for
+   * unknown / dynamically-attached tools. Optional so a thin-client
+   * `RemoteSession` can omit it; powers plugin-level security routing
+   * (`security.perPlugin`) and package-scoped audit views.
+   */
+  ownerOfTool?(toolName: string): string | undefined;
 }
 
 /**

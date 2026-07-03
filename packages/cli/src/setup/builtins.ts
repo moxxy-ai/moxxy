@@ -396,7 +396,11 @@ function buildSecuritySlice(
         : {}),
     },
     toolRegistry: session.tools,
-    resolvePluginForTool: null,
+    // Tool → contributing-plugin attribution from the plugin host's loaded
+    // records. Called lazily (post-boot), so the registries are populated by
+    // the time the security plugin or an audit view asks. This is what makes
+    // `security.perPlugin` overrides and `security audit --package` work.
+    resolvePluginForTool: (toolName) => session.pluginHost.ownerOfTool?.(toolName),
     // Register the worker_threads isolator so users can opt in via
     // `security: { isolator: 'worker' }`. It coexists with the built-in
     // `none` + `inproc` isolators; unused isolators have no runtime cost.

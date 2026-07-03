@@ -1,8 +1,10 @@
+import { aggregateCapabilitySpecs, type CapabilitySpec } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
-import { bootSessionWithConfig, helpRequested } from '../argv-helpers.js';
+import { bootSessionWithConfig, hasBoolFlag, helpRequested, stringFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
 import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
+import type { AuditEntry } from '@moxxy/plugin-security';
 
 const HELP = formatHelp({
   title: 'moxxy security',
@@ -12,6 +14,8 @@ const HELP = formatHelp({
       title: 'COMMANDS',
       rows: [
         ['audit', 'list every tool, its declared capabilities, and the resolved isolator'],
+        ['audit --package <name>', "one package's tools + their COMBINED capability surface"],
+        ['audit --by-package', 'declared/total rollup per contributing plugin'],
         ['isolators', 'list available Isolator impls'],
         ['status', 'show whether security is enabled and the default isolator'],
       ],
@@ -64,6 +68,10 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
       process.stdout.write(colors.dim('(no tools registered)') + '\n');
       return 0;
     }
+
+    const packageFilter = stringFlag(argv, 'package');
+    if (packageFilter) return renderPackageAudit(entries, packageFilter);
+    if (hasBoolFlag(argv, 'by-package')) return renderByPackage(entries);
 
     const declared = entries.filter((e) => e.declared);
     const undeclared = entries.filter((e) => !e.declared);
@@ -118,6 +126,111 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
 
   printError(`unknown 'security' subcommand: ${sub}\n${HELP}`);
   return 2;
+}
+
+/**
+ * One package's audit view: its tools (declared + undeclared) and the
+ * widest-wins UNION of everything its declared tools may touch — the
+ * package's blast radius, for install-consent decisions and reviews.
+ */
+function renderPackageAudit(entries: ReadonlyArray<AuditEntry>, pkg: string): number {
+  const mine = entries.filter((e) => e.plugin === pkg);
+  if (mine.length === 0) {
+    const known = [...new Set(entries.map((e) => e.plugin).filter(Boolean))].sort();
+    process.stderr.write(
+      colors.red(`no tools attributed to package: ${pkg}`) +
+        '\n' +
+        colors.dim(
+          known.length
+            ? `  known packages:\n${known.map((p) => `    ${p}`).join('\n')}\n`
+            : '  (no plugin attribution available on this session)\n',
+        ),
+    );
+    return 2;
+  }
+
+  const declared = mine.filter((e) => e.declared);
+  const undeclared = mine.filter((e) => !e.declared);
+  process.stdout.write(
+    `${colors.bold(pkg)} · ${mine.length} tools · ` +
+      `${colors.bold(String(declared.length))} declared · ` +
+      `${
+        undeclared.length
+          ? colors.yellow(`${undeclared.length} undeclared`)
+          : colors.dim('0 undeclared')
+      }\n\n`,
+  );
+
+  const nameCol = Math.max(8, ...mine.map((e) => e.tool.length));
+  for (const e of mine) {
+    const mark = e.declared ? (e.hasModuleRef ? colors.bold('◊ ') : '  ') : colors.yellow('! ');
+    const caps = e.declared ? formatCapabilities(e.capabilities) : colors.yellow('undeclared');
+    process.stdout.write(
+      `  ${mark}${colors.bold(e.tool.padEnd(nameCol))}  ${colors.dim('→ ' + e.resolvedIsolator)}  ${caps}\n`,
+    );
+  }
+
+  if (declared.length > 0) {
+    const surface = aggregateCapabilitySpecs(
+      declared.map((e) => e.capabilities as CapabilitySpec | undefined),
+    );
+    process.stdout.write('\n' + colors.bold('COMBINED CAPABILITY SURFACE') + '\n');
+    for (const [label, value] of surfaceRows(surface)) {
+      process.stdout.write(`  ${colors.bold(label.padEnd(9))}  ${colors.dim(value)}\n`);
+    }
+    if (undeclared.length > 0) {
+      process.stdout.write(
+        colors.yellow(
+          `  (+ ${undeclared.length} undeclared tool${undeclared.length === 1 ? '' : 's'} with an UNKNOWN surface)\n`,
+        ),
+      );
+    }
+  }
+  return 0;
+}
+
+/** Rollup: declared/total per contributing plugin, gaps first. */
+function renderByPackage(entries: ReadonlyArray<AuditEntry>): number {
+  const groups = new Map<string, { declared: number; total: number }>();
+  for (const e of entries) {
+    const key = e.plugin ?? '(unattributed)';
+    const g = groups.get(key) ?? { declared: 0, total: 0 };
+    g.total += 1;
+    if (e.declared) g.declared += 1;
+    groups.set(key, g);
+  }
+  const rows = [...groups.entries()].sort(
+    (a, b) => b[1].total - b[1].declared - (a[1].total - a[1].declared) || a[0].localeCompare(b[0]),
+  );
+  const nameCol = Math.max(8, ...rows.map(([n]) => n.length));
+  for (const [name, g] of rows) {
+    const complete = g.declared === g.total;
+    const count = `${g.declared}/${g.total}`;
+    process.stdout.write(
+      `  ${colors.bold(name.padEnd(nameCol))}  ${
+        complete ? colors.dim(count + ' ✓') : colors.yellow(count)
+      }\n`,
+    );
+  }
+  return 0;
+}
+
+/** Human rows for an aggregated CapabilitySpec (skips absent axes). */
+function surfaceRows(s: CapabilitySpec): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  if (s.fs?.read?.length) rows.push(['fs:read', s.fs.read.join(', ')]);
+  if (s.fs?.write?.length) rows.push(['fs:write', s.fs.write.join(', ')]);
+  if (s.net) {
+    rows.push([
+      'net',
+      s.net.mode === 'allowlist' ? `allowlist: ${s.net.hosts.join(', ')}` : s.net.mode,
+    ]);
+  }
+  if (s.env?.length) rows.push(['env', s.env.join(', ')]);
+  if (s.subprocess) rows.push(['exec', s.commands?.length ? s.commands.join(', ') : '(any command)']);
+  if (s.timeMs !== undefined) rows.push(['time', `≤ ${s.timeMs}ms`]);
+  if (s.memMb !== undefined) rows.push(['mem', `≤ ${s.memMb}MB`]);
+  return rows;
 }
 
 function formatCapabilities(caps: Readonly<Record<string, unknown>> | undefined): string {

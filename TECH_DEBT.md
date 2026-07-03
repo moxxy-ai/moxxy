@@ -13,6 +13,15 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, security, RESOLVED 2026-07-03] `security.perPlugin` isolator overrides were
+  a dormant config option: real sessions wired `buildSecurityPlugin` with
+  `resolvePluginForTool: null` (plugin-level routing disabled), so the documented
+  `perPlugin` schema key never routed anything. The CLI now resolves tool → owning
+  plugin from the plugin host's loaded records (`PluginHost.ownerOfTool`, exposed on
+  the SDK `PluginHostHandle` as optional so thin clients may omit it), which also
+  powers the new `moxxy security audit --package <name>` / `--by-package` views and
+  install_plugin's combined-capability report. `packages/cli/src/setup/builtins.ts`,
+  `packages/core/src/plugins/host.ts`, `packages/plugin-security/src/index.ts`.
 - [med, dx, RESOLVED 2026-07-03] `service install` units no longer break under
   Electron-as-node: `installAndStartService` detects `process.versions.electron`
   and exports `ELECTRON_RUN_AS_NODE=1` into the unit env, so a desktop-spawned
@@ -20,7 +29,6 @@ or recorded-on-purpose decision.
   half was deliberately skipped — the env var fully fixes launch semantics and
   the Helper path is packaging-layout-dependent.
   `packages/cli/src/commands/service/index.ts`.
-
 - [low, sessions, RESOLVED 2026-07-03] `SessionSource` literals were hand-listed in
   one runtime spot (`sessionSource()`'s validator in
   `packages/cli/src/setup/persistence.ts`) — adding the Discord channel's

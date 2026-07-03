@@ -1,7 +1,14 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { createMutex, defineTool, z } from '@moxxy/sdk';
+import {
+  aggregateCapabilitySpecs,
+  createMutex,
+  defineTool,
+  z,
+  type CapabilitySpec,
+  type ToolIsolationSpec,
+} from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
 import { pinFirstPartySpec } from './pin.js';
@@ -68,6 +75,14 @@ export interface InstallPluginDeps {
    * {@link installPluginPackagePinned}.
    */
   readonly cliVersion?: string;
+  /**
+   * The live isolation spec of a registered tool, when the host can provide
+   * it (typically `session.tools.get(name)?.isolation`). Lets install_plugin
+   * report the just-installed package's COMBINED capability surface next to
+   * the registration diff, so consent decisions see the blast radius, not
+   * just tool names. Optional: absent = the report is omitted.
+   */
+  readonly toolIsolation?: (toolName: string) => ToolIsolationSpec | undefined;
 }
 
 export interface InstallPluginPackageOptions {
@@ -184,6 +199,37 @@ export async function removePluginPackage(
   });
 }
 
+export interface InstallCapabilityReport {
+  /** Tools that declared an isolation spec. */
+  readonly declared: number;
+  /** Tools the install registered. */
+  readonly total: number;
+  /** Widest-wins union of the declared specs — the package's blast radius. */
+  readonly surface: CapabilitySpec;
+  /** Tools with NO declaration: their surface is unknown, not empty. */
+  readonly undeclaredTools?: ReadonlyArray<string>;
+}
+
+/**
+ * Combined capability surface of the tools an install just registered.
+ * Returns undefined when the install registered no tools (nothing to
+ * report — other contribution kinds carry no capability declarations).
+ */
+export function buildCapabilityReport(
+  newTools: ReadonlyArray<string>,
+  toolIsolation: NonNullable<InstallPluginDeps['toolIsolation']>,
+): InstallCapabilityReport | undefined {
+  if (newTools.length === 0) return undefined;
+  const specs = newTools.map((n) => toolIsolation(n)?.capabilities);
+  const undeclaredTools = newTools.filter((_, i) => !specs[i]);
+  return {
+    declared: newTools.length - undeclaredTools.length,
+    total: newTools.length,
+    surface: aggregateCapabilitySpecs(specs),
+    ...(undeclaredTools.length ? { undeclaredTools } : {}),
+  };
+}
+
 export function buildInstallPluginTool(deps: InstallPluginDeps) {
   return defineTool({
     name: 'install_plugin',
@@ -237,9 +283,14 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
       // Surface the plugin's declarative setup step (moxxy.setup) so the
       // caller can walk the user through it — the model relays the hint.
       const setup = await readPluginSetup(packageName.replace(/@[^/@]+$/, ''));
+      const registered = diffSnapshot(before, after);
+      const capabilities = deps.toolIsolation
+        ? buildCapabilityReport(registered.tools ?? [], deps.toolIsolation)
+        : undefined;
       return {
         installed,
-        registered: diffSnapshot(before, after),
+        registered,
+        ...(capabilities ? { capabilities } : {}),
         ...(setup
           ? {
               needsSetup: {

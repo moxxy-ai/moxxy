@@ -117,7 +117,7 @@ export type {
   Isolator,
   HandlerModuleRef,
 } from './isolation.js';
-export { ISOLATION_RANK } from './isolation.js';
+export { ISOLATION_RANK, aggregateCapabilitySpecs } from './isolation.js';
 
 export type {
   SubagentSpec,

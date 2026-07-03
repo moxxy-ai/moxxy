@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  buildCapabilityReport,
   buildInstallPluginTool,
   buildUninstallPluginTool,
   installPluginPackage,
@@ -59,6 +60,35 @@ describe('install_plugin tool', () => {
     for (const version of ['--evil', '-g', '-rc', '--registry=http://evil']) {
       expect(tool.inputSchema.safeParse({ packageName: 'left-pad', version }).success).toBe(false);
     }
+  });
+});
+
+describe('buildCapabilityReport', () => {
+  it('returns undefined when the install registered no tools', () => {
+    expect(buildCapabilityReport([], () => undefined)).toBeUndefined();
+  });
+
+  it('unions declared specs and names the undeclared tools', () => {
+    const report = buildCapabilityReport(['a', 'b', 'c'], (name) =>
+      name === 'a'
+        ? { capabilities: { net: { mode: 'allowlist', hosts: ['x.com'] }, subprocess: true } }
+        : name === 'b'
+          ? { capabilities: { net: { mode: 'any' }, timeMs: 60_000 } }
+          : undefined,
+    );
+    expect(report).toEqual({
+      declared: 2,
+      total: 3,
+      surface: { net: { mode: 'any' }, timeMs: 60_000, subprocess: true },
+      undeclaredTools: ['c'],
+    });
+  });
+
+  it('omits undeclaredTools when every tool declares', () => {
+    const report = buildCapabilityReport(['a'], () => ({
+      capabilities: { net: { mode: 'none' } },
+    }));
+    expect(report).toEqual({ declared: 1, total: 1, surface: { net: { mode: 'none' } } });
   });
 });
 
