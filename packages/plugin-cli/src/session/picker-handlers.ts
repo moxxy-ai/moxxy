@@ -159,7 +159,12 @@ function runPickerInstall(
         .filter(([, names]) => names && names.length > 0)
         .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
         .join('; ');
-      deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
+      const setupNote = res.needsSetup
+        ? `\n${res.needsSetup.required ? '⚠ required setup' : 'optional setup'}: "${res.needsSetup.title}" — run \`moxxy init\` to configure it.`
+        : '';
+      deps.setSystemNotice(
+        `✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}${setupNote}`,
+      );
       ok = true;
     } catch (err) {
       deps.setSystemNotice(

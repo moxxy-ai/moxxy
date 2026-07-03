@@ -458,10 +458,14 @@ export {
   skillFrontmatterSchema,
   pluginManifestSchema,
   moxxyPackageSchema,
+  pluginSetupFieldSchema,
+  pluginSetupSchema,
   requirementSchema,
   type SkillFrontmatterInput,
   type PluginManifestInput,
   type MoxxyPackageInput,
+  type PluginSetupField,
+  type PluginSetupSpec,
 } from './schemas.js';
 
 export {

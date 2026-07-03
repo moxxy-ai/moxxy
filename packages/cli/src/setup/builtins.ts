@@ -6,6 +6,7 @@ import {
   findCatalogEntryForContribution,
   INSTALLABLE_PLUGIN_CATALOG,
   installPluginPackagePinned,
+  readPluginSetup,
   resolveCatalogEntry,
   setCategoryDefault as persistCategoryDefault,
   setPluginEnabled as persistPluginEnabled,
@@ -293,7 +294,14 @@ function wirePluginsAdminView(
       });
       if (packageName) await persistPluginEnabled(packageName, true);
       await session.pluginHost.reload();
-      return { installed, registered: diffSnapshot(before, buildPluginSnapshot(session)) };
+      const setup = packageName ? await readPluginSetup(packageName) : null;
+      return {
+        installed,
+        registered: diffSnapshot(before, buildPluginSnapshot(session)),
+        ...(setup
+          ? { needsSetup: { title: setup.title, required: setup.required === true } }
+          : {}),
+      };
     },
   };
 }

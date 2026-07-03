@@ -4,6 +4,7 @@ import { canonicalKey } from '../provider-keys.js';
 import type { ParsedArgv } from '../argv.js';
 import { cliVersion } from '../version.js';
 import { runSetupWizard } from '../wizard/run-setup-wizard.js';
+import { runPluginSetupSteps } from '../wizard/plugin-setup-steps.js';
 import { buildProviderSetupView } from '../setup/provider-setup.js';
 import { PROVIDER_CATALOG } from '../provision/provider-catalog.js';
 import {
@@ -209,6 +210,20 @@ async function runInteractiveInit(
     availablePlugins,
     ...(cliVersion() ? { version: cliVersion()! } : {}),
   });
+
+  // Plugin-declared setup steps (`package.json#moxxy.setup`): every installed
+  // plugin that hooks into init gets its configuration walk — required steps
+  // left incomplete DISABLE that package until configured. Runs after the
+  // wizard so freshly-installed extras are included; re-runs prefill.
+  try {
+    await runPluginSetupSteps({ vault, cwd: process.cwd() });
+  } catch (err) {
+    process.stderr.write(
+      `plugin setup steps failed (config unchanged for the rest): ${
+        err instanceof Error ? err.message : String(err)
+      }\n`,
+    );
+  }
 
   return 0;
 }
