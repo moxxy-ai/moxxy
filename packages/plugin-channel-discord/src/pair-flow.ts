@@ -1,5 +1,5 @@
 import { isCancel, log, outro, spinner, text } from '@clack/prompts';
-import type { ChannelSubcommandContext } from '@moxxy/sdk';
+import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { DiscordChannel } from './channel.js';
 
@@ -99,6 +99,13 @@ export async function runPairFlow(ctx: ChannelSubcommandContext): Promise<number
       log.error('Too many failed attempts — pairing aborted. Run `moxxy discord pair` to retry.');
       await stopBot();
       return 1;
+    }
+
+    if (exitAfterPairRequested(ctx)) {
+      // Orchestrated pairing (`moxxy onboard`): hand control back — the
+      // caller starts the bot under its own service afterwards.
+      await stopBot();
+      return 0;
     }
 
     const spin = spinner();

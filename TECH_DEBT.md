@@ -13,6 +13,14 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, dx, RESOLVED 2026-07-03] `service install` units no longer break under
+  Electron-as-node: `installAndStartService` detects `process.versions.electron`
+  and exports `ELECTRON_RUN_AS_NODE=1` into the unit env, so a desktop-spawned
+  install can't boot the GUI as a ghost daemon. The "prefer the Helper binary"
+  half was deliberately skipped — the env var fully fixes launch semantics and
+  the Helper path is packaging-layout-dependent.
+  `packages/cli/src/commands/service/index.ts`.
+
 - [low, sessions, RESOLVED 2026-07-03] `SessionSource` literals were hand-listed in
   one runtime spot (`sessionSource()`'s validator in
   `packages/cli/src/setup/persistence.ts`) — adding the Discord channel's
@@ -455,9 +463,18 @@ or recorded-on-purpose decision.
 
 ## CLI / services
 
-- [med, dx] `service install` units break under Electron-as-node (`nodeBin()` returns
-  the Electron binary, no `ELECTRON_RUN_AS_NODE=1` → GUI ghost). Detect run-as-node,
-  export the env var, prefer the Helper binary. `packages/cli/src/commands/service/common.ts`.
+- [med, channels, security] The serve.ts "first interactive channel wins the shared
+  permission resolver" note is aspirational, not real: the `resolverSetByChannel`
+  gate only exists in the `serve --all` startup loop (`serve.ts` `startChannel`),
+  while every pairing/attach path calls `session.setPermissionResolver`
+  UNCONDITIONALLY (`start-registered-channel.ts` both attach modes, each channel's
+  `pair-flow.ts`, mobile `single-session-host.ts`) — so in practice the resolver is
+  last-writer-wins: pair Discord then WhatsApp and Discord silently stops receiving
+  permission prompts (they route to the most recent channel's surface). One Session
+  has exactly one resolver slot (`core/src/session.ts setPermissionResolver`).
+  `moxxy onboard` sidesteps it (single channel pick, pair-then-return), but a real
+  fix needs either per-source resolver routing on the Session or a documented
+  broker. Surfaced 2026-07-03 while building onboard.
 - [med] One-shot CLI commands (`-p`, `schedule run`, `doctor`, `login`, `init`) never
   `close()` — drain persistence before exit. `packages/cli/`.
 - [low, security-dx] SECURITY.md's hardening checklist recommends rotating channel

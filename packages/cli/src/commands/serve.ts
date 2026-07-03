@@ -137,7 +137,7 @@ export async function runServeCommand(argv: ParsedArgv): Promise<number> {
   return await runServeForeground(argv, except, all);
 }
 
-function serveSpec(except: Set<string>, all = false): ServiceSpec {
+export function serveSpec(except: Set<string>, all = false): ServiceSpec {
   const args = ['serve'];
   if (all) args.push('--all');
   if (all && except.size > 0) {
@@ -145,8 +145,9 @@ function serveSpec(except: Set<string>, all = false): ServiceSpec {
   }
   return {
     id: 'serve',
-    description:
-      'moxxy serve — every channel + scheduler + webhooks in ONE process, sharing a session',
+    description: all
+      ? 'moxxy serve --all — every registered channel + scheduler + webhooks in ONE process, sharing a session'
+      : 'moxxy serve — bare runner: session + scheduler + webhooks on the socket; channels attach as clients',
     execArgs: args,
   };
 }

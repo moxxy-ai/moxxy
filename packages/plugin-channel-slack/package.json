@@ -53,7 +53,28 @@
         "name": "@moxxy/plugin-vault",
         "hint": "slack resolves the vault from the service registry for its bot token + signing secret + pairing; @moxxy/plugin-vault must load first"
       }
-    ]
+    ],
+    "setup": {
+      "title": "Slack bot",
+      "description": "Create an app at https://api.slack.com/apps → install it to your workspace and copy the Bot User OAuth Token (xoxb-…) plus the Signing Secret (Basic Information). Events arrive over an HTTP ingest URL — after setup, `moxxy slack pair` prints the Request URL to paste into Event Subscriptions; pairing is trust-on-first-@mention.",
+      "fields": [
+        {
+          "key": "botToken",
+          "label": "Bot User OAuth Token (xoxb-…)",
+          "kind": "secret",
+          "vaultKey": "slack_bot_token",
+          "required": true,
+          "placeholder": "xoxb-…"
+        },
+        {
+          "key": "signingSecret",
+          "label": "Signing Secret",
+          "kind": "secret",
+          "vaultKey": "slack_signing_secret",
+          "required": true
+        }
+      ]
+    }
   },
   "dependencies": {
     "@clack/prompts": "catalog:",

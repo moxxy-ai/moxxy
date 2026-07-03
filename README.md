@@ -82,9 +82,11 @@ npm install -g @moxxy/cli      # or: npx @moxxy/cli init
 ```
 
 ```sh
-moxxy init      # interactive: choose a provider, paste an API key (stored in the vault)
+moxxy onboard   # guided: provider → messaging channel (Discord/Telegram/…) → pairing → background service
 moxxy           # launch the interactive TUI
 ```
+
+Prefer the pieces? `moxxy init` does just the provider wizard; `moxxy <channel>` sets up one channel; `moxxy service install serve` makes it permanent.
 
 One-shot, straight from the shell:
 

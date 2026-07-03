@@ -1,5 +1,5 @@
 import { confirm, isCancel, log, outro, spinner } from '@clack/prompts';
-import type { ChannelSubcommandContext } from '@moxxy/sdk';
+import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { SlackChannel, type PairCandidate } from './channel.js';
 
@@ -90,6 +90,14 @@ export async function runSlackPairFlow(ctx: ChannelSubcommandContext): Promise<n
 
   await channel.confirmPairing(candidate);
   log.success(`Paired ✓ — team ${candidate.teamId} is authorized.`);
+
+  if (exitAfterPairRequested(ctx)) {
+    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
+    // starts the bot under its own service afterwards.
+    await stopBot();
+    return 0;
+  }
+
   log.info('Bot is running. Press Ctrl+C to stop.');
 
   const shutdown = async (): Promise<void> => {

@@ -154,6 +154,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'Drive moxxy over a local HTTP API (moxxy http).',
     packageName: '@moxxy/plugin-channel-http',
     installSpec: '@moxxy/plugin-channel-http',
+    provides: [{ category: 'channel', name: 'http' }],
   },
   {
     id: 'usage-stats',
@@ -196,6 +197,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'Local web chat surface + the canvas present_view renders into (moxxy web).',
     packageName: '@moxxy/plugin-channel-web',
     installSpec: '@moxxy/plugin-channel-web',
+    provides: [{ category: 'channel', name: 'web' }],
   },
   {
     id: 'voice-admin',
@@ -217,6 +219,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'Chat with moxxy from Telegram (moxxy telegram; QR pairing).',
     packageName: '@moxxy/plugin-telegram',
     installSpec: '@moxxy/plugin-telegram',
+    provides: [{ category: 'channel', name: 'telegram' }],
   },
   {
     id: 'slack',
@@ -224,6 +227,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'Slack bot on a dedicated isolated runner (moxxy slack).',
     packageName: '@moxxy/plugin-channel-slack',
     installSpec: '@moxxy/plugin-channel-slack',
+    provides: [{ category: 'channel', name: 'slack' }],
   },
   {
     id: 'signal',

@@ -301,6 +301,31 @@ export interface ChannelSubcommand {
 }
 
 /**
+ * Flag an orchestrator (e.g. `moxxy onboard`) passes to a channel's `pair`
+ * subcommand to say "hand control back once pairing succeeds". Every pair
+ * flow's default is to keep the just-paired channel running until Ctrl+C —
+ * right for a human running `moxxy <name> pair` standalone, wrong for a
+ * caller that pairs as one step of a longer flow (its SIGINT handlers call
+ * `process.exit`, which would kill the orchestrator). Pair flows check this
+ * via {@link exitAfterPairRequested} after a successful pairing and stop the
+ * channel + return 0 instead of blocking forever.
+ */
+export const EXIT_AFTER_PAIR_FLAG = 'exit-after-pair';
+
+/** Whether the subcommand invocation asked for the pair-then-return contract. */
+export function exitAfterPairRequested(
+  ctx: Pick<ChannelSubcommandContext, 'args' | 'deps'>,
+): boolean {
+  // The CLI forwards subcommand argv flags both as `args.flags` and merged
+  // into `deps.options`; accept either carrier so programmatic callers that
+  // only build one of the two still opt in.
+  return (
+    ctx.args.flags[EXIT_AFTER_PAIR_FLAG] === true ||
+    ctx.deps.options?.[EXIT_AFTER_PAIR_FLAG] === true
+  );
+}
+
+/**
  * Read-only registry of channels available in a Session. Implementation lives
  * in @moxxy/core.
  */

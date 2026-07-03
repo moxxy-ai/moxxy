@@ -1,6 +1,6 @@
 import { log, outro, spinner } from '@clack/prompts';
 import QRCode from 'qrcode';
-import type { ChannelSubcommandContext } from '@moxxy/sdk';
+import { exitAfterPairRequested, type ChannelSubcommandContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { WhatsAppChannel } from './channel.js';
 import { CONSENT_REQUIRED_MESSAGE } from './consent.js';
@@ -96,6 +96,17 @@ export async function runWhatsAppPairFlow(ctx: ChannelSubcommandContext): Promis
   spin.start('Waiting for the scan (the QR refreshes periodically)...');
   const ownerJid = await paired;
   spin.stop(`Linked as ${ownerJid}. Your Note-to-Self chat now talks to moxxy.`);
+
+  if (exitAfterPairRequested(ctx)) {
+    // Orchestrated pairing (`moxxy onboard`): hand control back — the caller
+    // starts the channel under its own service afterwards. Our SIGINT
+    // handlers would `process.exit` the orchestrator, so drop them first.
+    unsubscribeConnect();
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+    await stopChannel();
+    return 0;
+  }
 
   log.info('Channel is running. Press Ctrl+C to stop.');
   try {
