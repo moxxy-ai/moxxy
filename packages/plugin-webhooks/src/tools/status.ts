@@ -1,6 +1,6 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
 import { isLoopbackHost } from '../config.js';
-import type { ResolvedToolDeps } from './shared.js';
+import { WEBHOOKS_CONFIG_GLOB, WEBHOOKS_STORE_GLOB, type ResolvedToolDeps } from './shared.js';
 
 export function defineWebhookStatusTool(deps: ResolvedToolDeps): ToolDef {
   const { store, config, tunnelHandle } = deps;
@@ -14,6 +14,16 @@ export function defineWebhookStatusTool(deps: ResolvedToolDeps): ToolDef {
       'enabled triggers use verification:"none" (any machine on the network could fire ' +
       'them). Call this as the first step when a user asks for webhook help.',
     inputSchema: z.object({}),
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB],
+          write: [WEBHOOKS_STORE_GLOB],
+        },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async () => {
       const cfg = await config.get();
       const triggers = await store.list();

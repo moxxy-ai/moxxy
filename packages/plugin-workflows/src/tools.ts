@@ -52,6 +52,14 @@ export interface WorkflowToolDeps {
 const PLUGIN_ID = asPluginId(WORKFLOWS_PLUGIN_NAME);
 
 /**
+ * On-disk workflow sources the store scans and edits (`isolation` fs globs).
+ * The store also discovers read-only builtin/plugin workflows inside their
+ * package dirs; those live in the plugin host's own module space and have no
+ * stable path to glob, so they are intentionally not listed here.
+ */
+const WORKFLOW_DIR_GLOBS = ['~/.moxxy/workflows/**', '$cwd/.moxxy/workflows/**'];
+
+/**
  * Build a {@link WorkflowRunDeps} for an in-turn run. The spawner comes from
  * the tool context (only present inside a run-turn loop); lifecycle events are
  * tagged to the current turn so the TUI threads them correctly.
@@ -134,6 +142,15 @@ function createTool(deps: WorkflowToolDeps): ToolDef {
       scope: z.enum(['user', 'project']).optional().default('user'),
     }),
     permission: { action: 'prompt' },
+    // Drafting calls the ACTIVE provider's model API — which host that is
+    // depends on the user's configuration, so no static allowlist exists.
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS, write: WORKFLOW_DIR_GLOBS },
+        net: { mode: 'any' },
+        timeMs: 120_000,
+      },
+    },
     handler: async ({ intent, scope }, ctx) => {
       const provider = deps.provider?.();
       if (!provider) {
@@ -176,6 +193,13 @@ function updateTool(deps: WorkflowToolDeps): ToolDef {
       yaml: z.string().min(1).describe('The complete new workflow YAML.'),
     }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS, write: WORKFLOW_DIR_GLOBS },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ name, yaml }, ctx) => {
       const parsed = parseWorkflowYaml(yaml);
       if (!parsed.ok || !parsed.workflow) {
@@ -200,6 +224,13 @@ function setEnabledTool(deps: WorkflowToolDeps): ToolDef {
       'triggers never fire and it is excluded from auto-runs (it can still be run explicitly).',
     inputSchema: z.object({ name: z.string().min(1), enabled: z.boolean() }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS, write: WORKFLOW_DIR_GLOBS },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ name, enabled }, ctx) => {
       const updated = await deps.store.setEnabled(name, enabled);
       if (!updated) throw new MoxxyError({ code: 'TOOL_ERROR', message: `workflow_set_enabled: no workflow "${name}".` });
@@ -216,6 +247,13 @@ function deleteTool(deps: WorkflowToolDeps): ToolDef {
     description: 'Delete a user/project workflow by name. Builtin/plugin workflows cannot be deleted.',
     inputSchema: z.object({ name: z.string().min(1) }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS, write: WORKFLOW_DIR_GLOBS },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ name }, ctx) => {
       const res = await deps.store.delete(name);
       if (!res.ok) throw new MoxxyError({ code: 'TOOL_ERROR', message: `workflow_delete: ${res.reason}.` });
@@ -239,6 +277,17 @@ function runTool(deps: WorkflowToolDeps): ToolDef {
       inputs: z.record(z.unknown()).optional().describe('Input overrides for this run.'),
     }),
     permission: { action: 'prompt' },
+    // Runs the whole DAG in-process: prompt steps are real subagent model
+    // turns (network), and tool steps re-enter the session's tool pipeline,
+    // where each nested call is bounded by its own capability spec — this
+    // spec covers only what happens directly in this handler's stack.
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS, write: ['~/.moxxy/workflow-runs/**'] },
+        net: { mode: 'any' },
+        timeMs: 600_000,
+      },
+    },
     handler: async ({ name, inputs }, ctx) => {
       const entry = await deps.store.get(name);
       if (!entry) {
@@ -284,6 +333,13 @@ function listTool(deps: WorkflowToolDeps): ToolDef {
     description: 'List all saved workflows with their status, scope, triggers, and step count.',
     inputSchema: z.object({}),
     permission: { action: 'allow' },
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async () => {
       const all = await deps.store.list();
       return {
@@ -306,6 +362,13 @@ function getTool(deps: WorkflowToolDeps): ToolDef {
     description: 'Fetch one workflow by name as canonical YAML, plus its on-disk path and scope.',
     inputSchema: z.object({ name: z.string().min(1) }),
     permission: { action: 'allow' },
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ name }) => {
       const entry = await deps.store.get(name);
       if (!entry) throw new MoxxyError({ code: 'TOOL_ERROR', message: `workflow_get: no workflow "${name}".` });
@@ -328,6 +391,13 @@ function validateTool(deps: WorkflowToolDeps): ToolDef {
       })
       .refine((v) => v.yaml || v.name, { message: 'pass either `yaml` or `name`' }),
     permission: { action: 'allow' },
+    isolation: {
+      capabilities: {
+        fs: { read: WORKFLOW_DIR_GLOBS },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ yaml, name }) => {
       if (yaml) {
         const r = parseWorkflowYaml(yaml);

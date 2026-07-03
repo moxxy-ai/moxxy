@@ -1,6 +1,11 @@
 import { rm } from 'node:fs/promises';
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { secretFilePath, type ResolvedToolDeps } from './shared.js';
+import {
+  secretFilePath,
+  WEBHOOKS_SECRETS_GLOB,
+  WEBHOOKS_STORE_GLOB,
+  type ResolvedToolDeps,
+} from './shared.js';
 
 export function defineWebhookDeleteTool(deps: ResolvedToolDeps): ToolDef {
   const { store, secretsDir } = deps;
@@ -12,6 +17,16 @@ export function defineWebhookDeleteTool(deps: ResolvedToolDeps): ToolDef {
       "the source's dashboard, otherwise it'll keep retrying.",
     inputSchema: z.object({ id: z.string().min(1) }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [WEBHOOKS_STORE_GLOB],
+          write: [WEBHOOKS_STORE_GLOB, WEBHOOKS_SECRETS_GLOB],
+        },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ id }) => {
       const trigger = await store.get(id);
       const deleted = await store.delete(id);

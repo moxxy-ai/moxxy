@@ -1,6 +1,6 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
 import { describeTrigger } from '../describe.js';
-import type { ResolvedToolDeps } from './shared.js';
+import { WEBHOOKS_CONFIG_GLOB, WEBHOOKS_STORE_GLOB, type ResolvedToolDeps } from './shared.js';
 
 export function defineWebhookListTool(deps: ResolvedToolDeps): ToolDef {
   const { store, config } = deps;
@@ -12,6 +12,18 @@ export function defineWebhookListTool(deps: ResolvedToolDeps): ToolDef {
     inputSchema: z.object({
       includeDisabled: z.boolean().default(true),
     }),
+    // Read-only, but the store may quarantine-rename a corrupt file on load —
+    // hence the write grant on the store glob (see shared.ts).
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB],
+          write: [WEBHOOKS_STORE_GLOB],
+        },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ includeDisabled }) => {
       const triggers = await store.list();
       const cfg = await config.get();

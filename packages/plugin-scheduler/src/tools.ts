@@ -5,6 +5,14 @@ import { nextCronFire } from './poller.js';
 import { runSchedule, type InboxOptions, type SchedulePromptRunner } from './runner.js';
 import type { ScheduleEntry, ScheduleStore } from './store.js';
 
+/**
+ * Capability glob for the schedule store (`isolation.capabilities.fs`). Ends
+ * in `*` because the store quarantine-renames a corrupt file to
+ * `schedules.json.corrupt-<ts>` on ANY access — so even a read-only tool may
+ * legitimately write next to the file.
+ */
+const SCHEDULES_STORE_GLOB = '~/.moxxy/schedules.json*';
+
 const cronOrTimestamp = z
   .object({
     cron: z.string().optional(),
@@ -116,6 +124,13 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         })
         .and(cronOrTimestamp),
       permission: { action: 'prompt' },
+      isolation: {
+        capabilities: {
+          fs: { read: [SCHEDULES_STORE_GLOB], write: [SCHEDULES_STORE_GLOB] },
+          net: { mode: 'none' },
+          timeMs: 30_000,
+        },
+      },
       handler: async (input) => {
         const runAt =
           typeof input.runAt === 'string' ? Date.parse(input.runAt) : input.runAt;
@@ -158,6 +173,13 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         includeDisabled: z.boolean().default(true),
         source: z.enum(['manual', 'skill', 'all']).default('all'),
       }),
+      isolation: {
+        capabilities: {
+          fs: { read: [SCHEDULES_STORE_GLOB], write: [SCHEDULES_STORE_GLOB] },
+          net: { mode: 'none' },
+          timeMs: 30_000,
+        },
+      },
       handler: async ({ includeDisabled, source }) => {
         const entries = await store.list();
         const filtered = entries.filter((e) => {
@@ -177,6 +199,13 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         'a durable user-deletion marker so they do not reappear on the next sync.',
       inputSchema: z.object({ id: z.string().min(1) }),
       permission: { action: 'prompt' },
+      isolation: {
+        capabilities: {
+          fs: { read: [SCHEDULES_STORE_GLOB], write: [SCHEDULES_STORE_GLOB] },
+          net: { mode: 'none' },
+          timeMs: 30_000,
+        },
+      },
       handler: async ({ id }) => {
         const ok = await store.delete(id);
         return { deleted: ok };
@@ -187,6 +216,13 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       name: 'schedule_enable',
       description: 'Re-enable a previously disabled schedule.',
       inputSchema: z.object({ id: z.string().min(1) }),
+      isolation: {
+        capabilities: {
+          fs: { read: [SCHEDULES_STORE_GLOB], write: [SCHEDULES_STORE_GLOB] },
+          net: { mode: 'none' },
+          timeMs: 30_000,
+        },
+      },
       handler: async ({ id }) => {
         const updated = await store.update(id, { enabled: true });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
@@ -198,6 +234,13 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
       name: 'schedule_disable',
       description: 'Pause a schedule without deleting it. Re-enable later with schedule_enable.',
       inputSchema: z.object({ id: z.string().min(1) }),
+      isolation: {
+        capabilities: {
+          fs: { read: [SCHEDULES_STORE_GLOB], write: [SCHEDULES_STORE_GLOB] },
+          net: { mode: 'none' },
+          timeMs: 30_000,
+        },
+      },
       handler: async ({ id }) => {
         const updated = await store.update(id, { enabled: false });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
@@ -216,6 +259,13 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         targetSessionId: z.string().min(1).optional(),
       }),
       permission: { action: 'prompt' },
+      isolation: {
+        capabilities: {
+          fs: { read: [SCHEDULES_STORE_GLOB], write: [SCHEDULES_STORE_GLOB] },
+          net: { mode: 'none' },
+          timeMs: 30_000,
+        },
+      },
       handler: async ({ id, targetSessionId }) => {
         const updated = await store.update(id, { ownerSessionId: targetSessionId });
         if (!updated) return { ok: false, reason: 'no schedule with that id' };
@@ -231,6 +281,21 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
         'if it had fired at the scheduled time.',
       inputSchema: z.object({ id: z.string().min(1) }),
       permission: { action: 'prompt' },
+      // A manual fire runs the schedule's prompt as a REAL turn on the active
+      // session before returning — model/provider calls happen inside this
+      // handler (hence net 'any' and the generous wall clock). Tools the fired
+      // turn invokes re-enter the session's tool pipeline and are bounded by
+      // their own capability specs, not this one.
+      isolation: {
+        capabilities: {
+          fs: {
+            read: [SCHEDULES_STORE_GLOB],
+            write: [SCHEDULES_STORE_GLOB, '~/.moxxy/inbox/**'],
+          },
+          net: { mode: 'any' },
+          timeMs: 600_000,
+        },
+      },
       handler: async ({ id }) => {
         const entry = await store.get(id);
         if (!entry) throw new Error(`no schedule with id "${id}"`);

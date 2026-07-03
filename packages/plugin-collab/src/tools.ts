@@ -5,12 +5,53 @@
  * is the hub's job, so these tools never carry an agent id.
  */
 
-import { defineTool, type ToolDef } from '@moxxy/sdk';
+import { defineTool, type ToolDef, type ToolIsolationSpec } from '@moxxy/sdk';
 import { z } from 'zod';
 import { getProcessHubClient } from './process-client.js';
 
 const NOT_IN_COLLAB = {
   error: 'Not in a collaboration. The collab_* tools only work for an agent running inside an agentic-collaborative team.',
+};
+
+/**
+ * Every collab_* tool is a thin JSON-RPC round-trip over the hub's unix
+ * socket (`$MOXXY_COLLAB_HUB`, under `~/.moxxy/collab/<runId>/`): no TCP
+ * network and no subprocesses — peer spawning lives in
+ * `@moxxy/mode-collaborative`, not in these handlers. The fs grant covers
+ * the socket path an fs-sandboxing isolator must let the client dial.
+ */
+const HUB_RPC_ISOLATION: ToolIsolationSpec = {
+  capabilities: {
+    fs: { read: ['~/.moxxy/collab/**'], write: ['~/.moxxy/collab/**'] },
+    net: { mode: 'none' },
+    env: ['MOXXY_COLLAB_HUB', 'MOXXY_COLLAB_AGENT_ID', 'MOXXY_RUNNER_SOCKET'],
+    timeMs: 30_000,
+  },
+};
+
+/**
+ * Variant for tools whose INPUT carries workspace file paths (claims,
+ * contract artifacts): the cap checker validates path-shaped inputs against
+ * `fs`, so the workspace must be in scope even though the paths only travel
+ * to the hub as data — this process never opens them.
+ */
+const HUB_RPC_WORKSPACE_ISOLATION: ToolIsolationSpec = {
+  capabilities: {
+    ...HUB_RPC_ISOLATION.capabilities,
+    fs: { read: ['$cwd/**', '~/.moxxy/collab/**'], write: ['~/.moxxy/collab/**'] },
+  },
+};
+
+/**
+ * Peer-inspection tools: same hub RPC, but the hub answers by reading files
+ * or running git (status/diff) in the peer's worktree, so a round-trip can
+ * legitimately take much longer than a board/messaging call.
+ */
+const HUB_RPC_PEER_ISOLATION: ToolIsolationSpec = {
+  capabilities: {
+    ...HUB_RPC_WORKSPACE_ISOLATION.capabilities,
+    timeMs: 120_000,
+  },
 };
 
 const collabSend = defineTool({
@@ -23,6 +64,7 @@ const collabSend = defineTool({
     subject: z.string().optional(),
   }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async ({ to, body, subject }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -35,6 +77,7 @@ const collabBroadcast = defineTool({
   description: 'Broadcast a message to the whole team (everyone\'s inbox). Use for status updates and announcements.',
   inputSchema: z.object({ body: z.string().min(1), subject: z.string().optional() }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async ({ body, subject }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -47,6 +90,7 @@ const collabInbox = defineTool({
   description: 'Read messages addressed to you (and team broadcasts) since you last checked. Call this at the start of each work cycle.',
   inputSchema: z.object({}),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -60,6 +104,7 @@ const collabRoster = defineTool({
   description: 'List the team: every agent\'s id, role, sub-task, and current status. Use to learn who to coordinate with.',
   inputSchema: z.object({}),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -72,6 +117,7 @@ const collabBoard = defineTool({
   description: 'Read the shared task board: items, statuses, owners, and claimed file paths.',
   inputSchema: z.object({}),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -88,6 +134,7 @@ const collabAddTask = defineTool({
     paths: z.array(z.string()).optional(),
   }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_WORKSPACE_ISOLATION,
   handler: async ({ title, detail, paths }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -104,6 +151,7 @@ const collabClaim = defineTool({
     id: z.string().optional().describe('Existing board item to attach the claim to'),
   }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_WORKSPACE_ISOLATION,
   handler: async ({ paths, id }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -124,6 +172,7 @@ const collabRelease = defineTool({
   description: 'Release a file claim (or a board item) when you are done editing, so others can pick it up.',
   inputSchema: z.object({ id: z.string().optional(), paths: z.array(z.string()).optional() }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_WORKSPACE_ISOLATION,
   handler: async ({ id, paths }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -140,6 +189,7 @@ const collabUpdate = defineTool({
     detail: z.string().optional(),
   }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async ({ id, status, detail }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -152,6 +202,7 @@ const collabDone = defineTool({
   description: 'Declare YOUR sub-task complete and verified. Provide a short summary (and any artifact paths). The run ends when everyone is done.',
   inputSchema: z.object({ summary: z.string().min(1), artifacts: z.array(z.string()).optional() }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async ({ summary, artifacts }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -164,6 +215,7 @@ const collabContracts = defineTool({
   description: 'List the shared contracts (agreed interfaces/boundaries) you must build to, with owner, consumers, and status.',
   inputSchema: z.object({}),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async () => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -183,6 +235,7 @@ const collabContractPublish = defineTool({
     artifactPath: z.string().optional(),
   }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_WORKSPACE_ISOLATION,
   handler: async (input) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -196,6 +249,7 @@ const collabContractProposeChange = defineTool({
     'Propose a change to a shared contract. The owner and consumers are asked to ack; do NOT change a shared boundary unilaterally.',
   inputSchema: z.object({ id: z.string(), newSpec: z.string().min(1), reason: z.string().min(1) }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async ({ id, newSpec, reason }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -208,6 +262,7 @@ const collabContractAck = defineTool({
   description: 'Acknowledge a proposed contract change you were asked about. When owner + all consumers ack, the architect commits it.',
   inputSchema: z.object({ id: z.string() }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_ISOLATION,
   handler: async ({ id }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -220,6 +275,7 @@ const collabPeerFiles = defineTool({
   description: 'List the files another agent has changed so far (their actual in-progress work).',
   inputSchema: z.object({ agentId: z.string() }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_PEER_ISOLATION,
   handler: async ({ agentId }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -232,6 +288,7 @@ const collabPeerRead = defineTool({
   description: 'Read a file from another agent\'s in-progress work — get their real interface instead of guessing.',
   inputSchema: z.object({ agentId: z.string(), path: z.string() }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_PEER_ISOLATION,
   handler: async ({ agentId, path }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;
@@ -244,6 +301,7 @@ const collabPeerDiff = defineTool({
   description: 'View another agent\'s full diff (vs the shared base) to see exactly what they have built.',
   inputSchema: z.object({ agentId: z.string() }),
   permission: { action: 'allow' },
+  isolation: HUB_RPC_PEER_ISOLATION,
   handler: async ({ agentId }) => {
     const c = await getProcessHubClient();
     if (!c) return NOT_IN_COLLAB;

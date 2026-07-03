@@ -8,6 +8,9 @@ import {
   normalizeVerification,
   verificationInputSchema,
   writeSecretFile,
+  WEBHOOKS_CONFIG_GLOB,
+  WEBHOOKS_SECRETS_GLOB,
+  WEBHOOKS_STORE_GLOB,
   type ResolvedToolDeps,
 } from './shared.js';
 
@@ -67,6 +70,21 @@ export function defineWebhookCreateTool(deps: ResolvedToolDeps): ToolDef {
         ),
     }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: {
+          // `$cwd/**` is for the cap checker, not real reads: a jsonPath
+          // filter rule's `path` ("pull_request.user.login") is a JSON body
+          // path, but the checker's key heuristic treats it as a file path
+          // resolved against cwd — without this scope such filters would be
+          // denied once enforcement is on.
+          read: ['$cwd/**', WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB],
+          write: [WEBHOOKS_STORE_GLOB, WEBHOOKS_SECRETS_GLOB],
+        },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async (input) => {
       const { verification, secretIssued } = normalizeVerification(input.verification);
       const filters: WebhookFilter = input.filters ?? { include: [], exclude: [] };
