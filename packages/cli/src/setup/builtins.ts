@@ -3,6 +3,7 @@ import { MoxxyError, isSelectableMode, type CategoryView, type Plugin } from '@m
 import type { MoxxyConfig } from '@moxxy/config';
 import {
   diffSnapshot,
+  findCatalogEntryForContribution,
   INSTALLABLE_PLUGIN_CATALOG,
   installPluginPackagePinned,
   resolveCatalogEntry,
@@ -199,6 +200,18 @@ export function buildCategoryDefaultLive(session: Session): CategoryDefaultLive 
       // For a LIVE category, the name must be registered; persist-only kinds
       // (isolator/channel) are validated against the registry on the next boot.
       if (reg && !reg.list().some((d) => d.name === name)) {
+        // When the catalog knows which package provides it, surface a typed
+        // install affordance instead of a generic error — the TUI turns this
+        // into an "install now?" confirm and the model tool gets the package.
+        const provider = findCatalogEntryForContribution(category, name);
+        if (provider) {
+          throw new MoxxyError({
+            code: 'PLUGIN_NOT_INSTALLED',
+            message: `${category} '${name}' is not installed.`,
+            hint: `Install ${provider.packageName} (install_plugin, or \`moxxy plugins install ${provider.id}\`), then retry.`,
+            context: { category, contribution: name, package: provider.packageName },
+          });
+        }
         throw new MoxxyError({
           code: 'TOOL_ERROR',
           message: `${category} '${name}' is not registered.`,
@@ -262,6 +275,7 @@ function wirePluginsAdminView(
         installSpec: e.installSpec,
         ...(e.kind ? { kind: e.kind } : {}),
         ...(e.startCommand ? { startCommand: e.startCommand } : {}),
+        ...(e.provides ? { provides: e.provides } : {}),
       })),
     setEnabled: setPluginEnabledLive,
     categories: categoryLive.categories,

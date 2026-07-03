@@ -13,6 +13,14 @@ export interface PluginCatalogEntry {
   readonly startCommand?: string;
   readonly defaultPort?: number;
   readonly kind?: 'ui' | 'runtime' | 'cli';
+  /**
+   * Registry contributions this package provides, so surfaces can offer
+   * "install on first use" at the point a missing capability is asked for
+   * (`/goal` without mode-goal, an uninstalled mode in the picker, a
+   * `set_default` naming it). Category = registry kind (`mode`, `provider`,
+   * …), name = the contribution's registered name.
+   */
+  readonly provides?: ReadonlyArray<{ readonly category: string; readonly name: string }>;
 }
 
 export interface PluginPickerOption {
@@ -45,6 +53,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'Anthropic Claude models. Needs an API key (moxxy init or /vault).',
     packageName: '@moxxy/plugin-provider-anthropic',
     installSpec: '@moxxy/plugin-provider-anthropic',
+    provides: [{ category: 'provider', name: 'anthropic' }],
   },
   {
     id: 'provider-openai',
@@ -52,6 +61,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'OpenAI GPT models. Needs an API key (moxxy init or /vault).',
     packageName: '@moxxy/plugin-provider-openai',
     installSpec: '@moxxy/plugin-provider-openai',
+    provides: [{ category: 'provider', name: 'openai' }],
   },
   {
     id: 'provider-google',
@@ -59,6 +69,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'Google Gemini models. Needs an API key (moxxy init or /vault).',
     packageName: '@moxxy/plugin-provider-google',
     installSpec: '@moxxy/plugin-provider-google',
+    provides: [{ category: 'provider', name: 'google' }],
   },
   {
     id: 'provider-xai',
@@ -66,6 +77,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'xAI Grok models. Needs an API key (moxxy init or /vault).',
     packageName: '@moxxy/plugin-provider-xai',
     installSpec: '@moxxy/plugin-provider-xai',
+    provides: [{ category: 'provider', name: 'xai' }],
   },
   {
     id: 'provider-zai',
@@ -73,6 +85,10 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'z.ai GLM models (API + GLM Coding Plan). Needs an API key (moxxy init or /vault).',
     packageName: '@moxxy/plugin-provider-zai',
     installSpec: '@moxxy/plugin-provider-zai',
+    provides: [
+      { category: 'provider', name: 'zai' },
+      { category: 'provider', name: 'zai-plan' },
+    ],
   },
   {
     id: 'provider-local',
@@ -80,6 +96,35 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     description: 'Local models via an Ollama/OpenAI-compatible server. No API key needed.',
     packageName: '@moxxy/plugin-provider-local',
     installSpec: '@moxxy/plugin-provider-local',
+    provides: [{ category: 'provider', name: 'local' }],
+  },
+  // Modes — bundled today, unbundled in the slim wave. While bundled they're
+  // filtered off the Installable tab (already loaded); the `provides` mapping
+  // is what lets /goal and the mode picker offer install-on-first-use once
+  // the packages move out of the binary.
+  {
+    id: 'mode-goal',
+    label: 'Goal mode',
+    description: 'Autonomous goal loop — tools auto-approved until the objective is delivered.',
+    packageName: '@moxxy/mode-goal',
+    installSpec: '@moxxy/mode-goal',
+    provides: [{ category: 'mode', name: 'goal' }],
+  },
+  {
+    id: 'mode-deep-research',
+    label: 'Research mode',
+    description: 'Fan-out research: parallel queries + synthesis (needs subagents).',
+    packageName: '@moxxy/mode-deep-research',
+    installSpec: '@moxxy/mode-deep-research',
+    provides: [{ category: 'mode', name: 'research' }],
+  },
+  {
+    id: 'mode-collaborative',
+    label: 'Collaborative mode',
+    description: 'Multi-agent collaboration on a dedicated coordinator runner (/collab).',
+    packageName: '@moxxy/mode-collaborative',
+    installSpec: '@moxxy/mode-collaborative',
+    provides: [{ category: 'mode', name: 'collaborative' }],
   },
   {
     id: 'virtual-office',
@@ -105,6 +150,21 @@ export function resolveCatalogPackageName(
   catalog: ReadonlyArray<PluginCatalogEntry> = INSTALLABLE_PLUGIN_CATALOG,
 ): string {
   return resolveCatalogEntry(target, catalog)?.packageName ?? target;
+}
+
+/**
+ * The catalog entry (if any) whose package provides the named contribution —
+ * e.g. ('mode','goal') → the @moxxy/mode-goal entry. Lets surfaces turn a
+ * missing-capability moment into an install offer.
+ */
+export function findCatalogEntryForContribution(
+  category: string,
+  name: string,
+  catalog: ReadonlyArray<PluginCatalogEntry> = INSTALLABLE_PLUGIN_CATALOG,
+): PluginCatalogEntry | undefined {
+  return catalog.find((entry) =>
+    entry.provides?.some((p) => p.category === category && p.name === name),
+  );
 }
 
 export function buildPluginCatalogOptions(input: {
