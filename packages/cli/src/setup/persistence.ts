@@ -1,4 +1,4 @@
-import { type EventStoreSession, type Session, type SessionSource } from '@moxxy/core';
+import { SESSION_SOURCES, type EventStoreSession, type Session, type SessionSource } from '@moxxy/core';
 import { definePlugin } from '@moxxy/sdk';
 
 /**
@@ -61,17 +61,11 @@ export function attachSessionPersistence(
  *  id implies a desktop-spawned runner, otherwise the interactive TUI. */
 function sessionSource(): SessionSource {
   const explicit = process.env['MOXXY_SESSION_SOURCE'];
-  if (
-    explicit === 'desktop' ||
-    explicit === 'tui' ||
-    explicit === 'mobile' ||
-    explicit === 'cli' ||
-    explicit === 'slack' ||
-    explicit === 'telegram' ||
-    explicit === 'signal' ||
-    explicit === 'whatsapp'
-  ) {
-    return explicit;
+  // Validated against the SDK's runtime SESSION_SOURCES list — the same array
+  // the SessionSource type is derived from, so a newly added source can never
+  // be silently dropped by a stale hand-listed check here.
+  if (explicit && (SESSION_SOURCES as readonly string[]).includes(explicit)) {
+    return explicit as SessionSource;
   }
   return process.env['MOXXY_SESSION_ID'] ? 'desktop' : 'tui';
 }

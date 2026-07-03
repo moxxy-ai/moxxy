@@ -78,6 +78,7 @@ export {
   setSessionGroup,
   seedSessionMeta,
   SESSION_META_VERSION,
+  SESSION_SOURCES,
   type SessionMeta,
   type SessionSource,
   type SessionPersistenceOpts,

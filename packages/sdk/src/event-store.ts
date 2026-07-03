@@ -12,16 +12,23 @@ import type { SessionId } from './ids.js';
  * event (prompts, tool I/O), so that explicit opt-in is the trust boundary.
  */
 
+/** Every valid {@link SessionSource}, as a runtime constant — so validators
+ *  (e.g. the CLI's `MOXXY_SESSION_SOURCE` guard) enumerate the same list the
+ *  type is derived from instead of hand-listing the literals. */
+export const SESSION_SOURCES = [
+  'cli',
+  'tui',
+  'desktop',
+  'mobile',
+  'slack',
+  'telegram',
+  'signal',
+  'whatsapp',
+  'discord',
+] as const;
+
 /** Originating channel of a session (persisted into the meta sidecar). */
-export type SessionSource =
-  | 'cli'
-  | 'tui'
-  | 'desktop'
-  | 'mobile'
-  | 'slack'
-  | 'telegram'
-  | 'signal'
-  | 'whatsapp';
+export type SessionSource = (typeof SESSION_SOURCES)[number];
 
 /**
  * The single per-session metadata record (the JSONL impl writes it to
