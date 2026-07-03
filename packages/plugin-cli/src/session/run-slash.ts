@@ -39,6 +39,11 @@ export interface SlashDeps {
    * {@link canSwitchSession}) — `/collab` then degrades to a notice.
    */
   requestCollab?: (goal?: string) => void;
+  /** Open the plugin-setup dialog (SessionView owns the state). */
+  openPluginSetup?: (target: {
+    packageName: string;
+    spec: import('@moxxy/sdk').PluginSetupSpec;
+  }) => void;
 }
 
 export function runSlash(cmd: string, deps: SlashDeps): void {
@@ -147,6 +152,8 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     case 'settings':
     case 'config':
       return openSettingsPicker(deps);
+    case 'setup':
+      return openPluginSetupEntry(deps, args);
     case 'channels':
       deps.setSystemNotice(null);
       deps.setOverlay({ kind: 'channels' });
@@ -335,6 +342,61 @@ export interface OpenSettingsPickerDeps {
   session: Session;
   setPicker: (p: Picker) => void;
   setSystemNotice: (msg: string | null) => void;
+}
+
+/**
+ * `/setup [package]` — (re)configure an installed plugin's declared setup
+ * step in place: with an argument opens its dialog directly (catalog ids
+ * accepted); bare `/setup` lists installed plugins that declare one. Also
+ * the recovery path for a required setup skipped at init (completing it
+ * re-enables the package).
+ */
+export function openPluginSetupEntry(deps: SlashDeps, arg = ''): void {
+  const admin = deps.session.pluginsAdmin;
+  if (!admin?.setupSpec || !deps.openPluginSetup) {
+    deps.setSystemNotice('plugin setup is not available on this session — run `moxxy init` instead');
+    return;
+  }
+  const target = arg.trim();
+  void (async () => {
+    try {
+      if (target) {
+        const pkg =
+          admin.catalog().find((e) => e.id === target || e.packageName === target)?.packageName ??
+          target;
+        const spec = await admin.setupSpec!(pkg);
+        if (!spec) {
+          deps.setSystemNotice(`${pkg} is not installed or declares no setup step`);
+          return;
+        }
+        deps.openPluginSetup!({ packageName: pkg, spec });
+        return;
+      }
+      // Bare /setup: list installed plugins that declare a setup step.
+      const installed = admin.loaded().filter((pl) => pl.installed);
+      const withSpecs: ListPickerOption[] = [];
+      for (const pl of installed) {
+        const spec = await admin.setupSpec!(pl.name).catch(() => null);
+        if (spec) {
+          withSpecs.push({
+            id: pl.name,
+            label: pl.name,
+            description: truncate(spec.title, 66),
+            ...(spec.required ? { badge: 'required', badgeColor: 'yellow' } : {}),
+          });
+        }
+      }
+      if (withSpecs.length === 0) {
+        deps.setSystemNotice('no installed plugin declares a setup step');
+        return;
+      }
+      deps.setPicker({ kind: 'plugin-setup-pick', title: 'Configure a plugin', options: withSpecs });
+    } catch (err) {
+      deps.setSystemNotice(
+        `setup failed to open: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  })();
 }
 
 export function openSettingsPicker(deps: OpenSettingsPickerDeps): void {

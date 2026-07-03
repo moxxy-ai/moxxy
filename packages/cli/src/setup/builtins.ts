@@ -5,6 +5,7 @@ import {
   diffSnapshot,
   findCatalogEntryForContribution,
   INSTALLABLE_PLUGIN_CATALOG,
+  applySetupValues,
   installPluginPackagePinned,
   readPluginSetup,
   resolveCatalogEntry,
@@ -242,6 +243,7 @@ function wirePluginsAdminView(
   setPluginEnabledLive: (packageName: string, enabled: boolean) => Promise<void>,
   categoryLive: CategoryDefaultLive,
   logger: BuildBuiltinsArgs['logger'],
+  vault: BuildBuiltinsArgs['vault'],
 ): void {
   // The live disabled-set, the installable catalog, and the same plug/unplug +
   // swap-default closures the model tools use. A RemoteSession leaves this
@@ -293,6 +295,28 @@ function wirePluginsAdminView(
           ? { needsSetup: { title: setup.title, required: setup.required === true } }
           : {}),
       };
+    },
+    // Declarative setup step (moxxy.setup) — plain data for any renderer.
+    setupSpec: (packageName) => readPluginSetup(packageName),
+    // Persist collected values through the ONE shared writer (secrets → vault
+    // + ${vault:NAME} ref); completeness drives enable/disable exactly like
+    // the init wizard, so /setup can also RE-ENABLE a package a skipped
+    // required setup left disabled.
+    applySetup: async (packageName, values) => {
+      const setup = await readPluginSetup(packageName);
+      if (!setup) return { complete: true, missing: [] };
+      const result = await applySetupValues({
+        vault,
+        cwd: process.cwd(),
+        packageName,
+        setup,
+        values,
+      });
+      if (setup.required === true) {
+        await persistPluginEnabled(packageName, result.complete);
+        if (result.complete) await session.pluginHost.reload();
+      }
+      return result;
     },
   };
 }
@@ -429,7 +453,7 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     categoryLive,
   });
 
-  wirePluginsAdminView(session, disabledPackages, setPluginEnabledLive, categoryLive, logger);
+  wirePluginsAdminView(session, disabledPackages, setPluginEnabledLive, categoryLive, logger, vault);
 
   const scheduler = buildSchedulerSlice(session, schedulerRunner, logger);
   entries.push(scheduler.entry);

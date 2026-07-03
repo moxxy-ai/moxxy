@@ -69,6 +69,13 @@ export type Picker =
       kind: 'settings';
       title: string;
       options: ReadonlyArray<ListPickerOption>;
+    }
+  | {
+      /** `/setup` with no argument — pick an installed plugin that declares
+       *  a moxxy.setup step; selection opens the setup dialog. */
+      kind: 'plugin-setup-pick';
+      title: string;
+      options: ReadonlyArray<ListPickerOption>;
     };
 
 export interface PendingPermission {

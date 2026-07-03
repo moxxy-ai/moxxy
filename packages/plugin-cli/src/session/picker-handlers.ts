@@ -43,6 +43,17 @@ export interface PickerHandlerDeps {
    * original code path then finds the contribution registered.
    */
   rerunSlash?: (line: string) => void;
+  /**
+   * Open the plugin-setup dialog (SessionView owns the state). `then` runs
+   * after the setup finishes or is cancelled — the install-confirm rerun
+   * waits for configuration so e.g. a freshly-installed channel is usable
+   * the moment the original command re-executes.
+   */
+  openPluginSetup?: (target: {
+    packageName: string;
+    spec: import('@moxxy/sdk').PluginSetupSpec;
+    then?: () => void;
+  }) => void;
 }
 
 export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id: string) => void {
@@ -70,6 +81,9 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     }
     if (kind === 'settings') {
       return handleSettingSelected(id, deps);
+    }
+    if (kind === 'plugin-setup-pick') {
+      return handlePluginSetupPicked(id, deps);
     }
     if (kind === 'sessions') {
       return handleSessionSelected(id, deps);
@@ -159,13 +173,27 @@ function runPickerInstall(
         .filter(([, names]) => names && names.length > 0)
         .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
         .join('; ');
-      const setupNote = res.needsSetup
-        ? `\n${res.needsSetup.required ? '⚠ required setup' : 'optional setup'}: "${res.needsSetup.title}" — run \`moxxy init\` to configure it.`
-        : '';
-      deps.setSystemNotice(
-        `✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}${setupNote}`,
-      );
+      deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
       ok = true;
+      // Configure right here when the plugin declares a setup step — the
+      // dialog collects the fields and applySetup persists them (secrets →
+      // vault). Fall back to pointing at `moxxy init` when the session can't
+      // (RemoteSession) so the hint never silently disappears.
+      if (res.needsSetup) {
+        const admin2 = deps.session.pluginsAdmin;
+        const pkg = admin2?.catalog().find((e) => e.id === target || e.packageName === target)?.packageName ?? target;
+        const spec = await admin2?.setupSpec?.(pkg).catch(() => null);
+        if (spec && deps.openPluginSetup) {
+          const after = opts.onSuccess;
+          deps.openPluginSetup({ packageName: pkg, spec, ...(after ? { then: after } : {}) });
+          if (opts.reopenPluginsPicker) return; // dialog owns the zone; skip reopen
+          return;
+        }
+        deps.setSystemNotice(
+          `✓ installed ${res.installed} — ${res.needsSetup.required ? '⚠ required setup' : 'optional setup'}: ` +
+            `"${res.needsSetup.title}" — run \`moxxy init\` (or /setup ${pkg}) to configure it.`,
+        );
+      }
     } catch (err) {
       deps.setSystemNotice(
         `install failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -177,6 +205,20 @@ function runPickerInstall(
       if (opts.reopenPluginsPicker) openPluginsPicker(deps);
     }
     if (ok) opts.onSuccess?.();
+  })();
+}
+
+/** `/setup` pick list: open the setup dialog for the chosen package. */
+function handlePluginSetupPicked(id: string, deps: PickerHandlerDeps): void {
+  const admin = deps.session.pluginsAdmin;
+  if (!admin?.setupSpec || !deps.openPluginSetup) return;
+  void (async () => {
+    const spec = await admin.setupSpec!(id).catch(() => null);
+    if (!spec) {
+      deps.setSystemNotice(`${id} declares no setup step`);
+      return;
+    }
+    deps.openPluginSetup!({ packageName: id, spec });
   })();
 }
 

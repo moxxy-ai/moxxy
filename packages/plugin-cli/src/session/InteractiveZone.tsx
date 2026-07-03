@@ -4,6 +4,7 @@ import type { ClientSession as Session } from '@moxxy/sdk';
 import { PermissionDialog } from '../components/PermissionDialog.js';
 import { ApprovalDialog } from '../components/ApprovalDialog.js';
 import { ProviderConnectDialog } from '../components/ProviderConnectDialog.js';
+import { PluginSetupDialog } from '../components/PluginSetupDialog.js';
 import { InputBox } from '../components/InputBox.js';
 import { ListPicker } from '../components/ListPicker.js';
 import { QueueView } from '../components/QueueView.js';
@@ -19,6 +20,12 @@ interface InteractiveZoneProps {
   pendingPermissionDepth: number;
   pendingApproval: PendingApproval | null;
   picker: Picker;
+  /** Post-install / /setup plugin-configuration dialog target. */
+  pluginSetup: {
+    packageName: string;
+    spec: import('@moxxy/sdk').PluginSetupSpec;
+  } | null;
+  onPluginSetupFinish: (values: Readonly<Record<string, string | boolean>> | null) => void;
   /** Inline provider-connect dialog target (SessionView owns the state). */
   providerConnect: { providerId: string; modelId: string } | null;
   onProviderConnectSuccess: (note?: string) => void;
@@ -59,6 +66,8 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   pendingPermissionDepth,
   pendingApproval,
   picker,
+  pluginSetup,
+  onPluginSetupFinish,
   providerConnect,
   onProviderConnectSuccess,
   onProviderConnectCancel,
@@ -94,6 +103,16 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
       <ApprovalDialog
         request={pendingApproval.request}
         onDecide={(decision) => onApprovalDecide(decision)}
+      />
+    );
+  }
+  if (pluginSetup) {
+    return (
+      <PluginSetupDialog
+        key={pluginSetup.packageName}
+        packageName={pluginSetup.packageName}
+        spec={pluginSetup.spec}
+        onFinish={onPluginSetupFinish}
       />
     );
   }

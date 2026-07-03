@@ -4,6 +4,7 @@ import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
 import type { ModelDescriptor, ProviderKeyValidation } from './provider.js';
+import type { PluginSetupSpec } from './schemas.js';
 import type { ToolCompactPresentation } from './tool.js';
 
 /**
@@ -368,6 +369,22 @@ export interface PluginsAdminView {
     /** Present when the package declares a `moxxy.setup` step to complete. */
     readonly needsSetup?: { readonly title: string; readonly required: boolean };
   }>;
+  /**
+   * The package's declarative setup step (`moxxy.setup`), read from its
+   * installed package.json — plain data, safe to render anywhere. Null when
+   * absent. Powers the post-install dialog and `/setup`.
+   */
+  setupSpec?(packageName: string): Promise<PluginSetupSpec | null>;
+  /**
+   * Persist collected setup values: secrets → vault + `${vault:NAME}` option
+   * ref; other kinds → `plugins.packages.<pkg>.options.<key>`. A complete
+   * required setup re-enables the package; an incomplete one disables it
+   * (mirrors the init wizard). Optional capability per the seam convention.
+   */
+  applySetup?(
+    packageName: string,
+    values: Readonly<Record<string, string | boolean>>,
+  ): Promise<{ readonly complete: boolean; readonly missing: ReadonlyArray<string> }>;
 }
 
 /** IO a channel supplies to drive an interactive OAuth flow inside its own
