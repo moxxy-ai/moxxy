@@ -13,13 +13,17 @@
 #      the CLI's version — so nothing needs a download later
 #   4. PATH wiring in your shell profile (idempotent, clearly marked)
 #
-# The only thing left for you: run `moxxy` and pick a provider — either a
-# ChatGPT/Claude sign-in or an API key. Keys are yours; we can't skip that.
+# When a terminal is attached it ends by handing off to `moxxy onboard` —
+# the guided setup: pick a provider (sign-in or API key; keys are yours, we
+# can't skip that), pair a messaging channel, install the always-on service.
+# Piped/CI installs (no /dev/tty) or MOXXY_NO_ONBOARD=1 skip the hand-off
+# and just print the next steps.
 #
 # Env overrides:
 #   MOXXY_INSTALL_DIR      install root            (default: ~/.moxxy)
 #   MOXXY_NO_PLUGINS=1     skip the plugin preload (slim install)
 #   MOXXY_NO_MODIFY_PATH=1 don't touch shell profiles
+#   MOXXY_NO_ONBOARD=1     don't hand off to `moxxy onboard` at the end
 set -euo pipefail
 export NPM_CONFIG_UPDATE_NOTIFIER=false # keep npm quiet during the steps
 
@@ -252,10 +256,24 @@ boxrow "  ${GRN}✓${N} ${B}moxxy $CLI_VERSION is ready${N} — everything prein
 boxrow "" ""
 boxrow "    ${B}exec \$SHELL${N}   ${D}reload PATH (or open a new terminal)${N}" \
        "    exec \$SHELL   reload PATH (or open a new terminal)"
-boxrow "    ${B}moxxy${N}         ${D}pick a provider: sign-in or API key${N}" \
-       "    moxxy         pick a provider: sign-in or API key"
+boxrow "    ${B}moxxy onboard${N} ${D}provider → channel → always-on service${N}" \
+       "    moxxy onboard provider → channel → always-on service"
 boxrow "" ""
 printf '%s\n' "  ${M}╰$(rule)╯${N}"
 note "install dir: $MOXXY_DIR"
 note "uninstall:   rm -rf $MOXXY_DIR + the '# moxxy' PATH lines"
 printf '\n'
+
+# ---------------------------------------------------------------- onboard
+# Hand off to the guided setup when a human can actually answer prompts.
+# Under `curl | bash` stdin is the script pipe, so re-attach the terminal
+# from /dev/tty; skip cleanly when there is none (CI, containers), when
+# stdout isn't a terminal (logged installs), or on explicit opt-out.
+if [ "${MOXXY_NO_ONBOARD:-0}" != "1" ] && [ -t 1 ] && { : </dev/tty; } 2>/dev/null; then
+  say "handing off to ${B}moxxy onboard${N} ${D}(Ctrl+C skips it — re-run anytime)${N}"
+  printf '\n'
+  # A non-default install root must reach onboard before the rc files do.
+  if [ "$MOXXY_DIR" != "$HOME/.moxxy" ]; then export MOXXY_HOME="$MOXXY_DIR"; fi
+  PATH="$BIN_DIR:$RUNTIME_DIR/current/bin:$PATH" "$BIN_DIR/moxxy" onboard </dev/tty \
+    || note "onboarding skipped — run 'moxxy onboard' whenever you're ready"
+fi
