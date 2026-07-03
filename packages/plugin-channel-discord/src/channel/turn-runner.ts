@@ -25,6 +25,12 @@ export interface RunDiscordTurnDeps {
   readonly typing: TypingIndicator;
   readonly editFrameMs: number;
   readonly logger?: ChannelLogger;
+  /**
+   * Called once with the FINAL assistant text after it has been flushed to the
+   * channel (so the text reply always lands first). Backs the optional voice
+   * reply. Best-effort — its failure is logged and never breaks the text turn.
+   */
+  readonly onFinalReply?: (text: string) => Promise<void>;
 }
 
 export interface RunDiscordTurnOptions {
@@ -53,7 +59,7 @@ export async function runDiscordTurn(
   deps: RunDiscordTurnDeps,
   opts: RunDiscordTurnOptions,
 ): Promise<void> {
-  const { session, channel, typing, editFrameMs, logger } = deps;
+  const { session, channel, typing, editFrameMs, logger, onFinalReply } = deps;
   const { text, model, controller, turnId } = opts;
 
   const renderer = new DiscordTurnRenderer();
@@ -105,6 +111,21 @@ export async function runDiscordTurn(
       signal: controller.signal,
     });
     await pump.flush(true);
+    // The text reply is now out. Speak the final assistant body if a voice
+    // reply is wired — isolated so a synth/transcode/transport failure can
+    // never break (or re-report) the already-delivered text turn.
+    if (onFinalReply) {
+      const finalText = renderer.finalText();
+      if (finalText) {
+        try {
+          await onFinalReply(finalText);
+        } catch (err) {
+          logger?.warn('discord voice reply hook failed', {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
   } catch (err) {
     logger?.warn('discord turn failed', {
       err: err instanceof Error ? err.message : String(err),

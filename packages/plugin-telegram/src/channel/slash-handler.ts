@@ -1,17 +1,30 @@
 import { type Bot, type Context, InlineKeyboard } from 'grammy';
 import { isSelectableMode } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
+import { resolveVoiceToggle } from '@moxxy/channel-kit';
+
+/**
+ * Install guidance shown when enabling `/voice` with no active synthesizer —
+ * mirrors the voice-handler's transcriber guidance wording, pointing at the TTS
+ * plugin instead of the STT one.
+ */
+export const VOICE_NO_SYNTH_HINT =
+  'No text-to-speech backend is configured yet, so replies stay text-only. Install one with `moxxy plugins install tts-openai` and run `moxxy login openai` (or set OPENAI_API_KEY) to enable spoken replies.';
 
 export interface SlashState {
   readonly session: Session | null;
   readonly model: string | undefined;
   readonly activeModelOverride: string | null;
   readonly yolo: boolean;
+  /** Whether voice replies are currently enabled (backs `/voice status`). */
+  readonly voiceReplies: boolean;
 }
 
 export interface SlashCallbacks {
   /** Toggle yolo and return its new value (so we can echo the right message). */
   toggleYolo(): boolean;
+  /** Persist + apply the voice-replies preference (backs `/voice on|off`). */
+  setVoiceReplies(on: boolean): Promise<void>;
   /** Apply a `session-action` result emitted from a registered command. */
   performSessionAction(
     ctx: Context,
@@ -84,6 +97,18 @@ export async function runSlash(
           ? '⚠ yolo mode ON — tool calls auto-approved for the rest of this session'
           : 'yolo mode OFF — tool prompts will resume',
       );
+      return;
+    }
+    case '/voice': {
+      const result = resolveVoiceToggle({
+        arg: args,
+        enabled: state.voiceReplies,
+        hasSynthesizer: session.synthesizers.tryGetActive() != null,
+        delivery: 'a voice note',
+        noSynthesizerHint: VOICE_NO_SYNTH_HINT,
+      });
+      if (result.persist) await cb.setVoiceReplies(result.enabled);
+      await ctx.reply(result.reply);
       return;
     }
     case '/tools': {
@@ -208,6 +233,7 @@ export async function publishBotCommands(
     { command: 'model', description: 'Switch provider + model (inline keyboard)' },
     { command: 'mode', description: 'Switch mode' },
     { command: 'yolo', description: 'Toggle auto-approve mode' },
+    { command: 'voice', description: 'Toggle spoken voice replies' },
     { command: 'tools', description: 'List the tools the active session can call' },
     { command: 'skills', description: 'List the discovered skills' },
     { command: 'cancel', description: 'Abort the current turn' },

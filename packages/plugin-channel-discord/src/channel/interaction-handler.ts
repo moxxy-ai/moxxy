@@ -47,6 +47,8 @@ export interface InteractionDeps {
 export interface InteractionCallbacks {
   readonly setAwaitingApprovalText: (state: AwaitingApprovalText | null) => void;
   readonly toggleYolo: () => boolean;
+  /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
+  readonly voice: (arg: string) => Promise<string>;
   readonly performSessionAction: (
     action: 'new' | 'clear' | 'exit',
     notice: string | undefined,
@@ -178,6 +180,7 @@ async function handleSlashCommand(
   }
   const reply = await runSlash(name, '', state.session, {
     toggleYolo: cb.toggleYolo,
+    voice: cb.voice,
     performSessionAction: cb.performSessionAction,
   });
   await safeReply(interaction, reply.length > 1_900 ? reply.slice(0, 1_899) + '…' : reply, deps.logger);

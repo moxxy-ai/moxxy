@@ -11,10 +11,14 @@ export interface SentMessageLike {
   edit(content: string): Promise<unknown>;
 }
 
-/** Payload accepted by `send` — text plus optional component rows (buttons). */
+/** Payload accepted by `send` — text plus optional component rows (buttons) or
+ *  file attachments (a synthesized voice reply). `content` is optional so a
+ *  file-only message (audio, no text) is expressible. */
 export interface OutboundPayload {
-  readonly content: string;
+  readonly content?: string;
   readonly components?: ReadonlyArray<unknown>;
+  /** File attachments (e.g. a discord.js `AttachmentBuilder`). */
+  readonly files?: ReadonlyArray<unknown>;
 }
 
 /** A channel (DM or guild text channel) we can post into. */

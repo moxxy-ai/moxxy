@@ -42,6 +42,8 @@ export interface MessageHandlerCallbacks {
   readonly setAwaitingApprovalText: (state: AwaitingApprovalText | null) => void;
   readonly toggleYolo: () => boolean;
   readonly setYolo: (value: boolean) => void;
+  /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
+  readonly voice: (arg: string) => Promise<string>;
   readonly runUserTurn: (ctx: InboundContext, text: string) => Promise<void>;
   /** Handle audio attachments (voice messages). Returns true when it consumed
    *  the message (so the text path is skipped). */
@@ -130,6 +132,7 @@ export async function handleInboundMessage(
     const [head, ...rest] = text.split(/\s+/);
     const reply = await runSlash(head!.slice(1), rest.join(' '), state.session, {
       toggleYolo: cb.toggleYolo,
+      voice: cb.voice,
       performSessionAction: (action, notice) =>
         performSessionAction(action, notice, state, deps, cb),
     });

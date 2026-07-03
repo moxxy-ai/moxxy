@@ -46,3 +46,21 @@ export {
   type IngestVerdict,
 } from './ingest/http-server.js';
 export { DeliveryDedupeCache } from './ingest/dedupe.js';
+export {
+  audioExtForMime,
+  deliverVoiceReply,
+  ensureOggOpus,
+  resolveVoiceToggle,
+  synthesizeReply,
+  toSpeech,
+  type DeliverVoiceReplyOptions,
+  type EnsureOggOpusOptions,
+  type EnsureOggOpusResult,
+  type SynthesizeReplyOptions,
+  type SynthesizeReplyResult,
+  type SynthesizerSource,
+  type VoiceReplyOutcome,
+  type VoiceReplySink,
+  type VoiceToggleInput,
+  type VoiceToggleResult,
+} from './voice-reply.js';
