@@ -41,6 +41,20 @@ or recorded-on-purpose decision.
   deliberately unchanged (linear connect retry, constant supervisor wait).
   `packages/runner/src/remote-session.ts`,
   `packages/desktop-host/src/runner-supervisor.ts`, `packages/sdk/src/index.ts`.
+- [med, sessions, RESOLVED 2026-07-03] Event-log READS no longer cast blindly:
+  all three JSONL parse sites (`restoreEvents`, `readEventPage`, index
+  hydration) route through a shallow structural guard (`isMoxxyEventShape`)
+  that skips wrong-shape-but-valid-JSON lines with the exact corrupt-line
+  semantics (never throw mid-replay; restore counts them as
+  `invalidShapeLines` and repairs the file). This closes the read-side leak in
+  the EventStore trust boundary (Pillar 2 note below): a junk line can no
+  longer drive replay (a `compaction` line missing `replacedRange` used to
+  throw inside `projectMessagesFromLog`'s unconditional dereference). The
+  guard is allocation-free per line, exhaustively typed against the
+  `MoxxyEvent` union (variant drift fails the build), and deliberately keeps
+  unknown NEWER event types with a valid envelope so a floor rollback can't
+  rewrite away a newer version's history.
+  `packages/core/src/sessions/event-shape.ts`.
 - [low, focus, RESOLVED 2026-07-02] Focus Mode mini-chat no longer carries a
   separate text-only composer path: pasted screenshots now reuse the desktop
   attachment save/preview/send pipeline, zoomed image previews can be drag-panned,
@@ -370,6 +384,9 @@ or recorded-on-purpose decision.
   log is now a registry kind (`eventStore`) with a protected JSONL floor and an
   explicit-opt-in trust boundary, behaviour-identical (thin adapter over
   `SessionPersistence`). Plan: `~/.claude/plans/i-think-we-need-zany-wirth.md`.
+  2026-07-03: the read-side gap this boundary still leaked (JSONL lines cast to
+  `MoxxyEvent` instead of validated) is closed — see the `isMoxxyEventShape`
+  entry in the resolved ledger.
 - [note, updated 2026-07-03] Pillar 3 is HALF done, not unstarted: #363/#364
   shipped the shared `provision()` engine + `moxxy provision`, reworked `init`
   (catalog + `ensureProvider` npm-installs on demand), and unbundled the 6
