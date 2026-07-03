@@ -117,6 +117,51 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
     vaultKeys: { account: 'signal_account' },
     requiredKeys: ['signal_account'],
   },
+  whatsapp: {
+    descriptor: {
+      id: 'whatsapp',
+      name: 'WhatsApp',
+      description:
+        'A WhatsApp bot via Baileys on its own dedicated runner. UNOFFICIAL API: automating an ' +
+        'account violates WhatsApp\'s ToS and the number can be PERMANENTLY BANNED — use a ' +
+        'secondary number. Links by QR (Linked devices); no public URL needed.',
+      docsUrl: 'https://baileys.wiki',
+      configFields: [
+        {
+          name: 'tosAcknowledged',
+          label: "Risk acknowledgment — type 'yes'",
+          type: 'text',
+          required: true,
+          help:
+            "Typing anything other than 'yes' keeps the channel disarmed. This is the consent " +
+            'gate for the unofficial-API ban risk.',
+        },
+        {
+          name: 'allowedJids',
+          label: 'Extra allowed JIDs (comma-separated)',
+          type: 'text',
+          required: false,
+          placeholder: '15551234567@s.whatsapp.net',
+          help: 'Your own Note-to-Self chat is always allowed once linked.',
+        },
+      ],
+      hasWebhookUrl: false,
+      runHint:
+        'On your phone: WhatsApp -> Settings -> Linked devices -> Link a device, then scan the QR.',
+      connect: {
+        kind: 'qr',
+        title: 'Link WhatsApp',
+        hint:
+          'Scan with the phone that owns the account: WhatsApp -> Settings -> Linked devices -> ' +
+          'Link a device. The QR refreshes periodically until scanned.',
+      },
+    },
+    vaultKeys: {
+      tosAcknowledged: 'whatsapp_tos_acknowledged',
+      allowedJids: 'whatsapp_allowed_jids',
+    },
+    requiredKeys: ['whatsapp_tos_acknowledged'],
+  },
 };
 
 /** Every catalog entry, in display order. */

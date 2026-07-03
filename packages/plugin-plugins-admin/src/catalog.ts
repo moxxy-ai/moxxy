@@ -235,6 +235,15 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     provides: [{ category: 'channel', name: 'signal' }],
   },
   {
+    id: 'whatsapp',
+    label: 'WhatsApp channel',
+    description:
+      'WhatsApp via Baileys — UNOFFICIAL API: violates WhatsApp ToS, the number can be banned; use a secondary number (moxxy whatsapp).',
+    packageName: '@moxxy/plugin-channel-whatsapp',
+    installSpec: '@moxxy/plugin-channel-whatsapp',
+    provides: [{ category: 'channel', name: 'whatsapp' }],
+  },
+  {
     id: 'stt-whisper',
     label: 'Whisper voice input',
     description: 'Speech-to-text via the OpenAI Whisper API (Ctrl+R in the TUI).',

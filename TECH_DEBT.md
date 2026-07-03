@@ -312,15 +312,30 @@ or recorded-on-purpose decision.
   (`IngestHttpServer`: routing/health/size-capped raw body/verify gate/500
   catch-all + `DeliveryDedupeCache`) and Slack's ingest is a thin pipeline on
   it. Migrating the remaining four is still the larger, lower-payoff refactor.
-- [note, channels] Channel scaffolding shared by telegram+slack+signal now lives
-  in `@moxxy/channel-kit` (FramePump, TurnCoordinator + turnId-filtered turn
-  helpers, host-code + TOFU pairing machines, `resolveSecret`, audited
-  allow-list resolver, ingest scaffold). Signal (2026-07-03) validated the
-  thin-adapter claim: it consumes TurnCoordinator/driveTurn/PlainTurnRenderer/
-  resolveSecret/createAuditedAllowListResolver and adds only signal-cli quirks.
-  New channels (Discord/WhatsApp) should be thin adapters over it — messenger
-  quirks (formatting, transport error mapping, signature schemes, pairing
-  wording) stay in each plugin.
+- [note, whatsapp, security] `@moxxy/plugin-channel-whatsapp` is the first channel
+  on an UNOFFICIAL client (Baileys / WhatsApp Web protocol): automating an account
+  violates WhatsApp's ToS and the number can be permanently BANNED. Two standing
+  tradeoffs recorded on purpose: (1) the rotating Baileys auth-state (signal
+  sessions/pre-keys/creds) is stored UNENCRYPTED at rest under
+  `~/.moxxy/whatsapp-auth` (dir 0700, files 0600) — the vault is the wrong home for
+  a high-write rotating key store, so it isn't used; anyone with file access to the
+  moxxy home can hijack the linked session. The `WhatsAppAuthStorage` interface
+  exists so an encrypted backend can be swapped in later without touching the
+  channel. (2) permission prompts are PLAIN-TEXT numbered replies (Baileys has no
+  reliable multi-device interactive buttons), captured as the owner's next short
+  message. Follow-ups: encrypted auth-state backend; per-chat concurrency (single
+  global `busy` today, like Slack v1); richer formatting.
+  `packages/plugin-channel-whatsapp/`.
+- [note, channels] Channel scaffolding shared by telegram+slack+signal+whatsapp
+  now lives in `@moxxy/channel-kit` (FramePump, TurnCoordinator + turnId-filtered
+  turn helpers, host-code + TOFU pairing machines, `resolveSecret`, audited
+  allow-list resolver, ingest scaffold, PlainTurnRenderer). Signal + WhatsApp
+  (2026-07-03) validated the thin-adapter claim: both consume
+  TurnCoordinator/driveTurn/PlainTurnRenderer/resolveSecret (Signal also
+  createAuditedAllowListResolver, WhatsApp also FramePump) and add only their
+  messenger's quirks. New channels (Discord) should be thin adapters over it —
+  messenger quirks (formatting, transport error mapping, signature schemes,
+  pairing wording) stay in each plugin.
   Deliberately NOT extracted (single-implementation or channel-specific):
   Telegram's rich TurnRenderer/HTML pipeline + inline-keyboard
   permission/approval prompts + grammy dispatch, Slack's HMAC verify + zod

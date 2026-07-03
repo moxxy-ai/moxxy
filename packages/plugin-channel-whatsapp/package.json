@@ -1,0 +1,99 @@
+{
+  "name": "@moxxy/plugin-channel-whatsapp",
+  "version": "0.26.0",
+  "description": "WhatsApp channel for moxxy via Baileys (UNOFFICIAL WhatsApp Web protocol — violates WhatsApp's Terms of Service; the linked number can be banned, use a secondary number). QR device-link pairing, JID allow-list, voice-note transcription, dedicated isolated runner.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "channel",
+    "whatsapp",
+    "baileys",
+    "bot"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-channel-whatsapp"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "cli"
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-vault",
+        "hint": "whatsapp resolves the vault from the service registry for its consent receipt + owner JID + allow-list; @moxxy/plugin-vault must load first"
+      }
+    ],
+    "setup": {
+      "title": "WhatsApp channel (UNOFFICIAL API — read this first)",
+      "description": "This channel uses Baileys, an UNOFFICIAL WhatsApp Web client. Automating a personal account violates WhatsApp's Terms of Service and CAN GET THE PHONE NUMBER PERMANENTLY BANNED. Strongly consider a secondary number. Pairing itself happens later via QR (moxxy whatsapp setup).",
+      "fields": [
+        {
+          "key": "tosAcknowledged",
+          "label": "Type 'yes' to acknowledge the ToS/ban risk (anything else keeps the channel disabled)",
+          "kind": "secret",
+          "vaultKey": "whatsapp_tos_acknowledged",
+          "required": true
+        },
+        {
+          "key": "allowedJids",
+          "label": "Extra allowed WhatsApp JIDs (comma-separated, e.g. 15551234567@s.whatsapp.net) — your own Note-to-Self chat is always allowed",
+          "kind": "string",
+          "required": false,
+          "placeholder": "15551234567@s.whatsapp.net"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:",
+    "@moxxy/channel-kit": "workspace:*",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "@whiskeysockets/baileys": "^6.7.21",
+    "qrcode": "^1.5.4",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/mode-default": "workspace:*",
+    "@moxxy/testing": "workspace:*",
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
