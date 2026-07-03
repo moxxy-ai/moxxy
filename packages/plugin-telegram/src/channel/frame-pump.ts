@@ -1,5 +1,6 @@
-import type { Bot} from 'grammy';
+import type { Bot } from 'grammy';
 import { GrammyError } from 'grammy';
+import { FramePump as StreamPump } from '@moxxy/channel-kit';
 import { TurnRenderer, splitForTelegram } from '../render.js';
 import { composeFrame, stripHtml } from './html.js';
 
@@ -14,8 +15,10 @@ export interface FramePumpOptions {
 
 /**
  * Drives the throttled "compose snapshot → send/edit one message" loop
- * for a turn. Owns the edit timer and the running messageId so the
- * channel can stay focused on dispatch.
+ * for a turn. Owns the renderer and the Telegram-specific delivery —
+ * HTML parse-mode fallback + 4096-char message splitting — while the
+ * throttle/send-once-then-edit mechanics live in `@moxxy/channel-kit`'s
+ * {@link StreamPump} (one instance per turn).
  *
  * Lifecycle per turn:
  *   1. `beginTurn(chatId)` resets state.
@@ -28,10 +31,7 @@ export class FramePump {
   private readonly logger?: FramePumpLogger;
   private bot: Bot | null = null;
   private renderer: TurnRenderer = new TurnRenderer();
-  private chatId: number | null = null;
-  private messageId: number | null = null;
-  private lastSentFrame = '';
-  private editTimer: ReturnType<typeof setTimeout> | null = null;
+  private pump: StreamPump<number> | null = null;
 
   constructor(opts: FramePumpOptions) {
     this.editFrameMs = opts.editFrameMs;
@@ -54,54 +54,66 @@ export class FramePump {
 
   beginTurn(chatId: number): void {
     this.renderer.reset();
-    this.chatId = chatId;
-    this.messageId = null;
-    this.lastSentFrame = '';
+    this.pump = new StreamPump<number>({
+      editFrameMs: this.editFrameMs,
+      // Only the FINAL frame collapses the activity trace into its expandable
+      // box — mid-stream frames keep it open so the user watches work land live.
+      frame: (final) => composeFrame(this.renderer.snapshot({ collapse: final })),
+      // The final flush must produce at least one message so the user isn't
+      // left with the typing indicator dangling.
+      emptyFinalText: '<i>(no output)</i>',
+      // The sink does final-only work (split-overflow tails below), so the
+      // final frame must reach it even when the text didn't change since the
+      // last streamed edit.
+      alwaysFlushFinal: true,
+      sink: {
+        send: (text, final) => this.sendFrame(chatId, text, final),
+        edit: (messageId, text, final) => this.editFrame(chatId, messageId, text, final),
+      },
+    });
   }
 
   endTurn(): void {
-    this.cancelTimer();
-    this.chatId = null;
-    this.messageId = null;
+    this.pump?.dispose();
+    this.pump = null;
   }
 
   scheduleEdit(): void {
-    if (this.editTimer) return;
-    this.editTimer = setTimeout(() => {
-      this.editTimer = null;
-      void this.flush(false);
-    }, this.editFrameMs);
+    this.pump?.scheduleEdit();
   }
 
   async flush(final: boolean): Promise<void> {
-    this.cancelTimer();
-    if (!this.bot || !this.chatId) return;
-    // Only the FINAL frame collapses the activity trace into its expandable
-    // box — mid-stream frames keep it open so the user watches work land live.
-    const snap = this.renderer.snapshot({ collapse: final });
-    const html = composeFrame(snap);
-    if (!html || html === this.lastSentFrame) {
-      // Nothing rendered yet AND it's the final flush — must produce
-      // at least one message so the user isn't left with the typing
-      // indicator dangling.
-      if (final && !html && this.messageId == null) {
-        await this.safeSend(this.chatId, '<i>(no output)</i>');
-      }
-      return;
-    }
-    const parts = splitForTelegram(html);
-    const head = parts[0]!;
-    if (this.messageId == null) {
-      // First real content of this turn — send (don't edit a placeholder).
-      const sent = await this.safeSend(this.chatId, head);
-      if (sent) this.messageId = sent;
-    } else {
-      await this.safeEdit(this.chatId, this.messageId, head);
-    }
-    this.lastSentFrame = head;
+    if (!this.bot || !this.pump) return;
+    await this.pump.flush(final);
+  }
+
+  /** First real content of this turn — send (don't edit a placeholder). On the
+   *  final frame, overflow beyond Telegram's message limit goes out as
+   *  follow-up messages. */
+  private async sendFrame(chatId: number, text: string, final: boolean): Promise<number | null> {
+    if (!this.bot) return null;
+    const parts = splitForTelegram(text);
+    const sent = await this.safeSend(chatId, parts[0]!);
     if (final && parts.length > 1) {
       for (const tail of parts.slice(1)) {
-        await this.safeSend(this.chatId, tail);
+        await this.safeSend(chatId, tail);
+      }
+    }
+    return sent;
+  }
+
+  private async editFrame(
+    chatId: number,
+    messageId: number,
+    text: string,
+    final: boolean,
+  ): Promise<void> {
+    if (!this.bot) return;
+    const parts = splitForTelegram(text);
+    await this.safeEdit(chatId, messageId, parts[0]!);
+    if (final && parts.length > 1) {
+      for (const tail of parts.slice(1)) {
+        await this.safeSend(chatId, tail);
       }
     }
   }
@@ -159,13 +171,6 @@ export class FramePump {
       }
       this.logger?.warn('sendMessage failed', { err: String(err) });
       return null;
-    }
-  }
-
-  private cancelTimer(): void {
-    if (this.editTimer) {
-      clearTimeout(this.editTimer);
-      this.editTimer = null;
     }
   }
 }

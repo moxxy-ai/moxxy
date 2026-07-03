@@ -1,13 +1,12 @@
 {
-  "name": "@moxxy/plugin-channel-slack",
+  "name": "@moxxy/channel-kit",
   "version": "0.26.0",
-  "description": "Slack bot channel for moxxy. Ingests Slack Events API over the proxy relay, drives the Session, and streams threaded replies. Autonomous allow-list permission model (no human in the loop).",
+  "description": "Shared channel-building machinery for moxxy messaging channels: throttled send-once-then-edit frame pump, turnId-filtered turn running with single-flight coordination, pairing state machines (host-issued code + TOFU), vault-backed secret resolution, audited allow-list permissions, and an inbound-webhook ingest scaffold.",
   "keywords": [
     "moxxy",
     "agent",
     "channel",
-    "slack",
-    "bot"
+    "framework"
   ],
   "homepage": "https://moxxy.ai",
   "bugs": {
@@ -16,7 +15,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/moxxy-ai/moxxy.git",
-    "directory": "packages/plugin-channel-slack"
+    "directory": "packages/channel-kit"
   },
   "author": "Michal Makowski <michal.makowski97@gmail.com>",
   "license": "MIT",
@@ -42,31 +41,10 @@
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
   },
-  "moxxy": {
-    "plugin": {
-      "entry": "./dist/index.js",
-      "kind": "cli"
-    },
-    "requirements": [
-      {
-        "kind": "plugin",
-        "name": "@moxxy/plugin-vault",
-        "hint": "slack resolves the vault from the service registry for its bot token + signing secret + pairing; @moxxy/plugin-vault must load first"
-      }
-    ]
-  },
   "dependencies": {
-    "@clack/prompts": "catalog:",
-    "@moxxy/channel-kit": "workspace:*",
-    "@moxxy/config": "workspace:*",
-    "@moxxy/core": "workspace:*",
-    "@moxxy/plugin-tunnel-proxy": "workspace:*",
-    "@moxxy/plugin-vault": "workspace:*",
-    "@moxxy/sdk": "workspace:*",
-    "zod": "catalog:"
+    "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@moxxy/testing": "workspace:*",
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",

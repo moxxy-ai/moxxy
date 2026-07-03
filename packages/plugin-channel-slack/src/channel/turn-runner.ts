@@ -1,7 +1,6 @@
 import type { newTurnId } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
-import type { MoxxyEvent } from '@moxxy/sdk';
-import { FramePump } from './frame-pump.js';
+import { FramePump, PlainTurnRenderer, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
 import type { SlackClient } from './slack-client.js';
 
 export interface TurnRunnerLogger {
@@ -28,41 +27,18 @@ export interface RunSlackTurnOptions {
 }
 
 /**
- * Accumulate streamed assistant text from the event log into a single growing
- * snapshot. We render `assistant_chunk` deltas live and fall back to the final
- * `assistant_message` content (which supersedes the streamed deltas for the
- * same turn) so the last edit always carries the complete reply.
- */
-class TurnRenderer {
-  private streamed = '';
-  private finalText: string | null = null;
-
-  accept(event: MoxxyEvent): boolean {
-    if (event.type === 'assistant_chunk') {
-      this.streamed += event.delta;
-      return true;
-    }
-    if (event.type === 'assistant_message') {
-      this.finalText = event.content;
-      return true;
-    }
-    return false;
-  }
-
-  snapshot(): string {
-    return (this.finalText ?? this.streamed).trim();
-  }
-}
-
-/**
  * Drive a single Slack turn end-to-end: subscribe the frame pump to THIS turn's
  * events (filtered by turnId — `session.log` fans out to every listener, so a
  * concurrent turn on the same Session would otherwise stream into this thread,
  * AGENTS.md invariant #8), run the turn through `runTurn`, flush the final
  * frame, and unwind in `finally`.
  *
- * The turnId is minted by the caller so the channel can also record it as an
- * own-turn id (it filters foreign-turn mirroring on those).
+ * The streaming loop is `@moxxy/channel-kit`'s {@link FramePump} ("post once
+ * via `chat.postMessage`, then edit THAT message via `chat.update`, throttled
+ * to `editFrameMs`") over a {@link PlainTurnRenderer} snapshot; only the Slack
+ * Web-API calls live here. The turnId is minted by the caller so the channel
+ * can also record it as an own-turn id (it filters foreign-turn mirroring on
+ * those).
  */
 export async function runSlackTurn(
   deps: RunSlackTurnDeps,
@@ -71,28 +47,43 @@ export async function runSlackTurn(
   const { session, client, editFrameMs, logger } = deps;
   const { channel, threadTs, text, model, controller, turnId } = opts;
 
-  const renderer = new TurnRenderer();
-  const pump = new FramePump({
-    client,
-    channel,
-    threadTs,
+  const renderer = new PlainTurnRenderer();
+  const pump = new FramePump<string>({
     editFrameMs,
-    ...(logger ? { logger } : {}),
+    frame: () => renderer.snapshot(),
+    // Guarantee at least one message even when the turn produced no text.
+    emptyFinalText: '_(no output)_',
+    sink: {
+      send: async (t) => {
+        try {
+          const res = await client.postMessage({ channel, text: t, threadTs });
+          return res.ts;
+        } catch (err) {
+          logger?.warn?.('slack chat.postMessage failed', { err: String(err) });
+          return null;
+        }
+      },
+      edit: async (ts, t) => {
+        try {
+          await client.updateMessage({ channel, ts, text: t });
+        } catch (err) {
+          logger?.warn?.('slack chat.update failed', { err: String(err) });
+        }
+      },
+    },
   });
 
-  const unsubscribe = session.log.subscribe((event) => {
-    if (event.turnId !== turnId) return;
-    if (renderer.accept(event)) pump.setText(renderer.snapshot());
+  const unsubscribe = subscribeTurn(session, turnId, (event) => {
+    if (renderer.accept(event)) pump.scheduleEdit();
   });
 
   try {
-    for await (const _event of session.runTurn(text, {
+    await driveTurn(session, {
       turnId,
+      prompt: text,
       ...(model ? { model } : {}),
       signal: controller.signal,
-    })) {
-      void _event;
-    }
+    });
     await pump.flush(true);
   } catch (err) {
     logger?.warn?.('slack turn failed', {

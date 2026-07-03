@@ -5,6 +5,7 @@
  * full index.
  */
 import { z } from '@moxxy/sdk';
+import { resolveSecret } from '@moxxy/channel-kit';
 
 /** Vault key for the Slack bot OAuth token (`xoxb-…`). */
 export const SLACK_BOT_TOKEN_KEY = 'slack_bot_token';
@@ -39,26 +40,24 @@ export const slackSigningSecretSchema = z
   .max(256, 'signing secret looks too long');
 
 /**
- * Resolve the bot token: env override first, then the vault. Returns null when
- * neither is set. Trimmed; never returns an empty string.
+ * Resolve the bot token: env override first, then the vault (the shared
+ * env→vault resolution in @moxxy/channel-kit). Returns null when neither is
+ * set. Trimmed; never returns an empty string.
  */
 export async function resolveBotToken(vault: {
   get(name: string): Promise<string | null>;
 }): Promise<string | null> {
-  const fromEnv = process.env[SLACK_BOT_TOKEN_ENV]?.trim();
-  if (fromEnv) return fromEnv;
-  const stored = (await vault.get(SLACK_BOT_TOKEN_KEY))?.trim();
-  return stored || null;
+  return resolveSecret(vault, { envVar: SLACK_BOT_TOKEN_ENV, vaultKey: SLACK_BOT_TOKEN_KEY });
 }
 
 /** Resolve the signing secret: env override first, then the vault. */
 export async function resolveSigningSecret(vault: {
   get(name: string): Promise<string | null>;
 }): Promise<string | null> {
-  const fromEnv = process.env[SLACK_SIGNING_SECRET_ENV]?.trim();
-  if (fromEnv) return fromEnv;
-  const stored = (await vault.get(SLACK_SIGNING_SECRET_KEY))?.trim();
-  return stored || null;
+  return resolveSecret(vault, {
+    envVar: SLACK_SIGNING_SECRET_ENV,
+    vaultKey: SLACK_SIGNING_SECRET_KEY,
+  });
 }
 
 /** What we persist under {@link SLACK_AUTHORIZED_KEY}. */

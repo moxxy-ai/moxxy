@@ -1,6 +1,7 @@
 import { Bot, GrammyError, HttpError } from 'grammy';
 import type { Context } from 'grammy';
 import { newTurnId } from '@moxxy/core';
+import { TurnCoordinator, resolveSecret } from '@moxxy/channel-kit';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   ApprovalRequest,
@@ -88,7 +89,6 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   // just paired). The dedicated-runner host subscribes via the handle to
   // re-publish the channel's status file. See `onConnectChange` on the handle.
   private readonly connectListeners = new Set<() => void>();
-  private busy = false;
   private currentChatId: number | null = null;
   // Last chat we ran a turn for — the target for mirroring turns this channel
   // did NOT initiate (e.g. a web-surface action on a shared session).
@@ -98,16 +98,15 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   private model: string | undefined;
   private activeModelOverride: string | null = null;
   private yolo = false;
-  // Per-turn abort controller so /cancel aborts only the current turn
-  // without poisoning the session-level signal (which other channels
-  // sharing the same Session would also observe).
-  private turnController: AbortController | null = null;
-  // turnIds of turns THIS channel initiated. mirrorForeignTurn filters on these
-  // (invariant #8: filter event-log subscribers by turnId when multiplexing
-  // turns on one Session) rather than the coarse `busy` flag alone — so an
-  // assistant_message dispatched for our own turn AFTER `busy` flips false
-  // (async event ordering / RemoteSession replay) isn't re-mirrored as foreign.
-  private readonly ownTurnIds = new Set<string>();
+  // Single-flight turn state: `busy` guard, per-turn AbortController (so
+  // /cancel aborts only the current turn without poisoning the session-level
+  // signal other channels share), and the bounded own-turn-id set that
+  // mirrorForeignTurn filters on (invariant #8: filter event-log subscribers
+  // by turnId when multiplexing turns on one Session) rather than the coarse
+  // `busy` flag alone — so an assistant_message dispatched for our own turn
+  // AFTER `busy` flips false (async event ordering / RemoteSession replay)
+  // isn't re-mirrored as foreign.
+  private readonly turns = new TurnCoordinator();
   // When a user clicks an approval option that needs text follow-up
   // (e.g. plan-execute "Redraft with feedback"), we stash the
   // approval+option pair and capture the user's NEXT message as the
@@ -166,12 +165,17 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
 
     // Precedence mirrors Slack (and this channel's own `isAvailable` gate +
     // error message): an explicit option wins, then the `MOXXY_TELEGRAM_TOKEN`
-    // env override, then the vault. Without the env fallback a headless
+    // env override, then the vault (the shared env→vault resolution in
+    // @moxxy/channel-kit). Without the env fallback a headless
     // `moxxy channels start telegram` that set the env var would pass the
     // availability check but then fail to boot — the gate and the channel must
     // agree on where the token comes from.
     const token =
-      this.opts.token ?? process.env.MOXXY_TELEGRAM_TOKEN?.trim() ?? (await this.opts.vault.get(TOKEN_KEY));
+      this.opts.token ??
+      (await resolveSecret(this.opts.vault, {
+        envVar: 'MOXXY_TELEGRAM_TOKEN',
+        vaultKey: TOKEN_KEY,
+      }));
     if (!token) {
       throw new Error(
         `Telegram bot token not found. Store one via vault_set('${TOKEN_KEY}', ...) or set MOXXY_TELEGRAM_TOKEN.`,
@@ -303,9 +307,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         // tokens / executing side-effecting tools the moment the operator
         // asks to shut down — otherwise (shared/remote Session) spend and
         // tool calls continue to completion and only their output is discarded.
-        if (this.turnController && !this.turnController.signal.aborted) {
-          this.turnController.abort(reason);
-        }
+        this.turns.abort(reason);
         this.permissionResolver.abortAll(reason);
         this.approvalResolver.abortAll(reason);
         this.logUnsub?.();
@@ -341,7 +343,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       ctx,
       {
         session: this.session,
-        busy: this.busy,
+        busy: this.turns.busy,
       },
       {
         pairing: this.pairing,
@@ -362,8 +364,8 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         model: this.model,
         activeModelOverride: this.activeModelOverride,
         yolo: this.yolo,
-        busy: this.busy,
-        turnController: this.turnController,
+        busy: this.turns.busy,
+        turnController: this.turns.controller,
         awaitingApprovalText: this.awaitingApprovalText,
         handle: this.handle,
       },
@@ -422,31 +424,21 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
 
   private async runUserTurn(ctx: Context, chatId: number, text: string): Promise<void> {
     if (!this.session) throw new Error('TelegramChannel.start() must be called first');
-    // Atomic single-flight guard: set busy synchronously BEFORE any await so a
-    // second turn dispatched concurrently (the poll loop is no longer parked on
-    // us) can't slip past the busy check in the text/voice handlers. If we are
-    // already busy, refuse rather than corrupt the single-instance per-turn
-    // state (framePump / currentChatId / turnController).
-    if (this.busy) {
+    // Atomic single-flight guard: `begin` claims the slot synchronously BEFORE
+    // any await so a second turn dispatched concurrently (the poll loop is no
+    // longer parked on us) can't slip past the busy check in the text/voice
+    // handlers. If we are already busy, refuse rather than corrupt the
+    // single-instance per-turn state (framePump / currentChatId / controller).
+    // The turnId is minted here so the coordinator records it as an own-turn
+    // id — that's what mirrorForeignTurn filters on.
+    const lease = this.turns.begin(newTurnId());
+    if (!lease) {
       await ctx.reply('I am still working on the previous prompt. Send /cancel to abort it.');
       return;
     }
-    this.busy = true;
     this.currentChatId = chatId;
     this.lastChatId = chatId;
-    // Per-turn AbortController so /cancel only aborts THIS turn.
-    const controller = new AbortController();
-    this.turnController = controller;
     const effectiveModel = this.activeModelOverride ?? this.model;
-    // Mint the turnId here so we can record it as an own-turn id — that's what
-    // mirrorForeignTurn filters on. Bound the set so a long-lived channel can't
-    // leak ids; a handful of recent ids is enough to dedup late/replayed events.
-    const turnId = newTurnId();
-    this.ownTurnIds.add(turnId);
-    if (this.ownTurnIds.size > 64) {
-      const oldest = this.ownTurnIds.values().next().value;
-      if (oldest !== undefined) this.ownTurnIds.delete(oldest);
-    }
 
     try {
       await runUserTurn(
@@ -458,11 +450,10 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
           typing: this.typing,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
         },
-        { chatId, text, model: effectiveModel, controller, turnId },
+        { chatId, text, model: effectiveModel, controller: lease.controller, turnId: lease.turnId },
       );
     } finally {
-      this.busy = false;
-      this.turnController = null;
+      lease.end();
       this.currentChatId = null;
     }
   }
@@ -474,15 +465,13 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
    * avoid parse-mode pitfalls; the view itself lives on the web surface.
    */
   private mirrorForeignTurn(event: MoxxyEvent): void {
-    if (event.type !== 'assistant_message') return;
-    // Skip turns THIS channel initiated, by turnId — robust to events that
-    // arrive after `busy` flips false (async ordering / RemoteSession replay),
-    // which the `busy` flag alone could mis-mirror as foreign (invariant #8).
-    if (this.ownTurnIds.has(event.turnId)) return;
-    if (this.busy) return;
+    // The coordinator skips turns THIS channel initiated, by turnId — robust to
+    // events that arrive after `busy` flips false (async ordering /
+    // RemoteSession replay), which the `busy` flag alone could mis-mirror as
+    // foreign (invariant #8) — and yields the trimmed assistant prose.
+    const text = this.turns.mirrorText(event);
+    if (text == null) return;
     if (!this.bot || this.lastChatId == null) return;
-    const text = event.content.trim();
-    if (!text) return;
     void this.bot.api.sendMessage(this.lastChatId, text).catch((err) => {
       this.opts.logger?.warn('telegram mirror failed', { err: String(err) });
     });

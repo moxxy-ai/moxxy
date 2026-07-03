@@ -1,4 +1,14 @@
 import { randomCode } from '@moxxy/plugin-vault';
+import {
+  clearHostCodePairing,
+  createHostCodeState,
+  greetPeer,
+  isPeerAuthorized,
+  openHostCodeWindow,
+  submitPeerCode,
+  type HostCodeAction,
+  type HostCodeState,
+} from '@moxxy/channel-kit';
 
 /**
  * Pairing state machine — one mechanism, host-issued QR code.
@@ -17,6 +27,11 @@ import { randomCode } from '@moxxy/plugin-vault';
  * QR inline) — one affordance everywhere, zero manual code entry — while keeping
  * the "prove you can see the host's screen" security property (the code only
  * ever lived on the surface).
+ *
+ * The transitions live in `@moxxy/channel-kit` (host-code pairing, generic over
+ * the peer id — shared with future channels); this module keeps the
+ * Telegram-shaped state/decision surface and maps the kit's semantic action
+ * kinds to Telegram's user-facing messages.
  */
 
 export type PairingPhase =
@@ -46,14 +61,41 @@ export interface PairingDecision {
     | { kind: 'not-pending'; message: string };
 }
 
-export function createPairingState(opts: { authorizedChatId?: number | null } = {}): PairingState {
+const MSG_FOREIGN_CHAT = 'This bot is paired with a different chat. Access denied.';
+const MSG_WINDOW_OPEN_HINT =
+  'Scan the QR (or open the link) shown in moxxy, or send the 6-digit code it shows, to finish pairing.';
+const MSG_NO_WINDOW =
+  'No pairing window is open. Start pairing from the moxxy desktop Channels panel, or run `moxxy channels telegram pair`.';
+const MSG_NOT_PENDING = 'No pairing window is open.';
+const MSG_EXPIRED = 'Pairing window expired. Start the channel again to retry.';
+const MSG_MISMATCH = "Code didn't match. Check the digits shown in moxxy and try again.";
+
+function toKit(state: PairingState): HostCodeState<number> {
   return {
-    phase: opts.authorizedChatId ? 'paired' : 'idle',
-    code: null,
-    pendingChatId: null,
-    expiresAt: null,
-    authorizedChatId: opts.authorizedChatId ?? null,
+    phase: state.phase,
+    code: state.code,
+    expiresAt: state.expiresAt,
+    authorizedPeer: state.authorizedChatId,
   };
+}
+
+function fromKit(state: HostCodeState<number>): PairingState {
+  return {
+    phase: state.phase,
+    code: state.code,
+    pendingChatId: null,
+    expiresAt: state.expiresAt,
+    authorizedChatId: state.authorizedPeer,
+  };
+}
+
+export function createPairingState(opts: { authorizedChatId?: number | null } = {}): PairingState {
+  return fromKit(
+    createHostCodeState<number>({
+      // Preserve the historical truthy check (a 0 chat id is not a real chat).
+      authorizedPeer: opts.authorizedChatId ? opts.authorizedChatId : null,
+    }),
+  );
 }
 
 /**
@@ -71,16 +113,35 @@ export function beginHostIssuedPairing(
   now: number = Date.now(),
   ttlMs: number | null = null,
 ): { state: PairingState; code: string } {
-  return {
-    state: {
-      ...state,
-      phase: 'awaiting-host-code',
-      code,
-      pendingChatId: null,
-      expiresAt: ttlMs == null ? null : now + ttlMs,
-    },
-    code,
-  };
+  const opened = openHostCodeWindow(toKit(state), { code, now, ttlMs });
+  return { state: fromKit(opened.state), code: opened.code };
+}
+
+/** Map a kit action to the Telegram-worded decision, reusing `state` when the
+ *  machine didn't transition. */
+function mapAction(
+  state: PairingState,
+  kitState: HostCodeState<number>,
+  action: HostCodeAction<number>,
+): PairingDecision {
+  switch (action.kind) {
+    case 'paired':
+      return { state: fromKit(kitState), action: { kind: 'paired', chatId: action.peer } };
+    case 'still-paired':
+      return { state, action: { kind: 'still-paired', chatId: action.peer } };
+    case 'rejected-foreign-peer':
+      return { state, action: { kind: 'reject', message: MSG_FOREIGN_CHAT } };
+    case 'window-open-hint':
+      return { state, action: { kind: 'reject', message: MSG_WINDOW_OPEN_HINT } };
+    case 'no-window':
+      return { state, action: { kind: 'reject', message: MSG_NO_WINDOW } };
+    case 'not-pending':
+      return { state, action: { kind: 'not-pending', message: MSG_NOT_PENDING } };
+    case 'expired':
+      return { state: fromKit(kitState), action: { kind: 'expired', message: MSG_EXPIRED } };
+    case 'mismatch':
+      return { state, action: { kind: 'mismatch', message: MSG_MISMATCH } };
+  }
 }
 
 /**
@@ -95,33 +156,8 @@ export function beginHostIssuedPairing(
  *   - idle / expired       → reject with a nudge to start pairing
  */
 export function handleStart(state: PairingState, chatId: number): PairingDecision {
-  if (state.authorizedChatId === chatId && state.phase === 'paired') {
-    return { state, action: { kind: 'still-paired', chatId } };
-  }
-  if (state.authorizedChatId !== null && state.authorizedChatId !== chatId) {
-    return {
-      state,
-      action: { kind: 'reject', message: 'This bot is paired with a different chat. Access denied.' },
-    };
-  }
-  if (state.phase === 'awaiting-host-code') {
-    return {
-      state,
-      action: {
-        kind: 'reject',
-        message:
-          'Scan the QR (or open the link) shown in moxxy, or send the 6-digit code it shows, to finish pairing.',
-      },
-    };
-  }
-  return {
-    state,
-    action: {
-      kind: 'reject',
-      message:
-        'No pairing window is open. Start pairing from the moxxy desktop Channels panel, or run `moxxy channels telegram pair`.',
-    },
-  };
+  const decision = greetPeer(toKit(state), chatId);
+  return mapAction(state, decision.state, decision.action);
 }
 
 /**
@@ -135,53 +171,14 @@ export function submitChatCode(
   rawCode: string,
   now: number = Date.now(),
 ): PairingDecision {
-  if (state.phase === 'paired' && state.authorizedChatId === chatId) {
-    return { state, action: { kind: 'still-paired', chatId } };
-  }
-  if (state.authorizedChatId !== null && state.authorizedChatId !== chatId) {
-    return {
-      state,
-      action: { kind: 'reject', message: 'This bot is paired with a different chat. Access denied.' },
-    };
-  }
-  if (state.phase !== 'awaiting-host-code') {
-    return { state, action: { kind: 'not-pending', message: 'No pairing window is open.' } };
-  }
-  if (state.expiresAt !== null && now > state.expiresAt) {
-    return {
-      state: { ...state, phase: 'expired', code: null, pendingChatId: null, expiresAt: null },
-      action: { kind: 'expired', message: 'Pairing window expired. Start the channel again to retry.' },
-    };
-  }
-  const normalized = rawCode.replace(/\s+/g, '');
-  if (!/^\d{6}$/.test(normalized) || normalized !== state.code) {
-    return {
-      state,
-      action: { kind: 'mismatch', message: "Code didn't match. Check the digits shown in moxxy and try again." },
-    };
-  }
-  return {
-    state: {
-      phase: 'paired',
-      code: null,
-      pendingChatId: null,
-      expiresAt: null,
-      authorizedChatId: chatId,
-    },
-    action: { kind: 'paired', chatId },
-  };
+  const decision = submitPeerCode(toKit(state), chatId, rawCode, now);
+  return mapAction(state, decision.state, decision.action);
 }
 
 export function isAuthorized(state: PairingState, chatId: number): boolean {
-  return state.phase === 'paired' && state.authorizedChatId === chatId;
+  return isPeerAuthorized(toKit(state), chatId);
 }
 
-export function clearPairing(_state: PairingState): PairingState {
-  return {
-    phase: 'idle',
-    code: null,
-    pendingChatId: null,
-    expiresAt: null,
-    authorizedChatId: null,
-  };
+export function clearPairing(state: PairingState): PairingState {
+  return fromKit(clearHostCodePairing(toKit(state)));
 }
