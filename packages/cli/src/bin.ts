@@ -289,6 +289,20 @@ async function main(): Promise<number> {
     return await runChannelByName(argv.command, argv);
   }
 
+  // Slim kernel: the name may be a KNOWN channel whose package just isn't
+  // installed (telegram/slack/web/http install on demand). Point at the
+  // install instead of a bare "unknown command".
+  const { findCatalogEntryForChannel } = await import('./channel-hints.js');
+  const hint = findCatalogEntryForChannel(argv.command);
+  if (hint) {
+    process.stderr.write(
+      colors.red(`channel not installed: ${argv.command}`) +
+        `\ninstall it with: ${colors.bold(`moxxy plugins install ${hint.id}`)}` +
+        `\n(or from the TUI: /plugins → Installable → ${hint.label})\n`,
+    );
+    return 2;
+  }
+
   process.stderr.write(
     colors.red(`unknown command: ${argv.command}`) + '\n' + renderHelp(),
   );

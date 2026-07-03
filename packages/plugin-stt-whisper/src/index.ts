@@ -68,3 +68,6 @@ export function buildWhisperPlugin(opts: BuildWhisperPluginOptions = {}): Plugin
     ],
   });
 }
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default buildWhisperPlugin();

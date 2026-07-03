@@ -1,8 +1,26 @@
 {
   "name": "@moxxy/config",
-  "private": true,
   "version": "0.26.0",
   "description": "defineConfig + moxxy.config.ts loader. Walks the file tree from cwd, also reads ~/.moxxy/config.{ts,js,mjs}, merges by precedence, and resolves the final shape the CLI consumes.",
+  "keywords": [
+    "moxxy",
+    "config",
+    "yaml"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/config"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

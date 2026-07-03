@@ -48,8 +48,7 @@ describe('builtin plugin requirement inventory', () => {
     expect(BUILTIN_REQUIREMENT_DECISIONS['@moxxy/memory-consolidate']).toMatchObject({
       hardRequirements: true,
     });
-    expect(BUILTIN_REQUIREMENT_DECISIONS['@moxxy/plugin-stt-whisper-codex']).toMatchObject({
-      hardRequirements: true,
-    });
+    // stt-whisper-codex is no longer a builtin entry (slim wave) — its
+    // requirements gate now reads from the on-disk package.json at discovery.
   });
 });

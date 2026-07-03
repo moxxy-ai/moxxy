@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-stt-whisper-codex",
-  "private": true,
   "version": "0.26.0",
   "description": "OpenAI Codex OAuth speech-to-text transcriber (Whisper family) for moxxy.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "stt",
+    "whisper",
+    "codex"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-stt-whisper-codex"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
