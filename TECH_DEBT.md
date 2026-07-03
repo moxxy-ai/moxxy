@@ -13,6 +13,13 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [dormant, browser, RESOLVED 2026-07-03] CDP screencast push path (`startScreencast`/
+  `stopScreencast` sidecar handlers) — the entry was stale: the handlers were already
+  deleted in the PR #212 quality sweep; only screenshot-polling remains (rationale in
+  `packages/plugin-browser/src/browser-surface.ts`). A regression guard pins the former
+  methods to `unknown method` (`packages/plugin-browser/src/sidecar/dispatch.test.ts`).
+- [low, tools, RESOLVED 2026-07-03] `resolveSafe` deprecated alias for `resolvePath`
+  removed (no callers remained). `packages/tools-builtin/src/util.ts`.
 - [low, focus, RESOLVED 2026-07-02] Focus Mode mini-chat no longer carries a
   separate text-only composer path: pasted screenshots now reuse the desktop
   attachment save/preview/send pipeline, zoomed image previews can be drag-panned,
@@ -166,11 +173,13 @@ or recorded-on-purpose decision.
   if adding open/close call sites (a single viewer's close must not destroy a shared
   instance). `packages/core/src/surfaces/host.test.ts`.
 - [constraint] Terminal sizing depends on the pane being full-width at mount — never
-  push a transient/sub-full column count to a PTY-backed surface. `packages/core/src/surfaces/`.
-- [dormant] CDP screencast → screenshot-polling fallback is unused — remove, or
-  gate behind the polling fallback if screencast is revived. `plugin-browser/src/sidecar/`.
+  push a transient/sub-full column count to a PTY-backed surface. Guarded renderer-side
+  (120px-width floor + rAF-coalesced fit in `apps/desktop/src/shell/surfaces/TerminalPane.tsx`)
+  and validated/clamped in `packages/plugin-terminal/src/{terminal,pty}.ts`; keep new
+  viewers behind the same guard.
 - [dormant] Piped-shell fallback is intentionally non-interactive — needs CR→LF +
-  local echo if a no-prebuild platform ever needs it. `packages/core/src/surfaces/pty.ts`.
+  local echo if a no-prebuild platform ever needs it (the degraded state IS surfaced
+  to the viewer). `packages/plugin-terminal/src/pty.ts`.
 - [low] Files pane polls IPC instead of streaming via the Surface protocol — promote
   to a real Surface if a third live pane appears. `apps/desktop/src/shell/surfaces/`.
 - [low] "Add to agent" on a git-changed file assumes cwd === repo root. `FilesPane.tsx`.

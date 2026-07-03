@@ -11,7 +11,7 @@ import { bashTool } from './bash.js';
 import { grepTool } from './grep.js';
 import { globTool } from './glob.js';
 import { sleepTool, resolveSleepMs, MAX_SLEEP_MS } from './sleep.js';
-import { resolvePath, resolveWithinCwd, resolveSafe } from './util.js';
+import { resolvePath, resolveWithinCwd } from './util.js';
 
 let tmp: string;
 
@@ -352,10 +352,6 @@ describe('path resolution helpers', () => {
     expect(resolvePath('/work', '/etc/passwd')).toBe(path.normalize('/etc/passwd'));
     // Traversal is allowed — the permission layer is what gates real access.
     expect(resolvePath('/work', '../outside')).toBe(path.resolve('/work', '../outside'));
-  });
-
-  it('resolveSafe is a backward-compat alias for resolvePath', () => {
-    expect(resolveSafe('/x', 'y')).toBe(resolvePath('/x', 'y'));
   });
 
   it('resolveWithinCwd allows paths inside cwd', () => {
