@@ -374,6 +374,16 @@ jobs:
           # times". Drop the one symlink that points outside the bundle.
           rm -f apps/desktop/resources/moxxy-cli/node_modules/.pnpm/node_modules/@moxxy/cli
 
+      # Ready-to-copy npm tree of the on-demand first-party plugins (providers,
+      # modes, view, …) the desktop expects out of the box. Copied into
+      # ~/.moxxy/plugins on first launch by @moxxy/desktop-host seed-plugins —
+      # an OFFLINE first run (no npm, no network) while the CLI stays slim.
+      # Assembled from local pnpm-pack tarballs (incl. the sdk/core closure)
+      # so it does not depend on this release's npm publish having landed.
+      - name: Bundle plugins seed
+        shell: bash
+        run: node apps/desktop/scripts/bundle-plugins-seed.mjs
+
       # Developer ID signing + notarization turn on ONLY when the CSC_LINK
       # secret exists; otherwise the build stays ad-hoc/unsigned (today's
       # behaviour). See docs/desktop-code-signing.md. macOS only.

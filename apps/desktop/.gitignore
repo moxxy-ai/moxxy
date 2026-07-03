@@ -5,3 +5,4 @@ release
 .turbo
 .vite
 resources/moxxy-cli/
+resources/plugins-seed/
