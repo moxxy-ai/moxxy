@@ -45,6 +45,7 @@ import {
   clerkAccountPortalHost,
   installAccountPortalRecovery,
   preferredCliEntry,
+  seedPluginsFromResources,
   ensureDesktopVaultKey,
   activateManagedNode,
   startLoopbackServer,
@@ -628,6 +629,26 @@ app.whenReady().then(async () => {
   // can't answer — the first provider install otherwise fails on Windows (no OS
   // keychain) with "vault: passphrase required but no interactive terminal".
   ensureDesktopVaultKey();
+
+  // First-launch plugin seeding: copy the bundled plugins-seed npm tree into
+  // ~/.moxxy/plugins so the slim CLI runner finds the on-demand plugins
+  // (providers, modes, view, …) OFFLINE — no npm, no network. Idempotent and
+  // never overwrites a user-updated install; must complete before any runner
+  // spawns so the first session's discovery scan sees the seeded packages.
+  if (app.isPackaged) {
+    const moxxyHome =
+      process.env.MOXXY_HOME?.trim() || path.join(app.getPath('home'), '.moxxy');
+    try {
+      await seedPluginsFromResources({
+        resourcesPath: process.resourcesPath,
+        moxxyHome,
+        log: (msg) => console.log(`[moxxy] ${msg}`),
+      });
+    } catch (err) {
+      // Seeding is best-effort: a failure degrades to on-demand npm installs.
+      console.warn('[moxxy] plugins-seed copy failed:', err);
+    }
+  }
 
   // If the user auto-installed Node on a previous run (onboarding's "Install
   // automatically"), put that managed Node back on PATH before any runner
