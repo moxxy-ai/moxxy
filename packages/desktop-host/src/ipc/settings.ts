@@ -3,7 +3,7 @@
  *
  * Provider listing comes in three flavours: the runner's *ready* set
  * (`settings.providers`), the onboarding *catalog* (built-ins +
- * admin-registered from providers.json), and live model discovery for
+ * admin-registered from the unified config), and live model discovery for
  * admin providers. MCP toggles and skill CRUD round out the settings
  * surface. Vault + desktop-prefs settings live in their own modules
  * (`./vault`, `./prefs`).
@@ -25,7 +25,7 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
   });
   handle('settings.providerCatalog', async () => {
     // Built-ins are always pickable. Admin-registered ones come from
-    // providers.json so the onboarding dropdown reflects whatever the
+    // the unified config so the onboarding dropdown reflects whatever the
     // user already added via `provider_add` (zai, openrouter, …).
     const builtins = ['anthropic', 'openai', 'openai-codex'];
     const { readAdminProviderNames } = await import('../provider-discovery');
@@ -44,7 +44,7 @@ export function registerSettingsHandlers(pool: RunnerPool): void {
     const info = session.getInfo();
     const readySet = new Set(info.readyProviders ?? []);
     // Stored (runtime-registered) entries carry the configure-relevant
-    // detail; providers absent from providers.json are built-ins.
+    // detail; providers without a stored entry are built-ins.
     const { readAdminProviderDetails, builtinProviderKeyName } = await import('../provider-discovery');
     const admin = await readAdminProviderDetails();
     return info.providers.map((p) => {

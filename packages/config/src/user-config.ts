@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { createMutex } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
-import { type Document, isMap, parseDocument } from 'yaml';
+import { type Document, isMap, parse as parseYaml, parseDocument } from 'yaml';
 import { PLUGIN_CATEGORY_KEYS, type PluginCategoryKey } from './plugins-tree-schema.js';
 import { type PluginSettings, pluginSettingsSchema } from './plugin-settings-schema.js';
 
@@ -132,6 +132,69 @@ export async function setProviderEnabled(
     const doc = await readUserConfigDoc(configPath);
     doc.setIn(['plugins', 'provider', 'items', providerName, 'enabled'], enabled);
     await writeUserConfigDoc(configPath, doc);
+  });
+}
+
+/**
+ * One stored provider item's persisted shape at
+ * `plugins.provider.items.<name>` — the unified-tree home of the runtime-
+ * registered (OpenAI-compatible) vendors that used to live in
+ * `~/.moxxy/providers.json`. `config` carries the vendor payload
+ * (`kind: 'openai-compat'`, baseURL, models, envVar, …); `model` is the
+ * default model the activation walk reads.
+ */
+export interface ProviderItemState {
+  readonly model?: string;
+  readonly enabled?: boolean;
+  readonly config?: Record<string, unknown>;
+}
+
+/** All provider items from the USER config (tolerant: {} on missing file). */
+export async function loadProviderItems(
+  opts: UserConfigOptions = {},
+): Promise<Record<string, ProviderItemState>> {
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  try {
+    const raw = await fs.readFile(configPath, 'utf8');
+    const parsed = parseYaml(raw) as {
+      plugins?: { provider?: { items?: Record<string, ProviderItemState> } };
+    } | null;
+    return parsed?.plugins?.provider?.items ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/** Upsert a provider item's `config` payload (and optionally its model). */
+export async function setProviderItemConfig(
+  providerName: string,
+  config: Record<string, unknown>,
+  opts: UserConfigOptions & { readonly model?: string } = {},
+): Promise<void> {
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  await configMutex.run(async () => {
+    const doc = await readUserConfigDoc(configPath);
+    doc.setIn(['plugins', 'provider', 'items', providerName, 'config'], config);
+    if (opts.model) {
+      doc.setIn(['plugins', 'provider', 'items', providerName, 'model'], opts.model);
+    }
+    await writeUserConfigDoc(configPath, doc);
+  });
+}
+
+/** Remove a provider item entirely. Returns false when it wasn't present. */
+export async function removeProviderItem(
+  providerName: string,
+  opts: UserConfigOptions = {},
+): Promise<boolean> {
+  const configPath = opts.configPath ?? defaultUserConfigPath();
+  return configMutex.run(async () => {
+    const doc = await readUserConfigDoc(configPath);
+    const path = ['plugins', 'provider', 'items', providerName];
+    if (!doc.hasIn(path)) return false;
+    doc.deleteIn(path);
+    await writeUserConfigDoc(configPath, doc);
+    return true;
   });
 }
 

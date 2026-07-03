@@ -653,7 +653,7 @@ export interface IpcCommands {
     enabled: boolean;
   }) => Promise<void>;
   /** Patch a stored (runtime-registered) provider's config — live registry
-   *  re-register + providers.json persist. Built-ins are not configurable. */
+   *  re-register + unified-config persist (plugins.provider.items). Built-ins are not configurable. */
   'settings.providerConfigure': (args: {
     workspaceId?: string;
     name: string;
@@ -672,11 +672,11 @@ export interface IpcCommands {
   }) => Promise<void>;
   /** Hit the provider's /v1/models endpoint and return the model ids
    *  it advertises. Useful for admin-registered providers whose
-   *  providers.json entry didn't enumerate models upfront. */
+   *  stored provider entry didn't enumerate models upfront. */
   'settings.fetchProviderModels': (args: { provider: string }) => Promise<ReadonlyArray<string>>;
   /** Lists every provider name the user could realistically pick from
    *  during onboarding — built-ins (anthropic, openai, openai-codex)
-   *  plus anything in ~/.moxxy/providers.json. */
+   *  plus the stored vendors in the unified config (plugins.provider.items). */
   'settings.providerCatalog': () => Promise<ReadonlyArray<string>>;
   /** Subset of providers that the user added via `provider_add` — the
    *  ones for which live /v1/models fetching is wired. */

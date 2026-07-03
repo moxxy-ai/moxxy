@@ -365,7 +365,7 @@ export function buildProviderAdminPluginWithApi(opts: BuildProviderAdminPluginOp
           code: 'CONFIG_INVALID',
           message:
             `provider-admin: "${name}" is a built-in provider and cannot be reconfigured here — ` +
-            `built-ins are code. Only runtime-registered (providers.json) providers are editable.`,
+            `built-ins are code. Only runtime-registered (stored) providers are editable.`,
         });
       }
       // Defense-in-depth: validate the patch HERE (where it is persisted), not
@@ -378,7 +378,7 @@ export function buildProviderAdminPluginWithApi(opts: BuildProviderAdminPluginOp
           code: 'CONFIG_INVALID',
           message:
             `provider-admin: no stored provider named "${name}" — only runtime-registered ` +
-            `(providers.json) providers are configurable; built-ins are code.`,
+            `(stored) providers are configurable; built-ins are code.`,
         });
       }
       const next: StoredProvider = {
@@ -420,7 +420,7 @@ export function buildProviderAdminPlugin(
         description:
           'Register an OpenAI-compatible LLM provider (z.ai, deepseek, groq, openrouter, fireworks, ' +
           'together, mistral, …) with moxxy. Wraps the in-process OpenAI client with the vendor baseURL + ' +
-          'a user-supplied models list. Persists to ~/.moxxy/providers.json so the provider survives ' +
+          'a user-supplied models list. Persists to the unified config (plugins.provider.items) so the provider survives ' +
           'restarts. The new provider is registered in the LIVE session — switch to it with /provider ' +
           'or set it as the default in moxxy.config.ts.',
         inputSchema: addProviderInput,
@@ -475,7 +475,7 @@ export function buildProviderAdminPlugin(
       defineTool({
         name: 'provider_list',
         description:
-          'List user-registered providers (persisted in ~/.moxxy/providers.json) plus their default model and base URL. ' +
+          'List user-registered providers (persisted in the unified config (plugins.provider.items)) plus their default model and base URL. ' +
           'Built-in providers (anthropic, openai, openai-codex) are NOT included — query session.providers for those.',
         inputSchema: z.object({}),
         handler: async () => {
@@ -496,7 +496,7 @@ export function buildProviderAdminPlugin(
       defineTool({
         name: 'provider_remove',
         description:
-          'Remove a previously-added provider from ~/.moxxy/providers.json and detach it from the live session. ' +
+          'Remove a previously-added provider from the unified config (plugins.provider.items) and detach it from the live session. ' +
           'Does NOT delete the stored API key — call vault_delete name=<NAME>_API_KEY separately if you also want to drop the credential.',
         inputSchema: removeProviderInput,
         permission: { action: 'prompt' },
@@ -518,10 +518,10 @@ export function buildProviderAdminPlugin(
             }
             engine.ownNames.delete(name);
             const note = removingActive
-              ? `Removed "${name}" from providers.json and detached from session. ` +
+              ? `Removed "${name}" from the stored providers and detached from session. ` +
                 `WARNING: "${name}" was the ACTIVE provider — the session now has NO active provider ` +
                 `and the next turn will fail until you switch with the /provider command.`
-              : `Removed "${name}" from providers.json and detached from session.`;
+              : `Removed "${name}" from the stored providers and detached from session.`;
             return { ok: true, name, removedActive: removingActive, note };
           });
         },
@@ -571,7 +571,7 @@ export function buildProviderAdminPlugin(
         try {
           cfg = await readProvidersConfig(configPath);
         } catch (err) {
-          log?.warn('provider-admin: failed to read providers.json', {
+          log?.warn('provider-admin: failed to read stored providers', {
             err: err instanceof Error ? err.message : String(err),
           });
           return;

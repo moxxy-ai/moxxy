@@ -1,123 +1,99 @@
-import { promises as fs } from 'node:fs';
-import { createMutex, z } from '@moxxy/sdk';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import {
+  defaultUserConfigPath,
+  loadProviderItems,
+  removeProviderItem,
+  setProviderItemConfig,
+  type ProviderItemState,
+} from '@moxxy/config';
+import { z } from '@moxxy/sdk';
 import type { StoredProvider, StoredProvidersConfig } from './types.js';
 
 /**
- * User-level provider catalog. Mirrors the MCP admin storage pattern:
- * a JSON file in ~/.moxxy/ that the admin tools mutate and the plugin's
- * onInit hook reads back on every boot to repopulate the registry.
+ * Runtime-registered (OpenAI-compatible) vendors now live in the unified
+ * `plugins:` tree at `plugins.provider.items.<name>` in the USER config —
+ * `config` carries the vendor payload (`kind: 'openai-compat'`, baseURL,
+ * models, envVar, createdAt), `model` the default model. This REPLACED the
+ * legacy `~/.moxxy/providers.json` side-store (clean-slate, no migration:
+ * re-add custom vendors via `provider_add` / the desktop sheet). The
+ * exported API is unchanged, so the admin tools, the runner's
+ * `provider.configure`, and the desktop settings sheet all moved with it.
  */
-export function providersConfigPath(): string {
-  return moxxyPath('providers.json');
-}
 
-/**
- * Schema for the on-disk providers.json. Kept loose on the model
- * descriptor (passthrough) so a richer descriptor written by a newer
- * build round-trips through an older one without losing fields, but
- * strict enough to discard a structurally-bogus file.
- */
 const storedModelSchema = z
   .object({
     id: z.string().min(1),
     contextWindow: z.number(),
-    // ModelDescriptor declares these as REQUIRED booleans; default them here so
-    // a hand-edited / legacy providers.json round-trips into a complete
-    // descriptor instead of reaching buildProviderDef with `undefined` (which
-    // channels treat differently from `false` for tool/streaming gating).
+    // ModelDescriptor declares these as REQUIRED booleans; default them so a
+    // hand-edited entry round-trips into a complete descriptor instead of
+    // reaching buildProviderDef with `undefined`.
     supportsTools: z.boolean().default(true),
     supportsStreaming: z.boolean().default(true),
   })
   .passthrough();
 
-const storedProviderSchema = z
+/** The `config` payload persisted under `plugins.provider.items.<name>.config`. */
+const storedItemConfigSchema = z
   .object({
     kind: z.literal('openai-compat'),
-    name: z.string().min(1),
     baseURL: z.string().min(1),
-    defaultModel: z.string().min(1),
     models: z.array(storedModelSchema),
     envVar: z.string().optional(),
     createdAt: z.string().optional(),
   })
   .passthrough();
 
-const storedProvidersConfigSchema = z.object({
-  providers: z.array(storedProviderSchema),
-});
-
-export async function readProvidersConfig(filePath: string = providersConfigPath()): Promise<StoredProvidersConfig> {
-  let raw: string;
-  try {
-    raw = await fs.readFile(filePath, 'utf8');
-  } catch (err) {
-    // A MISSING file means "no providers yet" — start fresh. But a genuine IO /
-    // permission error (EACCES, EBUSY, EMFILE, …) must NOT be collapsed into an
-    // empty catalog: doing so makes the plugin behave as if zero providers are
-    // registered and the next read-modify-write would CLOBBER the real file.
-    // Rethrow so callers (onInit's try/catch, the admin tools) see the failure.
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') return { providers: [] };
-    throw err;
-  }
-  // Malformed JSON / structurally-bogus content is intentionally treated as an
-  // empty catalog (start fresh) rather than a hard failure.
-  const parsed = storedProvidersConfigSchema.safeParse(parseJsonSafe(raw));
-  if (parsed.success) {
-    // The schema is intentionally looser than StoredProvidersConfig (model
-    // descriptors are validated as id+contextWindow + passthrough, not the
-    // full ModelDescriptor) so newer/older builds round-trip without losing
-    // fields. Assert the domain type after the structural check.
-    return parsed.data as unknown as StoredProvidersConfig;
-  }
-  return { providers: [] };
+function itemToStored(name: string, item: ProviderItemState): StoredProvider | null {
+  const parsed = storedItemConfigSchema.safeParse(item.config ?? {});
+  if (!parsed.success) return null;
+  const { kind, baseURL, models, envVar, createdAt, ...rest } = parsed.data;
+  const defaultModel =
+    item.model ?? (typeof models[0]?.id === 'string' ? models[0].id : undefined);
+  if (!defaultModel) return null;
+  return {
+    ...rest,
+    kind,
+    name,
+    baseURL,
+    defaultModel,
+    models,
+    ...(envVar ? { envVar } : {}),
+    ...(createdAt ? { createdAt } : {}),
+  } as unknown as StoredProvider;
 }
 
-function parseJsonSafe(raw: string): unknown {
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return undefined;
+/** The file stored vendors persist into — now the unified user config. */
+export function providersConfigPath(): string {
+  return defaultUserConfigPath();
+}
+
+export async function readProvidersConfig(configPath?: string): Promise<StoredProvidersConfig> {
+  const items = await loadProviderItems(configPath ? { configPath } : {});
+  const providers: StoredProvider[] = [];
+  for (const [name, item] of Object.entries(items)) {
+    const stored = itemToStored(name, item);
+    if (stored) providers.push(stored);
   }
+  return { providers };
 }
-
-export async function writeProvidersConfig(
-  cfg: StoredProvidersConfig,
-  filePath: string = providersConfigPath(),
-): Promise<void> {
-  await writeFileAtomic(filePath, JSON.stringify(cfg, null, 2) + '\n');
-}
-
-/**
- * Serializes the read-modify-write mutators below. Without this, two
- * concurrent upsert/remove calls could both read the same baseline and
- * the second write would clobber the first.
- */
-const writeMutex = createMutex();
 
 export async function upsertStoredProvider(
   entry: StoredProvider,
-  filePath: string = providersConfigPath(),
+  configPath?: string,
 ): Promise<StoredProvidersConfig> {
-  return writeMutex.run(async () => {
-    const cfg = await readProvidersConfig(filePath);
-    const next = cfg.providers.filter((p) => p.name !== entry.name);
-    next.push(entry);
-    const updated: StoredProvidersConfig = { providers: next };
-    await writeProvidersConfig(updated, filePath);
-    return updated;
+  const { name, defaultModel, ...payload } = entry;
+  await setProviderItemConfig(name, payload as Record<string, unknown>, {
+    model: defaultModel,
+    ...(configPath ? { configPath } : {}),
   });
+  return readProvidersConfig(configPath);
 }
 
-export async function removeStoredProvider(
-  name: string,
-  filePath: string = providersConfigPath(),
-): Promise<boolean> {
-  return writeMutex.run(async () => {
-    const cfg = await readProvidersConfig(filePath);
-    const next = cfg.providers.filter((p) => p.name !== name);
-    if (next.length === cfg.providers.length) return false;
-    await writeProvidersConfig({ providers: next }, filePath);
-    return true;
-  });
+export async function removeStoredProvider(name: string, configPath?: string): Promise<boolean> {
+  // Only remove entries that ARE stored vendors — a built-in provider's item
+  // (model/enabled prefs) must survive a mistaken provider_remove.
+  const opts = configPath ? { configPath } : {};
+  const items = await loadProviderItems(opts);
+  const item = items[name];
+  if (!item || !storedItemConfigSchema.safeParse(item.config ?? {}).success) return false;
+  return removeProviderItem(name, opts);
 }

@@ -96,7 +96,7 @@ import type {
  *     without a runner restart.
  *   - `provider.configure` patches a STORED (runtime-registered) provider's
  *     entry through the session's optional `providerAdmin` view (live
- *     re-register + providers.json persist); it throws a clear "not
+ *     re-register + unified-config persist (plugins.provider.items)); it throws a clear "not
  *     supported" error when the provider-admin plugin isn't wired.
  *   The server also broadcasts `info.changed` after every completed turn —
  *   a turn may have run registry-mutating tools (provider_add, mcp_add,

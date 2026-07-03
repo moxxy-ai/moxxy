@@ -56,7 +56,7 @@ let tools: Map<string, ToolDef>;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-provider-admin-tools-'));
-  cfgPath = path.join(tmpDir, 'providers.json');
+  cfgPath = path.join(tmpDir, 'config.yaml');
   registry = new FakeRegistry();
   const plugin = buildProviderAdminPlugin({ providerRegistry: registry, configPath: cfgPath });
   tools = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
@@ -82,6 +82,35 @@ const zaiInput = {
     { id: 'glm-4.6', contextWindow: 200_000, supportsTools: true, supportsStreaming: true },
   ],
 };
+
+
+/** Seed the unified-tree store the way a previous session's provider_add
+ *  would have written it (plugins.provider.items.<name>.{model,config}). */
+async function seedStoredProviders(
+  file: string,
+  entries: ReadonlyArray<typeof zaiInput>,
+): Promise<void> {
+  const items = entries
+    .map((e) => {
+      const models = e.models
+        .map(
+          (m) =>
+            `            - id: ${m.id}\n              contextWindow: ${m.contextWindow}\n              supportsTools: ${m.supportsTools}\n              supportsStreaming: ${m.supportsStreaming}`,
+        )
+        .join('\n');
+      return [
+        `      ${e.name}:`,
+        `        model: ${e.defaultModel}`,
+        `        config:`,
+        `          kind: ${e.kind}`,
+        `          baseURL: ${e.baseURL}`,
+        `          models:`,
+        models,
+      ].join('\n');
+    })
+    .join('\n');
+  await fs.writeFile(file, `plugins:\n  provider:\n    items:\n${items}\n`, 'utf8');
+}
 
 describe('provider_add', () => {
   it('registers in the live registry AND persists to providers.json', async () => {
@@ -160,7 +189,7 @@ describe('provider_add', () => {
     // def must be restored, not deleted. The read path stays valid; the dir is
     // made read-only so the atomic temp-file write rejects (rollback branch).
     const reg = new FakeRegistry();
-    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    await seedStoredProviders(cfgPath, [zaiInput]);
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
     await plugin.hooks!.onInit!({} as never);
     expect(reg.defs.has('zai')).toBe(true);
@@ -188,7 +217,7 @@ describe('provider_add', () => {
     // Fresh slug (not owned, not in registry) → register + write. Make the dir
     // read-only so the write fails; the phantom registration must be rolled back.
     const reg = new FakeRegistry();
-    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    await fs.writeFile(cfgPath, 'plugins:\n  provider:\n    items: {}\n', 'utf8');
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
     const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
     await fs.chmod(tmpDir, 0o500);
@@ -334,11 +363,7 @@ describe('onInit logger guard', () => {
   }
 
   beforeEach(async () => {
-    await fs.writeFile(
-      cfgPath,
-      JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }),
-      'utf8',
-    );
+    await seedStoredProviders(cfgPath, [zaiInput]);
   });
 
   it('warns through a conforming host logger', async () => {
@@ -366,11 +391,7 @@ describe('onInit logger guard', () => {
 describe('onInit', () => {
   it('re-registers everything stored on disk', async () => {
     // Pre-seed providers.json the way it would look after a previous session.
-    await fs.writeFile(
-      cfgPath,
-      JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }),
-      'utf8',
-    );
+    await seedStoredProviders(cfgPath, [zaiInput]);
     // Fresh registry — simulate a brand-new session pointing at the same store.
     const fresh = new FakeRegistry();
     const plugin = buildProviderAdminPlugin({ providerRegistry: fresh, configPath: cfgPath });
@@ -381,18 +402,12 @@ describe('onInit', () => {
   });
 
   it('does not clobber a built-in when providers.json contains a colliding entry', async () => {
-    // A poisoned/legacy store smuggling an 'openai' entry must NOT overwrite the
-    // built-in OpenAI def on boot — onInit skips reserved names.
-    await fs.writeFile(
-      cfgPath,
-      JSON.stringify({
-        providers: [
-          { ...zaiInput, name: 'openai', baseURL: 'https://evil.example.com/v1', kind: 'openai-compat' },
-          { ...zaiInput, kind: 'openai-compat' },
-        ],
-      }),
-      'utf8',
-    );
+    // A poisoned/hand-edited store smuggling an 'openai' entry must NOT
+    // overwrite the built-in OpenAI def on boot — onInit skips reserved names.
+    await seedStoredProviders(cfgPath, [
+      { ...zaiInput, name: 'openai', baseURL: 'https://evil.example.com/v1' },
+      zaiInput,
+    ]);
     const withBuiltin = new FakeRegistry();
     const builtinDef = { name: 'openai', models: [{ id: 'gpt-x', contextWindow: 1 }] } as unknown as ProviderDef;
     withBuiltin.register(builtinDef);
@@ -524,7 +539,7 @@ describe('per-name lock is bounded + serializes concurrent same-slug calls', () 
     // register() throws "already registered". The per-name lock must turn the
     // race into add→replace. Run them with Promise.all (overlapping).
     const reg = new FakeRegistry();
-    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    await fs.writeFile(cfgPath, 'plugins:\n  provider:\n    items: {}\n', 'utf8');
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
     const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
     const fire = (defaultModel: string): Promise<unknown> =>
@@ -553,7 +568,7 @@ describe('per-name lock is bounded + serializes concurrent same-slug calls', () 
     // (a leak would not crash, so this is a smoke that the ref-count finally
     // always runs — paired with the source-level guarantee).
     const reg = new FakeRegistry();
-    await fs.writeFile(cfgPath, JSON.stringify({ providers: [] }), 'utf8');
+    await fs.writeFile(cfgPath, 'plugins:\n  provider:\n    items: {}\n', 'utf8');
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
     const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
     const removeTool = plugin.tools!.find((t) => t.name === 'provider_remove')!;
@@ -572,7 +587,7 @@ describe('per-name lock is bounded + serializes concurrent same-slug calls', () 
 
 describe('active-provider safety', () => {
   it('rebuilds the active provider instance after configure when a resolver is wired', async () => {
-    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    await seedStoredProviders(cfgPath, [zaiInput]);
     const reg = new FakeRegistry();
     const resolved: string[] = [];
     const { plugin, api } = buildProviderAdminPluginWithApi({
@@ -600,11 +615,7 @@ describe('active-provider safety', () => {
   });
 
   it('does not rebuild a non-active provider', async () => {
-    await fs.writeFile(
-      cfgPath,
-      JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }),
-      'utf8',
-    );
+    await seedStoredProviders(cfgPath, [zaiInput]);
     const reg = new FakeRegistry();
     const resolved: string[] = [];
     const { plugin, api } = buildProviderAdminPluginWithApi({
@@ -625,7 +636,7 @@ describe('active-provider safety', () => {
   });
 
   it('warns when provider_remove drops the ACTIVE provider', async () => {
-    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    await seedStoredProviders(cfgPath, [zaiInput]);
     const reg = new FakeRegistry();
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
     await plugin.hooks!.onInit!({} as never);
@@ -645,7 +656,7 @@ describe('active-provider safety', () => {
 
 describe('configure() patch validation (defense-in-depth)', () => {
   it('rejects a malformed baseURL even when the runner schema would not run', async () => {
-    await fs.writeFile(cfgPath, JSON.stringify({ providers: [{ ...zaiInput, kind: 'openai-compat' }] }), 'utf8');
+    await seedStoredProviders(cfgPath, [zaiInput]);
     const reg = new FakeRegistry();
     const { plugin, api } = buildProviderAdminPluginWithApi({ providerRegistry: reg, configPath: cfgPath });
     await plugin.hooks!.onInit!({} as never);

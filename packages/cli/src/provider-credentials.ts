@@ -22,7 +22,7 @@ import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
  * `oauth/claude-code/*` or a `CLAUDE_CODE_OAUTH_TOKEN` env var) — each
  * exposing the live token plus a refresh hook the provider uses on a 401.
  *
- * For runtime-registered providers (~/.moxxy/providers.json) the stored
+ * For runtime-registered providers (plugins.provider.items in the unified config) the stored
  * `envVar` override is honored: the lookup goes through the shared
  * key-name derivation in `@moxxy/plugin-provider-admin`, the same one the
  * admin tools and the desktop use.

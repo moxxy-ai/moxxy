@@ -1771,6 +1771,9 @@ importers:
 
   packages/plugin-provider-admin:
     dependencies:
+      '@moxxy/config':
+        specifier: workspace:*
+        version: link:../config
       '@moxxy/plugin-provider-openai':
         specifier: workspace:*
         version: link:../plugin-provider-openai

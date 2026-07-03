@@ -338,14 +338,6 @@ or recorded-on-purpose decision.
   `deleteSession`/`seedSessionLog`) still call the standalone JSONL fns. Identical
   while JSONL is the only impl; route them through `getActive()` (and add a
   default-store seam for the no-session listing) when a 2nd store lands.
-- [med, coherence] `~/.moxxy/providers.json` is the LAST config store outside
-  the unified `plugins:` tree: custom OpenAI-compatible vendors persist there
-  (`plugin-provider-admin/store.ts`) while everything else lives in
-  config.yaml. Folding it into `plugins.provider.items.<name>.config` touches
-  the runner protocol's `provider.configure`, the desktop IPC settings sheet
-  (`desktop-host/provider-discovery.ts` reads the file directly), and the
-  freshly-unbundled provider-admin — deliberately deferred from the slim wave
-  to its own reviewed PR. Clean-slate (pre-1.0): no migration shim.
 - [low, dx] plugins-admin/runner/channels persist via raw-YAML `setIn` writers in
   `@moxxy/config/user-config.ts` — the typecheck can't catch a wrong path string;
   keep the round-trip tests honest and grep for `['plugins'` paths on changes.
