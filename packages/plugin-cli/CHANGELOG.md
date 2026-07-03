@@ -1,5 +1,60 @@
 # @moxxy/plugin-cli
 
+## 0.26.0
+
+### Minor Changes
+
+- 8c70f3c: Connect a provider without leaving the TUI: picking an unconnected provider
+  in `/model` now opens an inline connect dialog that installs the provider if
+  needed (pinned npm install), collects + validates an API key (stored in the
+  vault, never persisted plaintext), or drives the provider's OAuth sign-in —
+  then completes the exact model switch that was picked. Previously the picker
+  told you to quit and run `moxxy init` / `moxxy login` and restart.
+
+  New optional `SessionLike.providerSetup` (`ProviderSetupView`) seam; the init
+  wizard delegates to the same implementation so wizard and dialog semantics
+  cannot drift (a provider without `validateKey` now accepts the key instead of
+  pseudo-rejecting it). RemoteSession keeps the old guidance notice.
+
+### Patch Changes
+
+- 8c70f3c: Install-on-first-use: asking for a capability whose package isn't installed
+  now offers to install it at the point of use instead of failing. `/goal` and
+  `/collab` without their mode installed open an install-confirm picker and,
+  after the install lands, re-run the original command; the `/mode` picker
+  lists catalog-provided modes badged "installs on first use"; `set_default`
+  naming an uninstalled contribution throws a typed `PLUGIN_NOT_INSTALLED`
+  error carrying the providing package (so the model tool gets an actionable
+  hint too). Catalog entries gain a `provides` mapping (category + contribution
+  name) that powers the lookup.
+- 04738aa: Stop shipping the 16 MB `bin.js.map` sourcemap in the published npm tarball
+  (unpacked size drops ~65%; local builds keep sourcemaps). Fix the TUI footer
+  hint that advertised `^B toggle skills` — Ctrl+B drops the first queued
+  message; the hint row now shows `^O tool detail` instead.
+- ce56ef6: The `/plugins` Installable tab now actually installs: selecting a catalog
+  plugin npm-installs it into `~/.moxxy/plugins`, persists the enable,
+  hot-reloads the plugin host, and reports which contributions registered —
+  instead of printing a CLI command to run elsewhere. New optional
+  `PluginsAdminView.install` seam (RemoteSession degrades to the printed
+  command).
+
+  On-demand installs are now version-pinned: bare `@moxxy/*` specs resolve at
+  the CLI's own version across every install path (`install_plugin` tool,
+  `moxxy plugins install`, init's provider/extras steps, the TUI picker), with
+  a 404→latest retry for pins an older CLI can't satisfy. The changeset fixed
+  group widens to all `@moxxy/plugin-*` + `@moxxy/mode-*` so future releases
+  co-version. New `installPluginPackagePinned` / `pinFirstPartySpec` exports.
+
+- Updated dependencies [8c70f3c]
+- Updated dependencies [8c70f3c]
+- Updated dependencies [ce56ef6]
+- Updated dependencies [386e526]
+  - @moxxy/sdk@0.26.0
+  - @moxxy/core@0.26.0
+  - @moxxy/plugin-mcp@0.26.0
+  - @moxxy/chat-model@0.3.16
+  - @moxxy/config@0.26.0
+
 ## 0.6.0
 
 ### Minor Changes

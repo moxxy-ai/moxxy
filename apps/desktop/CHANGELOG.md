@@ -1,5 +1,30 @@
 # @moxxy/desktop
 
+## 0.27.1
+
+### Patch Changes
+
+- 3c0dcfb: Add pasted-image attachments, pannable previews, and remembered mini-chat sizing to Focus Mode.
+- Updated dependencies [8c70f3c]
+- Updated dependencies [8c70f3c]
+- Updated dependencies [04738aa]
+- Updated dependencies [ce56ef6]
+- Updated dependencies [386e526]
+- Updated dependencies [386e526]
+  - @moxxy/sdk@0.26.0
+  - @moxxy/cli@0.26.0
+  - @moxxy/chat-model@0.3.16
+  - @moxxy/client-core@0.13.5
+  - @moxxy/client-platform-web@0.1.44
+  - @moxxy/desktop-host@0.12.1
+  - @moxxy/desktop-ipc-contract@0.14.1
+  - @moxxy/ipc-server-ws@0.1.43
+  - @moxxy/plugin-channel-mobile@0.26.0
+  - @moxxy/plugin-stt-whisper-codex@0.26.0
+  - @moxxy/plugin-vault@0.26.0
+  - @moxxy/runner@0.2.30
+  - @moxxy/workflows-builder@0.1.27
+
 ## 0.27.0
 
 ### Minor Changes

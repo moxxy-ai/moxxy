@@ -1,5 +1,27 @@
 # @moxxy/plugin-view
 
+## 0.26.0
+
+### Minor Changes
+
+- 386e526: Slim wave, batch 2: `@moxxy/plugin-view`, `@moxxy/plugin-self-update` and
+  `@moxxy/plugin-voice-admin` (plugin renamed from `@moxxy/voice-admin` to
+  match its package) move out of the CLI binary and install on demand.
+  `@moxxy/plugin-provider-admin` + `@moxxy/plugin-mcp` (entry alias
+  `@moxxy/plugin-mcp-admin` dropped — the plugin now registers under its
+  package name) flip publishable as prep but stay bundled until the desktop
+  seed pack lands: the desktop Settings panels reach them through the
+  `providerAdmin`/`mcpAdmin` session services on the spawned runner.
+  self-update's staged-update finalizer stays inlined in the binary (bin.ts
+  imports it statically); only the registered plugin instance moves out.
+
+### Patch Changes
+
+- Updated dependencies [8c70f3c]
+- Updated dependencies [8c70f3c]
+- Updated dependencies [ce56ef6]
+  - @moxxy/sdk@0.26.0
+
 ## 0.0.38
 
 ### Patch Changes

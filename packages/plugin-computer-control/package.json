@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-computer-control",
-  "version": "0.0.38",
+  "version": "0.26.0",
   "description": "Programmatic control of the host computer (macOS only for now): screenshot, click, type, key, open, clipboard, applescript. Every tool prompts for permission.",
   "keywords": [
     "moxxy",

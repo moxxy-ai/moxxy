@@ -1,5 +1,76 @@
 # @moxxy/cli
 
+## 0.26.0
+
+### Minor Changes
+
+- 8c70f3c: Connect a provider without leaving the TUI: picking an unconnected provider
+  in `/model` now opens an inline connect dialog that installs the provider if
+  needed (pinned npm install), collects + validates an API key (stored in the
+  vault, never persisted plaintext), or drives the provider's OAuth sign-in —
+  then completes the exact model switch that was picked. Previously the picker
+  told you to quit and run `moxxy init` / `moxxy login` and restart.
+
+  New optional `SessionLike.providerSetup` (`ProviderSetupView`) seam; the init
+  wizard delegates to the same implementation so wizard and dialog semantics
+  cannot drift (a provider without `validateKey` now accepts the key instead of
+  pseudo-rejecting it). RemoteSession keeps the old guidance notice.
+
+- ce56ef6: The `/plugins` Installable tab now actually installs: selecting a catalog
+  plugin npm-installs it into `~/.moxxy/plugins`, persists the enable,
+  hot-reloads the plugin host, and reports which contributions registered —
+  instead of printing a CLI command to run elsewhere. New optional
+  `PluginsAdminView.install` seam (RemoteSession degrades to the printed
+  command).
+
+  On-demand installs are now version-pinned: bare `@moxxy/*` specs resolve at
+  the CLI's own version across every install path (`install_plugin` tool,
+  `moxxy plugins install`, init's provider/extras steps, the TUI picker), with
+  a 404→latest retry for pins an older CLI can't satisfy. The changeset fixed
+  group widens to all `@moxxy/plugin-*` + `@moxxy/mode-*` so future releases
+  co-version. New `installPluginPackagePinned` / `pinFirstPartySpec` exports.
+
+- 386e526: Slim wave, batch 1: seven plugins move out of the CLI binary and install on
+  demand from npm — `@moxxy/mode-goal`, `@moxxy/mode-deep-research` (now
+  npm-depends on `@moxxy/plugin-subagents` so one install brings both),
+  `@moxxy/plugin-subagents`, `@moxxy/plugin-oauth`,
+  `@moxxy/plugin-computer-control`, `@moxxy/plugin-channel-http`,
+  `@moxxy/plugin-usage-stats`. All are in the installable catalog (the
+  `/plugins` picker installs them one-keystroke; `/goal`, `/collab` and `/mode`
+  offer the install at point of use), and `moxxy init` installs a picked
+  non-bundled default mode during setup so the written config never floors
+  back on first boot. New `scripts/e2e-slim-install.mjs` fresh-install smoke.
+- 386e526: Slim wave, batch 2: `@moxxy/plugin-view`, `@moxxy/plugin-self-update` and
+  `@moxxy/plugin-voice-admin` (plugin renamed from `@moxxy/voice-admin` to
+  match its package) move out of the CLI binary and install on demand.
+  `@moxxy/plugin-provider-admin` + `@moxxy/plugin-mcp` (entry alias
+  `@moxxy/plugin-mcp-admin` dropped — the plugin now registers under its
+  package name) flip publishable as prep but stay bundled until the desktop
+  seed pack lands: the desktop Settings panels reach them through the
+  `providerAdmin`/`mcpAdmin` session services on the spawned runner.
+  self-update's staged-update finalizer stays inlined in the binary (bin.ts
+  imports it statically); only the registered plugin instance moves out.
+
+### Patch Changes
+
+- 8c70f3c: Install-on-first-use: asking for a capability whose package isn't installed
+  now offers to install it at the point of use instead of failing. `/goal` and
+  `/collab` without their mode installed open an install-confirm picker and,
+  after the install lands, re-run the original command; the `/mode` picker
+  lists catalog-provided modes badged "installs on first use"; `set_default`
+  naming an uninstalled contribution throws a typed `PLUGIN_NOT_INSTALLED`
+  error carrying the providing package (so the model tool gets an actionable
+  hint too). Catalog entries gain a `provides` mapping (category + contribution
+  name) that powers the lookup.
+- 04738aa: Stop shipping the 16 MB `bin.js.map` sourcemap in the published npm tarball
+  (unpacked size drops ~65%; local builds keep sourcemaps). Fix the TUI footer
+  hint that advertised `^B toggle skills` — Ctrl+B drops the first queued
+  message; the hint row now shows `^O tool detail` instead.
+- Updated dependencies [8c70f3c]
+- Updated dependencies [8c70f3c]
+- Updated dependencies [ce56ef6]
+  - @moxxy/sdk@0.26.0
+
 ## 0.25.0
 
 ### Minor Changes
