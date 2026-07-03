@@ -56,6 +56,17 @@ export function defaultWebhookSecretsDir(): string {
   return moxxyPath('webhooks-secrets');
 }
 
+/**
+ * Capability globs the webhook tools declare (`isolation.capabilities.fs`).
+ *
+ * The trigger-store glob ends in `*` because the store quarantine-renames a
+ * corrupt file to `webhooks.json.corrupt-<ts>` / `.quarantine-<ts>` on ANY
+ * access — so even a read-only tool may legitimately write next to the file.
+ */
+export const WEBHOOKS_STORE_GLOB = '~/.moxxy/webhooks.json*';
+export const WEBHOOKS_CONFIG_GLOB = '~/.moxxy/webhooks-config.json';
+export const WEBHOOKS_SECRETS_GLOB = '~/.moxxy/webhooks-secrets/**';
+
 export function generateSecret(): string {
   return randomBytes(32).toString('hex');
 }

@@ -1,5 +1,10 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
-import { fullUrl, type ResolvedToolDeps } from './shared.js';
+import {
+  fullUrl,
+  WEBHOOKS_CONFIG_GLOB,
+  WEBHOOKS_STORE_GLOB,
+  type ResolvedToolDeps,
+} from './shared.js';
 
 export function defineWebhookSetPublicUrlTool(deps: ResolvedToolDeps): ToolDef {
   const { store, config } = deps;
@@ -14,6 +19,20 @@ export function defineWebhookSetPublicUrlTool(deps: ResolvedToolDeps): ToolDef {
       publicUrl: z.string().url('publicUrl must be a full URL like https://example.com'),
     }),
     permission: { action: 'prompt' },
+    // The handler only PERSISTS the URL — no request is made. `net` is still
+    // 'any' because the cap checker validates URL-shaped inputs against it,
+    // and the public URL's host is user-chosen (no static allowlist exists);
+    // 'none' would deny every call.
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB],
+          write: [WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB],
+        },
+        net: { mode: 'any' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ publicUrl }) => {
       const updated = await config.set({ publicUrl, publicUrlSource: 'manual' });
       const triggers = await store.list();
@@ -34,6 +53,13 @@ export function defineWebhookClearPublicUrlTool(deps: ResolvedToolDeps): ToolDef
       'will no longer be able to reach them until a new URL is set.',
     inputSchema: z.object({}),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: { read: [WEBHOOKS_CONFIG_GLOB], write: [WEBHOOKS_CONFIG_GLOB] },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async () => {
       await config.clearPublicUrl();
       return { ok: true };

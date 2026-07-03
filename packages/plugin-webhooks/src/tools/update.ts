@@ -1,6 +1,11 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
 import { describeTrigger } from '../describe.js';
-import { filterInputSchema, type ResolvedToolDeps } from './shared.js';
+import {
+  filterInputSchema,
+  WEBHOOKS_CONFIG_GLOB,
+  WEBHOOKS_STORE_GLOB,
+  type ResolvedToolDeps,
+} from './shared.js';
 
 export function defineWebhookUpdateTool(deps: ResolvedToolDeps): ToolDef {
   const { store, config } = deps;
@@ -27,6 +32,18 @@ export function defineWebhookUpdateTool(deps: ResolvedToolDeps): ToolDef {
         .describe('Reassign which session this webhook delivers to (where its runs execute + display).'),
     }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: {
+          // `$cwd/**` mirrors webhook_create: a jsonPath filter rule's `path`
+          // field is a JSON body path the cap checker treats as a file path.
+          read: ['$cwd/**', WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB],
+          write: [WEBHOOKS_STORE_GLOB],
+        },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ id, targetSessionId, ...patch }) => {
       // `targetSessionId` is the user-facing name for the stored `ownerSessionId`
       // routing key — map it so reassigning a webhook re-homes its deliveries.

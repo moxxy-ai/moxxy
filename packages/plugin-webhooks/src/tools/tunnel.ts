@@ -1,6 +1,11 @@
 import { defineTool, z, type ToolDef } from '@moxxy/sdk';
 import { startTunnel } from '../tunnel.js';
-import { fullUrl, type ResolvedToolDeps } from './shared.js';
+import {
+  fullUrl,
+  WEBHOOKS_CONFIG_GLOB,
+  WEBHOOKS_STORE_GLOB,
+  type ResolvedToolDeps,
+} from './shared.js';
 
 export function defineWebhookTunnelStartTool(deps: ResolvedToolDeps): ToolDef {
   const { store, config, tunnelHandle } = deps;
@@ -14,6 +19,20 @@ export function defineWebhookTunnelStartTool(deps: ResolvedToolDeps): ToolDef {
       'Only one tunnel runs at a time; calling again stops the prior one first.',
     inputSchema: z.object({}),
     permission: { action: 'prompt' },
+    // Dials the proxy relay's control WebSocket (`wss://relay.<host>`); the
+    // host is env-overridable via MOXXY_PROXY_HOST, so no static allowlist.
+    // Also loads-or-mints the tunnel identity keypair on first use.
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB, '~/.moxxy/proxy-identity.key'],
+          write: [WEBHOOKS_STORE_GLOB, WEBHOOKS_CONFIG_GLOB, '~/.moxxy/proxy-identity.key'],
+        },
+        net: { mode: 'any' },
+        env: ['MOXXY_PROXY_HOST'],
+        timeMs: 60_000,
+      },
+    },
     handler: async () => {
       const cfg = await config.get();
       if (tunnelHandle.current) {
@@ -48,6 +67,15 @@ export function defineWebhookTunnelStopTool(deps: ResolvedToolDeps): ToolDef {
     description: 'Stop the running proxy tunnel started by `webhook_tunnel_start`, if any.',
     inputSchema: z.object({}),
     permission: { action: 'prompt' },
+    // Deregisters the target over the already-open relay connection — still a
+    // network send to the env-overridable relay host, hence 'any'.
+    isolation: {
+      capabilities: {
+        fs: { read: [WEBHOOKS_CONFIG_GLOB], write: [WEBHOOKS_CONFIG_GLOB] },
+        net: { mode: 'any' },
+        timeMs: 60_000,
+      },
+    },
     handler: async () => {
       if (!tunnelHandle.current) return { ok: false, reason: 'no tunnel running' };
       try {
