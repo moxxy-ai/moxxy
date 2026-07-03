@@ -295,6 +295,14 @@ export class WsRpcClient {
     this.setStatus('reconnecting');
     // Reconnect with exponential backoff; subscriptions persist so
     // notifications resume on the next successful connection.
+    //
+    // This formula is `nextBackoffMs(attempts + 1, base, max)` from
+    // `@moxxy/sdk` — kept inline ON PURPOSE, do not "dedup" it: this package
+    // must stay dependency-minimal so it bundles under Metro/React Native, and
+    // the sdk main barrel statically reaches `node:fs/promises` (json-file-
+    // store), which breaks an RN bundle. The shape differs too: this is a
+    // cancellable timer cleared by connect()/close(), not an awaited sleep,
+    // so `sleepWithAbort` doesn't fit without restructuring the state machine.
     const delay = Math.min(
       RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempts,
       RECONNECT_MAX_DELAY_MS,

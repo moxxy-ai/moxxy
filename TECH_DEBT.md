@@ -33,6 +33,14 @@ or recorded-on-purpose decision.
   `apps/mobile/tsconfig.json`, `apps/mobile/src/pairingUrl.ts`,
   `apps/mobile/src/styles/tokens.ts`, `apps/mobile/src/hooks/useAttachments.ts`,
   `apps/mobile/src/hooks/useVoiceRecorder.ts`.
+- [low, dry, RESOLVED 2026-07-03] Ad-hoc retry/backoff sleeps consolidated onto the
+  sdk's shared `sleepWithAbort` (now surfaced directly on the barrel next to
+  `nextBackoffMs`, not buried in the mode-helpers block): the runner's
+  initial-connect retry + SIGTERM grace waits and the desktop supervisor's restart
+  wait (`forceRetry` now aborts the sleep) / socket poll / kill grace. Schedules
+  deliberately unchanged (linear connect retry, constant supervisor wait).
+  `packages/runner/src/remote-session.ts`,
+  `packages/desktop-host/src/runner-supervisor.ts`, `packages/sdk/src/index.ts`.
 - [low, focus, RESOLVED 2026-07-02] Focus Mode mini-chat no longer carries a
   separate text-only composer path: pasted screenshots now reuse the desktop
   attachment save/preview/send pipeline, zoomed image previews can be drag-panned,
@@ -159,6 +167,14 @@ or recorded-on-purpose decision.
 
 ## Runner / protocol & architecture
 
+- [note, dry] Three inline backoff/retry implementations remain ON PURPOSE and must
+  not be "deduped" onto `@moxxy/sdk`'s `sleepWithAbort`/`nextBackoffMs`:
+  `client-transport-ws/src/json-rpc-client.ts` (cancellable-timer reconnect; the
+  sdk barrel statically reaches `node:fs/promises`, which breaks its Metro/RN
+  bundle — rationale commented at the site), `plugin-channel-web/src/frontend/
+  socket.ts` (browser bundle), `plugin-provider-claude-code/src/login.ts`
+  (bespoke OAuth retry). Revisit only if the sdk grows a dependency-free
+  browser-safe subpath (like `@moxxy/sdk/tool-display`).
 - [high, architecture] Retype channel handlers to the SDK contract — `ClientSession`
   still exposes the full concrete registry surface; retype handler params to a
   minimal `SessionLike` slice (and verify graceful degradation) alongside the

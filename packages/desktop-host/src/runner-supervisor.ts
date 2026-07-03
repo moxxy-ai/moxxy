@@ -25,6 +25,7 @@ import { EventEmitter } from 'node:events';
 import { Socket } from 'node:net';
 
 import { deleteSession } from '@moxxy/core';
+import { sleepWithAbort } from '@moxxy/sdk';
 import {
   connectRemoteSession,
   isNamedPipe,
@@ -533,7 +534,7 @@ export class RunnerSupervisor extends EventEmitter {
       } catch {
         /* ignore */
       }
-      await new Promise((r) => setTimeout(r, 400));
+      await sleepWithAbort(400);
       try {
         process.kill(pid, 0);
         process.kill(pid, 'SIGKILL');
@@ -585,7 +586,7 @@ export class RunnerSupervisor extends EventEmitter {
               `(code=${exited.code} signal=${exited.signal})`,
           );
         }
-        await sleep(pollMs);
+        await sleepWithAbort(pollMs);
         pollMs = Math.min(pollMs + 100, SOCKET_POLL_MAX_MS);
       }
       throw new Error(
@@ -597,16 +598,24 @@ export class RunnerSupervisor extends EventEmitter {
     }
   }
 
+  /**
+   * The restart wait between supervision-loop attempts: a CONSTANT
+   * {@link RECONNECT_BACKOFF_MS} (deliberately not the sdk's exponential
+   * `nextBackoffMs` — a growing delay would slow the desktop's self-heal, and
+   * `forceRetry()`/`stop()` already provide the pressure valve), expressed as
+   * the sdk's leak-safe `sleepWithAbort` with the notify hook wired to abort.
+   */
   private async waitForRetry(): Promise<void> {
     if (this.stopped) return;
-    await new Promise<void>((resolve) => {
-      const t = setTimeout(resolve, RECONNECT_BACKOFF_MS);
-      this.retryNotify = () => {
-        clearTimeout(t);
-        resolve();
-      };
-    });
-    this.retryNotify = () => {};
+    const wake = new AbortController();
+    this.retryNotify = () => wake.abort();
+    try {
+      await sleepWithAbort(RECONNECT_BACKOFF_MS, wake.signal);
+    } catch {
+      /* forceRetry()/stop() cut the wait short — proceed to the next attempt */
+    } finally {
+      this.retryNotify = () => {};
+    }
   }
 
   private setPhase(phase: ConnectionPhase): void {
@@ -664,10 +673,6 @@ function protocolIncompatiblePhase(msg: string): ConnectionPhase {
     detail: msg,
     hint: 'This app version needs a newer moxxy CLI. Update the CLI (or reinstall the app) to continue.',
   };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const SIGKILL_GRACE_MS = 2_000;
