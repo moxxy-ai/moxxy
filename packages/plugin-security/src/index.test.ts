@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ToolCallContext, ToolDef, ToolContext } from '@moxxy/sdk';
 import {
   buildSecurityPlugin,
@@ -354,6 +354,122 @@ describe('onToolCall enforces caps on tools registered after onInit', () => {
       fakeToolCallCtx('early', { file: '/etc/passwd' }),
     );
     expect(v).toBeUndefined();
+  });
+});
+
+// Phase 4.3: the requireDeclaration ratchet for third-party plugins — tools
+// with NO isolation spec from packages outside the @moxxy scope get warned
+// about (grace mode, the default) or denied ('enforce'). First-party and
+// unattributed tools are exempt.
+describe('thirdPartyRequireDeclaration ratchet', () => {
+  const build = (
+    over: Partial<Parameters<typeof buildSecurityPlugin>[0]['config']> = {},
+    resolve: ((name: string) => string | undefined) | null = (name) =>
+      name === 'evil' ? 'evil-plugin' : name === 'good' ? '@moxxy/plugin-good' : undefined,
+    logger?: { warn(msg: string, meta?: Record<string, unknown>): void },
+  ) => {
+    const reg = new FakeToolRegistry()
+      .add(fakeTool({ name: 'evil' }))
+      .add(fakeTool({ name: 'good' }))
+      .add(fakeTool({ name: 'mystery' })); // no resolvable owner (e.g. MCP)
+    return buildSecurityPlugin({
+      config: { enabled: true, ...over },
+      toolRegistry: reg,
+      resolvePluginForTool: resolve,
+      ...(logger ? { logger } : {}),
+    });
+  };
+
+  it("'enforce' denies an undeclared third-party tool, naming the flag", async () => {
+    const handle = build({ thirdPartyRequireDeclaration: 'enforce' });
+    const v = await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('evil', {}));
+    expect(v).toEqual({
+      action: 'deny',
+      reason: expect.stringContaining('security.thirdPartyRequireDeclaration=enforce'),
+    });
+    expect((v as { reason: string }).reason).toContain('evil-plugin');
+  });
+
+  it("'enforce' still allows undeclared FIRST-PARTY tools", async () => {
+    const handle = build({ thirdPartyRequireDeclaration: 'enforce' });
+    const v = await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('good', {}));
+    expect(v).toBeUndefined();
+  });
+
+  it("'enforce' exempts unattributed tools (no resolvable owner)", async () => {
+    const handle = build({ thirdPartyRequireDeclaration: 'enforce' });
+    const v = await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('mystery', {}));
+    expect(v).toBeUndefined();
+  });
+
+  it('defaults to warn (grace mode): allows the call but logs a structured warning', async () => {
+    const warn = vi.fn();
+    const handle = build({}, undefined, { warn }); // thirdPartyRequireDeclaration unset
+    const v = await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('evil', {}));
+    expect(v).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("third-party tool 'evil'"),
+      expect.objectContaining({ tool: 'evil', plugin: 'evil-plugin', mode: 'warn' }),
+    );
+  });
+
+  it('warns ONCE per tool name — repeated calls do not spam', async () => {
+    const warn = vi.fn();
+    const handle = build({ thirdPartyRequireDeclaration: 'warn' }, undefined, { warn });
+    await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('evil', {}));
+    await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('evil', {}));
+    await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('evil', {}));
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('warn mode does not warn about first-party or unattributed tools', async () => {
+    const warn = vi.fn();
+    const handle = build({ thirdPartyRequireDeclaration: 'warn' }, undefined, { warn });
+    await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('good', {}));
+    await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('mystery', {}));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("'off' disables the ratchet entirely", async () => {
+    const warn = vi.fn();
+    const handle = build({ thirdPartyRequireDeclaration: 'off' }, undefined, { warn });
+    const v = await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('evil', {}));
+    expect(v).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('the global requireDeclaration deny wins before the ratchet runs', async () => {
+    const warn = vi.fn();
+    const handle = build(
+      { requireDeclaration: true, thirdPartyRequireDeclaration: 'warn' },
+      undefined,
+      { warn },
+    );
+    const v = await handle.plugin.hooks?.onToolCall?.(fakeToolCallCtx('evil', {}));
+    expect(v).toEqual({
+      action: 'deny',
+      reason: expect.stringContaining('security.requireDeclaration'),
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('a tool WITH a declaration never hits the ratchet', async () => {
+    const reg = new FakeToolRegistry().add(
+      fakeTool({ name: 'evil', isolation: { capabilities: { fs: { read: ['$cwd/**'] } } } }),
+    );
+    const warn = vi.fn();
+    const handle = buildSecurityPlugin({
+      config: { enabled: true, isolator: 'inproc', thirdPartyRequireDeclaration: 'enforce' },
+      toolRegistry: reg,
+      resolvePluginForTool: () => 'evil-plugin',
+      logger: { warn },
+    });
+    const v = await handle.plugin.hooks?.onToolCall?.(
+      fakeToolCallCtx('evil', { file: '/work/ok.ts' }),
+    );
+    expect(v).toBeUndefined();
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 

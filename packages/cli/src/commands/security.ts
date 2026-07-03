@@ -1,4 +1,5 @@
 import { aggregateCapabilitySpecs, type CapabilitySpec } from '@moxxy/sdk';
+import { describeCapabilitySurface, undeclaredToolsWarning } from '@moxxy/plugin-plugins-admin';
 import type { ParsedArgv } from '../argv.js';
 import { bootSessionWithConfig, hasBoolFlag, helpRequested, stringFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
@@ -17,7 +18,7 @@ const HELP = formatHelp({
         ['audit --package <name>', "one package's tools + their COMBINED capability surface"],
         ['audit --by-package', 'declared/total rollup per contributing plugin'],
         ['isolators', 'list available Isolator impls'],
-        ['status', 'show whether security is enabled and the default isolator'],
+        ['status', 'show enabled state, default isolator, and declaration/ratchet modes'],
       ],
     },
   ],
@@ -39,6 +40,17 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
   if (sub === 'status') {
     const enabled = config.security?.enabled ?? false;
     const isolator = config.plugins?.isolator?.default ?? '(default: inproc)';
+    // 'warn' is the plugin-side default while security is enabled (grace
+    // mode); surface it as such rather than pretending the ratchet is off.
+    const ratchet = config.security?.thirdPartyRequireDeclaration ?? 'warn';
+    const ratchetNote =
+      ratchet === 'enforce'
+        ? colors.bold('enforce — undeclared third-party tools are denied')
+        : ratchet === 'off'
+          ? colors.dim('off')
+          : colors.dim(
+              `warn${config.security?.thirdPartyRequireDeclaration ? '' : ' (default)'} — undeclared third-party tools log a warning`,
+            );
     process.stdout.write(
       `${colors.bold('enabled')}   ${enabled ? colors.bold('yes') : colors.dim('no')}\n` +
         `${colors.bold('isolator')}  ${colors.dim(isolator)}\n` +
@@ -46,7 +58,8 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
           config.security?.requireDeclaration
             ? colors.bold('declaration required')
             : colors.dim('not enforced')
-        }\n`,
+        }\n` +
+        `${colors.bold('3rd-party')} ${ratchetNote}\n`,
     );
     return 0;
   }
@@ -175,14 +188,14 @@ function renderPackageAudit(entries: ReadonlyArray<AuditEntry>, pkg: string): nu
       declared.map((e) => e.capabilities as CapabilitySpec | undefined),
     );
     process.stdout.write('\n' + colors.bold('COMBINED CAPABILITY SURFACE') + '\n');
-    for (const [label, value] of surfaceRows(surface)) {
-      process.stdout.write(`  ${colors.bold(label.padEnd(9))}  ${colors.dim(value)}\n`);
+    const rows = describeCapabilitySurface(surface);
+    const labelCol = Math.max(9, ...rows.map((r) => r.label.length));
+    for (const { label, value } of rows) {
+      process.stdout.write(`  ${colors.bold(label.padEnd(labelCol))}  ${colors.dim(value)}\n`);
     }
     if (undeclared.length > 0) {
       process.stdout.write(
-        colors.yellow(
-          `  (+ ${undeclared.length} undeclared tool${undeclared.length === 1 ? '' : 's'} with an UNKNOWN surface)\n`,
-        ),
+        colors.yellow(`  ⚠ ${undeclaredToolsWarning(undeclared.length, mine.length)}\n`),
       );
     }
   }
@@ -213,24 +226,6 @@ function renderByPackage(entries: ReadonlyArray<AuditEntry>): number {
     );
   }
   return 0;
-}
-
-/** Human rows for an aggregated CapabilitySpec (skips absent axes). */
-function surfaceRows(s: CapabilitySpec): Array<[string, string]> {
-  const rows: Array<[string, string]> = [];
-  if (s.fs?.read?.length) rows.push(['fs:read', s.fs.read.join(', ')]);
-  if (s.fs?.write?.length) rows.push(['fs:write', s.fs.write.join(', ')]);
-  if (s.net) {
-    rows.push([
-      'net',
-      s.net.mode === 'allowlist' ? `allowlist: ${s.net.hosts.join(', ')}` : s.net.mode,
-    ]);
-  }
-  if (s.env?.length) rows.push(['env', s.env.join(', ')]);
-  if (s.subprocess) rows.push(['exec', s.commands?.length ? s.commands.join(', ') : '(any command)']);
-  if (s.timeMs !== undefined) rows.push(['time', `≤ ${s.timeMs}ms`]);
-  if (s.memMb !== undefined) rows.push(['mem', `≤ ${s.memMb}MB`]);
-  return rows;
 }
 
 function formatCapabilities(caps: Readonly<Record<string, unknown>> | undefined): string {

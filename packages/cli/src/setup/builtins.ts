@@ -2,11 +2,13 @@ import { runTurn, type Session } from '@moxxy/core';
 import { MoxxyError, isSelectableMode, type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import {
+  buildCapabilityReport,
   diffSnapshot,
   findCatalogEntryForContribution,
   INSTALLABLE_PLUGIN_CATALOG,
   applySetupValues,
   installPluginPackagePinned,
+  packageNameFromSpec,
   readPluginSetup,
   resolveCatalogEntry,
   setCategoryDefault as persistCategoryDefault,
@@ -221,17 +223,6 @@ export function buildCategoryDefaultLive(session: Session): CategoryDefaultLive 
   };
 }
 
-/**
- * The bare package name of an npm spec (`@moxxy/x@1.2.3` → `@moxxy/x`), or
- * undefined for git/path specs whose installed package name isn't derivable
- * pre-install (the enable write is skipped — absent means enabled anyway).
- */
-function bareNameFromSpec(spec: string): string | undefined {
-  const at = spec.lastIndexOf('@');
-  const name = at > 0 ? spec.slice(0, at) : spec;
-  return /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name) ? name : undefined;
-}
-
 function wirePluginsAdminView(
   session: Session,
   disabledPackages: Set<string>,
@@ -273,7 +264,10 @@ function wirePluginsAdminView(
     install: async (idOrSpec) => {
       const entry = resolveCatalogEntry(idOrSpec);
       const spec = entry?.installSpec ?? idOrSpec;
-      const packageName = entry?.packageName ?? bareNameFromSpec(spec);
+      // Package name is derivable pre-install for catalog/npm specs but not
+      // for git/path specs (the enable write is skipped — absent means
+      // enabled anyway).
+      const packageName = entry?.packageName ?? packageNameFromSpec(spec);
       const before = buildPluginSnapshot(session);
       const { installed } = await installPluginPackagePinned({
         packageName: spec,
@@ -283,9 +277,18 @@ function wirePluginsAdminView(
       if (packageName) await persistPluginEnabled(packageName, true);
       await session.pluginHost.reload();
       const setup = packageName ? await readPluginSetup(packageName) : null;
+      const registered = diffSnapshot(before, buildPluginSnapshot(session));
+      // The just-registered tools' combined capability surface — what the
+      // TUI renders for post-install consent (third-party) or as an info
+      // line (first-party). Same helper the install_plugin model tool uses.
+      const capabilities = buildCapabilityReport(
+        registered.tools ?? [],
+        (name) => session.tools.get(name)?.isolation,
+      );
       return {
         installed,
-        registered: diffSnapshot(before, buildPluginSnapshot(session)),
+        registered,
+        ...(capabilities ? { capabilities } : {}),
         ...(setup
           ? { needsSetup: { title: setup.title, required: setup.required === true } }
           : {}),
@@ -376,11 +379,13 @@ function buildWebhooksSlice(
 function buildSecuritySlice(
   session: Session,
   rawConfig: MoxxyConfig,
+  logger: BuildBuiltinsArgs['logger'],
 ): { entry: BuiltinEntry; security: SecurityPluginHandle } {
   // Its onInit hook fires AFTER every other plugin has registered, so it sees
   // the fully-populated tool registry when wrapping declared-isolation tools.
   // Tools without an `isolation` declaration pass through untouched (unless
-  // `security.requireDeclaration` is set).
+  // `security.requireDeclaration` is set, or — for third-party packages —
+  // `security.thirdPartyRequireDeclaration` warns/denies).
   const security = buildSecurityPlugin({
     config: {
       enabled: rawConfig.security?.enabled ?? false,
@@ -394,8 +399,14 @@ function buildSecuritySlice(
       ...(rawConfig.security?.requireDeclaration !== undefined
         ? { requireDeclaration: rawConfig.security.requireDeclaration }
         : {}),
+      ...(rawConfig.security?.thirdPartyRequireDeclaration !== undefined
+        ? { thirdPartyRequireDeclaration: rawConfig.security.thirdPartyRequireDeclaration }
+        : {}),
     },
     toolRegistry: session.tools,
+    // Sink for the third-party grace-mode warnings; the hook context carries
+    // no logger, so the plugin needs the host's.
+    logger,
     // Tool → contributing-plugin attribution from the plugin host's loaded
     // records. Called lazily (post-boot), so the registries are populated by
     // the time the security plugin or an audit view asks. This is what makes
@@ -474,7 +485,7 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
   const webhooks = buildWebhooksSlice(webhookRunner, logger);
   entries.push(webhooks.entry);
 
-  const security = buildSecuritySlice(session, rawConfig);
+  const security = buildSecuritySlice(session, rawConfig, logger);
   entries.push(security.entry);
 
   return {

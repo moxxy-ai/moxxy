@@ -33,6 +33,7 @@
     "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",
     "@moxxy/plugin-mcp": "workspace:*",
+    "@moxxy/plugin-plugins-admin": "workspace:*",
     "@moxxy/sdk": "workspace:*",
     "ink": "catalog:",
     "react": "catalog:"

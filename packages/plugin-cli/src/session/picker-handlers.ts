@@ -1,4 +1,13 @@
-import type { ClientSession as Session } from '@moxxy/sdk';
+import {
+  isFirstPartyPackage,
+  type ClientSession as Session,
+  type PluginsAdminView,
+} from '@moxxy/sdk';
+import {
+  describeCapabilitySurface,
+  packageNameFromSpec,
+  undeclaredToolsWarning,
+} from '@moxxy/plugin-plugins-admin';
 import { loadConfig, setCategoryDefault, setConfigValue, setProviderModel } from '@moxxy/config';
 import type { Picker } from './types.js';
 import {
@@ -78,6 +87,9 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     }
     if (kind === 'install-confirm') {
       return handleInstallConfirm(picker, id, deps);
+    }
+    if (kind === 'install-consent') {
+      return handleInstallConsent(picker, id, deps);
     }
     if (kind === 'settings') {
       return handleSettingSelected(id, deps);
@@ -167,32 +179,60 @@ function runPickerInstall(
   deps.setSystemNotice(`installing ${target} via npm — this can take a minute…`);
   void (async () => {
     let ok = false;
+    let consentPending = false;
     try {
+      // Loaded-package names BEFORE the install: the fallback way to learn
+      // the installed package's name when the spec doesn't reveal it
+      // (git/path installs) — whatever appears in `loaded()` afterwards is it.
+      const loadedBefore = new Set(admin?.loaded?.().map((p) => p.name) ?? []);
       const res = await install(target);
       const kinds = Object.entries(res.registered)
         .filter(([, names]) => names && names.length > 0)
         .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
         .join('; ');
-      deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
+      const pkgName =
+        packageNameFromSpec(res.installed) ??
+        deps.session.pluginsAdmin?.loaded?.().find((p) => !loadedBefore.has(p.name))?.name;
+      // THIRD-PARTY (outside the @moxxy scope): the capability surface must
+      // be consented to before the plugin keeps running. The follow-up
+      // (setup dialog, slash rerun) is deferred behind the `keep` choice.
+      if (pkgName && !isFirstPartyPackage(pkgName)) {
+        ok = true;
+        consentPending = true;
+        deps.setSystemNotice(consentSurfaceNotice(pkgName, res.capabilities));
+        deps.setPicker({
+          kind: 'install-consent',
+          title: `${pkgName} is third-party code — keep it enabled?`,
+          packageName: pkgName,
+          onKeep: () => {
+            void runPostInstallFollowUp(deps, res, target, opts.onSuccess);
+          },
+          ...(opts.reopenPluginsPicker ? { reopenPluginsPicker: true } : {}),
+          options: [
+            {
+              id: 'disable',
+              label: 'Disable it',
+              description: 'stays installed but contributes nothing until you re-enable it',
+            },
+            {
+              id: 'keep',
+              label: 'Keep it enabled',
+              description: 'accept the capability surface shown above',
+            },
+          ],
+        });
+        return;
+      }
+      // First-party (the trusted co-versioned set) — no consent, but the
+      // capability report still shows as an info line.
+      deps.setSystemNotice(
+        `✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}` +
+          capabilityInfoLine(res.capabilities),
+      );
       ok = true;
-      // Configure right here when the plugin declares a setup step — the
-      // dialog collects the fields and applySetup persists them (secrets →
-      // vault). Fall back to pointing at `moxxy init` when the session can't
-      // (RemoteSession) so the hint never silently disappears.
       if (res.needsSetup) {
-        const admin2 = deps.session.pluginsAdmin;
-        const pkg = admin2?.catalog().find((e) => e.id === target || e.packageName === target)?.packageName ?? target;
-        const spec = await admin2?.setupSpec?.(pkg).catch(() => null);
-        if (spec && deps.openPluginSetup) {
-          const after = opts.onSuccess;
-          deps.openPluginSetup({ packageName: pkg, spec, ...(after ? { then: after } : {}) });
-          if (opts.reopenPluginsPicker) return; // dialog owns the zone; skip reopen
-          return;
-        }
-        deps.setSystemNotice(
-          `✓ installed ${res.installed} — ${res.needsSetup.required ? '⚠ required setup' : 'optional setup'}: ` +
-            `"${res.needsSetup.title}" — run \`moxxy init\` (or /setup ${pkg}) to configure it.`,
-        );
+        await runPostInstallFollowUp(deps, res, target, opts.onSuccess);
+        return; // follow-up owns onSuccess (directly or via the dialog's `then`)
       }
     } catch (err) {
       deps.setSystemNotice(
@@ -201,10 +241,133 @@ function runPickerInstall(
     } finally {
       if (deps.installInFlightRef) deps.installInFlightRef.current = false;
       // Re-open with refreshed state: a success moves the plugin from the
-      // Installable tab into Packages; a failure keeps it installable.
-      if (opts.reopenPluginsPicker) openPluginsPicker(deps);
+      // Installable tab into Packages; a failure keeps it installable. Never
+      // while consent is pending — that would clobber the consent picker
+      // (handleInstallConsent reopens after the decision instead).
+      if (opts.reopenPluginsPicker && !consentPending) openPluginsPicker(deps);
     }
     if (ok) opts.onSuccess?.();
+  })();
+}
+
+/** What `pluginsAdmin.install` resolves with — kept in lockstep with the SDK. */
+type PickerInstallResult = Awaited<ReturnType<NonNullable<PluginsAdminView['install']>>>;
+
+/**
+ * Post-install follow-up shared by the first-party path and consent-`keep`:
+ * when the plugin declares a setup step, open the setup dialog right here
+ * (deferring `onSuccess` to its `then`) or surface the `moxxy init` hint when
+ * the session can't (RemoteSession) — then run `onSuccess`.
+ */
+async function runPostInstallFollowUp(
+  deps: PickerHandlerDeps,
+  res: PickerInstallResult,
+  target: string,
+  onSuccess?: () => void,
+): Promise<void> {
+  if (res.needsSetup) {
+    const admin = deps.session.pluginsAdmin;
+    const pkg =
+      admin?.catalog().find((e) => e.id === target || e.packageName === target)?.packageName ??
+      target;
+    const spec = await admin?.setupSpec?.(pkg).catch(() => null);
+    if (spec && deps.openPluginSetup) {
+      deps.openPluginSetup({ packageName: pkg, spec, ...(onSuccess ? { then: onSuccess } : {}) });
+      return; // dialog's `then` runs onSuccess after configuration
+    }
+    deps.setSystemNotice(
+      `✓ installed ${res.installed} — ${res.needsSetup.required ? '⚠ required setup' : 'optional setup'}: ` +
+        `"${res.needsSetup.title}" — run \`moxxy init\` (or /setup ${pkg}) to configure it.`,
+    );
+  }
+  onSuccess?.();
+}
+
+/**
+ * The consent body: the package's combined capability surface as
+ * human-readable rows (shared copy from @moxxy/plugin-plugins-admin, so the
+ * TUI and `moxxy plugins install` describe the exact same thing), with
+ * undeclared tools called out loudly — their surface is unknown, not empty.
+ */
+function consentSurfaceNotice(
+  packageName: string,
+  caps: PickerInstallResult['capabilities'],
+): string {
+  const lines = [`⚠ ${packageName} is a third-party plugin (outside the @moxxy scope).`];
+  if (!caps) {
+    lines.push(
+      'It registered no tools, so there is no declared capability surface to review —',
+      'any providers/modes/channels it contributes still run with full host access.',
+    );
+    return lines.join('\n');
+  }
+  lines.push(`Its ${caps.total} tool${caps.total === 1 ? '' : 's'} may:`);
+  const rows = describeCapabilitySurface(caps.surface);
+  if (rows.length === 0) {
+    lines.push('  (nothing declared beyond running in-process)');
+  } else {
+    const labelCol = Math.max(...rows.map((r) => r.label.length));
+    for (const r of rows) lines.push(`  ${r.label.padEnd(labelCol)}  ${r.value}`);
+  }
+  if (caps.undeclaredTools?.length) {
+    lines.push(`⚠ ${undeclaredToolsWarning(caps.undeclaredTools.length, caps.total)}`);
+  }
+  return lines.join('\n');
+}
+
+/** Compact capability info line appended to a first-party install notice. */
+function capabilityInfoLine(caps: PickerInstallResult['capabilities']): string {
+  if (!caps) return '';
+  const rows = describeCapabilitySurface(caps.surface);
+  const summary = rows.length
+    ? rows.map((r) => `${r.label.toLowerCase()}: ${r.value}`).join(' · ')
+    : 'no capabilities declared';
+  const undeclared = caps.undeclaredTools?.length
+    ? ` — ⚠ ${undeclaredToolsWarning(caps.undeclaredTools.length, caps.total)}`
+    : '';
+  return `\ncapabilities (${caps.declared}/${caps.total} tools declared): ${summary}${undeclared}`;
+}
+
+/**
+ * `install-consent` decision. Only the explicit `keep` keeps the freshly
+ * installed third-party package enabled (and runs the deferred follow-up:
+ * setup dialog, slash rerun). ANY other outcome — the `Disable it` option or
+ * ESC (SessionView routes picker-cancel here as `disable`) — fails closed:
+ * the package is disabled via the same persist+live-apply path `/plugins`
+ * uses, and the notice explains how to re-enable it.
+ */
+function handleInstallConsent(
+  picker: Extract<NonNullable<Picker>, { kind: 'install-consent' }>,
+  id: string,
+  deps: PickerHandlerDeps,
+): void {
+  if (id === 'keep') {
+    deps.setSystemNotice(`✓ ${picker.packageName} stays enabled`);
+    picker.onKeep?.();
+    if (picker.reopenPluginsPicker) openPluginsPicker(deps);
+    return;
+  }
+  void (async () => {
+    try {
+      const admin = deps.session.pluginsAdmin;
+      if (!admin) {
+        deps.setSystemNotice(
+          `can't disable ${picker.packageName} from this session — run \`moxxy plugins disable ${picker.packageName}\``,
+        );
+        return;
+      }
+      await admin.setEnabled(picker.packageName, false);
+      deps.setSystemNotice(
+        `✗ disabled ${picker.packageName} — it stays installed but contributes nothing. ` +
+          `Re-enable it with \`moxxy plugins enable ${picker.packageName}\` or /plugins.`,
+      );
+    } catch (err) {
+      deps.setSystemNotice(
+        `failed to disable ${picker.packageName}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      if (picker.reopenPluginsPicker) openPluginsPicker(deps);
+    }
   })();
 }
 

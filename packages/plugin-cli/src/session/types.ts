@@ -64,6 +64,24 @@ export type Picker =
       rerun: string;
     }
   | {
+      /**
+       * Post-install capability consent for a THIRD-PARTY package (outside
+       * the `@moxxy/` scope). The capability surface is rendered as a system
+       * notice alongside this picker; `keep` runs the deferred follow-up
+       * (setup dialog, slash rerun), anything else — including ESC, which
+       * SessionView routes here as `disable` so consent fails closed —
+       * disables the package (kept installed).
+       */
+      kind: 'install-consent';
+      title: string;
+      options: ReadonlyArray<ListPickerOption>;
+      packageName: string;
+      /** Deferred post-install follow-up, run only on explicit consent. */
+      onKeep?: () => void;
+      /** Re-open the `/plugins` picker after the decision (install came from there). */
+      reopenPluginsPicker?: boolean;
+    }
+  | {
       /** `/settings` — curated config knobs (SETTINGS_KNOBS); selection
        *  toggles/cycles the value, persists it, live-applies, and reopens. */
       kind: 'settings';

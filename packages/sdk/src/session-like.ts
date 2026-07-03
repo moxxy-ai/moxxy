@@ -1,5 +1,6 @@
 import type { MoxxyEvent, TriggerOrigin, UserPromptAttachment } from './events.js';
 import type { SessionId, TurnId } from './ids.js';
+import type { CapabilitySpec } from './isolation.js';
 import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
@@ -366,6 +367,23 @@ export interface PluginsAdminView {
   install?(idOrSpec: string): Promise<{
     readonly installed: string;
     readonly registered: Readonly<Partial<Record<string, ReadonlyArray<string>>>>;
+    /**
+     * Combined capability surface of the tools this install registered —
+     * the package's blast radius, so a channel can render post-install
+     * consent (third-party packages) or an info line (first-party). Absent
+     * when the install registered no tools or the host cannot introspect
+     * isolation specs.
+     */
+    readonly capabilities?: {
+      /** Tools that declared an isolation spec. */
+      readonly declared: number;
+      /** Tools the install registered. */
+      readonly total: number;
+      /** Widest-wins union of the declared specs. */
+      readonly surface: CapabilitySpec;
+      /** Tools with NO declaration: their surface is unknown, not empty. */
+      readonly undeclaredTools?: ReadonlyArray<string>;
+    };
     /** Present when the package declares a `moxxy.setup` step to complete. */
     readonly needsSetup?: { readonly title: string; readonly required: boolean };
   }>;

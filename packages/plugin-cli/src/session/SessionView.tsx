@@ -528,7 +528,16 @@ export const SessionView: React.FC<SessionViewProps> = ({
           resolve(decision);
         }}
         onPickerSelect={handlePickerSelect}
-        onPickerCancel={() => setPicker(null)}
+        onPickerCancel={() => {
+          // Third-party install consent fails CLOSED: dismissing the picker
+          // (ESC / ctrl-c) counts as declining, so the freshly installed
+          // package gets disabled instead of silently staying enabled.
+          if (picker?.kind === 'install-consent') {
+            handlePickerSelect(picker, 'disable');
+            return;
+          }
+          setPicker(null);
+        }}
         onSubmit={handleSubmit}
         onPasteText={images.handlePasteText}
       />

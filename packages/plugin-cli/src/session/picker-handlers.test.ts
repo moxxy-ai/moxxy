@@ -5,8 +5,11 @@ import { openPluginsPicker } from './run-slash.js';
 
 // picker-handlers imports setCategoryDefault/setProviderModel from @moxxy/config
 // and re-open helpers from run-slash; stub both so the session branch tests stay
-// isolated from the filesystem and the other picker flows.
-vi.mock('@moxxy/config', () => ({
+// isolated from the filesystem and the other picker flows. Partial mock: the
+// @moxxy/plugin-plugins-admin import (capability consent copy) pulls other
+// @moxxy/config exports, which must keep resolving to the real module.
+vi.mock('@moxxy/config', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@moxxy/config')>()),
   setCategoryDefault: vi.fn(async () => undefined),
   setProviderModel: vi.fn(async () => undefined),
   setConfigValue: vi.fn(async () => ({ path: '/tmp/config.yaml', config: {} })),
@@ -255,7 +258,8 @@ describe('makePickerHandler — install-on-first-use', () => {
   });
 
   it('mode picker install:: id installs the providing package then re-runs /mode', async () => {
-    const install = vi.fn(async () => ({ installed: 'x', registered: {} }));
+    // First-party spec: catalog installs resolve to the pinned @moxxy package.
+    const install = vi.fn(async () => ({ installed: '@moxxy/mode-goal@1.0.0', registered: {} }));
     const catalog = vi.fn(() => [
       {
         id: 'mode-goal',
@@ -277,6 +281,157 @@ describe('makePickerHandler — install-on-first-use', () => {
     await new Promise((r) => setImmediate(r));
     expect(install).toHaveBeenCalledWith('mode-goal');
     expect(rerunSlash).toHaveBeenCalledWith('/mode goal');
+  });
+});
+
+describe('makePickerHandler — third-party install consent', () => {
+  beforeEach(() => {
+    vi.mocked(openPluginsPicker).mockClear();
+  });
+
+  it('a third-party install opens the consent picker instead of finishing silently', async () => {
+    const install = vi.fn(async () => ({
+      installed: 'evil-tools@1.0.0',
+      registered: { tools: ['hack'] },
+      capabilities: {
+        declared: 0,
+        total: 1,
+        surface: {},
+        undeclaredTools: ['hack'],
+      },
+    }));
+    const setPicker = vi.fn();
+    const setSystemNotice = vi.fn();
+    const rerunSlash = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setPicker,
+        setSystemNotice,
+        rerunSlash,
+        installInFlightRef: { current: false },
+      }),
+    );
+    handle(
+      { kind: 'install-confirm', title: 't', catalogId: 'evil-tools', rerun: '/x', options: [] },
+      'install',
+    );
+    await new Promise((r) => setImmediate(r));
+    // The surface is rendered as the notice, with undeclared tools called out.
+    expect(setSystemNotice).toHaveBeenCalledWith(expect.stringContaining('third-party plugin'));
+    expect(setSystemNotice).toHaveBeenCalledWith(
+      expect.stringContaining('1 of 1 tool declares NO capabilities'),
+    );
+    // Consent picker opened; the follow-up (rerun) is deferred behind `keep`.
+    const consent = setPicker.mock.calls.map((c) => c[0]).find((p) => p?.kind === 'install-consent');
+    expect(consent).toMatchObject({ kind: 'install-consent', packageName: 'evil-tools' });
+    expect(rerunSlash).not.toHaveBeenCalled();
+  });
+
+  it('a first-party install skips consent but shows the capability info line', async () => {
+    const install = vi.fn(async () => ({
+      installed: '@moxxy/plugin-nice@1.0.0',
+      registered: { tools: ['nice'] },
+      capabilities: {
+        declared: 1,
+        total: 1,
+        surface: { net: { mode: 'allowlist', hosts: ['api.nice.dev'] } },
+      },
+    }));
+    const setPicker = vi.fn();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setPicker,
+        setSystemNotice,
+        installInFlightRef: { current: false },
+      }),
+    );
+    handle(pluginsPicker, 'plugin-nice::install');
+    await new Promise((r) => setImmediate(r));
+    expect(setSystemNotice).toHaveBeenLastCalledWith(
+      expect.stringContaining('network: only these hosts: api.nice.dev'),
+    );
+    const consent = setPicker.mock.calls.map((c) => c[0]).find((p) => p?.kind === 'install-consent');
+    expect(consent).toBeUndefined();
+  });
+
+  it('decline disables the package and explains how to re-enable it', async () => {
+    const setEnabled = vi.fn(async () => undefined);
+    const setSystemNotice = vi.fn();
+    const onKeep = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { setEnabled } } as never,
+        setSystemNotice,
+      }),
+    );
+    handle(
+      {
+        kind: 'install-consent',
+        title: 't',
+        packageName: 'evil-tools',
+        options: [],
+        onKeep,
+      },
+      'disable',
+    );
+    await new Promise((r) => setImmediate(r));
+    expect(setEnabled).toHaveBeenCalledWith('evil-tools', false);
+    expect(onKeep).not.toHaveBeenCalled();
+    expect(setSystemNotice).toHaveBeenCalledWith(
+      expect.stringContaining('moxxy plugins enable evil-tools'),
+    );
+  });
+
+  it('keep leaves the package enabled and runs the deferred follow-up', async () => {
+    const setEnabled = vi.fn(async () => undefined);
+    const onKeep = vi.fn();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { setEnabled } } as never,
+        setSystemNotice,
+      }),
+    );
+    handle(
+      {
+        kind: 'install-consent',
+        title: 't',
+        packageName: 'evil-tools',
+        options: [],
+        onKeep,
+      },
+      'keep',
+    );
+    await new Promise((r) => setImmediate(r));
+    expect(setEnabled).not.toHaveBeenCalled();
+    expect(onKeep).toHaveBeenCalledTimes(1);
+    expect(setSystemNotice).toHaveBeenCalledWith(expect.stringContaining('stays enabled'));
+  });
+
+  it('the consent picker survives the reopenPluginsPicker flow (deferred reopen)', async () => {
+    const install = vi.fn(async () => ({
+      installed: 'evil-tools@1.0.0',
+      registered: { tools: ['hack'] },
+    }));
+    const setPicker = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setPicker,
+        setSystemNotice: vi.fn(),
+        installInFlightRef: { current: false },
+      }),
+    );
+    handle(pluginsPicker, 'evil-tools::install');
+    await new Promise((r) => setImmediate(r));
+    // The consent picker must be the LAST picker set — openPluginsPicker
+    // (mocked) must not run while consent is pending.
+    expect(openPluginsPicker).not.toHaveBeenCalled();
+    const last = setPicker.mock.calls.at(-1)?.[0];
+    expect(last).toMatchObject({ kind: 'install-consent', reopenPluginsPicker: true });
   });
 });
 

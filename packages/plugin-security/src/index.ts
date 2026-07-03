@@ -1,6 +1,7 @@
 import {
   definePlugin,
   ISOLATION_RANK,
+  isFirstPartyPackage,
   type IsolatedToolCall,
   type Isolator,
   type LifecycleHooks,
@@ -72,6 +73,16 @@ export interface SecurityPluginConfig {
   readonly perPlugin?: Readonly<Record<string, string>>;
   readonly requireDeclaration?: boolean;
   /**
+   * The requireDeclaration ratchet for THIRD-PARTY plugins (packages outside
+   * the `@moxxy/` scope). Considered only when a tool has NO isolation spec
+   * and the global `requireDeclaration` did not already deny it:
+   * 'off' = no special handling; 'warn' (default while enabled) = grace mode,
+   * a structured warning is logged once per tool name per process; 'enforce'
+   * = the call is denied. Tools whose owning plugin cannot be resolved are
+   * exempt (see the comment at the enforcement site).
+   */
+  readonly thirdPartyRequireDeclaration?: 'off' | 'warn' | 'enforce';
+  /**
    * Tighten the in-process input cap-check from best-effort to fail-closed.
    *
    * By DEFAULT the fs/net checks only inspect string values under a recognized
@@ -102,6 +113,12 @@ export interface BuildSecurityPluginOptions {
    * overrides. Pass `null` to disable plugin-level routing entirely.
    */
   readonly resolvePluginForTool?: ((toolName: string) => string | undefined) | null;
+  /**
+   * Sink for the third-party grace-mode warnings (and any future advisory
+   * output). The hook context carries no logger, so the host injects its
+   * own; absent = warnings are dropped (enforcement is unaffected).
+   */
+  readonly logger?: { warn(msg: string, meta?: Record<string, unknown>): void };
 }
 
 export interface SecurityPluginHandle {
@@ -133,6 +150,14 @@ export function buildSecurityPlugin(opts: BuildSecurityPluginOptions): SecurityP
 
   const resolvePluginForTool =
     opts.resolvePluginForTool === null ? null : opts.resolvePluginForTool;
+
+  // Grace mode ('warn') is the default while security is enabled: existing
+  // third-party plugins keep working, but every undeclared tool gets flagged
+  // so the user can ratchet to 'enforce' deliberately.
+  const thirdPartyMode = cfg.thirdPartyRequireDeclaration ?? 'warn';
+  // Once per tool name for this plugin instance — one security plugin is
+  // built per process, so this is the "once per process" no-spam guarantee.
+  const warnedThirdPartyTools = new Set<string>();
 
   const pickIsolatorName = (toolName: string): string => {
     if (cfg.perTool?.[toolName]) return cfg.perTool[toolName]!;
@@ -181,6 +206,46 @@ export function buildSecurityPlugin(opts: BuildSecurityPluginOptions): SecurityP
             action: 'deny',
             reason: `security.requireDeclaration: tool '${tool.name}' has no isolation spec`,
           };
+        }
+        // The third-party ratchet: undeclared tools from packages OUTSIDE the
+        // trusted `@moxxy/` scope get warned about (grace mode, the default)
+        // or denied ('enforce'). Runs only when the global requireDeclaration
+        // above didn't already deny.
+        //
+        // Unattributed tools (no owner resolvable) are EXEMPT from this path:
+        // they weren't installed as an npm package — runtime-attached MCP
+        // tools and dynamically registered tools have no package name, so the
+        // first/third-party scope test is meaningless for them, and treating
+        // "unknown owner" as "third-party" would deny every MCP tool the
+        // moment a user sets 'enforce'. Their exposure is governed by the
+        // global `requireDeclaration` instead.
+        if (thirdPartyMode !== 'off') {
+          const owner =
+            resolvePluginForTool === null ? undefined : resolvePluginForTool?.(tool.name);
+          if (owner && !isFirstPartyPackage(owner)) {
+            if (thirdPartyMode === 'enforce') {
+              return {
+                action: 'deny',
+                reason:
+                  `security.thirdPartyRequireDeclaration=enforce: tool '${tool.name}' ` +
+                  `from third-party plugin '${owner}' has no isolation spec`,
+              };
+            }
+            if (!warnedThirdPartyTools.has(tool.name)) {
+              warnedThirdPartyTools.add(tool.name);
+              opts.logger?.warn(
+                `security: third-party tool '${tool.name}' (from ${owner}) has no isolation ` +
+                  `spec — running unconfined. Set security.thirdPartyRequireDeclaration to ` +
+                  `'enforce' to deny such calls.`,
+                {
+                  tool: tool.name,
+                  plugin: owner,
+                  mode: 'warn',
+                  config: 'security.thirdPartyRequireDeclaration',
+                },
+              );
+            }
+          }
         }
         return;
       }

@@ -56,6 +56,19 @@ export function assertSafeNpmSpec(spec: string): string {
   return trimmed;
 }
 
+/**
+ * The bare package name of an npm spec (`@moxxy/x@1.2.3` → `@moxxy/x`,
+ * `foo@latest` → `foo`), or undefined for git/path specs whose installed
+ * package name isn't derivable from the spec text alone. Callers that need
+ * a name for those (e.g. install consent) must resolve it another way, such
+ * as diffing the loaded-plugin list around the install.
+ */
+export function packageNameFromSpec(spec: string): string | undefined {
+  const at = spec.lastIndexOf('@');
+  const name = at > 0 ? spec.slice(0, at) : spec;
+  return NPM_NAME_RE.test(name) ? name : undefined;
+}
+
 /** Contributions present in `after` but not `before`, grouped by kind. */
 export function diffSnapshot(
   before: PluginSnapshot,
