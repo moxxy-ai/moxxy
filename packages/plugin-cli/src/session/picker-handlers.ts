@@ -1,7 +1,14 @@
 import type { ClientSession as Session } from '@moxxy/sdk';
-import { setCategoryDefault, setProviderModel } from '@moxxy/config';
+import { loadConfig, setCategoryDefault, setConfigValue, setProviderModel } from '@moxxy/config';
 import type { Picker } from './types.js';
-import { openMcpPicker, openPluginsPicker } from './run-slash.js';
+import {
+  openMcpPicker,
+  openModelPicker,
+  openModePicker,
+  openPluginsPicker,
+  openSettingsPicker,
+} from './run-slash.js';
+import { findKnob } from './settings-descriptors.js';
 import { NEW_SESSION_OPTION_ID, type SessionSwitchTarget } from './sessions-picker.js';
 
 export interface PickerHandlerDeps {
@@ -61,10 +68,65 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     if (kind === 'install-confirm') {
       return handleInstallConfirm(picker, id, deps);
     }
+    if (kind === 'settings') {
+      return handleSettingSelected(id, deps);
+    }
     if (kind === 'sessions') {
       return handleSessionSelected(id, deps);
     }
   };
+}
+
+/**
+ * Apply a `/settings` knob pick: booleans toggle, enums cycle — persisted to
+ * the USER config through the shared schema-validated writer, then
+ * live-applied via `session.configAdmin` (absent on a RemoteSession → the
+ * write lands and the notice says it applies on restart). Link rows re-open
+ * the matching picker; readonly rows explain where to edit. The panel
+ * re-opens with fresh badges after every write.
+ */
+function handleSettingSelected(id: string, deps: PickerHandlerDeps): void {
+  const knob = findKnob(id);
+  if (!knob) return;
+  if (knob.kind === 'link') {
+    // Re-opening the model/mode picker needs the fuller SlashDeps surface;
+    // the ones the openers actually touch are present on PickerHandlerDeps.
+    if (knob.opens === 'model') openModelPicker(deps as never);
+    else openModePicker(deps as never);
+    return;
+  }
+  if (knob.kind === 'readonly') {
+    deps.setSystemNotice(`${knob.label}: ${knob.description}`);
+    return;
+  }
+  void (async () => {
+    try {
+      const { config } = await loadConfig({ cwd: process.cwd() });
+      const value = knob.next!(config);
+      await setConfigValue({
+        scope: 'user',
+        cwd: process.cwd(),
+        path: knob.dotPath!,
+        value,
+      });
+      const admin = deps.session.configAdmin;
+      if (admin) {
+        const res = await admin.apply();
+        const appliedNow = res.applied.length > 0;
+        deps.setSystemNotice(
+          `✓ ${knob.label} → ${JSON.stringify(value)}${appliedNow ? '' : ' — applies on restart'}`,
+        );
+      } else {
+        deps.setSystemNotice(`✓ ${knob.label} → ${JSON.stringify(value)} — applies on restart`);
+      }
+    } catch (err) {
+      deps.setSystemNotice(
+        `failed to update ${knob.label}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      openSettingsPicker(deps);
+    }
+  })();
 }
 
 /**

@@ -10,6 +10,7 @@ import { StatusLine } from '../components/StatusLine.js';
 import { estimateContextTokens } from '../context-estimate.js';
 import {
   buildSlashSuggestions,
+  parseTuiKeyOverrides,
   clearTerminalScreen,
   getModeBadge,
   getModeName,
@@ -125,8 +126,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // Hotkeys that need to reach inside PromptInput. Routed through
   // parse-input.ts since Ink's useInput stops firing once the editor
   // owns the stdin stream (data-mode flowing vs. readable-mode read()).
+  // Ctrl+<letter> assignments honor `tui.keys` overrides (env-projected by
+  // the launcher); the voice key stays fixed on 'r'.
+  const tuiKeys = parseTuiKeyOverrides(process.env.MOXXY_TUI_KEYS);
   const commandHotkeys: Record<string, () => void> = {
-    t: () => {
+    [tuiKeys.forceSend]: () => {
       const moved = turn.forceSendFirst();
       setSystemNotice(
         moved
@@ -134,13 +138,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
           : 'queue: nothing queued to force-send',
       );
     },
-    b: () => {
+    [tuiKeys.dropQueued]: () => {
       const dropped = turn.dropFirst();
       setSystemNotice(
         dropped ? 'queue: dropped the first queued message' : 'queue: nothing to drop',
       );
     },
-    o: () => {
+    [tuiKeys.toggleTools]: () => {
       setExpandToolOutputs((e) => {
         const next = !e;
         setSystemNotice(

@@ -4,6 +4,7 @@ import { z, createMutex, defineTool, definePlugin, type Plugin } from '@moxxy/sd
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { findUpward, loadConfig } from './loader.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
+import { setConfigValue } from './config-writer.js';
 
 /**
  * Optional callback that the CLI (or any session host) can provide to apply
@@ -174,50 +175,37 @@ export function buildConfigPlugin(
           value: z.string(),
         }),
         permission: { action: 'prompt' },
-        handler: async ({ scope, path: dotPath, value }) =>
-          writeMutex.run(async () => {
-            const target = (await findScopePath(scope, cwd)) ?? scopeDefaultPath(scope, cwd);
-            await fs.mkdir(path.dirname(target), { recursive: true });
-            const { doc, text } = await readDoc(target);
-            const segs = parseDotPath(dotPath);
-            const parsedValue = parseValue(value);
-            doc.setIn(segs, parsedValue);
-            const yamlMod = (await import('yaml')) as typeof import('yaml');
+        handler: async ({ scope, path: dotPath, value }) => {
+          // ONE write implementation for every surface: the shared
+          // schema-validated, comment-preserving, mutex-serialized writer
+          // (config-writer.ts) — the TUI /settings panel writes through the
+          // same function, so tool and UI writes can't interleave or drift.
+          const written = await setConfigValue({
+            scope,
+            cwd,
+            path: dotPath,
+            value: parseValue(value),
+          });
 
-            const candidate = String(doc);
-            const candidateParsed = yamlMod.parse(candidate);
-            // Validate post-write through the schema so we never persist a
-            // structurally-invalid config.
-            const validated = moxxyConfigSchema.safeParse(candidateParsed ?? {});
-            if (!validated.success) {
-              throw new Error(
-                `config_set would produce an invalid config:\n` +
-                  JSON.stringify(validated.error.issues, null, 2),
-              );
+          // If a runtime applier is wired, try to reflect the change live.
+          let runtime: ConfigApplyResult = { applied: [], pending: [] };
+          if (applier) {
+            try {
+              runtime = await applier(written.config);
+            } catch (err) {
+              runtime = {
+                applied: [],
+                pending: [`reload-failed: ${err instanceof Error ? err.message : String(err)}`],
+              };
             }
-            await writeFileAtomic(target, candidate);
+          }
 
-            // If a runtime applier is wired, try to reflect the change live.
-            let runtime: ConfigApplyResult = { applied: [], pending: [] };
-            if (applier) {
-              try {
-                runtime = await applier(validated.data);
-              } catch (err) {
-                runtime = {
-                  applied: [],
-                  pending: [`reload-failed: ${err instanceof Error ? err.message : String(err)}`],
-                };
-              }
-            }
-
-            return {
-              path: target,
-              outsideCwd: scope === 'project' && isOutsideCwd(target, cwd),
-              previousSize: text.length,
-              newSize: candidate.length,
-              runtime,
-            };
-          }),
+          return {
+            path: written.path,
+            outsideCwd: scope === 'project' && isOutsideCwd(written.path, cwd),
+            runtime,
+          };
+        },
       }),
       defineTool({
         name: 'config_reload',

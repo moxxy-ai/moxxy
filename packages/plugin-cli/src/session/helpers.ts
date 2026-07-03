@@ -135,3 +135,37 @@ export function clearTerminalScreen(): void {
     process.stdout.write(keepScrollback ? '\x1b[2J\x1b[H' : '\x1b[3J\x1b[2J\x1b[H');
   }
 }
+
+
+/**
+ * Ctrl+<letter> hotkey overrides from `tui.keys` (projected to the
+ * MOXXY_TUI_KEYS env by the CLI launcher). Only single ascii letters are
+ * honored; anything else — bad JSON, multi-char values, collisions with the
+ * fixed voice key — falls back to the defaults so a bad config can't brick
+ * the editor.
+ */
+export interface TuiKeyOverrides {
+  readonly forceSend: string;
+  readonly dropQueued: string;
+  readonly toggleTools: string;
+}
+
+const TUI_KEY_DEFAULTS: TuiKeyOverrides = { forceSend: 't', dropQueued: 'b', toggleTools: 'o' };
+
+export function parseTuiKeyOverrides(raw: string | undefined): TuiKeyOverrides {
+  if (!raw) return TUI_KEY_DEFAULTS;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return TUI_KEY_DEFAULTS;
+  }
+  const pick = (key: keyof TuiKeyOverrides): string => {
+    const v = parsed[key];
+    return typeof v === 'string' && /^[a-z]$/.test(v) && v !== 'r' ? v : TUI_KEY_DEFAULTS[key];
+  };
+  const out = { forceSend: pick('forceSend'), dropQueued: pick('dropQueued'), toggleTools: pick('toggleTools') };
+  // A collision (two actions on one letter) reverts to defaults wholesale.
+  const letters = new Set([out.forceSend, out.dropQueued, out.toggleTools]);
+  return letters.size === 3 ? out : TUI_KEY_DEFAULTS;
+}

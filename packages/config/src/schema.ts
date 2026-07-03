@@ -164,6 +164,28 @@ export const moxxyConfigSchema = z.object({
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
+  /** TUI presentation preferences (read at TUI boot; edited via /settings). */
+  tui: z
+    .object({
+      /** `mono` drops color like NO_COLOR; `default` is the standard palette. */
+      theme: z.enum(['default', 'mono']).optional(),
+      /** Hide the footer key-hint row when false. */
+      hints: z.boolean().optional(),
+      /**
+       * Ctrl+<letter> overrides for the input-editor command hotkeys. Values
+       * are single letters; unknown/conflicting letters are ignored at boot.
+       */
+      keys: z
+        .object({
+          forceSend: z.string().length(1).optional(),
+          dropQueued: z.string().length(1).optional(),
+          toggleTools: z.string().length(1).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .optional(),
 });
 
 export type MoxxyConfig = z.infer<typeof moxxyConfigSchema>;

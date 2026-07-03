@@ -470,4 +470,16 @@ export interface SessionLike {
   pluginsAdmin?: PluginsAdminView;
   /** Provider onboarding slice backing in-channel connect (key entry / OAuth). */
   providerSetup?: ProviderSetupView;
+  /**
+   * Re-read the merged config from disk and live-apply the safe subset —
+   * backs the TUI /settings panel's write-then-apply. Structurally matches
+   * @moxxy/config's ConfigApplyResult (the SDK stays config-free). Absent on
+   * a RemoteSession: writes still land, but apply waits for a restart.
+   */
+  configAdmin?: {
+    apply(): Promise<{
+      readonly applied: ReadonlyArray<string>;
+      readonly pending: ReadonlyArray<string>;
+    }>;
+  };
 }

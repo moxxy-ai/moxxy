@@ -47,6 +47,7 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
   },
   { name: 'mcp', description: 'Enable / disable / remove MCP servers' },
   { name: 'plugins', description: 'Plug / unplug & install plugins — opens a tabbed picker' },
+  { name: 'settings', description: 'Curated config panel: reasoning, caching, elision, theme… (alias /config)' },
   {
     name: 'channels',
     description: 'Run Slack / Telegram bots on their own runner — configure, start, stop',

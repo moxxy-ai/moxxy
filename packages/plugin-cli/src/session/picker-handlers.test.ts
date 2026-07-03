@@ -9,10 +9,15 @@ import { openPluginsPicker } from './run-slash.js';
 vi.mock('@moxxy/config', () => ({
   setCategoryDefault: vi.fn(async () => undefined),
   setProviderModel: vi.fn(async () => undefined),
+  setConfigValue: vi.fn(async () => ({ path: '/tmp/config.yaml', config: {} })),
+  loadConfig: vi.fn(async () => ({ config: {}, sources: [] })),
 }));
 vi.mock('./run-slash.js', () => ({
   openMcpPicker: vi.fn(),
   openPluginsPicker: vi.fn(),
+  openModelPicker: vi.fn(),
+  openModePicker: vi.fn(),
+  openSettingsPicker: vi.fn(),
 }));
 
 function baseDeps(over: Partial<PickerHandlerDeps> = {}): PickerHandlerDeps {
@@ -272,5 +277,54 @@ describe('makePickerHandler — install-on-first-use', () => {
     await new Promise((r) => setImmediate(r));
     expect(install).toHaveBeenCalledWith('mode-goal');
     expect(rerunSlash).toHaveBeenCalledWith('/mode goal');
+  });
+});
+
+describe('makePickerHandler — settings panel', () => {
+  const settingsPicker = { kind: 'settings', title: 'Settings', options: [] } as const;
+
+  it('toggles a boolean knob: writes user scope, live-applies, reopens', async () => {
+    const { setConfigValue, loadConfig } = await import('@moxxy/config');
+    vi.mocked(loadConfig).mockResolvedValue({ config: {}, sources: [] } as never);
+    const apply = vi.fn(async () => ({ applied: ['context.caching'], pending: [] }));
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', configAdmin: { apply } } as never,
+        setSystemNotice,
+      }),
+    );
+    handle(settingsPicker, 'caching');
+    await new Promise((r) => setImmediate(r));
+    expect(vi.mocked(setConfigValue)).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'user', path: 'context.caching', value: false }),
+    );
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(setSystemNotice).toHaveBeenCalledWith(expect.stringContaining('Prompt caching → false'));
+  });
+
+  it('without configAdmin the write still lands and the notice says restart', async () => {
+    const { setConfigValue, loadConfig } = await import('@moxxy/config');
+    vi.mocked(loadConfig).mockResolvedValue({ config: {}, sources: [] } as never);
+    vi.mocked(setConfigValue).mockClear();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({ session: { id: 's' } as never, setSystemNotice }),
+    );
+    handle(settingsPicker, 'security');
+    await new Promise((r) => setImmediate(r));
+    expect(vi.mocked(setConfigValue)).toHaveBeenCalledTimes(1);
+    expect(setSystemNotice).toHaveBeenCalledWith(expect.stringContaining('applies on restart'));
+  });
+
+  it('readonly rows only explain where to edit', async () => {
+    const { setConfigValue } = await import('@moxxy/config');
+    vi.mocked(setConfigValue).mockClear();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(baseDeps({ setSystemNotice }));
+    handle(settingsPicker, 'system-prompt');
+    await new Promise((r) => setImmediate(r));
+    expect(vi.mocked(setConfigValue)).not.toHaveBeenCalled();
+    expect(setSystemNotice).toHaveBeenCalledWith(expect.stringContaining('config.yaml'));
   });
 });

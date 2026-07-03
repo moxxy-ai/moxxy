@@ -187,10 +187,39 @@ export async function runTuiWithBootstrap(
   argv: ParsedArgv,
   tuiOpts: RunTuiOpts = {},
 ): Promise<number> {
+  await applyTuiPreferences(argv);
   const standalone = hasBoolFlag(argv, 'standalone');
   const mode = chooseClientMode({ standalone, runnerUp: standalone ? false : await isRunnerUp() });
   if (mode === 'attach') return await runAttachedTui(argv, tuiOpts);
   return await runSelfHostedTui(argv, tuiOpts, mode === 'standalone');
+}
+
+/**
+ * Project `config.tui` presentation preferences onto the env conventions the
+ * TUI already reads (NO_COLOR-style toggles) BEFORE Ink mounts — plugin-cli
+ * stays config-loader-free. Explicit env always wins over config so a user's
+ * one-off `MOXXY_NO_COLOR=1 moxxy` behaves as typed. Never blocks boot.
+ */
+async function applyTuiPreferences(argv: ParsedArgv): Promise<void> {
+  try {
+    const { config } = await loadConfig({
+      cwd: process.cwd(),
+      ...(stringFlag(argv, 'config') ? { explicitPath: stringFlag(argv, 'config')! } : {}),
+    });
+    const tui = config.tui;
+    if (!tui) return;
+    if (tui.theme === 'mono' && !process.env.NO_COLOR && !process.env.MOXXY_NO_COLOR) {
+      process.env.MOXXY_NO_COLOR = '1';
+    }
+    if (tui.hints === false && process.env.MOXXY_TUI_HINTS === undefined) {
+      process.env.MOXXY_TUI_HINTS = '0';
+    }
+    if (tui.keys && process.env.MOXXY_TUI_KEYS === undefined) {
+      process.env.MOXXY_TUI_KEYS = JSON.stringify(tui.keys);
+    }
+  } catch {
+    // Presentation prefs must never block the TUI from starting.
+  }
 }
 
 /** Thin-client mode: drive a `RemoteSession` against the running runner. */
