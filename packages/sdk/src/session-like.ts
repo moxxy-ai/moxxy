@@ -3,7 +3,7 @@ import type { SessionId, TurnId } from './ids.js';
 import type { EventLogReader } from './log.js';
 import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
-import type { ModelDescriptor } from './provider.js';
+import type { ModelDescriptor, ProviderKeyValidation } from './provider.js';
 import type { ToolCompactPresentation } from './tool.js';
 
 /**
@@ -281,6 +281,9 @@ export interface InstallablePluginView {
   readonly installSpec: string;
   readonly kind?: string;
   readonly startCommand?: string;
+  /** Registry contributions the package provides (category + name) — lets
+   *  surfaces offer install-on-first-use for a missing capability. */
+  readonly provides?: ReadonlyArray<{ readonly category: string; readonly name: string }>;
 }
 
 /** One loaded plugin in {@link PluginsAdminView.loaded}, grouped by `kinds`. */
@@ -365,6 +368,52 @@ export interface PluginsAdminView {
   }>;
 }
 
+/** IO a channel supplies to drive an interactive OAuth flow inside its own
+ *  UI — mirrors `ProviderAuthContext` minus vault/headless (the host adds
+ *  those). `write` receives the flow's progress lines (sign-in URL, status);
+ *  `prompt` renders a single-line input (paste-back codes), masked for
+ *  secrets. */
+export interface ProviderConnectIo {
+  readonly write: (chunk: string) => void;
+  readonly prompt?: (question: string, opts?: { readonly mask?: boolean }) => Promise<string>;
+}
+
+/**
+ * The slice of provider onboarding a channel needs to connect a provider
+ * WITHOUT leaving the session: install it if it's catalog-only, collect +
+ * validate + store an API key, or drive an OAuth sign-in. Present on a local
+ * Session (wired by the CLI, which owns vault + catalog); a `RemoteSession`
+ * leaves {@link SessionLike.providerSetup} undefined and the UI falls back
+ * to pointing at `moxxy init` / `moxxy login`.
+ */
+export interface ProviderSetupView {
+  /**
+   * How this provider authenticates: from its registered def, else the
+   * first-party catalog; null when the id is unknown to both.
+   */
+  authKind(providerId: string): 'apiKey' | 'oauth' | 'none' | null;
+  /**
+   * Ensure the provider's package is registered — a catalog-only provider is
+   * npm-installed + enabled + hot-reloaded. Resolves false when the provider
+   * still isn't registered afterwards (unknown id, bad install).
+   */
+  ensureInstalled(providerId: string): Promise<boolean>;
+  /** Validate a key against the provider's own `validateKey` (if it has one). */
+  testKey(providerId: string, key: string): Promise<ProviderKeyValidation>;
+  /** Store the key in the vault under the provider's canonical key name and
+   *  mark the provider ready for this session. */
+  saveKey(providerId: string, key: string): Promise<void>;
+  /**
+   * Drive the provider's OAuth flow. `io` routes the flow's output/prompts
+   * into the calling channel's UI; when omitted the host's default terminal
+   * prompting applies (the clack path `moxxy init`/`moxxy login` use).
+   */
+  loginOAuth(
+    providerId: string,
+    io?: ProviderConnectIo,
+  ): Promise<{ readonly accountId?: string | null; readonly expiresAt?: number }>;
+}
+
 /**
  * The session surface a `Channel` depends on, decoupled from whether the
  * session runs in-process (`@moxxy/core`'s `Session`) or is a thin-client
@@ -419,4 +468,6 @@ export interface SessionLike {
   workflows?: WorkflowsView;
   /** Plugin-management slice backing the `/plugins` picker. */
   pluginsAdmin?: PluginsAdminView;
+  /** Provider onboarding slice backing in-channel connect (key entry / OAuth). */
+  providerSetup?: ProviderSetupView;
 }

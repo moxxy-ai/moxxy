@@ -3,6 +3,7 @@ import { Box } from 'ink';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { PermissionDialog } from '../components/PermissionDialog.js';
 import { ApprovalDialog } from '../components/ApprovalDialog.js';
+import { ProviderConnectDialog } from '../components/ProviderConnectDialog.js';
 import { InputBox } from '../components/InputBox.js';
 import { ListPicker } from '../components/ListPicker.js';
 import { QueueView } from '../components/QueueView.js';
@@ -18,6 +19,10 @@ interface InteractiveZoneProps {
   pendingPermissionDepth: number;
   pendingApproval: PendingApproval | null;
   picker: Picker;
+  /** Inline provider-connect dialog target (SessionView owns the state). */
+  providerConnect: { providerId: string; modelId: string } | null;
+  onProviderConnectSuccess: (note?: string) => void;
+  onProviderConnectCancel: () => void;
   busy: boolean;
   voiceReady: boolean;
   voicePhase: VoicePhase;
@@ -54,6 +59,9 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
   pendingPermissionDepth,
   pendingApproval,
   picker,
+  providerConnect,
+  onProviderConnectSuccess,
+  onProviderConnectCancel,
   busy,
   voiceReady,
   voicePhase,
@@ -86,6 +94,17 @@ export const InteractiveZone: React.FC<InteractiveZoneProps> = ({
       <ApprovalDialog
         request={pendingApproval.request}
         onDecide={(decision) => onApprovalDecide(decision)}
+      />
+    );
+  }
+  if (providerConnect && session.providerSetup) {
+    return (
+      <ProviderConnectDialog
+        key={providerConnect.providerId}
+        providerId={providerConnect.providerId}
+        setup={session.providerSetup}
+        onSuccess={onProviderConnectSuccess}
+        onCancel={onProviderConnectCancel}
       />
     );
   }

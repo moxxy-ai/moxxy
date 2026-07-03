@@ -83,3 +83,26 @@ describe('formatPluginCatalogStatus / buildPluginActionOptions', () => {
     expect(present.map((o) => o.value)).toEqual(['open', 'disable', 'remove', 'back']);
   });
 });
+
+describe('findCatalogEntryForContribution', () => {
+  it('maps a mode contribution to its providing package', async () => {
+    const { findCatalogEntryForContribution } = await import('./catalog.js');
+    expect(findCatalogEntryForContribution('mode', 'goal')?.packageName).toBe('@moxxy/mode-goal');
+    expect(findCatalogEntryForContribution('mode', 'research')?.packageName).toBe(
+      '@moxxy/mode-deep-research',
+    );
+    expect(findCatalogEntryForContribution('provider', 'anthropic')?.packageName).toBe(
+      '@moxxy/plugin-provider-anthropic',
+    );
+    // Multi-contribution package: both zai contributions resolve to one entry.
+    expect(findCatalogEntryForContribution('provider', 'zai-plan')?.packageName).toBe(
+      '@moxxy/plugin-provider-zai',
+    );
+  });
+
+  it('returns undefined for unknown contributions', async () => {
+    const { findCatalogEntryForContribution } = await import('./catalog.js');
+    expect(findCatalogEntryForContribution('mode', 'nope')).toBeUndefined();
+    expect(findCatalogEntryForContribution('compactor', 'goal')).toBeUndefined();
+  });
+});

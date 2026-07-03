@@ -23,6 +23,7 @@ import { buildSchedulerRunner } from './setup/scheduler-runner.js';
 import { buildWebhookRunner } from './setup/webhook-runner.js';
 import { registerPlugins } from './setup/register-plugins.js';
 import { activateProvider } from './setup/activate-provider.js';
+import { buildProviderSetupView } from './setup/provider-setup.js';
 import {
   applyPluginsTree,
   assertCriticalFloors,
@@ -183,6 +184,11 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     progress,
     logger,
   });
+
+  // In-session provider onboarding (install / key entry / OAuth) — backs the
+  // TUI's inline connect dialog and shares its implementation with the init
+  // wizard. Attached after activation so readyProviders exists to mark into.
+  session.providerSetup = buildProviderSetupView({ session, vault });
 
   // Apply the manifest's per-category defaults (mode/compactor/cacheStrategy/
   // workflowExecutor/viewRenderer/tunnelProvider) in one table-driven pass. A

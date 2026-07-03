@@ -22,6 +22,20 @@ export interface PickerHandlerDeps {
    * "still installing" notice instead of silently queueing behind the mutex.
    */
   installInFlightRef?: { current: boolean };
+  /**
+   * Open the inline provider-connect dialog for an unconnected provider
+   * picked in `/model` (SessionView owns the dialog state). Absent — or when
+   * the session has no `providerSetup` capability — the picker falls back to
+   * the "run moxxy init/login" notice.
+   */
+  openProviderConnect?: (target: { providerId: string; modelId: string }) => void;
+  /**
+   * Re-dispatch a slash line through the normal submit path. Used by the
+   * install-confirm picker to re-run the command that hit the missing
+   * capability (e.g. `/goal fix the build`) after the install lands — the
+   * original code path then finds the contribution registered.
+   */
+  rerunSlash?: (line: string) => void;
 }
 
 export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id: string) => void {
@@ -44,10 +58,75 @@ export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id:
     if (kind === 'plugins') {
       return handlePluginAction(id, deps);
     }
+    if (kind === 'install-confirm') {
+      return handleInstallConfirm(picker, id, deps);
+    }
     if (kind === 'sessions') {
       return handleSessionSelected(id, deps);
     }
   };
+}
+
+/**
+ * The shared picker-driven install flow: guard for capability + in-flight,
+ * progress/success/failure notices, then `after` (reopen a picker, re-run a
+ * slash line). Used by the /plugins Installable tab and install-confirm.
+ */
+function runPickerInstall(
+  deps: PickerHandlerDeps,
+  target: string,
+  opts: { reopenPluginsPicker?: boolean; onSuccess?: () => void } = {},
+): void {
+  const admin = deps.session.pluginsAdmin;
+  const install = admin?.install?.bind(admin);
+  if (!install) {
+    deps.setSystemNotice(`to install: run \`moxxy plugins install ${target}\``);
+    return;
+  }
+  if (deps.installInFlightRef?.current) {
+    deps.setSystemNotice('an install is already running — hang on…');
+    return;
+  }
+  if (deps.installInFlightRef) deps.installInFlightRef.current = true;
+  deps.setSystemNotice(`installing ${target} via npm — this can take a minute…`);
+  void (async () => {
+    let ok = false;
+    try {
+      const res = await install(target);
+      const kinds = Object.entries(res.registered)
+        .filter(([, names]) => names && names.length > 0)
+        .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
+        .join('; ');
+      deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
+      ok = true;
+    } catch (err) {
+      deps.setSystemNotice(
+        `install failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      if (deps.installInFlightRef) deps.installInFlightRef.current = false;
+      // Re-open with refreshed state: a success moves the plugin from the
+      // Installable tab into Packages; a failure keeps it installable.
+      if (opts.reopenPluginsPicker) openPluginsPicker(deps);
+    }
+    if (ok) opts.onSuccess?.();
+  })();
+}
+
+/**
+ * `install-confirm` picker: `install` runs the shared install flow and, on
+ * success, re-runs the original slash line so the user continues through the
+ * unmodified code path; anything else closes silently.
+ */
+function handleInstallConfirm(
+  picker: Extract<NonNullable<Picker>, { kind: 'install-confirm' }>,
+  id: string,
+  deps: PickerHandlerDeps,
+): void {
+  if (id !== 'install') return;
+  runPickerInstall(deps, picker.catalogId, {
+    onSuccess: () => deps.rerunSlash?.(picker.rerun),
+  });
 }
 
 /**
@@ -93,36 +172,7 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
   const name = sep >= 0 ? id.slice(0, sep) : id;
   const action = sep >= 0 ? id.slice(sep + 2) : '';
   if (action === 'install') {
-    const install = admin?.install?.bind(admin);
-    if (!install) {
-      deps.setSystemNotice(`to install: run \`moxxy plugins install ${name}\``);
-      return;
-    }
-    if (deps.installInFlightRef?.current) {
-      deps.setSystemNotice('an install is already running — hang on…');
-      return;
-    }
-    if (deps.installInFlightRef) deps.installInFlightRef.current = true;
-    deps.setSystemNotice(`installing ${name} via npm — this can take a minute…`);
-    void (async () => {
-      try {
-        const res = await install(name);
-        const kinds = Object.entries(res.registered)
-          .filter(([, names]) => names && names.length > 0)
-          .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
-          .join('; ');
-        deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
-      } catch (err) {
-        deps.setSystemNotice(
-          `install failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      } finally {
-        if (deps.installInFlightRef) deps.installInFlightRef.current = false;
-        // Re-open with refreshed state: a success moves the plugin from the
-        // Installable tab into Packages; a failure keeps it installable.
-        openPluginsPicker(deps);
-      }
-    })();
+    runPickerInstall(deps, name, { reopenPluginsPicker: true });
     return;
   }
   if (action === 'core') {
@@ -269,10 +319,15 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
   const [providerId, modelId] = id.split('::');
   if (!providerId || !modelId) return;
   // If the provider wasn't in the boot probe's ready set, switching
-  // would surface a credential error on the next turn. Intercept
-  // here and surface the right configuration command instead.
+  // would surface a credential error on the next turn. Connect it inline
+  // when the session can (install + key entry / OAuth in a dialog);
+  // otherwise surface the right configuration command.
   const ready = deps.session.readyProviders ?? new Set<string>();
   if (!ready.has(providerId)) {
+    if (deps.session.providerSetup && deps.openProviderConnect) {
+      deps.openProviderConnect({ providerId, modelId });
+      return;
+    }
     const cmd =
       providerId === 'openai-codex'
         ? 'moxxy login openai-codex'
@@ -283,37 +338,68 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
     );
     return;
   }
+  void applyProviderModelSwitch(deps, providerId, modelId);
+}
+
+/**
+ * The provider+model switch tail — credential resolution, instance replace,
+ * setActive, model override, persistence. Shared by the ready-provider path
+ * and the post-connect continuation (the connect dialog's onSuccess), so a
+ * freshly-connected provider switches through EXACTLY the same code.
+ */
+export async function applyProviderModelSwitch(
+  deps: Pick<
+    PickerHandlerDeps,
+    'session' | 'providerName' | 'setSystemNotice' | 'setActiveModelOverride'
+  >,
+  providerId: string,
+  modelId: string,
+): Promise<void> {
   // Provider switches must resolve credentials (vault tokens for
   // OAuth providers, API keys for the rest) before setActive — the
   // registry caches the instance on first activation, so passing
   // empty config strands the new provider without auth. The CLI
   // stashes a credentialResolver on the session at boot.
-  void (async () => {
-    try {
-      if (providerId !== deps.providerName) {
-        const resolver = deps.session.credentialResolver;
-        const cfg = resolver ? await resolver(providerId) : {};
-        // Drop any previously-cached instance for this provider so the
-        // freshly-resolved credentials actually take effect — setActive
-        // alone keeps the first-cached instance.
-        const def = deps.session.providers.list().find((p) => p.name === providerId);
-        if (def) deps.session.providers.replace(def);
-        deps.session.providers.setActive(providerId, cfg);
-      }
-      deps.setActiveModelOverride(modelId);
-      deps.setSystemNotice(`switched to ${providerId}:${modelId}`);
-      // Persist to the unified manifest so the next boot keeps this pick.
-      void setCategoryDefault('provider', providerId).catch(() => undefined);
-      void setProviderModel(providerId, modelId).catch(() => undefined);
-    } catch (err) {
-      deps.setSystemNotice(
-        `failed to switch: ${err instanceof Error ? err.message : String(err)}`,
-      );
+  try {
+    if (providerId !== deps.providerName) {
+      const resolver = deps.session.credentialResolver;
+      const cfg = resolver ? await resolver(providerId) : {};
+      // Drop any previously-cached instance for this provider so the
+      // freshly-resolved credentials actually take effect — setActive
+      // alone keeps the first-cached instance.
+      const def = deps.session.providers.list().find((p) => p.name === providerId);
+      if (def) deps.session.providers.replace(def);
+      deps.session.providers.setActive(providerId, cfg);
     }
-  })();
+    deps.setActiveModelOverride(modelId);
+    deps.setSystemNotice(`switched to ${providerId}:${modelId}`);
+    // Persist to the unified manifest so the next boot keeps this pick.
+    void setCategoryDefault('provider', providerId).catch(() => undefined);
+    void setProviderModel(providerId, modelId).catch(() => undefined);
+  } catch (err) {
+    deps.setSystemNotice(
+      `failed to switch: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 function handleModeSelected(id: string, deps: PickerHandlerDeps): void {
+  // Catalog modes appended by openModePicker carry `install::<name>` ids —
+  // install the providing package, then re-run `/mode <name>`.
+  if (id.startsWith('install::')) {
+    const modeName = id.slice('install::'.length);
+    const entry = deps.session.pluginsAdmin
+      ?.catalog()
+      .find((e) => e.provides?.some((p) => p.category === 'mode' && p.name === modeName));
+    if (!entry) {
+      deps.setSystemNotice(`no installable package provides mode "${modeName}"`);
+      return;
+    }
+    runPickerInstall(deps, entry.id, {
+      onSuccess: () => deps.rerunSlash?.(`/mode ${modeName}`),
+    });
+    return;
+  }
   try {
     deps.session.modes.setActive(id);
     deps.setSystemNotice(`mode → ${id}`);

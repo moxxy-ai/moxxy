@@ -76,6 +76,7 @@ export {
   buildInstallSpec,
   buildPluginActionOptions,
   buildPluginCatalogOptions,
+  findCatalogEntryForContribution,
   formatPluginCatalogStatus,
   INSTALLABLE_PLUGIN_CATALOG,
   resolveCatalogEntry,

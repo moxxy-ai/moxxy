@@ -76,6 +76,49 @@ describe('makePickerHandler — sessions branch', () => {
   });
 });
 
+const modelPicker = { kind: 'model', title: 'Model', tabs: [] } as const;
+
+describe('makePickerHandler — model branch, unconnected provider', () => {
+  it('opens the inline connect dialog when the session can connect', () => {
+    const openProviderConnect = vi.fn();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: {
+          id: 's',
+          readyProviders: new Set(['openai']),
+          providerSetup: {},
+        } as never,
+        openProviderConnect,
+        setSystemNotice,
+      }),
+    );
+    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    expect(openProviderConnect).toHaveBeenCalledWith({
+      providerId: 'anthropic',
+      modelId: 'claude-opus-4-8',
+    });
+    expect(setSystemNotice).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the init/login notice without providerSetup', () => {
+    const openProviderConnect = vi.fn();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', readyProviders: new Set() } as never,
+        openProviderConnect,
+        setSystemNotice,
+      }),
+    );
+    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    expect(openProviderConnect).not.toHaveBeenCalled();
+    expect(setSystemNotice).toHaveBeenCalledWith(
+      expect.stringContaining("anthropic isn't connected"),
+    );
+  });
+});
+
 const pluginsPicker = { kind: 'plugins', title: 'Plugins', options: [] } as const;
 
 describe('makePickerHandler — installable-tab install', () => {
@@ -158,5 +201,76 @@ describe('makePickerHandler — installable-tab install', () => {
     handle(pluginsPicker, 'y::install');
     expect(install).not.toHaveBeenCalled();
     expect(setSystemNotice).toHaveBeenCalledWith('an install is already running — hang on…');
+  });
+});
+
+describe('makePickerHandler — install-on-first-use', () => {
+  it('install-confirm: installs then re-runs the original slash line', async () => {
+    const install = vi.fn(async () => ({ installed: '@moxxy/mode-goal@1.0.0', registered: {} }));
+    const rerunSlash = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setSystemNotice: vi.fn(),
+        rerunSlash,
+        installInFlightRef: { current: false },
+      }),
+    );
+    handle(
+      {
+        kind: 'install-confirm',
+        title: 'goal is not installed',
+        catalogId: 'mode-goal',
+        rerun: '/goal ship it',
+        options: [],
+      },
+      'install',
+    );
+    await new Promise((r) => setImmediate(r));
+    expect(install).toHaveBeenCalledWith('mode-goal');
+    expect(rerunSlash).toHaveBeenCalledWith('/goal ship it');
+  });
+
+  it('install-confirm: cancel does nothing', async () => {
+    const install = vi.fn();
+    const rerunSlash = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        rerunSlash,
+      }),
+    );
+    handle(
+      { kind: 'install-confirm', title: 't', catalogId: 'x', rerun: '/mode x', options: [] },
+      'cancel',
+    );
+    await new Promise((r) => setImmediate(r));
+    expect(install).not.toHaveBeenCalled();
+    expect(rerunSlash).not.toHaveBeenCalled();
+  });
+
+  it('mode picker install:: id installs the providing package then re-runs /mode', async () => {
+    const install = vi.fn(async () => ({ installed: 'x', registered: {} }));
+    const catalog = vi.fn(() => [
+      {
+        id: 'mode-goal',
+        label: 'Goal mode',
+        packageName: '@moxxy/mode-goal',
+        installSpec: '@moxxy/mode-goal',
+        provides: [{ category: 'mode', name: 'goal' }],
+      },
+    ]);
+    const rerunSlash = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install, catalog } } as never,
+        rerunSlash,
+        installInFlightRef: { current: false },
+      }),
+    );
+    handle({ kind: 'mode', title: 'Switch mode', options: [] }, 'install::goal');
+    await new Promise((r) => setImmediate(r));
+    expect(install).toHaveBeenCalledWith('mode-goal');
+    expect(rerunSlash).toHaveBeenCalledWith('/mode goal');
   });
 });
