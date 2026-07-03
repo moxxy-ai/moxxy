@@ -156,6 +156,8 @@ function classifyTool(deps: SelfUpdateDeps): ToolDef {
       text: z.string().optional().describe('The user request or a short description of the problem.'),
     }),
     permission: { action: 'allow' },
+    // Pure in-memory: scans ctx.log and the registry snapshot.
+    isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
     handler: (input, ctx: ToolContext) => {
       const signals = gatherSignals(ctx.log, deps.snapshot().tools ?? []);
       return classify(input, signals);
@@ -177,6 +179,22 @@ function beginTool(deps: SelfUpdateDeps): ToolDef {
         .describe('Plugin directory name or skill slug (no path separators).'),
     }),
     permission: { action: 'allow' },
+    // Snapshots the target (source-only — SNAPSHOT_EXCLUDE drops
+    // node_modules/.git/dist) into the txn dir; nothing outside ~/.moxxy moves.
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [
+            `${deps.moxxyDir}/plugins/**`,
+            `${deps.moxxyDir}/skills/**`,
+            `${deps.moxxyDir}/self-update/**`,
+          ],
+          write: [`${deps.moxxyDir}/self-update/**`],
+        },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       // Single-flight per target (mirrors the Tier-2 core_begin guard): two
       // concurrent begins on the same plugin/skill snapshot independently, so a
@@ -225,6 +243,32 @@ function verifyTool(deps: SelfUpdateDeps): ToolDef {
       'Build, test and load-check the change in a transaction, then hot-reload it into the live session. Returns the stage results and what registered. On failure of a modify, the previous working version is automatically restored. Refuses after 2 failed cycles (escalate to the user). Run AFTER your edits; if it passes, call self_update_apply.',
     inputSchema: z.object({ txnId: z.string().min(1) }),
     permission: { action: 'prompt' },
+    // Runs the target plugin's own package-manager install/build/test as child
+    // processes (npm by default; pnpm/yarn/bun via its `packageManager` field).
+    // net 'any' is honest: `install` fetches from whatever registry the
+    // plugin's toolchain is configured for, and plugin test suites may
+    // legitimately open sockets. Budget covers the three child stages, each
+    // capped at 5 minutes, plus the reload.
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        commands: ['npm', 'pnpm', 'yarn', 'bun'],
+        net: { mode: 'any' },
+        fs: {
+          read: [
+            `${deps.moxxyDir}/plugins/**`,
+            `${deps.moxxyDir}/skills/**`,
+            `${deps.moxxyDir}/self-update/**`,
+          ],
+          write: [
+            `${deps.moxxyDir}/plugins/**`,
+            `${deps.moxxyDir}/skills/**`,
+            `${deps.moxxyDir}/self-update/**`,
+          ],
+        },
+        timeMs: 960_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       const journal = await readJournal(deps.moxxyDir, input.txnId);
 
@@ -356,6 +400,16 @@ function applyTool(deps: SelfUpdateDeps): ToolDef {
       'Finalize a verified self-update transaction: mark it committed and prune old snapshots. The change is already live (loaded during verify); this is the keep-it confirmation. Requires a prior successful self_update_verify.',
     inputSchema: z.object({ txnId: z.string().min(1) }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [`${deps.moxxyDir}/self-update/**`],
+          write: [`${deps.moxxyDir}/self-update/**`],
+        },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       const journal = await readJournal(deps.moxxyDir, input.txnId);
       if (journal.state !== 'verified') {
@@ -383,6 +437,25 @@ function rollbackTool(deps: SelfUpdateDeps): ToolDef {
       reason: z.string().optional(),
     }),
     permission: { action: 'allow' },
+    // Restores the pre-change snapshot back over the live plugin/skill dir.
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [
+            `${deps.moxxyDir}/plugins/**`,
+            `${deps.moxxyDir}/skills/**`,
+            `${deps.moxxyDir}/self-update/**`,
+          ],
+          write: [
+            `${deps.moxxyDir}/plugins/**`,
+            `${deps.moxxyDir}/skills/**`,
+            `${deps.moxxyDir}/self-update/**`,
+          ],
+        },
+        net: { mode: 'none' },
+        timeMs: 60_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       const journal = await readJournal(deps.moxxyDir, input.txnId);
       await restoreSnapshot(deps.moxxyDir, journal);
@@ -405,6 +478,13 @@ function statusTool(deps: SelfUpdateDeps): ToolDef {
     description: 'List self-update transactions and their state (open / verified / committed / rolled_back / escalated).',
     inputSchema: z.object({ txnId: z.string().optional() }),
     permission: { action: 'allow' },
+    isolation: {
+      capabilities: {
+        fs: { read: [`${deps.moxxyDir}/self-update/**`] },
+        net: { mode: 'none' },
+        timeMs: 10_000,
+      },
+    },
     handler: async (input) => {
       const all = await listTransactions(deps.moxxyDir);
       const rows = (input.txnId ? all.filter((j) => j.txnId === input.txnId) : all).map((j) => ({

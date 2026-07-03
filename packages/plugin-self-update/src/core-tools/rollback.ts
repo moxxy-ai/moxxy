@@ -6,12 +6,25 @@ import { resolveCore, snapshotDir, type CoreToolDeps } from './shared.js';
 // ── self_update_core_rollback ───────────────────────────────────────────────
 export function coreRollbackTool(cd: CoreToolDeps): ToolDef {
   const { deps } = cd;
+  const scopeDir = resolveCore(cd)?.scopeDir;
   return defineTool({
     name: 'self_update_core_rollback',
     description:
       'Undo a core overlay: restore the previous dist from the snapshot. A restart is required to drop the patched code. Use if a core patch built+loaded but misbehaves.',
     inputSchema: z.object({ coreTxnId: z.string().min(1), reason: z.string().optional() }),
     permission: { action: 'allow' },
+    // Restores the snapshotted dists back over the live @moxxy install —
+    // like core_apply, it writes outside ~/.moxxy by design.
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [...(scopeDir ? [`${scopeDir}/**`] : []), `${deps.moxxyDir}/self-update/**`],
+          write: [...(scopeDir ? [`${scopeDir}/**`] : []), `${deps.moxxyDir}/self-update/**`],
+        },
+        net: { mode: 'none' },
+        timeMs: 120_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
       const install = resolveCore(cd);

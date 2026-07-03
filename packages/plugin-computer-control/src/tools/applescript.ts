@@ -20,6 +20,18 @@ export const applescriptTool = defineTool({
       ),
   }),
   permission: { action: 'prompt' },
+  // Arbitrary AppleScript is an escape hatch on par with a shell: the script
+  // can itself shell out (`do shell script`) and reach the network, so the
+  // honest bounds are subprocess + any net — a confining isolator must not
+  // assume osascript stays offline. Budget = the 30s child timeout + kill grace.
+  isolation: {
+    capabilities: {
+      subprocess: true,
+      commands: ['osascript'],
+      net: { mode: 'any' },
+      timeMs: 40_000,
+    },
+  },
   async handler({ script }, ctx) {
     ensureDarwin('computer_applescript');
     const proc = await runProcess('osascript', ['-e', script], {

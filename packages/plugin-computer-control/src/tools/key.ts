@@ -77,6 +77,14 @@ export const keyTool = defineTool({
       ),
   }),
   permission: { action: 'prompt' },
+  isolation: {
+    capabilities: {
+      subprocess: true,
+      commands: ['osascript'],
+      net: { mode: 'none' },
+      timeMs: 15_000,
+    },
+  },
   async handler({ key, modifiers }, ctx) {
     ensureDarwin('computer_key');
     const mods = modifiers ?? [];

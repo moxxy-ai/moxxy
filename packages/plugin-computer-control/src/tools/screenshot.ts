@@ -68,6 +68,18 @@ export const screenshotTool = defineTool({
       ),
   }),
   permission: { action: 'prompt' },
+  // Capture + resize round-trips through temp files under os.tmpdir()
+  // (which is /var/folders/... on macOS, not /tmp). Budget covers the two
+  // 15s child stages plus encode/cleanup.
+  isolation: {
+    capabilities: {
+      subprocess: true,
+      commands: ['screencapture', 'sips'],
+      fs: { read: [`${os.tmpdir()}/**`], write: [`${os.tmpdir()}/**`] },
+      net: { mode: 'none' },
+      timeMs: 45_000,
+    },
+  },
   async handler({ region, maxDim, format, quality }, ctx) {
     ensureDarwin('computer_screenshot');
     const fmt = format ?? DEFAULT_FORMAT;

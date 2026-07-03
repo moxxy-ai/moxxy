@@ -17,6 +17,14 @@ export const clipboardTool = defineTool({
       .describe('Text to put on the clipboard. Required when action="write".'),
   }),
   permission: { action: 'prompt' },
+  isolation: {
+    capabilities: {
+      subprocess: true,
+      commands: ['pbpaste', 'pbcopy'],
+      net: { mode: 'none' },
+      timeMs: 10_000,
+    },
+  },
   async handler({ action, text }, ctx) {
     ensureDarwin('computer_clipboard');
     if (action === 'read') {
