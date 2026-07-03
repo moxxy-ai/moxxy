@@ -68,6 +68,17 @@ export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
     async ({ session, vault, config }): Promise<{ code: number } | 'run-channel'> => {
       const def = session.channels.get(name);
       if (!def) {
+        // Slim kernel: a known channel may simply not be installed yet.
+        const { findCatalogEntryForChannel } = await import('../channel-hints.js');
+        const hint = findCatalogEntryForChannel(name);
+        if (hint) {
+          printError(
+            `channel not installed: ${name}\n` +
+              `  install it with: moxxy plugins install ${hint.id}\n` +
+              `  (or from the TUI: /plugins → Installable → ${hint.label})`,
+          );
+          return { code: 2 };
+        }
         printError(
           `unknown channel: ${name}\n  Available:\n` +
             session.channels.list().map((d) => `    ${d.name} — ${d.description}\n`).join(''),

@@ -311,3 +311,6 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
     ],
   });
 }
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default telegramPlugin;
