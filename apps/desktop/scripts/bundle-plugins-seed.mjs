@@ -60,7 +60,7 @@ const SEED_PLUGINS = [
 
 /** First-party runtime deps of seed members — packed so the closure installs
  *  from local tarballs (usage-stats→core, oauth→vault, everything→sdk). */
-const CLOSURE = ['sdk', 'core', 'config', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
+const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
 
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..');
 const seedDir = path.join(repo, 'apps/desktop/resources/plugins-seed');

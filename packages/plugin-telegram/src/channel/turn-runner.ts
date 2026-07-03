@@ -1,6 +1,7 @@
 import type { Bot, Context } from 'grammy';
 import type { newTurnId } from '@moxxy/core';
 import type { ClientSession as Session } from '@moxxy/sdk';
+import { driveTurn, subscribeTurn } from '@moxxy/channel-kit';
 import type { FramePump } from './frame-pump.js';
 import type { TypingIndicator } from './typing-indicator.js';
 
@@ -55,20 +56,13 @@ export async function runUserTurn(
   // listener; without this a concurrent turn driven by another channel
   // (HTTP/runner) on the same Session would render into THIS chat. (AGENTS.md:
   // filter event-log subscribers by turnId.)
-  const unsubscribe = session.log.subscribe((event) => {
-    if (event.turnId !== turnId) return;
+  const unsubscribe = subscribeTurn(session, turnId, (event) => {
     const frame = framePump.renderState.accept(event);
     if (frame.hasUpdate) framePump.scheduleEdit();
   });
 
   try {
-    for await (const _event of session.runTurn(text, {
-      turnId,
-      ...(model ? { model } : {}),
-      signal: controller.signal,
-    })) {
-      void _event;
-    }
+    await driveTurn(session, { turnId, prompt: text, model, signal: controller.signal });
     await framePump.flush(true);
   } catch (err) {
     logger?.warn('telegram turn failed', {

@@ -253,10 +253,24 @@ or recorded-on-purpose decision.
   monitoring + redeploy story (decide on an emergency escape hatch). `plugin-tunnel-proxy`.
 - [med] Channel→core prod dependency — `plugin-cli`/`plugin-telegram` still import
   core helpers; hoist provider-neutral ones into the SDK. 
-- [med] Shared HTTP-channel server base — `createServer`/`listen`/health/routing is
-  replicated across `plugin-channel-http`/`-web`/`webhooks`/`ipc-server-ws`/
-  `plugin-channel-slack` (the Slack ingest server is a 6th copy); an optional
-  `HttpChannelServer` base would dedupe (larger refactor, lower payoff).
+- [med, PARTIALLY DONE 2026-07-03] Shared HTTP-channel server base —
+  `createServer`/`listen`/health/routing is replicated across
+  `plugin-channel-http`/`-web`/`webhooks`/`ipc-server-ws`. The Slack copy is
+  RETIRED: `@moxxy/channel-kit` now owns the inbound-webhook scaffold
+  (`IngestHttpServer`: routing/health/size-capped raw body/verify gate/500
+  catch-all + `DeliveryDedupeCache`) and Slack's ingest is a thin pipeline on
+  it. Migrating the remaining four is still the larger, lower-payoff refactor.
+- [note, channels] Channel scaffolding shared by telegram+slack now lives in
+  `@moxxy/channel-kit` (FramePump, TurnCoordinator + turnId-filtered turn
+  helpers, host-code + TOFU pairing machines, `resolveSecret`, audited
+  allow-list resolver, ingest scaffold). New channels (Discord/WhatsApp/Signal)
+  should be thin adapters over it — messenger quirks (formatting, transport
+  error mapping, signature schemes, pairing wording) stay in each plugin.
+  Deliberately NOT extracted (single-implementation or channel-specific):
+  Telegram's rich TurnRenderer/HTML pipeline + inline-keyboard
+  permission/approval prompts + grammy dispatch, Slack's HMAC verify + zod
+  envelope schema + Web-API client, both setup wizards/pair flows.
+  `packages/channel-kit/`.
 - [med, slack v1] Slack channel runs a SINGLE global `busy` single-flight — one
   turn at a time across ALL threads/channels (a 2nd @mention while busy gets a
   "still working" reply and is dropped). Per-thread concurrency (a turn per

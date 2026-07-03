@@ -1,4 +1,5 @@
 import { newTurnId } from '@moxxy/core';
+import { TofuPairingWindow, TurnCoordinator } from '@moxxy/channel-kit';
 import { proxyTunnel } from '@moxxy/plugin-tunnel-proxy';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
@@ -96,25 +97,28 @@ export class SlackChannel implements Channel<SlackStartOpts> {
   private authorization: SlackAuthorization | null = null;
   private model: string | undefined;
 
-  /** Single-flight guard (v1: one turn at a time across all threads). */
-  private busy = false;
-  private turnController: AbortController | null = null;
+  // Single-flight turn state (v1: one turn at a time across all threads): the
+  // `busy` guard, the per-turn AbortController, and the bounded own-turn-id set
+  // mirrorForeignTurn filters on (#8).
+  private readonly turns = new TurnCoordinator();
   // Per-turn target so foreign-turn mirroring + permission prompts know the thread.
   private currentChannelId: string | null = null;
   private currentThreadTs: string | null = null;
   private lastChannelId: string | null = null;
   private lastThreadTs: string | null = null;
   private logUnsub: (() => void) | null = null;
-  /** turnIds THIS channel initiated — mirrorForeignTurn filters on these (#8). */
-  private readonly ownTurnIds = new Set<string>();
 
-  // Pairing (TOFU) state.
-  private pairing = false;
-  private pairListeners = new Set<(c: PairCandidate) => void>();
+  // Pairing (TOFU) window: armed by `start({ pair: true })`, captures the first
+  // verified team/channel for the pair flow to confirm.
+  private readonly tofu: TofuPairingWindow<PairCandidate>;
   private publicUrl: string | null = null;
 
   constructor(opts: SlackChannelOptions) {
     this.opts = opts;
+    this.tofu = new TofuPairingWindow<PairCandidate>({
+      onListenerError: (err) =>
+        this.opts.logger?.warn?.('slack: pair listener threw', { err: String(err) }),
+    });
     // Pre-start: deny-all. Replaced with the real allow-list resolver in start()
     // once the tool registry is available (for `['*']` expansion).
     this.permissionResolver = buildSlackPermissionResolver({
@@ -131,8 +135,7 @@ export class SlackChannel implements Channel<SlackStartOpts> {
 
   /** Subscribe to pairing candidates (the setup/pair flows use this). */
   onPairCandidate(listener: (c: PairCandidate) => void): () => void {
-    this.pairListeners.add(listener);
-    return () => this.pairListeners.delete(listener);
+    return this.tofu.onCandidate(listener);
   }
 
   /** Persist a team/channel as authorized (called by the pair flow on confirm). */
@@ -143,14 +146,14 @@ export class SlackChannel implements Channel<SlackStartOpts> {
     };
     await this.opts.vault.set(SLACK_AUTHORIZED_KEY, JSON.stringify(auth), ['slack']);
     this.authorization = auth;
-    this.pairing = false;
+    this.tofu.disarm();
   }
 
   async start(startOpts: SlackStartOpts): Promise<ChannelHandle> {
     if (this.handle) return this.handle;
     this.session = startOpts.session;
     this.model = startOpts.model;
-    this.pairing = startOpts.pair === true;
+    if (startOpts.pair === true) this.tofu.arm();
 
     const token = await resolveBotToken(this.opts.vault);
     if (!token) {
@@ -169,7 +172,7 @@ export class SlackChannel implements Channel<SlackStartOpts> {
 
     // Load any persisted pairing.
     this.authorization = parseAuthorization(await this.opts.vault.get(SLACK_AUTHORIZED_KEY));
-    if (!this.pairing && !this.authorization) {
+    if (!this.tofu.isArmed && !this.authorization) {
       throw new Error(
         'No Slack team/channel is paired yet. Run `moxxy channels slack pair` first.',
       );
@@ -231,9 +234,7 @@ export class SlackChannel implements Channel<SlackStartOpts> {
         // Abort the in-flight turn FIRST so the model loop stops the moment the
         // operator asks to shut down (shared/remote Session: spend continues
         // otherwise and only its output is discarded).
-        if (this.turnController && !this.turnController.signal.aborted) {
-          this.turnController.abort(reason);
-        }
+        this.turns.abort(reason);
         this.logUnsub?.();
         this.logUnsub = null;
         if (this.tunnel) {
@@ -252,7 +253,7 @@ export class SlackChannel implements Channel<SlackStartOpts> {
     this.opts.logger?.info?.('slack: channel started', {
       requestUrl: this.publicUrl,
       paired: this.authorization != null,
-      pairing: this.pairing,
+      pairing: this.tofu.isArmed,
     });
     return this.handle;
   }
@@ -293,19 +294,11 @@ export class SlackChannel implements Channel<SlackStartOpts> {
    * so the very first message just establishes trust. Returns true when consumed.
    */
   private handlePairingCandidate(ev: SlackEventCallback): boolean {
-    if (!this.pairing) return false;
+    if (!this.tofu.isArmed) return false;
     const teamId = ev.team_id;
     const channelId = ev.event.channel;
     if (!teamId || !channelId) return false;
-    const candidate: PairCandidate = { teamId, channelId };
-    for (const listener of this.pairListeners) {
-      try {
-        listener(candidate);
-      } catch (err) {
-        this.opts.logger?.warn?.('slack: pair listener threw', { err: String(err) });
-      }
-    }
-    return true;
+    return this.tofu.offer({ teamId, channelId });
   }
 
   /**
@@ -321,7 +314,10 @@ export class SlackChannel implements Channel<SlackStartOpts> {
 
   private async runTurn(ctx: DispatchContext): Promise<void> {
     if (!this.session || !this.client) return;
-    if (this.busy) {
+    // The turnId is minted here so the coordinator records it as an own-turn id
+    // — that's what mirrorForeignTurn filters on (#8).
+    const lease = this.turns.begin(newTurnId());
+    if (!lease) {
       // Politely decline; v1 has no per-thread concurrency (see TECH_DEBT).
       try {
         await this.client.postMessage({
@@ -332,20 +328,10 @@ export class SlackChannel implements Channel<SlackStartOpts> {
       } catch { /* ignore */ }
       return;
     }
-    this.busy = true;
     this.currentChannelId = ctx.channel;
     this.currentThreadTs = ctx.threadTs;
     this.lastChannelId = ctx.channel;
     this.lastThreadTs = ctx.threadTs;
-    const controller = new AbortController();
-    this.turnController = controller;
-
-    const turnId = newTurnId();
-    this.ownTurnIds.add(turnId);
-    if (this.ownTurnIds.size > 64) {
-      const oldest = this.ownTurnIds.values().next().value;
-      if (oldest !== undefined) this.ownTurnIds.delete(oldest);
-    }
 
     try {
       await runSlackTurn(
@@ -360,13 +346,12 @@ export class SlackChannel implements Channel<SlackStartOpts> {
           threadTs: ctx.threadTs,
           text: ctx.text,
           ...(this.model ? { model: this.model } : {}),
-          controller,
-          turnId,
+          controller: lease.controller,
+          turnId: lease.turnId,
         },
       );
     } finally {
-      this.busy = false;
-      this.turnController = null;
+      lease.end();
       this.currentChannelId = null;
       this.currentThreadTs = null;
     }
@@ -379,12 +364,11 @@ export class SlackChannel implements Channel<SlackStartOpts> {
    * replay, invariant #8).
    */
   private mirrorForeignTurn(event: MoxxyEvent): void {
-    if (event.type !== 'assistant_message') return;
-    if (this.ownTurnIds.has(event.turnId)) return;
-    if (this.busy) return;
+    // Skipped for our own turnIds (robust to async ordering / replay, #8) and
+    // while a turn of ours is streaming via the frame pump.
+    const text = this.turns.mirrorText(event);
+    if (text == null) return;
     if (!this.client || this.lastChannelId == null || this.lastThreadTs == null) return;
-    const text = event.content.trim();
-    if (!text) return;
     void this.client
       .postMessage({ channel: this.lastChannelId, threadTs: this.lastThreadTs, text })
       .catch((err) => {
