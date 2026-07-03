@@ -21,6 +21,7 @@
 #   MOXXY_NO_PLUGINS=1     skip the plugin preload (slim install)
 #   MOXXY_NO_MODIFY_PATH=1 don't touch shell profiles
 set -euo pipefail
+export NPM_CONFIG_UPDATE_NOTIFIER=false # keep npm quiet during the steps
 
 NODE_MIN_MAJOR=20
 NODE_LTS_VERSION="22.14.0" # downloaded only when no suitable node exists
@@ -60,8 +61,40 @@ PLUGINS=(
   @moxxy/plugin-mcp
 )
 
-say()  { printf '\033[1m[moxxy]\033[0m %s\n' "$*"; }
-fail() { printf '\033[1;31m[moxxy]\033[0m %s\n' "$*" >&2; exit 1; }
+# ---------------------------------------------------------------- visuals
+# Colors only on a TTY and when NO_COLOR is unset — a piped/captured run
+# stays plain text. The dim-gray wordmark matches the CLI's own banner.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  B=$'\033[1m'; D=$'\033[2m'; G=$'\033[90m'; M=$'\033[35m'; GRN=$'\033[32m'; R=$'\033[31m'; N=$'\033[0m'
+else
+  B=''; D=''; G=''; M=''; GRN=''; R=''; N=''
+fi
+
+say()  { printf '%s\n' "  $*"; }
+ok()   { printf '%s\n' "  ${GRN}✓${N} $*"; }
+note() { printf '%s\n' "  ${D}$*${N}"; }
+fail() { printf '%s\n' "  ${R}✗ $*${N}" >&2; exit 1; }
+
+STEP=0
+STEPS_TOTAL=4
+step() {
+  STEP=$((STEP + 1))
+  printf '\n%s\n' "${M}┌─${N} ${B}[$STEP/$STEPS_TOTAL]${N} $* ${D}────────────────────────────────${N}"
+}
+
+banner() {
+  printf '\n'
+  printf '%s\n' \
+    "${G}${D}   M   M   OOO   X   X  X   X  Y   Y${N}" \
+    "${G}${D}   MM MM  O   O   X X    X X    Y Y ${N}" \
+    "${G}${D}   M M M  O   O    X      X      Y  ${N}" \
+    "${G}${D}   M   M  O   O   X X    X X     Y  ${N}" \
+    "${G}${D}   M   M   OOO   X   X  X   X    Y  ${N}"
+  printf '\n%s\n' "   ${B}the personal agent that lives where you do${N}"
+  printf '%s\n' "   ${D}installer · everything preinstalled, one step left for you${N}"
+}
+
+banner
 
 # ---------------------------------------------------------------- platform
 OS="$(uname -s)"
@@ -89,21 +122,22 @@ fetch() { # fetch <url> <dest>
 # ------------------------------------------------------------------- node
 node_major() { "$1" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
 
+step "Node runtime"
 NODE_BIN=""
 NPM_BIN=""
 if command -v node >/dev/null 2>&1 && [ "$(node_major "$(command -v node)")" -ge "$NODE_MIN_MAJOR" ]; then
   NODE_BIN="$(command -v node)"
   NPM_BIN="$(command -v npm || true)"
-  say "using your Node $("$NODE_BIN" --version) ($NODE_BIN)"
+  ok "using your Node $("$NODE_BIN" --version) ${D}($NODE_BIN)${N}"
 fi
 
 if [ -z "$NODE_BIN" ] || [ -z "$NPM_BIN" ]; then
   # Reuse a previously downloaded runtime when it satisfies the floor.
   if [ -x "$RUNTIME_DIR/current/bin/node" ] \
      && [ "$(node_major "$RUNTIME_DIR/current/bin/node")" -ge "$NODE_MIN_MAJOR" ]; then
-    say "using the moxxy-managed Node runtime"
+    ok "using the moxxy-managed Node runtime"
   else
-    say "no Node >= $NODE_MIN_MAJOR found — downloading Node v$NODE_LTS_VERSION into $RUNTIME_DIR (no sudo)"
+    say "no Node >= $NODE_MIN_MAJOR found — downloading Node v$NODE_LTS_VERSION ${D}(into $RUNTIME_DIR, no sudo)${N}"
     NODE_PKG="node-v$NODE_LTS_VERSION-$NODE_OS-$NODE_ARCH"
     TMP_TGZ="$(mktemp -t moxxy-node.XXXXXX)"
     fetch "https://nodejs.org/dist/v$NODE_LTS_VERSION/$NODE_PKG.tar.gz" "$TMP_TGZ"
@@ -111,6 +145,7 @@ if [ -z "$NODE_BIN" ] || [ -z "$NPM_BIN" ]; then
     tar -xzf "$TMP_TGZ" -C "$RUNTIME_DIR"
     rm -f "$TMP_TGZ"
     ln -sfn "$RUNTIME_DIR/$NODE_PKG" "$RUNTIME_DIR/current"
+    ok "Node v$NODE_LTS_VERSION ready"
   fi
   NODE_BIN="$RUNTIME_DIR/current/bin/node"
   NPM_BIN="$RUNTIME_DIR/current/bin/npm"
@@ -119,17 +154,20 @@ if [ -z "$NODE_BIN" ] || [ -z "$NPM_BIN" ]; then
 fi
 
 # -------------------------------------------------------------------- cli
-say "installing @moxxy/cli into $CLI_PREFIX"
+step "moxxy CLI"
+note "→ $CLI_PREFIX"
 mkdir -p "$CLI_PREFIX" "$BIN_DIR"
 "$NPM_BIN" install --prefix "$CLI_PREFIX" --no-fund --no-audit --loglevel=error @moxxy/cli@latest
 ln -sfn "$CLI_PREFIX/node_modules/.bin/moxxy" "$BIN_DIR/moxxy"
 
 CLI_VERSION="$("$NODE_BIN" -p "require('$CLI_PREFIX/node_modules/@moxxy/cli/package.json').version")"
-say "moxxy $CLI_VERSION installed"
+ok "moxxy ${B}$CLI_VERSION${N} installed"
 
 # ---------------------------------------------------------------- plugins
+step "plugin preload"
 if [ "${MOXXY_NO_PLUGINS:-0}" != "1" ]; then
-  say "preloading ${#PLUGINS[@]} plugins into $PLUGINS_DIR (providers, modes, memory, surfaces, channels)"
+  say "preloading ${B}${#PLUGINS[@]}${N} plugins ${D}(providers · modes · memory · surfaces · channels)${N}"
+  note "→ $PLUGINS_DIR"
   mkdir -p "$PLUGINS_DIR"
   if [ ! -f "$PLUGINS_DIR/package.json" ]; then
     cat > "$PLUGINS_DIR/package.json" <<'EOF'
@@ -149,26 +187,30 @@ EOF
   # version — or not published yet at all — fall back to per-package installs
   # with the same 404→latest→skip semantics moxxy's own installer uses, so
   # one unavailable package never sinks the rest of the preload.
-  if ! "$NPM_BIN" install --prefix "$PLUGINS_DIR" --no-fund --no-audit --loglevel=error --save "${PINNED[@]}" 2>/dev/null; then
-    say "pinned set not fully available — installing per package"
+  if "$NPM_BIN" install --prefix "$PLUGINS_DIR" --no-fund --no-audit --loglevel=error --save "${PINNED[@]}" 2>/dev/null; then
+    ok "all ${#PLUGINS[@]} plugins pinned to $CLI_VERSION"
+  else
+    note "pinned set not fully available — installing per package"
     SKIPPED=()
     for p in "${PLUGINS[@]}"; do
       if "$NPM_BIN" install --prefix "$PLUGINS_DIR" --no-fund --no-audit --loglevel=error --save "$p@$CLI_VERSION" 2>/dev/null \
          || "$NPM_BIN" install --prefix "$PLUGINS_DIR" --no-fund --no-audit --loglevel=error --save "$p" 2>/dev/null; then
-        printf '  + %s\n' "$p"
+        ok "${p#@moxxy/}"
       else
         SKIPPED+=("$p")
       fi
     done
     if [ "${#SKIPPED[@]}" -gt 0 ]; then
-      say "skipped (not on npm yet — install later via /plugins): ${SKIPPED[*]}"
+      note "skipped (not on npm yet — install later via /plugins):"
+      for p in "${SKIPPED[@]}"; do printf '%s\n' "    ${D}· ${p#@moxxy/}${N}"; done
     fi
   fi
 else
-  say "MOXXY_NO_PLUGINS=1 — skipping the plugin preload (install later via /plugins)"
+  note "MOXXY_NO_PLUGINS=1 — skipping the plugin preload (install later via /plugins)"
 fi
 
 # ------------------------------------------------------------------- PATH
+step "shell PATH"
 PATH_LINE="export PATH=\"$BIN_DIR:$RUNTIME_DIR/current/bin:\$PATH\" # moxxy"
 # A non-default install root must also tell moxxy where home is.
 if [ "$MOXXY_DIR" != "$HOME/.moxxy" ]; then
@@ -178,7 +220,12 @@ fi
 if [ "${MOXXY_NO_MODIFY_PATH:-0}" != "1" ]; then
   for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
     [ -f "$rc" ] || continue
-    grep -qF '# moxxy' "$rc" 2>/dev/null || printf '\n%s\n' "$PATH_LINE" >> "$rc"
+    if grep -qF '# moxxy' "$rc" 2>/dev/null; then
+      ok "already wired: ${rc/#$HOME/~}"
+    else
+      printf '\n%s\n' "$PATH_LINE" >> "$rc"
+      ok "wired: ${rc/#$HOME/~}"
+    fi
   done
   if command -v fish >/dev/null 2>&1 && [ -d "$HOME/.config/fish" ]; then
     FISH_CONF="$HOME/.config/fish/conf.d/moxxy.fish"
@@ -187,10 +234,28 @@ if [ "${MOXXY_NO_MODIFY_PATH:-0}" != "1" ]; then
 fi
 
 # ------------------------------------------------------------------ done
-say ""
-say "done. Everything is preinstalled — one step left:"
-say ""
-say "    exec \$SHELL        # reload PATH (or open a new terminal)"
-say "    moxxy              # pick a provider: ChatGPT/Claude sign-in or an API key"
-say ""
-say "install dir: $MOXXY_DIR   ·   uninstall: rm -rf $MOXXY_DIR + the '# moxxy' PATH lines"
+# Box rows self-align: pad by the PLAIN text width so interpolated values
+# (the version) can be any length without shearing the right border.
+BOX_W=58
+boxrow() { # boxrow <styled> <plain>
+  local styled="$1" plain="$2"
+  local pad=$((BOX_W - ${#plain}))
+  [ "$pad" -lt 0 ] && pad=0
+  printf '%s\n' "  ${M}│${N}${styled}$(printf '%*s' "$pad" '')${M}│${N}"
+}
+rule() { printf '%s' "$(printf '─%.0s' $(seq 1 $BOX_W))"; }
+
+printf '\n'
+printf '%s\n' "  ${M}╭$(rule)╮${N}"
+boxrow "  ${GRN}✓${N} ${B}moxxy $CLI_VERSION is ready${N} — everything preinstalled" \
+       "  ✓ moxxy $CLI_VERSION is ready — everything preinstalled"
+boxrow "" ""
+boxrow "    ${B}exec \$SHELL${N}   ${D}reload PATH (or open a new terminal)${N}" \
+       "    exec \$SHELL   reload PATH (or open a new terminal)"
+boxrow "    ${B}moxxy${N}         ${D}pick a provider: sign-in or API key${N}" \
+       "    moxxy         pick a provider: sign-in or API key"
+boxrow "" ""
+printf '%s\n' "  ${M}╰$(rule)╯${N}"
+note "install dir: $MOXXY_DIR"
+note "uninstall:   rm -rf $MOXXY_DIR + the '# moxxy' PATH lines"
+printf '\n'
