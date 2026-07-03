@@ -68,6 +68,30 @@ export {
   type FetchLike,
 } from './search.js';
 
+// Signed plugin-registry v1 client: Ed25519-verified index fetch + cache +
+// fallback, install-source resolution with signed version pins, and the
+// capability-manifest comparison (see registry.ts for the format spec).
+export {
+  checkCapabilityManifest,
+  DEFAULT_REGISTRY_URL,
+  fetchSignedRegistry,
+  parseRegistryIndex,
+  REGISTRY_CACHE_TTL_MS,
+  REGISTRY_INDEX_VERSION,
+  resolveInstallSource,
+  verifyRegistryIndex,
+  type CapabilityManifestCheck,
+  type FetchSignedRegistryOptions,
+  type PluginRegistryEntry,
+  type PluginRegistryIndex,
+  type RegistryFallbackReason,
+  type RegistryFetchLike,
+  type RegistryResultEntry,
+  type ResolvedInstallSource,
+  type SignedRegistryResult,
+} from './registry.js';
+export { REGISTRY_PUBLIC_KEY } from './registry-key.js';
+
 // Enable/disable + category-default persistence (formerly
 // @moxxy/plugin-marketplace/config-state).
 export {

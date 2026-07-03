@@ -13,6 +13,7 @@ import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
 import { pinFirstPartySpec } from './pin.js';
 import { readPluginSetup } from './setup-spec.js';
+import { checkCapabilityManifest, resolveInstallSource } from './registry.js';
 
 export type { PluginSnapshot } from './shared.js';
 
@@ -142,6 +143,15 @@ export interface PinnedInstallOptions {
   readonly packageName: string;
   /** Explicit version/dist-tag — used verbatim, never retried. */
   readonly version?: string;
+  /**
+   * Exact version pin from a verified signed-registry entry (see
+   * registry.ts). Injected — so a pin that 404s (unpublished release) retries
+   * unpinned with a warning rather than failing the install (v1 is
+   * availability-first; fail-closed arrives with the consent phase). Ignored
+   * when `packageName` already carries a version or is a git/path spec.
+   * Precedence: explicit user `version` > this > `cliVersion` > latest.
+   */
+  readonly pinnedVersion?: string;
   /** Host CLI version to pin bare `@moxxy/*` names to. */
   readonly cliVersion?: string;
   /** Optional abort signal; aborting kills the npm child process. */
@@ -153,18 +163,25 @@ export interface PinnedInstallOptions {
 }
 
 /**
- * Install with the first-party version pin applied, falling back to the
- * unpinned spec when the pin itself is what failed. The retry only happens
- * for a pin WE injected (bare `@moxxy/*` name + cliVersion): an older CLI can
- * legitimately pin a package whose first co-versioned release is newer than
- * the CLI (`@pkg@0.25.0` 404s when the package first ships at 0.26.0). An
- * explicit user-provided version is never second-guessed.
+ * Install with the version pin applied, falling back to the unpinned spec
+ * when the pin itself is what failed. Pin precedence: explicit user `version`
+ * > signed-registry `pinnedVersion` > first-party `cliVersion` lockstep >
+ * latest. The retry only happens for a pin WE injected (a signed pin, or a
+ * bare `@moxxy/*` name + cliVersion): an older CLI can legitimately pin a
+ * package whose first co-versioned release is newer than the CLI
+ * (`@pkg@0.25.0` 404s when the package first ships at 0.26.0). An explicit
+ * user-provided version is never second-guessed.
  */
 export async function installPluginPackagePinned(
   opts: PinnedInstallOptions,
 ): Promise<InstallPluginPackageResult> {
   const install = opts.installFn ?? installPluginPackage;
-  const spec = pinFirstPartySpec(opts.packageName, opts.version, opts.cliVersion);
+  // A signed pin only applies to a bare package name — a spec that already
+  // carries a version (`@scope/name@1.2.3`) or points at git/path installs
+  // verbatim (appending `@x.y.z` to those would corrupt the spec).
+  const signedPin =
+    opts.pinnedVersion && NPM_NAME_RE.test(opts.packageName) ? opts.pinnedVersion : undefined;
+  const spec = pinFirstPartySpec(opts.packageName, opts.version ?? signedPin, opts.cliVersion);
   const injectedPin = !opts.version && spec !== opts.packageName;
   try {
     return await install({ packageName: spec, signal: opts.signal });
@@ -272,9 +289,19 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
     },
     handler: async ({ packageName, version }, ctx) => {
       const before = deps.snapshot();
+      // Consult the signed registry (a no-op fallback while the maintainer
+      // key is unprovisioned): a signed entry contributes its exact version
+      // pin (unless the user gave one) and its declared capability manifest
+      // for the post-install comparison below. Never throws.
+      const signed = await resolveInstallSource(packageName, { signal: ctx.signal });
+      const signedPin =
+        signed.origin === 'signed' && signed.spec === packageName
+          ? signed.pinnedVersion
+          : undefined;
       const { installed } = await installPluginPackagePinned({
         packageName,
         ...(version ? { version } : {}),
+        ...(signedPin ? { pinnedVersion: signedPin } : {}),
         ...(deps.cliVersion ? { cliVersion: deps.cliVersion } : {}),
         signal: ctx.signal,
       });
@@ -287,10 +314,26 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
       const capabilities = deps.toolIsolation
         ? buildCapabilityReport(registered.tools ?? [], deps.toolIsolation)
         : undefined;
+      // Signed capability manifest vs the surface the install actually
+      // registered. Warn-only in v1 (enforce comes with the consent phase).
+      const manifestCheck =
+        signed.origin === 'signed' && signed.capabilities && capabilities
+          ? checkCapabilityManifest(signed.capabilities, capabilities.surface)
+          : undefined;
       return {
         installed,
         registered,
         ...(capabilities ? { capabilities } : {}),
+        ...(manifestCheck?.capabilityMismatch
+          ? {
+              capabilityMismatch: true,
+              capabilityMismatchDetails: {
+                declared: signed.capabilities,
+                widened: manifestCheck.widened,
+                note: 'installed tools declare a wider surface than the signed registry manifest',
+              },
+            }
+          : {}),
         ...(setup
           ? {
               needsSetup: {
