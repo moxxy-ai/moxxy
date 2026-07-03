@@ -83,6 +83,7 @@ export {
   type SessionPersistenceOpts,
   type EventPage,
 } from './sessions/persistence.js';
+export { isMoxxyEventShape } from './sessions/event-shape.js';
 export {
   PluginHost,
   PluginRequirementError,

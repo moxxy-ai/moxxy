@@ -22,6 +22,7 @@ import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy
 import type { EventLogLike, EventPage, SessionMeta, SessionSource } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { createLogger, type Logger } from '../logger.js';
+import { isMoxxyEventShape } from './event-shape.js';
 
 // `SessionSource`, `SessionMeta` and `EventPage` are the EventStore contract's
 // data shapes — defined in @moxxy/sdk so `EventStoreDef` can reference them.
@@ -529,7 +530,10 @@ async function matchingSessionStatsFromLog(
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      events.push(JSON.parse(line) as MoxxyEvent);
+      const parsed: unknown = JSON.parse(line);
+      // Wrong-shape lines are skipped exactly like corrupt ones: neither a
+      // corrupt nor a junk line should hide a later valid prompt.
+      if (isMoxxyEventShape(parsed)) events.push(parsed);
     } catch {
       // A corrupt line should not hide a later valid prompt.
     }
@@ -549,10 +553,11 @@ function providerHeaderFromEvent(event: MoxxyEvent): { provider?: string | null;
  * Restore a previously-persisted session's events. Returns the full
  * event array suitable for passing into `new EventLog(events)`.
  *
- * Skips malformed lines (a single corrupted append shouldn't make the
- * rest of the conversation unreadable) and then RE-SEQUENCES the
- * survivors to contiguous `seq` 0..n-1, preserving order and ids. This
- * matters twice over:
+ * Skips malformed lines — corrupt JSON and valid-JSON-but-wrong-shape
+ * alike (see {@link isMoxxyEventShape}); a single bad append shouldn't
+ * make the rest of the conversation unreadable — and then RE-SEQUENCES
+ * the survivors to contiguous `seq` 0..n-1, preserving order and ids.
+ * This matters twice over:
  *
  *  - Mirror replay: `EventLog.ingest` accepts only `seq === length`, so
  *    a gap left by one corrupt middle line would silently truncate every
@@ -584,15 +589,25 @@ export async function restoreEvents(
   }
   const events: MoxxyEvent[] = [];
   let corruptLines = 0;
+  let invalidShapeLines = 0;
   let foreignEvents = 0;
   let normalizedSessionIds = 0;
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      const event = JSON.parse(line) as MoxxyEvent;
-      const ownedEvent = eventForSession(event, sessionId);
+      const parsed: unknown = JSON.parse(line);
+      // Valid JSON but not a replayable event shape (see isMoxxyEventShape):
+      // skipped with the exact same semantics as a corrupt line — counted,
+      // re-sequenced around, and repaired away by the rewrite below. Casting
+      // it through instead used to let a junk line drive replay (a compaction
+      // line without `replacedRange` throws mid-projection).
+      if (!isMoxxyEventShape(parsed)) {
+        invalidShapeLines += 1;
+        continue;
+      }
+      const ownedEvent = eventForSession(parsed, sessionId);
       if (ownedEvent) {
-        if (ownedEvent !== event) normalizedSessionIds += 1;
+        if (ownedEvent !== parsed) normalizedSessionIds += 1;
         events.push(ownedEvent);
       } else {
         foreignEvents += 1;
@@ -612,7 +627,13 @@ export async function restoreEvents(
     }
   }
 
-  if (corruptLines > 0 || resequenced > 0 || foreignEvents > 0 || normalizedSessionIds > 0) {
+  if (
+    corruptLines > 0 ||
+    invalidShapeLines > 0 ||
+    resequenced > 0 ||
+    foreignEvents > 0 ||
+    normalizedSessionIds > 0
+  ) {
     const message =
       foreignEvents > 0
         ? 'session log restored with foreign-session events removed — re-sequenced to keep full history replayable'
@@ -621,6 +642,7 @@ export async function restoreEvents(
       sessionId,
       path: logPath,
       corruptLines,
+      invalidShapeLines,
       foreignEvents,
       normalizedSessionIds,
       resequencedEvents: resequenced,
@@ -695,7 +717,7 @@ export async function restoreEvents(
  * `prevCursor` is the `seq` of the page's oldest event, or `null` once the
  * first persisted event is included (no older page remains).
  *
- * Corrupt lines are skipped (matching {@link restoreEvents}); unlike
+ * Corrupt and wrong-shape lines are skipped (matching {@link restoreEvents}); unlike
  * `restoreEvents` this is a READ-ONLY reader — it never rewrites the file, so
  * it preserves the JSONL exactly (no atomic-write / mutex needed: there is no
  * mutation). Paging keys on each event's on-disk `seq`. Determinism holds for a
@@ -724,13 +746,16 @@ export async function readEventPage(
     return { events: [], prevCursor: null };
   }
 
-  // Parse the JSONL, skipping corrupt lines (one bad append must not make the
-  // rest unreadable). Read-only: we never rewrite the file here.
+  // Parse the JSONL, skipping corrupt AND wrong-shape lines (one bad append
+  // must not make the rest unreadable). Read-only: we never rewrite the file
+  // here.
   const all: MoxxyEvent[] = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     try {
-      all.push(JSON.parse(line) as MoxxyEvent);
+      const parsed: unknown = JSON.parse(line);
+      // skip a valid-JSON-but-not-an-event line, same as restoreEvents
+      if (isMoxxyEventShape(parsed)) all.push(parsed);
     } catch {
       // skip a malformed/half-written line, same as restoreEvents
     }

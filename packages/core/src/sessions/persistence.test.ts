@@ -589,6 +589,138 @@ describe('SessionPersistence', () => {
     expect(again.lines).toHaveLength(0);
   });
 
+  it('restore skips valid-JSON wrong-shape lines exactly like corrupt ones and repairs the file', async () => {
+    const dir = await makeTempDir();
+    const id = '01BADSHAPE0000000000000000';
+    const mk = (seq: number, text: string) => ({
+      id: `e${seq}`,
+      seq,
+      ts: seq,
+      sessionId: id,
+      turnId: 't1',
+      source: 'user',
+      type: 'user_prompt',
+      text,
+    });
+    const lines = [
+      JSON.stringify(mk(0, 'zero')),
+      // Valid JSON, not an event at all (no envelope).
+      JSON.stringify({ foo: 'bar' }),
+      JSON.stringify(mk(2, 'two')),
+      // Valid envelope + known type, but missing the required fields the
+      // projection fold dereferences unconditionally (would throw mid-replay
+      // if trusted: `event.summary.trim()`, `event.replacedRange[0]`).
+      JSON.stringify({ id: 'junk', seq: 3, ts: 3, sessionId: id, turnId: 't1', source: 'compactor', type: 'compaction', compactor: 'x' }),
+      // Corrupt JSON still goes down its own (unchanged) path.
+      '{half a line',
+      JSON.stringify(mk(5, 'five')),
+    ];
+    await fs.writeFile(path.join(dir, `${id}.jsonl`), lines.join('\n') + '\n', 'utf8');
+
+    const { logger, lines: logged } = captureLogger();
+    const restored = await restoreEvents(id, dir, logger);
+
+    // Survivors only, re-sequenced to contiguous 0..n-1, order + ids preserved.
+    expect(restored.map((e) => e.id)).toEqual(['e0', 'e2', 'e5']);
+    expect(restored.map((e) => e.seq)).toEqual([0, 1, 2]);
+    expect(restored.map((e) => (e as { text?: string }).text)).toEqual(['zero', 'two', 'five']);
+    // One structured warn, counting shape-junk separately from corrupt JSON.
+    const warn = logged.find((l) => l.level === 'warn');
+    expect(warn?.meta).toMatchObject({ corruptLines: 1, invalidShapeLines: 2, restoredEvents: 3 });
+    // Never throws mid-replay: every survivor ingests into a fresh mirror.
+    const mirror = new EventLog();
+    for (const e of restored) mirror.ingest(e);
+    expect(mirror.length).toBe(3);
+    // The file was repaired on disk, so the next restore is clean.
+    const repaired = (await fs.readFile(path.join(dir, `${id}.jsonl`), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { id: string });
+    expect(repaired.map((e) => e.id)).toEqual(['e0', 'e2', 'e5']);
+    const again = captureLogger();
+    await restoreEvents(id, dir, again.logger);
+    expect(again.lines).toHaveLength(0);
+  });
+
+  it('restore leaves a fully-valid log untouched on disk and replays it byte-identically', async () => {
+    const dir = await makeTempDir();
+    const id = '01ALLVALID0000000000000000';
+    const events = [
+      { id: 'e0', seq: 0, ts: 1, sessionId: id, turnId: 't1', source: 'user', type: 'user_prompt', text: 'hi' },
+      { id: 'e1', seq: 1, ts: 2, sessionId: id, turnId: 't1', source: 'model', type: 'assistant_message', content: 'hello', stopReason: 'end_turn' },
+      { id: 'e2', seq: 2, ts: 3, sessionId: id, turnId: 't1', source: 'compactor', type: 'compaction', compactor: 'x', replacedRange: [0, 1], summary: 's', tokensSaved: 10 },
+    ];
+    const original = events.map((e) => JSON.stringify(e)).join('\n') + '\n';
+    await fs.writeFile(path.join(dir, `${id}.jsonl`), original, 'utf8');
+
+    const { logger, lines } = captureLogger();
+    const restored = await restoreEvents(id, dir, logger);
+
+    expect(restored).toEqual(events);
+    expect(lines).toHaveLength(0);
+    // No repair rewrite for a clean log — the bytes on disk are untouched.
+    expect(await fs.readFile(path.join(dir, `${id}.jsonl`), 'utf8')).toBe(original);
+  });
+
+  it('readEventPage skips wrong-shape lines like corrupt ones (read-only, no rewrite)', async () => {
+    const dir = await makeTempDir();
+    const id = '01PAGEBADSHAPE000000000000';
+    const mk = (seq: number, text: string) => ({
+      id: `e${seq}`,
+      seq,
+      ts: seq,
+      sessionId: id,
+      turnId: 't1',
+      source: 'user',
+      type: 'user_prompt',
+      text,
+    });
+    const lines = [
+      JSON.stringify(mk(0, 'zero')),
+      JSON.stringify({ notAnEvent: true }),
+      JSON.stringify(mk(1, 'one')),
+      '{corrupt',
+      JSON.stringify(mk(2, 'two')),
+    ];
+    const original = lines.join('\n') + '\n';
+    await fs.writeFile(path.join(dir, `${id}.jsonl`), original, 'utf8');
+
+    const page = await readEventPage(id, { before: null, limit: 10 }, dir);
+    expect(page.events.map((e) => e.seq)).toEqual([0, 1, 2]);
+    expect(page.prevCursor).toBeNull();
+    // Read-only: the junk stays on disk (restore owns the repair).
+    expect(await fs.readFile(path.join(dir, `${id}.jsonl`), 'utf8')).toBe(original);
+  });
+
+  it('readIndex hydration ignores a wrong-shape line when recovering firstPrompt', async () => {
+    const dir = await makeTempDir();
+    await fs.mkdir(dir, { recursive: true });
+    const id = '01HYDRATEBADSHAPE000000000';
+    await fs.writeFile(
+      path.join(dir, `${id}.json`),
+      JSON.stringify({ ...meta(id, 3), firstPrompt: null }, null, 2),
+      'utf8',
+    );
+    const junkPrompt = JSON.stringify({ type: 'user_prompt', text: 'junk without envelope' });
+    const validPrompt = JSON.stringify({
+      id: 'e1',
+      seq: 1,
+      ts: 2,
+      sessionId: id,
+      turnId: 't1',
+      source: 'user',
+      type: 'user_prompt',
+      text: 'real prompt',
+    });
+    await fs.writeFile(path.join(dir, `${id}.jsonl`), junkPrompt + '\n' + validPrompt + '\n', 'utf8');
+
+    const [restored] = await readIndex(dir);
+
+    // The junk line neither becomes the label nor hides the later valid prompt.
+    expect(restored?.firstPrompt).toBe('real prompt');
+    expect(restored?.eventCount).toBe(1);
+  });
+
   it('restore removes foreign-session events, creates a backup, and re-sequences survivors', async () => {
     const dir = await makeTempDir();
     const id = '01RESTOREFILTER000000000';
