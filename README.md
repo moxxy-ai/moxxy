@@ -136,13 +136,7 @@ Most agent frameworks lock you in. One LLM provider. One loop topology. One fron
 
 **In your terminal**
 
-<!--
-  TUI DEMO  ▸ replace src with a real GIF.
-  WHAT TO SHOW: the Ink TUI — boot splash → type a prompt → streamed answer
-  with a tool block expanding → the bottom status line (provider · model · context bar).
-  Suggested size: 1200×675. Drop at assets/tui-demo.gif and point src there.
--->
-<img src="https://placehold.co/1200x675/0d1117/c9d1d9.png?text=moxxy+TUI+demo" alt="moxxy TUI" />
+<img src="assets/tui-demo.gif" alt="moxxy TUI — fixing a TODO and verifying with tsc, live" />
 
 `moxxy` — a fast, keyboard-driven terminal UI. Slash commands, live tool output, voice input, `/mode` to switch loops.
 
