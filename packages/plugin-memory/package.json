@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-memory",
-  "private": true,
   "version": "0.26.0",
   "description": "Journal-based long-term memory for moxxy. Markdown files at ~/.moxxy/memory/ with type/description frontmatter + an index. Plus STM selectors over the event log.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "memory",
+    "recall",
+    "embeddings"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-memory"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

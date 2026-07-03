@@ -27,6 +27,7 @@ export {
   type ConsolidateOptions,
   type ConsolidationOutcome,
 } from './consolidate.js';
+import { memoryConsolidatePlugin as memoryConsolidatePluginRef } from './consolidate.js';
 
 export interface BuildMemoryPluginOptions extends MemoryStoreOptions {}
 
@@ -198,3 +199,49 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
   });
   return { plugin, store };
 }
+
+
+/**
+ * Discovery-loadable instance: the WHOLE memory feature (long-term store +
+ * memory_save/recall/… tools + the tfidf embedder + memory_consolidate and
+ * its nudge hooks) as ONE plugin, so the package unbundles cleanly — the
+ * loader takes a single default export per package. Composition over the
+ * existing builders:
+ *  - the store's embedder resolves LAZILY from the host-published
+ *    'embedders' registry service (captured in onInit, read on first
+ *    recall), replacing the bootstrap closure the CLI used to inject;
+ *  - our onInit registers the 'memory' service FIRST, then runs
+ *    consolidate's onInit, which resolves it — same ordering the two
+ *    separate builtin entries relied on.
+ * `buildMemoryPlugin` stays for hosts/tests that inject their own store.
+ */
+export const memoryPlugin: Plugin = (() => {
+  let embeddersReg: { tryGetActive(): unknown } | null = null;
+  const { plugin: base } = buildMemoryPlugin({
+    // The registry hands back an EmbedderClient-compatible instance; the
+    // structural cast keeps this file free of a core import.
+    embedder: () =>
+      (embeddersReg?.tryGetActive() ?? null) as ReturnType<
+        Extract<NonNullable<MemoryStoreOptions['embedder']>, () => unknown>
+      >,
+  });
+  const consolidate = memoryConsolidatePluginRef;
+  return definePlugin({
+    name: '@moxxy/plugin-memory',
+    version: '0.0.0',
+    ...(base.embedders ? { embedders: base.embedders } : {}),
+    tools: [...(base.tools ?? []), ...(consolidate.tools ?? [])],
+    hooks: {
+      ...consolidate.hooks,
+      onInit: async (ctx) => {
+        embeddersReg =
+          ctx.services.get<{ tryGetActive(): unknown }>('embedders') ?? null;
+        await base.hooks?.onInit?.(ctx);
+        await consolidate.hooks?.onInit?.(ctx);
+      },
+    },
+  });
+})();
+
+// Discovery entry: `createPluginLoader` requires a default Plugin export.
+export default memoryPlugin;

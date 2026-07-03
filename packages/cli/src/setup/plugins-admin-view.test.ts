@@ -3,7 +3,6 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Session, silentLogger } from '@moxxy/core';
-import { buildMemoryPlugin } from '@moxxy/plugin-memory';
 import {
   buildVaultPlugin,
   createStaticKeySource,
@@ -47,17 +46,11 @@ function buildFixture() {
     filePath: path.join(tmp, 'vault.json'),
     keySource: createStaticKeySource(deriveKey('pw', generateSalt())),
   });
-  const { plugin: memoryPlugin, store: memory } = buildMemoryPlugin({
-    dir: path.join(tmp, 'memory'),
-    embedder: null,
-  });
   buildBuiltinsCore({
     session,
     rawConfig: {},
     vault,
     vaultPlugin,
-    memory,
-    memoryPlugin,
     schedulerRunner: { runPrompt: async () => ({ text: '' }) },
     webhookRunner: { runPrompt: async () => ({ text: '' }) },
     logger: silentLogger,

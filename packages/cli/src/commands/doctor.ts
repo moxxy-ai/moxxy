@@ -98,7 +98,8 @@ interface DoctorChecksDeps {
   readonly config: MoxxyConfig;
   readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
   readonly vault: VaultStore;
-  readonly memory: MemoryStore;
+  /** Undefined on a slim boot without the memory plugin installed. */
+  readonly memory: MemoryStore | undefined;
   readonly pluginRegistration: RegistrationResult;
   readonly checks: Check[];
   readonly checkKeys: boolean;
@@ -209,26 +210,35 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   // Plugins
   checks.push(...buildPluginDoctorChecks(pluginRegistration));
 
-  // Memory
-  const memDir = path.join(os.homedir(), '.moxxy', 'memory');
-  const memRes = await tryCatch(async () => {
-    await fs.mkdir(memDir, { recursive: true });
-    await fs.access(memDir, fs.constants.W_OK);
-    const entries = await memory.list();
-    return { count: entries.length };
-  });
-  if (memRes.ok) {
+  // Memory (slim kernel: the plugin may not be installed — that's a state,
+  // not a failure)
+  if (!memory) {
     checks.push({
       id: 'memory',
-      status: 'ok',
-      message: `${memDir} writable (${memRes.value.count} entries)`,
+      status: 'warn',
+      message: 'memory plugin not installed — long-term memory off (moxxy plugins install @moxxy/plugin-memory)',
     });
   } else {
-    checks.push({
-      id: 'memory',
-      status: 'fail',
-      message: `${memDir} not writable: ${memRes.error}`,
+    const memDir = path.join(os.homedir(), '.moxxy', 'memory');
+    const memRes = await tryCatch(async () => {
+      await fs.mkdir(memDir, { recursive: true });
+      await fs.access(memDir, fs.constants.W_OK);
+      const entries = await memory.list();
+      return { count: entries.length };
     });
+    if (memRes.ok) {
+      checks.push({
+        id: 'memory',
+        status: 'ok',
+        message: `${memDir} writable (${memRes.value.count} entries)`,
+      });
+    } else {
+      checks.push({
+        id: 'memory',
+        status: 'fail',
+        message: `${memDir} not writable: ${memRes.error}`,
+      });
+    }
   }
 
   // Skills

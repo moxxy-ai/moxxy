@@ -13,7 +13,7 @@ import type { Plugin } from '@moxxy/sdk';
 import { buildConfigPlugin, loadConfig as loadMergedConfig, loadDisabledProviders } from '@moxxy/config';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './setup/builtin-skills-dir.js';
 import { buildVaultPlugin } from '@moxxy/plugin-vault';
-import { buildMemoryPlugin } from '@moxxy/plugin-memory';
+import type { MemoryStore } from '@moxxy/plugin-memory';
 import { buildSessionConfigApplier } from './config-applier.js';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { selectEmbedder } from './setup/embedder.js';
@@ -101,13 +101,6 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     secretResolver: (name) => vault.get(name),
   });
 
-  // Built AFTER the session so it can pull the registry-selected embedder
-  // lazily — the embedder isn't chosen until plugins have registered (see
-  // selectEmbedder below). A null active embedder → keyword recall.
-  const { plugin: memoryPlugin, store: memory } = buildMemoryPlugin({
-    embedder: () => session.embedders.tryGetActive(),
-  });
-
   // Build the builtin list first WITHOUT the config plugin so we can pass the
   // whole list to the ConfigApplier (used for hot-toggle of plugin enable/disable).
   const schedulerRunner = buildSchedulerRunner(session);
@@ -117,8 +110,6 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     rawConfig,
     vault,
     vaultPlugin,
-    memory,
-    memoryPlugin,
     schedulerRunner,
     webhookRunner,
     disabledPackages,
@@ -256,6 +247,11 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   progress({ kind: 'ready' });
 
   const persistence = attachSessionPersistence(session, opts.cwd, opts.disableSessionPersistence);
+
+  // The memory plugin (when installed/enabled) published its store as the
+  // 'memory' service during onInit; a slim boot without it leaves this
+  // undefined and consumers (doctor) degrade.
+  const memory = session.services.get<MemoryStore>('memory');
 
   return {
     session,
