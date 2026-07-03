@@ -42,6 +42,15 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
     });
   const vault = new VaultStore({ filePath, keySource });
 
+  // Capability surface shared by every vault tool: the encrypted store file and
+  // the cached master key, INCLUDING their atomic-write temp siblings
+  // (`<file>.<pid>.<uuid>.tmp` — see writeFileAtomic). Read and write are
+  // declared together because any open() may create the store or backfill the
+  // key cache. No timeMs on these tools: a first open() can block indefinitely
+  // on an interactive passphrase prompt.
+  const vaultFsGlobs = [`${filePath}*`, `${moxxyPath('vault.key')}*`];
+  const vaultEnv = [opts.envVar ?? 'MOXXY_VAULT_PASSPHRASE'];
+
   // `/vault` slash command. Lets the USER store a secret out-of-band: the
   // value travels in the slash-command args, which channels intercept and
   // never send to the model. After storing, we inject a note into the event
@@ -165,6 +174,13 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
           tags: z.array(z.string()).optional(),
         }),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: vaultFsGlobs, write: vaultFsGlobs },
+            net: { mode: 'none' },
+            env: vaultEnv,
+          },
+        },
         handler: async ({ name, value, tags }) => {
           await vault.set(name, value, tags);
           return `stored ${name} (${value.length} chars) in vault`;
@@ -175,6 +191,13 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
         description: 'Fetch a secret from the encrypted vault by name. Returns the plaintext value.',
         inputSchema: z.object({ name: z.string().min(1) }),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: vaultFsGlobs, write: vaultFsGlobs },
+            net: { mode: 'none' },
+            env: vaultEnv,
+          },
+        },
         handler: async ({ name }) => {
           const value = await vault.get(name);
           if (value === null) {
@@ -193,6 +216,13 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
         description: 'List entries in the vault. Returns names + metadata only, never plaintext.',
         inputSchema: z.object({}),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: vaultFsGlobs, write: vaultFsGlobs },
+            net: { mode: 'none' },
+            env: vaultEnv,
+          },
+        },
         handler: async () => {
           const entries = await vault.list();
           return entries.map((e) => ({ name: e.name, createdAt: e.createdAt, tags: e.tags ?? [] }));
@@ -203,6 +233,13 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
         description: 'Delete a vault entry by name.',
         inputSchema: z.object({ name: z.string().min(1) }),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: vaultFsGlobs, write: vaultFsGlobs },
+            net: { mode: 'none' },
+            env: vaultEnv,
+          },
+        },
         handler: async ({ name }) => {
           const removed = await vault.delete(name);
           return removed ? `deleted ${name}` : `not found: ${name}`;
@@ -212,6 +249,13 @@ export function buildVaultPlugin(opts: BuildVaultPluginOptions = {}): { plugin: 
         name: 'vault_status',
         description: 'Report which key source unlocked the vault (keychain, env, passphrase).',
         inputSchema: z.object({}),
+        isolation: {
+          capabilities: {
+            fs: { read: vaultFsGlobs, write: vaultFsGlobs },
+            net: { mode: 'none' },
+            env: vaultEnv,
+          },
+        },
         handler: async () => {
           await vault.open();
           const entries = await vault.list();

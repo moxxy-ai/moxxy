@@ -17,6 +17,14 @@ export const typeTool = defineTool({
       ),
   }),
   permission: { action: 'prompt' },
+  isolation: {
+    capabilities: {
+      subprocess: true,
+      commands: ['osascript'],
+      net: { mode: 'none' },
+      timeMs: 40_000,
+    },
+  },
   async handler({ text }, ctx) {
     ensureDarwin('computer_type');
     if (text.length === 0) return { ok: true, length: 0 };

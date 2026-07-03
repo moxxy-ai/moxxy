@@ -14,6 +14,7 @@ import { resolveCore, type CoreToolDeps } from './shared.js';
 // ── self_update_core_begin ──────────────────────────────────────────────────
 export function coreBeginTool(cd: CoreToolDeps): ToolDef {
   const { deps } = cd;
+  const scopeDir = resolveCore(cd)?.scopeDir;
   return defineTool({
     name: 'self_update_core_begin',
     description:
@@ -25,6 +26,22 @@ export function coreBeginTool(cd: CoreToolDeps): ToolDef {
         .describe('Affected @moxxy/* package names, e.g. ["@moxxy/core"].'),
     }),
     permission: { action: 'prompt' },
+    // Provisions the pinned source clone under ~/.moxxy/self-update: git
+    // clone/fetch from the repo URL in the published @moxxy/core metadata (or
+    // the config override) plus a full `pnpm install` — the hosts are
+    // genuinely dynamic and first use legitimately takes minutes.
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        commands: ['git', 'pnpm'],
+        net: { mode: 'any' },
+        fs: {
+          read: [...(scopeDir ? [`${scopeDir}/**`] : []), `${deps.moxxyDir}/self-update/**`],
+          write: [`${deps.moxxyDir}/self-update/**`],
+        },
+        timeMs: 1_800_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       const install = resolveCore(cd);
       if (!install) throw new Error('could not resolve the installed @moxxy/core — cannot self-update core');

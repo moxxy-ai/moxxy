@@ -27,6 +27,20 @@ export const openTool = defineTool({
       .optional(),
   }),
   permission: { action: 'prompt' },
+  // `open` only messages LaunchServices: the file read / URL navigation happens
+  // in the launched app, outside this process tree — hence net 'none'. The
+  // broad fs.read is honest for this tool: any user-approved path is a
+  // legitimate `target`, and the cap check validates path-shaped inputs
+  // against these globs.
+  isolation: {
+    capabilities: {
+      subprocess: true,
+      commands: ['open'],
+      fs: { read: ['/**'] },
+      net: { mode: 'none' },
+      timeMs: 15_000,
+    },
+  },
   async handler({ target, app }, ctx) {
     ensureDarwin('computer_open');
     if (!target && !app) {

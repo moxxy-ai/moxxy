@@ -6,12 +6,25 @@ import { resolveCore, snapshotDir, type CoreToolDeps } from './shared.js';
 // ── self_update_core_apply ──────────────────────────────────────────────────
 export function coreApplyTool(cd: CoreToolDeps): ToolDef {
   const { deps } = cd;
+  const scopeDir = resolveCore(cd)?.scopeDir;
   return defineTool({
     name: 'self_update_core_apply',
     description:
       'Overlay the verified build into the live global install (snapshotting the previous dist for rollback) and stage a restart. The new core code only activates after moxxy restarts. Requires a prior successful self_update_core_verify.',
     inputSchema: z.object({ coreTxnId: z.string().min(1) }),
     permission: { action: 'prompt' },
+    // Swaps freshly-built dists into the live @moxxy install (snapshotting the
+    // old ones under the txn dir) — writes outside ~/.moxxy by design.
+    isolation: {
+      capabilities: {
+        fs: {
+          read: [...(scopeDir ? [`${scopeDir}/**`] : []), `${deps.moxxyDir}/self-update/**`],
+          write: [...(scopeDir ? [`${scopeDir}/**`] : []), `${deps.moxxyDir}/self-update/**`],
+        },
+        net: { mode: 'none' },
+        timeMs: 120_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
       if (journal.state !== 'verified') {

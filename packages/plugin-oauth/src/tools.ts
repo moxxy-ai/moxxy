@@ -1,4 +1,5 @@
 import { defineTool, MoxxyError, z } from '@moxxy/sdk';
+import { moxxyPath } from '@moxxy/sdk/server';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import {
   buildAuthUrl,
@@ -21,6 +22,15 @@ import { refreshAndStore, type RefreshSpec } from './ensure-fresh.js';
 export interface OAuthToolDeps {
   readonly vault: VaultStore;
 }
+
+/**
+ * Capability surface of the vault-backed credential store these tools share:
+ * the encrypted vault file and the cached master key, including their
+ * atomic-write `.tmp` siblings. A locked vault's first open() reads the
+ * passphrase env var and can block indefinitely on an interactive passphrase
+ * prompt — hence no timeMs on any of these tools.
+ */
+const VAULT_FS_GLOBS = [`${moxxyPath('vault.json')}*`, `${moxxyPath('vault.key')}*`];
 
 const providerNameField = z
   .string()
@@ -105,6 +115,20 @@ export function buildOauthAuthorizeTool(deps: OAuthToolDeps) {
         ),
     }),
     permission: { action: 'prompt' },
+    // Provider endpoints (authUrl / tokenUrl / deviceUrl) are model-supplied
+    // per call and loopback mode binds a localhost callback server, so the net
+    // surface is genuinely dynamic. The browser is launched via the platform
+    // opener (ComSpec is read for the win32 `cmd /c start` shim). The flow
+    // enforces its own deadline (loopback: 5 min; device: the code's expiry).
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        commands: ['open', 'xdg-open', 'cmd.exe'],
+        net: { mode: 'any' },
+        fs: { read: VAULT_FS_GLOBS, write: VAULT_FS_GLOBS },
+        env: ['MOXXY_VAULT_PASSPHRASE', 'ComSpec'],
+      },
+    },
     async handler(input, ctx) {
       validateProvider(input.provider);
       const mode = input.mode ?? 'loopback';
@@ -225,6 +249,19 @@ export function buildOauthGetTokenTool(deps: OAuthToolDeps) {
         ),
     }),
     permission: { action: 'prompt' },
+    // Refresh POSTs go to the token endpoint persisted at authorize time —
+    // arbitrary per provider, so a static allowlist can't cover it. Rotation
+    // is serialized through the on-disk credential lock under ~/.moxxy/locks.
+    isolation: {
+      capabilities: {
+        net: { mode: 'any' },
+        fs: {
+          read: [...VAULT_FS_GLOBS, `${moxxyPath('locks')}/**`],
+          write: [...VAULT_FS_GLOBS, `${moxxyPath('locks')}/**`],
+        },
+        env: ['MOXXY_VAULT_PASSPHRASE'],
+      },
+    },
     async handler({ provider, forceRefresh, includeRefresh }, _ctx) {
       const stored = await readStoredCreds(deps.vault, provider);
       if (!stored) {
@@ -277,6 +314,13 @@ export function buildOauthClearTool(deps: OAuthToolDeps) {
       'the grant or re-do the flow with different scopes.',
     inputSchema: z.object({ provider: providerNameField }),
     permission: { action: 'prompt' },
+    isolation: {
+      capabilities: {
+        net: { mode: 'none' },
+        fs: { read: VAULT_FS_GLOBS, write: VAULT_FS_GLOBS },
+        env: ['MOXXY_VAULT_PASSPHRASE'],
+      },
+    },
     async handler({ provider }) {
       const removed = await clearStoredCreds(deps.vault, provider);
       return { ok: true, provider, removedKeys: removed };

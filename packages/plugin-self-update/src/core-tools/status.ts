@@ -10,6 +10,13 @@ export function coreStatusTool(cd: CoreToolDeps): ToolDef {
     description: 'List Tier-2 core-update transactions and their state.',
     inputSchema: z.object({}),
     permission: { action: 'allow' },
+    isolation: {
+      capabilities: {
+        fs: { read: [`${deps.moxxyDir}/self-update/**`] },
+        net: { mode: 'none' },
+        timeMs: 10_000,
+      },
+    },
     handler: async () => {
       const all = await listCoreTxns(deps.moxxyDir);
       return {

@@ -20,6 +20,14 @@ export const clickTool = defineTool({
       .describe('Number of consecutive clicks. 1 = single, 2 = double, 3 = triple. Default 1.'),
   }),
   permission: { action: 'prompt' },
+  isolation: {
+    capabilities: {
+      subprocess: true,
+      commands: ['osascript'],
+      net: { mode: 'none' },
+      timeMs: 15_000,
+    },
+  },
   async handler({ x, y, count }, ctx) {
     ensureDarwin('computer_click');
     const n = count ?? 1;

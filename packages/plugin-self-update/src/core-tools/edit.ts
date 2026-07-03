@@ -18,6 +18,20 @@ export function coreEditTool(cd: CoreToolDeps): ToolDef {
       newString: z.string(),
     }),
     permission: { action: 'prompt' },
+    // All real I/O is confined to the provisioned clone + journal under
+    // ~/.moxxy/self-update (safeRepoPath refuses escapes). `$cwd/**` is
+    // declared read-only because the input-level cap check resolves the
+    // repo-relative `file` input against the session cwd, not the clone.
+    isolation: {
+      capabilities: {
+        fs: {
+          read: ['$cwd/**', `${deps.moxxyDir}/self-update/**`],
+          write: [`${deps.moxxyDir}/self-update/**`],
+        },
+        net: { mode: 'none' },
+        timeMs: 15_000,
+      },
+    },
     handler: async (input, ctx: ToolContext) => {
       const journal = await readCoreJournal(deps.moxxyDir, input.coreTxnId);
       const abs = safeRepoPath(journal.repoDir, input.file);
