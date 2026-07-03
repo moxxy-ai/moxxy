@@ -36,12 +36,6 @@ export function resolveWithinCwd(cwd: string, target: string): string {
 }
 
 /**
- * @deprecated Use `resolvePath` (no behavior change — only honest name).
- * Kept as a thin alias so external callers still compile.
- */
-export const resolveSafe = resolvePath;
-
-/**
  * Directory names skipped during recursive traversal by the Glob and Grep
  * tools — build outputs and VCS metadata that are never useful search targets.
  * Kept in one place so the two walkers stay in sync.

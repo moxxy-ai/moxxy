@@ -35,7 +35,7 @@ export const greetTool = defineTool({
 - **Always respect `ctx.signal`.** Long-running tools (Bash, network) must check `signal.aborted` periodically; tools with their own subprocess (Bash) should also pipe abort → SIGTERM/SIGKILL.
 - **Use `ctx.cwd` not `process.cwd()`.** Cwd is per-session.
 - **Permission default.** Anything with side effects (Write, Bash, network): `{ action: 'prompt' }`. Read-only tools (Read, Glob, Grep) also use `prompt` by default — let the resolver decide.
-- **Path handling.** For filesystem tools, use `resolvePath(ctx.cwd, target)` from `@moxxy/tools-builtin/src/util` (or wrap with `resolveWithinCwd` if you want strict containment). The function name `resolveSafe` is kept as a deprecated alias; new code uses `resolvePath`. Real safety against unintended fs access lives at the permission layer, not the resolver.
+- **Path handling.** For filesystem tools, use `resolvePath(ctx.cwd, target)` from `@moxxy/tools-builtin/src/util` (or wrap with `resolveWithinCwd` if you want strict containment). Real safety against unintended fs access lives at the permission layer, not the resolver.
 - **No path-traversal sandboxes for the sake of it.** Adding `..` rejection by default breaks legitimate workflows ("read ~/.bashrc"). Only use `resolveWithinCwd` when the tool's *contract* is "inside cwd only."
 
 ## Hook ordering before your handler runs
