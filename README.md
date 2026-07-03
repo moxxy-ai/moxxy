@@ -410,6 +410,10 @@ CI runs all of the above on every push + PR.
 
 PRs welcome. Open an issue first for anything non-trivial. Per-block author guides in [`.claude/agents/`](.claude/agents/) describe how to write skills, plugins, tools, channels, providers, loop strategies, compactors, and cache strategies.
 
+## 🔒 Security
+
+moxxy is **permission-gated and vault-protected by default, isolatable on demand**: every tool call passes the permission engine, secrets live in an AES-256-GCM vault the model only ever sees as `${vault:KEY}` references, and opt-in capability isolation can sandbox tools per-call. Threat model, hardening guidance, and how to report a vulnerability: [SECURITY.md](SECURITY.md).
+
 ## 📝 License
 
-TBD.
+[MIT](LICENSE).

@@ -367,6 +367,9 @@ or recorded-on-purpose decision.
   export the env var, prefer the Helper binary. `packages/cli/src/commands/service/common.ts`.
 - [med] One-shot CLI commands (`-p`, `schedule run`, `doctor`, `login`, `init`) never
   `close()` — drain persistence before exit. `packages/cli/`.
+- [low, security-dx] SECURITY.md's hardening checklist recommends rotating channel
+  tokens, but `rotateChannelToken` is SDK-only — no CLI wraps it. Consider
+  `moxxy channels rotate-token <name>`. `packages/sdk/src/channel-auth.ts`.
 
 ## Mobile UI (low-priority polish)
 
