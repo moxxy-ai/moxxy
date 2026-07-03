@@ -13,6 +13,15 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [low, sessions, RESOLVED 2026-07-03] `SessionSource` literals were hand-listed in
+  one runtime spot (`sessionSource()`'s validator in
+  `packages/cli/src/setup/persistence.ts`) — adding the Discord channel's
+  `'discord'` source hit exactly the two-spot update this entry warned about, so
+  the list is now a runtime constant: `SESSION_SOURCES` in `@moxxy/sdk`
+  event-store.ts, with the `SessionSource` type DERIVED from it
+  (`(typeof SESSION_SOURCES)[number]`) and the CLI guard doing an `includes()`
+  against the same array. New sources are now a one-line change that can't be
+  silently dropped by a stale validator.
 - [dormant, browser, RESOLVED 2026-07-03] CDP screencast push path (`startScreencast`/
   `stopScreencast` sidecar handlers) — the entry was stale: the handlers were already
   deleted in the PR #212 quality sweep; only screenshot-polling remains (rationale in
@@ -145,11 +154,6 @@ or recorded-on-purpose decision.
   on the `moxxy mobile` runner to make it airtight. `packages/plugin-channel-mobile`.
 - [note] Stress-test multi-session with a desk's SECOND (UUID) session — the first
   session has id === desk id, which masks pool-key regressions. `packages/desktop-host`.
-- [low] `SessionSource` literals are still hand-listed in one runtime spot:
-  `sessionSource()`'s validator in `packages/cli/src/setup/persistence.ts` (a type
-  can't be enumerated at runtime). `DeskSession.source` in `@moxxy/desktop-ipc-contract`
-  was unified onto the SDK type (2026-06-26); when adding a source, update the
-  union in `@moxxy/sdk` event-store.ts AND that guard.
 - [low] TUI `/sessions` switcher only works in self-host/standalone mode (the TUI
   owns the boot, so it can re-bootstrap onto a different session in place). In
   ATTACH mode (thin client against an external `moxxy serve`) the runner owns a
@@ -285,6 +289,14 @@ or recorded-on-purpose decision.
 
 ## Channels, relay & HTTP
 
+- [low] Discord channel pairing is terminal-only: the DM code flow (bot DMs a
+  one-time code → operator pastes it into `moxxy discord pair`) has no GUI
+  completion path, so the desktop Channels panel can start the bot dedicated
+  (window armed, codes issued) but the paste must happen in a terminal, and the
+  already-running dedicated runner only reloads the authorized principal at
+  start — pairing from the desktop means run `moxxy discord pair`, then restart
+  the channel. A `channels.confirmPairingCode` control-surface hook (status-file
+  or IPC) would close both gaps. `packages/plugin-channel-discord`.
 - [low] Desktop channel catalog is now a MIRROR, not the only copy: each channel
   self-describes its config on `ChannelDef.config` (`fields`/`vaultKey`/
   `hasRequestUrl`/`runHint`), which the TUI `/channels` panel + `moxxy channels`

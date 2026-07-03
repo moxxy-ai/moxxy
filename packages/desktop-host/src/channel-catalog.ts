@@ -162,6 +162,37 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
     },
     requiredKeys: ['whatsapp_tos_acknowledged'],
   },
+  discord: {
+    descriptor: {
+      id: 'discord',
+      name: 'Discord',
+      description:
+        'A Discord bot (gateway WebSocket) on its own dedicated runner. No public URL needed; pairs an account via a DM code.',
+      docsUrl: 'https://discord.com/developers/applications',
+      configFields: [
+        {
+          name: 'botToken',
+          label: 'Bot token',
+          type: 'password',
+          required: true,
+          placeholder: 'MTIz…abc.def…',
+          help: 'Developer Portal → your app → Bot → Reset Token. Enable the MESSAGE CONTENT privileged intent on the same page.',
+        },
+      ],
+      hasWebhookUrl: false,
+      runHint:
+        'Open the invite link to add the bot to a server, then DM it — it replies with a one-time code; finish pairing with `moxxy discord pair` in a terminal.',
+      connect: {
+        kind: 'url',
+        title: 'Invite the bot',
+        hint: 'Open the link to invite the bot to your server, then DM it to receive a pairing code and finish with `moxxy discord pair`.',
+        openable: true,
+        openLabel: 'Open Discord authorization',
+      },
+    },
+    vaultKeys: { botToken: 'discord_bot_token' },
+    requiredKeys: ['discord_bot_token'],
+  },
 };
 
 /** Every catalog entry, in display order. */

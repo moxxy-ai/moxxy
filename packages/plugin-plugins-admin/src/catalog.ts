@@ -244,6 +244,14 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     provides: [{ category: 'channel', name: 'whatsapp' }],
   },
   {
+    id: 'discord',
+    label: 'Discord channel',
+    description: 'Discord bot on a dedicated isolated runner (moxxy discord; DM code pairing).',
+    packageName: '@moxxy/plugin-channel-discord',
+    installSpec: '@moxxy/plugin-channel-discord',
+    provides: [{ category: 'channel', name: 'discord' }],
+  },
+  {
     id: 'stt-whisper',
     label: 'Whisper voice input',
     description: 'Speech-to-text via the OpenAI Whisper API (Ctrl+R in the TUI).',

@@ -1,0 +1,89 @@
+{
+  "name": "@moxxy/plugin-channel-discord",
+  "version": "0.26.0",
+  "description": "Discord channel for moxxy via discord.js. Treats Discord DMs and allow-listed guild channels as a bidirectional channel: prompts in, streamed assistant replies out (edit-throttled), button-based permission prompts, DM code pairing.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "channel",
+    "discord",
+    "bot"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-channel-discord"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "cli"
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-vault",
+        "hint": "discord resolves the vault from the service registry for its bot token + pairing; @moxxy/plugin-vault must load first"
+      }
+    ],
+    "setup": {
+      "title": "Discord bot",
+      "description": "Create an application at https://discord.com/developers/applications, add a Bot, and under Bot → Privileged Gateway Intents enable MESSAGE CONTENT INTENT (required — without it the bot receives empty messages). Then paste the bot token below.",
+      "required": true,
+      "fields": [
+        {
+          "key": "botToken",
+          "label": "Bot token",
+          "kind": "secret",
+          "vaultKey": "discord_bot_token",
+          "required": true,
+          "placeholder": "MTIz…abc.def…",
+          "description": "Developer Portal → your app → Bot → Reset Token. Remember to enable the MESSAGE CONTENT privileged intent on the same page."
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:",
+    "@moxxy/channel-kit": "workspace:*",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "discord.js": "^14.16.0"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

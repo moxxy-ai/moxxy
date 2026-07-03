@@ -29,6 +29,7 @@ import { isMoxxyEventShape } from './event-shape.js';
 // Re-exported here (and onward from @moxxy/core) so existing importers are
 // unaffected by the move.
 export type { EventLogLike, EventPage, SessionMeta, SessionSource } from '@moxxy/sdk';
+export { SESSION_SOURCES } from '@moxxy/sdk';
 
 /** Schema version of the per-session metadata file (`<id>.json`). Bump when the
  *  shape changes incompatibly; readers tolerate a missing/older version. */

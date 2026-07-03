@@ -15,6 +15,13 @@ export const BUILTIN_REQUIREMENTS: Readonly<
       "hint": "Enable @moxxy/plugin-subagents — deep-research fans out sub-queries via ctx.subagents."
     }
   ],
+  "@moxxy/plugin-channel-discord": [
+    {
+      "kind": "plugin",
+      "name": "@moxxy/plugin-vault",
+      "hint": "discord resolves the vault from the service registry for its bot token + pairing; @moxxy/plugin-vault must load first"
+    }
+  ],
   "@moxxy/plugin-channel-signal": [
     {
       "kind": "plugin",
