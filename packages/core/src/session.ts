@@ -49,6 +49,7 @@ import type {
   ProviderAdminView,
   WorkflowsView,
   PluginsAdminView,
+  ProviderSetupView,
   PendingToolCall,
   PermissionContext,
   PermissionDecision,
@@ -184,6 +185,7 @@ export class Session implements ClientSession, SessionRuntime {
   credentialResolver?: CredentialResolver;
   workflows?: WorkflowsView;
   pluginsAdmin?: PluginsAdminView;
+  providerSetup?: ProviderSetupView;
   readonly dispatcher: HookDispatcherImpl;
   readonly pluginHost: PluginHost;
   private readonly controller = new AbortController();

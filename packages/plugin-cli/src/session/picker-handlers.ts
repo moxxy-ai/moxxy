@@ -22,6 +22,13 @@ export interface PickerHandlerDeps {
    * "still installing" notice instead of silently queueing behind the mutex.
    */
   installInFlightRef?: { current: boolean };
+  /**
+   * Open the inline provider-connect dialog for an unconnected provider
+   * picked in `/model` (SessionView owns the dialog state). Absent — or when
+   * the session has no `providerSetup` capability — the picker falls back to
+   * the "run moxxy init/login" notice.
+   */
+  openProviderConnect?: (target: { providerId: string; modelId: string }) => void;
 }
 
 export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id: string) => void {
@@ -269,10 +276,15 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
   const [providerId, modelId] = id.split('::');
   if (!providerId || !modelId) return;
   // If the provider wasn't in the boot probe's ready set, switching
-  // would surface a credential error on the next turn. Intercept
-  // here and surface the right configuration command instead.
+  // would surface a credential error on the next turn. Connect it inline
+  // when the session can (install + key entry / OAuth in a dialog);
+  // otherwise surface the right configuration command.
   const ready = deps.session.readyProviders ?? new Set<string>();
   if (!ready.has(providerId)) {
+    if (deps.session.providerSetup && deps.openProviderConnect) {
+      deps.openProviderConnect({ providerId, modelId });
+      return;
+    }
     const cmd =
       providerId === 'openai-codex'
         ? 'moxxy login openai-codex'
@@ -283,34 +295,49 @@ function handleModelSelected(id: string, deps: PickerHandlerDeps): void {
     );
     return;
   }
+  void applyProviderModelSwitch(deps, providerId, modelId);
+}
+
+/**
+ * The provider+model switch tail — credential resolution, instance replace,
+ * setActive, model override, persistence. Shared by the ready-provider path
+ * and the post-connect continuation (the connect dialog's onSuccess), so a
+ * freshly-connected provider switches through EXACTLY the same code.
+ */
+export async function applyProviderModelSwitch(
+  deps: Pick<
+    PickerHandlerDeps,
+    'session' | 'providerName' | 'setSystemNotice' | 'setActiveModelOverride'
+  >,
+  providerId: string,
+  modelId: string,
+): Promise<void> {
   // Provider switches must resolve credentials (vault tokens for
   // OAuth providers, API keys for the rest) before setActive — the
   // registry caches the instance on first activation, so passing
   // empty config strands the new provider without auth. The CLI
   // stashes a credentialResolver on the session at boot.
-  void (async () => {
-    try {
-      if (providerId !== deps.providerName) {
-        const resolver = deps.session.credentialResolver;
-        const cfg = resolver ? await resolver(providerId) : {};
-        // Drop any previously-cached instance for this provider so the
-        // freshly-resolved credentials actually take effect — setActive
-        // alone keeps the first-cached instance.
-        const def = deps.session.providers.list().find((p) => p.name === providerId);
-        if (def) deps.session.providers.replace(def);
-        deps.session.providers.setActive(providerId, cfg);
-      }
-      deps.setActiveModelOverride(modelId);
-      deps.setSystemNotice(`switched to ${providerId}:${modelId}`);
-      // Persist to the unified manifest so the next boot keeps this pick.
-      void setCategoryDefault('provider', providerId).catch(() => undefined);
-      void setProviderModel(providerId, modelId).catch(() => undefined);
-    } catch (err) {
-      deps.setSystemNotice(
-        `failed to switch: ${err instanceof Error ? err.message : String(err)}`,
-      );
+  try {
+    if (providerId !== deps.providerName) {
+      const resolver = deps.session.credentialResolver;
+      const cfg = resolver ? await resolver(providerId) : {};
+      // Drop any previously-cached instance for this provider so the
+      // freshly-resolved credentials actually take effect — setActive
+      // alone keeps the first-cached instance.
+      const def = deps.session.providers.list().find((p) => p.name === providerId);
+      if (def) deps.session.providers.replace(def);
+      deps.session.providers.setActive(providerId, cfg);
     }
-  })();
+    deps.setActiveModelOverride(modelId);
+    deps.setSystemNotice(`switched to ${providerId}:${modelId}`);
+    // Persist to the unified manifest so the next boot keeps this pick.
+    void setCategoryDefault('provider', providerId).catch(() => undefined);
+    void setProviderModel(providerId, modelId).catch(() => undefined);
+  } catch (err) {
+    deps.setSystemNotice(
+      `failed to switch: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 function handleModeSelected(id: string, deps: PickerHandlerDeps): void {
