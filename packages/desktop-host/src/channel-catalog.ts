@@ -88,6 +88,35 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
     vaultKeys: { botToken: 'telegram_bot_token' },
     requiredKeys: ['telegram_bot_token'],
   },
+  signal: {
+    descriptor: {
+      id: 'signal',
+      name: 'Signal',
+      description:
+        'A Signal linked device (signal-cli sidecar) on its own dedicated runner. Message your "Note to Self" to talk to moxxy; requires the signal-cli binary on PATH.',
+      docsUrl: 'https://github.com/AsamK/signal-cli/wiki/Quickstart',
+      configFields: [
+        {
+          name: 'account',
+          label: 'Account number (E.164)',
+          type: 'text',
+          required: true,
+          placeholder: '+15551234567',
+          help: 'The Signal account moxxy links to as a secondary device',
+        },
+      ],
+      hasWebhookUrl: false,
+      runHint:
+        'Scan the QR with your phone (Signal → Settings → Linked Devices → Link New Device); then message your own "Note to Self" to talk to moxxy.',
+      connect: {
+        kind: 'qr',
+        title: 'Link your Signal',
+        hint: 'On your phone: Signal → Settings → Linked Devices → Link New Device, then scan the QR.',
+      },
+    },
+    vaultKeys: { account: 'signal_account' },
+    requiredKeys: ['signal_account'],
+  },
 };
 
 /** Every catalog entry, in display order. */

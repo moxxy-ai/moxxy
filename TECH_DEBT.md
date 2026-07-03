@@ -312,12 +312,15 @@ or recorded-on-purpose decision.
   (`IngestHttpServer`: routing/health/size-capped raw body/verify gate/500
   catch-all + `DeliveryDedupeCache`) and Slack's ingest is a thin pipeline on
   it. Migrating the remaining four is still the larger, lower-payoff refactor.
-- [note, channels] Channel scaffolding shared by telegram+slack now lives in
-  `@moxxy/channel-kit` (FramePump, TurnCoordinator + turnId-filtered turn
+- [note, channels] Channel scaffolding shared by telegram+slack+signal now lives
+  in `@moxxy/channel-kit` (FramePump, TurnCoordinator + turnId-filtered turn
   helpers, host-code + TOFU pairing machines, `resolveSecret`, audited
-  allow-list resolver, ingest scaffold). New channels (Discord/WhatsApp/Signal)
-  should be thin adapters over it — messenger quirks (formatting, transport
-  error mapping, signature schemes, pairing wording) stay in each plugin.
+  allow-list resolver, ingest scaffold). Signal (2026-07-03) validated the
+  thin-adapter claim: it consumes TurnCoordinator/driveTurn/PlainTurnRenderer/
+  resolveSecret/createAuditedAllowListResolver and adds only signal-cli quirks.
+  New channels (Discord/WhatsApp) should be thin adapters over it — messenger
+  quirks (formatting, transport error mapping, signature schemes, pairing
+  wording) stay in each plugin.
   Deliberately NOT extracted (single-implementation or channel-specific):
   Telegram's rich TurnRenderer/HTML pipeline + inline-keyboard
   permission/approval prompts + grammy dispatch, Slack's HMAC verify + zod
@@ -335,6 +338,23 @@ or recorded-on-purpose decision.
 - [low, slack v1] Slack replies stream as PLAIN TEXT via `chat.update` (no
   Block Kit / mrkdwn formatting, no message split for very long replies). A
   Telegram-style renderer + Block Kit would improve fidelity. `packages/plugin-channel-slack/`.
+- [med, signal v1, security] Signal channel is AUTONOMOUS like Slack —
+  allow-list auto-approve, no human-in-the-loop (every auto-approved call is
+  logged). Signal has no server-side button UI, but a reply-keyword approval
+  flow ("reply YES/NO to approve") over the deferred resolver is feasible for
+  v2. Also v1 gates on a static sender allow-list edited only via the vault
+  key / `--allowedSenders`; an `allow <number>` subcommand would help.
+  `packages/plugin-channel-signal/`.
+- [med, signal v1] Signal channel is direct-message only (group envelopes are
+  dropped) and runs the same single global `busy` single-flight as Slack v1.
+  Group support needs a group-id trust story + `groupId` send targets.
+  `packages/plugin-channel-signal/`.
+- [low, signal v1] Replies are plain-text buffered chunk sends (justified in
+  `channel/chunker.ts` — Signal edits re-deliver the full body E2E per frame),
+  so there is no live-updating draft; liveness is the typing indicator only.
+  If signal-cli ever grows a cheap draft/edit path, revisit FramePump here.
+  Daemon crash recovery is exit-fatal (supervisor restart), not in-process
+  respawn. `packages/plugin-channel-signal/`.
 - [med, security] LAN pairing is cleartext `ws://` (RN/Expo can't trust a self-signed
   cert for a private IP); the secure phone path is the tunnel (`wss://`). Add optional
   `https.Server` + dev-build pinning only if direct-LAN encryption ever matters.
