@@ -1,8 +1,28 @@
 {
   "name": "@moxxy/plugin-channel-web",
-  "private": true,
   "version": "0.26.0",
   "description": "Web surface channel for moxxy: serves a browser app that renders agent-authored view-spec UIs over a WebSocket, and routes form/button actions back into the session as new turns.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "channel",
+    "web",
+    "surface"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-channel-web"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

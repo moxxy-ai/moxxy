@@ -44,11 +44,15 @@ const SEED_PLUGINS = [
   'plugin-view',
   'plugin-self-update',
   'plugin-voice-admin',
+  // Slim-wave batches 3+4 (desktop surfaces ride these).
+  'plugin-browser',
+  'plugin-terminal',
+  'plugin-channel-web',
 ];
 
 /** First-party runtime deps of seed members — packed so the closure installs
  *  from local tarballs (usage-stats→core, oauth→vault, everything→sdk). */
-const CLOSURE = ['sdk', 'core', 'plugin-vault'];
+const CLOSURE = ['sdk', 'core', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e'];
 
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..');
 const seedDir = path.join(repo, 'apps/desktop/resources/plugins-seed');

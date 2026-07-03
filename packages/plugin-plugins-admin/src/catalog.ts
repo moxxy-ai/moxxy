@@ -177,6 +177,27 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     installSpec: '@moxxy/plugin-self-update',
   },
   {
+    id: 'browser',
+    label: 'Browser tools',
+    description: 'Playwright-driven browser_session tools (installs playwright on demand).',
+    packageName: '@moxxy/plugin-browser',
+    installSpec: '@moxxy/plugin-browser',
+  },
+  {
+    id: 'terminal',
+    label: 'Terminal',
+    description: 'Shared PTY terminal surface + terminal tool (node-pty optional).',
+    packageName: '@moxxy/plugin-terminal',
+    installSpec: '@moxxy/plugin-terminal',
+  },
+  {
+    id: 'channel-web',
+    label: 'Web surface',
+    description: 'Local web chat surface + the canvas present_view renders into (moxxy web).',
+    packageName: '@moxxy/plugin-channel-web',
+    installSpec: '@moxxy/plugin-channel-web',
+  },
+  {
     id: 'voice-admin',
     label: 'Voice control',
     description: 'set_voice / list_voices — switch the active text-to-speech backend.',
