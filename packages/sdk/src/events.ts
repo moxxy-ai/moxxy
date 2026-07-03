@@ -176,6 +176,7 @@ export interface PluginRegisteredEvent extends EventBase {
     | 'isolator'
     | 'workflow-executor'
     | 'event-store'
+    | 'reflector'
   >;
 }
 

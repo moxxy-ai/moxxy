@@ -25,6 +25,7 @@ import type { EmbedderRegistry } from '../registries/embedders.js';
 import type { IsolatorRegistry } from '../registries/isolators.js';
 import type { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
 import type { EventStoreRegistry } from '../registries/event-stores.js';
+import type { ReflectorRegistry } from '../registries/reflectors.js';
 import type { HookDispatcherImpl } from './lifecycle.js';
 import type { RequirementRegistry } from '../requirements.js';
 
@@ -48,6 +49,7 @@ export interface PluginHostOptions {
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
+  readonly reflectors: ReflectorRegistry;
   readonly requirements: RequirementRegistry;
   readonly dispatcher: HookDispatcherImpl;
   readonly loader?: PluginLoader;

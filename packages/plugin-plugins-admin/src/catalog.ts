@@ -214,6 +214,15 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     installSpec: '@moxxy/plugin-memory',
   },
   {
+    id: 'reflector',
+    label: 'Learning loop',
+    description:
+      'Watches finished turns and proposes memory/skill improvements as a one-time nudge (never a silent write) — the model may act via memory_save/synthesize_skill.',
+    packageName: '@moxxy/reflector-default',
+    installSpec: '@moxxy/reflector-default',
+    provides: [{ category: 'reflector', name: 'default' }],
+  },
+  {
     id: 'telegram',
     label: 'Telegram channel',
     description: 'Chat with moxxy from Telegram (moxxy telegram; QR pairing).',

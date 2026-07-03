@@ -35,6 +35,7 @@ import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
 import { EventStoreRegistry } from './registries/event-stores.js';
+import { ReflectorRegistry } from './registries/reflectors.js';
 import { ServiceRegistryImpl } from './registries/services.js';
 import { jsonlEventStore } from './sessions/jsonl-event-store.js';
 import { RequirementRegistry } from './requirements.js';
@@ -137,6 +138,12 @@ export class Session implements ClientSession, SessionRuntime {
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
+  /**
+   * The learning-loop block: watches finished turns and proposes memory/skill
+   * improvements. NULLABLE — no core-seeded floor, so it stays empty until a
+   * reflector plugin (e.g. @moxxy/reflector-default) registers one.
+   */
+  readonly reflectors: ReflectorRegistry;
   /** Inter-plugin service registry — plugins publish/consume services in onInit. */
   readonly services: ServiceRegistryImpl;
   readonly requirements: RequirementRegistry;
@@ -274,6 +281,12 @@ export class Session implements ClientSession, SessionRuntime {
     // Seed the built-in JSONL store as the protected floor — the storage backend
     // behind the event log always exists and can be swapped but never removed.
     this.eventStores.register(jsonlEventStore, { protected: true });
+    // Reflectors are nullable — no core floor is seeded, so reflection stays off
+    // until a reflector plugin registers one. Published on the service registry
+    // so a discovery-loaded driver (the reflector plugin's own hooks) can resolve
+    // the active reflector in onTurnEnd without importing @moxxy/core.
+    this.reflectors = new ReflectorRegistry();
+    this.services.register('reflectors', this.reflectors);
     this.requirements = new RequirementRegistry({
       tools: this.tools,
       providers: this.providers,
@@ -321,6 +334,7 @@ export class Session implements ClientSession, SessionRuntime {
       isolators: this.isolators,
       workflowExecutors: this.workflowExecutors,
       eventStores: this.eventStores,
+      reflectors: this.reflectors,
       requirements: this.requirements,
       dispatcher: this.dispatcher,
       loader: opts.pluginLoader,

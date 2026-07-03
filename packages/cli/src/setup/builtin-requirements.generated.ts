@@ -76,6 +76,22 @@ export const BUILTIN_REQUIREMENTS: Readonly<
       "name": "@moxxy/plugin-vault",
       "hint": "telegram resolves the vault from the service registry for its bot token + pairing; @moxxy/plugin-vault must load first"
     }
+  ],
+  "@moxxy/reflector-default": [
+    {
+      "kind": "tool",
+      "name": "memory_save",
+      "state": "active",
+      "optional": true,
+      "hint": "Install @moxxy/plugin-memory so the model can act on memory proposals."
+    },
+    {
+      "kind": "tool",
+      "name": "synthesize_skill",
+      "state": "active",
+      "optional": true,
+      "hint": "synthesize_skill (bundled with the CLI) lets the model act on skill proposals."
+    }
   ]
 } as const satisfies Readonly<
   Record<string, ReadonlyArray<MoxxyRequirement>>

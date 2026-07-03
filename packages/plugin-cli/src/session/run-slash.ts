@@ -479,6 +479,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   tunnelProvider: 'Tunnels',
   isolator: 'Isolators',
   eventStore: 'Storage',
+  reflector: 'Learning loop',
   channel: 'Channels',
 };
 

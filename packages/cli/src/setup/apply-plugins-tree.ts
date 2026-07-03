@@ -95,6 +95,11 @@ const ACTIVE_DEF_KINDS: ReadonlyArray<KindBinding> = [
   { key: 'viewRenderer', registry: (s) => s.viewRenderers },
   { key: 'tunnelProvider', registry: (s) => s.tunnelProviders },
   { key: 'eventStore', registry: (s) => s.eventStores },
+  // Reflector is a nullable pure-def kind: there is no built-in default, so an
+  // unset slot is a silent skip (the registry auto-adopts the first registered
+  // reflector). An explicit `plugins.reflector.default` that names an
+  // uninstalled reflector warns-and-skips rather than throwing at boot.
+  { key: 'reflector', registry: (s) => s.reflectors },
 ];
 
 /**

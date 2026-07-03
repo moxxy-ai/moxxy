@@ -17,6 +17,7 @@ import type {
   TunnelProviderDef,
   WorkflowExecutorDef,
   EventStoreDef,
+  ReflectorDef,
 } from '@moxxy/sdk';
 import type { PluginHostOptions } from './host-options.js';
 
@@ -44,6 +45,7 @@ export interface RegistryNameRecord {
   readonly isolatorNames: ReadonlyArray<string>;
   readonly workflowExecutorNames: ReadonlyArray<string>;
   readonly eventStoreNames: ReadonlyArray<string>;
+  readonly reflectorNames: ReadonlyArray<string>;
 }
 
 /**
@@ -243,4 +245,15 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     register: (o, e: EventStoreDef) => o.eventStores.register(e),
     unregister: (o, n) => o.eventStores.unregister(n),
   } satisfies RegistryKind<EventStoreDef>,
+  {
+    kind: 'reflector',
+    recordField: 'reflectorNames',
+    defs: (p) => p.reflectors ?? [],
+    nameOf: (r: ReflectorDef) => r.name,
+    // Throw-on-duplicate `register` (NOT `replace`): a discovered reflector is
+    // added but auto-adopts only when nothing is active yet (the registry is
+    // nullable — no core floor). The user swaps via `plugins.reflector.default`.
+    register: (o, r: ReflectorDef) => o.reflectors.register(r),
+    unregister: (o, n) => o.reflectors.unregister(n),
+  } satisfies RegistryKind<ReflectorDef>,
 ] as ReadonlyArray<RegistryKind<unknown>>;

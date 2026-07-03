@@ -77,6 +77,7 @@ export const pluginsTreeSchema = z
     viewRenderer: categorySlotSchema.optional(),
     tunnelProvider: categorySlotSchema.optional(),
     eventStore: categorySlotSchema.optional(),
+    reflector: categorySlotSchema.optional(),
     channel: categorySlotSchema.optional(),
   })
   .strict();
@@ -96,6 +97,7 @@ export const PLUGIN_CATEGORY_KEYS = [
   'viewRenderer',
   'tunnelProvider',
   'eventStore',
+  'reflector',
   'channel',
 ] as const;
 export type PluginCategoryKey = (typeof PLUGIN_CATEGORY_KEYS)[number];
