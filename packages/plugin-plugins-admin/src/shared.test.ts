@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
+import {
+  assertSafeNpmSpec,
+  diffSnapshot,
+  NPM_NAME_RE,
+  packageNameFromSpec,
+  type PluginSnapshot,
+} from './shared.js';
 import { installPluginPackage, removePluginPackage } from './install.js';
 
 describe('assertSafeNpmSpec', () => {
@@ -53,6 +59,24 @@ describe('NPM_NAME_RE', () => {
     expect(NPM_NAME_RE.test('@moxxy/plugin-browser')).toBe(true);
     expect(NPM_NAME_RE.test('NOT VALID')).toBe(false);
     expect(NPM_NAME_RE.test('pkg@1.2.3')).toBe(false);
+  });
+});
+
+describe('packageNameFromSpec', () => {
+  it('strips a version/tag from bare and scoped specs', () => {
+    expect(packageNameFromSpec('@moxxy/plugin-x@1.2.3')).toBe('@moxxy/plugin-x');
+    expect(packageNameFromSpec('left-pad@latest')).toBe('left-pad');
+  });
+
+  it('returns plain names unchanged', () => {
+    expect(packageNameFromSpec('@moxxy/plugin-x')).toBe('@moxxy/plugin-x');
+    expect(packageNameFromSpec('left-pad')).toBe('left-pad');
+  });
+
+  it('returns undefined for git/path specs (name not derivable)', () => {
+    expect(packageNameFromSpec('github:me/repo')).toBeUndefined();
+    expect(packageNameFromSpec('git+https://github.com/me/repo.git')).toBeUndefined();
+    expect(packageNameFromSpec('./local/dir')).toBeUndefined();
   });
 });
 

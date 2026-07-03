@@ -18,12 +18,14 @@ import {
 import { buildSearchPluginsTool } from './search.js';
 
 export {
+  buildCapabilityReport,
   buildInstallPluginTool,
   buildUninstallPluginTool,
   installPluginPackage,
   installPluginPackagePinned,
   removePluginPackage,
   userPluginsDir,
+  type InstallCapabilityReport,
   type InstallPluginDeps,
   type InstallPluginPackageOptions,
   type InstallPluginPackageResult,
@@ -32,6 +34,13 @@ export {
   type RemovePluginPackageOptions,
   type RemovePluginPackageResult,
 } from './install.js';
+
+export {
+  describeCapabilitySurface,
+  summarizeCapabilitySurface,
+  undeclaredToolsWarning,
+  type CapabilitySurfaceRow,
+} from './capability-copy.js';
 
 export { pinFirstPartySpec } from './pin.js';
 
@@ -47,7 +56,7 @@ export {
 } from './setup-spec.js';
 export type { PluginSetupField, PluginSetupSpec } from '@moxxy/sdk';
 
-export { diffSnapshot, SNAPSHOT_KINDS } from './shared.js';
+export { diffSnapshot, packageNameFromSpec, SNAPSHOT_KINDS } from './shared.js';
 
 export {
   buildDisablePluginTool,

@@ -119,6 +119,8 @@ export type {
 } from './isolation.js';
 export { ISOLATION_RANK, aggregateCapabilitySpecs } from './isolation.js';
 
+export { FIRST_PARTY_PLUGIN_SCOPE, isFirstPartyPackage } from './first-party.js';
+
 export type {
   SubagentSpec,
   SubagentResult,

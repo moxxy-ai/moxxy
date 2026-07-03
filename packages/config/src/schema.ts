@@ -57,6 +57,22 @@ export const securityConfigSchema = z.object({
    */
   requireDeclaration: z.boolean().optional(),
   /**
+   * The requireDeclaration ratchet for THIRD-PARTY plugins only — packages
+   * outside the trusted `@moxxy/` scope. Applies when a tool has no
+   * `isolation` declaration and the global `requireDeclaration` above did
+   * not already deny it:
+   * - 'off'     — third-party tools are treated like first-party ones.
+   * - 'warn'    — grace mode (the default while `security.enabled`): the
+   *               call runs, but a structured warning is logged once per
+   *               tool per process.
+   * - 'enforce' — the call is denied with a reason naming this flag.
+   * Tools with no resolvable owning plugin (e.g. runtime-attached MCP
+   * tools) are exempt — the npm-scope test is meaningless for them.
+   * Consumed by `@moxxy/plugin-security`
+   * (`SecurityPluginConfig.thirdPartyRequireDeclaration`).
+   */
+  thirdPartyRequireDeclaration: z.enum(['off', 'warn', 'enforce']).optional(),
+  /**
    * Tighten the in-process input cap-check from best-effort to fail-closed.
    * By default the fs/net checks only inspect string values under a recognized
    * key name (`file`, `path`, `url`, …), so a path/URL carried by an

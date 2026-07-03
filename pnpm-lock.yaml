@@ -1654,6 +1654,9 @@ importers:
       '@moxxy/plugin-mcp':
         specifier: workspace:*
         version: link:../plugin-mcp
+      '@moxxy/plugin-plugins-admin':
+        specifier: workspace:*
+        version: link:../plugin-plugins-admin
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
