@@ -1,10 +1,12 @@
 import { confirm, isCancel, log, password, select, text } from '@clack/prompts';
-import { setConfigValue, setPluginEnabled } from '@moxxy/config';
+import { setPluginEnabled } from '@moxxy/config';
 import {
+  applySetupValues,
   listPluginSetups,
   setupFieldVaultKey,
   type PluginSetupField,
   type PluginSetupSpec,
+  type SetupFieldValue,
 } from '@moxxy/plugin-plugins-admin';
 import { colors } from '../colors.js';
 
@@ -46,13 +48,22 @@ export async function runPluginSetupSteps(opts: PluginSetupStepsOptions): Promis
       if (isCancel(want) || !want) continue;
     }
 
-    let complete = true;
+    const values: Record<string, SetupFieldValue> = {};
     for (const field of setup.fields) {
-      const done = await collectField(packageName, field, opts);
-      if (!done && field.required !== false && setup.required) complete = false;
+      const v = await collectField(packageName, field, opts);
+      if (v !== undefined) values[field.key] = v;
     }
+    // ONE write implementation for every frontend (TUI dialog included):
+    // secrets → vault + ${vault:NAME} ref; the rest → options.<key>.
+    const result = await applySetupValues({
+      vault: opts.vault,
+      cwd: opts.cwd,
+      packageName,
+      setup,
+      values,
+    });
 
-    if (!complete) {
+    if (!result.complete && setup.required) {
       await setPluginEnabled(packageName, false);
       log.warn(
         `${packageName} left DISABLED — its required setup is incomplete. ` +
@@ -62,60 +73,43 @@ export async function runPluginSetupSteps(opts: PluginSetupStepsOptions): Promis
   }
 }
 
-/** Returns true when the field ended up with a value (kept or entered). */
+/** Collect one field's value (undefined = skipped / keep-existing). */
 async function collectField(
   packageName: string,
   field: PluginSetupField,
   opts: PluginSetupStepsOptions,
-): Promise<boolean> {
-  const optionsPath = `plugins.packages.${packageName}.options.${field.key}`;
-
+): Promise<SetupFieldValue | undefined> {
   if (field.kind === 'secret') {
     const vaultKey = setupFieldVaultKey(packageName, field);
     const existing = await opts.vault.get(vaultKey).catch(() => null);
     const answer = await password({
       message: `${field.label}${existing ? colors.dim(' (already set — enter to keep)') : ''}`,
     });
-    if (isCancel(answer)) return Boolean(existing);
+    if (isCancel(answer)) return undefined;
     const value = typeof answer === 'string' ? answer.trim() : '';
-    if (value.length === 0) return Boolean(existing);
-    await opts.vault.set(vaultKey, value, [packageName]);
-    // The plugin reads options.<key>; config carries only the vault REF.
-    await setConfigValue({
-      scope: 'user',
-      cwd: opts.cwd,
-      path: optionsPath,
-      value: `\${vault:${vaultKey}}`,
-    });
-    return true;
+    return value.length > 0 ? value : undefined;
   }
 
   if (field.kind === 'boolean') {
     const answer = await confirm({ message: field.label, initialValue: true });
-    if (isCancel(answer)) return false;
-    await setConfigValue({ scope: 'user', cwd: opts.cwd, path: optionsPath, value: answer });
-    return true;
+    return isCancel(answer) ? undefined : answer;
   }
 
   if (field.kind === 'select') {
     const choices = field.options ?? [];
-    if (choices.length === 0) return false;
+    if (choices.length === 0) return undefined;
     const answer = await select({
       message: field.label,
       options: choices.map((c) => ({ value: c, label: c })),
     });
-    if (isCancel(answer)) return false;
-    await setConfigValue({ scope: 'user', cwd: opts.cwd, path: optionsPath, value: answer });
-    return true;
+    return isCancel(answer) ? undefined : (answer as string);
   }
 
   const answer = await text({
     message: field.label,
     ...(field.placeholder ? { placeholder: field.placeholder } : {}),
   });
-  if (isCancel(answer)) return false;
+  if (isCancel(answer)) return undefined;
   const value = typeof answer === 'string' ? answer.trim() : '';
-  if (value.length === 0) return false;
-  await setConfigValue({ scope: 'user', cwd: opts.cwd, path: optionsPath, value });
-  return true;
+  return value.length > 0 ? value : undefined;
 }

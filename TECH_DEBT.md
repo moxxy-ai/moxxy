@@ -326,11 +326,6 @@ or recorded-on-purpose decision.
   discovery-loadable plugins in batches, pin on-demand installs to the CLI
   version (currently `latest`), desktop seed pack, TUI install/connect
   affordances.
-- [med, flaky] `workflows.test.ts` "a fileChanged edit runs the workflow ONCE
-  across two concurrent runners" fails under full-suite load (vi.waitFor 4s
-  timeout, file-watcher timing) but passes every isolated rerun — tripped 3×
-  in one day's gates. Raise the timeout / gate it behind a serial pool, or it
-  keeps costing a rerun per PR. `packages/cli/src/setup/workflows.test.ts:567`.
 - [med, refactor] `plugin-memory`(+`memory-consolidate`) cannot unbundle as-is:
   two Plugin instances in one package (discovery loads a single default export),
   `moxxy memory`/`doctor` import `MemoryStore` directly, and setup builds it

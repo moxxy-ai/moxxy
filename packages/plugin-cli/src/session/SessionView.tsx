@@ -224,6 +224,14 @@ export const SessionView: React.FC<SessionViewProps> = ({
     modelId: string;
   } | null>(null);
 
+  // Post-install / /setup plugin-configuration dialog. Carries an optional
+  // continuation (install-confirm's slash rerun waits for configuration).
+  const [pluginSetup, setPluginSetup] = React.useState<{
+    packageName: string;
+    spec: import('@moxxy/sdk').PluginSetupSpec;
+    then?: () => void;
+  } | null>(null);
+
   // Late-bound so the picker handler (memoized above handleSubmit's
   // declaration) can re-dispatch a slash line through the normal submit path
   // — used by install-confirm to re-run the command that hit the missing
@@ -241,6 +249,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         refreshMcpStatus,
         installInFlightRef,
         openProviderConnect: setProviderConnect,
+        openPluginSetup: setPluginSetup,
         rerunSlash: (line) => rerunSlashRef.current(line),
         ...(onSwitchSession ? { requestSessionSwitch: onSwitchSession } : {}),
       }),
@@ -307,6 +316,12 @@ export const SessionView: React.FC<SessionViewProps> = ({
       session.log.clear();
       if (notice) setSystemNotice(notice);
     }
+  };
+
+  // A cancelled REQUIRED setup mirrors init's skip semantics: applySetup with
+  // no values computes incompleteness and disables the package.
+  const deactivateIncompleteSetup = (packageName: string): void => {
+    void session.pluginsAdmin?.applySetup?.(packageName, {}).catch(() => undefined);
   };
 
   const handleSubmit = async (text: string): Promise<void> => {
@@ -435,6 +450,44 @@ export const SessionView: React.FC<SessionViewProps> = ({
         pendingPermissionDepth={Math.max(0, permissions.pendingPermissions.length - 1)}
         pendingApproval={pendingApproval}
         picker={picker}
+        pluginSetup={pluginSetup}
+        onPluginSetupFinish={(values) => {
+          const target = pluginSetup;
+          setPluginSetup(null);
+          if (!target) return;
+          const after = target.then;
+          if (values === null) {
+            if (target.spec.required) {
+              deactivateIncompleteSetup(target.packageName);
+              setSystemNotice(
+                `setup cancelled — ${target.packageName} stays disabled until configured (/setup ${target.packageName})`,
+              );
+            } else {
+              setSystemNotice(`setup skipped — /setup ${target.packageName} to configure later`);
+            }
+            after?.();
+            return;
+          }
+          void (async () => {
+            try {
+              const res = await session.pluginsAdmin?.applySetup?.(target.packageName, values);
+              if (res && !res.complete) {
+                setSystemNotice(
+                  `⚠ ${target.packageName} setup incomplete (missing: ${res.missing.join(', ')})` +
+                    (target.spec.required ? ' — package disabled until configured' : ''),
+                );
+              } else {
+                setSystemNotice(`✓ ${target.packageName} configured`);
+              }
+            } catch (err) {
+              setSystemNotice(
+                `setup failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            } finally {
+              after?.();
+            }
+          })();
+        }}
         providerConnect={providerConnect}
         onProviderConnectSuccess={(note) => {
           const target = providerConnect;

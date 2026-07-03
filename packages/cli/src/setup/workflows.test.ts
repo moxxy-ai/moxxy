@@ -563,9 +563,12 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     const b = await boot('runner-B');
     try {
       await fs.writeFile(path.join(watchedDir, 'note.txt'), 'hello');
-      // Wait until at least one runner has fired...
+      // Wait until at least one runner has fired. Generous timeout: under
+      // full-suite load the fs watcher + debounce routinely exceeded 4s,
+      // making this the repo's flakiest test (TECH_DEBT 2026-07-03) — the
+      // assertion is about AT-MOST-ONCE semantics, not latency.
       await vi.waitFor(() => expect(runs.length).toBeGreaterThanOrEqual(1), {
-        timeout: 4000,
+        timeout: 20000,
         interval: 50,
       });
       // ...then give the other runner ample time to (wrongly) also fire. It must

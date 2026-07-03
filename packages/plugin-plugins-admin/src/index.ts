@@ -36,9 +36,14 @@ export {
 export { pinFirstPartySpec } from './pin.js';
 
 export {
+  applySetupValues,
   listPluginSetups,
   readPluginSetup,
   setupFieldVaultKey,
+  type ApplySetupOptions,
+  type ApplySetupResult,
+  type SetupFieldValue,
+  type SetupSpecVault,
 } from './setup-spec.js';
 export type { PluginSetupField, PluginSetupSpec } from '@moxxy/sdk';
 
