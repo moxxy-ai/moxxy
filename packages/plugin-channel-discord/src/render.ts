@@ -97,10 +97,16 @@ export class DiscordTurnRenderer {
     const parts: string[] = [];
     const activity = this.renderActivity();
     if (activity) parts.push(activity);
-    const body = (this.finalAssistant ?? this.chunks.join('')).trim();
+    const body = this.finalText();
     if (body) parts.push(body);
     if (this.errorLine) parts.push(this.errorLine);
     return parts.join('\n\n').trim();
+  }
+
+  /** The assistant body alone (no activity/error block) — the text a voice
+   *  reply speaks. Empty for a tool-only turn. */
+  finalText(): string {
+    return (this.finalAssistant ?? this.chunks.join('')).trim();
   }
 
   reset(): void {

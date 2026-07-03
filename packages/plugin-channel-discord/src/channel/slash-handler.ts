@@ -4,6 +4,8 @@ import type { ChannelLogger } from './discord-like.js';
 export interface SlashCallbacks {
   /** Toggle yolo and return its new value (so we can echo the right message). */
   toggleYolo(): boolean;
+  /** Handle `/voice [on|off|status]` — persist + apply, return the reply text. */
+  voice(arg: string): Promise<string>;
   /** Apply a `session-action` result emitted from a registered command. */
   performSessionAction(action: 'new' | 'clear' | 'exit', notice: string | undefined): Promise<string>;
 }
@@ -52,6 +54,8 @@ export async function runSlash(
         ? '⚠ yolo mode ON — tool calls auto-approved for the rest of this session'
         : 'yolo mode OFF — tool prompts will resume';
     }
+    case 'voice':
+      return cb.voice(args);
     case 'tools': {
       const list = session.tools
         .list()
@@ -89,6 +93,7 @@ export interface AppCommandJson {
 export function buildAppCommands(session: Session): AppCommandJson[] {
   const LOCAL: AppCommandJson[] = [
     { name: 'yolo', description: 'Toggle auto-approve mode' },
+    { name: 'voice', description: 'Toggle spoken voice replies' },
     { name: 'tools', description: 'List the tools the active session can call' },
     { name: 'skills', description: 'List the discovered skills' },
     { name: 'cancel', description: 'Abort the current turn' },

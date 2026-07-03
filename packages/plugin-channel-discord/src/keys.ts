@@ -16,6 +16,12 @@ export const DISCORD_AUTHORIZED_USER_KEY = 'discord_authorized_user_id';
 /** Vault key for the guild-channel allow-list (JSON array of channel ids the
  *  paired user may drive the bot from, beyond their own DM). */
 export const DISCORD_ALLOWED_CHANNELS_KEY = 'discord_allowed_channel_ids';
+/**
+ * Vault key for the voice-replies preference. Single-paired-account model, so a
+ * present-flag (`'1'` = on, absent = off) toggled from a DM / allow-listed
+ * channel via `/voice`.
+ */
+export const DISCORD_VOICE_REPLIES_KEY = 'discord_voice_replies';
 
 /** Env override for the bot token (beats the vault, matching every other channel). */
 export const DISCORD_TOKEN_ENV = 'MOXXY_DISCORD_TOKEN';
@@ -72,4 +78,23 @@ export function parseAllowedChannels(raw: string | null | undefined): ReadonlyAr
 /** Serialize the allow-list for the vault (deduplicated, stable order). */
 export function serializeAllowedChannels(ids: Iterable<string>): string {
   return JSON.stringify([...new Set(ids)]);
+}
+
+/** Read the persisted voice-replies preference (`'1'` → on). */
+export async function loadVoiceReplies(vault: {
+  get(name: string): Promise<string | null>;
+}): Promise<boolean> {
+  return (await vault.get(DISCORD_VOICE_REPLIES_KEY)) === '1';
+}
+
+/** Persist the voice-replies preference: store `'1'` when on, remove it when off. */
+export async function saveVoiceReplies(
+  vault: {
+    set(name: string, value: string): Promise<void>;
+    delete(name: string): Promise<boolean>;
+  },
+  on: boolean,
+): Promise<void> {
+  if (on) await vault.set(DISCORD_VOICE_REPLIES_KEY, '1');
+  else await vault.delete(DISCORD_VOICE_REPLIES_KEY);
 }

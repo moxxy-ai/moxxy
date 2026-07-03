@@ -1,7 +1,7 @@
-import { Bot, GrammyError, HttpError } from 'grammy';
+import { Bot, GrammyError, HttpError, InputFile } from 'grammy';
 import type { Context } from 'grammy';
 import { newTurnId } from '@moxxy/core';
-import { TurnCoordinator, resolveSecret } from '@moxxy/channel-kit';
+import { TurnCoordinator, deliverVoiceReply, resolveSecret } from '@moxxy/channel-kit';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   ApprovalRequest,
@@ -28,6 +28,7 @@ import {
 import { runUserTurn } from './channel/turn-runner.js';
 import { handleTextMessage } from './channel/text-handler.js';
 import { handleVoiceMessage } from './channel/voice-handler.js';
+import { loadVoiceReplies, saveVoiceReplies } from './keys.js';
 
 const TOKEN_KEY = 'telegram_bot_token';
 
@@ -98,6 +99,10 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
   private model: string | undefined;
   private activeModelOverride: string | null = null;
   private yolo = false;
+  // When true, the final assistant reply of each turn is also synthesized (via
+  // the session's active Synthesizer) and sent as a voice note. Persisted per
+  // paired chat in the vault (`telegram_voice_replies`), toggled with `/voice`.
+  private voiceReplies = false;
   // Single-flight turn state: `busy` guard, per-turn AbortController (so
   // /cancel aborts only the current turn without poisoning the session-level
   // signal other channels share), and the bounded own-turn-id set that
@@ -182,6 +187,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
       );
     }
     await this.pairing.loadAuthorized();
+    this.voiceReplies = await loadVoiceReplies(this.opts.vault);
 
     // Open the single host-issued QR pairing window when a pairing surface asked
     // for it (`pair`, the terminal `pair` command) OR when running GUI-supervised
@@ -364,6 +370,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         model: this.model,
         activeModelOverride: this.activeModelOverride,
         yolo: this.yolo,
+        voiceReplies: this.voiceReplies,
         busy: this.turns.busy,
         turnController: this.turns.controller,
         awaitingApprovalText: this.awaitingApprovalText,
@@ -386,10 +393,45 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
         setYolo: (value) => {
           this.yolo = value;
         },
+        setVoiceReplies: (on) => this.setVoiceReplies(on),
         runUserTurn: (c, chatId, text) => this.runUserTurn(c, chatId, text),
         tryHostPair: (chatId, text) => this.tryHostPair(ctx, chatId, text),
       },
     );
+  }
+
+  /** Persist + apply the voice-replies preference (the `/voice` toggle). */
+  private async setVoiceReplies(on: boolean): Promise<void> {
+    this.voiceReplies = on;
+    try {
+      await saveVoiceReplies(this.opts.vault, on);
+    } catch (err) {
+      this.opts.logger?.warn('telegram voice-replies persist failed', { err: String(err) });
+    }
+  }
+
+  /**
+   * Speak the final assistant reply as a voice note, when enabled. Best-effort
+   * and fully isolated (never throws): synthesize via the session's active
+   * Synthesizer, transcode to OGG/Opus (or send plain audio when ffmpeg is
+   * unavailable), and deliver via grammy. The text reply already went out.
+   */
+  private async sendVoiceReply(chatId: number, text: string): Promise<void> {
+    if (!this.voiceReplies || !this.bot || !this.session) return;
+    const bot = this.bot;
+    const outcome = await deliverVoiceReply(this.session, text, {
+      send: async (audio, meta) => {
+        const file = new InputFile(audio, meta.filename);
+        if (meta.isVoiceNote) await bot.api.sendVoice(chatId, file);
+        else await bot.api.sendAudio(chatId, file);
+      },
+    });
+    if (outcome.status === 'failed') {
+      this.opts.logger?.warn('telegram voice reply failed', {
+        reason: outcome.reason,
+        ...(outcome.error ? { err: outcome.error } : {}),
+      });
+    }
   }
 
   /**
@@ -449,6 +491,7 @@ export class TelegramChannel implements Channel<TelegramStartOpts> {
           framePump: this.framePump,
           typing: this.typing,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
+          onFinalReply: (finalText) => this.sendVoiceReply(chatId, finalText),
         },
         { chatId, text, model: effectiveModel, controller: lease.controller, turnId: lease.turnId },
       );

@@ -15,6 +15,12 @@ export interface TurnRunnerDeps {
   readonly framePump: FramePump;
   readonly typing: TypingIndicator;
   readonly logger?: TurnRunnerLogger;
+  /**
+   * Called once with the FINAL assistant text after it has been flushed to the
+   * chat (so the text reply always lands first). Backs the optional voice
+   * reply. Best-effort — its failure is logged and never breaks the text turn.
+   */
+  readonly onFinalReply?: (text: string) => Promise<void>;
 }
 
 export interface TurnRunnerOptions {
@@ -40,7 +46,7 @@ export async function runUserTurn(
   deps: TurnRunnerDeps,
   opts: TurnRunnerOptions,
 ): Promise<void> {
-  const { session, bot, framePump, typing, logger } = deps;
+  const { session, bot, framePump, typing, logger, onFinalReply } = deps;
   const { chatId, text, model, controller, turnId } = opts;
 
   framePump.beginTurn(chatId);
@@ -64,6 +70,21 @@ export async function runUserTurn(
   try {
     await driveTurn(session, { turnId, prompt: text, model, signal: controller.signal });
     await framePump.flush(true);
+    // The text reply is now out. Speak the final assistant body if a voice
+    // reply is wired — isolated so a synth/transcode/transport failure can
+    // never break (or re-report) the already-delivered text turn.
+    if (onFinalReply) {
+      const finalText = framePump.renderState.snapshot().body;
+      if (finalText.trim()) {
+        try {
+          await onFinalReply(finalText);
+        } catch (err) {
+          logger?.warn('telegram voice reply hook failed', {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
   } catch (err) {
     logger?.warn('telegram turn failed', {
       err: err instanceof Error ? err.message : String(err),

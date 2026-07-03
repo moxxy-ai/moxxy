@@ -13,6 +13,7 @@ export interface TextHandlerState {
   readonly model: string | undefined;
   readonly activeModelOverride: string | null;
   readonly yolo: boolean;
+  readonly voiceReplies: boolean;
   readonly busy: boolean;
   readonly turnController: AbortController | null;
   readonly awaitingApprovalText: AwaitingApprovalText | null;
@@ -30,6 +31,7 @@ export interface TextHandlerCallbacks {
   readonly setAwaitingApprovalText: (state: AwaitingApprovalText | null) => void;
   readonly toggleYolo: () => boolean;
   readonly setYolo: (value: boolean) => void;
+  readonly setVoiceReplies: (on: boolean) => Promise<void>;
   readonly runUserTurn: (ctx: Context, chatId: number, text: string) => Promise<void>;
   /** Host-issued pairing fallback: try to pair an unauthorized chat whose message
    *  is the 6-digit code. Returns true when handled (so we skip the generic
@@ -98,9 +100,11 @@ export async function handleTextMessage(
         model: state.model,
         activeModelOverride: state.activeModelOverride,
         yolo: state.yolo,
+        voiceReplies: state.voiceReplies,
       },
       {
         toggleYolo: cb.toggleYolo,
+        setVoiceReplies: cb.setVoiceReplies,
         performSessionAction: (c, action, notice) =>
           performSessionAction(c, action, notice, state, deps, cb),
       },

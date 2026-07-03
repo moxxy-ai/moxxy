@@ -1,4 +1,6 @@
+import { Buffer } from 'node:buffer';
 import {
+  AttachmentBuilder,
   Client,
   Events,
   GatewayIntentBits,
@@ -7,7 +9,7 @@ import {
   type Message,
 } from 'discord.js';
 import { newTurnId } from '@moxxy/core';
-import { TurnCoordinator } from '@moxxy/channel-kit';
+import { TurnCoordinator, deliverVoiceReply, resolveVoiceToggle } from '@moxxy/channel-kit';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type {
   ApprovalRequest,
@@ -21,7 +23,12 @@ import type {
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { DiscordPermissionResolver } from './permission.js';
 import { DiscordApprovalResolver } from './approval.js';
-import { resolveBotToken, DISCORD_TOKEN_KEY } from './keys.js';
+import {
+  resolveBotToken,
+  DISCORD_TOKEN_KEY,
+  loadVoiceReplies,
+  saveVoiceReplies,
+} from './keys.js';
 import { extractInboundMessage } from './schema.js';
 import { splitForDiscord } from './render.js';
 import { AllowListStore } from './channel/allow-list-store.js';
@@ -49,6 +56,14 @@ const READY_TIMEOUT_MS = 15_000;
 /** Minimal permission bits for the invite link: View Channels + Send Messages
  *  + Read Message History. */
 const INVITE_PERMISSIONS = 1024 + 2048 + 65536;
+
+/**
+ * Install guidance shown when enabling `/voice` with no active synthesizer —
+ * mirrors the voice-handler's transcriber guidance wording, pointing at the TTS
+ * plugin instead of the STT one.
+ */
+const VOICE_NO_SYNTH_HINT =
+  'No text-to-speech backend is configured yet, so replies stay text-only. Install one with `moxxy plugins install tts-openai` and run `moxxy login openai` (or set OPENAI_API_KEY) to enable spoken replies.';
 
 export type { PairingConfirmResult } from './channel/pairing-handler.js';
 
@@ -100,6 +115,11 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
   private session: Session | null = null;
   private model: string | undefined;
   private yolo = false;
+  // When true, the final assistant reply of each turn is also synthesized (via
+  // the session's active Synthesizer) and sent as an audio attachment.
+  // Persisted per paired account in the vault (`discord_voice_replies`),
+  // toggled with `/voice`.
+  private voiceReplies = false;
   // Single-flight turn state: `busy` guard, per-turn AbortController (so
   // /cancel aborts only the current turn), and the bounded own-turn-id set
   // that mirrorForeignTurn filters on (AGENTS.md invariant #8).
@@ -176,6 +196,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
     }
     await this.pairing.loadAuthorized();
     await this.allowList.load();
+    this.voiceReplies = await loadVoiceReplies(this.opts.vault);
 
     // Arm the DM pairing window when a pairing surface asked for it (`pair`)
     // OR when running GUI-supervised on a dedicated runner and nothing is
@@ -383,6 +404,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
         setYolo: (value) => {
           this.yolo = value;
         },
+        voice: (arg) => this.voiceCommand(arg),
         runUserTurn: (c, text) => this.runUserTurn(c, text),
         runVoiceMessage: (c) =>
           handleVoiceMessage(
@@ -414,6 +436,7 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           this.yolo = !this.yolo;
           return this.yolo;
         },
+        voice: (arg) => this.voiceCommand(arg),
         performSessionAction: (action, notice) =>
           performSessionAction(
             action,
@@ -461,12 +484,62 @@ export class DiscordChannel implements Channel<DiscordStartOpts> {
           typing: this.typing,
           editFrameMs: this.editFrameMs,
           ...(this.opts.logger ? { logger: this.opts.logger } : {}),
+          onFinalReply: (finalText) => this.sendVoiceReply(ctx.channel, finalText),
         },
         { text, model: this.model, controller: lease.controller, turnId: lease.turnId },
       );
     } finally {
       lease.end();
       this.currentChannel = null;
+    }
+  }
+
+  /** Handle `/voice [on|off|status]`: persist + apply the preference, return the
+   *  reply text. Shared by the plain-text and application-command paths. */
+  private async voiceCommand(arg: string): Promise<string> {
+    const result = resolveVoiceToggle({
+      arg,
+      enabled: this.voiceReplies,
+      hasSynthesizer: this.session?.synthesizers.tryGetActive() != null,
+      delivery: 'an audio file',
+      noSynthesizerHint: VOICE_NO_SYNTH_HINT,
+    });
+    if (result.persist) await this.setVoiceReplies(result.enabled);
+    return result.reply;
+  }
+
+  private async setVoiceReplies(on: boolean): Promise<void> {
+    this.voiceReplies = on;
+    try {
+      await saveVoiceReplies(this.opts.vault, on);
+    } catch (err) {
+      this.opts.logger?.warn('discord voice-replies persist failed', { err: String(err) });
+    }
+  }
+
+  /**
+   * Attach the final assistant reply as synthesized audio, when enabled.
+   * Best-effort and fully isolated (never throws): synthesize via the session's
+   * active Synthesizer, transcode to OGG/Opus (or send the original format when
+   * ffmpeg is unavailable), and post as a file. The text reply already went out.
+   *
+   * NB: a plain audio attachment, not a true Discord voice-message bubble
+   * (MessageFlags.IsVoiceMessage + waveform) — deferred to a follow-up.
+   */
+  private async sendVoiceReply(channel: SendableChannelLike, text: string): Promise<void> {
+    if (!this.voiceReplies || !this.session) return;
+    const outcome = await deliverVoiceReply(this.session, text, {
+      send: async (audio, meta) => {
+        await channel.send({
+          files: [new AttachmentBuilder(Buffer.from(audio), { name: meta.filename })],
+        });
+      },
+    });
+    if (outcome.status === 'failed') {
+      this.opts.logger?.warn('discord voice reply failed', {
+        reason: outcome.reason,
+        ...(outcome.error ? { err: outcome.error } : {}),
+      });
     }
   }
 
