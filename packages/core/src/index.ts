@@ -21,6 +21,14 @@ export {
   type UsageStatsFile,
   type StoredModelUsage,
 } from './usage-stats.js';
+export {
+  loadSkillUsage,
+  mergeSkillUsage,
+  skillsUsagePath,
+  type SkillUsageFile,
+  type SkillUsage,
+  type SkillUsageDelta,
+} from './skill-usage.js';
 export { SkillRegistryImpl } from './registries/skills.js';
 export {
   parseSkillFile,

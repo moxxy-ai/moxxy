@@ -1,4 +1,10 @@
-import { defaultProjectSkillsDir, defaultUserSkillsDir, discoverSkills, silentLogger } from '@moxxy/core';
+import {
+  defaultProjectSkillsDir,
+  defaultUserSkillsDir,
+  discoverSkills,
+  loadSkillUsage,
+  silentLogger,
+} from '@moxxy/core';
 import { createMutex } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from '../setup/builtin-skills-dir.js';
@@ -62,13 +68,20 @@ export async function runSkillsCommand(argv: ParsedArgv): Promise<number> {
       process.stdout.write(colors.dim('(no skills discovered)') + '\n');
       return 0;
     }
+    // Best-effort cross-session invocation counts (~/.moxxy/skills/.meta/usage.json).
+    // A missing file reads as empty, so this is a silent no-op when unpopulated.
+    const usage = await loadSkillUsage();
+    const usedFor = (s: (typeof skills)[number]): string =>
+      usedLabel(usage.skills[s.frontmatter.name]?.invocations);
     const nameCol = Math.max(8, ...skills.map((s) => s.frontmatter.name.length));
     const scopeCol = Math.max(7, ...skills.map((s) => s.scope.length));
+    const usedCol = Math.max(4, ...skills.map((s) => usedFor(s).length));
     for (const s of skills) {
       const name = colors.bold(s.frontmatter.name.padEnd(nameCol));
       const scope = colors.dim(s.scope.padEnd(scopeCol));
+      const used = colors.dim(usedFor(s).padStart(usedCol));
       const desc = colors.dim(s.frontmatter.description);
-      process.stdout.write(`${name}  ${scope}  ${desc}\n`);
+      process.stdout.write(`${name}  ${scope}  ${used}  ${desc}\n`);
     }
     return 0;
   }
@@ -240,6 +253,14 @@ export function groupSimilarPrompts(entries: ReadonlyArray<AuditEntry>): AuditEn
     }
   }
   return groups;
+}
+
+/**
+ * The `used` column cell for `moxxy skills list`: the cross-session invocation
+ * count, or `-` when a skill has never been invoked (or has no usage entry).
+ */
+export function usedLabel(count: number | undefined): string {
+  return count && count > 0 ? String(count) : '-';
 }
 
 export function tokenize(s: string): string[] {

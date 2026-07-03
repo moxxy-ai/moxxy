@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { MoxxyEvent } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
+import { loadSkillUsage } from '@moxxy/core';
 import { SkillsPanel } from '../components/SkillsPanel.js';
 import { ToolsPanel } from '../components/ToolsPanel.js';
 import { AgentsPanel } from '../components/AgentsPanel.js';
@@ -37,11 +38,34 @@ export const OverlayOrNotice: React.FC<OverlayOrNoticeProps> = ({
   getChannels,
   onClose,
 }) => {
+  // Best-effort cross-session skill invocation counts for the `/skills` panel.
+  // Loaded lazily when the skills overlay opens; a missing/corrupt file resolves
+  // to empty, so failing to load just hides the `×N` badges (never blocks).
+  const [skillUsage, setSkillUsage] = React.useState<Record<string, number>>({});
+  React.useEffect(() => {
+    if (overlay?.kind !== 'skills') return;
+    let cancelled = false;
+    void loadSkillUsage()
+      .then((file) => {
+        if (cancelled) return;
+        const counts: Record<string, number> = {};
+        for (const [name, u] of Object.entries(file.skills)) counts[name] = u.invocations;
+        setSkillUsage(counts);
+      })
+      .catch(() => {
+        /* best-effort: leave badges hidden */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [overlay?.kind]);
+
   if (overlay?.kind === 'skills') {
     return (
       <SkillsPanel
         skills={session.skills.list()}
         mcpServers={deriveMcpServers(session.tools.list())}
+        usage={skillUsage}
         onClose={onClose}
       />
     );

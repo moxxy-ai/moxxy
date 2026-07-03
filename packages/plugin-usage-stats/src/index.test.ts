@@ -5,13 +5,14 @@ import * as path from 'node:path';
 import {
   asEventId,
   asSessionId,
+  asSkillId,
   asTurnId,
   type AppContext,
   type EventLogReader,
   type MoxxyEvent,
 } from '@moxxy/sdk';
-import { loadUsageStats } from '@moxxy/core';
-import { buildUsageStatsPlugin } from './index.js';
+import { loadSkillUsage, loadUsageStats } from '@moxxy/core';
+import { buildUsageStatsPlugin, summarizeSkillEvents } from './index.js';
 
 const sid = asSessionId('s1');
 const tid = asTurnId('t1');
@@ -29,6 +30,38 @@ function resp(seq: number, model: string, inputTokens: number): MoxxyEvent {
     model,
     inputTokens,
     outputTokens: 1,
+  } as MoxxyEvent;
+}
+
+function skillInvoked(seq: number, name: string, ts: number): MoxxyEvent {
+  return {
+    id: asEventId(`e${seq}`),
+    seq,
+    ts,
+    sessionId: sid,
+    turnId: tid,
+    source: 'model',
+    type: 'skill_invoked',
+    skillId: asSkillId(name),
+    name,
+    reason: 'load_skill_tool',
+  } as MoxxyEvent;
+}
+
+function skillCreated(seq: number, name: string, ts: number): MoxxyEvent {
+  return {
+    id: asEventId(`e${seq}`),
+    seq,
+    ts,
+    sessionId: sid,
+    turnId: tid,
+    source: 'model',
+    type: 'skill_created',
+    skillId: asSkillId(name),
+    name,
+    path: `/tmp/${name}.md`,
+    scope: 'user',
+    originatingPrompt: `make ${name}`,
   } as MoxxyEvent;
 }
 
@@ -115,10 +148,12 @@ function ctxForLog(log: FakeLog, sessionId = sid): AppContext {
 
 let tmpDir: string;
 let statsPath: string;
+let skillUsagePath: string;
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-usage-plugin-'));
   statsPath = path.join(tmpDir, 'usage.json');
+  skillUsagePath = path.join(tmpDir, 'skill-usage.json');
 });
 
 afterEach(async () => {
@@ -453,5 +488,82 @@ describe('usage-stats plugin', () => {
     // the post-shutdown clear added nothing.
     expect(file.models['anthropic/opus']!.calls).toBe(1);
     expect(file.models['anthropic/opus']!.inputTokens).toBe(50);
+  });
+});
+
+describe('summarizeSkillEvents', () => {
+  it('counts invocations per name and keeps the latest invocation timestamp', () => {
+    const delta = summarizeSkillEvents(
+      [skillInvoked(0, 'deploy', 1000), skillInvoked(1, 'deploy', 3000), skillInvoked(2, 'lint', 2000)],
+      [],
+    );
+    expect(delta['deploy']!.invocations).toBe(2);
+    expect(delta['deploy']!.lastInvokedAt).toBe(new Date(3000).toISOString());
+    expect(delta['lint']!.invocations).toBe(1);
+  });
+
+  it('records createdAt for a created-but-never-invoked skill (invocations 0)', () => {
+    const delta = summarizeSkillEvents([], [skillCreated(0, 'fresh', 5000)]);
+    expect(delta['fresh']!.invocations).toBe(0);
+    expect(delta['fresh']!.createdAt).toBe(new Date(5000).toISOString());
+  });
+
+  it('is empty for no events', () => {
+    expect(summarizeSkillEvents([], [])).toEqual({});
+  });
+});
+
+describe('usage-stats plugin — skill folding', () => {
+  it('folds skill_invoked/skill_created into the skill usage store on shutdown', async () => {
+    const plugin = buildUsageStatsPlugin({ statsPath, skillUsagePath });
+    const events = [
+      skillCreated(0, 'deploy', 1000),
+      skillInvoked(1, 'deploy', 2000),
+      skillInvoked(2, 'deploy', 4000),
+      skillInvoked(3, 'lint', 3000),
+    ];
+
+    await plugin.hooks!.onInit!(ctxFor([]));
+    await plugin.hooks!.onShutdown!(ctxFor(events));
+
+    const file = await loadSkillUsage(skillUsagePath);
+    expect(file.skills['deploy']!.invocations).toBe(2);
+    expect(file.skills['deploy']!.createdAt).toBe(new Date(1000).toISOString());
+    expect(file.skills['deploy']!.lastInvokedAt).toBe(new Date(4000).toISOString());
+    expect(file.skills['lint']!.invocations).toBe(1);
+  });
+
+  it('counts only the live skill suffix on resume (skips restored skill events)', async () => {
+    const restored = [skillInvoked(0, 'deploy', 1000), skillInvoked(1, 'deploy', 2000)];
+    const live = [skillInvoked(2, 'deploy', 3000)];
+    const plugin = buildUsageStatsPlugin({ statsPath, skillUsagePath });
+
+    await plugin.hooks!.onInit!(ctxFor(restored));
+    await plugin.hooks!.onShutdown!(ctxFor([...restored, ...live]));
+
+    // Only the single live invocation is counted — not the 2 restored.
+    expect((await loadSkillUsage(skillUsagePath)).skills['deploy']!.invocations).toBe(1);
+  });
+
+  it('folds skill usage even when the run produced no provider_response (no token early-return)', async () => {
+    // Regression: the token fold used to `return` early when no responses were
+    // present, which would skip the skill fold entirely. They must be independent.
+    const plugin = buildUsageStatsPlugin({ statsPath, skillUsagePath });
+    const events = [skillInvoked(0, 'deploy', 1000)];
+
+    await plugin.hooks!.onInit!(ctxFor([]));
+    await plugin.hooks!.onShutdown!(ctxFor(events));
+
+    expect((await loadSkillUsage(skillUsagePath)).skills['deploy']!.invocations).toBe(1);
+    // No token usage was recorded (no provider_response events).
+    expect((await loadUsageStats(statsPath)).models).toEqual({});
+  });
+
+  it('writes no skill usage file when the run exercised no skills', async () => {
+    const plugin = buildUsageStatsPlugin({ statsPath, skillUsagePath });
+    await plugin.hooks!.onInit!(ctxFor([]));
+    await plugin.hooks!.onShutdown!(ctxFor([resp(0, 'opus', 100)]));
+    // Empty skill delta → merge never touches disk.
+    await expect(fs.access(skillUsagePath)).rejects.toThrow();
   });
 });

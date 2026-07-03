@@ -4,12 +4,16 @@ import {
   type EventLogReader,
   type Plugin,
   type SessionId,
+  type SkillCreatedEvent,
+  type SkillInvokedEvent,
 } from '@moxxy/sdk';
-import { mergeUsageStats } from '@moxxy/core';
+import { mergeSkillUsage, mergeUsageStats, type SkillUsageDelta } from '@moxxy/core';
 
 export interface BuildUsageStatsPluginOptions {
-  /** Override the on-disk aggregate path. Tests inject a tmp file here. */
+  /** Override the on-disk token-usage aggregate path. Tests inject a tmp file here. */
   readonly statsPath?: string;
+  /** Override the on-disk skill-usage aggregate path. Tests inject a tmp file here. */
+  readonly skillUsagePath?: string;
 }
 
 /**
@@ -27,10 +31,20 @@ interface EventLogExtras {
 }
 
 /**
- * Records cross-session token usage. On shutdown it folds THIS run's
+ * Records cross-session token AND skill usage. On shutdown it folds THIS run's
  * `provider_response` events by `<provider>/<model>` and merges the delta into
  * `~/.moxxy/usage.json` — a forward-going aggregate the `/usage` panel renders
- * and `/usage clear` resets.
+ * and `/usage clear` resets. It ALSO folds this run's `skill_invoked` /
+ * `skill_created` events by skill name and merges them into
+ * `~/.moxxy/skills/.meta/usage.json` (surfaced in `/skills` and
+ * `moxxy skills list`). Both folds use the same resume/`/new` seq boundary, so
+ * each store counts a session's contribution exactly once.
+ *
+ * NOTE: `skill_invoked` is only emitted by the `load_skill` tool today (reason
+ * `'load_skill_tool'`), so the skill store counts explicit `load_skill` calls
+ * only — see `@moxxy/core`'s `skill-usage.ts`. The other reasons the event type
+ * allows (`trigger_match` / `classifier` / `manual`) have no emission site yet;
+ * when they land, this same fold starts counting them with no change here.
  *
  * Resume-safe by construction: restored events are seeded into the log WITHOUT
  * firing subscribers, and `onInit` runs after seeding. `onInit` records the
@@ -128,21 +142,44 @@ export function buildUsageStatsPlugin(opts: BuildUsageStatsPluginOptions = {}): 
         cursors.delete(ctx.sessionId);
         // Best-effort: a throwing reader or a failed fold degrades to "record
         // nothing for this run" rather than rejecting the hook (which the host
-        // would log as a spurious failure). `mergeUsageStats` already swallows
-        // its own write errors; this guards the read/fold side too.
+        // would log as a spurious failure). Each store folds in its own guarded
+        // block so a failure folding one family (tokens / skills) can't strand
+        // the other, and neither can crash the 5s-timeboxed shutdown path.
+        // `mergeUsageStats` / `mergeSkillUsage` already swallow their own write
+        // errors; these guards cover the read/fold side too.
+
+        // Only `provider_response` events carry token usage; scan that indexed
+        // subset (O(matches)) instead of copying + filtering the full event log
+        // (O(total session events)).
         try {
-          // Only `provider_response` events carry token usage; scan that indexed
-          // subset (O(matches)) instead of copying + filtering the full event log
-          // (O(total session events)) on this 5s-timeboxed shutdown path.
           const responses = ctx.log.ofType('provider_response');
           const live =
             initMaxSeq === null ? responses : responses.filter((e) => e.seq > initMaxSeq);
-          if (live.length === 0) return;
-          const delta = summarizeTokensByModel(live);
-          await mergeUsageStats(delta, opts.statsPath);
+          if (live.length > 0) {
+            const delta = summarizeTokensByModel(live);
+            await mergeUsageStats(delta, opts.statsPath);
+          }
         } catch {
-          // Drop this run's usage rather than crash shutdown — explicitly the
-          // accepted trade-off for an optional, contention-free aggregate.
+          // Drop this run's token usage rather than crash shutdown — explicitly
+          // the accepted trade-off for an optional, contention-free aggregate.
+        }
+
+        // Fold this run's live skill events past the SAME boundary and merge the
+        // per-skill-name delta into `~/.moxxy/skills/.meta/usage.json`.
+        try {
+          const invoked = ctx.log.ofType('skill_invoked');
+          const created = ctx.log.ofType('skill_created');
+          const skillDelta = summarizeSkillEvents(
+            initMaxSeq === null ? invoked : invoked.filter((e) => e.seq > initMaxSeq),
+            initMaxSeq === null ? created : created.filter((e) => e.seq > initMaxSeq),
+          );
+          // Only touch disk (even the read side) when there's something to add.
+          if (Object.keys(skillDelta).length > 0) {
+            await mergeSkillUsage(skillDelta, opts.skillUsagePath);
+          }
+        } catch {
+          // Drop this run's skill usage rather than crash shutdown — same
+          // best-effort trade-off as the token fold above.
         }
       },
     },
@@ -150,19 +187,73 @@ export function buildUsageStatsPlugin(opts: BuildUsageStatsPluginOptions = {}): 
 }
 
 /**
+ * Fold a run's live `skill_invoked` / `skill_created` events into a per-skill-
+ * name delta for `mergeSkillUsage`. Invocations are counted and the latest
+ * invocation timestamp kept; a creation event records the skill's `createdAt`.
+ * Timestamps convert the epoch-ms event `ts` to ISO to match the store's shape.
+ * Skills that only appear in a creation event still get an entry (invocations 0)
+ * so a freshly-synthesized-but-never-invoked skill still records its birth.
+ */
+export function summarizeSkillEvents(
+  invoked: ReadonlyArray<SkillInvokedEvent>,
+  created: ReadonlyArray<SkillCreatedEvent>,
+): Record<string, SkillUsageDelta> {
+  const acc = new Map<string, { invocations: number; lastInvokedAt?: string; createdAt?: string }>();
+  const entry = (name: string) => {
+    let e = acc.get(name);
+    if (!e) {
+      e = { invocations: 0 };
+      acc.set(name, e);
+    }
+    return e;
+  };
+  for (const e of invoked) {
+    const cur = entry(e.name);
+    cur.invocations += 1;
+    const iso = new Date(e.ts).toISOString();
+    if (!cur.lastInvokedAt || iso > cur.lastInvokedAt) cur.lastInvokedAt = iso;
+  }
+  for (const e of created) {
+    const cur = entry(e.name);
+    const iso = new Date(e.ts).toISOString();
+    // Earliest creation wins if (improbably) a name is created twice in one run.
+    if (!cur.createdAt || iso < cur.createdAt) cur.createdAt = iso;
+  }
+  const out: Record<string, SkillUsageDelta> = {};
+  for (const [name, e] of acc) {
+    out[name] = {
+      invocations: e.invocations,
+      ...(e.lastInvokedAt ? { lastInvokedAt: e.lastInvokedAt } : {}),
+      ...(e.createdAt ? { createdAt: e.createdAt } : {}),
+    };
+  }
+  return out;
+}
+
+// The event families `onShutdown` folds. The `baseSeq`-less fallback in
+// `boundarySeq` must scan the union of these so the resume boundary excludes
+// every restored event of ANY folded family — otherwise a session whose
+// restored prefix has, e.g., skill events but no `provider_response` would get a
+// too-low boundary and re-fold (double-count) those restored skill events.
+const FOLDED_EVENT_TYPES = ['provider_response', 'skill_invoked', 'skill_created'] as const;
+
+/**
  * Highest held seq — the resume boundary — without copying the log. Prefers the
  * O(1) `baseSeq + length - 1` identity (every held event has `seq === base +
- * index`); falls back to scanning the indexed `provider_response` subset when a
- * reader doesn't expose `baseSeq`. `null` for an empty log. Using the response
- * subset for the fallback is sound: `onShutdown` only folds responses, so a
- * boundary at the max restored response seq still excludes every restored
- * response and includes every live one.
+ * index`); falls back to scanning the indexed subsets `onShutdown` folds when a
+ * reader doesn't expose `baseSeq`. `null` for an empty log. Scanning the union
+ * of folded families (not just `provider_response`) keeps the fallback sound now
+ * that skills are folded too: the boundary sits at the max restored seq across
+ * every folded family, so each fold excludes its restored events and includes
+ * only its live ones.
  */
 function boundarySeq(log: EventLogReader & EventLogExtras): number | null {
   if (log.length === 0) return null;
   if (typeof log.baseSeq === 'number') return log.baseSeq + log.length - 1;
   let max: number | null = null;
-  for (const e of log.ofType('provider_response')) if (max === null || e.seq > max) max = e.seq;
+  for (const type of FOLDED_EVENT_TYPES) {
+    for (const e of log.ofType(type)) if (max === null || e.seq > max) max = e.seq;
+  }
   return max;
 }
 
