@@ -228,6 +228,11 @@ export {
   type MoxxyErrorCode,
   type MoxxyErrorInit,
 } from './errors.js';
+// Shared retry primitives: a leak-safe, abort-aware sleep + the exponential
+// back-off schedule. General-purpose — not mode-loop internals: the runner's
+// connect retry and the desktop supervisor's restart wait use them too, so
+// don't reimplement an ad-hoc `new Promise(setTimeout)` back-off elsewhere.
+export { sleepWithAbort, nextBackoffMs } from './mode/abort-backoff.js';
 export {
   collectProviderStream,
   runSingleShotTurn,
@@ -236,8 +241,6 @@ export {
   buildSystemPromptWithSkills,
   createStuckLoopDetector,
   stableHash,
-  sleepWithAbort,
-  nextBackoffMs,
   type CollectedToolUse,
   type StreamResult,
   type ProjectMessagesOptions,

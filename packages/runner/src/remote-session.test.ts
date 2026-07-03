@@ -9,12 +9,15 @@
  * accumulate one entry per turn forever — yet a genuine fast-turn completion,
  * buffered a tick before its `runTurn` registers, must still finish the stream.
  */
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { SessionInfo, TurnId } from '@moxxy/sdk';
 import { JsonRpcPeer } from './jsonrpc.js';
 import type { Transport } from './transport.js';
-import { RemoteSession, isMoxxyCommandLine, spawnText } from './remote-session.js';
+import { RemoteSession, connectWithRetry, isMoxxyCommandLine, spawnText } from './remote-session.js';
 import { RunnerMethod, RunnerNotification } from './protocol.js';
+import { createUnixSocketServer } from './unix-socket.js';
 
 /** A pair of in-memory transports wired to each other (mirrors jsonrpc.test). */
 function makePair(): [Transport, Transport] {
@@ -222,5 +225,32 @@ describe('spawnText (bounded recovery sub-command)', () => {
   it.skipIf(isWin)('returns the trimmed stdout of a fast command', async () => {
     const out = await spawnText('printf', ['hello'], 2_000);
     expect(out).toBe('hello');
+  });
+});
+
+describe('connectWithRetry (initial-connect linear backoff)', () => {
+  function tmpSocket(): string {
+    return path.join(os.tmpdir(), `moxxy-retry-${Math.random().toString(36).slice(2, 10)}.sock`);
+  }
+
+  it('retries until the socket starts accepting (rides over a late-binding runner)', async () => {
+    const socketPath = tmpSocket();
+    // Nothing listens yet — the first attempt(s) fail. Bring the server up
+    // shortly after, well inside the retry budget (100+200+…+500ms ≈ 1.5s).
+    const serverUp = (async () => {
+      await new Promise((r) => setTimeout(r, 150));
+      return createUnixSocketServer(socketPath);
+    })();
+    try {
+      const transport = await connectWithRetry(socketPath, 5);
+      transport.close();
+    } finally {
+      await (await serverUp).close();
+    }
+  });
+
+  it('rejects with the last connect error once retries are exhausted', async () => {
+    // No server ever appears; 1 retry keeps the test fast (~100ms backoff).
+    await expect(connectWithRetry(tmpSocket(), 1)).rejects.toThrow();
   });
 });

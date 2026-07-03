@@ -30,6 +30,7 @@ import type {
   SynthesizersClientView,
   TurnId,
 } from '@moxxy/sdk';
+import { sleepWithAbort } from '@moxxy/sdk';
 import { JsonRpcPeer } from './jsonrpc.js';
 import {
   makeProvidersView,
@@ -814,7 +815,7 @@ async function terminate(pid: number): Promise<void> {
   } catch {
     /* may already be dead, or we lack permission */
   }
-  await new Promise((r) => setTimeout(r, 400));
+  await sleepWithAbort(400);
   try {
     process.kill(pid, 0); // 0 = liveness probe
     process.kill(pid, 'SIGKILL');
@@ -864,15 +865,22 @@ async function unlinkSocket(socketPath: string): Promise<void> {
   }
 }
 
-/** Connect, retrying with linear backoff to ride over a brief runner hiccup. */
-async function connectWithRetry(socketPath: string, retries: number): Promise<Transport> {
+/**
+ * Connect, retrying with LINEAR backoff (100ms, 200ms, … per attempt) to ride
+ * over a brief runner hiccup. Deliberately not the sdk's exponential
+ * `nextBackoffMs` schedule: the whole budget here is "the runner is up but the
+ * socket isn't accepting for a few hundred ms yet" — doubling delays would just
+ * slow every attach for no resilience gain. The sleep itself is the shared
+ * `sleepWithAbort` primitive. Exported for tests (like {@link spawnText}).
+ */
+export async function connectWithRetry(socketPath: string, retries: number): Promise<Transport> {
   let lastErr: unknown;
   for (let i = 0; i <= retries; i++) {
     try {
       return await connectUnixSocket(socketPath);
     } catch (err) {
       lastErr = err;
-      if (i < retries) await new Promise((r) => setTimeout(r, 100 * (i + 1)));
+      if (i < retries) await sleepWithAbort(100 * (i + 1));
     }
   }
   throw lastErr;
