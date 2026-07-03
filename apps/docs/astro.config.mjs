@@ -16,6 +16,7 @@ export default defineConfig({
           label: 'Getting started',
           items: [
             { label: 'Introduction', slug: 'index' },
+            { label: 'Why moxxy', slug: 'why-moxxy' },
             { label: 'Quickstart', slug: 'quickstart' },
             { label: 'Architecture', slug: 'architecture' },
           ],
