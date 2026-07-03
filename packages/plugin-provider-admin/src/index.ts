@@ -410,6 +410,9 @@ export function buildProviderAdminPlugin(
 ): Plugin {
   const engine = sharedEngine ?? createProviderAdminEngine(opts);
   const { providerRegistry, configPath } = engine;
+  // Stored vendors persist in the unified user config (or the injected
+  // override path in tests) — the fs surface of every tool below.
+  const configGlob = configPath ?? '~/.moxxy/config.yaml';
 
   return definePlugin({
     name: '@moxxy/plugin-provider-admin',
@@ -425,6 +428,17 @@ export function buildProviderAdminPlugin(
           'or set it as the default in moxxy.config.ts.',
         inputSchema: addProviderInput,
         permission: { action: 'prompt' },
+        // The handler performs NO network I/O itself (register + persist
+        // only), but the input carries the vendor `baseURL` — an arbitrary,
+        // caller-chosen endpoint the cap checker validates against `net` —
+        // so 'any' reflects the genuinely dynamic vendor host.
+        isolation: {
+          capabilities: {
+            fs: { read: [configGlob], write: [configGlob] },
+            net: { mode: 'any' },
+            timeMs: 30_000,
+          },
+        },
         handler: async (input) => {
           if (engine.isBuiltin(input.name)) {
             throw new MoxxyError({
@@ -478,6 +492,13 @@ export function buildProviderAdminPlugin(
           'List user-registered providers (persisted in the unified config (plugins.provider.items)) plus their default model and base URL. ' +
           'Built-in providers (anthropic, openai, openai-codex) are NOT included — query session.providers for those.',
         inputSchema: z.object({}),
+        isolation: {
+          capabilities: {
+            fs: { read: [configGlob] },
+            net: { mode: 'none' },
+            timeMs: 10_000,
+          },
+        },
         handler: async () => {
           const cfg = await readProvidersConfig(configPath);
           return {
@@ -500,6 +521,13 @@ export function buildProviderAdminPlugin(
           'Does NOT delete the stored API key — call vault_delete name=<NAME>_API_KEY separately if you also want to drop the credential.',
         inputSchema: removeProviderInput,
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: [configGlob], write: [configGlob] },
+            net: { mode: 'none' },
+            timeMs: 30_000,
+          },
+        },
         handler: async ({ name }) => {
           // Removing the ACTIVE provider leaves the registry with active=null, so
           // the next turn fails with a "no active provider" error. Mirror the
@@ -537,6 +565,15 @@ export function buildProviderAdminPlugin(
           '{ ok: false, message } with the vendor error verbatim.',
         inputSchema: testProviderInput,
         permission: { action: 'prompt' },
+        // Probes a caller-supplied endpoint (`baseURL`/v1/models) — the host
+        // is genuinely dynamic. The key comes via the brokered ctx.getSecret,
+        // not from fs or env.
+        isolation: {
+          capabilities: {
+            net: { mode: 'any' },
+            timeMs: 60_000,
+          },
+        },
         // The plaintext key is resolved HERE, at call time, via ctx.getSecret —
         // it never appears as tool input/output, so it stays out of the model
         // context, the runner session log, and the desktop NDJSON log.

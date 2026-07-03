@@ -142,6 +142,11 @@ export function buildDispatchAgentTool(deps: DispatchAgentDeps) {
         })
         .describe('Specs for the agents to spawn. Run in parallel; results returned in order.'),
     }),
+    // The handler itself only resolves specs and delegates to the session's
+    // subagent spawner (ctx.subagents); each child's provider/tool traffic
+    // runs in its own session under its own tools' declarations. No timeMs:
+    // a legitimate research batch can run far longer than any fixed bound.
+    isolation: { capabilities: { net: { mode: 'none' } } },
     handler: async (input, ctx) => {
       if (!ctx.subagents) {
         throw new MoxxyError({

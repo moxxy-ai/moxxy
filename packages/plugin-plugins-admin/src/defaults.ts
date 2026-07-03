@@ -50,6 +50,8 @@ export function buildListDefaultsTool(deps: CategoryDefaultsDeps) {
       'Use before set_default to see the valid options per category.',
     inputSchema: z.object({}),
     permission: { action: 'allow' },
+    // Pure registry view — no fs / net / subprocess.
+    isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
     handler: async () => ({ categories: deps.categories() }),
   });
 }

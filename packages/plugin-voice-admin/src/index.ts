@@ -70,6 +70,8 @@ function makeVoiceAdminPlugin(
           'plugin synthesizer active).',
         inputSchema: z.object({}),
         permission: { action: 'allow' },
+        // Pure registry view — no fs / net / subprocess.
+        isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
         handler: () => ({
           active: getSynths().getActiveName() ?? 'system',
           available: voiceNames(),
@@ -94,6 +96,9 @@ function makeVoiceAdminPlugin(
         // network call happens at set_voice time — the first read-aloud builds
         // it under the same vault/network gates a registered plugin already has.
         permission: { action: 'allow' },
+        // Flips the registry's active slot only — the synthesizer is not
+        // built here (see the permission note above), so no secret/net work.
+        isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
         handler: ({ synthesizer }) => {
           // Treat 'system' as the OS-voice sentinel only when no real
           // synthesizer claims that name. A backend literally named 'system'

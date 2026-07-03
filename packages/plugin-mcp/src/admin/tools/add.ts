@@ -36,6 +36,23 @@ export function buildAddServerTool(deps: AddServerToolDeps): ToolDef {
       'persisted, and it is resolved only at connect time.',
     inputSchema: addServerInput,
     permission: { action: 'prompt' },
+    // Mirrors mcp_test_server's honest surface: the hot-attach spawns the
+    // user-named stdio command (subprocess + broad fs) or connects to an
+    // arbitrary http/sse URL (net: any). On top of that, this tool persists
+    // the entry to ~/.moxxy/mcp.json and writes the auto-generated usage
+    // skill into ~/.moxxy/skills/.
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        fs: {
+          read: ['$cwd/**', '/tmp/**', '~/.moxxy/mcp.json'],
+          write: ['$cwd/**', '/tmp/**', '~/.moxxy/mcp.json', '~/.moxxy/skills/**'],
+        },
+        net: { mode: 'any' },
+        env: ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'TERM'],
+        timeMs: 600_000,
+      },
+    },
     handler: async (input) => {
       const server = validateAddServerInput(input);
       const cfg = await readMcpConfig();

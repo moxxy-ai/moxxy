@@ -201,6 +201,20 @@ export function buildTerminalTool() {
       'Use this to run applications or commands for the user (builds, scripts, CLIs). ' +
       'For long-running/interactive programs, expect partial output up to the timeout.',
     inputSchema: terminalInputSchema,
+    // Bash-class honest caps: this drives a real shell (node-pty), so the
+    // command can touch anything the user could. The shared shell deliberately
+    // inherits the FULL runner env (see the SECURITY note in pty.ts); the env
+    // list below is the shell-relevant subset an enforcing isolator should
+    // provide when it re-spawns under a constrained env.
+    isolation: {
+      capabilities: {
+        subprocess: true,
+        fs: { read: ['$cwd/**', '/tmp/**'], write: ['$cwd/**', '/tmp/**'] },
+        net: { mode: 'any' },
+        env: ['PATH', 'HOME', 'USER', 'SHELL', 'COMSPEC', 'LANG', 'LC_ALL', 'TERM'],
+        timeMs: 600_000,
+      },
+    },
     handler: async (input, ctx) => {
       const proc = await getSharedTerminal(ctx.cwd ?? process.cwd());
       const timeoutMs = input.timeoutMs ?? 30_000;

@@ -213,6 +213,14 @@ export function buildSynthesizeSkillPlugin(
   session: Session,
   opts: SynthesizeOptions = {},
 ): Plugin {
+  // Capability fs globs for the tools below, resolved from the same option
+  // fallbacks the handlers use. The audit JSONL defaults under the DEFAULT
+  // user skills dir even when `userDir` is overridden (see synthesizeSkill).
+  const userSkillsGlob = `${opts.userDir ?? defaultUserSkillsDir()}/**`;
+  const projectSkillsGlob = `${opts.projectDir ?? defaultProjectSkillsDir(session.cwd)}/**`;
+  const auditGlob = opts.auditPath
+    ? `${path.dirname(opts.auditPath)}/**`
+    : `${defaultUserSkillsDir()}/**`;
   return definePlugin({
     name: '@moxxy/synthesize-skill',
     version: '0.0.0',
@@ -239,6 +247,19 @@ export function buildSynthesizeSkillPlugin(
             ),
         }),
         permission: { action: 'prompt' },
+        // Drafts the skill body via the active LLMProvider (host is
+        // provider-config dependent, hence net: any), then writes the skill
+        // file + the audit JSONL.
+        isolation: {
+          capabilities: {
+            fs: {
+              read: [auditGlob],
+              write: [userSkillsGlob, projectSkillsGlob, auditGlob],
+            },
+            net: { mode: 'any' },
+            timeMs: 120_000,
+          },
+        },
         handler: async ({ intent, scope }, ctx) => {
           const result = await synthesizeSkill(session, intent, scope, opts, ctx.turnId);
           return {
@@ -262,6 +283,8 @@ export function buildSynthesizeSkillPlugin(
             .min(1)
             .describe('The exact skill name from the "Available skills" list in the system prompt.'),
         }),
+        // Registry lookup — the skill body is already in memory.
+        isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
         handler: async ({ name }, ctx) => {
           const skill = session.skills.byName(name);
           if (!skill) {
@@ -307,6 +330,23 @@ export function buildSynthesizeSkillPlugin(
         // tool inherits the channel resolver's default, which denies in
         // headless runs (the skill-author flow couldn't activate a new skill).
         permission: { action: 'allow' },
+        // Rescans every skill source the boot loader used — the builtin and
+        // plugin dirs live wherever those packages are installed, so they're
+        // covered explicitly from the configured options.
+        isolation: {
+          capabilities: {
+            fs: {
+              read: [
+                userSkillsGlob,
+                projectSkillsGlob,
+                ...(opts.builtinDir ? [`${opts.builtinDir}/**`] : []),
+                ...(opts.pluginDirs ?? []).map((d) => `${d}/**`),
+              ],
+            },
+            net: { mode: 'none' },
+            timeMs: 30_000,
+          },
+        },
         handler: async () => {
           const { discoverSkills } = await import('./loader.js');
           // Discover first, swap second: never empty the registry while
@@ -337,6 +377,8 @@ export function buildSynthesizeSkillPlugin(
           name: z.string().min(1).describe('Exact tool name from the "Loadable tools" index.'),
         }),
         permission: { action: 'allow' },
+        // Registry lookup — the schema inclusion happens on later requests.
+        isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
         handler: ({ name }) => {
           // The call itself is recorded in the log; `applyLazyTools` reads that
           // to include the tool's schema on subsequent requests. Here we just

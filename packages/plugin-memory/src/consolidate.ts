@@ -496,6 +496,16 @@ function makeMemoryConsolidatePlugin(
           dryRun: z.boolean().optional().default(false),
         }),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: ['~/.moxxy/memory/**'], write: ['~/.moxxy/memory/**'] },
+            // Each cluster merge streams from the active LLMProvider; the
+            // inproc isolator can't pin the host (provider-config dependent).
+            net: { mode: 'any' },
+            // Many clusters × the 60s per-cluster provider-stream bound.
+            timeMs: 600_000,
+          },
+        },
         handler: async ({ tag, dryRun }) => {
           const outcome = await consolidateMemory(getStore(), getProvider(), {
             ...(tag ? { tag } : {}),
@@ -508,6 +518,13 @@ function makeMemoryConsolidatePlugin(
         name: 'memory_consolidate_plan',
         description: 'Return the consolidation plan (clusters that would be merged) without invoking the model.',
         inputSchema: z.object({ tag: z.string().optional() }),
+        isolation: {
+          capabilities: {
+            fs: { read: ['~/.moxxy/memory/**'] },
+            net: { mode: 'none' },
+            timeMs: 15_000,
+          },
+        },
         handler: async ({ tag }) => {
           const all = await getStore().list();
           return planConsolidation(all, { ...(tag ? { tag } : {}) });
