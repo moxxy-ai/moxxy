@@ -26,10 +26,13 @@ or recorded-on-purpose decision.
   strict baseline). Both flags are now set explicitly in its tsconfig and the
   surfaced errors fixed. Gotcha: `expo-file-system` ships raw TS source
   (`"main": "src/index.ts"`) and the `/legacy` subpath has no `types` mapping, so
-  tsc type-checked Expo's own source under the new flag — worked around with a
-  types-only `paths` redirect to `build/legacy/index.d.ts` (Metro runtime
-  resolution unaffected). `apps/mobile/tsconfig.json`,
-  `apps/mobile/src/pairingUrl.ts`, `apps/mobile/src/styles/tokens.ts`.
+  tsc type-checked Expo's own source under the new flag — resolved by migrating
+  the app's three read call sites off `expo-file-system/legacy` onto the modern
+  SDK 54 `File` API (`new File(uri).base64()/.text()`), whose root import
+  resolves through the shipped `.d.ts` where `skipLibCheck` applies.
+  `apps/mobile/tsconfig.json`, `apps/mobile/src/pairingUrl.ts`,
+  `apps/mobile/src/styles/tokens.ts`, `apps/mobile/src/hooks/useAttachments.ts`,
+  `apps/mobile/src/hooks/useVoiceRecorder.ts`.
 - [low, focus, RESOLVED 2026-07-02] Focus Mode mini-chat no longer carries a
   separate text-only composer path: pasted screenshots now reuse the desktop
   attachment save/preview/send pipeline, zoomed image previews can be drag-panned,

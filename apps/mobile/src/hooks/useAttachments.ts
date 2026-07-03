@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File as FileSystemFile } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import {
   buildPromptAttachment,
@@ -155,10 +155,10 @@ export function useAttachments(options: { readonly disabled?: boolean } = {}) {
 }
 
 async function readBase64(uri: string): Promise<string> {
-  return await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  return await new FileSystemFile(uri).base64();
 }
 
 async function readText(asset: DocumentPicker.DocumentPickerAsset): Promise<string> {
   if (asset.file && typeof asset.file.text === 'function') return await asset.file.text();
-  return await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+  return await new FileSystemFile(asset.uri).text();
 }

@@ -8,7 +8,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File as FileSystemFile } from 'expo-file-system';
 
 export type VoicePhase = 'idle' | 'recording' | 'transcribing' | 'error';
 
@@ -172,7 +172,7 @@ async function stopNativeRecording(nativeRecorder: ReturnType<typeof useAudioRec
   const uri = nativeRecorder.uri;
   if (!uri) throw new Error('Voice recorder did not produce an audio file.');
   return {
-    audioBase64: await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 }),
+    audioBase64: await new FileSystemFile(uri).base64(),
     mimeType: NATIVE_MIME_TYPE,
   };
 }
