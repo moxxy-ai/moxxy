@@ -270,6 +270,14 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     installSpec: '@moxxy/plugin-stt-whisper-codex',
   },
   {
+    id: 'tts-openai',
+    label: 'OpenAI read-aloud',
+    description: 'Text-to-speech via the OpenAI /v1/audio/speech API (reuses OPENAI_API_KEY).',
+    packageName: '@moxxy/plugin-tts-openai',
+    installSpec: '@moxxy/plugin-tts-openai',
+    provides: [{ category: 'synthesizer', name: 'openai-tts' }],
+  },
+  {
     id: 'provider-admin',
     label: 'Provider admin tools',
     description: 'provider_add/list/remove/test — register OpenAI-compatible vendors at runtime.',
