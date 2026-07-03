@@ -113,6 +113,8 @@ export interface SecurityPluginHandle {
 
 export interface AuditEntry {
   readonly tool: string;
+  /** Contributing plugin/package, when `resolvePluginForTool` is wired. */
+  readonly plugin?: string;
   readonly declared: boolean;
   readonly required?: string;
   readonly resolvedIsolator: string;
@@ -236,8 +238,11 @@ export function buildSecurityPlugin(opts: BuildSecurityPluginOptions): SecurityP
       return tools.list().map((t) => {
         const declared = Boolean(t.isolation);
         const resolved = pickIsolatorName(t.name);
+        const plugin =
+          resolvePluginForTool === null ? undefined : resolvePluginForTool?.(t.name);
         return {
           tool: t.name,
+          ...(plugin ? { plugin } : {}),
           declared,
           ...(t.isolation?.required ? { required: t.isolation.required } : {}),
           resolvedIsolator: resolved,

@@ -147,6 +147,9 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
         categories: categoryLive.categories,
         setCategoryDefault: categoryLive.setCategoryDefault,
         ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        // Lets install_plugin report the just-installed package's combined
+        // capability surface (union of its tools' isolation declarations).
+        toolIsolation: (name) => session.tools.get(name)?.isolation,
       }),
     },
     {

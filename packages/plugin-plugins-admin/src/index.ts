@@ -124,6 +124,8 @@ export interface BuildPluginsAdminOpts {
   readonly setCategoryDefault: CategoryDefaultsDeps['setCategoryDefault'];
   /** Host CLI version — pins bare `@moxxy/*` installs (see {@link InstallPluginDeps}). */
   readonly cliVersion?: string;
+  /** Live tool isolation lookup for the install capability report (see {@link InstallPluginDeps}). */
+  readonly toolIsolation?: InstallPluginDeps['toolIsolation'];
 }
 
 /**
@@ -138,6 +140,7 @@ export function buildPluginsAdminPlugin(opts: BuildPluginsAdminOpts): Plugin {
     reload: opts.reload,
     snapshot: opts.snapshot,
     ...(opts.cliVersion ? { cliVersion: opts.cliVersion } : {}),
+    ...(opts.toolIsolation ? { toolIsolation: opts.toolIsolation } : {}),
   };
   const toggleDeps: PluginToggleDeps = { setEnabled: opts.setEnabled, snapshot: opts.snapshot };
   const defaultsDeps: CategoryDefaultsDeps = {

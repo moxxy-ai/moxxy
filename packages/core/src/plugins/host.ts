@@ -92,6 +92,20 @@ export class PluginHost implements PluginHostHandle {
     return [...this.skipped.values()];
   }
 
+  /**
+   * The plugin that contributed the named tool — the `loaded` map key, i.e.
+   * the package name for discovered plugins and the declared plugin name for
+   * statically bundled ones. Linear scan over per-plugin name lists: the
+   * registries are small (~40 plugins × a handful of tools) and callers
+   * (security routing, audit views) are not hot paths.
+   */
+  ownerOfTool(toolName: string): string | undefined {
+    for (const [key, record] of this.loaded) {
+      if (record.toolNames.includes(toolName)) return key;
+    }
+    return undefined;
+  }
+
   registerStatic(plugin: Plugin, opts: RegisterStaticOptions = {}): void {
     if (this.loaded.has(plugin.name)) {
       throw new Error(`Plugin already registered: ${plugin.name}`);
