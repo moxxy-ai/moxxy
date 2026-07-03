@@ -356,6 +356,13 @@ or recorded-on-purpose decision.
 - [note] EAS build: `eas-build-post-install` runs `pnpm build` on the workspace
   closure; local repro needs wiping both `dist/` AND `*.tsbuildinfo`. `apps/mobile/eas.json`.
 
+## Docs site
+
+- [note, logged 2026-07-03] `apps/docs/src/content/docs/why-moxxy.md` carries
+  dated competitor claims (star counts, channel counts, security-posture quotes
+  from OpenClaw/pi/Hermes READMEs, "as of July 2026"). These go stale; re-verify
+  against the linked sources roughly quarterly or when a comparison looks off.
+
 ## Memory & embeddings
 
 - [med] plugin-memory `EmbeddingIndex` stays separate from the SDK
