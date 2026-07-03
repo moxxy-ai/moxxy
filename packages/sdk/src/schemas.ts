@@ -89,11 +89,51 @@ export const pluginManifestSchema = z.object({
  *   requirements may be authored; per-tool/per-transcriber/per-anything
  *   runtime declarations were removed in favor of static analysis.
  */
+/**
+ * One field of a plugin's declarative setup step (`package.json#moxxy.setup`).
+ * Declarative-only so EVERY frontend (the init wizard, the TUI, desktop
+ * onboarding) can render it without executing plugin code:
+ * - `secret` values land in the VAULT (never plaintext config); the plugin's
+ *   `options.<key>` gets a `${vault:<name>}` ref, resolved at boot.
+ * - other kinds land at `plugins.packages.<pkg>.options.<key>` in the user
+ *   config through the shared schema-validated writer.
+ */
+export const pluginSetupFieldSchema = z.object({
+  key: z.string().min(1).regex(/^[a-zA-Z][a-zA-Z0-9_]*$/, 'key must be an identifier'),
+  label: z.string().min(1),
+  description: z.string().optional(),
+  kind: z.enum(['secret', 'string', 'boolean', 'select']),
+  /** Vault entry name for `secret` fields. Default: `<PKG>_<KEY>` upper-snake. */
+  vaultKey: z.string().min(1).optional(),
+  /** Choices for `select` fields. */
+  options: z.array(z.string().min(1)).optional(),
+  /** Required fields block completion; optional ones may stay unset. */
+  required: z.boolean().optional(),
+  placeholder: z.string().optional(),
+});
+
+/**
+ * A plugin's declarative configuration step, walked by `moxxy init` (and
+ * surfaced after an on-demand install). `required: true` means the plugin is
+ * left DISABLED until its required fields are provided — the author's way to
+ * say "this cannot work unconfigured".
+ */
+export const pluginSetupSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  required: z.boolean().optional(),
+  fields: z.array(pluginSetupFieldSchema).min(1),
+});
+
 export const moxxyPackageSchema = z.object({
   plugin: pluginManifestSchema.optional(),
   requirements: z.array(requirementSchema).optional(),
+  /** Declarative setup step users walk through in init / post-install. */
+  setup: pluginSetupSchema.optional(),
 });
 
+export type PluginSetupField = z.infer<typeof pluginSetupFieldSchema>;
+export type PluginSetupSpec = z.infer<typeof pluginSetupSchema>;
 export type SkillFrontmatterInput = z.infer<typeof skillFrontmatterSchema>;
 export type PluginManifestInput = z.infer<typeof pluginManifestSchema>;
 export type MoxxyPackageInput = z.infer<typeof moxxyPackageSchema>;

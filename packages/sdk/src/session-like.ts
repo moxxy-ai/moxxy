@@ -365,6 +365,8 @@ export interface PluginsAdminView {
   install?(idOrSpec: string): Promise<{
     readonly installed: string;
     readonly registered: Readonly<Partial<Record<string, ReadonlyArray<string>>>>;
+    /** Present when the package declares a `moxxy.setup` step to complete. */
+    readonly needsSetup?: { readonly title: string; readonly required: boolean };
   }>;
 }
 

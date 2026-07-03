@@ -46,6 +46,19 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "channel"
+    },
+    "setup": {
+      "title": "HTTP channel auth token",
+      "description": "Bearer token clients must send to the local HTTP API.",
+      "fields": [
+        {
+          "key": "authToken",
+          "label": "Auth token (bearer) for moxxy http",
+          "kind": "secret",
+          "vaultKey": "MOXXY_HTTP_TOKEN",
+          "required": true
+        }
+      ]
     }
   },
   "dependencies": {

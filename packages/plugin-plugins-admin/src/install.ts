@@ -5,6 +5,7 @@ import { createMutex, defineTool, z } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
 import { pinFirstPartySpec } from './pin.js';
+import { readPluginSetup } from './setup-spec.js';
 
 export type { PluginSnapshot } from './shared.js';
 
@@ -233,9 +234,21 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
       });
       await deps.reload();
       const after = deps.snapshot();
+      // Surface the plugin's declarative setup step (moxxy.setup) so the
+      // caller can walk the user through it — the model relays the hint.
+      const setup = await readPluginSetup(packageName.replace(/@[^/@]+$/, ''));
       return {
         installed,
         registered: diffSnapshot(before, after),
+        ...(setup
+          ? {
+              needsSetup: {
+                title: setup.title,
+                required: setup.required === true,
+                hint: 'Run `moxxy init` to walk through its configuration.',
+              },
+            }
+          : {}),
       };
     },
   });
