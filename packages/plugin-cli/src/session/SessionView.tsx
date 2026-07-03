@@ -206,6 +206,11 @@ export const SessionView: React.FC<SessionViewProps> = ({
 
   const slashSuggestions = React.useMemo(() => buildSlashSuggestions(session), [session]);
 
+  // Guards against a second picker-driven npm install while one is running.
+  // npm itself is mutex-serialized host-side; this is purely UX (one clear
+  // "still installing" notice instead of a silently queued second install).
+  const installInFlightRef = React.useRef(false);
+
   const handlePickerSelect = React.useMemo(
     () =>
       makePickerHandler({
@@ -215,6 +220,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setSystemNotice,
         setActiveModelOverride,
         refreshMcpStatus,
+        installInFlightRef,
         ...(onSwitchSession ? { requestSessionSwitch: onSwitchSession } : {}),
       }),
     [session, providerName, refreshMcpStatus, onSwitchSession],

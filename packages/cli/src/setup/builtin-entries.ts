@@ -44,6 +44,8 @@ import { oauthPlugin } from '@moxxy/plugin-oauth';
 import { voiceAdminPlugin } from '@moxxy/plugin-voice-admin';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './builtin-skills-dir.js';
+import { buildPluginSnapshot } from './plugin-snapshot.js';
+import { cliVersion } from '../version.js';
 
 export interface BuiltinEntry {
   readonly name: string;
@@ -206,17 +208,11 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
       name: '@moxxy/plugin-plugins-admin',
       plugin: buildPluginsAdminPlugin({
         reload: () => session.pluginHost.reload(),
-        snapshot: () => ({
-          tools: session.tools.list().map((t) => t.name),
-          agents: session.agents.list().map((a) => a.name),
-          providers: session.providers.list().map((p) => p.name),
-          modes: session.modes.list().map((l) => l.name),
-          compactors: session.compactors.list().map((c) => c.name),
-          channels: session.channels.list().map((c) => c.name),
-        }),
+        snapshot: () => buildPluginSnapshot(session),
         setEnabled: setPluginEnabledLive,
         categories: categoryLive.categories,
         setCategoryDefault: categoryLive.setCategoryDefault,
+        ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
       }),
     },
     // Self-update — exposes self_update_* tools so the model can author

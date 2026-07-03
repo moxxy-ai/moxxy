@@ -21,15 +21,21 @@ export {
   buildInstallPluginTool,
   buildUninstallPluginTool,
   installPluginPackage,
+  installPluginPackagePinned,
   removePluginPackage,
   userPluginsDir,
   type InstallPluginDeps,
   type InstallPluginPackageOptions,
   type InstallPluginPackageResult,
+  type PinnedInstallOptions,
   type PluginSnapshot,
   type RemovePluginPackageOptions,
   type RemovePluginPackageResult,
 } from './install.js';
+
+export { pinFirstPartySpec } from './pin.js';
+
+export { diffSnapshot, SNAPSHOT_KINDS } from './shared.js';
 
 export {
   buildDisablePluginTool,
@@ -103,6 +109,8 @@ export interface BuildPluginsAdminOpts {
   readonly categories: CategoryDefaultsDeps['categories'];
   /** Persist + apply a category default swap (the `set_default` tool). */
   readonly setCategoryDefault: CategoryDefaultsDeps['setCategoryDefault'];
+  /** Host CLI version — pins bare `@moxxy/*` installs (see {@link InstallPluginDeps}). */
+  readonly cliVersion?: string;
 }
 
 /**
@@ -113,7 +121,11 @@ export interface BuildPluginsAdminOpts {
  * plugin set.
  */
 export function buildPluginsAdminPlugin(opts: BuildPluginsAdminOpts): Plugin {
-  const installDeps: InstallPluginDeps = { reload: opts.reload, snapshot: opts.snapshot };
+  const installDeps: InstallPluginDeps = {
+    reload: opts.reload,
+    snapshot: opts.snapshot,
+    ...(opts.cliVersion ? { cliVersion: opts.cliVersion } : {}),
+  };
   const toggleDeps: PluginToggleDeps = { setEnabled: opts.setEnabled, snapshot: opts.snapshot };
   const defaultsDeps: CategoryDefaultsDeps = {
     categories: opts.categories,

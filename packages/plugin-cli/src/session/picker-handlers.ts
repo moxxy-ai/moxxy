@@ -17,6 +17,11 @@ export interface PickerHandlerDeps {
    * Absent ⇒ `/sessions` never opened a picker, so this branch is unreachable.
    */
   requestSessionSwitch?: (target: SessionSwitchTarget) => Promise<void>;
+  /**
+   * True while a picker-driven npm install runs; a second install pick gets a
+   * "still installing" notice instead of silently queueing behind the mutex.
+   */
+  installInFlightRef?: { current: boolean };
 }
 
 export function makePickerHandler(deps: PickerHandlerDeps): (picker: Picker, id: string) => void {
@@ -77,8 +82,10 @@ function handleSessionSelected(id: string, deps: PickerHandlerDeps): void {
 /**
  * Apply a `/plugins` picker selection. Option ids are `<name>::<action>`:
  * `enable` / `disable` plug or unplug the plugin (persisted + hot-applied via
- * session.pluginsAdmin), `install` prints the install command. After a toggle
- * the picker re-opens so the user sees fresh state and can keep toggling.
+ * session.pluginsAdmin), `install` npm-installs + enables + hot-reloads it
+ * (falling back to printing the CLI command when the session can't install —
+ * e.g. a RemoteSession). After a toggle the picker re-opens so the user sees
+ * fresh state and can keep toggling.
  */
 function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
   const admin = deps.session.pluginsAdmin;
@@ -86,7 +93,36 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
   const name = sep >= 0 ? id.slice(0, sep) : id;
   const action = sep >= 0 ? id.slice(sep + 2) : '';
   if (action === 'install') {
-    deps.setSystemNotice(`to install: run \`moxxy plugins install ${name}\``);
+    const install = admin?.install?.bind(admin);
+    if (!install) {
+      deps.setSystemNotice(`to install: run \`moxxy plugins install ${name}\``);
+      return;
+    }
+    if (deps.installInFlightRef?.current) {
+      deps.setSystemNotice('an install is already running — hang on…');
+      return;
+    }
+    if (deps.installInFlightRef) deps.installInFlightRef.current = true;
+    deps.setSystemNotice(`installing ${name} via npm — this can take a minute…`);
+    void (async () => {
+      try {
+        const res = await install(name);
+        const kinds = Object.entries(res.registered)
+          .filter(([, names]) => names && names.length > 0)
+          .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
+          .join('; ');
+        deps.setSystemNotice(`✓ installed ${res.installed}${kinds ? ` — registered ${kinds}` : ''}`);
+      } catch (err) {
+        deps.setSystemNotice(
+          `install failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        if (deps.installInFlightRef) deps.installInFlightRef.current = false;
+        // Re-open with refreshed state: a success moves the plugin from the
+        // Installable tab into Packages; a failure keeps it installable.
+        openPluginsPicker(deps);
+      }
+    })();
     return;
   }
   if (action === 'core') {

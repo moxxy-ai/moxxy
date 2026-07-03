@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makePickerHandler, type PickerHandlerDeps } from './picker-handlers.js';
 import { NEW_SESSION_OPTION_ID } from './sessions-picker.js';
+import { openPluginsPicker } from './run-slash.js';
 
 // picker-handlers imports setCategoryDefault/setProviderModel from @moxxy/config
 // and re-open helpers from run-slash; stub both so the session branch tests stay
@@ -72,5 +73,90 @@ describe('makePickerHandler — sessions branch', () => {
     expect(setSystemNotice).toHaveBeenCalledWith(
       'switching sessions is not available on this session',
     );
+  });
+});
+
+const pluginsPicker = { kind: 'plugins', title: 'Plugins', options: [] } as const;
+
+describe('makePickerHandler — installable-tab install', () => {
+  beforeEach(() => {
+    vi.mocked(openPluginsPicker).mockClear();
+  });
+
+  it('falls back to the printed command when the session cannot install', () => {
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({ session: { id: 's', pluginsAdmin: {} } as never, setSystemNotice }),
+    );
+    handle(pluginsPicker, 'telegram::install');
+    expect(setSystemNotice).toHaveBeenCalledWith(
+      'to install: run `moxxy plugins install telegram`',
+    );
+    expect(openPluginsPicker).not.toHaveBeenCalled();
+  });
+
+  it('installs via the admin view, reports registrations, and reopens the picker', async () => {
+    const install = vi.fn(async () => ({
+      installed: '@moxxy/mode-goal@1.0.0',
+      registered: { modes: ['goal'], tools: [] },
+    }));
+    const setSystemNotice = vi.fn();
+    const installInFlightRef = { current: false };
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setSystemNotice,
+        installInFlightRef,
+      }),
+    );
+    handle(pluginsPicker, 'mode-goal::install');
+    expect(setSystemNotice).toHaveBeenCalledWith(
+      'installing mode-goal via npm — this can take a minute…',
+    );
+    expect(installInFlightRef.current).toBe(true);
+    await new Promise((r) => setImmediate(r));
+    expect(install).toHaveBeenCalledWith('mode-goal');
+    expect(setSystemNotice).toHaveBeenLastCalledWith(
+      '✓ installed @moxxy/mode-goal@1.0.0 — registered modes: goal',
+    );
+    expect(installInFlightRef.current).toBe(false);
+    expect(openPluginsPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces an install failure and still reopens the picker', async () => {
+    const install = vi.fn(async () => {
+      throw new Error('npm install failed (exit 1): 404');
+    });
+    const setSystemNotice = vi.fn();
+    const installInFlightRef = { current: false };
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setSystemNotice,
+        installInFlightRef,
+      }),
+    );
+    handle(pluginsPicker, 'x::install');
+    await new Promise((r) => setImmediate(r));
+    expect(setSystemNotice).toHaveBeenLastCalledWith(
+      'install failed: npm install failed (exit 1): 404',
+    );
+    expect(installInFlightRef.current).toBe(false);
+    expect(openPluginsPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a second install while one is in flight', () => {
+    const install = vi.fn(async () => ({ installed: 'x', registered: {} }));
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', pluginsAdmin: { install } } as never,
+        setSystemNotice,
+        installInFlightRef: { current: true },
+      }),
+    );
+    handle(pluginsPicker, 'y::install');
+    expect(install).not.toHaveBeenCalled();
+    expect(setSystemNotice).toHaveBeenCalledWith('an install is already running — hang on…');
   });
 });
