@@ -217,6 +217,15 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
           token: z.string().regex(/^\d+:[A-Za-z0-9_-]{20,}$/, 'token must look like 1234567890:ABC...'),
         }),
         permission: { action: 'prompt' },
+        // Vault writes land in ~/.moxxy/vault.json (key material in
+        // ~/.moxxy/vault.key) — hence the vault.* glob.
+        isolation: {
+          capabilities: {
+            fs: { read: ['~/.moxxy/vault.*'], write: ['~/.moxxy/vault.*'] },
+            net: { mode: 'none' },
+            timeMs: 10_000,
+          },
+        },
         handler: async ({ token }) => {
           await getVault().set(TOKEN_KEY, token, ['telegram']);
           return `stored Telegram token (${token.split(':')[0]}:…) in vault`;
@@ -226,6 +235,13 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
         name: 'telegram_status',
         description: 'Report whether a Telegram token + an authorized chat are configured.',
         inputSchema: z.object({}),
+        isolation: {
+          capabilities: {
+            fs: { read: ['~/.moxxy/vault.*'] },
+            net: { mode: 'none' },
+            timeMs: 10_000,
+          },
+        },
         handler: async () => {
           const hasToken = await getVault().has(TOKEN_KEY);
           const authorized = await getVault().get(AUTHORIZED_CHAT_KEY);
@@ -255,6 +271,14 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
           parseMode: z.enum(['MarkdownV2', 'Markdown', 'HTML']).optional(),
         }),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: ['~/.moxxy/vault.*'] },
+            net: { mode: 'allowlist', hosts: ['api.telegram.org'] },
+            env: ['MOXXY_TELEGRAM_TOKEN'],
+            timeMs: 60_000,
+          },
+        },
         handler: async ({ text, chatId, parseMode }) => {
           const token = process.env.MOXXY_TELEGRAM_TOKEN ?? (await getVault().get(TOKEN_KEY));
           if (!token) {
@@ -303,6 +327,13 @@ function makeTelegramPlugin(getVault: () => VaultStore, hooks?: LifecycleHooks):
         description: 'Forget the currently authorized Telegram chat. The next /start will start a fresh pairing.',
         inputSchema: z.object({}),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: { read: ['~/.moxxy/vault.*'], write: ['~/.moxxy/vault.*'] },
+            net: { mode: 'none' },
+            timeMs: 10_000,
+          },
+        },
         handler: async () => {
           const removed = await getVault().delete(AUTHORIZED_CHAT_KEY);
           return removed ? 'unpaired' : 'no pairing was active';

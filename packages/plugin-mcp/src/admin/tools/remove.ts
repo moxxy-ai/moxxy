@@ -15,6 +15,16 @@ export function buildRemoveServerTool(deps: RemoveServerToolDeps): ToolDef {
       'The tools become uncallable immediately and the entry is gone on next restart.',
     inputSchema: z.object({ name: serverNameSchema }),
     permission: { action: 'prompt' },
+    // Rewrites ~/.moxxy/mcp.json; the runtime detach only CLOSES the existing
+    // client (kills a stdio child / aborts an http socket) — it never spawns
+    // or opens anything new.
+    isolation: {
+      capabilities: {
+        fs: { read: ['~/.moxxy/mcp.json'], write: ['~/.moxxy/mcp.json'] },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ name }) => {
       // Read-modify-write under the shared config mutex so a concurrent
       // add/remove can't clobber the file.

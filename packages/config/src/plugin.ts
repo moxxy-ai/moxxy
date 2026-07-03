@@ -99,6 +99,19 @@ function parseValue(raw: string): unknown {
   }
 }
 
+// Capability fs globs shared by the tools below. The project-scope config can
+// resolve in an ANCESTOR directory (findUpward's bounded walk), so these
+// anchor on the well-known basenames rather than `$cwd` — the cap matcher
+// tests them against absolute paths. The editor tools only ever touch YAML;
+// reload/validate go through loadConfig, which also honors executable
+// configs (config.ts/js in ~/.moxxy, moxxy.config.ts/js in the project).
+const YAML_CONFIG_GLOBS = [
+  '~/.moxxy/config.yaml',
+  '/**/moxxy.config.yaml',
+  '/**/moxxy.config.yml',
+] as const;
+const LOADER_CONFIG_GLOBS = ['~/.moxxy/config.*', '/**/moxxy.config.*'] as const;
+
 export function buildConfigPlugin(
   opts: { cwd: string; applier?: ConfigApplier } = { cwd: process.cwd() },
 ): Plugin {
@@ -123,6 +136,13 @@ export function buildConfigPlugin(
           '(defaults to "project" — the moxxy.config.yaml in the current dir). ' +
           'Returns null if no file exists yet.',
         inputSchema: z.object({ scope: scopeSchemaOptional }),
+        isolation: {
+          capabilities: {
+            fs: { read: [...YAML_CONFIG_GLOBS] },
+            net: { mode: 'none' },
+            timeMs: 10_000,
+          },
+        },
         handler: async ({ scope }) => {
           const found = await findScopePath(scope, cwd);
           return { scope, path: found, defaultPath: scopeDefaultPath(scope, cwd) };
@@ -134,6 +154,13 @@ export function buildConfigPlugin(
           'Return the raw text of the moxxy config at the given scope (defaults to "project"). ' +
           'Useful when the agent needs to inspect or edit it.',
         inputSchema: z.object({ scope: scopeSchemaOptional }),
+        isolation: {
+          capabilities: {
+            fs: { read: [...YAML_CONFIG_GLOBS] },
+            net: { mode: 'none' },
+            timeMs: 10_000,
+          },
+        },
         handler: async ({ scope }) => {
           const found = await findScopePath(scope, cwd);
           if (!found) return { scope, path: null, text: '' };
@@ -146,6 +173,17 @@ export function buildConfigPlugin(
         description:
           'Read a single value from the config by dot-path (e.g. "provider.model"). Returns the parsed JSON value.',
         inputSchema: z.object({ scope: scopeSchemaOptional, path: z.string().min(1) }),
+        // `$cwd/*`: the `path` INPUT is a dot-path ("provider.model"), not a
+        // file, but the cap checker's key heuristic treats it as one and
+        // resolves it against cwd — cover that single-segment resolution so
+        // legitimate reads aren't denied. The real fs surface is the globs.
+        isolation: {
+          capabilities: {
+            fs: { read: [...YAML_CONFIG_GLOBS, '$cwd/*'] },
+            net: { mode: 'none' },
+            timeMs: 10_000,
+          },
+        },
         handler: async ({ scope, path: dotPath }) => {
           const found = await findScopePath(scope, cwd);
           if (!found) return null;
@@ -175,6 +213,17 @@ export function buildConfigPlugin(
           value: z.string(),
         }),
         permission: { action: 'prompt' },
+        // Comment-preserving read-modify-write of the YAML config. `$cwd/*`
+        // covers the dot-path `path` input, which the cap checker's key
+        // heuristic resolves against cwd (see config_get). The live applier
+        // is a host-owned closure; its runtime effects are the host's.
+        isolation: {
+          capabilities: {
+            fs: { read: [...YAML_CONFIG_GLOBS, '$cwd/*'], write: [...YAML_CONFIG_GLOBS] },
+            net: { mode: 'none' },
+            timeMs: 30_000,
+          },
+        },
         handler: async ({ scope, path: dotPath, value }) => {
           // ONE write implementation for every surface: the shared
           // schema-validated, comment-preserving, mutex-serialized writer
@@ -212,6 +261,19 @@ export function buildConfigPlugin(
         description:
           'Re-read the merged config from disk and apply the safe subset of changes (mode, compactor, plugin enable/disable) to the active session. Anything outside that subset is reported in `pending` and requires a restart.',
         inputSchema: z.object({}),
+        // loadConfig may execute a .ts/.js config via jiti, whose compile
+        // cache lands under node_modules/.cache. The applier is a host-owned
+        // closure; its runtime effects (plugin load/unload) are the host's.
+        isolation: {
+          capabilities: {
+            fs: {
+              read: [...LOADER_CONFIG_GLOBS],
+              write: ['/**/node_modules/.cache/**', '/tmp/**'],
+            },
+            net: { mode: 'none' },
+            timeMs: 30_000,
+          },
+        },
         handler: async () => {
           if (!applier) {
             return { applied: [], pending: ['(no runtime applier configured)'] };
@@ -226,6 +288,16 @@ export function buildConfigPlugin(
           'Create a starter moxxy config file at the given scope (yaml format), if one does not already exist.',
         inputSchema: z.object({ scope: scopeSchema }),
         permission: { action: 'prompt' },
+        isolation: {
+          capabilities: {
+            fs: {
+              read: [...YAML_CONFIG_GLOBS],
+              write: ['~/.moxxy/config.yaml', '$cwd/moxxy.config.yaml'],
+            },
+            net: { mode: 'none' },
+            timeMs: 30_000,
+          },
+        },
         handler: async ({ scope }) =>
           writeMutex.run(async () => {
             const existing = await findScopePath(scope, cwd);
@@ -262,6 +334,18 @@ plugins:
         description:
           'Re-run schema validation on the merged config (user + project) without applying any changes. Returns ok or the list of issues.',
         inputSchema: z.object({}),
+        // Same surface as config_reload: loadConfig may execute a .ts/.js
+        // config via jiti (compile cache under node_modules/.cache).
+        isolation: {
+          capabilities: {
+            fs: {
+              read: [...LOADER_CONFIG_GLOBS],
+              write: ['/**/node_modules/.cache/**', '/tmp/**'],
+            },
+            net: { mode: 'none' },
+            timeMs: 30_000,
+          },
+        },
         handler: async () => {
           try {
             await loadConfig({ cwd });

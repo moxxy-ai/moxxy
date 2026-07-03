@@ -7,6 +7,13 @@ export function buildListServersTool(): ToolDef {
     description:
       'List every MCP server currently registered in ~/.moxxy/mcp.json. Returns name + transport kind + connection details (command/url) for each.',
     inputSchema: z.object({}),
+    isolation: {
+      capabilities: {
+        fs: { read: ['~/.moxxy/mcp.json'] },
+        net: { mode: 'none' },
+        timeMs: 10_000,
+      },
+    },
     handler: async () => {
       const cfg = await readMcpConfig();
       return cfg.servers.map((s) =>

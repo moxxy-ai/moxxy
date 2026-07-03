@@ -28,6 +28,8 @@ export const goalCompleteTool = defineTool({
       .describe('Concrete proof the goal is met: commands run and their results, files changed, tests passed.'),
   }),
   permission: { action: 'allow' },
+  // Side-effect-free loop signal (see the module comment) — no capabilities.
+  isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
   handler: (input) => {
     const { summary, evidence } = input as { summary: string; evidence?: string[] };
     return {
@@ -52,6 +54,8 @@ export const goalAbandonTool = defineTool({
       .describe('What the user must provide or decide for the goal to continue.'),
   }),
   permission: { action: 'allow' },
+  // Side-effect-free loop signal (see the module comment) — no capabilities.
+  isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
   handler: (input) => {
     const { reason, needsFromUser } = input as { reason: string; needsFromUser?: string };
     return { acknowledged: true, reason, ...(needsFromUser ? { needsFromUser } : {}) };

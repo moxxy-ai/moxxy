@@ -33,6 +33,15 @@ export function buildDisablePluginTool(deps: PluginToggleDeps) {
         .describe('Plugin package name to disable, e.g. @moxxy/plugin-browser.'),
     }),
     permission: { action: 'prompt' },
+    // Persists the enabled flag (mirrors set_default); the live unload is an
+    // in-memory registry operation.
+    isolation: {
+      capabilities: {
+        fs: { write: ['~/.moxxy/config.yaml'] },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ packageName }) => {
       const before = deps.snapshot();
       await deps.setEnabled(packageName, false);
@@ -61,6 +70,15 @@ export function buildEnablePluginTool(deps: PluginToggleDeps) {
         .describe('Plugin package name to enable, e.g. @moxxy/plugin-browser.'),
     }),
     permission: { action: 'prompt' },
+    // Persists the enabled flag; re-enabling an INSTALLED plugin re-discovers
+    // (imports) its code from the user plugin dir, hence the read glob.
+    isolation: {
+      capabilities: {
+        fs: { read: ['~/.moxxy/plugins/**'], write: ['~/.moxxy/config.yaml'] },
+        net: { mode: 'none' },
+        timeMs: 30_000,
+      },
+    },
     handler: async ({ packageName }) => {
       const before = deps.snapshot();
       await deps.setEnabled(packageName, true);

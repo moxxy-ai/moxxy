@@ -73,6 +73,19 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
             'Choose how the web app surface is exposed: "proxy" (public URL via the self-hosted relay, for remote channels like Telegram) or "none"/"localhost" (loopback only). Persisted to ~/.moxxy/web.json and applied immediately if a surface is live. Use when the user asks to change or disable the tunnel.',
           inputSchema: z.object({ provider: z.string().min(1) }),
           permission: { action: 'prompt' },
+          // Persists the choice, then (re)establishes the tunnel through the
+          // live surface controls — the relay host is config-dependent, so
+          // the net surface is genuinely dynamic.
+          isolation: {
+            capabilities: {
+              fs: {
+                read: [opts.settingsFile ?? '~/.moxxy/web.json'],
+                write: [opts.settingsFile ?? '~/.moxxy/web.json'],
+              },
+              net: { mode: 'any' },
+              timeMs: 60_000,
+            },
+          },
           handler: async ({ provider }) => {
             const name = normalizeTunnelName(provider);
             if (!tunnels.list().includes(name)) {
@@ -92,6 +105,8 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
           name: 'web_tunnel_status',
           description: 'Report the active web tunnel provider and the available options.',
           inputSchema: z.object({}),
+          // Pure registry view — no fs / net / subprocess.
+          isolation: { capabilities: { net: { mode: 'none' }, timeMs: 10_000 } },
           handler: () => ({ active: tunnels.active(), available: ['none', ...tunnels.list()] }),
         }),
       ]
