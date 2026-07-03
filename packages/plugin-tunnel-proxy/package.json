@@ -1,8 +1,27 @@
 {
   "name": "@moxxy/plugin-tunnel-proxy",
-  "private": true,
   "version": "0.26.0",
   "description": "Self-hosted tunnel provider for moxxy. Dials the proxy relay over an outbound control WebSocket, proves ownership of a keypair-derived subdomain (uuid.proxy.moxxy.ai), and pipes each inbound connection to a local port — a native-Node replacement for the cloudflared/ngrok subprocess providers.",
+  "keywords": [
+    "moxxy",
+    "tunnel",
+    "proxy",
+    "client"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-tunnel-proxy"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
