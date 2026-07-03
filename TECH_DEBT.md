@@ -20,6 +20,16 @@ or recorded-on-purpose decision.
   methods to `unknown method` (`packages/plugin-browser/src/sidecar/dispatch.test.ts`).
 - [low, tools, RESOLVED 2026-07-03] `resolveSafe` deprecated alias for `resolvePath`
   removed (no callers remained). `packages/tools-builtin/src/util.ts`.
+- [med, mobile, RESOLVED 2026-07-03] `apps/mobile` was the only package in the
+  repo type-checking without `noUncheckedIndexedAccess` + `verbatimModuleSyntax`
+  (it extends `expo/tsconfig.base`, not the moxxy base, so it silently missed the
+  strict baseline). Both flags are now set explicitly in its tsconfig and the
+  surfaced errors fixed. Gotcha: `expo-file-system` ships raw TS source
+  (`"main": "src/index.ts"`) and the `/legacy` subpath has no `types` mapping, so
+  tsc type-checked Expo's own source under the new flag — worked around with a
+  types-only `paths` redirect to `build/legacy/index.d.ts` (Metro runtime
+  resolution unaffected). `apps/mobile/tsconfig.json`,
+  `apps/mobile/src/pairingUrl.ts`, `apps/mobile/src/styles/tokens.ts`.
 - [low, focus, RESOLVED 2026-07-02] Focus Mode mini-chat no longer carries a
   separate text-only composer path: pasted screenshots now reuse the desktop
   attachment save/preview/send pipeline, zoomed image previews can be drag-panned,

@@ -470,7 +470,9 @@ function parseUtility(token: string): AnyStyle | undefined {
       bottom: 'bottom',
       left: 'left',
     };
-    return { [map[key]]: value } as ViewStyle;
+    // The regex alternation guarantees `key` is captured and present in `map`.
+    const styleKey = map[key!];
+    if (styleKey) return { [styleKey]: value } as ViewStyle;
   }
 
   const fontMatch = /^text-\[(\d+)px\]$/.exec(token);
