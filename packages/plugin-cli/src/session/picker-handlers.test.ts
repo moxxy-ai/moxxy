@@ -76,6 +76,49 @@ describe('makePickerHandler — sessions branch', () => {
   });
 });
 
+const modelPicker = { kind: 'model', title: 'Model', tabs: [] } as const;
+
+describe('makePickerHandler — model branch, unconnected provider', () => {
+  it('opens the inline connect dialog when the session can connect', () => {
+    const openProviderConnect = vi.fn();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: {
+          id: 's',
+          readyProviders: new Set(['openai']),
+          providerSetup: {},
+        } as never,
+        openProviderConnect,
+        setSystemNotice,
+      }),
+    );
+    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    expect(openProviderConnect).toHaveBeenCalledWith({
+      providerId: 'anthropic',
+      modelId: 'claude-opus-4-8',
+    });
+    expect(setSystemNotice).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the init/login notice without providerSetup', () => {
+    const openProviderConnect = vi.fn();
+    const setSystemNotice = vi.fn();
+    const handle = makePickerHandler(
+      baseDeps({
+        session: { id: 's', readyProviders: new Set() } as never,
+        openProviderConnect,
+        setSystemNotice,
+      }),
+    );
+    handle(modelPicker, 'anthropic::claude-opus-4-8');
+    expect(openProviderConnect).not.toHaveBeenCalled();
+    expect(setSystemNotice).toHaveBeenCalledWith(
+      expect.stringContaining("anthropic isn't connected"),
+    );
+  });
+});
+
 const pluginsPicker = { kind: 'plugins', title: 'Plugins', options: [] } as const;
 
 describe('makePickerHandler — installable-tab install', () => {

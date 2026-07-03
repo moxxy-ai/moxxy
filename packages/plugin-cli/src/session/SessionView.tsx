@@ -24,7 +24,7 @@ import { useTurnRunner } from './use-turn-runner.js';
 import { usePermissionQueue } from './use-permission-queue.js';
 import { useGlobalHotkeys } from './use-global-hotkeys.js';
 import { useVoiceInput } from './use-voice-input.js';
-import { makePickerHandler } from './picker-handlers.js';
+import { applyProviderModelSwitch, makePickerHandler } from './picker-handlers.js';
 import { runSlash } from './run-slash.js';
 import { OverlayOrNotice } from './OverlayOrNotice.js';
 import { InteractiveZone } from './InteractiveZone.js';
@@ -211,6 +211,15 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // "still installing" notice instead of a silently queued second install).
   const installInFlightRef = React.useRef(false);
 
+  // Inline provider connect: `/model` on an unconnected provider opens the
+  // ProviderConnectDialog (install + key entry / OAuth) instead of telling
+  // the user to quit and run `moxxy init`. Carries the pending model pick so
+  // a successful connect completes the exact switch the user asked for.
+  const [providerConnect, setProviderConnect] = React.useState<{
+    providerId: string;
+    modelId: string;
+  } | null>(null);
+
   const handlePickerSelect = React.useMemo(
     () =>
       makePickerHandler({
@@ -221,6 +230,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         setActiveModelOverride,
         refreshMcpStatus,
         installInFlightRef,
+        openProviderConnect: setProviderConnect,
         ...(onSwitchSession ? { requestSessionSwitch: onSwitchSession } : {}),
       }),
     [session, providerName, refreshMcpStatus, onSwitchSession],
@@ -411,6 +421,20 @@ export const SessionView: React.FC<SessionViewProps> = ({
         pendingPermissionDepth={Math.max(0, permissions.pendingPermissions.length - 1)}
         pendingApproval={pendingApproval}
         picker={picker}
+        providerConnect={providerConnect}
+        onProviderConnectSuccess={(note) => {
+          const target = providerConnect;
+          setProviderConnect(null);
+          if (note) setSystemNotice(note);
+          if (target) {
+            void applyProviderModelSwitch(
+              { session, providerName, setSystemNotice, setActiveModelOverride },
+              target.providerId,
+              target.modelId,
+            );
+          }
+        }}
+        onProviderConnectCancel={() => setProviderConnect(null)}
         busy={turn.busy}
         voiceReady={voice.ready}
         voicePhase={voice.phase}

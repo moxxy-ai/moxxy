@@ -1,12 +1,11 @@
 import { bootSessionWithConfig } from '../argv-helpers.js';
 import { closeSession } from '../setup/close-session.js';
 import { canonicalKey } from '../provider-keys.js';
-import { validateProviderKey } from '../validate-key.js';
 import type { ParsedArgv } from '../argv.js';
 import { cliVersion } from '../version.js';
 import { runSetupWizard } from '../wizard/run-setup-wizard.js';
-import { buildProviderAuthContext } from '../wizard/auth-context.js';
-import { PROVIDER_CATALOG, resolveProvider } from '../provision/provider-catalog.js';
+import { buildProviderSetupView } from '../setup/provider-setup.js';
+import { PROVIDER_CATALOG } from '../provision/provider-catalog.js';
 import {
   installPluginPackagePinned,
   resolveCatalogPackageName,
@@ -119,28 +118,21 @@ async function runInteractiveInit(
     { id: 'none', label: 'None', description: 'Keyword recall only' },
   ];
 
+  // One provider-onboarding implementation for every frontend: the wizard
+  // delegates install/key/OAuth to the same ProviderSetupView the TUI's
+  // inline connect dialog drives (attached by setupSessionWithConfig; built
+  // here as a fallback for boot paths that skipped it).
+  const providerSetup = session.providerSetup ?? buildProviderSetupView({ session, vault });
+
   const controller = {
     async saveApiKey(providerId: string, key: string): Promise<void> {
-      await vault.set(canonicalKey(providerId), key, [providerId]);
+      await providerSetup.saveKey(providerId, key);
     },
     async ensureProvider(
       providerId: string,
     ): Promise<{ models: ReadonlyArray<{ id: string; label: string }>; authKind: ProviderAuthKind } | null> {
-      let def = session.providers.list().find((p) => p.name === providerId);
-      if (!def) {
-        // Catalog-only provider (a slim build hasn't bundled it) — install +
-        // enable it from npm, then it registers on the host reload. First-party
-        // installs pin to the CLI version (404 → retry latest).
-        const entry = resolveProvider(providerId);
-        if (!entry) return null;
-        await installPluginPackagePinned({
-          packageName: entry.packageName,
-          ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
-        });
-        await setPluginEnabled(entry.packageName, true);
-        await session.pluginHost.reload();
-        def = session.providers.list().find((p) => p.name === providerId);
-      }
+      if (!(await providerSetup.ensureInstalled(providerId))) return null;
+      const def = session.providers.list().find((p) => p.name === providerId);
       if (!def) return null;
       return {
         models: def.models.map((m) => ({ id: m.id, label: m.id })),
@@ -165,24 +157,12 @@ async function runInteractiveInit(
       providerId: string,
       key: string,
     ): Promise<{ ok: true } | { ok: false; message: string }> {
-      return await validateProviderKey(providerId, key, session.providers);
+      return await providerSetup.testKey(providerId, key);
     },
     async loginOAuth(providerId: string): Promise<void> {
-      const def = session.providers.list().find((p) => p.name === providerId);
-      if (!def || def.auth?.kind !== 'oauth') {
-        throw new MoxxyError({
-          code: 'OAUTH_FLOW_NOT_SUPPORTED',
-          message: `Provider "${providerId}" does not advertise an OAuth flow.`,
-          hint:
-            'This provider expects an API key. Re-run `moxxy init` and provide the key when prompted, ' +
-            'or set the relevant *_API_KEY environment variable.',
-          context: { provider: providerId },
-        });
-      }
-      // We already bailed to runHeadlessInit when stdin wasn't a TTY, so
-      // the browser flow is the default here.
-      const ctx = buildProviderAuthContext(vault, { headless: false });
-      await def.auth.login(ctx);
+      // No io → the shared view falls back to the clack/stdout auth context.
+      // (We already bailed to runHeadlessInit when stdin wasn't a TTY.)
+      await providerSetup.loginOAuth(providerId);
     },
     async installPlugins(ids: ReadonlyArray<string>): Promise<void> {
       for (const id of ids) {

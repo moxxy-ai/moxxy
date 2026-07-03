@@ -66,6 +66,8 @@ export type {
   LoadedPluginView,
   CategoryView,
   CategoryItemView,
+  ProviderSetupView,
+  ProviderConnectIo,
 } from './session-like.js';
 
 export type {
