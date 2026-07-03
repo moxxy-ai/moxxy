@@ -226,6 +226,15 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     installSpec: '@moxxy/plugin-channel-slack',
   },
   {
+    id: 'signal',
+    label: 'Signal channel',
+    description:
+      'Signal messenger on a dedicated isolated runner via a signal-cli sidecar (moxxy signal; requires the signal-cli binary on PATH).',
+    packageName: '@moxxy/plugin-channel-signal',
+    installSpec: '@moxxy/plugin-channel-signal',
+    provides: [{ category: 'channel', name: 'signal' }],
+  },
+  {
     id: 'stt-whisper',
     label: 'Whisper voice input',
     description: 'Speech-to-text via the OpenAI Whisper API (Ctrl+R in the TUI).',

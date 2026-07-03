@@ -12,6 +12,7 @@ import {
 const CHANNEL_COMMANDS: Readonly<Record<string, string>> = {
   telegram: '@moxxy/plugin-telegram',
   slack: '@moxxy/plugin-channel-slack',
+  signal: '@moxxy/plugin-channel-signal',
   web: '@moxxy/plugin-channel-web',
   http: '@moxxy/plugin-channel-http',
 };

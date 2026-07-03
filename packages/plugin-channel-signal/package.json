@@ -1,0 +1,89 @@
+{
+  "name": "@moxxy/plugin-channel-signal",
+  "version": "0.26.0",
+  "description": "Signal messenger channel for moxxy via a signal-cli JSON-RPC sidecar. Links as a secondary Signal device (QR pairing), drives the Session from allow-listed senders (Note to Self by default), and replies with buffered chunked sends. Autonomous allow-list permission model.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "channel",
+    "signal",
+    "signal-cli",
+    "bot"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-channel-signal"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "channel"
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-vault",
+        "hint": "signal resolves the vault from the service registry for its account number + sender allow-list; @moxxy/plugin-vault must load first"
+      }
+    ],
+    "setup": {
+      "title": "Signal account",
+      "description": "The phone number of the Signal account moxxy links to as a secondary device (like Signal Desktop). No API token: run `moxxy channels signal pair` afterwards and scan the QR with your phone (Signal → Settings → Linked Devices → Link New Device). Requires the signal-cli binary on PATH (`brew install signal-cli`).",
+      "fields": [
+        {
+          "key": "account",
+          "label": "Signal account number (E.164, e.g. +15551234567)",
+          "kind": "text",
+          "vaultKey": "signal_account",
+          "required": true
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:",
+    "@moxxy/channel-kit": "workspace:*",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "qrcode": "^1.5.4",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
