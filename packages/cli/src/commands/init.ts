@@ -8,7 +8,7 @@ import { runSetupWizard } from '../wizard/run-setup-wizard.js';
 import { buildProviderAuthContext } from '../wizard/auth-context.js';
 import { PROVIDER_CATALOG, resolveProvider } from '../provision/provider-catalog.js';
 import {
-  installPluginPackage,
+  installPluginPackagePinned,
   resolveCatalogPackageName,
   INSTALLABLE_PLUGIN_CATALOG,
 } from '@moxxy/plugin-plugins-admin';
@@ -129,13 +129,14 @@ async function runInteractiveInit(
       let def = session.providers.list().find((p) => p.name === providerId);
       if (!def) {
         // Catalog-only provider (a slim build hasn't bundled it) — install +
-        // enable it from npm, then it registers on the host reload.
+        // enable it from npm, then it registers on the host reload. First-party
+        // installs pin to the CLI version (404 → retry latest).
         const entry = resolveProvider(providerId);
         if (!entry) return null;
-        // Install the latest published version. (Pinning to the CLI version is
-        // the fixed-changeset-group future state; today providers publish on
-        // their own cadence, so latest is what actually resolves.)
-        await installPluginPackage({ packageName: entry.packageName });
+        await installPluginPackagePinned({
+          packageName: entry.packageName,
+          ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        });
         await setPluginEnabled(entry.packageName, true);
         await session.pluginHost.reload();
         def = session.providers.list().find((p) => p.name === providerId);
@@ -186,7 +187,10 @@ async function runInteractiveInit(
     async installPlugins(ids: ReadonlyArray<string>): Promise<void> {
       for (const id of ids) {
         const pkg = resolveCatalogPackageName(id);
-        await installPluginPackage({ packageName: pkg });
+        await installPluginPackagePinned({
+          packageName: pkg,
+          ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        });
         await setPluginEnabled(pkg, true);
       }
       // One reload after the batch so the new tools/contributions go live.

@@ -9,7 +9,8 @@
       "@moxxy/core",
       "@moxxy/config",
       "@moxxy/agent",
-      "@moxxy/plugin-provider-*"
+      "@moxxy/plugin-*",
+      "@moxxy/mode-*"
     ]
   ],
   "linked": [],

@@ -350,6 +350,19 @@ export interface PluginsAdminView {
    * (`setActive`). Rejects an unknown category or an unregistered name.
    */
   setCategoryDefault(category: string, name: string): Promise<void>;
+  /**
+   * Install a plugin (npm into `~/.moxxy/plugins`), persist its enable, and
+   * hot-reload the plugin host so its contributions register live. Accepts a
+   * catalog id, a package name, or a full npm spec. Resolves with the spec
+   * that installed plus the diff of contribution names that registered,
+   * keyed by kind (`tools`, `providers`, `modes`, …). Optional capability
+   * per the seam convention: a `RemoteSession` leaves it undefined and the
+   * picker falls back to printing the `moxxy plugins install` command.
+   */
+  install?(idOrSpec: string): Promise<{
+    readonly installed: string;
+    readonly registered: Readonly<Partial<Record<string, ReadonlyArray<string>>>>;
+  }>;
 }
 
 /**

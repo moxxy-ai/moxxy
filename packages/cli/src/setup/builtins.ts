@@ -2,8 +2,12 @@ import { runTurn, type Session } from '@moxxy/core';
 import { MoxxyError, isSelectableMode, type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
 import {
+  diffSnapshot,
   INSTALLABLE_PLUGIN_CATALOG,
+  installPluginPackagePinned,
+  resolveCatalogEntry,
   setCategoryDefault as persistCategoryDefault,
+  setPluginEnabled as persistPluginEnabled,
 } from '@moxxy/plugin-plugins-admin';
 import {
   buildSchedulerPlugin,
@@ -36,6 +40,8 @@ import {
 import { buildSetPluginEnabledLive } from './plugin-toggle.js';
 import { CRITICAL_PACKAGES } from './critical-packages.js';
 import { buildWorkflowsIntegration } from './workflows.js';
+import { buildPluginSnapshot } from './plugin-snapshot.js';
+import { cliVersion } from '../version.js';
 
 // Re-exported so existing consumers (register-plugins.ts) keep importing the
 // shape from here unchanged.
@@ -217,11 +223,23 @@ export function buildCategoryDefaultLive(session: Session): CategoryDefaultLive 
   };
 }
 
+/**
+ * The bare package name of an npm spec (`@moxxy/x@1.2.3` → `@moxxy/x`), or
+ * undefined for git/path specs whose installed package name isn't derivable
+ * pre-install (the enable write is skipped — absent means enabled anyway).
+ */
+function bareNameFromSpec(spec: string): string | undefined {
+  const at = spec.lastIndexOf('@');
+  const name = at > 0 ? spec.slice(0, at) : spec;
+  return /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name) ? name : undefined;
+}
+
 function wirePluginsAdminView(
   session: Session,
   disabledPackages: Set<string>,
   setPluginEnabledLive: (packageName: string, enabled: boolean) => Promise<void>,
   categoryLive: CategoryDefaultLive,
+  logger: BuildBuiltinsArgs['logger'],
 ): void {
   // The live disabled-set, the installable catalog, and the same plug/unplug +
   // swap-default closures the model tools use. A RemoteSession leaves this
@@ -248,6 +266,24 @@ function wirePluginsAdminView(
     setEnabled: setPluginEnabledLive,
     categories: categoryLive.categories,
     setCategoryDefault: categoryLive.setCategoryDefault,
+    // Real install from the picker: npm into ~/.moxxy/plugins (pinned to the
+    // CLI version for first-party packages, 404 → retry latest), persist the
+    // enable, hot-reload, and report which contributions arrived. Same
+    // building blocks as the install_plugin model tool.
+    install: async (idOrSpec) => {
+      const entry = resolveCatalogEntry(idOrSpec);
+      const spec = entry?.installSpec ?? idOrSpec;
+      const packageName = entry?.packageName ?? bareNameFromSpec(spec);
+      const before = buildPluginSnapshot(session);
+      const { installed } = await installPluginPackagePinned({
+        packageName: spec,
+        ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        onWarn: (msg) => logger.warn(msg),
+      });
+      if (packageName) await persistPluginEnabled(packageName, true);
+      await session.pluginHost.reload();
+      return { installed, registered: diffSnapshot(before, buildPluginSnapshot(session)) };
+    },
   };
 }
 
@@ -383,7 +419,7 @@ export function buildBuiltinsCore(args: BuildBuiltinsArgs): BuiltBuiltinsCore {
     categoryLive,
   });
 
-  wirePluginsAdminView(session, disabledPackages, setPluginEnabledLive, categoryLive);
+  wirePluginsAdminView(session, disabledPackages, setPluginEnabledLive, categoryLive, logger);
 
   const scheduler = buildSchedulerSlice(session, schedulerRunner, logger);
   entries.push(scheduler.entry);

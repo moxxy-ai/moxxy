@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { createMutex, defineTool, z } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } from './shared.js';
+import { pinFirstPartySpec } from './pin.js';
 
 export type { PluginSnapshot } from './shared.js';
 
@@ -58,6 +59,14 @@ export interface InstallPluginDeps {
    * package brought in. Returns names per kind.
    */
   readonly snapshot: () => PluginSnapshot;
+  /**
+   * Host CLI version. When set, bare `@moxxy/*` installs are pinned to it so
+   * an on-demand plugin matches the bundled `@moxxy/sdk` it links against
+   * (first-party packages co-version via the fixed changeset group). A pin
+   * that 404s falls back to `latest` with a warning — see
+   * {@link installPluginPackagePinned}.
+   */
+  readonly cliVersion?: string;
 }
 
 export interface InstallPluginPackageOptions {
@@ -110,6 +119,47 @@ export async function installPluginPackage(
     }
     return { installed: spec, dir };
   });
+}
+
+export interface PinnedInstallOptions {
+  /** Package name or full spec (name@version, git, path). */
+  readonly packageName: string;
+  /** Explicit version/dist-tag — used verbatim, never retried. */
+  readonly version?: string;
+  /** Host CLI version to pin bare `@moxxy/*` names to. */
+  readonly cliVersion?: string;
+  /** Optional abort signal; aborting kills the npm child process. */
+  readonly signal?: AbortSignal;
+  /** Surfaced when an injected pin 404s and the install retries unpinned. */
+  readonly onWarn?: (message: string) => void;
+  /** Injectable install fn for tests; defaults to {@link installPluginPackage}. */
+  readonly installFn?: (opts: InstallPluginPackageOptions) => Promise<InstallPluginPackageResult>;
+}
+
+/**
+ * Install with the first-party version pin applied, falling back to the
+ * unpinned spec when the pin itself is what failed. The retry only happens
+ * for a pin WE injected (bare `@moxxy/*` name + cliVersion): an older CLI can
+ * legitimately pin a package whose first co-versioned release is newer than
+ * the CLI (`@pkg@0.25.0` 404s when the package first ships at 0.26.0). An
+ * explicit user-provided version is never second-guessed.
+ */
+export async function installPluginPackagePinned(
+  opts: PinnedInstallOptions,
+): Promise<InstallPluginPackageResult> {
+  const install = opts.installFn ?? installPluginPackage;
+  const spec = pinFirstPartySpec(opts.packageName, opts.version, opts.cliVersion);
+  const injectedPin = !opts.version && spec !== opts.packageName;
+  try {
+    return await install({ packageName: spec, signal: opts.signal });
+  } catch (err) {
+    if (!injectedPin) throw err;
+    opts.onWarn?.(
+      `pinned install ${spec} failed (${err instanceof Error ? err.message : String(err)}); ` +
+        `retrying latest ${opts.packageName}`,
+    );
+    return await install({ packageName: opts.packageName, signal: opts.signal });
+  }
 }
 
 /**
@@ -174,9 +224,13 @@ export function buildInstallPluginTool(deps: InstallPluginDeps) {
       },
     },
     handler: async ({ packageName, version }, ctx) => {
-      const spec = version ? `${packageName}@${version}` : packageName;
       const before = deps.snapshot();
-      const { installed } = await installPluginPackage({ packageName: spec, signal: ctx.signal });
+      const { installed } = await installPluginPackagePinned({
+        packageName,
+        ...(version ? { version } : {}),
+        ...(deps.cliVersion ? { cliVersion: deps.cliVersion } : {}),
+        signal: ctx.signal,
+      });
       await deps.reload();
       const after = deps.snapshot();
       return {

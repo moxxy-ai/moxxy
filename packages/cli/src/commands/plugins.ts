@@ -3,7 +3,7 @@ import {
   buildInstallSpec,
   clearPluginState,
   formatPluginCatalogStatus,
-  installPluginPackage,
+  installPluginPackagePinned,
   loadDisabledPackageNames,
   removePluginPackage,
   resolveCatalogEntry,
@@ -19,6 +19,7 @@ import { isCriticalPackage } from '../setup/critical-packages.js';
 import { printError } from '../errors.js';
 import { runPluginNewCommand } from './plugin-new.js';
 import { colors } from '../colors.js';
+import { cliVersion } from '../version.js';
 import { formatHelp } from './help-format.js';
 
 const HELP = formatHelp({
@@ -171,7 +172,14 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
   });
   const entry = resolveCatalogEntry(target);
   try {
-    const result = await installPluginPackage({ packageName: spec });
+    // Bare first-party specs pin to the CLI version (co-published via the
+    // fixed changeset group); a pin that 404s retries latest with a warning.
+    // Explicit --version/--ref specs pass through untouched.
+    const result = await installPluginPackagePinned({
+      packageName: spec,
+      ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+      onWarn: (msg) => process.stderr.write(colors.dim(msg) + '\n'),
+    });
     process.stdout.write(
       `installed ${entry?.packageName ?? spec}\n` +
         `source: ${result.installed}\nplugins dir: ${result.dir}\n` +
