@@ -1,5 +1,86 @@
 # @moxxy/desktop
 
+## 0.28.0
+
+### Minor Changes
+
+- a4691d9: Desktop plugins seed: the packaged app now bundles a ready-to-copy npm tree
+  of the on-demand first-party plugins (API-key providers + the slim-wave
+  unbundled set) and copies it into `~/.moxxy/plugins` on first launch —
+  an OFFLINE first run with no npm and no network, while the CLI binary stays
+  slim. Idempotent: never overwrites a user-updated install; merges the seed's
+  dependency ledger into the target manifest so later `npm install --save`
+  runs keep working. Assembled at build time from local pnpm-pack tarballs
+  (including the sdk/core closure), so the desktop build does not depend on
+  the same release's npm publish having landed.
+
+### Patch Changes
+
+- 6460cc6: The slim wave's last unbundle: `@moxxy/plugin-memory` moves out of the CLI
+  binary as ONE merged plugin (long-term store + memory tools + the tfidf
+  embedder + memory_consolidate and its nudge hooks — the two-plugins-in-one-
+  package blocker is gone). The store's embedder now resolves lazily from the
+  new core-published `embedders` service instead of a bootstrap closure.
+  Installs on demand / rides the desktop seed; without it, `moxxy doctor`
+  reports a warn ("memory plugin not installed") instead of failing and
+  recall degrades exactly as before. The `@moxxy/memory-consolidate` ledger
+  key is gone (clean-slate) — enable/disable the one package instead.
+- fa3922e: Slim wave, batches 3+4: `@moxxy/plugin-browser`, `@moxxy/plugin-terminal`
+  and `@moxxy/plugin-channel-web` move out of the CLI binary and install on
+  demand (all three are in the desktop plugins-seed, so desktop surfaces keep
+  working offline). The CLI's `dist/` drops the Playwright `sidecar.js` entry
+  and the copied web frontend — a standalone browser install resolves its own
+  `dist/sidecar.js`, and the web channel serves its own `dist/public` next to
+  its module. `node-pty` moves from the CLI's optionalDependencies into
+  plugin-terminal's own (piped-shell fallback without it).
+  `@moxxy/plugin-tunnel-proxy` + `@moxxy/e2e` flip public as web's dependency
+  closure; `@moxxy/e2e` joins the fixed changeset group so pinned installs
+  resolve from their first release.
+- 502acf0: Slim wave, final batches: the whisper STT pair, the Telegram + Slack
+  channels, provider-admin and mcp move out of the CLI binary — all seeded
+  into the desktop (voice, Settings panels and Apps→Channels keep working
+  offline) and installable on demand everywhere else. `moxxy telegram` /
+  `moxxy channels start slack` on a slim install print the exact install
+  command instead of "unknown command". `@moxxy/config` flips public as the
+  channels' dependency closure. The kernel is now the plan's target set: the
+  TUI, built-in tools, default mode, context floors, vault, plugins-admin,
+  commands, memory, the two OAuth providers, and the dormant daemons.
+- Updated dependencies [03e5f87]
+- Updated dependencies [f783303]
+- Updated dependencies [a4691d9]
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [6460cc6]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [e5ea7e6]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [720c955]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [6f0e6fb]
+- Updated dependencies [b2a5fba]
+- Updated dependencies [fa3922e]
+- Updated dependencies [502acf0]
+- Updated dependencies [4c605fc]
+- Updated dependencies [be28d55]
+  - @moxxy/plugin-vault@0.27.0
+  - @moxxy/cli@0.27.0
+  - @moxxy/desktop-host@0.13.0
+  - @moxxy/sdk@0.27.0
+  - @moxxy/runner@0.2.31
+  - @moxxy/desktop-ipc-contract@0.14.2
+  - @moxxy/plugin-stt-whisper-codex@0.27.0
+  - @moxxy/plugin-channel-mobile@0.27.0
+  - @moxxy/chat-model@0.3.17
+  - @moxxy/client-core@0.13.6
+  - @moxxy/client-platform-web@0.1.45
+  - @moxxy/ipc-server-ws@0.1.44
+  - @moxxy/workflows-builder@0.1.28
+
 ## 0.27.1
 
 ### Patch Changes

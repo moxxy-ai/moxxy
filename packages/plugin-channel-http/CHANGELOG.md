@@ -1,5 +1,36 @@
 # @moxxy/plugin-channel-http
 
+## 0.27.0
+
+### Minor Changes
+
+- 0b6f40e: Plugin-declared init hooks: plugins can now ship a declarative setup step at
+  `package.json#moxxy.setup` (title, required flag, typed fields:
+  secret/string/boolean/select). `moxxy init` walks every installed plugin's
+  step — secrets go to the VAULT with a `${vault:NAME}` ref written to the
+  plugin's `options.<key>` (resolved at boot, never plaintext), other kinds
+  persist through the shared schema-validated writer; skipping a
+  `required: true` setup leaves the package DISABLED until configured; re-runs
+  prefill ("enter to keep"). Installing such a plugin (tool or /plugins picker)
+  surfaces `needsSetup` so the user is pointed at the configuration
+  immediately. Proof: the HTTP channel declares its bearer token as a required
+  secret field.
+
+### Patch Changes
+
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+
 ## 0.26.0
 
 ### Minor Changes

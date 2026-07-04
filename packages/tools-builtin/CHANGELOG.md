@@ -1,5 +1,23 @@
 # @moxxy/tools-builtin
 
+## 0.0.40
+
+### Patch Changes
+
+- 720c955: Dead-code cleanup: remove the deprecated `resolveSafe` alias from tools-builtin (no callers remained — use `resolvePath`), and retire/re-point stale TECH_DEBT entries (the CDP screencast sidecar handlers were already deleted in #212; the piped-shell fallback and terminal-sizing constraint notes now point at `packages/plugin-terminal` / `TerminalPane.tsx` where that code actually lives).
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+
 ## 0.0.39
 
 ### Patch Changes

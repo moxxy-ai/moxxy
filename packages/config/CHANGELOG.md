@@ -1,5 +1,75 @@
 # @moxxy/config
 
+## 0.27.0
+
+### Minor Changes
+
+- e5ea7e6: The LAST config store outside the unified tree is gone: runtime-registered
+  (OpenAI-compatible) vendors now persist at `plugins.provider.items.<name>`
+  in `~/.moxxy/config.yaml` (`config` carries the vendor payload, `model` the
+  default) instead of `~/.moxxy/providers.json`. The provider-admin API is
+  unchanged — the tools, the runner's `provider.configure`, and the desktop
+  settings sheet all moved with it; the desktop reads the tree directly (yaml
+  parse, no @moxxy/config in the Electron main). `provider_remove` refuses to
+  touch a built-in provider's item (picker-written model/enabled prefs
+  survive). Clean-slate per repo convention: re-add custom vendors via
+  `provider_add` or the desktop sheet — no migration shim.
+- 2cef8e1: feat(reflector): swappable `reflector` registry category + `@moxxy/reflector-default` learning loop.
+
+  A new single-active registry category — the learning-loop block that watches a finished turn and _proposes_ memory/skill improvements without ever writing silently. Mirrors the `eventStore` category across all 7 layers (config `plugins.reflector.default`, SDK `ReflectorDef`/`ReflectContext`/`ReflectionProposal` contract + plugin slot, core `ReflectorRegistry`, host registry-kind wiring, session field + `services('reflectors')`, CLI apply/category-swap, catalog), but NULLABLE: core seeds no floor, so reflection is opt-in (like transcriber/synthesizer).
+
+  `@moxxy/reflector-default` (discovery-loaded) ships the default `ReflectorDef` `'default'` AND the driver in one plugin. The driver's `onTurnEnd` runs a cheap gate (≥5 tool results OR ≥1 error OR ≥8 mode iterations) under a one-reflection-per-session budget, then fires the reflection FIRE-AND-FORGET so it never blocks or throws into the turn. The reflector does one cheap side-channel LLM pass over a turn digest and returns 0-2 proposals; those are delivered as a ONE-TIME nudge on the next `onBeforeProviderCall`, phrased so the model MAY call `memory_save` / `synthesize_skill` — which still hit their own permission prompts. No silent writes. Graceful no-provider / provider-error skips; `memory_save` and `synthesize_skill` are declared as optional requirements. User-model injection of proposals is deferred to a follow-up PR.
+
+- ee2967d: `/settings` (alias `/config`): a curated in-TUI config panel — reasoning,
+  prompt caching, elision, lazy tools, loop guard, plugin security, TUI theme
+  and footer hints toggle/cycle in place, persist to the user config through
+  the ONE schema-validated comment-preserving writer (new `setConfigValue`,
+  which the `config_set` tool now also delegates to), and live-apply via the
+  new optional `SessionLike.configAdmin` seam (RemoteSession degrades to
+  "applies on restart"). New `tui:` config section (`theme: default|mono`,
+  `hints`, `keys` Ctrl-letter overrides for force-send/drop-queued/
+  expand-tools) projected onto the TUI's env conventions at launch.
+- 502acf0: Slim wave, final batches: the whisper STT pair, the Telegram + Slack
+  channels, provider-admin and mcp move out of the CLI binary — all seeded
+  into the desktop (voice, Settings panels and Apps→Channels keep working
+  offline) and installable on demand everywhere else. `moxxy telegram` /
+  `moxxy channels start slack` on a slim install print the exact install
+  command instead of "unknown command". `@moxxy/config` flips public as the
+  channels' dependency closure. The kernel is now the plan's target set: the
+  TUI, built-in tools, default mode, context floors, vault, plugins-admin,
+  commands, memory, the two OAuth providers, and the dormant daemons.
+
+### Patch Changes
+
+- 87aac6d: Declare honest `isolation` capability specs on the remaining admin and long-tail plugin tools (36 tools across 13 packages), completing the backfill that lets `security.requireDeclaration` be enabled.
+- 49b1d73: Install-time capability consent + third-party requireDeclaration ratchet.
+  Installing a plugin now surfaces the package's combined capability surface
+  (fs globs, net mode/hosts, env, exec commands, time/memory budgets) in
+  human-readable rows shared across every surface. Third-party packages
+  (outside the `@moxxy/` scope) require explicit consent to stay enabled:
+  the TUI opens a fail-closed post-install picker (ESC = decline = disabled),
+  `moxxy plugins install` asks a default-NO confirm on a TTY and headless runs
+  need `--yes` (otherwise the package is left installed but disabled), and the
+  permission-gated `install_plugin` model tool keeps returning the report
+  non-interactively. Undeclared tools are called out loudly — their surface is
+  unknown, not empty. New `security.thirdPartyRequireDeclaration: off|warn|enforce`
+  ('warn' by default while security is enabled) logs a once-per-tool structured
+  warning — or denies with 'enforce' — when a third-party tool has no isolation
+  declaration; unattributed tools (e.g. runtime-attached MCP tools) are exempt.
+  `moxxy security status` prints the new mode.
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+
 ## 0.26.0
 
 ### Patch Changes

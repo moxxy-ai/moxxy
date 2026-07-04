@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-channel-web",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "description": "Web surface channel for moxxy: serves a browser app that renders agent-authored view-spec UIs over a WebSocket, and routes form/button actions back into the session as new turns.",
   "keywords": [
     "moxxy",

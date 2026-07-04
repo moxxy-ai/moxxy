@@ -1,5 +1,35 @@
 # @moxxy/plugin-memory
 
+## 0.27.0
+
+### Minor Changes
+
+- 6460cc6: The slim wave's last unbundle: `@moxxy/plugin-memory` moves out of the CLI
+  binary as ONE merged plugin (long-term store + memory tools + the tfidf
+  embedder + memory_consolidate and its nudge hooks — the two-plugins-in-one-
+  package blocker is gone). The store's embedder now resolves lazily from the
+  new core-published `embedders` service instead of a bootstrap closure.
+  Installs on demand / rides the desktop seed; without it, `moxxy doctor`
+  reports a warn ("memory plugin not installed") instead of failing and
+  recall degrades exactly as before. The `@moxxy/memory-consolidate` ledger
+  key is gone (clean-slate) — enable/disable the one package instead.
+
+### Patch Changes
+
+- 87aac6d: Declare honest `isolation` capability specs on the remaining admin and long-tail plugin tools (36 tools across 13 packages), completing the backfill that lets `security.requireDeclaration` be enabled.
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+
 ## 0.26.0
 
 ### Patch Changes

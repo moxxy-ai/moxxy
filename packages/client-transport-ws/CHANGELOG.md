@@ -1,5 +1,14 @@
 # @moxxy/client-transport-ws
 
+## 0.2.15
+
+### Patch Changes
+
+- Updated dependencies [e5ea7e6]
+- Updated dependencies [fa3922e]
+  - @moxxy/desktop-ipc-contract@0.14.2
+  - @moxxy/e2e@0.27.0
+
 ## 0.2.14
 
 ### Patch Changes

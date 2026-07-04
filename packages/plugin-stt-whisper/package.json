@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-stt-whisper",
-  "version": "0.26.0",
-  "description": "OpenAI Whisper Transcriber for moxxy. Audio bytes \u2192 text + segments. Plugs into the session's TranscriberRegistry; channels with audio input (Telegram voice, HTTP multipart) consume it transparently.",
+  "version": "0.27.0",
+  "description": "OpenAI Whisper Transcriber for moxxy. Audio bytes → text + segments. Plugs into the session's TranscriberRegistry; channels with audio input (Telegram voice, HTTP multipart) consume it transparently.",
   "keywords": [
     "moxxy",
     "agent",

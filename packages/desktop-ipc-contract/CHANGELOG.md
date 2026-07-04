@@ -1,5 +1,32 @@
 # @moxxy/desktop-ipc-contract
 
+## 0.14.2
+
+### Patch Changes
+
+- e5ea7e6: The LAST config store outside the unified tree is gone: runtime-registered
+  (OpenAI-compatible) vendors now persist at `plugins.provider.items.<name>`
+  in `~/.moxxy/config.yaml` (`config` carries the vendor payload, `model` the
+  default) instead of `~/.moxxy/providers.json`. The provider-admin API is
+  unchanged — the tools, the runner's `provider.configure`, and the desktop
+  settings sheet all moved with it; the desktop reads the tree directly (yaml
+  parse, no @moxxy/config in the Electron main). `provider_remove` refuses to
+  touch a built-in provider's item (picker-written model/enabled prefs
+  survive). Clean-slate per repo convention: re-add custom vendors via
+  `provider_add` or the desktop sheet — no migration shim.
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+
 ## 0.14.1
 
 ### Patch Changes

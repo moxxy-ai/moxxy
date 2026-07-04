@@ -1,5 +1,60 @@
 # @moxxy/desktop-host
 
+## 0.13.0
+
+### Minor Changes
+
+- a4691d9: Desktop plugins seed: the packaged app now bundles a ready-to-copy npm tree
+  of the on-demand first-party plugins (API-key providers + the slim-wave
+  unbundled set) and copies it into `~/.moxxy/plugins` on first launch —
+  an OFFLINE first run with no npm and no network, while the CLI binary stays
+  slim. Idempotent: never overwrites a user-updated install; merges the seed's
+  dependency ledger into the target manifest so later `npm install --save`
+  runs keep working. Assembled at build time from local pnpm-pack tarballs
+  (including the sdk/core closure), so the desktop build does not depend on
+  the same release's npm publish having landed.
+- e5ea7e6: The LAST config store outside the unified tree is gone: runtime-registered
+  (OpenAI-compatible) vendors now persist at `plugins.provider.items.<name>`
+  in `~/.moxxy/config.yaml` (`config` carries the vendor payload, `model` the
+  default) instead of `~/.moxxy/providers.json`. The provider-admin API is
+  unchanged — the tools, the runner's `provider.configure`, and the desktop
+  settings sheet all moved with it; the desktop reads the tree directly (yaml
+  parse, no @moxxy/config in the Electron main). `provider_remove` refuses to
+  touch a built-in provider's item (picker-written model/enabled prefs
+  survive). Clean-slate per repo convention: re-add custom vendors via
+  `provider_add` or the desktop sheet — no migration shim.
+
+### Patch Changes
+
+- Updated dependencies [87aac6d]
+- Updated dependencies [885c80c]
+- Updated dependencies [03e5f87]
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [6460cc6]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [e5ea7e6]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [b2a5fba]
+- Updated dependencies [502acf0]
+- Updated dependencies [be28d55]
+  - @moxxy/core@0.27.0
+  - @moxxy/plugin-webhooks@0.27.0
+  - @moxxy/plugin-scheduler@0.27.0
+  - @moxxy/plugin-vault@0.27.0
+  - @moxxy/sdk@0.27.0
+  - @moxxy/runner@0.2.31
+  - @moxxy/desktop-ipc-contract@0.14.2
+  - @moxxy/plugin-stt-whisper-codex@0.27.0
+  - @moxxy/mode-collaborative@0.27.0
+  - @moxxy/workspace-registry@0.2.14
+
 ## 0.12.1
 
 ### Patch Changes

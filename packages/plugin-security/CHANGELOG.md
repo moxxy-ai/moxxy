@@ -1,5 +1,41 @@
 # @moxxy/plugin-security
 
+## 0.27.0
+
+### Minor Changes
+
+- 49b1d73: Install-time capability consent + third-party requireDeclaration ratchet.
+  Installing a plugin now surfaces the package's combined capability surface
+  (fs globs, net mode/hosts, env, exec commands, time/memory budgets) in
+  human-readable rows shared across every surface. Third-party packages
+  (outside the `@moxxy/` scope) require explicit consent to stay enabled:
+  the TUI opens a fail-closed post-install picker (ESC = decline = disabled),
+  `moxxy plugins install` asks a default-NO confirm on a TTY and headless runs
+  need `--yes` (otherwise the package is left installed but disabled), and the
+  permission-gated `install_plugin` model tool keeps returning the report
+  non-interactively. Undeclared tools are called out loudly — their surface is
+  unknown, not empty. New `security.thirdPartyRequireDeclaration: off|warn|enforce`
+  ('warn' by default while security is enabled) logs a once-per-tool structured
+  warning — or denies with 'enforce' — when a third-party tool has no isolation
+  declaration; unattributed tools (e.g. runtime-attached MCP tools) are exempt.
+  `moxxy security status` prints the new mode.
+- 98f545c: Package-level capability aggregation: `moxxy security audit --package <name>` shows one package's tools plus their COMBINED capability surface (widest-wins union via the new `aggregateCapabilitySpecs` in the SDK), `--by-package` prints a declared/total rollup per plugin, and `install_plugin` now reports the just-installed package's capability surface (declared/total + undeclared tool names) next to the registration diff. Tool→plugin attribution comes from the plugin host's loaded records (`PluginHost.ownerOfTool`), which also makes the previously-dormant `security.perPlugin` isolator overrides actually route.
+
+### Patch Changes
+
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+
 ## 0.26.0
 
 ### Patch Changes

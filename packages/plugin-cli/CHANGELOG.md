@@ -1,5 +1,102 @@
 # @moxxy/plugin-cli
 
+## 0.27.0
+
+### Minor Changes
+
+- 49b1d73: Install-time capability consent + third-party requireDeclaration ratchet.
+  Installing a plugin now surfaces the package's combined capability surface
+  (fs globs, net mode/hosts, env, exec commands, time/memory budgets) in
+  human-readable rows shared across every surface. Third-party packages
+  (outside the `@moxxy/` scope) require explicit consent to stay enabled:
+  the TUI opens a fail-closed post-install picker (ESC = decline = disabled),
+  `moxxy plugins install` asks a default-NO confirm on a TTY and headless runs
+  need `--yes` (otherwise the package is left installed but disabled), and the
+  permission-gated `install_plugin` model tool keeps returning the report
+  non-interactively. Undeclared tools are called out loudly — their surface is
+  unknown, not empty. New `security.thirdPartyRequireDeclaration: off|warn|enforce`
+  ('warn' by default while security is enabled) logs a once-per-tool structured
+  warning — or denies with 'enforce' — when a third-party tool has no isolation
+  declaration; unattributed tools (e.g. runtime-attached MCP tools) are exempt.
+  `moxxy security status` prints the new mode.
+- 2cff46b: Post-install setup resolves IN the TUI: installing a plugin that declares a
+  `moxxy.setup` step now opens a configuration dialog on the spot (masked
+  secrets, y/n booleans, select lists) instead of pointing at `moxxy init` —
+  values persist through the same shared writer (secrets → vault +
+  `${vault:NAME}` option refs). New `/setup [package]` command (re)configures
+  any installed plugin and re-enables one left disabled by a skipped required
+  setup. New `PluginsAdminView.setupSpec`/`applySetup` seams; the init wizard
+  now shares the exact same `applySetupValues` write path.
+- ee2967d: `/settings` (alias `/config`): a curated in-TUI config panel — reasoning,
+  prompt caching, elision, lazy tools, loop guard, plugin security, TUI theme
+  and footer hints toggle/cycle in place, persist to the user config through
+  the ONE schema-validated comment-preserving writer (new `setConfigValue`,
+  which the `config_set` tool now also delegates to), and live-apply via the
+  new optional `SessionLike.configAdmin` seam (RemoteSession degrades to
+  "applies on restart"). New `tui:` config section (`theme: default|mono`,
+  `hints`, `keys` Ctrl-letter overrides for force-send/drop-queued/
+  expand-tools) projected onto the TUI's env conventions at launch.
+
+### Patch Changes
+
+- 0b6f40e: Plugin-declared init hooks: plugins can now ship a declarative setup step at
+  `package.json#moxxy.setup` (title, required flag, typed fields:
+  secret/string/boolean/select). `moxxy init` walks every installed plugin's
+  step — secrets go to the VAULT with a `${vault:NAME}` ref written to the
+  plugin's `options.<key>` (resolved at boot, never plaintext), other kinds
+  persist through the shared schema-validated writer; skipping a
+  `required: true` setup leaves the package DISABLED until configured; re-runs
+  prefill ("enter to keep"). Installing such a plugin (tool or /plugins picker)
+  surfaces `needsSetup` so the user is pointed at the configuration
+  immediately. Proof: the HTTP channel declares its bearer token as a required
+  secret field.
+- 2cef8e1: feat(reflector): swappable `reflector` registry category + `@moxxy/reflector-default` learning loop.
+
+  A new single-active registry category — the learning-loop block that watches a finished turn and _proposes_ memory/skill improvements without ever writing silently. Mirrors the `eventStore` category across all 7 layers (config `plugins.reflector.default`, SDK `ReflectorDef`/`ReflectContext`/`ReflectionProposal` contract + plugin slot, core `ReflectorRegistry`, host registry-kind wiring, session field + `services('reflectors')`, CLI apply/category-swap, catalog), but NULLABLE: core seeds no floor, so reflection is opt-in (like transcriber/synthesizer).
+
+  `@moxxy/reflector-default` (discovery-loaded) ships the default `ReflectorDef` `'default'` AND the driver in one plugin. The driver's `onTurnEnd` runs a cheap gate (≥5 tool results OR ≥1 error OR ≥8 mode iterations) under a one-reflection-per-session budget, then fires the reflection FIRE-AND-FORGET so it never blocks or throws into the turn. The reflector does one cheap side-channel LLM pass over a turn digest and returns 0-2 proposals; those are delivered as a ONE-TIME nudge on the next `onBeforeProviderCall`, phrased so the model MAY call `memory_save` / `synthesize_skill` — which still hit their own permission prompts. No silent writes. Graceful no-provider / provider-error skips; `memory_save` and `synthesize_skill` are declared as optional requirements. User-model injection of proposals is deferred to a follow-up PR.
+
+- b2a5fba: Aggregate skill usage into `~/.moxxy/skills/.meta/usage.json` and surface it.
+
+  A new best-effort store in `@moxxy/core` (`skill-usage.ts`) records per-skill-name
+  `invocations` counts plus first-`createdAt` / latest-`lastInvokedAt` timestamps.
+  `@moxxy/plugin-usage-stats` folds this run's `skill_invoked` / `skill_created`
+  events past the same resume/`/new` seq boundary it already uses for token usage
+  and merges the delta on shutdown (token behavior unchanged). `moxxy skills list`
+  gains a dim `used` column and the `/skills` TUI panel shows a right-aligned `×N`
+  badge.
+
+  Known limitation: `skill_invoked` is only emitted by the `load_skill` tool today
+  (reason `load_skill_tool`), so counts reflect explicit `load_skill` calls only.
+  When trigger-match / classifier emission lands later, the same file simply starts
+  counting more — no format change.
+
+- Updated dependencies [87aac6d]
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [6460cc6]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [e5ea7e6]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [6f0e6fb]
+- Updated dependencies [b2a5fba]
+- Updated dependencies [2e37663]
+- Updated dependencies [fa3922e]
+- Updated dependencies [502acf0]
+- Updated dependencies [be28d55]
+  - @moxxy/plugin-plugins-admin@0.27.0
+  - @moxxy/plugin-mcp@0.27.0
+  - @moxxy/config@0.27.0
+  - @moxxy/core@0.27.0
+  - @moxxy/sdk@0.27.0
+  - @moxxy/chat-model@0.3.17
+
 ## 0.26.0
 
 ### Minor Changes

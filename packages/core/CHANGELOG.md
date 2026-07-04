@@ -1,5 +1,65 @@
 # @moxxy/core
 
+## 0.27.0
+
+### Minor Changes
+
+- 2cef8e1: feat(reflector): swappable `reflector` registry category + `@moxxy/reflector-default` learning loop.
+
+  A new single-active registry category — the learning-loop block that watches a finished turn and _proposes_ memory/skill improvements without ever writing silently. Mirrors the `eventStore` category across all 7 layers (config `plugins.reflector.default`, SDK `ReflectorDef`/`ReflectContext`/`ReflectionProposal` contract + plugin slot, core `ReflectorRegistry`, host registry-kind wiring, session field + `services('reflectors')`, CLI apply/category-swap, catalog), but NULLABLE: core seeds no floor, so reflection is opt-in (like transcriber/synthesizer).
+
+  `@moxxy/reflector-default` (discovery-loaded) ships the default `ReflectorDef` `'default'` AND the driver in one plugin. The driver's `onTurnEnd` runs a cheap gate (≥5 tool results OR ≥1 error OR ≥8 mode iterations) under a one-reflection-per-session budget, then fires the reflection FIRE-AND-FORGET so it never blocks or throws into the turn. The reflector does one cheap side-channel LLM pass over a turn digest and returns 0-2 proposals; those are delivered as a ONE-TIME nudge on the next `onBeforeProviderCall`, phrased so the model MAY call `memory_save` / `synthesize_skill` — which still hit their own permission prompts. No silent writes. Graceful no-provider / provider-error skips; `memory_save` and `synthesize_skill` are declared as optional requirements. User-model injection of proposals is deferred to a follow-up PR.
+
+### Patch Changes
+
+- 87aac6d: Declare honest `isolation` capability specs on the remaining admin and long-tail plugin tools (36 tools across 13 packages), completing the backfill that lets `security.requireDeclaration` be enabled.
+- 6460cc6: The slim wave's last unbundle: `@moxxy/plugin-memory` moves out of the CLI
+  binary as ONE merged plugin (long-term store + memory tools + the tfidf
+  embedder + memory_consolidate and its nudge hooks — the two-plugins-in-one-
+  package blocker is gone). The store's embedder now resolves lazily from the
+  new core-published `embedders` service instead of a bootstrap closure.
+  Installs on demand / rides the desktop seed; without it, `moxxy doctor`
+  reports a warn ("memory plugin not installed") instead of failing and
+  recall degrades exactly as before. The `@moxxy/memory-consolidate` ledger
+  key is gone (clean-slate) — enable/disable the one package instead.
+- 98f545c: Package-level capability aggregation: `moxxy security audit --package <name>` shows one package's tools plus their COMBINED capability surface (widest-wins union via the new `aggregateCapabilitySpecs` in the SDK), `--by-package` prints a declared/total rollup per plugin, and `install_plugin` now reports the just-installed package's capability surface (declared/total + undeclared tool names) next to the registration diff. Tool→plugin attribution comes from the plugin host's loaded records (`PluginHost.ownerOfTool`), which also makes the previously-dormant `security.perPlugin` isolator overrides actually route.
+- ee2967d: `/settings` (alias `/config`): a curated in-TUI config panel — reasoning,
+  prompt caching, elision, lazy tools, loop guard, plugin security, TUI theme
+  and footer hints toggle/cycle in place, persist to the user config through
+  the ONE schema-validated comment-preserving writer (new `setConfigValue`,
+  which the `config_set` tool now also delegates to), and live-apply via the
+  new optional `SessionLike.configAdmin` seam (RemoteSession degrades to
+  "applies on restart"). New `tui:` config section (`theme: default|mono`,
+  `hints`, `keys` Ctrl-letter overrides for force-send/drop-queued/
+  expand-tools) projected onto the TUI's env conventions at launch.
+- b2a5fba: Aggregate skill usage into `~/.moxxy/skills/.meta/usage.json` and surface it.
+
+  A new best-effort store in `@moxxy/core` (`skill-usage.ts`) records per-skill-name
+  `invocations` counts plus first-`createdAt` / latest-`lastInvokedAt` timestamps.
+  `@moxxy/plugin-usage-stats` folds this run's `skill_invoked` / `skill_created`
+  events past the same resume/`/new` seq boundary it already uses for token usage
+  and merges the delta on shutdown (token behavior unchanged). `moxxy skills list`
+  gains a dim `used` column and the `/skills` TUI panel shows a right-aligned `×N`
+  badge.
+
+  Known limitation: `skill_invoked` is only emitted by the `load_skill` tool today
+  (reason `load_skill_tool`), so counts reflect explicit `load_skill` calls only.
+  When trigger-match / classifier emission lands later, the same file simply starts
+  counting more — no format change.
+
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+
 ## 0.26.0
 
 ### Patch Changes

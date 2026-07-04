@@ -1,5 +1,39 @@
 # @moxxy/plugin-channel-web
 
+## 0.27.0
+
+### Minor Changes
+
+- fa3922e: Slim wave, batches 3+4: `@moxxy/plugin-browser`, `@moxxy/plugin-terminal`
+  and `@moxxy/plugin-channel-web` move out of the CLI binary and install on
+  demand (all three are in the desktop plugins-seed, so desktop surfaces keep
+  working offline). The CLI's `dist/` drops the Playwright `sidecar.js` entry
+  and the copied web frontend — a standalone browser install resolves its own
+  `dist/sidecar.js`, and the web channel serves its own `dist/public` next to
+  its module. `node-pty` moves from the CLI's optionalDependencies into
+  plugin-terminal's own (piped-shell fallback without it).
+  `@moxxy/plugin-tunnel-proxy` + `@moxxy/e2e` flip public as web's dependency
+  closure; `@moxxy/e2e` joins the fixed changeset group so pinned installs
+  resolve from their first release.
+
+### Patch Changes
+
+- 87aac6d: Declare honest `isolation` capability specs on the remaining admin and long-tail plugin tools (36 tools across 13 packages), completing the backfill that lets `security.requireDeclaration` be enabled.
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [fa3922e]
+- Updated dependencies [be28d55]
+  - @moxxy/sdk@0.27.0
+  - @moxxy/plugin-tunnel-proxy@0.27.0
+
 ## 0.26.0
 
 ### Patch Changes

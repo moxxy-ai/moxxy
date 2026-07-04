@@ -1,5 +1,50 @@
 # @moxxy/plugin-channel-slack
 
+## 0.27.0
+
+### Minor Changes
+
+- 502acf0: Slim wave, final batches: the whisper STT pair, the Telegram + Slack
+  channels, provider-admin and mcp move out of the CLI binary — all seeded
+  into the desktop (voice, Settings panels and Apps→Channels keep working
+  offline) and installable on demand everywhere else. `moxxy telegram` /
+  `moxxy channels start slack` on a slim install print the exact install
+  command instead of "unknown command". `@moxxy/config` flips public as the
+  channels' dependency closure. The kernel is now the plan's target set: the
+  TUI, built-in tools, default mode, context floors, vault, plugins-admin,
+  commands, memory, the two OAuth providers, and the dormant daemons.
+
+### Patch Changes
+
+- 5d6677d: New `@moxxy/channel-kit` package: shared channel-building machinery extracted from the Telegram and Slack channels (throttled send-once-then-edit FramePump, turnId-filtered turn running + single-flight TurnCoordinator, host-code and TOFU pairing state machines, env→vault secret resolution, audited allow-list permissions, and the inbound-webhook ingest HTTP scaffold + delivery dedupe cache). plugin-telegram and plugin-channel-slack are refactored onto it with no behavior change, so upcoming channels (Discord, WhatsApp, Signal) can be thin adapters.
+- 3b27404: `moxxy onboard` — one guided command from a fresh install to a paired, always-on agent: provider wizard (skipped when configured) → messenger pick from the install catalog → version-pinned install + `moxxy.setup` fields → the channel's own pairing in a new pair-then-return mode (`EXIT_AFTER_PAIR_FLAG` in the SDK, honored by all five pair flows) → a `moxxy serve --all` background unit. Also: channel install hints are now derived from catalog `provides` (telegram/slack/web/http entries gained theirs), Telegram + Slack declare `moxxy.setup` token steps, the `service` catalog's serve unit actually starts channels (`--all`, matching its description), and service units survive Electron-as-node installs (`ELECTRON_RUN_AS_NODE=1` exported into the unit).
+- Updated dependencies [87aac6d]
+- Updated dependencies [03e5f87]
+- Updated dependencies [5d6677d]
+- Updated dependencies [81e6b68]
+- Updated dependencies [e791484]
+- Updated dependencies [49b1d73]
+- Updated dependencies [6460cc6]
+- Updated dependencies [3b27404]
+- Updated dependencies [0b6f40e]
+- Updated dependencies [2cff46b]
+- Updated dependencies [e5ea7e6]
+- Updated dependencies [2cef8e1]
+- Updated dependencies [98f545c]
+- Updated dependencies [ee2967d]
+- Updated dependencies [2a35357]
+- Updated dependencies [67a3387]
+- Updated dependencies [b2a5fba]
+- Updated dependencies [fa3922e]
+- Updated dependencies [502acf0]
+- Updated dependencies [be28d55]
+  - @moxxy/config@0.27.0
+  - @moxxy/core@0.27.0
+  - @moxxy/plugin-vault@0.27.0
+  - @moxxy/channel-kit@0.27.0
+  - @moxxy/sdk@0.27.0
+  - @moxxy/plugin-tunnel-proxy@0.27.0
+
 ## 0.26.0
 
 ### Patch Changes
