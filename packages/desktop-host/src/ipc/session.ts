@@ -5,8 +5,11 @@
  * {@link SessionDriver} in the {@link drivers} registry; provider / mode
  * switches and slash commands talk straight to the {@link RemoteSession}
  * (then settle via {@link waitForSessionState}). Voice (hasTranscriber /
- * transcribe) is served by the in-process Codex transcriber rather than
- * a runner round-trip, mirroring the TUI's self-host setup.
+ * transcribe) prefers the RUNNER's active transcriber — a runner-side STT
+ * plugin (e.g. the local Whisper `@moxxy/plugin-stt-local`) so the desktop
+ * mic can transcribe fully offline — and falls back to the in-process Codex
+ * transcriber when the runner has none active (byte-identical to the pre-
+ * local-STT behavior, mirroring the TUI's self-host setup).
  *
  * Every command accepts an optional `workspaceId` and defaults to the
  * pool's active workspace so the renderer can target a background
@@ -255,13 +258,19 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     }
   });
   handle('session.hasTranscriber', async () => {
-    // Voice is wired through the desktop's *in-process* Codex
-    // transcriber (mirrors the TUI's self-host setup: same vault,
-    // same plugin class). Affordance gating: probe the vault for
-    // ANY entry under the Codex OAuth namespace
-    // (`oauth/openai-codex/*`) — same key prefix the Codex login
-    // command writes to. If something's stored, the user has a
-    // login → show the mic.
+    // The mic affordance lights up when EITHER voice path can serve a
+    // transcribe:
+    //   1. the RUNNER has an active transcriber (a runner-side STT plugin such
+    //      as the local Whisper `@moxxy/plugin-stt-local`, adopted via the
+    //      `plugins.transcriber.default` config) — read straight off the
+    //      RemoteSession's info snapshot, no extra RPC; or
+    //   2. stored Codex OAuth creds exist for the in-process fallback path.
+    // Checking `activeTranscriber` (not the "any registered" `hasTranscriber`
+    // flag) keeps this in lockstep with `session.transcribe` below, which
+    // routes through `transcribers.tryGetActive()` — also keyed on the ACTIVE
+    // transcriber.
+    const remote = resolveSupervisor(pool)?.remote();
+    if (remote?.getInfo().activeTranscriber) return true;
     try {
       const { vault } = getInProcessPlugins();
       // Stored Codex creds are written under `oauth/openai-codex/...`
@@ -274,20 +283,33 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       return false;
     }
   });
-  handle('session.transcribe', async ({ audioBase64, mimeType }) => {
-    // Run the transcribe through the in-process Codex transcriber —
-    // same plugin class, same vault, identical to the TUI's voice
-    // path. No round-trip through the runner socket needed (and no
-    // RemoteSession.setActive throw to work around).
-    const { transcriber } = getInProcessPlugins();
+  handle('session.transcribe', async ({ workspaceId, audioBase64, mimeType }) => {
     if (typeof audioBase64 !== 'string' || !BASE64_RE.test(audioBase64)) {
       throw new IpcError('invalid-payload', 'audioBase64 is not valid base64');
     }
     const audio = Buffer.from(audioBase64, 'base64');
-    const result = await transcriber.transcribe(
-      audio,
-      mimeType ? { mimeType } : undefined,
-    );
+    const opts = mimeType ? { mimeType } : undefined;
+    // Prefer the RUNNER's active transcriber (like `session.synthesize` routes
+    // TTS): a runner-side STT plugin (e.g. the local Whisper transcriber) lets
+    // the desktop mic transcribe fully offline. `tryGetActive()` returns the
+    // proxy when the runner reports an active transcriber, else null.
+    const runnerTranscriber = resolveSupervisor(pool, workspaceId)
+      ?.remote()
+      ?.transcribers.tryGetActive();
+    if (runnerTranscriber) {
+      // A PRESENT-but-failing runner transcriber (a broken local model) surfaces
+      // its error to the user — we deliberately do NOT silently fall back to the
+      // cloud Codex path here, which would mask the breakage. Only the "no
+      // active transcriber" case (tryGetActive() === null, handled below) falls
+      // back.
+      const result = await runnerTranscriber.transcribe(new Uint8Array(audio), opts);
+      return result.text;
+    }
+    // No active runner transcriber → in-process Codex transcriber: same plugin
+    // class, same vault, identical to the TUI's self-host voice path. This is
+    // byte-identical to the behavior before local-STT routing.
+    const { transcriber } = getInProcessPlugins();
+    const result = await transcriber.transcribe(audio, opts);
     return result.text;
   });
   handle('session.synthesize', async ({ workspaceId, text }) => {

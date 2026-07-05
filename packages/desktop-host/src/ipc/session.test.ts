@@ -35,7 +35,19 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
   BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
 }));
-vi.mock('../in-process-plugins', () => ({ buildInProcessPlugins: () => ({}) }));
+// Control the in-process (Codex) transcriber + vault the voice FALLBACK path
+// uses. getInProcessPlugins() caches the bag on first access, so the fake bag's
+// methods delegate to stable vi.fns each test configures — no cache reset needed.
+const { codexTranscribe, vaultGet } = vi.hoisted(() => ({
+  codexTranscribe: vi.fn(),
+  vaultGet: vi.fn(),
+}));
+vi.mock('../in-process-plugins', () => ({
+  buildInProcessPlugins: () => ({
+    vault: { get: vaultGet },
+    transcriber: { name: 'openai-codex', transcribe: codexTranscribe },
+  }),
+}));
 
 import type { CommandBus } from '@moxxy/desktop-ipc-contract/bus';
 import type { IpcCommandName, IpcEvents, SessionInfo } from '@moxxy/desktop-ipc-contract';
@@ -204,6 +216,125 @@ describe('session.runTurn handler', () => {
     } finally {
       drivers.delete('ws-inline');
     }
+  });
+});
+
+describe('session.transcribe / hasTranscriber fallback chain', () => {
+  const WS = 'ws-voice';
+  const AUDIO = 'AAAA'; // valid 3-byte base64
+  const MIME = 'audio/x-moxxy-pcm16-24khz'; // the desktop mic capture tag
+
+  // A pool whose single workspace's supervisor exposes the given fake remote
+  // (or null to model "not connected to a runner").
+  function makePool(remote: unknown): RunnerPool {
+    return {
+      activeWorkspaceId: () => WS,
+      get: (id: string) =>
+        id === WS ? ({ remote: () => remote } as unknown as RunnerSupervisor) : null,
+    } as unknown as RunnerPool;
+  }
+
+  function register(pool: RunnerPool): Map<string, Handler> {
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+    return handlers;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('routes transcribe to the runner active transcriber (offline local STT), not Codex', async () => {
+    const runnerTranscribe = vi.fn(async () => ({ text: 'hello from the runner' }));
+    const remote = {
+      getInfo: () => ({ ...sessionInfo(WS), activeTranscriber: 'stt-local' }),
+      transcribers: { tryGetActive: () => ({ name: 'stt-local', transcribe: runnerTranscribe }) },
+    };
+    const handlers = register(makePool(remote));
+
+    await expect(
+      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO, mimeType: MIME }),
+    ).resolves.toBe('hello from the runner');
+    expect(runnerTranscribe).toHaveBeenCalledTimes(1);
+    // The mic's mimeType flows through to the runner transcriber unchanged.
+    expect(runnerTranscribe.mock.calls[0]![1]).toEqual({ mimeType: MIME });
+    expect(codexTranscribe).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the in-process Codex transcriber when the runner has none active', async () => {
+    codexTranscribe.mockResolvedValue({ text: 'from codex' });
+    const remote = {
+      getInfo: () => sessionInfo(WS), // activeTranscriber: null
+      transcribers: { tryGetActive: () => null },
+    };
+    const handlers = register(makePool(remote));
+
+    await expect(
+      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO, mimeType: MIME }),
+    ).resolves.toBe('from codex');
+    expect(codexTranscribe).toHaveBeenCalledTimes(1);
+    expect(codexTranscribe.mock.calls[0]![1]).toEqual({ mimeType: MIME });
+  });
+
+  it('falls back to Codex when not connected to a runner at all', async () => {
+    codexTranscribe.mockResolvedValue({ text: 'from codex, no runner' });
+    const handlers = register(makePool(null)); // supervisor.remote() → null
+
+    await expect(
+      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO }),
+    ).resolves.toBe('from codex, no runner');
+    expect(codexTranscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces an error from a present-but-failing runner transcriber (no silent Codex fallback)', async () => {
+    const runnerTranscribe = vi.fn(async () => {
+      throw new Error('whisper model missing');
+    });
+    const remote = {
+      getInfo: () => ({ ...sessionInfo(WS), activeTranscriber: 'stt-local' }),
+      transcribers: { tryGetActive: () => ({ name: 'stt-local', transcribe: runnerTranscribe }) },
+    };
+    const handlers = register(makePool(remote));
+
+    await expect(
+      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO }),
+    ).rejects.toThrow('whisper model missing');
+    // A broken local model must NOT quietly fall through to the cloud path.
+    expect(codexTranscribe).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed base64 payload at the handler boundary', async () => {
+    const handlers = register(makePool(null));
+    await expect(
+      handlers.get('session.transcribe')!({ audioBase64: 'not base64!!!' }),
+    ).rejects.toThrow(/base64/);
+    expect(codexTranscribe).not.toHaveBeenCalled();
+  });
+
+  it('hasTranscriber is true when the runner reports an active transcriber (no vault probe)', async () => {
+    const remote = { getInfo: () => ({ ...sessionInfo(WS), activeTranscriber: 'stt-local' }) };
+    const handlers = register(makePool(remote));
+
+    await expect(handlers.get('session.hasTranscriber')!()).resolves.toBe(true);
+    expect(vaultGet).not.toHaveBeenCalled();
+  });
+
+  it('hasTranscriber falls back to the Codex vault probe when the runner has none active', async () => {
+    vaultGet.mockResolvedValue('a-refresh-token');
+    const remote = { getInfo: () => sessionInfo(WS) }; // activeTranscriber: null
+    const handlers = register(makePool(remote));
+
+    await expect(handlers.get('session.hasTranscriber')!()).resolves.toBe(true);
+    expect(vaultGet).toHaveBeenCalledWith('oauth/openai-codex/refresh_token');
+  });
+
+  it('hasTranscriber is false when neither a runner transcriber nor Codex creds exist', async () => {
+    vaultGet.mockResolvedValue(null);
+    const remote = { getInfo: () => sessionInfo(WS) };
+    const handlers = register(makePool(remote));
+
+    await expect(handlers.get('session.hasTranscriber')!()).resolves.toBe(false);
   });
 });
 

@@ -293,8 +293,9 @@ export interface IpcCommands {
     readonly notice?: string;
     readonly message?: string;
   }>;
-  /** True when the runner has an active transcriber plugin. UI uses
-   *  this to enable/disable the mic button. */
+  /** True when a voice transcribe can be served: the runner has an active
+   *  transcriber plugin (e.g. local Whisper), OR stored Codex OAuth creds back
+   *  the in-process fallback. UI uses this to enable/disable the mic button. */
   'session.hasTranscriber': () => Promise<boolean>;
   /** The globally-active collaboration (only one runs at a time), or inactive.
    *  Read from the single-flight lock file so it spans all workspaces' runners;
@@ -342,9 +343,13 @@ export interface IpcCommands {
   'collab.history': (args?: { limit?: number }) => Promise<
     ReadonlyArray<CollabRunSummary>
   >;
-  /** Forward an audio blob to the runner's active transcriber.
-   *  Audio must be base64-encoded; returns the recognised text. */
+  /** Transcribe an audio blob to text. Routes to the runner's active
+   *  transcriber first (offline local STT when a plugin like `stt-local` is
+   *  active) and falls back to the in-process Codex transcriber when the runner
+   *  has none. Audio must be base64-encoded; returns the recognised text.
+   *  `workspaceId` targets a specific workspace's runner (defaults to active). */
   'session.transcribe': (args: {
+    workspaceId?: string;
     audioBase64: string;
     mimeType?: string;
   }) => Promise<string>;
