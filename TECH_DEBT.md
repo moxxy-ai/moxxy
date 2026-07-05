@@ -209,6 +209,19 @@ or recorded-on-purpose decision.
   `apps/mobile/src/hooks/useMoxxyLiveActivity.ts`,
   `apps/mobile/ios/MoxxyMobileGateway/MoxxyLiveActivity.swift`.
 
+- [note, mobile, OTA] EAS Update runtime version uses the `appVersion` policy
+  (not `fingerprint`) because iOS native is COMMITTED (`apps/mobile/ios/` holds
+  custom Live Activity Swift, so no full CNG). The consequence: the iOS runtime
+  version + updates URL live STATICALLY in `ios/.../Supporting/Expo.plist`
+  (`EXUpdatesRuntimeVersion=1.0.0`, `EXUpdatesEnabled`, `EXUpdatesURL`), so when
+  you bump `version` in `app.json` for a native release you MUST also update that
+  plist (or re-run `expo prebuild -p ios`) or iOS builds silently stop matching
+  their OTA channel. Android is CNG and reconfigured by EAS automatically, so it
+  doesn't have this hazard. Recorded on purpose; revisit if the committed iOS
+  project is ever replaced by prebuild-on-build.
+  `apps/mobile/app.json`, `apps/mobile/app.config.ts`,
+  `apps/mobile/ios/MoxxyMobileGateway/Supporting/Expo.plist`.
+
 ## Runner / protocol & architecture
 
 - [note, dry] Three inline backoff/retry implementations remain ON PURPOSE and must

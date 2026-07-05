@@ -2,6 +2,7 @@ import { Stack } from 'expo-router';
 import { LogBox } from 'react-native';
 import { GatewayProvider } from '@/hooks/useGatewayStore';
 import { MoxxyLiveActivityController } from '@/components/MoxxyLiveActivityController';
+import { OtaUpdateController } from '@/components/OtaUpdateController';
 import { ThemeProvider, ThemedStatusBar, useTheme } from '@/theme/ThemeProvider';
 
 LogBox.ignoreLogs(['props.pointerEvents is deprecated. Use style.pointerEvents']);
@@ -10,6 +11,7 @@ export default function Layout() {
   return (
     <ThemeProvider>
       <GatewayProvider>
+        <OtaUpdateController />
         <MoxxyLiveActivityController />
         <ThemedStatusBar />
         <RootStack />

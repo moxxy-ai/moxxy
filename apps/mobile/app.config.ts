@@ -20,7 +20,14 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
  */
 export default ({ config }: ConfigContext): ExpoConfig => {
   const owner = process.env.EXPO_OWNER?.trim();
-  const projectId = process.env.EAS_PROJECT_ID?.trim();
+  const envProjectId = process.env.EAS_PROJECT_ID?.trim();
+
+  // Resolve the EAS project id from the env override first, then the value
+  // committed in app.json (`extra.eas.projectId`). It drives both `eas build`'s
+  // project link and the EAS Update (OTA) endpoint derived below.
+  const committedProjectId =
+    typeof config.extra?.eas?.projectId === 'string' ? config.extra.eas.projectId : undefined;
+  const projectId = envProjectId || committedProjectId;
 
   return {
     ...config,
@@ -36,5 +43,18 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // committed.
       ...(projectId ? { eas: { projectId } } : {}),
     },
+    // EAS Update (OTA) endpoint. The static `updates` knobs (enabled /
+    // checkAutomatically / fallbackToCacheTimeout) and the `runtimeVersion`
+    // policy live in app.json; only the account-specific URL is injected here so
+    // it always tracks the resolved project id. Without a project id (plain
+    // `expo start`) OTA is simply left unconfigured.
+    ...(projectId
+      ? {
+          updates: {
+            ...config.updates,
+            url: `https://u.expo.dev/${projectId}`,
+          },
+        }
+      : {}),
   };
 };

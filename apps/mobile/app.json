@@ -2,10 +2,19 @@
   "expo": {
     "name": "Moxxy Mobile",
     "slug": "workspaces",
+    "version": "1.0.0",
     "scheme": "moxxy-mobile",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "platforms": [
       "ios",
       "android",
