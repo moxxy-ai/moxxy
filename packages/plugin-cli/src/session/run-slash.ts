@@ -601,18 +601,23 @@ export function openPluginsPicker(deps: OpenPluginsPickerDeps): void {
 
 /**
  * `/goal <objective>` — the autonomous "deliver the outcome" entry point.
- * Switches to the `goal` mode (which keeps working, re-checking each round,
- * until the objective is verifiably delivered), turns on yolo so routine tool
- * calls don't interrupt the run, and — when an objective is given — starts work
+ * Arms the `goal` mode for ONE objective (it keeps working, re-checking each
+ * round, until the objective is verifiably delivered, then hands the session
+ * back to the previous mode) and — when an objective is given — starts work
  * immediately. Bare `/goal` just arms the mode and waits for the next message.
  * Interrupt anytime with Esc/Ctrl-C.
+ *
+ * Deliberately NOT persisted as the category default (goal is a transient
+ * mode — `/goal` once must not make every future session boot autonomous) and
+ * NO yolo flip: goal mode auto-approves its own tool calls internally via a
+ * scoped resolver, so a session-wide yolo toggle that outlives the run is
+ * both redundant and a permission leak.
  */
 function startGoal(deps: SlashDeps, arg: string): void {
   const objective = arg.trim();
   const GOAL_MODE = 'goal';
   // Missing mode: offer install-on-first-use when the catalog provides it
-  // (post-install the original /goal line re-runs); otherwise say so rather
-  // than silently arming yolo with no behavior change.
+  // (post-install the original /goal line re-runs); otherwise say so.
   if (!deps.session.modes.list().some((m) => m.name === GOAL_MODE)) {
     if (offerModeInstall(deps, GOAL_MODE, objective ? `/goal ${objective}` : '/goal')) return;
     deps.setSystemNotice('goal mode is not available (mode-goal plugin not loaded)');
@@ -620,18 +625,16 @@ function startGoal(deps: SlashDeps, arg: string): void {
   }
   try {
     deps.session.modes.setActive(GOAL_MODE);
-    void setCategoryDefault('mode', GOAL_MODE).catch(() => undefined);
   } catch (err) {
     deps.setSystemNotice(
       `failed to switch to goal mode: ${err instanceof Error ? err.message : String(err)}`,
     );
     return;
   }
-  deps.setYolo(() => true);
   deps.setSystemNotice(
     objective
-      ? '🎯 goal mode — tools auto-approved; working until the objective is delivered. Press Esc to stop.'
-      : '🎯 goal mode on — tools auto-approved. Send your objective as the next message (Esc stops).',
+      ? '🎯 goal run — tools auto-approved until the objective is delivered, then back to normal chat. Press Esc to stop.'
+      : '🎯 goal mode armed — tools auto-approved for the run. Send your objective as the next message (Esc stops).',
   );
   if (objective) deps.submitPrompt(objective);
 }
@@ -695,7 +698,9 @@ export function openModePicker(deps: SlashDeps, arg = ''): void {
       try {
         deps.session.modes.setActive(match.name);
         deps.setSystemNotice(`mode → ${match.name}`);
-        void setCategoryDefault('mode', match.name).catch(() => undefined);
+        // Transient modes (goal) arm per objective and disarm themselves —
+        // never persist one as the standing default.
+        if (!match.transient) void setCategoryDefault('mode', match.name).catch(() => undefined);
       } catch (err) {
         deps.setSystemNotice(
           `failed to switch mode: ${err instanceof Error ? err.message : String(err)}`,

@@ -219,6 +219,53 @@ describe('runReactLoop checkpoint gate', () => {
     expect(lastAssistantText(events)).toBe('v3');
   });
 
+  it('the injection budget is per idle-EPISODE: tool work resets it', async () => {
+    // Idle → inject → work → idle → inject → work → idle → inject → done.
+    // Three injections against maxInjections=2 — but never more than one per
+    // episode, so the budget (which exists to stop a no-progress wedge) must
+    // NOT trip. Before the reset, a long run died on its 3rd spread-out idle
+    // with "checkpoint budget exhausted" even though every nudge had worked.
+    const provider = new FakeProvider({
+      script: [
+        textReply('thinking 1'),
+        toolUseReply('work', { step: 1 }, 'w1'),
+        textReply('thinking 2'),
+        toolUseReply('work', { step: 2 }, 'w2'),
+        textReply('thinking 3'),
+        textReply('done'),
+      ],
+    });
+    const nudgeUnlessDone: TurnCheckpoint = {
+      name: 'nudge-unless-done',
+      gateOn: 'idle',
+      run: async (check): Promise<CheckpointResult> =>
+        check.candidateText === 'done'
+          ? { action: 'pass' }
+          : { action: 'inject', text: 'keep going' },
+    };
+    const session = gatedSession(provider, [nudgeUnlessDone], { maxInjections: 2 });
+    session.tools.register(
+      defineTool({
+        name: 'work',
+        description: '',
+        inputSchema: z.object({ step: z.number() }),
+        handler: () => 'ok',
+      }),
+    );
+
+    const events = await collectTurn(session, 'go');
+
+    // All three injections landed (the tool batches reset the budget)…
+    expect(
+      events.filter((e) => e.type === 'user_prompt' && e.origin?.kind === 'checkpoint'),
+    ).toHaveLength(3);
+    // …the run never hit the budget warning and finished naturally.
+    expect(
+      events.some((e) => e.type === 'error' && e.message.includes('checkpoint budget exhausted')),
+    ).toBe(false);
+    expect(lastAssistantText(events)).toBe('done');
+  });
+
   it('a crashing checkpoint fails OPEN with a visible warning', async () => {
     const provider = new FakeProvider({ script: [textReply('answer')] });
     const broken: TurnCheckpoint = {

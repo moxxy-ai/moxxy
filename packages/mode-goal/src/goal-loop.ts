@@ -3,7 +3,6 @@ import {
   type ModeContext,
   type MoxxyEvent,
   type PermissionResolver,
-  type ProviderSuccessInfo,
   type TurnCheckpoint,
 } from '@moxxy/sdk';
 
@@ -12,13 +11,12 @@ import {
   CONTINUE_NUDGE,
   GOAL_ABANDON_TOOL,
   GOAL_COMPLETE_TOOL,
-  GOAL_MAX_ITERATIONS,
   GOAL_MAX_NOOP_ITERATIONS,
   GOAL_MODE_NAME,
   GOAL_PLUGIN_ID,
   GOAL_SYSTEM_PROMPT,
-  GOAL_TOKEN_BUDGET,
   STALL_NUDGE,
+  STUCK_NUDGE_SUFFIX,
 } from './constants.js';
 
 // The retry back-off (and its test seam) lives in the SDK's shared ReAct
@@ -33,16 +31,28 @@ export { __setRetrySleepForTests } from '@moxxy/sdk';
  * keeps the model working autonomously across iterations until the model
  * explicitly calls `goal_complete` (success) or `goal_abandon` (blocked).
  *
- * The loop plumbing — bounded retry back-off, reactive compaction, stuck-loop
- * detection, abort handling — is the SDK's shared {@link runReactLoop}; goal
- * mode contributes only its POLICY:
+ * Goal mode is deliberately GUARDRAIL-FREE: the user asked for an outcome and
+ * opted into full autonomy, so nothing heuristic may kill the run mid-delivery.
+ * There is no iteration cap (unless the embedder set an explicit
+ * `ctx.maxIterations`), no token budget, and a stuck-loop trip steers the model
+ * instead of aborting. The ONLY ways a run ends:
  *
- *   - an idle checkpoint (`gateOn: 'idle'`): nudge the model with a volatile
- *     trailing prompt when it goes quiet, stop after
- *     {@link GOAL_MAX_NOOP_ITERATIONS} consecutive idle rounds
- *   - a cumulative token budget (`onProviderSuccess`)
- *   - terminal-tool detection after each batch (`onToolBatchEnd`)
- *   - goal-flavored wording for stuck/cap/error events
+ *   - the model calls `goal_complete` (verified success) or `goal_abandon`
+ *     (blocked, needs the user),
+ *   - the model goes idle {@link GOAL_MAX_NOOP_ITERATIONS} rounds in a row
+ *     despite nudges — it has decided it's done without saying so, so the run
+ *     ends cleanly as a soft completion,
+ *   - the user aborts (Esc / stop), or
+ *   - a genuinely fatal condition (un-compactable context overflow, provider
+ *     giving up after bounded retries).
+ *
+ * Goal mode is also ONE-SHOT (`transient: true` on the ModeDef): it arms for a
+ * single objective. When the run concludes as DONE — `goal_complete` or the
+ * idle soft-completion — the session hands back to the mode that was active
+ * before goal mode (via `ctx.requestModeSwitch`), so the user's next message is
+ * normal chat again. While the goal is UNFINISHED — `goal_abandon` (the model
+ * needs an answer to continue), a fatal error, or a user abort — the mode stays
+ * armed so the user's reply resumes the autonomous run.
  *
  * Tool calls are auto-approved for the whole run (the user opted into full
  * autonomy) by swapping in a resolver that replaces only the PROMPT path:
@@ -86,6 +96,17 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     permissions: autoApprove,
   };
 
+  // Hand the session back to whatever the user was in before arming goal mode
+  // — applied by the runner AFTER the turn drains, and only on clean
+  // completion. Called on the DONE terminals only (complete / idle
+  // soft-completion): an unfinished goal (abandon / fatal / abort) keeps the
+  // mode armed so the user's reply resumes the run.
+  const disarm = (): void => {
+    const previous = ctx.previousModeName;
+    const target = previous && previous !== GOAL_MODE_NAME ? previous : 'default';
+    ctx.requestModeSwitch?.(target);
+  };
+
   yield await ctx.emit({
     type: 'plugin_event',
     sessionId: ctx.sessionId,
@@ -93,21 +114,14 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
     source: 'plugin',
     pluginId: GOAL_PLUGIN_ID,
     subtype: 'goal_started',
-    payload: { autoApprove: true, maxIterations: ctx.maxIterations ?? GOAL_MAX_ITERATIONS },
+    payload: { autoApprove: true, maxIterations: ctx.maxIterations ?? null },
   });
 
-  // Cumulative token budget across the whole run (alongside the iteration
-  // cap). Tally the FULL prompt of each call: Anthropic reports the cached
-  // portion separately (`inputTokens` is only the non-cached prefix), so on a
-  // long goal run — where the rolling cache breakpoint serves most of the
-  // prompt as cacheRead — counting input+output alone undercounts by a large
-  // factor and this backstop could be exceeded many times over before it
-  // trips.
-  let totalTokens = 0;
-
   // The model idled without calling goal_complete: nudge it back to work with
-  // a volatile trailing prompt (this call only — never appended to the log),
-  // and stop for good after GOAL_MAX_NOOP_ITERATIONS consecutive idle rounds.
+  // a volatile trailing prompt (this call only — never appended to the log).
+  // After GOAL_MAX_NOOP_ITERATIONS consecutive idle rounds the model has
+  // clearly decided it's done without declaring it — end the run cleanly as a
+  // soft completion (and disarm) rather than spin forever.
   const idleNudge: TurnCheckpoint = {
     name: 'goal-idle',
     gateOn: 'idle',
@@ -128,10 +142,12 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
           turnId: ctx.turnId,
           source: 'system',
           content:
-            'Goal mode stopped: the model went idle without calling `goal_complete`. ' +
-            'It may believe the goal is done — review the work above, and send another message to continue if not.',
+            'Goal run ended: the model stopped working without calling `goal_complete` — ' +
+            'it likely considers the goal done. Review the work above; if something is ' +
+            'missing, describe it in your next message.',
           stopReason: 'end_turn',
         });
+        disarm();
         return { action: 'stop' };
       }
       return {
@@ -144,16 +160,28 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
 
   yield* runReactLoop(goalCtx, {
     strategyName: GOAL_MODE_NAME,
-    defaultMaxIterations: GOAL_MAX_ITERATIONS,
+    // No iteration cap: a goal run ends via its terminals, never because a
+    // counter ran out mid-delivery. An explicit ctx.maxIterations (set by a
+    // programmatic embedder) still takes precedence inside runReactLoop.
+    defaultMaxIterations: Number.POSITIVE_INFINITY,
     errorPrefix: 'goal: ',
     checkpoints: [idleNudge],
-    // The idle checkpoint stops itself at GOAL_MAX_NOOP_ITERATIONS, before
-    // this backstop can trip — it exists so a future checkpoint bug degrades
-    // loudly instead of looping.
+    // The idle checkpoint stops itself at GOAL_MAX_NOOP_ITERATIONS consecutive
+    // idles, before this backstop can trip — it exists so a future checkpoint
+    // bug degrades loudly instead of looping. (The core resets the budget
+    // whenever the model does tool work, so spread-out idle rounds across a
+    // long run never exhaust it.)
     maxInjections: GOAL_MAX_NOOP_ITERATIONS,
     stuck: {
-      abortedResultMessage: 'goal mode aborted (stuck pattern) before this call ran',
+      // Never abort an unattended run on a repetition heuristic — the repeats
+      // are often legitimate (re-running a failing build between edits).
+      // Steer instead: visible warning + a volatile nudge on the next call.
+      action: 'nudge',
       nearHint: 'against the same target (only volatile args varied)',
+      nudgeText: ({ toolName, count, how }) =>
+        `You have called the tool \`${toolName}\` ${count} times ${how}. Repeating the same ` +
+        `call will not produce a different result. Step back, reassess, and take a DIFFERENT ` +
+        `next action toward the goal. ${STUCK_NUDGE_SUFFIX}`,
       extraOnStuck: ({ toolName, count, kind }) => [
         {
           type: 'plugin_event',
@@ -165,48 +193,6 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
           payload: { tool: toolName, count, kind },
         },
       ],
-      fatalMessage: ({ toolName, count, how }) =>
-        `goal mode aborted — stuck pattern: tool "${toolName}" called ${count} times ${how}. ` +
-        `The model is looping on the same call; send another message to redirect it.`,
-    },
-    onProviderSuccess: async (loopCtx, info) => {
-      totalTokens += usageTotal(info);
-      if (totalTokens <= GOAL_TOKEN_BUDGET) return undefined;
-      // Persist the budget-exhausting call's assistant text before exiting,
-      // just like every productive iteration does. Otherwise the model's last
-      // words vanish from the log, so a resume ("continue from here") loses
-      // that context. We do NOT execute its tool calls — the run is stopping.
-      if (info.text || info.stopReason === 'end_turn' || info.toolUses.length === 0) {
-        await loopCtx.emit({
-          type: 'assistant_message',
-          sessionId: ctx.sessionId,
-          turnId: ctx.turnId,
-          source: 'model',
-          content: info.text,
-          stopReason: info.stopReason,
-        });
-      }
-      await loopCtx.emit({
-        type: 'plugin_event',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'plugin',
-        pluginId: GOAL_PLUGIN_ID,
-        subtype: 'goal_budget_exhausted',
-        payload: { totalTokens, budget: GOAL_TOKEN_BUDGET, iteration: info.iteration },
-      });
-      await loopCtx.emit({
-        type: 'assistant_message',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'system',
-        content:
-          `Goal mode stopped: token budget exhausted (${totalTokens.toLocaleString()} > ` +
-          `${GOAL_TOKEN_BUDGET.toLocaleString()}) before the goal was completed. ` +
-          `Send another message to continue from here.`,
-        stopReason: 'end_turn',
-      });
-      return { action: 'stop' };
     },
     onToolBatchEnd: async (loopCtx, { toolUses, iteration }) => {
       // Did this batch end the run? (goal_complete / goal_abandon, confirmed
@@ -244,6 +230,7 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
           content: `✓ Goal complete — ${terminal.summary}${evidenceBlock}`,
           stopReason: 'end_turn',
         });
+        disarm();
         return { action: 'stop' };
       }
       if (terminal?.kind === 'abandon') {
@@ -266,14 +253,20 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
           sessionId: ctx.sessionId,
           turnId: ctx.turnId,
           source: 'system',
-          content: `Goal abandoned — ${terminal.reason}${needs}`,
+          content:
+            `Goal abandoned — ${terminal.reason}${needs}\n\n` +
+            `Goal mode stays armed: your reply resumes the autonomous run.`,
           stopReason: 'end_turn',
         });
+        // Deliberately NOT disarming: the model needs something from the user
+        // and their reply should resume the autonomous run.
         return { action: 'stop' };
       }
       return undefined;
     },
     onMaxIterations: async (loopCtx, maxIterations) => {
+      // Only reachable when an embedder set an explicit ctx.maxIterations —
+      // goal mode itself is uncapped.
       await loopCtx.emit({
         type: 'plugin_event',
         sessionId: ctx.sessionId,
@@ -290,22 +283,11 @@ export async function* runGoalMode(ctx: ModeContext): AsyncIterable<MoxxyEvent> 
         source: 'system',
         kind: 'fatal',
         message:
-          `goal mode reached the iteration cap (${maxIterations}) without calling goal_complete. ` +
-          `Stopping to avoid an unbounded run; send another message to continue.`,
+          `goal mode reached the configured iteration cap (${maxIterations}) without calling ` +
+          `goal_complete. Send another message to continue.`,
       });
     },
   });
-}
-
-function usageTotal(info: ProviderSuccessInfo): number {
-  const usage = info.usage;
-  if (!usage) return 0;
-  return (
-    (usage.inputTokens ?? 0) +
-    (usage.cacheReadTokens ?? 0) +
-    (usage.cacheCreationTokens ?? 0) +
-    (usage.outputTokens ?? 0)
-  );
 }
 
 function composeSystemPrompts(user: string | undefined, layer: string): string {

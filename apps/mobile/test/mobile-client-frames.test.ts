@@ -37,10 +37,12 @@ describe('mobile client frame builders', () => {
     });
   });
 
-  it('builds goal mode as mode switch, auto-approve, then runTurn', () => {
+  it('builds goal mode as mode switch then runTurn — no session-wide auto-approve flip', () => {
+    // Goal mode auto-approves its own tool calls via a run-scoped resolver; a
+    // setAutoApprove frame would outlive the run and leave the session
+    // permanently promptless after the goal finished.
     expect(buildGoalFrames({ workspaceId: 'workspace-1', objective: 'Finish the feature' })).toEqual([
       expect.objectContaining({ type: 'setMode', workspaceId: 'workspace-1', mode: 'goal' }),
-      expect.objectContaining({ type: 'setAutoApprove', workspaceId: 'workspace-1', enabled: true }),
       expect.objectContaining({ type: 'runTurn', workspaceId: 'workspace-1', prompt: 'Finish the feature' }),
     ]);
   });

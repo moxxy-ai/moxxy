@@ -8,15 +8,16 @@ interface GoalModalProps {
   readonly defaultObjective?: string;
   readonly onCancel: () => void;
   /** Approve: hand the objective back so the composer can switch to goal
-   *  mode, turn auto-approve on, and submit it. */
+   *  mode and submit it. */
   readonly onStart: (objective: string) => void;
 }
 
 /**
  * Goal composer. Opened from the composer's "+" menu — the user states
- * an objective, and approving it switches the session to goal mode,
- * enables auto-approve, and sends the objective so the agent works
- * autonomously until it's delivered. Closes on Escape / backdrop click.
+ * an objective, and approving it switches the session to goal mode and
+ * sends the objective so the agent works autonomously (tool calls
+ * auto-approved for the run) until it's delivered, then the session
+ * returns to the previous mode. Closes on Escape / backdrop click.
  */
 export function GoalModal({
   defaultObjective = '',
@@ -115,7 +116,7 @@ export function GoalModal({
                 color: 'var(--color-text-dim)',
               }}
             >
-              The agent works autonomously (auto-approve on) until it's done.
+              The agent works autonomously (tools auto-approved) until it's done, then hands back.
             </p>
           </div>
         </div>

@@ -8,8 +8,10 @@ import type { StopReason } from '../provider-utils.js';
 import { usageEventFields } from '../token-accounting.js';
 import {
   emitRequestsAndDetectStuck,
+  emitRequestsAndNudgeOnStuck,
   executeToolUses,
   type StuckLoopReport,
+  type StuckTripInfo,
 } from '../tool-dispatch.js';
 import { nextBackoffMs, sleepWithAbort } from './abort-backoff.js';
 import type { CheckpointResult, TurnCheckpoint } from './checkpoint.js';
@@ -91,7 +93,12 @@ export interface StopDirective {
 export interface ReactLoopOptions {
   /** Name stamped on `mode_iteration` events (e.g. `'default'`, `'goal'`). */
   readonly strategyName: string;
-  /** Iteration cap when the context doesn't supply one. Default 500. */
+  /**
+   * Iteration cap when the context doesn't supply one. Default 500. May be
+   * `Number.POSITIVE_INFINITY` for an uncapped loop (goal mode): the run then
+   * ends only via a terminal signal (checkpoint/hook stop, abort, fatal
+   * error) — an explicit `ctx.maxIterations` still takes precedence.
+   */
   readonly defaultMaxIterations?: number;
   /** Prefix for provider-error messages (goal mode uses `'goal: '`). */
   readonly errorPrefix?: string;
@@ -104,16 +111,34 @@ export interface ReactLoopOptions {
   /** Turn-end gates, run in declared order. Omit/empty → plain ReAct loop. */
   readonly checkpoints?: ReadonlyArray<TurnCheckpoint>;
   /**
-   * Hard cap on checkpoint `inject`/`retry` rounds per turn (default 3).
-   * When exhausted the turn ends with the model's answer as-is plus a
-   * visible warning — a permanently-failing gate degrades loudly instead of
-   * looping forever.
+   * Hard cap on checkpoint `inject`/`retry` rounds per idle EPISODE — i.e.
+   * consecutive gate rounds with no tool work between them; the count resets
+   * whenever a tool batch executes (default 3). When exhausted the turn ends
+   * with the model's answer as-is plus a visible warning — a
+   * permanently-failing gate degrades loudly instead of looping forever.
    */
   readonly maxInjections?: number;
   /** Clamp on injected feedback length in characters (default 16_384). */
   readonly maxInjectChars?: number;
-  /** Wording overrides for the stuck-loop abort; sensible defaults from `strategyName`. */
-  readonly stuck?: Partial<StuckLoopReport>;
+  /**
+   * Stuck-loop policy + wording overrides; sensible defaults from
+   * `strategyName`. `action` picks what a detector trip does:
+   *
+   *   - `'abort'` (default): fail the batch and end the turn with a fatal
+   *     error — the historical behavior, right for attended modes where the
+   *     user is present to redirect.
+   *   - `'nudge'`: never stop. The batch still executes (repeated calls are
+   *     usually legitimate work — re-running a failing build between edits),
+   *     a visible warning + `extraOnStuck` events are emitted, the detector
+   *     resets, and `nudgeText` (or a default) rides the next provider call
+   *     as a volatile steer. For unattended modes (goal) where a heuristic
+   *     must never kill the run.
+   */
+  readonly stuck?: Partial<StuckLoopReport> & {
+    readonly action?: 'abort' | 'nudge';
+    /** Volatile steer for `'nudge'` trips; default wording when omitted. */
+    readonly nudgeText?: (info: StuckTripInfo) => string;
+  };
   /**
    * Runs after compaction/elision, before the provider call. May return a
    * volatile user message to ride ONLY the next call (collab's inbox/pause
@@ -365,10 +390,25 @@ export async function* runReactLoop(
       if (directive?.action === 'stop') return;
     }
 
-    const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, stuckReport);
-    // A stuck trip kills the turn — it never reaches the checkpoint gate;
-    // gating a turn that is being aborted would just burn a checker run.
-    if (stuck) return;
+    if (opts.stuck?.action === 'nudge') {
+      const trip = yield* emitRequestsAndNudgeOnStuck(ctx, toolUses, detector, {
+        nearHint: stuckReport.nearHint,
+        warnMessage: (info) =>
+          `${opts.strategyName} loop noticed a repetitive pattern: tool "${info.toolName}" called ` +
+          `${info.count} times ${info.how} — steering the model to change approach (the run continues).`,
+        ...(stuckReport.extraOnStuck ? { extraOnStuck: stuckReport.extraOnStuck } : {}),
+      });
+      if (trip) {
+        const nudge = opts.stuck.nudgeText?.(trip) ?? defaultStuckNudge(trip);
+        // Ride the NEXT provider call; merge with anything already pending.
+        pendingVolatileText = pendingVolatileText ? `${pendingVolatileText}\n\n${nudge}` : nudge;
+      }
+    } else {
+      const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, stuckReport);
+      // A stuck trip kills the turn — it never reaches the checkpoint gate;
+      // gating a turn that is being aborted would just burn a checker run.
+      if (stuck) return;
+    }
 
     if (text || stopReason === 'end_turn' || toolUses.length === 0) {
       // A completion with no text, no tool uses, and a non-natural stop (e.g.
@@ -411,6 +451,13 @@ export async function* runReactLoop(
       continue;
     }
     consecutiveIdle = 0;
+    // The injection budget is per idle-EPISODE, not per turn: it exists to
+    // stop a permanently-failing gate from looping a turn that makes no
+    // progress. Once the model does real tool work again the episode is over —
+    // without this reset, a long unattended run died on its Nth *spread-out*
+    // idle round ("checkpoint budget exhausted") even though every earlier
+    // nudge had successfully put the model back to work.
+    injectionsUsed = 0;
 
     // Execute whenever the model requested tools, regardless of stopReason.
     // Providers vary in how reliably they report `stopReason: 'tool_use'`;
@@ -572,6 +619,14 @@ async function* runCheckpointGate(
     }
   }
   return { kind: 'end' };
+}
+
+function defaultStuckNudge(trip: StuckTripInfo): string {
+  return (
+    `You have called the tool \`${trip.toolName}\` ${trip.count} times ${trip.how}. ` +
+    `Repeating the same call will not produce a different result. Step back, reassess what ` +
+    `you learned from the previous attempts, and take a DIFFERENT next action or approach.`
+  );
 }
 
 function buildStuckReport(opts: ReactLoopOptions): StuckLoopReport {

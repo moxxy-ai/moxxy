@@ -4,7 +4,9 @@
  * Owns the three send-side callbacks: `submit` (ship the draft + staged
  * attachments, then clear), `setAutoApprove` (mirror the per-workspace
  * auto-approve flag to the runner driver), and `startGoal` (the one-click
- * goal: switch to goal mode, turn auto-approve ON, submit the objective).
+ * goal: switch to goal mode and submit the objective — goal mode auto-approves
+ * its own tool calls internally and hands back to the previous mode when the
+ * objective concludes, so no session-wide auto-approve flip is needed).
  *
  * Extracted verbatim from `Composer.tsx`; behavior is unchanged. The composer
  * still owns the draft/attachment STATE and passes the values + clear callbacks
@@ -39,14 +41,15 @@ export interface ComposerSubmit {
   readonly startGoal: (objective: string) => void;
 }
 
-/** Drive the runner-side config (mode / auto-approve) and resolve once it has
- *  applied, so a goal's first tool call can't race the approve flip. */
+/** Switch the runner to goal mode and resolve once it has applied, so the
+ *  objective turn can't run under the previous mode. No auto-approve flip:
+ *  goal mode auto-approves its own tool calls via a run-scoped resolver, so a
+ *  session-wide flag (which would outlive the run) is redundant — and it made
+ *  the session permanently promptless after the goal finished. */
 async function applyGoalConfig(workspaceId: string): Promise<void> {
-  const a = api();
-  // Sequential: set the mode first, THEN auto-approve, so neither RPC can be
-  // reordered ahead of the turn we enqueue afterwards.
-  await a.invoke('session.setMode', { workspaceId, mode: 'goal' }).catch(() => {});
-  await a.invoke('session.setAutoApprove', { workspaceId, enabled: true }).catch(() => {});
+  await api()
+    .invoke('session.setMode', { workspaceId, mode: 'goal' })
+    .catch(() => {});
 }
 
 export function useComposerSubmit({
@@ -77,22 +80,19 @@ export function useComposerSubmit({
     [workspaceId],
   );
 
-  // One-click goal: switch to goal mode, turn auto-approve ON, and start
-  // working on the typed objective. Mirrors the TUI's `/goal <objective>`
-  // (switch mode + yolo + submit). Needs an objective in the draft.
+  // One-click goal: switch to goal mode and start working on the typed
+  // objective. Mirrors the TUI's `/goal <objective>`. Needs an objective in
+  // the draft.
   //
-  // The mode + auto-approve RPCs are AWAITED before the turn is enqueued: if
-  // the turn were sent before they applied, the goal's first tool call could
-  // hit the approval sheet (or run under the wrong mode), breaking the
-  // one-click "auto-approve on until done" contract the UI advertises.
+  // The mode RPC is AWAITED before the turn is enqueued: if the turn were
+  // sent before it applied, the objective would run under the wrong mode.
+  // Tool approval needs no flip here — goal mode auto-approves internally
+  // for the duration of the run only.
   const startGoal = useCallback(
     (objective: string): void => {
       if (!ready) return;
       const trimmed = objective.trim();
       if (!trimmed) return;
-      // Optimistically mirror the auto-approve flag to the store so the UI
-      // reflects it immediately; the awaited RPC below is what actually gates.
-      chatStore.setAutoApprove(workspaceId, true);
       // Close the modal + clear the composer up front (the input is consumed).
       clearDraft();
       clearAttachments();

@@ -8,11 +8,16 @@ export { GOAL_MODE_NAME } from './constants.js';
 
 export const goalMode = defineMode({
   name: GOAL_MODE_NAME,
-  description: 'Autonomous goal loop: works across many turns until it calls goal_complete (tools auto-approved)',
+  description:
+    'Autonomous goal run: works until it calls goal_complete (tools auto-approved), then hands back to your previous mode',
   // Goal mode auto-approves tools and keeps working unattended, so channels
   // surface a persistent accent badge while it's active — the user must always
   // know the agent is driving itself.
   badge: { label: 'GOAL', tone: 'attention' },
+  // One-shot: armed per objective, disarms itself when the goal concludes,
+  // and is never persisted as the boot/category default — `/goal` once must
+  // not make every future session autonomous.
+  transient: true,
   run: runGoalMode,
 });
 

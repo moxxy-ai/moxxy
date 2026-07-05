@@ -48,9 +48,13 @@ export interface SessionRuntime {
   readonly modes: {
     getActive(): ModeDef;
     list(): ReadonlyArray<ModeDef>;
+    has(name: string): boolean;
     /** Post-turn mode hand-off (one mode handing back to another). Throws on an
      *  unknown name; run-turn guards the call. */
     setActive(name: string): void;
+    /** Mode active before the current one (or null) — surfaced onto the
+     *  ModeContext so a transient mode (goal) can revert to it. */
+    getPreviousActiveName(): string | null;
   };
   readonly compactors: { getActive(): CompactorDef | null };
   readonly cacheStrategies: { getActive(): CacheStrategyDef | null };

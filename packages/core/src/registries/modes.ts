@@ -3,6 +3,7 @@ import { migrateModeName, type ModeDef } from '@moxxy/sdk';
 export class ModeRegistry {
   private readonly modes = new Map<string, ModeDef>();
   private active: string | null = null;
+  private previous: string | null = null;
   private readonly changeListeners = new Set<() => void>();
 
   /** Observe active-mode changes — used by the runner to broadcast
@@ -67,6 +68,16 @@ export class ModeRegistry {
     return this.active;
   }
 
+  /**
+   * Name of the mode that was active before the current one, or null when
+   * there is no history (session boot). Lets a transient mode (goal) revert
+   * to whatever the user was in before arming it — carried onto the
+   * ModeContext as `previousModeName` by run-turn.
+   */
+  getPreviousActiveName(): string | null {
+    return this.previous;
+  }
+
   setActive(name: string): void {
     // Prefer the literal name; only when it isn't registered fall back to the
     // legacy-name map (e.g. a persisted "tool-use" → "default"). This never
@@ -86,6 +97,7 @@ export class ModeRegistry {
 
   private activate(mode: ModeDef): void {
     if (this.active === mode.name) return;
+    this.previous = this.active;
     this.active = mode.name;
     this.notifyChange();
   }

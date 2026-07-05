@@ -286,3 +286,80 @@ export async function* emitRequestsAndDetectStuck(
   }
   return false;
 }
+
+/** A stuck-detector trip, as surfaced to the nudge policy. */
+export interface StuckTripInfo {
+  readonly toolName: string;
+  readonly count: number;
+  readonly kind: StuckSignal['kind'];
+  /** Human phrasing of HOW it repeated ("with identical input" / the near hint). */
+  readonly how: string;
+}
+
+/** Wording + extra events for {@link emitRequestsAndNudgeOnStuck}. */
+export interface StuckNudgeReport {
+  /** Explanation for a `near` match (an `exact` match always reads
+   *  "with identical input"). */
+  readonly nearHint: string;
+  /** Build the visible (non-fatal) warning surfaced to the user on a trip. */
+  readonly warnMessage: (info: StuckTripInfo) => string;
+  /** Extra events to emit right before the warning — goal mode surfaces a
+   *  `goal_stuck` plugin_event here. */
+  readonly extraOnStuck?: StuckLoopReport['extraOnStuck'];
+}
+
+/**
+ * The steer-don't-stop counterpart of {@link emitRequestsAndDetectStuck}: emit
+ * a `tool_call_requested` per call and feed the detector, but a trip NEVER
+ * aborts the turn — the batch still executes (the repeated calls are usually
+ * legitimate work, e.g. re-running a failing build between edits). Instead the
+ * trip is surfaced as a visible warning + the report's extra events, the
+ * detector is reset (fresh episode — no re-trip on every subsequent call while
+ * the window is still full), and the trip info is returned so the loop can
+ * steer the model with a volatile nudge on its next provider call.
+ *
+ * Used by modes that must never kill an unattended run on a repetition
+ * heuristic (goal mode). Returns the first trip of the batch, or null.
+ */
+export async function* emitRequestsAndNudgeOnStuck(
+  ctx: ModeContext,
+  toolUses: ReadonlyArray<CollectedToolUse>,
+  detector: StuckLoopDetector,
+  report: StuckNudgeReport,
+): AsyncGenerator<MoxxyEvent, StuckTripInfo | null, unknown> {
+  let trip: StuckTripInfo | null = null;
+  for (const t of toolUses) {
+    yield await ctx.emit({
+      type: 'tool_call_requested',
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      source: 'model',
+      callId: asToolCallId(t.id),
+      name: t.name,
+      input: t.input,
+    });
+    const sig = detector.record(t.name, t.input);
+    if (!sig.stuck || trip) continue;
+    trip = {
+      toolName: t.name,
+      count: sig.count,
+      kind: sig.kind,
+      how: sig.kind === 'near' ? report.nearHint : 'with identical input',
+    };
+    detector.reset();
+    if (report.extraOnStuck) {
+      for (const e of report.extraOnStuck({ toolName: t.name, count: sig.count, kind: sig.kind })) {
+        yield await ctx.emit(e);
+      }
+    }
+    yield await ctx.emit({
+      type: 'error',
+      sessionId: ctx.sessionId,
+      turnId: ctx.turnId,
+      source: 'system',
+      kind: 'retryable',
+      message: report.warnMessage(trip),
+    });
+  }
+  return trip;
+}

@@ -9,7 +9,10 @@ import {
   dispatchToolCall,
   executeToolUses,
   emitRequestsAndDetectStuck,
+  emitRequestsAndNudgeOnStuck,
   type StuckLoopReport,
+  type StuckNudgeReport,
+  type StuckTripInfo,
 } from './tool-dispatch.js';
 
 /**
@@ -211,5 +214,79 @@ describe('emitRequestsAndDetectStuck — stuck trip', () => {
     );
     expect(stop).toBe(false);
     expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(0);
+  });
+});
+
+describe('emitRequestsAndNudgeOnStuck — steer, never stop', () => {
+  const nudgeReport: StuckNudgeReport = {
+    nearHint: 'with nearly identical input',
+    warnMessage: ({ toolName, count }) => `repetitive: ${toolName} x${count}`,
+    extraOnStuck: ({ toolName }) => [
+      {
+        type: 'plugin_event',
+        sessionId: asSessionId('s1'),
+        turnId: asTurnId('t1'),
+        source: 'plugin',
+        pluginId: 'test' as never,
+        subtype: 'test_stuck',
+        payload: { toolName },
+      },
+    ],
+  };
+
+  function nudgeDetector(trip: StuckSignal): StuckLoopDetector & { resets: number } {
+    const d = {
+      resets: 0,
+      record: () => trip,
+      reset: () => {
+        d.resets += 1;
+      },
+    };
+    return d as unknown as StuckLoopDetector & { resets: number };
+  }
+
+  it('on a trip: warns (retryable, not fatal), emits extra events, resets the detector, and does NOT synthesize results', async () => {
+    const { ctx, events } = makeCtx();
+    const det = nudgeDetector({ stuck: true, kind: 'exact', count: 8 });
+    const trip = (await drain(
+      emitRequestsAndNudgeOnStuck(ctx, [tool], det, nudgeReport),
+    )) as StuckTripInfo | null;
+
+    // Trip info is returned for the loop's volatile nudge…
+    expect(trip).toEqual({ toolName: 'Read', count: 8, kind: 'exact', how: 'with identical input' });
+    // …the detector started a fresh episode…
+    expect(det.resets).toBe(1);
+    // …the request stands (the batch will execute — no synthesized results)…
+    expect(events.some((e) => e.type === 'tool_call_requested')).toBe(true);
+    expect(events.filter((e) => e.type === 'tool_result')).toHaveLength(0);
+    // …the warning is visible but NON-fatal, with the extra event before it.
+    const err = events.find((e) => e.type === 'error') as
+      | { kind: string; message: string }
+      | undefined;
+    expect(err?.kind).toBe('retryable');
+    expect(err?.message).toBe('repetitive: Read x8');
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'test_stuck')).toBe(true);
+  });
+
+  it('a near trip uses the report nearHint wording', async () => {
+    const { ctx } = makeCtx();
+    const trip = (await drain(
+      emitRequestsAndNudgeOnStuck(
+        ctx,
+        [tool],
+        nudgeDetector({ stuck: true, kind: 'near', count: 5 }),
+        nudgeReport,
+      ),
+    )) as StuckTripInfo | null;
+    expect(trip?.how).toBe('with nearly identical input');
+  });
+
+  it('returns null and stays quiet when the detector does not trip', async () => {
+    const { ctx, events } = makeCtx();
+    const det = nudgeDetector({ stuck: false, kind: 'exact', count: 0 });
+    const trip = await drain(emitRequestsAndNudgeOnStuck(ctx, [tool], det, nudgeReport));
+    expect(trip).toBeNull();
+    expect(det.resets).toBe(0);
+    expect(events.filter((e) => e.type !== 'tool_call_requested')).toHaveLength(0);
   });
 });

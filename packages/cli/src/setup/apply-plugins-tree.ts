@@ -131,6 +131,23 @@ export function applyPluginsTree(session: Session, config: MoxxyConfig, logger: 
     if (name === undefined) name = categoryDefault(config, key);
     if (!name) continue;
 
+    // A transient mode (goal) arms per objective and disarms itself — it must
+    // never be the session's BOOT default (a leftover `plugins.mode.default:
+    // goal` from before transient modes stopped being persisted would boot
+    // every session straight into an autonomous, auto-approving run).
+    if (key === 'mode') {
+      const target = name;
+      const def = session.modes.list().find((m) => m.name === target);
+      if (def?.transient) {
+        if (explicit) {
+          logger.warn(
+            `configured mode '${name}' is transient (armed per objective) and can't be the boot default; keeping '${reg.getActiveName()}'`,
+          );
+        }
+        continue;
+      }
+    }
+
     if (reg.has(name)) {
       try {
         reg.setActive(name);

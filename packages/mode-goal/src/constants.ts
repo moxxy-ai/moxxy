@@ -9,38 +9,13 @@ export const GOAL_COMPLETE_TOOL = 'goal_complete';
 export const GOAL_ABANDON_TOOL = 'goal_abandon';
 
 /**
- * Hard cap on autonomous iterations. Goal mode keeps re-prompting the model to
- * continue until it calls {@link GOAL_COMPLETE_TOOL}; this is the backstop that
- * guarantees the loop terminates even if the model never declares done. High
- * enough for a substantial multi-step task, low enough to bound a runaway.
- */
-export const GOAL_MAX_ITERATIONS = 150;
-
-/**
  * Consecutive iterations where the model emits NO tool calls and hasn't
- * completed. After this many we stop (a stall) rather than spin forever
- * nudging a model that has decided it's done without saying so.
+ * completed. After this many we treat the run as done-in-spirit (the model has
+ * clearly decided it's finished without saying so) and end the turn cleanly
+ * rather than spin forever nudging — this is goal mode's natural-termination
+ * mechanism, not a guardrail: the model is always nudged back to work first.
  */
 export const GOAL_MAX_NOOP_ITERATIONS = 3;
-
-/**
- * Cumulative token ceiling (full prompt — input + cacheRead + cacheCreation +
- * output — across the whole goal run). A second backstop alongside the
- * iteration cap: a few long-context iterations can burn a lot of tokens even
- * under the iteration limit. Generous; the iteration cap is usually the binding
- * guard.
- */
-export const GOAL_TOKEN_BUDGET = 4_000_000;
-
-/**
- * Max consecutive retryable provider errors before goal mode bails with a fatal
- * error. Goal mode runs unattended with auto-approval, so a sustained retryable
- * condition (429 / overloaded / transient 5xx / ECONNRESET) must NOT busy-loop
- * the provider — back off exponentially and give up after this many in a row.
- * The counter resets on any clean provider call, so a long run can still
- * recover from transient blips.
- */
-export const MAX_CONSECUTIVE_RETRIES = 6;
 
 /**
  * Layered on top of any user system prompt for the whole goal run. The framing
@@ -73,3 +48,10 @@ export const CONTINUE_NUDGE =
 export const STALL_NUDGE =
   `You have produced no tool calls for several turns. Either take a concrete next action toward the goal, ` +
   `or call \`${GOAL_COMPLETE_TOOL}\` (if done) / \`${GOAL_ABANDON_TOOL}\` (if blocked). Do not reply with only text again.`;
+
+/** Volatile steer when the stuck-loop detector notices a repetitive pattern.
+ *  Goal mode never aborts on repetition (unattended runs must not be killed by
+ *  a heuristic) — it steers instead. */
+export const STUCK_NUDGE_SUFFIX =
+  `If you are genuinely blocked and no different approach exists, call \`${GOAL_ABANDON_TOOL}\` ` +
+  `with the reason instead of retrying.`;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineTool, type ProviderEvent } from '@moxxy/sdk';
+import { defineMode, definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
 import { collectTurn } from '@moxxy/core';
 import { FakeProvider, createFakeSession, textReply, toolUseReply } from '@moxxy/testing';
 
@@ -157,13 +157,17 @@ describe('goalMode end-to-end', () => {
     expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(false);
   });
 
-  it('emits a paired result for every request even when the stuck loop trips', async () => {
-    // The model hammers the same (name, input) until the detector trips. The
-    // stuck trip ends the turn before executeToolUses runs the final request —
-    // without synthesizing a result that request is orphaned (renders as a tool
-    // stuck "running" forever, flips to error only on the next user_prompt).
+  it('a stuck-loop trip steers the run instead of killing it (no guardrail abort)', async () => {
+    // The model hammers the same (name, input) well past the detector's
+    // threshold, then recovers and completes. Goal mode must surface the
+    // repetition (goal_stuck + a visible NON-fatal warning + a volatile nudge
+    // on the next call) but NEVER abort — the trip used to end the run with a
+    // fatal error mid-delivery.
     const provider = new FakeProvider({
-      script: Array.from({ length: 20 }, (_, i) => toolUseReply('loop', {}, `c${i}`)),
+      script: [
+        ...Array.from({ length: 12 }, (_, i) => toolUseReply('loop', {}, `c${i}`)),
+        toolUseReply('goal_complete', { summary: 'recovered and finished' }, 'gc-stuck'),
+      ],
     });
     const session = createFakeSession({ provider });
     session.pluginHost.registerStatic(goalModePlugin);
@@ -178,92 +182,34 @@ describe('goalMode end-to-end', () => {
     );
 
     const events = await collectTurn(session, 'spin');
-    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_stuck')).toBe(true);
 
+    // The repetition was noticed and surfaced…
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_stuck')).toBe(true);
+    const warn = events.find(
+      (e) => e.type === 'error' && e.kind === 'retryable' && e.message.includes('repetitive'),
+    );
+    expect(warn).toBeDefined();
+    // …but nothing fatal happened and the run completed.
+    expect(events.some((e) => e.type === 'error' && e.kind === 'fatal')).toBe(false);
+    expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(
+      true,
+    );
+    // Every request got a real result (the batch executed — nothing synthesized
+    // as aborted, no orphans).
     const requestedIds = new Set(
       events.filter((e) => e.type === 'tool_call_requested').map((e) => e.callId),
     );
     const resolvedIds = new Set(
       events.filter((e) => e.type === 'tool_result').map((e) => e.callId),
     );
-    const orphans = [...requestedIds].filter((id) => !resolvedIds.has(id));
-    expect(orphans).toEqual([]);
-  });
-
-  // u67-2: the cumulative token-budget backstop must stop the run (the exact
-  // unbounded-run failure the guard exists to prevent).
-  it('stops with goal_budget_exhausted when cumulative usage exceeds the budget', () => {
-    // A single reply whose usage blows past GOAL_TOKEN_BUDGET (4M). The budget
-    // check runs right after the provider call, before any tool work, so this
-    // trips on iteration 1.
-    const hugeUsage: ProviderEvent[] = [
-      { type: 'message_start', model: 'fake' },
-      { type: 'text_delta', delta: 'working...' },
-      {
-        type: 'message_end',
-        stopReason: 'end_turn',
-        usage: { inputTokens: 5_000_000, outputTokens: 0 },
-      },
-    ];
-    const provider = new FakeProvider({ script: [hugeUsage] });
-    const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(goalModePlugin);
-    session.modes.setActive(GOAL_MODE_NAME);
-
-    return collectTurn(session, 'do an expensive thing').then((events) => {
-      const exhausted = events.find(
-        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
-      );
-      expect(exhausted).toBeDefined();
-      if (exhausted?.type !== 'plugin_event') throw new Error('expected goal_budget_exhausted');
-      expect((exhausted.payload as { budget: number }).budget).toBe(4_000_000);
-      // It did NOT falsely report completion, and a final system message tells
-      // the user how to continue.
-      expect(
-        events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed'),
-      ).toBe(false);
-      const finalMsg = events
-        .filter((e) => e.type === 'assistant_message' && e.source === 'system')
-        .pop();
-      if (finalMsg?.type !== 'assistant_message') throw new Error('expected final system message');
-      expect(finalMsg.content).toContain('token budget exhausted');
-    });
-  });
-
-  // u67-3: the budget-exhausting call's reasoning must still be persisted to the
-  // log before the budget exit, matching every other exit path (otherwise the
-  // final call's reasoning is silently dropped).
-  it('persists the budget-exhausting call reasoning before goal_budget_exhausted', () => {
-    const hugeUsageWithReasoning: ProviderEvent[] = [
-      { type: 'message_start', model: 'fake' },
-      { type: 'reasoning_delta', delta: 'I should think hard about this expensive task.' },
-      { type: 'reasoning_signature', signature: 'sig-1' },
-      { type: 'text_delta', delta: 'working...' },
-      {
-        type: 'message_end',
-        stopReason: 'end_turn',
-        usage: { inputTokens: 5_000_000, outputTokens: 0 },
-      },
-    ];
-    const provider = new FakeProvider({ script: [hugeUsageWithReasoning] });
-    const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(goalModePlugin);
-    session.modes.setActive(GOAL_MODE_NAME);
-
-    return collectTurn(session, 'do an expensive thing').then((events) => {
-      const reasoningIdx = events.findIndex((e) => e.type === 'reasoning_message');
-      const exhaustedIdx = events.findIndex(
-        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
-      );
-      expect(reasoningIdx).toBeGreaterThanOrEqual(0);
-      expect(exhaustedIdx).toBeGreaterThanOrEqual(0);
-      // The reasoning_message lands BEFORE the budget exit (the bug dropped it).
-      expect(reasoningIdx).toBeLessThan(exhaustedIdx);
-      const reasoning = events[reasoningIdx];
-      if (reasoning?.type !== 'reasoning_message') throw new Error('expected reasoning_message');
-      expect(reasoning.content).toContain('think hard');
-      expect(reasoning.signature).toBe('sig-1');
-    });
+    expect([...requestedIds].filter((id) => !resolvedIds.has(id))).toEqual([]);
+    // The nudge rode the next provider call as a volatile trailing message.
+    const nudged = provider.received.some((req) =>
+      req.messages
+        .flatMap((m) => m.content)
+        .some((c) => 'text' in c && c.text.includes('Repeating the same call will not produce')),
+    );
+    expect(nudged).toBe(true);
   });
 
   // u67-2: the hard iteration cap must end the run with goal_max_iterations + a
@@ -386,8 +332,10 @@ describe('goalMode end-to-end', () => {
         sleeps += 1;
       });
       // The provider is stuck returning retryable errors forever. Without the
-      // cap this would re-hit the provider up to maxIterations (150) times with
+      // bounded retry budget this would re-hit the provider endlessly with
       // zero spacing — exactly the unattended busy-loop the guard prevents.
+      // (This is a PROVIDER-protection bound, not a goal guardrail: it fires
+      // only on consecutive provider failures, never on productive work.)
       const provider = new FakeProvider({
         script: Array.from({ length: 50 }, () => retryableErrorReply('rate limited')),
       });
@@ -506,72 +454,165 @@ describe('goalMode end-to-end', () => {
     });
   });
 
-  it('persists the budget-exhausting call assistant text before stopping', () => {
-    // The model produces real text on the call that blows the budget. That text
-    // must land in the log (source: 'model') so a resume keeps the context —
-    // it was silently dropped before the fix.
-    const hugeUsageWithText: ProviderEvent[] = [
-      { type: 'message_start', model: 'fake' },
-      { type: 'text_delta', delta: 'Here is my final analysis before stopping.' },
-      {
-        type: 'message_end',
-        stopReason: 'end_turn',
-        usage: { inputTokens: 5_000_000, outputTokens: 0 },
-      },
-    ];
-    const provider = new FakeProvider({ script: [hugeUsageWithText] });
-    const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(goalModePlugin);
-    session.modes.setActive(GOAL_MODE_NAME);
+  describe('no guardrails: nothing heuristic kills a goal run', () => {
+    it('runs past the old 150-iteration cap and still completes (uncapped by default)', async () => {
+      // 155 productive iterations (varied inputs dodge the stuck detector),
+      // then done. Under the old GOAL_MAX_ITERATIONS=150 cap this died with a
+      // fatal "iteration cap" error five rounds short of delivering.
+      const rounds = 155;
+      const provider = new FakeProvider({
+        script: [
+          ...Array.from({ length: rounds }, (_, i) => toolUseReply('work', { step: i }, `w${i}`)),
+          toolUseReply('goal_complete', { summary: 'went the distance' }, 'gc-long'),
+        ],
+      });
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+      session.tools.register(
+        defineTool({
+          name: 'work',
+          description: '',
+          inputSchema: z.object({ step: z.number() }),
+          handler: () => 'ok',
+        }),
+      );
 
-    return collectTurn(session, 'expensive').then((events) => {
-      // The model's own text was persisted…
-      const modelMsg = events.find(
-        (e) => e.type === 'assistant_message' && e.source === 'model',
+      const events = await collectTurn(session, 'a very long goal');
+
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(
+        true,
       );
-      if (modelMsg?.type !== 'assistant_message') throw new Error('expected a model assistant_message');
-      expect(modelMsg.content).toContain('final analysis');
-      // …before the budget plugin_event (matching the reasoning ordering rule).
-      const modelIdx = events.indexOf(modelMsg);
-      const exhaustedIdx = events.findIndex(
-        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
+      expect(
+        events.some((e) => e.type === 'error' && e.kind === 'fatal'),
+      ).toBe(false);
+      expect(provider.received.length).toBe(rounds + 1);
+    });
+
+    it('spread-out idle rounds never exhaust the checkpoint budget mid-run', async () => {
+      // Idle → nudged back to work → idle → nudged → … four idle EPISODES
+      // (more than maxInjections=3), each recovered by tool work, then done.
+      // Before the per-episode budget reset this run died on the 4th idle with
+      // "checkpoint budget exhausted".
+      const script: Array<ReadonlyArray<ProviderEvent>> = [];
+      for (let i = 0; i < 4; i++) {
+        script.push(textReply(`progress note ${i}`));
+        script.push(toolUseReply('work', { step: i }, `iw${i}`));
+      }
+      script.push(toolUseReply('goal_complete', { summary: 'finished after pauses' }, 'gc-idle'));
+      const provider = new FakeProvider({ script });
+      const session = createFakeSession({ provider });
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+      session.tools.register(
+        defineTool({
+          name: 'work',
+          description: '',
+          inputSchema: z.object({ step: z.number() }),
+          handler: () => 'ok',
+        }),
       );
-      expect(exhaustedIdx).toBeGreaterThanOrEqual(0);
-      expect(modelIdx).toBeLessThan(exhaustedIdx);
+
+      const events = await collectTurn(session, 'goal with thinking pauses');
+
+      expect(
+        events.some((e) => e.type === 'error' && e.message.includes('checkpoint budget exhausted')),
+      ).toBe(false);
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_stalled')).toBe(
+        false,
+      );
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_completed')).toBe(
+        true,
+      );
     });
   });
 
-  it('counts cached prompt tokens toward the budget so the runaway guard trips', () => {
-    // Most of the prompt is served from cache (cacheRead) with a tiny live
-    // input. Counting input+output alone would leave totalTokens far under the
-    // 4M budget; including the cache fields trips it on iteration 1.
-    const cachedHeavyUsage: ProviderEvent[] = [
-      { type: 'message_start', model: 'fake' },
-      { type: 'text_delta', delta: 'working...' },
-      {
-        type: 'message_end',
-        stopReason: 'end_turn',
-        usage: {
-          inputTokens: 100,
-          outputTokens: 100,
-          cacheReadTokens: 5_000_000,
-          cacheCreationTokens: 0,
-        },
-      },
-    ];
-    const provider = new FakeProvider({ script: [cachedHeavyUsage] });
-    const session = createFakeSession({ provider });
-    session.pluginHost.registerStatic(goalModePlugin);
-    session.modes.setActive(GOAL_MODE_NAME);
+  describe('one-shot semantics: goal mode disarms itself when the goal concludes', () => {
+    /** A no-op mode to stand in for whatever the user was in before /goal. */
+    const priorModePlugin = definePlugin({
+      name: '@moxxy/testing/prior-mode',
+      modes: [
+        defineMode({
+          name: 'prior',
+          run: async function* () {
+            /* never driven in these tests */
+          },
+        }),
+      ],
+    });
 
-    return collectTurn(session, 'cached and expensive').then((events) => {
-      const exhausted = events.find(
-        (e) => e.type === 'plugin_event' && e.subtype === 'goal_budget_exhausted',
+    function armedSession(provider: FakeProvider) {
+      const session = createFakeSession({ provider });
+      // Register the prior mode FIRST (auto-activates), then arm goal — the
+      // registry records 'prior' as the previous mode, like a real /goal.
+      session.pluginHost.registerStatic(priorModePlugin);
+      session.pluginHost.registerStatic(goalModePlugin);
+      session.modes.setActive(GOAL_MODE_NAME);
+      return session;
+    }
+
+    it('reverts to the previous mode after goal_complete', async () => {
+      const provider = new FakeProvider({
+        script: [toolUseReply('goal_complete', { summary: 'done' }, 'gc-rev')],
+      });
+      const session = armedSession(provider);
+
+      await collectTurn(session, 'do it');
+
+      expect(session.modes.getActiveName()).toBe('prior');
+    });
+
+    it('reverts to the previous mode after an idle stall (soft completion)', async () => {
+      const provider = new FakeProvider({
+        script: [textReply('a'), textReply('b'), textReply('c')],
+      });
+      const session = armedSession(provider);
+
+      const events = await collectTurn(session, 'vague thing');
+
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_stalled')).toBe(
+        true,
       );
-      expect(exhausted).toBeDefined();
-      if (exhausted?.type !== 'plugin_event') throw new Error('expected goal_budget_exhausted');
-      // totalTokens reflects the FULL prompt (input + cacheRead + output).
-      expect((exhausted.payload as { totalTokens: number }).totalTokens).toBe(5_000_200);
+      expect(session.modes.getActiveName()).toBe('prior');
+    });
+
+    it('stays armed after goal_abandon so the user reply resumes the run', async () => {
+      const provider = new FakeProvider({
+        script: [
+          toolUseReply('goal_abandon', { reason: 'need the API key', needsFromUser: 'the key' }, 'ga-1'),
+        ],
+      });
+      const session = armedSession(provider);
+
+      const events = await collectTurn(session, 'deploy it');
+
+      expect(events.some((e) => e.type === 'plugin_event' && e.subtype === 'goal_abandoned')).toBe(
+        true,
+      );
+      expect(session.modes.getActiveName()).toBe(GOAL_MODE_NAME);
+    });
+
+    it('stays armed after a user abort (the goal is unfinished)', async () => {
+      const ctrl = new AbortController();
+      const provider = new FakeProvider({
+        script: [toolUseReply('work', { step: 1 }, 'wa-1')],
+      });
+      const session = armedSession(provider);
+      session.tools.register(
+        defineTool({
+          name: 'work',
+          description: '',
+          inputSchema: z.object({ step: z.number() }),
+          handler: () => {
+            ctrl.abort();
+            return 'ok';
+          },
+        }),
+      );
+
+      await collectTurn(session, 'interrupt me', { signal: ctrl.signal });
+
+      expect(session.modes.getActiveName()).toBe(GOAL_MODE_NAME);
     });
   });
 });

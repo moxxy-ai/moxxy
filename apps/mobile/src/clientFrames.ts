@@ -153,9 +153,11 @@ export function buildNewSessionFrame(input: WorkspaceInput): Record<string, unkn
 }
 
 export function buildGoalFrames(input: GoalInput): ReadonlyArray<Record<string, unknown>> {
+  // No auto-approve frame: goal mode auto-approves its own tool calls via a
+  // run-scoped resolver, and a session-wide flag would outlive the run —
+  // leaving the session permanently promptless after the goal finished.
   return [
     buildSetModeFrame({ workspaceId: input.workspaceId, mode: 'goal' }),
-    buildSetAutoApproveFrame({ workspaceId: input.workspaceId, enabled: true }),
     buildRunTurnFrame({ workspaceId: input.workspaceId, prompt: input.objective }),
   ];
 }
