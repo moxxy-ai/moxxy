@@ -1,0 +1,128 @@
+name: Mobile EAS Update (OTA)
+
+# Publish an over-the-air (OTA) update of the Expo mobile app — apps/mobile — to
+# an EAS Update channel, so the JS bundle + assets reach installed apps WITHOUT
+# waiting for an App Store / Play Store review.
+#
+# What OTA can and cannot ship:
+#   • JS, TypeScript, React components, images and other bundled assets  → YES
+#   • New native code / native modules / permissions / app icon / SDK bump → NO
+#     (those change the runtime version — see `runtimeVersion` in app.json — and
+#      require a fresh `eas build` + store release; this workflow won't reach
+#      those builds until they're rebuilt.)
+#
+# Channels ↔ branches: each `eas build` profile in eas.json is stamped with a
+# channel (`preview`, `production`). This job publishes to the EAS *branch* of
+# the same name, which those channels point to — so a `production` build picks
+# up `production` updates, a `preview` build picks up `preview` updates.
+#
+# Secrets (identical to Mobile EAS Build — nothing about the account is committed):
+#   EXPO_TOKEN       - Expo access token (the real secret) — used by eas-cli.
+#   EXPO_OWNER       - Expo account/org username (the project owner).
+#   EAS_PROJECT_ID   - the EAS project UUID.
+#
+# Trigger manually from the Actions tab; pick the channel, platform, and message.
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel (which installed builds receive it)
+        type: choice
+        options: [preview, production]
+        default: preview
+      platform:
+        description: Platform to publish for
+        type: choice
+        options: [all, ios, android]
+        default: all
+      message:
+        description: Update message (defaults to the commit if left blank)
+        type: string
+        required: false
+        default: ''
+      skip_checks:
+        description: Skip typecheck + tests before publishing (emergency only)
+        type: boolean
+        default: false
+
+concurrency:
+  # Serialize per channel so two publishes to the same channel can't race.
+  group: mobile-eas-update-${{ inputs.channel }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    name: EAS update (${{ inputs.channel }} / ${{ inputs.platform }})
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      # Injected into app.config.ts so the account identity is never committed.
+      # app.config.ts also derives the EAS Update URL from EAS_PROJECT_ID.
+      EXPO_OWNER: ${{ secrets.EXPO_OWNER }}
+      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+
+      # Install the whole workspace (the mobile app pulls in @moxxy/client-core,
+      # @moxxy/client-transport-ws, etc. as workspace deps).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ${{ github.workspace }}
+
+      - name: Guard required secrets
+        run: |
+          if [ -z "${EXPO_OWNER}" ] || [ -z "${EAS_PROJECT_ID}" ]; then
+            echo "::error::Set the EXPO_OWNER and EAS_PROJECT_ID repository secrets (and EXPO_TOKEN) before running this workflow."
+            exit 1
+          fi
+
+      # `eas update` bundles the JS locally (unlike `eas build`, which runs the
+      # post-install on EAS servers). Metro resolves the @moxxy/* workspace deps
+      # from their built `dist`, so they must be compiled first.
+      - name: Build workspace dependencies
+        run: pnpm --filter "@moxxy/workspaces-app^..." run build
+        working-directory: ${{ github.workspace }}
+
+      # OTA updates skip store review, so gate them on the app's own checks by
+      # default. `skip_checks` is an emergency escape hatch.
+      - name: Typecheck & test mobile app
+        if: ${{ !inputs.skip_checks }}
+        run: pnpm --filter "@moxxy/workspaces-app" run typecheck && pnpm --filter "@moxxy/workspaces-app" run test
+        working-directory: ${{ github.workspace }}
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish EAS update
+        run: |
+          MSG="${{ inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="Manual OTA update from ${GITHUB_SHA::7}"
+          fi
+          echo "Publishing to branch/channel '${{ inputs.channel }}' (${{ inputs.platform }}): $MSG"
+          eas update \
+            --non-interactive \
+            --branch "${{ inputs.channel }}" \
+            --platform "${{ inputs.platform }}" \
+            --message "$MSG"
