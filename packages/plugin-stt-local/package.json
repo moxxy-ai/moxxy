@@ -1,0 +1,67 @@
+{
+  "name": "@moxxy/plugin-stt-local",
+  "version": "0.0.0",
+  "description": "Fully local, on-device speech-to-text Transcriber for moxxy. Runs multilingual Whisper (English + Polish) via sherpa-onnx in a forked sidecar process; models download once on first use from sherpa-onnx's pinned releases (sha256-verified). No API key, no network at transcription time. Plugs into the session TranscriberRegistry — the TUI and channel voice notes consume it transparently.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "stt",
+    "speech-to-text",
+    "whisper",
+    "offline",
+    "on-device",
+    "sherpa-onnx",
+    "transcriber"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-stt-local"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "transcriber"
+    }
+  },
+  "dependencies": {
+    "@moxxy/model-fetch": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "sherpa-onnx-node": "^1.13.3"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
