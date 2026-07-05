@@ -1,6 +1,7 @@
-import { defineTool, defineEmbedder, definePlugin, z, type Plugin } from '@moxxy/sdk';
+import { defineTool, defineEmbedder, definePlugin, z, type Plugin, type ProviderRequest } from '@moxxy/sdk';
 import { MemoryStore, memoryTypeSchema, type MemoryStoreOptions } from './store.js';
 import { TfIdfEmbedder } from './tfidf.js';
+import { UserModelStore, userModelTool } from './user-model.js';
 
 export {
   MemoryStore,
@@ -19,6 +20,23 @@ export { recentExchanges, summarizeSession, type SessionFact } from './stm.js';
 export { TfIdfEmbedder, cosineSimilarity, tokenize } from './tfidf.js';
 export { EmbeddingIndex } from './embedding-cache.js';
 export {
+  UserModelStore,
+  userModelTool,
+  parseUserModel,
+  serializeUserModel,
+  renderInjectionBody,
+  defaultUserModelPath,
+  MAX_INJECTED_CHARS,
+  USER_MODEL_OPEN,
+  USER_MODEL_CLOSE,
+  FIXED_SECTIONS,
+  SECTION_TITLES,
+  type UserModel,
+  type UserModelSection,
+  type UserModelSectionKey,
+  type UserModelUpdateMode,
+} from './user-model.js';
+export {
   planConsolidation,
   consolidateMemory,
   buildMemoryConsolidatePlugin,
@@ -33,6 +51,10 @@ export interface BuildMemoryPluginOptions extends MemoryStoreOptions {}
 
 export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin: Plugin; store: MemoryStore } {
   const store = new MemoryStore(opts);
+  // The persistent user model lives alongside the episodic memories in the same
+  // memory dir. Both the always-on injection hook and the update tool close over
+  // this one instance so the mtime cache is shared.
+  const userModel = new UserModelStore(opts.dir);
   const plugin = definePlugin({
     name: '@moxxy/plugin-memory',
     version: '0.0.0',
@@ -45,6 +67,10 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
       onInit: (ctx) => {
         ctx.services.register('memory', store);
       },
+      // ALWAYS-ON: prepend the delimited <user-model> block to every provider
+      // call when the file exists and has content. Idempotent (skips when the
+      // block is already present) and error-swallowing (never breaks a call).
+      onBeforeProviderCall: (req) => userModel.injectInto(req),
     },
     // The zero-dep TF-IDF embedder, contributed as a selectable embedder so it
     // sits in the same registry as openai/transformers/custom ones.
@@ -195,6 +221,7 @@ export function buildMemoryPlugin(opts: BuildMemoryPluginOptions = {}): { plugin
           return { name: updated.frontmatter.name, updatedAt: updated.frontmatter.updatedAt };
         },
       }),
+      userModelTool(userModel),
     ],
   });
   return { plugin, store };
@@ -232,12 +259,23 @@ export const memoryPlugin: Plugin = (() => {
     ...(base.embedders ? { embedders: base.embedders } : {}),
     tools: [...(base.tools ?? []), ...(consolidate.tools ?? [])],
     hooks: {
-      ...consolidate.hooks,
       onInit: async (ctx) => {
         embeddersReg =
           ctx.services.get<{ tryGetActive(): unknown }>('embedders') ?? null;
         await base.hooks?.onInit?.(ctx);
         await consolidate.hooks?.onInit?.(ctx);
+      },
+      // A Plugin has a single onBeforeProviderCall, but this composed plugin
+      // carries TWO: base's always-on user-model injection and consolidate's
+      // once-per-session nudge. Chain them so both run (injection prepends its
+      // block, the nudge appends its hint); either may return void to pass through.
+      onBeforeProviderCall: async (req, ctx) => {
+        let out: ProviderRequest | undefined;
+        const injected = await base.hooks?.onBeforeProviderCall?.(out ?? req, ctx);
+        if (injected) out = injected;
+        const nudged = await consolidate.hooks?.onBeforeProviderCall?.(out ?? req, ctx);
+        if (nudged) out = nudged;
+        return out;
       },
     },
   });

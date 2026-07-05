@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { MemoryStore, defaultMemoryDir, type MemoryEntry, type MemoryType } from '@moxxy/plugin-memory';
+import { MemoryStore, UserModelStore, defaultMemoryDir, type MemoryEntry, type MemoryType } from '@moxxy/plugin-memory';
 import type { ParsedArgv } from '../argv.js';
 import { confirmedYes, helpRequested } from '../argv-helpers.js';
 import { printError } from '../errors.js';
@@ -18,6 +18,7 @@ const HELP = formatHelp({
         ['show <name>', 'print the body of a single entry'],
         ['revert <name>', 'delete a single entry'],
         ['prune-stale --days <n>', 'delete entries not updated in <n> days'],
+        ['user-model', 'print the persistent user model'],
         ['path', 'print the memory directory'],
       ],
     },
@@ -147,6 +148,17 @@ export async function runMemoryCommand(argv: ParsedArgv): Promise<number> {
         }
       }
       process.stdout.write(`deleted ${deleted} stale entries\n`);
+      return 0;
+    }
+    case 'user-model': {
+      const raw = await new UserModelStore().readRaw();
+      if (!raw || !raw.trim()) {
+        process.stdout.write(
+          colors.dim('(none yet — the agent maintains this via memory_update_user_model)') + '\n',
+        );
+        return 0;
+      }
+      process.stdout.write(raw.endsWith('\n') ? raw : raw + '\n');
       return 0;
     }
     case 'path': {

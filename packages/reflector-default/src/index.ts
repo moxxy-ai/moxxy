@@ -56,6 +56,8 @@ Look for exactly two things:
 
 Be strict. Most turns warrant NOTHING. Never propose transient chit-chat, one-off values, or things already obvious from context.
 
+When a "memory" proposal is really about WHO THE USER IS or HOW THEY WORK — a stable identity detail, a standing preference, or a personal workflow — say so in the nudge and suggest the assistant record it with \`memory_update_user_model\` (the persistent user model) rather than \`memory_save\`, which is for episodic facts.
+
 Output ONLY a JSON array with 0, 1, or 2 items — no prose, no code fences. Each item:
   { "kind": "memory" | "skill", "title": "<= 80 chars", "nudge": "one paragraph addressed to the assistant, suggesting it consider saving this" }
 Return [] when nothing is worth proposing.`;
