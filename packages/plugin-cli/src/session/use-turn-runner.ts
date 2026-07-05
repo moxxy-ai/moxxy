@@ -16,6 +16,14 @@ export interface TurnRunnerOptions {
   /** Optional notice sink — used to warn the user when a large queue drain is
    *  split across turns rather than merged into one oversized prompt. */
   onNotice?: (msg: string) => void;
+  /**
+   * Fired once per turn that completes WITHOUT being aborted — the seam where
+   * the final assistant reply is known (mirrors the telegram/discord
+   * turn-runners' `onFinalReply`, but TUI-side). Powers auto-speak: the handler
+   * reads the final reply from `session.log` and speaks it. Best-effort — a
+   * throwing handler never breaks the turn lifecycle.
+   */
+  onTurnComplete?: () => void;
 }
 
 /** Cap how many queued messages merge into one follow-up turn, and the joined
@@ -96,6 +104,17 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
         ...(attachments.length > 0 ? { attachments } : {}),
       })) {
         void _event;
+      }
+      // Turn finished without an abort/throw: fire the completion seam (the
+      // final assistant reply is now in session.log). Isolated in its own
+      // try/catch so an auto-speak failure can never break the turn — and
+      // skipped on abort so an interrupted turn is never spoken.
+      if (!controller.signal.aborted) {
+        try {
+          opts.onTurnComplete?.();
+        } catch {
+          /* read-aloud is best-effort; never surface into the turn */
+        }
       }
     } catch (err) {
       // surfaced via error events; nothing extra to do

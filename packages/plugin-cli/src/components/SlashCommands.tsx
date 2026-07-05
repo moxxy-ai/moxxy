@@ -64,6 +64,12 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<SlashCommand> = [
     argumentHint: '<goal>',
   },
   {
+    name: 'speak',
+    description: 'Read replies aloud via the active TTS voice — bare speaks the last reply, on/off auto-speaks, stop halts',
+    argumentHint: '[on|off|stop]',
+    aliases: ['say'],
+  },
+  {
     name: 'yolo',
     description: 'Toggle auto-approve mode — every tool call allowed without asking',
     aliases: ['auto-approve'],

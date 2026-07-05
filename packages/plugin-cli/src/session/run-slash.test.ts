@@ -236,6 +236,42 @@ describe('runSlash /sessions', () => {
   });
 });
 
+describe('runSlash /speak', () => {
+  it('forwards the argument to runSpeak and clears the notice', () => {
+    const args: string[] = [];
+    const notices: Array<string | null> = [];
+    runSlash('/speak on', {
+      ...baseDeps(),
+      runSpeak: (a) => args.push(a),
+      setSystemNotice: (n) => notices.push(n),
+    } as unknown as SlashDeps);
+    expect(args).toEqual(['on']);
+    expect(notices).toContain(null);
+  });
+
+  it('bare /speak forwards an empty argument', () => {
+    const args: string[] = [];
+    runSlash('/speak', { ...baseDeps(), runSpeak: (a) => args.push(a) } as unknown as SlashDeps);
+    expect(args).toEqual(['']);
+  });
+
+  it('the /say alias forwards too', () => {
+    const args: string[] = [];
+    runSlash('/say stop', { ...baseDeps(), runSpeak: (a) => args.push(a) } as unknown as SlashDeps);
+    expect(args).toEqual(['stop']);
+  });
+
+  it('degrades to a notice when read-aloud is not wired', () => {
+    const notices: Array<string | null> = [];
+    runSlash('/speak on', {
+      ...baseDeps(),
+      runSpeak: undefined,
+      setSystemNotice: (n) => notices.push(n),
+    } as unknown as SlashDeps);
+    expect(notices.some((n) => typeof n === 'string' && /not available/.test(n))).toBe(true);
+  });
+});
+
 function baseDeps(): SlashDeps {
   return {
     session: {
