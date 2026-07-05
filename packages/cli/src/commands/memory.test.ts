@@ -1,6 +1,10 @@
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest';
+import { promises as fs } from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { MemoryType } from '@moxxy/plugin-memory';
-import { formatRelative, formatSize, groupByType, mapBounded } from './memory.js';
+import { formatRelative, formatSize, groupByType, mapBounded, runMemoryCommand } from './memory.js';
+import type { ParsedArgv } from '../argv.js';
 
 /** Minimal stat object — groupByType only reads `entry.frontmatter.type`. */
 function statOfType(type: MemoryType): Parameters<typeof groupByType>[0][number] {
@@ -84,6 +88,47 @@ describe('mapBounded', () => {
     const out = await mapBounded([], async () => (calls += 1));
     expect(out).toEqual([]);
     expect(calls).toBe(0);
+  });
+});
+
+describe('memory user-model subcommand', () => {
+  let tmp: string;
+  let prevHome: string | undefined;
+  let out: string;
+
+  const argv = (): ParsedArgv => ({ command: 'memory', flags: {}, positional: ['user-model'] });
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'mox-um-cli-'));
+    prevHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = tmp;
+    out = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      out += String(chunk);
+      return true;
+    });
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    if (prevHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = prevHome;
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('prints a "(none yet)" hint when no user model exists', async () => {
+    const code = await runMemoryCommand(argv());
+    expect(code).toBe(0);
+    expect(out).toContain('none yet');
+  });
+
+  it('prints the file contents when a user model exists', async () => {
+    const dir = path.join(tmp, 'memory');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'user-model.md'), '## Identity\n\nAlex, backend dev\n');
+    const code = await runMemoryCommand(argv());
+    expect(code).toBe(0);
+    expect(out).toContain('## Identity');
+    expect(out).toContain('Alex, backend dev');
   });
 });
 

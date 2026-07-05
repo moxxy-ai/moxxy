@@ -20,6 +20,7 @@ import type { Session } from '@moxxy/core';
 import {
   REFLECT_MIN_ITERATIONS,
   REFLECT_MIN_TOOL_RESULTS,
+  REFLECT_SYSTEM_PROMPT,
   buildReflectorPlugin,
   buildTurnDigest,
   parseReflectionReply,
@@ -229,6 +230,16 @@ describe('parseReflectionReply', () => {
   it('returns [] for a non-array and an empty array', () => {
     expect(parseReflectionReply('{"kind":"memory"}')).toEqual([]);
     expect(parseReflectionReply('[]')).toEqual([]);
+  });
+});
+
+// ── REFLECT_SYSTEM_PROMPT (the strategy prompt) ─────────────────────────────
+
+describe('REFLECT_SYSTEM_PROMPT', () => {
+  it('points durable user-trait memories at memory_update_user_model', () => {
+    expect(REFLECT_SYSTEM_PROMPT).toContain('memory_update_user_model');
+    // still steers episodic facts to memory_save
+    expect(REFLECT_SYSTEM_PROMPT).toContain('memory_save');
   });
 });
 
