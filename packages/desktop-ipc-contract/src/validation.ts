@@ -195,6 +195,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'provider.login.answer': z.object({ loginId, value: z.string().max(8192) }),
   'provider.login.cancel': z.object({ loginId }),
   'session.transcribe': z.object({
+    workspaceId: optionalWorkspace,
     audioBase64: base64,
     mimeType: z.string().max(128).optional(),
   }),
