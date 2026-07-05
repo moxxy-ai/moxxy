@@ -1,5 +1,67 @@
 # @moxxy/desktop
 
+## 0.29.0
+
+### Minor Changes
+
+- 2da5496: feat(desktop): route the mic through the runner's active transcriber (local STT) with Codex fallback
+
+  The desktop microphone was hardwired to the in-process Codex cloud transcriber.
+  It now prefers the RUNNER's active transcriber — a runner-side STT plugin such
+  as the local Whisper `@moxxy/plugin-stt-local` — so with that plugin installed
+  and active the desktop mic transcribes **fully offline**. Without it, behavior
+  is byte-identical to before.
+
+  - `session.transcribe` (desktop-host IPC) tries the runner's active transcriber
+    first via the existing `Transcribe` runner RPC (`RemoteSession.transcribers.
+tryGetActive()`, mirroring how `session.synthesize` routes TTS). It falls back
+    to the in-process Codex transcriber only when the runner reports **no active
+    transcriber**. An error from a _present-but-failing_ runner transcriber (a
+    broken local model) surfaces to the user instead of silently falling through
+    to the cloud — "none active" and "failed" are distinguished.
+  - `session.hasTranscriber` (the mic-affordance gate) is now true when EITHER the
+    runner reports an active transcriber (read off the existing
+    `SessionInfo.activeTranscriber` snapshot — no new RPC) OR the Codex OAuth vault
+    probe passes. Keyed on the ACTIVE transcriber so it stays in lockstep with the
+    transcribe routing.
+  - `session.transcribe` gains an optional `workspaceId` (like `session.synthesize`)
+    so a background workspace's mic targets the right runner; the renderer is
+    unchanged and defaults to the active workspace.
+
+  No runner-protocol change: the `Transcribe` RPC, its handler, and the
+  `RemoteSession` transcriber proxy already existed and are unchanged, so
+  `RUNNER_PROTOCOL_VERSION` is not bumped. The mic capture's `audio/x-moxxy-pcm16-
+24khz` (PCM16 24 kHz) mimeType flows through to whichever transcriber unchanged.
+
+### Patch Changes
+
+- 3fa16fe: Fix the plugins-seed bundling script on Windows: resolve the repo root via `fileURLToPath` (the `url.pathname` form produced a doubled drive letter, `D:\D:\a\...`, crashing the desktop release job) and spawn pnpm/npm through the shell so their `.cmd` shims work on Windows runners.
+- 6c0af71: Tech-debt backlog cleanup pass.
+
+  - CLI: new `moxxy channels rotate-token <name>` verb wrapping the SDK-only `rotateChannelToken` (SECURITY.md's hardening checklist recommended rotation but nothing exposed it).
+  - CLI: standalone `moxxy mobile` now stamps `MOXXY_SESSION_SOURCE=mobile` (via a declared `sessionSource` on the channel def) so the empty pre-first-prompt session is no longer mis-stamped `tui` and dropped from the mobile list.
+  - SDK: `resolveModelContext` no longer SILENTLY falls back to the first model descriptor on an unrecognized model id — it emits a one-shot `console.warn` (deduped per provider/requested-id/fallback-id) so a wrong context-window calibration is observable.
+  - Desktop: compile-time partition of the app-bridge method sets (`RENDERER_DISPATCHED_METHODS` vs the host `BridgeServices` map) so a mis-/un-classified method is now a `tsc` error rather than a runtime-test-only check.
+  - Desktop: the keyless `local` provider no longer prompts for a non-existent API key in the Configure sheet.
+  - Desktop: stop Vite emitting a ~21 MB orphan ONNX-Runtime wasm into `dist/assets/` on every bundle (the runtime loads ORT from `/ort/`; the emitted copy was dead); the real anonymizer wasm is untouched.
+  - Desktop: added a drift guard that fails if the hand-mirrored channel catalog diverges from each plugin's `ChannelDef.config`.
+
+- Updated dependencies [2da5496]
+- Updated dependencies [6c0af71]
+  - @moxxy/desktop-host@0.13.2
+  - @moxxy/desktop-ipc-contract@0.14.4
+  - @moxxy/cli@0.28.1
+  - @moxxy/sdk@0.28.1
+  - @moxxy/client-core@0.13.8
+  - @moxxy/ipc-server-ws@0.1.46
+  - @moxxy/plugin-channel-mobile@0.28.1
+  - @moxxy/chat-model@0.3.19
+  - @moxxy/client-platform-web@0.1.47
+  - @moxxy/plugin-stt-whisper-codex@0.28.1
+  - @moxxy/plugin-vault@0.28.1
+  - @moxxy/runner@0.2.33
+  - @moxxy/workflows-builder@0.1.30
+
 ## 0.28.1
 
 ### Patch Changes
