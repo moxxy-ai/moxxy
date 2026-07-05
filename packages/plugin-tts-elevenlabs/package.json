@@ -1,0 +1,77 @@
+{
+  "name": "@moxxy/plugin-tts-elevenlabs",
+  "version": "0.26.0",
+  "description": "ElevenLabs text-to-speech Synthesizer for moxxy. Text → spoken audio bytes via POST /v1/text-to-speech/{voiceId}. Plugs into the session's SynthesizerRegistry; read-aloud surfaces (desktop 'Read aloud', a voice channel) consume it transparently. The higher-quality Synthesizer backend alongside OpenAI TTS.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "tts",
+    "text-to-speech",
+    "elevenlabs",
+    "synthesizer"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-tts-elevenlabs"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "synthesizer"
+    },
+    "setup": {
+      "title": "ElevenLabs text-to-speech",
+      "description": "Read-aloud through ElevenLabs' /v1/text-to-speech. Needs an ElevenLabs API key — the plugin does nothing without one, so skipping this leaves the package disabled.",
+      "fields": [
+        {
+          "key": "apiKey",
+          "label": "ElevenLabs API key",
+          "kind": "secret",
+          "vaultKey": "ELEVENLABS_API_KEY",
+          "required": true,
+          "placeholder": "sk_…",
+          "description": "Your ElevenLabs API key, from https://elevenlabs.io → Profile → API Keys. Stored in the vault as ELEVENLABS_API_KEY; the model never sees it."
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@moxxy/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
