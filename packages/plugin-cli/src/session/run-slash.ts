@@ -44,6 +44,13 @@ export interface SlashDeps {
     packageName: string;
     spec: import('@moxxy/sdk').PluginSetupSpec;
   }) => void;
+  /**
+   * Dispatch `/speak [on|off|stop|status]` — synthesize + play assistant replies
+   * through the session's active Synthesizer. Owned by SessionView (holds the
+   * read-aloud controller with its auto-speak flag + in-flight playback). Absent
+   * on any host that doesn't wire read-aloud — `/speak` then degrades to a notice.
+   */
+  runSpeak?: (arg: string) => void;
 }
 
 export function runSlash(cmd: string, deps: SlashDeps): void {
@@ -157,6 +164,15 @@ export function runSlash(cmd: string, deps: SlashDeps): void {
     case 'channels':
       deps.setSystemNotice(null);
       deps.setOverlay({ kind: 'channels' });
+      return;
+    case 'speak':
+    case 'say':
+      if (!deps.runSpeak) {
+        deps.setSystemNotice('read-aloud is not available on this session');
+        return;
+      }
+      deps.setSystemNotice(null);
+      deps.runSpeak(args);
       return;
     case 'goal':
       return startGoal(deps, args);

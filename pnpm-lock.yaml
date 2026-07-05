@@ -1676,6 +1676,9 @@ importers:
 
   packages/plugin-cli:
     dependencies:
+      '@moxxy/channel-kit':
+        specifier: workspace:*
+        version: link:../channel-kit
       '@moxxy/chat-model':
         specifier: workspace:*
         version: link:../chat-model

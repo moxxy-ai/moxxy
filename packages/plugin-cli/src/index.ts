@@ -41,6 +41,16 @@ export {
   VOICE_CAPTURE_RUNTIME,
   type VoiceCaptureAvailabilityOptions,
 } from './voice-input.js';
+export {
+  checkAudioPlaybackAvailable,
+  playAudio,
+  selectAudioPlayer,
+  type AudioPlaybackAvailability,
+  type AudioPlaybackAvailabilityOptions,
+  type AudioPlaybackOptions,
+  type PlayAudioResult,
+  type SelectAudioPlayerResult,
+} from './audio-play.js';
 
 export const tuiChannelDef = defineChannel({
   name: 'tui',

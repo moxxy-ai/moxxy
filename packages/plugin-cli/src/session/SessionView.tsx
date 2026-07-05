@@ -25,6 +25,7 @@ import { useTurnRunner } from './use-turn-runner.js';
 import { usePermissionQueue } from './use-permission-queue.js';
 import { useGlobalHotkeys } from './use-global-hotkeys.js';
 import { useVoiceInput } from './use-voice-input.js';
+import { useReadAloud } from './use-read-aloud.js';
 import { applyProviderModelSwitch, makePickerHandler } from './picker-handlers.js';
 import { runSlash } from './run-slash.js';
 import { OverlayOrNotice } from './OverlayOrNotice.js';
@@ -98,6 +99,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
   const permissions = usePermissionQueue(session, registerInteractiveResolver);
   const images = useImageAttachments((msg) => setSystemNotice(msg));
   const voice = useVoiceInput({ session, setSystemNotice });
+  // Read-aloud (`/speak`): synthesize + play assistant replies through the
+  // session's active Synthesizer. `onTurnComplete` (below) drives auto-speak.
+  const readAloud = useReadAloud({ session, setSystemNotice });
 
   // Keep the yolo flag in a ref so the permission handler closure
   // reads the latest value without re-registering.
@@ -109,6 +113,9 @@ export const SessionView: React.FC<SessionViewProps> = ({
     session,
     resolveModel: () => activeModelOverride ?? model,
     stream,
+    // Auto-speak seam: when read-aloud is armed, speak the final reply once the
+    // turn completes. Reads the reply from session.log; never blocks input.
+    onTurnComplete: () => readAloud.onTurnComplete(),
   });
 
   const pendingPermission = permissions.pendingPermission;
@@ -262,9 +269,13 @@ export const SessionView: React.FC<SessionViewProps> = ({
   // here because the registry handlers are channel-agnostic.
   const performSessionAction = (action: 'new' | 'clear' | 'exit', notice?: string): void => {
     if (action === 'exit') {
+      readAloud.stop();
       exit();
       return;
     }
+    // Stop any read-aloud playback so a wiped/cleared session isn't still
+    // speaking the reply that just scrolled off.
+    readAloud.stop();
     clearTerminalScreen();
     stream.setEvents([]);
     stream.cancelStreamFlush();
@@ -340,6 +351,7 @@ export const SessionView: React.FC<SessionViewProps> = ({
         queueRef: turn.queueRef,
         setQueueCount: turn.setQueueCount,
         performSessionAction,
+        runSpeak: (arg: string) => readAloud.handleCommand(arg),
         canSwitchSession: canSwitchSession ?? false,
         // `/collab` re-points the TUI onto the dedicated coordinator via the same
         // in-place switch machinery `/sessions` uses (so it needs the host's

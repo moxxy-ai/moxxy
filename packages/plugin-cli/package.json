@@ -29,6 +29,7 @@
     }
   },
   "dependencies": {
+    "@moxxy/channel-kit": "workspace:*",
     "@moxxy/chat-model": "workspace:*",
     "@moxxy/config": "workspace:*",
     "@moxxy/core": "workspace:*",
