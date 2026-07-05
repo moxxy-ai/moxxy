@@ -457,6 +457,15 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
   };
 
   if (e.type === 'user_prompt') {
+    // A checkpoint-origin prompt is MID-TURN feedback injected by the shared
+    // ReAct loop's turn-end gate, not a new turn: running the boundary resets
+    // for it would mark still-pending tool calls as orphans and break
+    // subagent grouping for the rest of the (still live) turn. Render it as
+    // an ordinary block and leave all turn-scoped state alone.
+    if (e.origin?.kind === 'checkpoint') {
+      pushBlock({ kind: 'event', id: e.id, event: e });
+      return;
+    }
     closeOpenScope();
     markOrphansAtTurnBoundary();
     s.pendingLoadSkillCallId = null;

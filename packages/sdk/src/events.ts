@@ -40,10 +40,16 @@ export interface UserPromptAttachment {
  * a compact "trigger fired" marker instead of a giant user bubble. The prompt
  * text stays in the event (and thus in the model's context) — only the *display*
  * changes. Absent for an ordinary user-typed prompt.
+ *
+ * `kind: 'checkpoint'` marks a MID-TURN prompt injected by the shared ReAct
+ * loop's checkpoint gate (turn-end verification feedback). Unlike the trigger
+ * kinds it does not open a turn — renderers that treat `user_prompt` as a
+ * turn boundary must skip their boundary resets for it (see chat-model's
+ * pair-events).
  */
 export interface TriggerOrigin {
-  readonly kind: 'webhook' | 'schedule' | 'workflow';
-  /** The trigger's name (webhook/schedule/workflow), for the marker label. */
+  readonly kind: 'webhook' | 'schedule' | 'workflow' | 'checkpoint';
+  /** The trigger's name (webhook/schedule/workflow/checkpoint), for the marker label. */
   readonly name: string;
 }
 

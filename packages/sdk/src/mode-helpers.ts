@@ -9,6 +9,8 @@
  *  - `./mode/single-shot.ts`      — single-shot (no-tools) provider turn
  *  - `./mode/stuck-loop.ts`       — sliding-window stuck-tool-call detector
  *  - `./mode/stable-hash.ts`      — key-order-canonical input hash util
+ *  - `./mode/react-loop.ts`       — the shared ReAct loop core (+ checkpoint gate)
+ *  - `./mode/checkpoint.ts`       — turn-end checkpoint contract
  */
 
 export {
@@ -33,3 +35,17 @@ export {
   type LoopGuardSettings,
 } from './mode/stuck-loop.js';
 export { stableHash } from './mode/stable-hash.js';
+export {
+  runReactLoop,
+  MAX_CONSECUTIVE_RETRIES,
+  __setRetrySleepForTests,
+  type ReactLoopOptions,
+  type ProviderSuccessInfo,
+  type ToolBatchInfo,
+  type StopDirective,
+} from './mode/react-loop.js';
+export type {
+  CheckpointContext,
+  CheckpointResult,
+  TurnCheckpoint,
+} from './mode/checkpoint.js';

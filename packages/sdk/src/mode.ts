@@ -132,6 +132,14 @@ export interface ModeContext {
    */
   readonly subagents?: SubagentSpawner;
   /**
+   * True when this context belongs to a spawned child agent (set by the
+   * subagent runtime). The shared ReAct loop disarms turn-end checkpoints in
+   * subagent sessions — the recursion backstop that keeps a checkpoint which
+   * (mistakenly) spawns a child in a checkpoint-bearing mode from gating the
+   * child's turn-end and recursing forever.
+   */
+  readonly isSubagent?: boolean;
+  /**
    * Request the session switch its active mode AFTER this turn fully drains.
    * Used by terminal workflow modes (BMAD finishing its last phase) to hand
    * control back to a normal mode so the next message isn't trapped in the
