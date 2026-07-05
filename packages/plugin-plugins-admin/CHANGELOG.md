@@ -1,5 +1,58 @@
 # @moxxy/plugin-plugins-admin
 
+## 0.28.0
+
+### Patch Changes
+
+- d47214f: feat(voice): @moxxy/plugin-stt-local — offline Whisper STT (multilingual) with on-demand verified model downloads
+
+  Adds a fully local, on-device speech-to-text Transcriber — the input sibling of
+  `@moxxy/plugin-tts-local`:
+
+  - `@moxxy/plugin-stt-local` — the `local-whisper` transcriber running sherpa-onnx
+    multilingual Whisper (English + Polish are the priority) in a forked sidecar
+    (so the native addon's shared libs resolve via `DYLD_/LD_LIBRARY_PATH` set at
+    process start). Models (`tiny` / `base` / `small`; default `base`, `small`
+    recommended for Polish) download once on first use from sherpa-onnx's pinned
+    `asr-models` release, sha256-verified against its `checksum.txt`. No API key,
+    no network at transcription time.
+  - Inbound audio is decoded to the Float32 mono @ 16 kHz sherpa wants: raw PCM16
+    (the mic contract) and 16-bit PCM WAV are converted + resampled IN-PROCESS
+    (no ffmpeg); compressed containers (ogg/opus voice notes, mp3, m4a, webm) go
+    through ffmpeg when present, and raise a clear install-hint error when it
+    isn't — raw PCM / WAV keep working regardless.
+  - Registered side-effect free (no auto-adopt); the host/user activates it via
+    `session.transcribers.setActive('local-whisper', { model, language })`.
+    Channel voice notes (Telegram) consume the active transcriber transparently.
+
+  plugins-admin gains an `stt-local` catalog entry for install-on-first-use.
+
+- 534e3aa: New `@moxxy/plugin-tts-elevenlabs` — a second Synthesizer backend alongside OpenAI TTS. Text-to-speech via ElevenLabs' `POST /v1/text-to-speech/{voiceId}` (one JSON POST with an `xi-api-key` header returning audio bytes, no vendor SDK dependency). Registers a single `elevenlabs` synthesizer that the `SynthesizerRegistry` can adopt as the active read-aloud voice; the agent switches via `set_voice`. Config surface: `voiceId` (default Rachel `21m00Tcm4TlvDq8ikWAM`), `model` (default `eleven_multilingual_v2`), `format` (default `mp3_44100_128` → `audio/mpeg`; also `mp3_44100_64` / `mp3_22050_32`, all mp3 → `audio/mpeg`). `SynthesizeOptions.voice` overrides the configured voice id; `rate` is intentionally ignored (ElevenLabs has no stable model-agnostic speaking-rate parameter); `signal` cancels the request; input over a conservative 2500-char cap is truncated at a sentence boundary with an ellipsis. Headerless PCM/µ-law formats and opus are deliberately omitted (raw PCM has no container; the opus token is not confidently known for this endpoint) rather than surfaced under a bogus MIME type. The API key rides the vault (`ELEVENLABS_API_KEY`) with a `process.env` fallback; a missing key and HTTP/network failures surface as classified `MoxxyError`s. Setup declares one required secret field, so skipping setup correctly leaves the package disabled. Added to the plugins-admin install catalog as `tts-elevenlabs`.
+- bba28c0: feat(voice): @moxxy/plugin-tts-local — offline Piper TTS (EN+PL) with on-demand verified model downloads
+
+  Adds a fully local, on-device text-to-speech Synthesizer plus the shared
+  download-and-verify helper it relies on:
+
+  - `@moxxy/model-fetch` — HTTPS download with a host allow-list, streamed
+    mandatory-sha256 verification, `.partial`→atomic-rename publish, a size cap,
+    throttled progress, and hardened `.tar.bz2` extraction (path-traversal /
+    symlink rejection). `ensureModel` ties download + extract behind an
+    idempotent marker.
+  - `@moxxy/plugin-tts-local` — the `local-piper` synthesizer running sherpa-onnx
+    Piper voices (English + Polish) in a forked sidecar (so the native addon's
+    shared libs resolve via `DYLD_/LD_LIBRARY_PATH` set at process start). Voice
+    models download once on first use from sherpa-onnx's pinned releases,
+    sha256-verified against its `checksum.txt`. No API key, no network at
+    synthesis time. Consumed transparently by desktop read-aloud, the TUI, and
+    channel voice replies via the runner-side SynthesizerRegistry.
+
+  plugins-admin gains a `tts-local` catalog entry for install-on-first-use.
+
+- Updated dependencies [3e4b2b4]
+- Updated dependencies [e4e2941]
+  - @moxxy/sdk@0.28.0
+  - @moxxy/config@0.28.0
+
 ## 0.27.0
 
 ### Minor Changes

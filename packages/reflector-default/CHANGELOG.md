@@ -1,5 +1,23 @@
 # @moxxy/reflector-default
 
+## 0.27.1
+
+### Patch Changes
+
+- 3bf5b52: feat(memory): persistent user model — always-injected `~/.moxxy/memory/user-model.md` + update tool
+
+  A first-class user model (Identity / Preferences / Workflows / Context) is now
+  ALWAYS injected into the system prompt as a delimited `<user-model>` block
+  (capped at 4000 chars, idempotent per request, error-swallowing). It is updated
+  only through the deliberate, permission-prompted `memory_update_user_model` tool
+  — never silently written by the loop. The default reflector now steers durable
+  user-trait proposals toward this tool, and `moxxy memory user-model` prints the
+  current file.
+
+- Updated dependencies [3e4b2b4]
+- Updated dependencies [e4e2941]
+  - @moxxy/sdk@0.28.0
+
 ## 0.27.0
 
 ### Minor Changes

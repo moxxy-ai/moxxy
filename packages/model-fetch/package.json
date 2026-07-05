@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/model-fetch",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Download-and-verify helper for on-demand model assets. Streams an HTTPS download to a temp file while hashing, enforces a host allow-list + size cap, verifies a mandatory pinned sha256, publishes atomically, and safely extracts .tar.bz2 archives (path-traversal / symlink hardened). Shared by moxxy plugins that fetch models at first use (local TTS voices, on-device NER, …).",
   "keywords": [
     "moxxy",

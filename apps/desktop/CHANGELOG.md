@@ -1,5 +1,27 @@
 # @moxxy/desktop
 
+## 0.28.1
+
+### Patch Changes
+
+- 3e4b2b4: Goal mode refactor: deliver the outcome, then get out of the way. Goal runs are now guardrail-free — no iteration cap, no token budget, and a stuck-loop trip steers the model with a nudge instead of killing the run (the only terminals are goal_complete, goal_abandon, an idle stall, user abort, or a genuinely fatal error). Goal mode is also one-shot (`ModeDef.transient`): it arms per objective, hands the session back to the previous mode when the goal concludes, is never persisted as the boot/category default, and channels no longer flip session-wide yolo/auto-approve (the run auto-approves via its own scoped resolver). Also fixes the shared ReAct loop's checkpoint injection budget to be per idle-episode, so long autonomous runs no longer die on their Nth spread-out idle round. SDK additions: `emitRequestsAndNudgeOnStuck`, `stuck.action: 'nudge'` on `runReactLoop`, `StuckLoopDetector.reset()`, `ModeDef.transient`, `ModeContext.previousModeName`.
+- Updated dependencies [3e4b2b4]
+- Updated dependencies [e4e2941]
+- Updated dependencies [3bf5b52]
+  - @moxxy/sdk@0.28.0
+  - @moxxy/cli@0.28.0
+  - @moxxy/chat-model@0.3.18
+  - @moxxy/client-core@0.13.7
+  - @moxxy/client-platform-web@0.1.46
+  - @moxxy/desktop-host@0.13.1
+  - @moxxy/desktop-ipc-contract@0.14.3
+  - @moxxy/ipc-server-ws@0.1.45
+  - @moxxy/plugin-channel-mobile@0.28.0
+  - @moxxy/plugin-stt-whisper-codex@0.28.0
+  - @moxxy/plugin-vault@0.28.0
+  - @moxxy/runner@0.2.32
+  - @moxxy/workflows-builder@0.1.29
+
 ## 0.28.0
 
 ### Minor Changes

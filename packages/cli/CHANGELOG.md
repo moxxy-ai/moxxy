@@ -1,5 +1,34 @@
 # @moxxy/cli
 
+## 0.28.0
+
+### Minor Changes
+
+- 3e4b2b4: Goal mode refactor: deliver the outcome, then get out of the way. Goal runs are now guardrail-free — no iteration cap, no token budget, and a stuck-loop trip steers the model with a nudge instead of killing the run (the only terminals are goal_complete, goal_abandon, an idle stall, user abort, or a genuinely fatal error). Goal mode is also one-shot (`ModeDef.transient`): it arms per objective, hands the session back to the previous mode when the goal concludes, is never persisted as the boot/category default, and channels no longer flip session-wide yolo/auto-approve (the run auto-approves via its own scoped resolver). Also fixes the shared ReAct loop's checkpoint injection budget to be per idle-episode, so long autonomous runs no longer die on their Nth spread-out idle round. SDK additions: `emitRequestsAndNudgeOnStuck`, `stuck.action: 'nudge'` on `runReactLoop`, `StuckLoopDetector.reset()`, `ModeDef.transient`, `ModeContext.previousModeName`.
+
+### Patch Changes
+
+- e4e2941: Extract the shared ReAct loop core into the SDK (`runReactLoop`) with a turn-end checkpoint gate, and refactor the existing modes onto it.
+
+  - New SDK exports: `runReactLoop`, `TurnCheckpoint`/`CheckpointContext`/`CheckpointResult`, loop hooks (`onIterationStart`, `onProviderSuccess`, `onToolBatchEnd`, `onMaxIterations`), and the retry test seam. A mode can now gate the moment the model claims it is done — run lints, spawn a reviewer subagent and await its verdict — and feed the result back into the same turn (persistent checkpoint-origin `user_prompt`, or a volatile nudge).
+  - `mode-default`, `mode-goal`, and the collaborative agent loop now share one hardened copy of the loop plumbing (bounded retry back-off, reactive compaction on overflow, elision, stuck detection, abort handling) instead of three divergent ones. Unified semantics: an un-compactable context overflow is now fatal everywhere (goal mode's rule), the collab agent gained the bounded exponential back-off it lacked, and empty truncated completions warn in every mode.
+  - Guardrails: per-turn injection budget, per-checkpoint timeout with fail-open, empty/oversized-feedback guards, checkpoint disarm in subagent sessions (`ModeContext.isSubagent`) as a recursion backstop.
+  - `TriggerOrigin` gains `kind: 'checkpoint'`; chat-model treats mid-turn checkpoint prompts as in-turn blocks (not turn boundaries) and the desktop renders them as a compact chip.
+
+- 3bf5b52: feat(memory): persistent user model — always-injected `~/.moxxy/memory/user-model.md` + update tool
+
+  A first-class user model (Identity / Preferences / Workflows / Context) is now
+  ALWAYS injected into the system prompt as a delimited `<user-model>` block
+  (capped at 4000 chars, idempotent per request, error-swallowing). It is updated
+  only through the deliberate, permission-prompted `memory_update_user_model` tool
+  — never silently written by the loop. The default reflector now steers durable
+  user-trait proposals toward this tool, and `moxxy memory user-model` prints the
+  current file.
+
+- Updated dependencies [3e4b2b4]
+- Updated dependencies [e4e2941]
+  - @moxxy/sdk@0.28.0
+
 ## 0.27.0
 
 ### Minor Changes

@@ -1,5 +1,34 @@
 # @moxxy/workspaces-app
 
+## 0.4.0
+
+### Minor Changes
+
+- 4d4f180: Over-the-air (OTA) updates for the Expo mobile app via EAS Update. The whole JS
+  bundle + assets can now ship without an App Store / Play Store review.
+
+  - `expo-updates` wired in: `updates.url` derived from the resolved EAS project id
+    in `app.config.ts`, `runtimeVersion` on the `appVersion` policy, `preview` /
+    `production` update channels stamped on the eas.json build profiles, and the
+    committed iOS `Expo.plist` flipped on.
+  - A generic in-app update mechanism: the pure `reduceOta` state machine
+    (`src/otaUpdates.ts`) driving `useOtaUpdates`, mounted headlessly via
+    `<OtaUpdateController/>`. It checks on launch and on every foreground,
+    downloads silently, and applies the new bundle on the next activation. Dormant
+    in Expo Go, dev, and web.
+  - A manual-trigger CI job (`.github/workflows/mobile-eas-update.yml`) that builds
+    the workspace deps, typechecks + tests the app, and publishes `eas update` to a
+    chosen channel.
+
+### Patch Changes
+
+- Updated dependencies [3e4b2b4]
+- Updated dependencies [e4e2941]
+  - @moxxy/sdk@0.28.0
+  - @moxxy/chat-model@0.3.18
+  - @moxxy/client-core@0.13.7
+  - @moxxy/client-transport-ws@0.2.16
+
 ## 0.3.13
 
 ### Patch Changes
