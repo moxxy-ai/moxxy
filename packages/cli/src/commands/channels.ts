@@ -1,8 +1,11 @@
+import path from 'node:path';
 import type { ChannelDef, ChannelRunStatus, ChannelSubcommand } from '@moxxy/sdk';
 import {
   clearChannelStatus,
   liveChannelStatus,
   listLiveChannelStatuses,
+  moxxyHome,
+  rotateChannelToken,
   spawnDedicatedChannel,
   stopDedicatedChannel,
 } from '@moxxy/sdk/server';
@@ -20,6 +23,7 @@ import { colors } from '../colors.js';
  *  - `moxxy channels status [name]`         list the DETACHED channels currently running
  *  - `moxxy channels start <name>`          start a channel on its own detached runner
  *  - `moxxy channels stop <name>`           stop a detached channel
+ *  - `moxxy channels rotate-token <name>`   rotate a channel's persisted pairing secret
  *  - `moxxy channels <name>`                boot and run a channel by name (same as `moxxy <name>`)
  *  - `moxxy channels <name> --help`         show <name>'s description + subcommands (no boot)
  *  - `moxxy channels <name> <sub>`          invoke a channel-defined subcommand
@@ -49,6 +53,7 @@ export async function runChannelsCommand(argv: ParsedArgv): Promise<number> {
   if (name === 'status') return runStatus(argv.positional[1]);
   if (name === 'start') return runStart(argv);
   if (name === 'stop') return runStop(argv);
+  if (name === 'rotate-token') return runRotateToken(argv);
 
   // Channel-introspection paths (read def, list subcommands) only need
   // the registry — they don't run a turn, so they MUST NOT boot the
@@ -317,6 +322,33 @@ async function runStop(argv: ParsedArgv): Promise<number> {
     clearChannelStatus(channelName);
   }
   process.stdout.write(`${colors.bold(channelName)} ${colors.dim('stopped')}\n`);
+  return 0;
+}
+
+/**
+ * `moxxy channels rotate-token <name>` — replace the channel's persisted pairing
+ * secret (`~/.moxxy/<name>-token`, the file convention `resolveChannelToken`
+ * uses) with a fresh one. The old token stops authenticating, so every paired
+ * client must re-pair; a channel already running keeps the old token in memory
+ * until it is restarted. Pure file op — no session boot. A token supplied via
+ * env (`MOXXY_<NAME>_TOKEN`) or `channels.<name>.token` config takes precedence
+ * at resolve time and must be rotated at its source (see `rotateChannelToken`).
+ */
+async function runRotateToken(argv: ParsedArgv): Promise<number> {
+  const channelName = argv.positional[1];
+  if (!channelName) {
+    printError('usage: moxxy channels rotate-token <name>');
+    return 2;
+  }
+  const fileName = `${channelName}-token`;
+  rotateChannelToken({ fileName });
+  const file = path.join(moxxyHome(), fileName);
+  process.stdout.write(
+    `${colors.bold(channelName)} ${colors.dim('pairing token rotated')}\n` +
+      `  ${colors.dim(`new secret written to ${file}`)}\n` +
+      `  ${colors.dim('The old token no longer authenticates — every paired client must re-pair.')}\n` +
+      `  ${colors.dim(`Restart the channel (\`moxxy channels stop/start ${channelName}\`) for the new token to take effect.`)}\n`,
+  );
   return 0;
 }
 

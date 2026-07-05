@@ -3,7 +3,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
-import { applyInitConfig, setPluginEnabled } from './user-config.js';
+import {
+  applyInitConfig,
+  loadDisabledProviders,
+  setPluginEnabled,
+  setProviderEnabled,
+} from './user-config.js';
 import { moxxyConfigSchema } from './schema.js';
 
 let tmp: string;
@@ -109,5 +114,36 @@ describe('applyInitConfig', () => {
     );
     const raw = await fs.readFile(configPath, 'utf8');
     expect(raw).toContain('# my hand-written config');
+  });
+});
+
+describe('setProviderEnabled', () => {
+  it('serializes two concurrent toggles so neither update is lost', async () => {
+    // Two rapid cross-client toggles (e.g. desktop + mobile hitting the same
+    // runner) each read-merge-write config.yaml on DIFFERENT providers. Without
+    // the config writer's mutex the second read would see the pre-first-write
+    // snapshot and clobber the first provider's flag (last-writer-wins). The
+    // module-level `configMutex` makes the second reader see the first's result.
+    await Promise.all([
+      setProviderEnabled('openai', false, { configPath }),
+      setProviderEnabled('anthropic', false, { configPath }),
+    ]);
+
+    // Both landed: the file must reflect both disabled flags, not just one.
+    const parsed = (await readParsed()) as {
+      plugins: { provider: { items: Record<string, { enabled: boolean }> } };
+    };
+    expect(parsed.plugins.provider.items.openai).toEqual({ enabled: false });
+    expect(parsed.plugins.provider.items.anthropic).toEqual({ enabled: false });
+    expect([...(await loadDisabledProviders({ configPath }))].sort()).toEqual([
+      'anthropic',
+      'openai',
+    ]);
+  });
+
+  it('a later toggle overwrites the same provider flag deterministically', async () => {
+    await setProviderEnabled('openai', false, { configPath });
+    await setProviderEnabled('openai', true, { configPath });
+    expect(await loadDisabledProviders({ configPath })).toEqual([]);
   });
 });

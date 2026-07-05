@@ -93,12 +93,22 @@ export async function startRegisteredChannel(
  * at runtime with `--dedicated` or `MOXXY_DEDICATED_RUNNER=1`. A caller that
  * already pinned the socket/session id/source (e.g. the desktop supervisor)
  * always wins — we only fill in what is unset.
+ *
+ * A declared `sessionSource` is stamped whether or not the channel runs
+ * dedicated: a NON-dedicated channel that self-hosts the runner (e.g. `mobile`)
+ * still owns its session and wants the right origin recorded, so its empty
+ * pre-first-prompt session isn't dropped by the runner's tui/desktop heuristic.
  */
 export function applyDedicatedRunnerEnv(
   name: string,
   argv: ParsedArgv,
   opts: DedicatedRunnerOpts,
 ): boolean {
+  // Stamp the declared source first — it's independent of dedication, and the
+  // caller-pinned env still wins via the unset guard.
+  if (!process.env.MOXXY_SESSION_SOURCE && opts.sessionSource) {
+    process.env.MOXXY_SESSION_SOURCE = opts.sessionSource;
+  }
   const dedicated =
     opts.dedicatedRunner === true ||
     hasBoolFlag(argv, 'dedicated') ||
@@ -112,9 +122,6 @@ export function applyDedicatedRunnerEnv(
   }
   if (!process.env.MOXXY_SESSION_ID) {
     process.env.MOXXY_SESSION_ID = `moxxy-channel-${name}`;
-  }
-  if (!process.env.MOXXY_SESSION_SOURCE && opts.sessionSource) {
-    process.env.MOXXY_SESSION_SOURCE = opts.sessionSource;
   }
   return true;
 }

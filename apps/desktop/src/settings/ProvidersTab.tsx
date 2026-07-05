@@ -60,6 +60,19 @@ function providerSupportsReasoning(p: ProviderRow): boolean {
   return p.supportsReasoning === true;
 }
 
+/**
+ * True for a provider that authenticates with NO API key — a local
+ * OpenAI-compatible server (Ollama, LM Studio, llama.cpp). The runner reports
+ * its `authKind` as `'api-key'` because the def carries a placeholder key for
+ * the OpenAI SDK, but there is no real credential to prompt for (the provider
+ * catalog's canonical auth is `'none'`). The built-in `local` provider's slug
+ * is forced on, so a name check is exact — mirrors the name-set the sibling
+ * onboarding step uses to tag OAuth providers. Without this the Configure sheet
+ * shows a key input for a key that does not exist. */
+function providerNeedsNoKey(p: ProviderRow): boolean {
+  return p.name === 'local';
+}
+
 export function ProvidersTab({
   providers,
   onToggle,
@@ -182,6 +195,7 @@ export function ProvidersTab({
 function subtitleFor(p: ProviderRow): string {
   if (!p.enabled) return 'Disabled · excluded from activation';
   if (p.ready) return 'Active · credentials resolved';
+  if (providerNeedsNoKey(p)) return 'Inactive · start a local server to connect';
   return p.authKind === 'oauth'
     ? 'Inactive · sign in to connect'
     : 'Inactive · add a key to use';
@@ -259,6 +273,15 @@ function ConfigureProviderModal({
               }}
             />
           </div>
+        ) : providerNeedsNoKey(provider) ? (
+          <p
+            data-testid="provider-no-key-note"
+            style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.55 }}
+          >
+            Local servers need no API key — just point moxxy at a running OpenAI-compatible endpoint
+            (Ollama, LM Studio, llama.cpp). Set <code style={{ fontSize: 11.5 }}>LOCAL_MODEL_BASE_URL</code>{' '}
+            for a non-default endpoint, then start the server.
+          </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={fieldLabelStyle}>
@@ -342,7 +365,7 @@ function ConfigureProviderModal({
           </div>
         )}
 
-        {!isAdmin && provider.authKind !== 'oauth' && (
+        {!isAdmin && provider.authKind !== 'oauth' && !providerNeedsNoKey(provider) && (
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
             Built-in provider — endpoint and model list ship with moxxy; only the key is configurable.
           </p>

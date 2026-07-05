@@ -131,6 +131,27 @@ describe('ProvidersTab', () => {
     );
   });
 
+  it('shows a "no key needed" note (not a key form) for the local provider', () => {
+    // The runner reports the local provider's authKind as 'api-key' (its def
+    // carries a placeholder key for the OpenAI SDK), but there is no real key
+    // to enter — the sheet must not prompt for one.
+    const local: ProviderEntry = {
+      name: 'local',
+      ready: false,
+      enabled: true,
+      active: false,
+      authKind: 'api-key',
+      kind: 'builtin',
+      keyName: 'LOCAL_API_KEY',
+    };
+    renderTab({ providers: [local] });
+    fireEvent.click(screen.getByRole('button', { name: /configure local/i }));
+    expect(screen.getByTestId('provider-no-key-note')).toBeTruthy();
+    expect(screen.queryByTestId('provider-key-input')).toBeNull();
+    // …and not the misleading "only the key is configurable" built-in note.
+    expect(screen.queryByText(/only the key is configurable/i)).toBeNull();
+  });
+
   it('offers a real sign-in (not a key form) for OAuth providers', () => {
     // The OAuthSignIn flow subscribes to provider.login.* on mount, so the
     // configure sheet needs a transport even though the buttons aren't clicked.

@@ -70,7 +70,42 @@ export interface BridgeMethods {
   };
 }
 
-export type BridgeMethod = keyof BridgeMethods;
+/**
+ * The renderer/host partition, at the type level. Every bridge method runs in
+ * exactly ONE place: the host RENDERER (a UI concern) or a MAIN-PROCESS service.
+ * Splitting {@link BridgeMethod} into these two disjoint halves turns a drift in
+ * the split — a method in BOTH sides, or in NEITHER — into a COMPILE error rather
+ * than a mere runtime-test failure (the guards below, the typed
+ * {@link RENDERER_DISPATCHED_METHODS} set, and the host's `BridgeServices` map all
+ * key off these types).
+ */
+
+/** Resolved in the host RENDERER (e.g. `session.send` prefills the active chat
+ *  composer); never reaches a main-process service. See
+ *  {@link RENDERER_DISPATCHED_METHODS}. */
+export type RendererDispatchedMethod = 'session.send';
+
+/** Backed by a MAIN-PROCESS service (native dialogs + document parsing + the
+ *  anonymizer engine); dispatched through `BridgeServices` in
+ *  `@moxxy/desktop-host`. */
+export type HostDispatchedMethod = 'documents.open' | 'documents.save' | 'anonymizer.detect';
+
+/** A bridge method: exactly one of the two dispatch halves above. */
+export type BridgeMethod = RendererDispatchedMethod | HostDispatchedMethod;
+
+type MethodsEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+// Compile-time partition guards (mirror dispatchBridge's `_never` exhaustiveness
+// check, and are belt to the runtime tests' suspenders):
+//  - EXHAUSTIVE: the two halves cover every key of `BridgeMethods`, no more/less.
+//  - DISJOINT:   no method is classified as both renderer- and host-dispatched.
+// A method added to `BridgeMethods` but left unclassified — or listed on both
+// sides — fails to typecheck here.
+const _partitionIsExhaustive: MethodsEqual<keyof BridgeMethods, BridgeMethod> = true;
+const _partitionIsDisjoint: MethodsEqual<
+  Extract<RendererDispatchedMethod, HostDispatchedMethod>,
+  never
+> = true;
 
 /** Permission required for each bridge method — the single source the host gate
  *  checks. A method with no entry is host-internal and never app-callable. */
@@ -91,15 +126,22 @@ export const METHOD_PERMISSION: Readonly<Record<BridgeMethod, AppPermission>> = 
  *
  * INVARIANT: this set and the main-process `BridgeServices` keys are DISJOINT
  * and, together, cover every {@link BridgeMethod}. The SDK keeps one unified
- * method map; "where it runs" lives here.
+ * method map; "where it runs" lives here. Because the set is derived from a
+ * {@link RendererDispatchedMethod}-keyed table, it holds EXACTLY the
+ * renderer-dispatched methods — a missing or stray member is a compile error.
  */
-export const RENDERER_DISPATCHED_METHODS: ReadonlySet<BridgeMethod> = new Set<BridgeMethod>([
-  'session.send',
-]);
+const RENDERER_DISPATCHED_TABLE: Record<RendererDispatchedMethod, true> = {
+  'session.send': true,
+};
+export const RENDERER_DISPATCHED_METHODS: ReadonlySet<RendererDispatchedMethod> = new Set(
+  Object.keys(RENDERER_DISPATCHED_TABLE) as RendererDispatchedMethod[],
+);
 
 /** True when `method` is resolved in the renderer (not a main service). */
 export function isRendererDispatched(method: BridgeMethod): boolean {
-  return RENDERER_DISPATCHED_METHODS.has(method);
+  // `.has` is typed to the narrower `RendererDispatchedMethod`; widen for the
+  // membership test since any `BridgeMethod` is a valid probe.
+  return (RENDERER_DISPATCHED_METHODS as ReadonlySet<BridgeMethod>).has(method);
 }
 
 /** Tag on every bridge envelope so unrelated `message` events are ignored. */

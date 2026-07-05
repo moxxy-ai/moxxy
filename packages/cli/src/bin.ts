@@ -73,6 +73,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['channels', 'list registered channels + their subcommands'],
       ['channels start|stop <name>', 'run a channel detached on its own runner (or stop it)'],
       ['channels status [name]', 'list the detached channels currently running'],
+      ['channels rotate-token <name>', "rotate a channel's persisted pairing secret (clients re-pair)"],
       ['channels <name>', 'start a channel by name in the foreground (same as `moxxy <name>`)'],
       ['channels <name> <sub>', 'invoke a channel-defined subcommand'],
       ['serve [--except <list>]', 'run every channel + background daemon in ONE process'],
