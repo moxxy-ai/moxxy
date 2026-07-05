@@ -295,6 +295,15 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     provides: [{ category: 'synthesizer', name: 'elevenlabs' }],
   },
   {
+    id: 'tts-local',
+    label: 'Local voice (offline TTS)',
+    description:
+      'Fully on-device text-to-speech (English + Polish) via sherpa-onnx Piper voices. No API key; each voice is a one-time ~64 MB verified download.',
+    packageName: '@moxxy/plugin-tts-local',
+    installSpec: '@moxxy/plugin-tts-local',
+    provides: [{ category: 'synthesizer', name: 'local-piper' }],
+  },
+  {
     id: 'provider-admin',
     label: 'Provider admin tools',
     description: 'provider_add/list/remove/test — register OpenAI-compatible vendors at runtime.',
