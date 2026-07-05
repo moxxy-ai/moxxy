@@ -287,6 +287,14 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     provides: [{ category: 'synthesizer', name: 'openai-tts' }],
   },
   {
+    id: 'tts-elevenlabs',
+    label: 'ElevenLabs read-aloud',
+    description: 'Text-to-speech via the ElevenLabs /v1/text-to-speech API (needs ELEVENLABS_API_KEY).',
+    packageName: '@moxxy/plugin-tts-elevenlabs',
+    installSpec: '@moxxy/plugin-tts-elevenlabs',
+    provides: [{ category: 'synthesizer', name: 'elevenlabs' }],
+  },
+  {
     id: 'provider-admin',
     label: 'Provider admin tools',
     description: 'provider_add/list/remove/test — register OpenAI-compatible vendors at runtime.',
