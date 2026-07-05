@@ -22,6 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** On-demand plugins seeded into the desktop. Extend as batches unbundle. */
 const SEED_PLUGINS = [
@@ -63,12 +64,22 @@ const SEED_PLUGINS = [
  *  from local tarballs (usage-stats→core, oauth→vault, everything→sdk). */
 const CLOSURE = ['sdk', 'core', 'config', 'channel-kit', 'plugin-vault', 'plugin-tunnel-proxy', 'e2e', 'plugin-provider-openai-codex'];
 
-const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..');
+// fileURLToPath, NOT url.pathname — pathname on Windows is `/D:/a/...`, which
+// path.resolve prefixes with the drive again (`D:\D:\a\...`).
+const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const seedDir = path.join(repo, 'apps/desktop/resources/plugins-seed');
 const tarDir = mkdtempSync(path.join(tmpdir(), 'moxxy-seed-tars-'));
 
+// On Windows pnpm/npm are .cmd shims Node refuses to spawn directly
+// (CVE-2024-27980) — route through the shell there, quoting spaced args.
+const isWin = process.platform === 'win32';
+const winArg = (a) => (/\s/.test(a) ? `"${a}"` : a);
 const run = (cmd, args, opts = {}) =>
-  execFileSync(cmd, args, { stdio: ['ignore', 'inherit', 'inherit'], ...opts });
+  execFileSync(cmd, isWin ? args.map(winArg) : args, {
+    stdio: ['ignore', 'inherit', 'inherit'],
+    shell: isWin,
+    ...opts,
+  });
 
 rmSync(seedDir, { recursive: true, force: true });
 mkdirSync(seedDir, { recursive: true });
