@@ -32,6 +32,13 @@ export interface StuckLoopDetector {
   readonly repeatThreshold: number;
   /** Record the call and report whether the loop guard should trip. */
   record(toolName: string, input: unknown): StuckSignal;
+  /**
+   * Clear both sliding windows. Used by the nudge (steer-don't-stop) stuck
+   * policy: after a trip is surfaced to the model, the detector starts a fresh
+   * episode — otherwise every subsequent call inside the still-full window
+   * would re-trip and re-nudge on each iteration.
+   */
+  reset(): void;
 }
 
 /**
@@ -101,6 +108,10 @@ export function createStuckLoopDetector(opts: LoopGuardSettings = {}): StuckLoop
         if (nearCount >= nearThreshold) return { stuck: true, count: nearCount, kind: 'near' };
       }
       return { stuck: false, count: Math.max(exactCount, nearCount), kind: 'exact' };
+    },
+    reset(): void {
+      recent.length = 0;
+      recentNear.length = 0;
     },
   };
 }

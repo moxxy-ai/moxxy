@@ -143,10 +143,21 @@ export interface ModeContext {
    * Request the session switch its active mode AFTER this turn fully drains.
    * Used by terminal workflow modes (BMAD finishing its last phase) to hand
    * control back to a normal mode so the next message isn't trapped in the
-   * workflow. The switch is applied post-turn by the runner; an unknown /
-   * unregistered mode name is ignored. Absent in synthetic test contexts.
+   * workflow, and by {@link ModeDef.transient} modes (goal) to disarm
+   * themselves once their objective concludes. The switch is applied
+   * post-turn by the runner; an unknown / unregistered mode name is ignored.
+   * Absent in synthetic test contexts.
    */
   readonly requestModeSwitch?: (modeName: string) => void;
+  /**
+   * Name of the mode that was active before the current one (per the mode
+   * registry), when known. Lets a {@link ModeDef.transient} mode hand control
+   * back to whatever the user was in before arming it (`/goal` from research
+   * mode reverts to research, not blindly to default). Absent when the
+   * registry has no history (first mode of the session) or in synthetic test
+   * contexts — callers should fall back to `'default'`.
+   */
+  readonly previousModeName?: string;
   emit(event: EmittedEvent): Promise<MoxxyEvent>;
 }
 
@@ -233,6 +244,21 @@ export interface ModeDef {
    * more later) opt in the same way. See {@link isSelectableMode}.
    */
   readonly special?: ModeSpecial;
+  /**
+   * Marks a mode that arms for a SINGLE objective rather than becoming the
+   * session's standing behavior (goal mode). Uniformly across surfaces:
+   *
+   *   - it is never persisted as the category default (`plugins.mode.default`)
+   *     — `/goal` once must not make every future session boot autonomous;
+   *   - a persisted/config default naming it is refused at boot (the
+   *     protected default stays active instead);
+   *   - the mode itself is expected to hand control back (via
+   *     `ctx.requestModeSwitch`, typically to `ctx.previousModeName`) when
+   *     its objective concludes.
+   *
+   * Switching INTO it (picker, `/goal`, `setMode` RPC) still works normally.
+   */
+  readonly transient?: boolean;
   run(ctx: ModeContext): AsyncIterable<MoxxyEvent>;
 }
 

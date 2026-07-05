@@ -94,6 +94,7 @@ export async function* runTurn(
     session.lastResolvedModel = model;
 
     const strategy = session.modes.getActive();
+    const previousModeName = session.modes.getPreviousActiveName();
     // Combine the session's signal, the per-turn one (if provided), and the
     // generator-scoped abandonment signal so any of them firing cancels the turn.
     const effectiveSignal = AbortSignal.any(
@@ -140,6 +141,10 @@ export async function* runTurn(
       requestModeSwitch: (modeName: string) => {
         requestedModeSwitch = modeName;
       },
+      // Only surface a previous mode that is STILL registered — a transient
+      // mode reverting to an since-unregistered name would throw in the
+      // post-turn setActive and strand the session in the transient mode.
+      ...(previousModeName && session.modes.has(previousModeName) ? { previousModeName } : {}),
       emit: (event: EmittedEvent) => session.log.append(event),
     };
 

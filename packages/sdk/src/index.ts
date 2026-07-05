@@ -271,7 +271,10 @@ export {
   dispatchToolCall,
   executeToolUses,
   emitRequestsAndDetectStuck,
+  emitRequestsAndNudgeOnStuck,
   type StuckLoopReport,
+  type StuckNudgeReport,
+  type StuckTripInfo,
 } from './tool-dispatch.js';
 
 export type { TokenBudget, CompactContext, CompactorDef } from './compactor.js';

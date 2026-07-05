@@ -460,6 +460,17 @@ function handlePluginAction(id: string, deps: PickerHandlerDeps): void {
     const split = name.indexOf('::');
     const category = split >= 0 ? name.slice(0, split) : name;
     const contribution = split >= 0 ? name.slice(split + 2) : '';
+    // Transient modes (goal) arm per objective and disarm themselves — they
+    // can't be the standing default (boot would also refuse it).
+    if (
+      category === 'mode' &&
+      deps.session.modes.list().find((m) => m.name === contribution)?.transient
+    ) {
+      deps.setSystemNotice(
+        `"${contribution}" is a transient mode (armed per objective) and can't be the standing default`,
+      );
+      return;
+    }
     void (async () => {
       try {
         await admin.setCategoryDefault(category, contribution);
@@ -675,7 +686,10 @@ function handleModeSelected(id: string, deps: PickerHandlerDeps): void {
   try {
     deps.session.modes.setActive(id);
     deps.setSystemNotice(`mode → ${id}`);
-    void setCategoryDefault('mode', id).catch(() => undefined);
+    // Transient modes (goal) arm per objective and disarm themselves — never
+    // persist one as the standing default.
+    const def = deps.session.modes.list().find((m) => m.name === id);
+    if (!def?.transient) void setCategoryDefault('mode', id).catch(() => undefined);
   } catch (err) {
     deps.setSystemNotice(
       `failed to switch mode: ${err instanceof Error ? err.message : String(err)}`,

@@ -84,3 +84,30 @@ describe('ModeRegistry legacy-name migration', () => {
     expect(after).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ModeRegistry previous-mode tracking', () => {
+  it('records the previously active mode across switches', () => {
+    const reg = new ModeRegistry();
+    reg.register(mode('default')); // auto-active, no previous
+    expect(reg.getPreviousActiveName()).toBeNull();
+
+    reg.register(mode('goal'));
+    reg.setActive('goal');
+    expect(reg.getPreviousActiveName()).toBe('default');
+
+    // Reverting (a transient mode handing back) updates previous too.
+    reg.setActive('default');
+    expect(reg.getPreviousActiveName()).toBe('goal');
+  });
+
+  it('a same-name setActive does not clobber the previous mode', () => {
+    const reg = new ModeRegistry();
+    reg.register(mode('default'));
+    reg.register(mode('goal'));
+    reg.setActive('goal');
+    // Re-arming goal (e.g. /goal twice in a row) keeps 'default' as the mode
+    // to hand back to — activate() early-returns on the name match.
+    reg.setActive('goal');
+    expect(reg.getPreviousActiveName()).toBe('default');
+  });
+});

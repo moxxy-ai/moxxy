@@ -13,6 +13,20 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, modes, RESOLVED 2026-07-05] Goal mode killed its own runs and never let
+  go: the iteration cap (150), a 4M token budget, and a stuck-loop FATAL abort
+  (whose near-repeat heuristic trips on a legitimate edit→build→test cycle) all
+  ended unattended runs mid-delivery, and the checkpoint injection budget never
+  reset within a turn so the 4th *spread-out* idle nudge died with "checkpoint
+  budget exhausted". Worse, `/goal` persisted `goal` as the config-wide mode
+  default (future sessions BOOTED autonomous) and flipped session-wide
+  yolo/auto-approve that nothing ever reverted. Fixed: goal runs are
+  guardrail-free (terminals only: complete/abandon/idle-stall/abort/fatal; stuck
+  trips now steer via `stuck.action: 'nudge'`), the injection budget is
+  per idle-episode (`react-loop.ts`), and goal is `ModeDef.transient` — arms per
+  objective, reverts to `ctx.previousModeName` on completion, refused as a
+  boot/category default, and no channel flips session-wide approval anymore
+  (the run's own scoped resolver auto-approves).
 - [med, modes, RESOLVED 2026-07-05] Every ReAct-shaped mode duplicated ~250 lines
   of loop plumbing — `mode-default`, `mode-goal`, and the collab agent loop each
   carried a divergent copy of retry back-off / reactive compaction / stuck
@@ -164,6 +178,12 @@ or recorded-on-purpose decision.
   `credentialResolver` capability, per-owner browser sidecar registry, warm
   subprocess pool are consciously deferred (surface/risk for no current win);
   revisit when a concrete need appears.
+- **Goal runs have no spend ceiling — on purpose (2026-07-05).** Guardrails
+  (iteration cap, token budget, stuck-abort) killed real deliveries, so goal mode
+  removed them by explicit product decision; the backstops are the always-visible
+  GOAL badge, Esc/abort, the idle-stall soft-terminal, and stuck-NUDGE steering.
+  If runaway-spend reports appear, add an opt-in `context.goal.budget` config
+  (off by default) rather than reintroducing silent hard stops.
 
 ## Sessions / workspace
 

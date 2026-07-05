@@ -75,11 +75,13 @@ describe('runSlash /goal', () => {
     return { deps, calls };
   }
 
-  it('switches to goal mode, forces yolo on, and starts work with the objective', () => {
+  it('switches to goal mode and starts work with the objective — no yolo flip', () => {
     const { deps, calls } = goalDeps();
     runSlash('/goal build the widget and make the tests pass', deps);
     expect(calls.setActive).toEqual(['goal']);
-    expect(calls.yolo).toEqual([true]);
+    // Goal mode auto-approves its own tool calls via a run-scoped resolver; a
+    // session-wide yolo flip would outlive the run (permission leak).
+    expect(calls.yolo).toEqual([]);
     expect(calls.submitted).toEqual(['build the widget and make the tests pass']);
   });
 
@@ -87,8 +89,17 @@ describe('runSlash /goal', () => {
     const { deps, calls } = goalDeps();
     runSlash('/goal', deps);
     expect(calls.setActive).toEqual(['goal']);
-    expect(calls.yolo).toEqual([true]);
+    expect(calls.yolo).toEqual([]);
     expect(calls.submitted).toEqual([]);
+  });
+
+  it('never persists goal as the category default (transient mode)', async () => {
+    const { setCategoryDefault } = await import('@moxxy/config');
+    vi.mocked(setCategoryDefault).mockClear();
+    const { deps } = goalDeps();
+    runSlash('/goal build the widget', deps);
+    // `/goal` once must not make every future session boot autonomous.
+    expect(setCategoryDefault).not.toHaveBeenCalled();
   });
 
   it('reports when goal mode is not registered', () => {
@@ -100,6 +111,43 @@ describe('runSlash /goal', () => {
     expect(calls.setActive).toEqual([]);
     expect(calls.submitted).toEqual([]);
     expect(calls.notices.some((n) => typeof n === 'string' && /not available/.test(n))).toBe(true);
+  });
+});
+
+describe('runSlash /mode — transient modes are never persisted as the default', () => {
+  function modeDeps() {
+    const calls = { setActive: [] as string[] };
+    const deps = {
+      ...baseDeps(),
+      session: {
+        id: 'sess-1',
+        commands: { get: () => undefined },
+        modes: {
+          list: () => [{ name: 'goal', transient: true }, { name: 'default' }],
+          setActive: (n: string) => calls.setActive.push(n),
+        },
+      },
+      setSystemNotice: () => undefined,
+    } as unknown as SlashDeps;
+    return { deps, calls };
+  }
+
+  it('/mode goal switches but does not persist (transient)', async () => {
+    const { setCategoryDefault } = await import('@moxxy/config');
+    vi.mocked(setCategoryDefault).mockClear();
+    const { deps, calls } = modeDeps();
+    runSlash('/mode goal', deps);
+    expect(calls.setActive).toEqual(['goal']);
+    expect(setCategoryDefault).not.toHaveBeenCalled();
+  });
+
+  it('/mode default switches AND persists (non-transient)', async () => {
+    const { setCategoryDefault } = await import('@moxxy/config');
+    vi.mocked(setCategoryDefault).mockClear();
+    const { deps, calls } = modeDeps();
+    runSlash('/mode default', deps);
+    expect(calls.setActive).toEqual(['default']);
+    expect(setCategoryDefault).toHaveBeenCalledWith('mode', 'default');
   });
 });
 
