@@ -32,6 +32,8 @@ export {
   isBridgeRequest,
   isRendererDispatched,
   type BridgeMethod,
+  type RendererDispatchedMethod,
+  type HostDispatchedMethod,
   type BridgeMethods,
   type BridgeSpan,
   type BridgeRequest,

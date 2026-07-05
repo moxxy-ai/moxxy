@@ -352,34 +352,6 @@ export function Screen({
   );
 }
 
-/* ------------------------------------------------------------- LargeHeader */
-
-export function LargeHeader({
-  title,
-  subtitle,
-  right,
-}: {
-  readonly title: string;
-  readonly subtitle?: string;
-  readonly right?: ReactNode;
-}) {
-  return (
-    <View style={sx('flex-row items-end justify-between px-4 pb-2 pt-2', { gap: 12 })}>
-      <View style={sx('flex-1', { minWidth: 0 })}>
-        <Text style={sx('text-[30px] font-black text-text', { letterSpacing: -0.5 })} numberOfLines={1}>
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text style={sx('mt-0.5 text-[14px] font-medium text-dim')} numberOfLines={1}>
-            {subtitle}
-          </Text>
-        ) : null}
-      </View>
-      {right ?? null}
-    </View>
-  );
-}
-
 /* ------------------------------------------------------------ DetailHeader */
 
 /** Header for a pushed (non-tab) screen: back chevron + title + optional right. */

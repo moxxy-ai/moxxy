@@ -30,24 +30,22 @@ import {
   type AppPermission,
   type BridgeMethod,
   type BridgeMethods,
+  type HostDispatchedMethod,
 } from '@moxxy/desktop-app-sdk';
 
 /** The host implementations behind each bridge method. The IPC layer provides
  *  these (native dialogs + main-process parsing + the anonymizer engine); the
  *  gate only calls one after the permission check passes.
  *
- *  INVARIANT: the keys here and `RENDERER_DISPATCHED_METHODS` (SDK) are DISJOINT
- *  and jointly cover every {@link BridgeMethod} — a method is EITHER a main
- *  service listed below OR renderer-dispatched, never both. */
-export interface BridgeServices {
-  'documents.open': () => Promise<BridgeMethods['documents.open']['result']>;
-  'documents.save': (
-    p: BridgeMethods['documents.save']['params'],
-  ) => Promise<BridgeMethods['documents.save']['result']>;
-  'anonymizer.detect': (
-    p: BridgeMethods['anonymizer.detect']['params'],
-  ) => Promise<BridgeMethods['anonymizer.detect']['result']>;
-}
+ *  Keyed by {@link HostDispatchedMethod} so the DISJOINT + EXHAUSTIVE invariant
+ *  with `RENDERER_DISPATCHED_METHODS` (SDK) is compile-enforced: every
+ *  host-dispatched method MUST have a service here, and a renderer-dispatched
+ *  method (e.g. `session.send`) CANNOT appear as a key. */
+export type BridgeServices = {
+  [M in HostDispatchedMethod]: (
+    params: BridgeMethods[M]['params'],
+  ) => Promise<BridgeMethods[M]['result']>;
+};
 
 export type BridgeDispatchResult =
   | { readonly ok: true; readonly result: unknown }
@@ -95,7 +93,9 @@ export async function dispatchBridge(
   try {
     switch (method) {
       case 'documents.open':
-        return { ok: true, result: await services['documents.open']() };
+        // `documents.open` takes no params (its map entry is `undefined`); the
+        // host service signature carries that `undefined` slot, so pass it.
+        return { ok: true, result: await services['documents.open'](undefined) };
       case 'documents.save':
         return {
           ok: true,

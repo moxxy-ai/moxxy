@@ -8,6 +8,17 @@ moment you see it. See AGENTS.md → "Tech debt is a standing job".
 entries were compacted away; what remains below is the currently-OPEN backlog as a
 scannable summary. Git history holds the full prior journal if you need it.
 
+**Cleanup pass 2026-07-05** — targeted backlog sweep (parallel fixes over disjoint
+subsystems). Retired: `moxxy channels rotate-token` CLI, compile-time `RENDERER_DISPATCHED_METHODS`
+partition, `moxxy mobile` session-source stamp, Vite orphan-ORT-wasm emit, `local`-provider
+key prompt, a channel-catalog drift guard, and mobile grab-bag cleanups (SafeAreaView, dead
+`ToolGroupUi` fields, unused `LargeHeader`); plus two VERIFIED-already-fixed (`provider.setEnabled`
+race now serialized by `configMutex`; one-shot commands drain via `closeSession()`) with
+regression tests added. Refined (narrowed, still open): `resolveModelContext` now warns on the
+`models[0]` fallback (calibration-from-usage still open); dropped-attachment notice, `FilesPane`
+repo-root, built-in-provider model editing, and the remaining mobile-misc items carry precise
+implementation paths. Full pre-PR gate green.
+
 Severity tags: `[critical]`/`[high]`/`[med]`/`[low]`, `[note]` = standing practice
 or recorded-on-purpose decision.
 
@@ -27,6 +38,56 @@ or recorded-on-purpose decision.
   objective, reverts to `ctx.previousModeName` on completion, refused as a
   boot/category default, and no channel flips session-wide approval anymore
   (the run's own scoped resolver auto-approves).
+- [low, cli/security-dx, RESOLVED 2026-07-05] `moxxy channels rotate-token <name>` now wraps
+  the SDK-only `rotateChannelToken` (SECURITY.md recommended rotation but no CLI exposed it):
+  a reserved verb rotates `~/.moxxy/<name>-token` (the mobile channel's file convention) as a
+  pure file op and prints a "clients must re-pair" notice.
+  `packages/cli/src/commands/channels.ts`, `packages/cli/src/bin.ts`.
+- [med, cli, RESOLVED 2026-07-05] One-shot commands (`-p`, `schedule run`, `doctor`, `login`,
+  `init`) draining persistence before exit — VERIFIED already handled: the shared
+  `closeSession()` (`flush()` → `settleWrites()` → `session.close()`) is awaited in each
+  command's `finally`, ahead of `bin.ts`'s `process.exit`. Stale entry; kept as a
+  regression-covered invariant. `packages/cli/src/setup/close-session.ts`.
+- [med, desktop/config, RESOLVED 2026-07-05] `provider.setEnabled` "lost update" race —
+  VERIFIED already fixed: the store moved off the stale `ipc/preferences.ts` pointer into
+  `@moxxy/config`, whose read-modify-write runs inside a module-level `configMutex`; added a
+  two-concurrent-toggles no-lost-update regression test.
+  `packages/config/src/user-config.ts`, `packages/config/src/user-config.test.ts`.
+- [med, apps, RESOLVED 2026-07-05] `RENDERER_DISPATCHED_METHODS` disjointness/exhaustiveness vs
+  the host `BridgeServices` map was runtime-test-only (drift compiled fine). Now compile-enforced:
+  `BridgeMethod = RendererDispatchedMethod | HostDispatchedMethod`, the renderer Set built from a
+  `Record<RendererDispatchedMethod, true>` table, `BridgeServices` a mapped type keyed by
+  `HostDispatchedMethod`, plus two equality guards (exhaustive over `keyof BridgeMethods` +
+  disjoint). Member lists unchanged; runtime tests kept as belt-and-suspenders.
+  `packages/desktop-app-sdk/src/bridge.ts`, `packages/desktop-app-sdk/src/index.ts`,
+  `packages/desktop-host/src/apps/bridge-host.ts`.
+- [low, mobile, RESOLVED 2026-07-05] Standalone `moxxy mobile` left `MOXXY_SESSION_SOURCE` unset,
+  so the runner's env heuristic stamped the empty pre-first-prompt session `'tui'` and dropped it
+  from the mobile list until its first prompt. Fixed by declaring `sessionSource:'mobile'` on
+  `mobileChannelDef` and making `applyDedicatedRunnerEnv` stamp a DECLARED source even for
+  non-dedicated channels (caller-pinned env still wins).
+  `packages/plugin-channel-mobile/src/index.ts`,
+  `packages/cli/src/commands/start-registered-channel.ts`.
+- [low, mobile, RESOLVED 2026-07-05] Mobile UI grab-bag: migrated `QrScannerSheet`'s deprecated
+  RN `SafeAreaView` to `react-native-safe-area-context`; removed dead `ToolGroupUi.accent`/`tint`
+  fields; deleted the unused `LargeHeader` component. `apps/mobile/src/components/QrScannerSheet.tsx`,
+  `apps/mobile/src/toolGroupUi.ts`, `apps/mobile/src/ui/kit.tsx`.
+- [med, desktop/vite-build, RESOLVED 2026-07-05] transformers.js's ORT glue
+  `new URL('…jsep.wasm', import.meta.url)` made Vite emit a ~21 MB ORPHAN wasm into `dist/assets/`
+  on every bundle (dead path — the NER worker sets `wasmPaths=/ort/`, so `locateFile` always wins).
+  Added an `ortWasmDropOrphan()` renderer plugin deleting the hashed `assets/` orphan in
+  `generateBundle`; the real `dist/ort/…jsep.wasm` copy (`writeBundle`, unhashed name, outside the
+  Rollup bundle) is untouched — verified in an isolated repro. `apps/desktop/electron.vite.config.ts`.
+- [low, desktop/local-provider, RESOLVED 2026-07-05] The desktop Configure sheet prompted for a
+  non-existent API key on the keyless `local` provider (core reports its placeholder-key authKind
+  as `api-key`). Added `providerNeedsNoKey()` (keyed off the canonical `local` slug) to show a
+  "no key needed" note instead of a key input. `apps/desktop/src/settings/ProvidersTab.tsx`.
+- [low, desktop-host/channel-catalog, RESOLVED 2026-07-05] The hand-mirrored `channel-catalog.ts`
+  had no test catching drift from the source of truth. Added a drift guard importing each channel
+  plugin's `ChannelDef` directly and asserting vault keys / required / secret-type / `hasWebhookUrl`
+  match (keyed by `vaultKey`) — silent drift now fails a test. (Removing the duplication via
+  `channels describe --json` remains a separate follow-up.)
+  `packages/desktop-host/src/channel-catalog.test.ts`.
 - [med, modes, RESOLVED 2026-07-05] Every ReAct-shaped mode duplicated ~250 lines
   of loop plumbing — `mode-default`, `mode-goal`, and the collab agent loop each
   carried a divergent copy of retry back-off / reactive compaction / stuck
@@ -194,10 +255,6 @@ or recorded-on-purpose decision.
 - [low, scale] `desks.changed` ships the full desk list (O(N) payload); a delta
   event (changed desk/session only) would cut cross-device payload to O(1). The
   projection-diff already suppresses per-event churn. `packages/desktop-host/src/sessions-watcher.ts`.
-- [low] Standalone `moxxy mobile` empty-session source: seeded `source:'mobile'`,
-  but the env-heuristic runner write can later stamp `tui`, dropping an empty
-  session from the list until its first prompt. Set `MOXXY_SESSION_SOURCE=mobile`
-  on the `moxxy mobile` runner to make it airtight. `packages/plugin-channel-mobile`.
 - [note] Stress-test multi-session with a desk's SECOND (UUID) session — the first
   session has id === desk id, which masks pool-key regressions. `packages/desktop-host`.
 - [low] TUI `/sessions` switcher only works in self-host/standalone mode (the TUI
@@ -288,14 +345,16 @@ or recorded-on-purpose decision.
   to the viewer). `packages/plugin-terminal/src/pty.ts`.
 - [low] Files pane polls IPC instead of streaming via the Surface protocol — promote
   to a real Surface if a third live pane appears. `apps/desktop/src/shell/surfaces/`.
-- [low] "Add to agent" on a git-changed file assumes cwd === repo root. `FilesPane.tsx`.
+- [low] "Add to agent" on a git-changed file assumes cwd === repo root: `git status`
+  paths are repo-root-relative, but `FilesPane` builds `absPath = cwd + relPath`, wrong
+  when the session cwd is a repo subdir (the same mismatch hits the diff viewer's
+  `confineDiffPath`). No repo-root is exposed to the renderer; the fix needs a new
+  `git.root` IPC (`ipc/git.ts` + contract). `apps/desktop/src/shell/surfaces/FilesPane.tsx`.
 - [low] Terminal tool completion is sentinel-heuristic; a structured exec channel
   would be cleaner. `packages/plugin-terminal/`.
 
 ## Desktop / apps & send-to-chat
 
-- [med] `RENDERER_DISPATCHED_METHODS` disjointness is a runtime test, not compile-time
-  — a type-level partition would make drift a compile error. `apps/desktop/src/bridge/`.
 - [med] `session.send` not reachable by sandboxed apps — the iframe runtime /
   postMessage↔IPC relay doesn't exist yet (only the built-in anonymizer path ships).
   `apps/desktop/src/apps/`.
@@ -311,20 +370,26 @@ or recorded-on-purpose decision.
 
 - [med] Polish NER recall unproven (cross-lingual transfer) — needs a real-Polish-doc
   eval harness or the `jiting/...hrl_onnx` fallback. `packages/anonymizer/`.
-- [med] Vite emits a ~21 MB orphan ORT wasm under `dist/assets/` (internal
-  `new URL(...)`) on every hot-update bundle — stop the emit via resolve alias /
-  `assetsInclude`. `apps/desktop/electron.vite.config.ts`.
 - [low] Crypto/secret checksums are structural-only (no crypto dep); no HIPAA
   Safe-Harbor profile; context window is a flat 48 chars. `packages/anonymizer/`.
 
 ## Desktop / attachments, settings, providers
 
-- [med] Dropped attachments are invisible — round-trip a notice when
-  `authorizeAttachments`/`buildAttachments` rejects/skips. `packages/desktop-host/src/ipc/`.
-- [med, consistency] `provider.setEnabled` is fire-and-forget read-merge-write — two
-  rapid cross-client toggles can lose one update. `packages/desktop-host/src/ipc/preferences.ts`.
-- [low] Configure sheet can't edit a built-in provider's models array; `local`
-  provider wizard prompts for a non-existent key (`auth.kind` should be `none`).
+- [med] Dropped attachments are invisible — two silent skip sites only `console.warn`:
+  `authorizeAttachments` (`ipc/session.ts`, sync, drops unauthorized-provenance paths; its
+  `dropped[]` is already available) and `buildAttachments` (`attachments.ts`, skips
+  oversized/binary/unextractable files) which runs ASYNC inside `session-driver.ts`'s
+  fire-and-forget pump AFTER the IPC `{turnId}` already returned. A user notice needs a
+  contract transport (a `droppedAttachments?` field on `RunTurnResult` and/or a
+  `skippedAttachments?` on `runner.turn.complete`), emission from `session-driver.ts`, and
+  renderer display — no generic notice channel exists to reuse (only `error{kind:'fatal'}`
+  renders, which would read as a turn failure).
+  `packages/desktop-host/src/{ipc/session.ts,attachments.ts,attachment-authz.ts}`.
+- [low] Configure sheet can't edit a built-in provider's models array — a genuine
+  feature, not a bug: provider-admin (`plugin-provider-admin`) intentionally throws
+  `CONFIG_INVALID` on `configure()` of a built-in (they are code, not stored config),
+  so exposing model-array editing needs new runner-side persistence for built-in
+  overrides. (The sibling `local`-wizard non-existent-key prompt is FIXED — see ledger.)
   `apps/desktop/src/settings/providers/`.
 
 ## Providers & model catalogs
@@ -342,9 +407,11 @@ or recorded-on-purpose decision.
   gpt-5.5/gpt-5.4 1M→400k) but the failure mode is latent for any future catalog
   drift; consider calibrating the effective window from real provider `usage` /
   observed overflow rather than the static descriptor. Related: `resolveModelContext`
-  (`packages/sdk/src/compactor-helpers.ts`) silently falls back to `models[0]` on an
-  exact-id miss, so an unlisted/variant model id (e.g. a `[1m]` suffix) resolves the
-  wrong window with no signal.
+  (`packages/sdk/src/compactor-helpers.ts`) still falls back to `models[0]` on an
+  exact-id miss (an unlisted/variant id like a `[1m]` suffix resolves the wrong
+  window), but the fallback is no longer SILENT — it emits a one-shot `console.warn`
+  deduped per (provider, requested id, fallback id). Remaining: calibrate the
+  *effective* window from observed usage/overflow rather than the static descriptor.
 
 ## Channels, relay & HTTP
 
@@ -362,13 +429,12 @@ or recorded-on-purpose decision.
   start — pairing from the desktop means run `moxxy discord pair`, then restart
   the channel. A `channels.confirmPairingCode` control-surface hook (status-file
   or IPC) would close both gaps. `packages/plugin-channel-discord`.
-- [low] Desktop channel catalog is now a MIRROR, not the only copy: each channel
-  self-describes its config on `ChannelDef.config` (`fields`/`vaultKey`/
-  `hasRequestUrl`/`runHint`), which the TUI `/channels` panel + `moxxy channels`
-  read from the live registry. The desktop `channel-catalog.ts` still hand-copies
-  it because the Electron main avoids booting plugin discovery; a
-  `moxxy channels describe --json` (or a drift test asserting the desktop catalog
-  matches each plugin's `def.config`) would remove the remaining duplication.
+- [low] Desktop channel catalog is a MIRROR: each channel self-describes its config on
+  `ChannelDef.config` (`fields`/`vaultKey`/`hasRequestUrl`/`runHint`), which the TUI
+  `/channels` panel + `moxxy channels` read from the live registry, but the desktop
+  `channel-catalog.ts` hand-copies it (the Electron main avoids booting plugin discovery).
+  A drift test now guards silent divergence (see ledger); the remaining follow-up is
+  REMOVING the duplication via a `moxxy channels describe --json` the desktop consumes.
   `packages/desktop-host/src/channel-catalog.ts`.
 - [low] Desktop-spawned channels are killed on app quit (a best-effort
   `process.once('exit')` SIGTERM in `channel-supervisor.ts`). The TUI/CLI surfaces
@@ -532,20 +598,19 @@ or recorded-on-purpose decision.
   `moxxy onboard` sidesteps it (single channel pick, pair-then-return), but a real
   fix needs either per-source resolver routing on the Session or a documented
   broker. Surfaced 2026-07-03 while building onboard.
-- [med] One-shot CLI commands (`-p`, `schedule run`, `doctor`, `login`, `init`) never
-  `close()` — drain persistence before exit. `packages/cli/`.
-- [low, security-dx] SECURITY.md's hardening checklist recommends rotating channel
-  tokens, but `rotateChannelToken` is SDK-only — no CLI wraps it. Consider
-  `moxxy channels rotate-token <name>`. `packages/sdk/src/channel-auth.ts`.
 
 ## Mobile UI (low-priority polish)
 
 - [med] Sending attachments while a turn is in flight is refused (inline payloads
   can't ride the path-based queue) — queue host-side if needed. `apps/mobile/`.
-- [low] Misc: theme flip can lag memoized rows (need a `themeVersion` counter);
-  `selectWorkspace`/`activeWorkspaceId` misnamed (they select a session); deprecated
-  `SafeAreaView`/`expo-blur` hard dep; `toolGroupUi` dead fields; unused `LargeHeader`;
-  header rename low-discoverability; composer-minimize overlay gesture not wired.
+- [low] Misc (remaining after 2026-07-05 cleanup): `selectWorkspace`/`activeWorkspaceId`
+  misnamed (they select a session) — BLOCKED, it's a shared
+  `client-core`/`desktop-ipc-contract` wire symbol, not mobile-local; `expo-blur` is a hard
+  dep but `BlurView` is actually used (not removable — revisit only if the glass surface is
+  dropped); theme flip could be reworked to a `themeVersion`-in-memo-deps model (today an
+  existing `key={scheme}` FlatList remount already re-resolves rows, so low value); header
+  rename low-discoverability; composer-minimize overlay gesture not wired. (SafeAreaView
+  migration, `toolGroupUi` dead fields, and the unused `LargeHeader` are FIXED — see ledger.)
 - [note] EAS build: `eas-build-post-install` runs `pnpm build` on the workspace
   closure; local repro needs wiping both `dist/` AND `*.tsbuildinfo`. `apps/mobile/eas.json`.
 

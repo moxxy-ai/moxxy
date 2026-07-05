@@ -7,6 +7,7 @@ import {
   computeElisionState,
   estimateContextTokens,
   isContextOverflowError,
+  resolveModelContext,
   runCompactionIfNeeded,
   runElisionIfNeeded,
   runManualCompaction,
@@ -421,6 +422,48 @@ describe('isContextOverflowError', () => {
   it('does not match unrelated errors', () => {
     for (const msg of ['rate limit exceeded', 'network timeout', '500 internal server error', 'invalid api key']) {
       expect(isContextOverflowError(msg)).toBe(false);
+    }
+  });
+});
+
+describe('resolveModelContext', () => {
+  it('warns once on the models[0] fallback for an unlisted id, keeping the fallback window', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      // ctx.model is an id the provider's catalog does not enumerate; the sole
+      // descriptor is 'listed-a'. Use a unique tuple so the module-level dedupe
+      // Set (shared across this file) isn't primed by another test.
+      const ctx = makeCtx({
+        compactor: null,
+        model: 'listed-a',
+        contextWindow: 321_000,
+        ctxModelId: 'unlisted-variant-1m',
+      });
+      const first = resolveModelContext(ctx);
+      const second = resolveModelContext(ctx);
+      // Return value is the models[0] fallback — the diagnostic changes nothing.
+      expect(first).toEqual({ contextWindow: 321_000, reserveForOutput: 0 });
+      expect(second).toEqual(first);
+      // Deduped on (provider, requested id, fallback id): one warn, not per call.
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = String(warn.mock.calls[0]?.[0]);
+      expect(msg).toContain('unlisted-variant-1m');
+      expect(msg).toContain('listed-a');
+      expect(msg).toContain('321000');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not warn when ctx.model matches a descriptor exactly', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ctx = makeCtx({ compactor: null, model: 'exact-match-model', contextWindow: 128_000 });
+      const resolved = resolveModelContext(ctx);
+      expect(resolved).toEqual({ contextWindow: 128_000, reserveForOutput: 0 });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
     }
   });
 });

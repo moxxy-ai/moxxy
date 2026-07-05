@@ -121,6 +121,46 @@ function ortWasmDevServer(): Plugin {
 }
 
 /**
+ * Vite plugin: drop the ORPHAN onnxruntime-web WASM that Vite's import-meta-url
+ * asset handling emits into `dist/assets/`.
+ *
+ * transformers.js dynamically imports onnxruntime-web's glue
+ * (`ort-wasm-simd-threaded.jsep.mjs`), which contains a
+ * `new URL('ort-wasm-simd-threaded.jsep.wasm', import.meta.url)` — emscripten's
+ * DEFAULT wasm path. Vite statically resolves that and emits a hashed ~21 MB copy
+ * into `dist/assets/` on EVERY bundle (and every hot-update). But that default is
+ * DEAD: the NER worker sets `env.backends.onnx.wasm.wasmPaths` (→ emscripten
+ * `locateFile`) to our locally-served `/ort/` base BEFORE the ORT session is
+ * created, so ORT loads the real binary from `dist/ort/` and never touches the
+ * `assets/` copy (the emscripten glue reads `Xa ??= locateFile ? locateFile(…) :
+ * new URL(…).href`, so with `wasmPaths` set the `new URL` branch is never taken).
+ * The emitted `assets/` file is therefore a pure orphan — delete it.
+ *
+ * This ONLY removes the orphan under `dist/assets/`. The REAL runtime binary lives
+ * at `dist/ort/ort-wasm-simd-threaded.jsep.wasm`, written by {@link ortWasmAssets}
+ * via a separate `writeBundle` file copy (NOT part of the Rollup bundle graph), so
+ * it is untouched. The anonymizer's on-device NER keeps loading ORT from `/ort/`
+ * exactly as before, and the moxxy-app-served model bundle is unaffected.
+ */
+function ortWasmDropOrphan(): Plugin {
+  // The orphan's hashed name: `ort-wasm-simd-threaded.jsep-<hash>.wasm` (the `-`
+  // after `jsep` is the asset hash separator — it never appears in the real,
+  // exact-named `dist/ort/…jsep.wasm`, which isn't in the bundle graph anyway).
+  const ORPHAN_RE = /(^|\/)ort-wasm-simd-threaded\.jsep-[^/]*\.wasm$/;
+  return {
+    name: 'moxxy-ort-wasm-drop-orphan',
+    apply: 'build',
+    generateBundle(_options, bundle): void {
+      for (const [fileName, chunk] of Object.entries(bundle)) {
+        if (chunk.type === 'asset' && ORPHAN_RE.test(fileName)) {
+          delete bundle[fileName];
+        }
+      }
+    },
+  };
+}
+
+/**
  * Workspace packages the main process imports at runtime. They MUST be
  * bundled INTO the main/preload output rather than left as bare
  * `require('@moxxy/…')` calls: electron-builder packs only `dist` /
@@ -213,7 +253,7 @@ export default defineConfig(({ mode }) => {
   },
   renderer: {
     root: '.',
-    plugins: [react(), ortWasmAssets(), ortWasmDevServer()],
+    plugins: [react(), ortWasmAssets(), ortWasmDevServer(), ortWasmDropOrphan()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),

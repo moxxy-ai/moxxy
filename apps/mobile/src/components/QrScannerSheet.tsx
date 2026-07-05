@@ -1,5 +1,6 @@
 import { CameraView } from 'expo-camera';
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import type { CameraPermissionState, PairingUiState } from '../pairingUi';
 import { useTheme } from '@/theme/ThemeProvider';
 import { MobileIcon } from './MobileIcon';

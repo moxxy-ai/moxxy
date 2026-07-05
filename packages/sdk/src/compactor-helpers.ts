@@ -131,10 +131,43 @@ function safeJsonLen(v: unknown): number {
 export function resolveModelContext(
   ctx: ModeContext,
 ): { readonly contextWindow: number; readonly reserveForOutput: number } | null {
-  const descriptor = ctx.provider.models.find((m) => m.id === ctx.model) ?? ctx.provider.models[0];
+  const exact = ctx.provider.models.find((m) => m.id === ctx.model);
+  const descriptor = exact ?? ctx.provider.models[0];
   const contextWindow = descriptor?.contextWindow;
   if (!contextWindow || contextWindow <= 0) return null;
+  // Signal (once) when the exact-id lookup missed and we fell back to the first
+  // descriptor: the resolved `contextWindow` is that of a DIFFERENT model than
+  // the session actually runs, so every proactive-compaction / elision decision
+  // for the whole session may calibrate against the wrong window with no other
+  // trace. Deduped on (provider, requested id, fallback id) because this runs
+  // once per loop iteration — an undeduped warn would spam every turn.
+  if (!exact && descriptor) {
+    warnModelFallbackOnce(ctx.provider.name, ctx.model, descriptor.id, contextWindow);
+  }
   return { contextWindow, reserveForOutput: descriptor?.maxOutputTokens ?? 0 };
+}
+
+// One-shot guard for the unlisted-model fallback warning above, keyed on the
+// (provider name, requested model id, fallback descriptor id) tuple so a
+// steady-state session logs the mismatch exactly once, not per iteration.
+const warnedModelFallbacks = new Set<string>();
+
+function warnModelFallbackOnce(
+  providerName: string,
+  requestedModel: string,
+  fallbackId: string,
+  contextWindow: number,
+): void {
+  const key = `${providerName}\u0000${requestedModel}\u0000${fallbackId}`;
+  if (warnedModelFallbacks.has(key)) return;
+  warnedModelFallbacks.add(key);
+  // `console.warn` matches the SDK's existing non-fatal diagnostic seam (see
+  // `resolveChannelToken`'s stale-token hint); there is no logger on ModeContext.
+  console.warn(
+    `[moxxy] model id "${requestedModel}" not found in provider "${providerName}" catalog; ` +
+      `falling back to descriptor "${fallbackId}" with contextWindow ${contextWindow} — ` +
+      `proactive compaction/elision may calibrate against the wrong window.`,
+  );
 }
 
 /**

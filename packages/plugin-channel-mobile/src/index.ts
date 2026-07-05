@@ -41,6 +41,12 @@ export const mobileChannelDef = defineChannel({
   name: 'mobile',
   description:
     'WebSocket bridge for the moxxy mobile app (Expo) — serves the IPC contract backed by this session.',
+  // Unlike telegram/slack, mobile is NOT dedicated — it self-hosts the runner's
+  // single session. But `moxxy mobile` still owns that session, so stamp its
+  // origin explicitly: otherwise the runner's env-heuristic persistence records
+  // the empty pre-first-prompt session as `tui`, dropping it from the mobile
+  // list until the first prompt. The CLI honors this for the launched channel.
+  sessionSource: 'mobile',
   create: (deps) =>
     new MobileChannel({
       port: asNumber(deps.options?.port),
