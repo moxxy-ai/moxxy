@@ -2,29 +2,26 @@
  * The autonomous loop every collaborating agent runs (architect + implementers
  * share it; only the system prompt differs). Modeled on goal mode: auto-approve
  * + a guarded multi-iteration loop that terminates when the agent calls
- * `collab_done`. On top of that it adds two collaboration behaviors when a hub
- * is present:
+ * `collab_done`. The loop plumbing (bounded retry back-off, reactive
+ * compaction, stuck detection, abort handling) is the SDK's shared
+ * {@link runReactLoop}; this file contributes the collaboration POLICY:
  *   - cooperative PAUSE: while the human has paused the team, the agent idles
- *     (it has already finished its current tool batch) until resumed/aborted.
+ *     (it has already finished its current tool batch) until resumed/aborted
+ *     (`onIterationStart`).
  *   - AWARENESS: new inbox messages + human directives are injected as a
- *     volatile nudge each iteration, so the agent reacts even without explicitly
- *     calling collab_inbox.
+ *     volatile nudge each iteration, so the agent reacts even without
+ *     explicitly calling collab_inbox (`onIterationStart`).
+ *   - idle stop: an agent that goes quiet without calling collab_done is
+ *     retried a bounded number of rounds, then stopped (idle checkpoint).
+ *   - terminal tool: `collab_done` ends the run (`onToolBatchEnd`).
  */
 
 import {
-  buildSystemPromptWithSkills,
-  collectProviderStream,
-  createStuckLoopDetector,
-  emitRequestsAndDetectStuck,
-  executeToolUses,
-  isContextOverflowError,
-  projectMessages,
-  runCompactionIfNeeded,
-  runElisionIfNeeded,
-  usageEventFields,
+  runReactLoop,
   type ModeContext,
   type MoxxyEvent,
   type PermissionResolver,
+  type TurnCheckpoint,
 } from '@moxxy/sdk';
 import { getProcessHubClient, type CollabMessage } from '@moxxy/plugin-collab';
 import { COLLAB_MAX_ITERATIONS_ENV, COLLAB_PLUGIN_ID } from './constants.js';
@@ -42,7 +39,6 @@ function peerMaxIterationsFromEnv(): number | undefined {
 }
 const MAX_NOOP_ITERATIONS = 3;
 const PAUSE_POLL_MS = 1000;
-const MAX_REACTIVE_COMPACTIONS = 2;
 
 export interface CollabAgentLoopOptions {
   readonly systemPrompt: string;
@@ -76,157 +72,18 @@ export async function* runCollabAgentLoop(
   // Announce active work so the roster/UI shows 'working' (not a stale
   // 'connected') for the whole turn. Best-effort; the run proceeds regardless.
   if (hub) await hub.setStatus('working').catch(() => undefined);
-  const detector = createStuckLoopDetector(ctx.loopGuard);
-  const maxIterations = ctx.maxIterations ?? peerMaxIterationsFromEnv() ?? DEFAULT_MAX_ITERATIONS;
-  let noop = 0;
-  let reactiveCompactions = 0;
   let lastInboxTs = 0;
   let wasPaused = false;
 
-  for (let iteration = 1; iteration <= maxIterations; iteration++) {
-    if (ctx.signal.aborted) {
-      yield await ctx.emit(abort(ctx, 'signal aborted'));
-      return;
-    }
-
-    // Cooperative pause — the human stepped in. Idle until resumed/aborted.
-    if (hub) {
-      let control = await hub.roster().then((r) => r.control).catch(() => undefined);
-      while (control?.paused && !ctx.signal.aborted) {
-        if (!wasPaused) {
-          wasPaused = true;
-          yield await ctx.emit(pluginEvent(ctx, 'collab_peer_paused', { iteration }));
-        }
-        await sleep(PAUSE_POLL_MS, ctx.signal);
-        control = await hub.roster().then((r) => r.control).catch(() => undefined);
-      }
-      if (wasPaused && !control?.paused) {
-        wasPaused = false;
-        yield await ctx.emit(pluginEvent(ctx, 'collab_peer_resumed', { iteration }));
-      }
-      if (ctx.signal.aborted) {
-        yield await ctx.emit(abort(ctx, 'signal aborted'));
-        return;
-      }
-    }
-
-    yield await ctx.emit({
-      type: 'mode_iteration',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'system',
-      strategy: 'collaborative',
-      iteration,
-    });
-
-    await runCompactionIfNeeded(agentCtx);
-    await runElisionIfNeeded(agentCtx);
-
-    // Awareness: surface new inbox messages + directives as a volatile nudge.
-    let nudge: string | undefined;
-    if (hub) {
-      const fresh = await hub.inbox(lastInboxTs).then((r) => r.messages).catch(() => []);
-      if (fresh.length > 0) {
-        lastInboxTs = Math.max(lastInboxTs, ...fresh.map((m) => m.ts));
-        nudge = formatInboxNudge(fresh);
-      }
-    }
-
-    const baseSystem = buildSystemPromptWithSkills(agentCtx.systemPrompt, agentCtx.skills.list()) ?? '';
-    const { messages, stablePrefixIndex } = projectMessages(agentCtx, {
-      ...(baseSystem ? { systemPrompt: baseSystem } : {}),
-      ...(nudge ? { trailingUserText: nudge } : {}),
-    });
-
-    yield await ctx.emit({
-      type: 'provider_request',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'system',
-      provider: agentCtx.provider.name,
-      model: agentCtx.model,
-    });
-
-    const { text, toolUses, stopReason, error, usage, reasoning } = await collectProviderStream(
-      agentCtx,
-      messages,
-      { iteration, stablePrefixIndex, ...(nudge ? { volatileTailCount: 1 } : {}) },
-    );
-
-    yield await ctx.emit({
-      type: 'provider_response',
-      sessionId: ctx.sessionId,
-      turnId: ctx.turnId,
-      source: 'system',
-      provider: agentCtx.provider.name,
-      model: agentCtx.model,
-      ...usageEventFields(usage),
-    });
-
-    if (error) {
-      if (isContextOverflowError(error.message) && reactiveCompactions < MAX_REACTIVE_COMPACTIONS) {
-        reactiveCompactions += 1;
-        if (await runCompactionIfNeeded(agentCtx, { force: true })) {
-          yield await ctx.emit({
-            type: 'error',
-            sessionId: ctx.sessionId,
-            turnId: ctx.turnId,
-            source: 'system',
-            kind: 'retryable',
-            message: 'context window exceeded — compacted older turns, retrying',
-          });
-          continue;
-        }
-      }
-      yield await ctx.emit({
-        type: 'error',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'system',
-        kind: error.retryable ? 'retryable' : 'fatal',
-        message: `collab agent: ${error.message}`,
-      });
-      if (!error.retryable) return;
-      continue;
-    }
-    reactiveCompactions = 0;
-
-    if (reasoning) {
-      yield await ctx.emit({
-        type: 'reasoning_message',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'model',
-        content: reasoning.text,
-        ...(reasoning.signature ? { signature: reasoning.signature } : {}),
-        ...(reasoning.redacted ? { redacted: true } : {}),
-        ...(reasoning.encrypted ? { encrypted: reasoning.encrypted } : {}),
-      });
-    }
-
-    const stuck = yield* emitRequestsAndDetectStuck(ctx, toolUses, detector, {
-      abortedResultMessage: 'collab agent aborted (stuck pattern) before this call ran',
-      nearHint: 'against the same target (only volatile args varied)',
-      fatalMessage: ({ toolName, count, how }) =>
-        `collab agent aborted — stuck pattern: tool "${toolName}" called ${count} times ${how}.`,
-    });
-    if (stuck) return;
-
-    if (text || stopReason === 'end_turn' || toolUses.length === 0) {
-      yield await ctx.emit({
-        type: 'assistant_message',
-        sessionId: ctx.sessionId,
-        turnId: ctx.turnId,
-        source: 'model',
-        content: text,
-        stopReason,
-      });
-    }
-
-    if (toolUses.length === 0) {
-      noop += 1;
-      if (noop >= MAX_NOOP_ITERATIONS) {
-        yield await ctx.emit({
+  // An agent that went quiet without calling collab_done: give it a bounded
+  // number of extra rounds, then stop — the coordinator integrates whatever
+  // was completed.
+  const idleStop: TurnCheckpoint = {
+    name: 'collab-idle',
+    gateOn: 'idle',
+    run: async (check) => {
+      if (check.consecutiveIdle >= MAX_NOOP_ITERATIONS) {
+        await agentCtx.emit({
           type: 'assistant_message',
           sessionId: ctx.sessionId,
           turnId: ctx.turnId,
@@ -235,17 +92,56 @@ export async function* runCollabAgentLoop(
             'Collaborative agent went idle without calling collab_done. Stopping this agent; the coordinator will integrate whatever was completed.',
           stopReason: 'end_turn',
         });
-        return;
+        return { action: 'stop' };
       }
-      continue;
-    }
-    noop = 0;
+      return { action: 'retry' };
+    },
+  };
 
-    const exited = yield* executeToolUses(agentCtx, toolUses, iteration);
-    if (exited) return;
+  yield* runReactLoop(agentCtx, {
+    strategyName: 'collaborative',
+    defaultMaxIterations: peerMaxIterationsFromEnv() ?? DEFAULT_MAX_ITERATIONS,
+    errorPrefix: 'collab agent: ',
+    checkpoints: [idleStop],
+    // idleStop stops itself at MAX_NOOP_ITERATIONS, before this backstop can
+    // trip — it exists so a future checkpoint bug degrades loudly.
+    maxInjections: MAX_NOOP_ITERATIONS,
+    stuck: {
+      abortedResultMessage: 'collab agent aborted (stuck pattern) before this call ran',
+      nearHint: 'against the same target (only volatile args varied)',
+      fatalMessage: ({ toolName, count, how }) =>
+        `collab agent aborted — stuck pattern: tool "${toolName}" called ${count} times ${how}.`,
+    },
+    onIterationStart: async (loopCtx, iteration) => {
+      if (!hub) return undefined;
 
-    if (toolUses.some((t) => t.name === COLLAB_DONE_TOOL)) {
-      yield await ctx.emit({
+      // Cooperative pause — the human stepped in. Idle until resumed/aborted.
+      let control = await hub.roster().then((r) => r.control).catch(() => undefined);
+      while (control?.paused && !loopCtx.signal.aborted) {
+        if (!wasPaused) {
+          wasPaused = true;
+          await loopCtx.emit(pluginEvent(ctx, 'collab_peer_paused', { iteration }));
+        }
+        await sleep(PAUSE_POLL_MS, loopCtx.signal);
+        control = await hub.roster().then((r) => r.control).catch(() => undefined);
+      }
+      if (wasPaused && !control?.paused) {
+        wasPaused = false;
+        await loopCtx.emit(pluginEvent(ctx, 'collab_peer_resumed', { iteration }));
+      }
+      // An abort during the pause poll is caught by the loop core right after
+      // this hook returns — no provider call is made.
+      if (loopCtx.signal.aborted) return undefined;
+
+      // Awareness: surface new inbox messages + directives as a volatile nudge.
+      const fresh = await hub.inbox(lastInboxTs).then((r) => r.messages).catch(() => []);
+      if (fresh.length === 0) return undefined;
+      lastInboxTs = Math.max(lastInboxTs, ...fresh.map((m) => m.ts));
+      return { volatileUserText: formatInboxNudge(fresh) };
+    },
+    onToolBatchEnd: async (loopCtx, { toolUses }) => {
+      if (!toolUses.some((t) => t.name === COLLAB_DONE_TOOL)) return undefined;
+      await loopCtx.emit({
         type: 'assistant_message',
         sessionId: ctx.sessionId,
         turnId: ctx.turnId,
@@ -253,17 +149,18 @@ export async function* runCollabAgentLoop(
         content: '✓ Sub-task complete — reported to the team.',
         stopReason: 'end_turn',
       });
-      return;
-    }
-  }
-
-  yield await ctx.emit({
-    type: 'error',
-    sessionId: ctx.sessionId,
-    turnId: ctx.turnId,
-    source: 'system',
-    kind: 'fatal',
-    message: `collab agent reached the iteration cap (${maxIterations}) without calling collab_done.`,
+      return { action: 'stop' };
+    },
+    onMaxIterations: async (loopCtx, maxIterations) => {
+      await loopCtx.emit({
+        type: 'error',
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        source: 'system',
+        kind: 'fatal',
+        message: `collab agent reached the iteration cap (${maxIterations}) without calling collab_done.`,
+      });
+    },
   });
 }
 

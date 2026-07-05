@@ -15,6 +15,9 @@ const KIND_META: Record<TriggerOrigin['kind'], { readonly icon: IconName; readon
   webhook: { icon: 'bell', verb: 'received' },
   schedule: { icon: 'rotate', verb: 'fired' },
   workflow: { icon: 'workflow', verb: 'ran' },
+  // Mid-turn feedback injected by the ReAct loop's turn-end checkpoint gate
+  // (lint report, reviewer verdict) — chip label reads "Checkpoint intervened".
+  checkpoint: { icon: 'check', verb: 'intervened' },
 };
 
 function titleCase(s: string): string {

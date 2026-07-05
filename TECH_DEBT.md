@@ -13,6 +13,16 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, modes, RESOLVED 2026-07-05] Every ReAct-shaped mode duplicated ~250 lines
+  of loop plumbing — `mode-default`, `mode-goal`, and the collab agent loop each
+  carried a divergent copy of retry back-off / reactive compaction / stuck
+  detection / abort handling (collab's had NO back-off, so a sustained 429
+  busy-looped it; default retried un-compactable overflows 6× before dying where
+  goal failed fast). Extracted into `runReactLoop`
+  (`packages/sdk/src/mode/react-loop.ts`) with per-mode policy hooks + a turn-end
+  checkpoint gate (`TurnCheckpoint`); the three modes are now thin policy layers
+  and the hardened semantics are unified (goal's overflow rule everywhere,
+  bounded back-off everywhere).
 - [med, security, RESOLVED 2026-07-03] `security.perPlugin` isolator overrides were
   a dormant config option: real sessions wired `buildSecurityPlugin` with
   `resolvePluginForTool: null` (plugin-level routing disabled), so the documented
@@ -295,7 +305,7 @@ or recorded-on-purpose decision.
   compactor (`estimatedTokens > 0.75 * contextWindow`, `compactor-summarize`). When
   a catalog overshoots the backend-enforced window, the proactive gate becomes
   unreachable and every long session degrades to the reactive compact-on-overflow
-  retry (`turn-iterator.ts` `isContextOverflowError`). Fixed one instance (Codex
+  retry (`react-loop.ts` `isContextOverflowError`). Fixed one instance (Codex
   gpt-5.5/gpt-5.4 1M→400k) but the failure mode is latent for any future catalog
   drift; consider calibrating the effective window from real provider `usage` /
   observed overflow rather than the static descriptor. Related: `resolveModelContext`
@@ -305,6 +315,12 @@ or recorded-on-purpose decision.
 
 ## Channels, relay & HTTP
 
+- [low] Origin-bearing `user_prompt` events (webhook/schedule/workflow triggers
+  and now the ReAct loop's checkpoint-gate injections, `origin.kind:
+  'checkpoint'`) render as a compact chip on desktop (`apps/desktop/…/
+  TriggerBlock.tsx`) but the TUI has no origin-aware rendering — trigger
+  payloads and mid-turn checkpoint feedback show as full user-style bubbles.
+  `packages/plugin-channel-tui`.
 - [low] Discord channel pairing is terminal-only: the DM code flow (bot DMs a
   one-time code → operator pastes it into `moxxy discord pair`) has no GUI
   completion path, so the desktop Channels panel can start the bot dedicated

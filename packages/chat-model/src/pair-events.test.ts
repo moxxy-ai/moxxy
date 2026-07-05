@@ -59,6 +59,15 @@ const userPrompt = (text: string): UserPromptEvent => ({
   text,
 });
 
+/** A MID-TURN prompt injected by the ReAct loop's checkpoint gate — not a turn boundary. */
+const checkpointPrompt = (text: string): UserPromptEvent => ({
+  ...base(),
+  type: 'user_prompt',
+  source: 'system',
+  text,
+  origin: { kind: 'checkpoint', name: 'lint' },
+});
+
 const toolRequest = (callId: string, name: string, input: unknown = {}): ToolCallRequestedEvent => ({
   ...base(),
   type: 'tool_call_requested',
@@ -242,6 +251,29 @@ describe('pairToolEvents — orphan tool call at a turn boundary', () => {
     // The late result falls through to a generic event block.
     const last = blocks[blocks.length - 1]!;
     expect(last.kind).toBe('event');
+  });
+});
+
+describe('pairToolEvents — mid-turn checkpoint prompt is NOT a turn boundary', () => {
+  it('does not orphan a pending tool call and lets its result land normally', () => {
+    // The checkpoint gate injects feedback INSIDE a live turn. Running the
+    // turn-boundary resets for it would mark c1 as an interrupted orphan and
+    // drop its (perfectly valid) later result to a bare event.
+    const blocks = pairToolEvents([
+      toolRequest('c1', 'bash', { command: 'pnpm lint' }),
+      checkpointPrompt('lint failed: unused import — fix before finishing'),
+      toolResult('c1', 'done'),
+    ]);
+
+    const tc = asToolCall(blocks[0]);
+    expect(tc.outcome).toMatchObject({ type: 'tool_result', ok: true });
+    expect(isSettled(tc)).toBe(true);
+  });
+
+  it('renders the injected feedback as an ordinary in-order block', () => {
+    const blocks = pairToolEvents([userPrompt('go'), checkpointPrompt('feedback')]);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[1]!.kind).toBe('event');
   });
 });
 

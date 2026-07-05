@@ -2,7 +2,11 @@ import { asToolCallId } from './ids.js';
 import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { ModeContext } from './mode.js';
 import type { ToolCallVerdict } from './hooks.js';
-import type { CollectedToolUse, StuckLoopDetector, StuckSignal } from './mode-helpers.js';
+// Import the concrete modules, not the './mode-helpers.js' barrel: the barrel
+// re-exports the ReAct loop core, which imports THIS file — going through the
+// barrel here closes that loop into a real import cycle.
+import type { CollectedToolUse } from './mode/collect-stream.js';
+import type { StuckLoopDetector, StuckSignal } from './mode/stuck-loop.js';
 
 /**
  * Execute a single tool-use end-to-end: dispatch `dispatchToolCall` hooks, run

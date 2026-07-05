@@ -468,6 +468,10 @@ function buildChildContext(
     signal: parentSignal, // child cancels when parent cancels
     maxIterations: spec.maxIterations ?? 50,
     subagents: spawner,
+    // Disarms turn-end checkpoints inside children (runReactLoop's recursion
+    // backstop) — a checkpoint spawning a child in a checkpoint-bearing mode
+    // must not gate the child's turn-end and recurse forever.
+    isSubagent: true,
     emit: (event: EmittedEvent): Promise<MoxxyEvent> => childLog.append(event),
   };
 }
