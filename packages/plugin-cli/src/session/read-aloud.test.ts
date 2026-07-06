@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import type { SynthesizeReplyResult, SynthesizerSource } from '@moxxy/channel-kit';
 import type { PlayAudioResult } from '../audio-play.js';
 import {
@@ -137,7 +138,9 @@ describe('createReadAloud — auto-speak trigger', () => {
     controller.onTurnComplete();
     await flush();
     expect(synthesize).toHaveBeenCalledTimes(1);
-    expect(synthesize.mock.calls[0]![1]).toBe('final answer');
+    const firstCall = synthesize.mock.calls[0];
+    assertDefined(firstCall, 'synthesize was called');
+    expect(firstCall[1]).toBe('final answer');
     expect(play).toHaveBeenCalledTimes(1);
 
     // Same turn / same reply → not re-spoken.
@@ -187,7 +190,9 @@ describe('createReadAloud — /speak command dispatch', () => {
     controller.handleCommand('');
     await flush();
     expect(synthesize).toHaveBeenCalledTimes(1);
-    expect(synthesize.mock.calls[0]![1]).toBe('spoken reply');
+    const firstCall = synthesize.mock.calls[0];
+    assertDefined(firstCall, 'synthesize was called');
+    expect(firstCall[1]).toBe('spoken reply');
     expect(play).toHaveBeenCalledTimes(1);
   });
 

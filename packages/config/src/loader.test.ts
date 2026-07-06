@@ -26,8 +26,11 @@ describe('loadConfig', () => {
       `export default { plugins: { provider: { default: 'anthropic', items: { anthropic: { model: 'sonnet' } } } } };`,
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.plugins?.provider?.default).toBe('anthropic');
-    expect(result.config.plugins?.provider?.items?.anthropic?.model).toBe('sonnet');
+    const provider = result.config.plugins?.provider;
+    expect(provider?.default).toBe('anthropic');
+    const providerItems = provider?.items;
+    const anthropicItem = providerItems?.anthropic;
+    expect(anthropicItem?.model).toBe('sonnet');
     expect(result.sources[0]?.scope).toBe('project');
   });
 
@@ -39,7 +42,8 @@ describe('loadConfig', () => {
       `export default { plugins: { mode: { default: 'default' } } };`,
     );
     const result = await loadConfig({ cwd: nested, skipUser: true });
-    expect(result.config.plugins?.mode?.default).toBe('default');
+    const mode = result.config.plugins?.mode;
+    expect(mode?.default).toBe('default');
   });
 
   it('honors explicitPath over upward search', async () => {
@@ -50,7 +54,8 @@ describe('loadConfig', () => {
     const custom = path.join(tmp, 'custom.config.js');
     await fs.writeFile(custom, `export default { plugins: { mode: { default: 'research' } } };`);
     const result = await loadConfig({ cwd: tmp, explicitPath: custom, skipUser: true });
-    expect(result.config.plugins?.mode?.default).toBe('research');
+    const mode = result.config.plugins?.mode;
+    expect(mode?.default).toBe('research');
     expect(result.sources[0]?.scope).toBe('explicit');
   });
 
@@ -78,7 +83,8 @@ describe('loadConfig', () => {
     const file = path.join(tmp, 'moxxy.config.mjs');
     await fs.writeFile(file, `export default { plugins: { mode: { default: 'default' } } };`);
     const first = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(first.config.plugins?.mode?.default).toBe('default');
+    const firstMode = first.config.plugins?.mode;
+    expect(firstMode?.default).toBe('default');
 
     await fs.writeFile(file, `export default { plugins: { mode: { default: 'goal' } } };`);
     // Two reloads with no delay between them (same-ms risk).
@@ -86,8 +92,10 @@ describe('loadConfig', () => {
       loadConfig({ cwd: tmp, skipUser: true }),
       loadConfig({ cwd: tmp, skipUser: true }),
     ]);
-    expect(a.config.plugins?.mode?.default).toBe('goal');
-    expect(b.config.plugins?.mode?.default).toBe('goal');
+    const modeA = a.config.plugins?.mode;
+    expect(modeA?.default).toBe('goal');
+    const modeB = b.config.plugins?.mode;
+    expect(modeB?.default).toBe('goal');
   });
 
   it('resolves each .ts config\'s relative imports against ITS OWN dir (jiti cache keyed by cwd)', async () => {
@@ -112,8 +120,14 @@ describe('loadConfig', () => {
       const a = await loadConfig({ cwd: dirA, skipUser: true });
       const b = await loadConfig({ cwd: dirB, skipUser: true });
 
-      expect(a.config.plugins?.provider?.items?.x?.model).toBe('from-A');
-      expect(b.config.plugins?.provider?.items?.x?.model).toBe('from-B');
+      const providerA = a.config.plugins?.provider;
+      const itemsA = providerA?.items;
+      const itemXA = itemsA?.x;
+      expect(itemXA?.model).toBe('from-A');
+      const providerB = b.config.plugins?.provider;
+      const itemsB = providerB?.items;
+      const itemXB = itemsB?.x;
+      expect(itemXB?.model).toBe('from-B');
     } finally {
       await fs.rm(dirA, { recursive: true, force: true });
       await fs.rm(dirB, { recursive: true, force: true });

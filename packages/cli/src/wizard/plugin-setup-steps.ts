@@ -36,7 +36,8 @@ export interface PluginSetupStepsOptions {
  */
 export async function runPluginSetupSteps(opts: PluginSetupStepsOptions): Promise<void> {
   const all = await (opts.list ?? listPluginSetups)();
-  const targets = opts.only ? all.filter((e) => opts.only!.includes(e.packageName)) : all;
+  const only = opts.only;
+  const targets = only ? all.filter((e) => only.includes(e.packageName)) : all;
   if (targets.length === 0) return;
 
   for (const { packageName, setup } of targets) {

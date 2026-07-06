@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ServiceRegistry } from '@moxxy/sdk';
+import { assertDefined, type ServiceRegistry } from '@moxxy/sdk';
 import { providerAdminPlugin } from './index.js';
 
 /**
@@ -31,7 +31,9 @@ describe('providerAdminPlugin (discovery-loadable)', () => {
 
     // The inner onInit reads ~/.moxxy/providers.json (absent on CI → caught +
     // skipped); we only assert the service wiring here.
-    await providerAdminPlugin.hooks!.onInit!({ services } as never);
+    const onInit = providerAdminPlugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({ services } as never);
 
     expect(get).toHaveBeenCalledWith('providers');
     expect(get).toHaveBeenCalledWith('resolveCredentials');

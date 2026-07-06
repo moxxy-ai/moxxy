@@ -1,7 +1,7 @@
 import type { Session } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
+import { MoxxyError, assertDefined, type CredentialResolver } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
 import { providerDefault, providerSlot } from './resolve-plugins-tree.js';
 import type { BootStep } from './types.js';
@@ -59,7 +59,8 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
     logger.info('skipping provider activation (skipProviderActivation set)');
   } else {
     for (let i = 0; i < candidates.length; i++) {
-      const candidate = candidates[i]!;
+      const candidate = candidates[i];
+      assertDefined(candidate, 'i < candidates.length within the loop');
       // A user-disabled provider (`plugins.provider.items.<name>.enabled:
       // false`, seeded into the registry before this walk) is never auto-activated —
       // fall through to the next candidate instead of failing on setActive.

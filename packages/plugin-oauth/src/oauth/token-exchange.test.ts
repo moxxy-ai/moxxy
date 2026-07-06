@@ -1,4 +1,4 @@
-import { MoxxyError } from '@moxxy/sdk';
+import { assertDefined, MoxxyError } from '@moxxy/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import {
   exchangeCodeForToken,
@@ -38,8 +38,9 @@ describe('parseTokenResponse', () => {
     expect(set.tokenType).toBe('MAC');
     expect(set.idToken).toBe('idt');
     // expiresAt = now + expires_in*1000 (allow for the small wall-clock delta).
-    expect(set.expiresAt!).toBeGreaterThanOrEqual(before + 3600 * 1000);
-    expect(set.expiresAt!).toBeLessThanOrEqual(Date.now() + 3600 * 1000);
+    assertDefined(set.expiresAt, 'expiresAt computed from expires_in');
+    expect(set.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
+    expect(set.expiresAt).toBeLessThanOrEqual(Date.now() + 3600 * 1000);
   });
 
   it('omits expiresAt when expires_in is absent', () => {
@@ -111,7 +112,9 @@ describe('refreshAccessToken', () => {
       text: async () => '',
     }));
     await refreshAccessToken(baseInput, spy as unknown as typeof fetch);
-    const body = (spy.mock.calls[0]![1] as RequestInit).body as string;
+    const firstCall = spy.mock.calls[0];
+    assertDefined(firstCall, 'fetch called once');
+    const body = (firstCall[1] as RequestInit).body as string;
     expect(body).toContain('grant_type=refresh_token');
     expect(body).toContain('refresh_token=old-rt');
     expect(body).toContain('client_id=cid');

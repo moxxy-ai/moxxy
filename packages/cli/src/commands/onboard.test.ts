@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { buildChannelChoices, catalogChannelEntry } from './onboard.js';
 
 describe('catalogChannelEntry', () => {
@@ -6,7 +7,8 @@ describe('catalogChannelEntry', () => {
     for (const name of ['discord', 'telegram', 'whatsapp', 'signal', 'slack']) {
       const entry = catalogChannelEntry(name);
       expect(entry, name).toBeDefined();
-      expect(entry!.provides).toEqual(
+      assertDefined(entry, `catalog entry for ${name}`);
+      expect(entry.provides).toEqual(
         expect.arrayContaining([{ category: 'channel', name }]),
       );
     }
@@ -31,8 +33,10 @@ describe('buildChannelChoices', () => {
 
   it('marks already-registered channels as installed', () => {
     const choices = buildChannelChoices(new Set(['telegram']));
-    const telegram = choices.find((c) => c.value === 'telegram')!;
-    const discord = choices.find((c) => c.value === 'discord')!;
+    const telegram = choices.find((c) => c.value === 'telegram');
+    assertDefined(telegram, 'telegram choice present');
+    const discord = choices.find((c) => c.value === 'discord');
+    assertDefined(discord, 'discord choice present');
     expect(telegram.installed).toBe(true);
     expect(telegram.hint).toMatch(/^installed · /);
     expect(discord.installed).toBe(false);
@@ -47,7 +51,8 @@ describe('buildChannelChoices', () => {
   });
 
   it('surfaces the WhatsApp ToS warning in its hint', () => {
-    const whatsapp = buildChannelChoices(new Set()).find((c) => c.value === 'whatsapp')!;
+    const whatsapp = buildChannelChoices(new Set()).find((c) => c.value === 'whatsapp');
+    assertDefined(whatsapp, 'whatsapp choice present');
     expect(whatsapp.hint).toMatch(/ToS|UNOFFICIAL/i);
   });
 });

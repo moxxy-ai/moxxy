@@ -1,4 +1,5 @@
 import {
+  assertDefined,
   computeElisionState,
   conversationalStub,
   conversationalStubbed,
@@ -122,7 +123,8 @@ export function estimateContextTokens(
         chars += per(e);
         if (e.seq > guardSeq) guardSeq = e.seq;
       }
-      const last = fresh[fresh.length - 1]!;
+      const last = fresh[fresh.length - 1];
+      assertDefined(last, 'fresh is non-empty (entry.count < len when the prefix is intact)');
       cache.set(log, { count: len, firstId: entry.firstId, lastId: String(last.id), chars, guardSeq });
       return Math.ceil(chars / 4);
     }
@@ -166,8 +168,10 @@ function fullWalk(log: EventLogReader, per: (e: MoxxyEvent) => number): number {
     }
     chars += per(e);
   }
-  const first = events[0]!;
-  const last = events[events.length - 1]!;
+  const first = events[0];
+  const last = events[events.length - 1];
+  assertDefined(first, 'fullWalk only runs on a non-empty log (len === 0 returns earlier)');
+  assertDefined(last, 'fullWalk only runs on a non-empty log (len === 0 returns earlier)');
   cache.set(log, {
     count: events.length,
     firstId: String(first.id),

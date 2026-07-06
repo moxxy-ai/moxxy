@@ -23,8 +23,10 @@ export interface CapabilitySurfaceRow {
  */
 export function describeCapabilitySurface(s: CapabilitySpec): ReadonlyArray<CapabilitySurfaceRow> {
   const rows: CapabilitySurfaceRow[] = [];
-  if (s.fs?.read?.length) rows.push({ label: 'Read files', value: s.fs.read.join(', ') });
-  if (s.fs?.write?.length) rows.push({ label: 'Write files', value: s.fs.write.join(', ') });
+  const fsRead = s.fs?.read;
+  if (fsRead?.length) rows.push({ label: 'Read files', value: fsRead.join(', ') });
+  const fsWrite = s.fs?.write;
+  if (fsWrite?.length) rows.push({ label: 'Write files', value: fsWrite.join(', ') });
   if (s.net) {
     rows.push({
       label: 'Network',

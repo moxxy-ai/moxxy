@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { spawn } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import {
   __resetAudioPlayerProbeForTest,
   checkAudioPlaybackAvailable,
@@ -48,7 +49,9 @@ async function waitForChild(children: FakeChild[]): Promise<FakeChild> {
     if (Date.now() - start > 2_000) throw new Error('player was never spawned');
     await flush();
   }
-  return children[0]!;
+  const child = children[0];
+  assertDefined(child, 'loop exits only once a child was spawned');
+  return child;
 }
 
 beforeEach(() => __resetAudioPlayerProbeForTest());

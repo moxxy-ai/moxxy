@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 
 import { lastNonEmptyLineShown, tailForViewport } from './StreamingPreview.js';
 
@@ -23,8 +24,10 @@ function refShown(content: string, innerCols: number): string {
   const lines = content.split('\n');
   let line = '';
   for (let i = lines.length - 1; i >= 0; i -= 1) {
-    if (lines[i]!.trim()) {
-      line = lines[i]!;
+    const candidate = lines[i];
+    assertDefined(candidate, 'i < lines.length');
+    if (candidate.trim()) {
+      line = candidate;
       break;
     }
   }

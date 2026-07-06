@@ -128,26 +128,29 @@ export function buildWorkflowsIntegration(args: {
       void defaultWorkflowRunStore
         .sweepStale()
         .then((n) => {
-          if (n > 0) logger?.info?.('workflows: swept stale paused-run checkpoints', { count: n });
+          if (n > 0 && logger?.info)
+            logger.info('workflows: swept stale paused-run checkpoints', { count: n });
         })
-        .catch((err) =>
-          logger?.warn?.('workflows: checkpoint sweep failed', {
-            err: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        .catch((err) => {
+          if (logger?.warn)
+            logger.warn('workflows: checkpoint sweep failed', {
+              err: err instanceof Error ? err.message : String(err),
+            });
+        });
       // Sweep stale `*.jsonl` run records too (every runWorkflow appends one and
       // nothing else removes them — over months of scheduled runs they grow
       // without bound and slow `/workflows inspect`). Distinct dir from the
       // checkpoint sweep above (`workflow-runs/*.jsonl`, not `.../active/*.json`).
       void sweepStaleRecords()
         .then((n) => {
-          if (n > 0) logger?.info?.('workflows: swept stale run records', { count: n });
+          if (n > 0 && logger?.info) logger.info('workflows: swept stale run records', { count: n });
         })
-        .catch((err) =>
-          logger?.warn?.('workflows: run-record sweep failed', {
-            err: err instanceof Error ? err.message : String(err),
-          }),
-        );
+        .catch((err) => {
+          if (logger?.warn)
+            logger.warn('workflows: run-record sweep failed', {
+              err: err instanceof Error ? err.message : String(err),
+            });
+        });
     },
   });
 

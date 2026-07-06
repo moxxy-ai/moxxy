@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import type { SessionMeta } from '@moxxy/core';
 import {
   buildSessionPickerOptions,
@@ -24,7 +25,9 @@ describe('buildSessionPickerOptions', () => {
 
   it('always leads with a "new session" entry', () => {
     const opts = buildSessionPickerOptions([], 'none', NOW);
-    expect(opts[0]!.id).toBe(NEW_SESSION_OPTION_ID);
+    const first = opts[0];
+    assertDefined(first, 'picker always has a first entry');
+    expect(first.id).toBe(NEW_SESSION_OPTION_ID);
     expect(opts).toHaveLength(1);
   });
 
@@ -34,8 +37,10 @@ describe('buildSessionPickerOptions', () => {
       'b',
       NOW,
     );
-    const a = opts.find((o) => o.id === 'a')!;
-    const b = opts.find((o) => o.id === 'b')!;
+    const a = opts.find((o) => o.id === 'a');
+    assertDefined(a, 'option a exists');
+    const b = opts.find((o) => o.id === 'b');
+    assertDefined(b, 'option b exists');
     expect(b.current).toBe(true);
     expect(b.badge).toBe('active');
     expect(a.current).toBeUndefined();
@@ -48,7 +53,8 @@ describe('buildSessionPickerOptions', () => {
       'other',
       NOW,
     );
-    const a = opts.find((o) => o.id === 'a')!;
+    const a = opts.find((o) => o.id === 'a');
+    assertDefined(a, 'option a exists');
     expect(a.label).toBe('fix the login bug');
     expect(a.description).toContain('7 ev');
     expect(a.description).toContain('gpt-test');
@@ -61,13 +67,17 @@ describe('buildSessionPickerOptions', () => {
       'other',
       NOW,
     );
-    expect(opts.find((o) => o.id === 'a')!.label).toBe('Login work');
+    const a = opts.find((o) => o.id === 'a');
+    assertDefined(a, 'option a exists');
+    expect(a.label).toBe('Login work');
   });
 
   it('truncates an over-long title to 60 chars with an ellipsis', () => {
     const long = 'x'.repeat(120);
     const opts = buildSessionPickerOptions([meta({ id: 'a', firstPrompt: long })], 'other', NOW);
-    const label = opts.find((o) => o.id === 'a')!.label;
+    const a = opts.find((o) => o.id === 'a');
+    assertDefined(a, 'option a exists');
+    const label = a.label;
     expect(label.length).toBe(60);
     expect(label.endsWith('…')).toBe(true);
   });
@@ -82,7 +92,8 @@ describe('buildSessionPickerOptions', () => {
       NOW,
     );
     expect(opts.find((o) => o.id === 'empty-other')).toBeUndefined();
-    const active = opts.find((o) => o.id === 'empty-active')!;
+    const active = opts.find((o) => o.id === 'empty-active');
+    assertDefined(active, 'empty ACTIVE session is kept');
     expect(active).toBeDefined();
     expect(active.label).toBe('(empty session)');
   });

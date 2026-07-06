@@ -1,5 +1,6 @@
 import { isCancel, select } from '@clack/prompts';
 import { deleteSession, readSessionIndex, type SessionMeta } from '@moxxy/core';
+import { assertDefined } from '@moxxy/sdk';
 import { WorkspaceRegistry } from '@moxxy/workspace-registry';
 import type { ParsedArgv } from '../argv.js';
 import { helpRequested, stringFlag } from '../argv-helpers.js';
@@ -157,13 +158,22 @@ export function resolveId(input: string, all: ReadonlyArray<SessionMeta>): strin
   // Numeric index into the list, 1-based to match `sessions list`.
   if (/^\d+$/.test(trimmed)) {
     const idx = Number.parseInt(trimmed, 10) - 1;
-    if (idx >= 0 && idx < all.length) return all[idx]!.id;
+    const byIndex = idx >= 0 && idx < all.length ? all[idx] : undefined;
+    if (byIndex) return byIndex.id;
   }
   if (all.some((m) => m.id === trimmed)) return trimmed;
   const suffix = all.filter((m) => m.id.endsWith(trimmed));
-  if (suffix.length === 1) return suffix[0]!.id;
+  if (suffix.length === 1) {
+    const only = suffix[0];
+    assertDefined(only, 'length === 1 guarantees an element');
+    return only.id;
+  }
   const prefix = all.filter((m) => m.id.startsWith(trimmed));
-  if (prefix.length === 1) return prefix[0]!.id;
+  if (prefix.length === 1) {
+    const only = prefix[0];
+    assertDefined(only, 'length === 1 guarantees an element');
+    return only.id;
+  }
   // Ambiguous or no match — return the raw input so the resume path
   // surfaces a clear "Session not found" with the user's typed string.
   return trimmed;

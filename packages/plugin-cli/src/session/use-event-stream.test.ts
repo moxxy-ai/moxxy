@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined, type MoxxyEvent } from '@moxxy/sdk';
 
 // Drive the hook without a React renderer, mirroring use-turn-runner.test.ts:
 // persistent state/ref cells + a useEffect that runs its body synchronously, so
@@ -15,7 +15,8 @@ vi.mock('react', () => {
     if (!stateCells[i]) {
       stateCells[i] = { value: typeof init === 'function' ? (init as () => unknown)() : init };
     }
-    const cell = stateCells[i]!;
+    const cell = stateCells[i];
+    assertDefined(cell, 'cell created above');
     const setter = (next: unknown) => {
       cell.value = typeof next === 'function' ? (next as (p: unknown) => unknown)(cell.value) : next;
     };
@@ -24,7 +25,9 @@ vi.mock('react', () => {
   const useRef = (init: unknown) => {
     const i = refIdx++;
     if (!refCells[i]) refCells[i] = { current: init };
-    return refCells[i]!;
+    const refCell = refCells[i];
+    assertDefined(refCell, 'ref cell created above');
+    return refCell;
   };
   const useEffect = (fn: () => void | (() => void)) => {
     // Run the effect body now (mount). Ignore the returned cleanup.
@@ -73,7 +76,11 @@ function mount(session: Parameters<typeof useEventStream>[0]) {
 }
 
 // `events` is the first useState in the hook → stateCells[0].
-const renderedEvents = () => stateCells[0]!.value as ReadonlyArray<MoxxyEvent>;
+const renderedEvents = () => {
+  const firstCell = stateCells[0];
+  assertDefined(firstCell, 'events state cell exists after mount');
+  return firstCell.value as ReadonlyArray<MoxxyEvent>;
+};
 
 describe('seedFromLog', () => {
   it('returns the held events, dropping live-only chunk types', () => {

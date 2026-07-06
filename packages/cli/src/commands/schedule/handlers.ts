@@ -1,5 +1,6 @@
 import { isValidCron, runSchedule } from '@moxxy/plugin-scheduler';
 import type { ScheduleStore } from '@moxxy/plugin-scheduler';
+import { assertDefined } from '@moxxy/sdk';
 import type { ParsedArgv } from '../../argv.js';
 import { colors } from '../../colors.js';
 import { setupSessionWithConfig } from '../../setup.js';
@@ -31,7 +32,14 @@ export async function listSchedules(store: ScheduleStore): Promise<number> {
   for (const s of all) {
     const status = s.enabled ? 'on' : 'off';
     const src = s.source === 'skill' ? `skill:${s.skillName}` : 'manual';
-    const trig = s.cron ? `cron "${s.cron}"` : `at ${new Date(s.runAt!).toISOString()}`;
+    let trig: string;
+    if (s.cron) {
+      trig = `cron "${s.cron}"`;
+    } else {
+      // scheduleEntrySchema requires cron or runAt, so a cron-less entry has one.
+      assertDefined(s.runAt, `schedule "${s.name}" has neither cron nor runAt`);
+      trig = `at ${new Date(s.runAt).toISOString()}`;
+    }
     process.stdout.write(
       `${colors.bold(s.name.padEnd(nameCol))}  ${colors.dim(status)}  ${colors.dim(trig)}\n` +
         `${' '.repeat(nameCol + 2)}${colors.dim(`id ${s.id} · ${src} · next ${fmtNext(s)}`)}\n` +
@@ -75,14 +83,17 @@ export async function addSchedule(store: ScheduleStore, argv: ParsedArgv): Promi
         '\n',
     );
   }
+  const timeZone = flag(argv, 'timezone');
+  const channel = flag(argv, 'channel');
+  const model = flag(argv, 'model');
   const created = await store.create({
     name,
     prompt,
     ...(cron ? { cron } : {}),
     ...(runAt !== undefined ? { runAt } : {}),
-    ...(flag(argv, 'timezone') ? { timeZone: flag(argv, 'timezone')! } : {}),
-    ...(flag(argv, 'channel') ? { channel: flag(argv, 'channel')! } : {}),
-    ...(flag(argv, 'model') ? { model: flag(argv, 'model')! } : {}),
+    ...(timeZone ? { timeZone } : {}),
+    ...(channel ? { channel } : {}),
+    ...(model ? { model } : {}),
   });
   process.stdout.write(
     `${colors.bold('created')}  ${colors.bold(created.name)}  ${colors.dim(created.id)}\n` +

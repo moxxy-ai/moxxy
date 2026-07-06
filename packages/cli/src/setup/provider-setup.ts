@@ -52,9 +52,10 @@ export function buildProviderSetupView(opts: BuildProviderSetupOptions): Provide
       // it registers on the host reload. Mirrors init's ensureProvider.
       const entry = resolveProvider(providerId);
       if (!entry) return false;
+      const pinVersion = cliVersion();
       await installPluginPackagePinned({
         packageName: entry.packageName,
-        ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        ...(pinVersion ? { cliVersion: pinVersion } : {}),
       });
       await setPluginEnabled(entry.packageName, true);
       await session.pluginHost.reload();

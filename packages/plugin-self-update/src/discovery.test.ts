@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ServiceRegistry } from '@moxxy/sdk';
+import { assertDefined, type ServiceRegistry } from '@moxxy/sdk';
 import { selfUpdatePlugin } from './index.js';
 
 /**
@@ -31,7 +31,10 @@ describe('selfUpdatePlugin (discovery-loadable)', () => {
       }
     });
     const services = { get, register: () => {}, require: () => undefined, has: () => true } as unknown as ServiceRegistry;
-    selfUpdatePlugin.hooks!.onInit!({ services } as never);
+    const hooks = selfUpdatePlugin.hooks;
+    assertDefined(hooks, 'selfUpdatePlugin declares hooks');
+    assertDefined(hooks.onInit, 'onInit hook declared');
+    hooks.onInit({ services } as never);
     expect(get).toHaveBeenCalledWith('pluginHost');
     expect(get).toHaveBeenCalledWith('registrySnapshot');
     expect(get).toHaveBeenCalledWith('appendEvent');

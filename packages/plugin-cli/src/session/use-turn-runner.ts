@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type React from 'react';
+import { assertDefined } from '@moxxy/sdk';
 import type { ClientSession as Session, UserPromptAttachment } from '@moxxy/sdk';
 import type { EventStreamHandle } from './use-event-stream.js';
 
@@ -146,10 +147,13 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
         const batch: QueuedMessage[] = [];
         let chars = 0;
         while (queueRef.current.length > 0 && batch.length < MAX_DRAIN_MESSAGES) {
-          const next = queueRef.current[0]!;
+          const next = queueRef.current[0];
+          assertDefined(next, 'queue length > 0 (loop condition)');
           const projected = chars + next.text.length;
           if (batch.length > 0 && projected > MAX_DRAIN_CHARS) break;
-          batch.push(queueRef.current.shift()!);
+          const shifted = queueRef.current.shift();
+          assertDefined(shifted, 'queue length > 0 (loop condition, nothing shifted since the peek)');
+          batch.push(shifted);
           chars = projected;
         }
         const remaining = queueRef.current.length;
@@ -168,7 +172,8 @@ export function useTurnRunner(opts: TurnRunnerOptions): TurnRunnerHandle {
 
   const forceSendFirst = (): boolean => {
     if (queueRef.current.length === 0) return false;
-    const first = queueRef.current.shift()!;
+    const first = queueRef.current.shift();
+    assertDefined(first, 'length !== 0 checked immediately above');
     setQueueCount(queueRef.current.length);
     setPriority(first);
     return true;

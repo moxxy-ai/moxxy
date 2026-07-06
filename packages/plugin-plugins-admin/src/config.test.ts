@@ -40,8 +40,10 @@ describe('plugins-admin config', () => {
     const parsed = parse(readFileSync(configPath, 'utf8')) as {
       plugins?: { provider?: { default?: string }; mode?: { default?: string } };
     };
-    expect(parsed.plugins?.provider?.default).toBe('openai');
-    expect(parsed.plugins?.mode?.default).toBe('goal');
+    const provider = parsed.plugins?.provider;
+    expect(provider?.default).toBe('openai');
+    const mode = parsed.plugins?.mode;
+    expect(mode?.default).toBe('goal');
     await expect(setCategoryDefault('bogus', 'x', { configPath })).rejects.toThrow(
       /unknown plugin category/,
     );
@@ -56,8 +58,11 @@ describe('plugins-admin config', () => {
         compactor?: { default?: string };
       };
     };
-    expect(parsed.plugins?.packages?.['@moxxy/plugin-telegram']?.enabled).toBe(false);
-    expect(parsed.plugins?.compactor?.default).toBe('summarize');
+    const packages = parsed.plugins?.packages;
+    const telegramPkg = packages?.['@moxxy/plugin-telegram'];
+    expect(telegramPkg?.enabled).toBe(false);
+    const compactor = parsed.plugins?.compactor;
+    expect(compactor?.default).toBe('summarize');
   });
 
   // invariant 5: concurrent read-modify-write of the shared config.yaml must
@@ -96,7 +101,9 @@ describe('plugins-admin config', () => {
     };
     expect(parsed.systemPrompt).toBe('hello');
     expect(parsed.maxIterations).toBe(7);
-    expect(parsed.plugins?.packages?.['@moxxy/plugin-a']?.enabled).toBe(false);
+    const packages = parsed.plugins?.packages;
+    const pluginA = packages?.['@moxxy/plugin-a'];
+    expect(pluginA?.enabled).toBe(false);
   });
 
   it('clearPluginState keeps a sibling plugin entry', async () => {

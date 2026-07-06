@@ -1,3 +1,5 @@
+import { assertDefined } from '@moxxy/sdk';
+
 export interface ParsedArgv {
   command: string;
   flags: Record<string, string | boolean>;
@@ -79,7 +81,8 @@ export function parseArgv(argv: ReadonlyArray<string>): ParsedArgv {
     return result;
   }
   let i = 0;
-  const first = argv[0]!;
+  const first = argv[0];
+  assertDefined(first, 'argv is non-empty (length checked above)');
   const looksLikeCommand = !first.startsWith('-');
   if (looksLikeCommand) {
     result.command = first;
@@ -88,7 +91,8 @@ export function parseArgv(argv: ReadonlyArray<string>): ParsedArgv {
 
   let endOfOptions = false;
   for (; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    assertDefined(a, 'i < argv.length within the loop');
     if (endOfOptions) {
       result.positional.push(a);
       continue;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import {
   applyGitRef,
   buildInstallSpec,
@@ -11,18 +12,19 @@ import {
 
 // A UI catalog entry (the action test exercises the `open` option, which is
 // UI-only). Pinning by kind keeps the test stable as catalog ordering changes.
-const entry = INSTALLABLE_PLUGIN_CATALOG.find((e) => e.kind === 'ui')!;
+const entry = INSTALLABLE_PLUGIN_CATALOG.find((e) => e.kind === 'ui');
+assertDefined(entry, 'catalog has a ui entry');
 
 describe('catalog: unbundled providers are installable', () => {
   it('lists the 6 API-key providers with bare-npm install specs', () => {
     for (const slug of ['anthropic', 'openai', 'google', 'xai', 'zai', 'local']) {
       const pkg = `@moxxy/plugin-provider-${slug}`;
       const e = resolveCatalogEntry(`provider-${slug}`);
-      expect(e, `provider-${slug} in catalog`).toBeDefined();
-      expect(e!.packageName).toBe(pkg);
+      assertDefined(e, `provider-${slug} in catalog`);
+      expect(e.packageName).toBe(pkg);
       // bare package name → npm latest (matches init/provision install-latest)
-      expect(e!.installSpec).toBe(pkg);
-      expect(e!.kind).toBeUndefined(); // not a UI plugin
+      expect(e.installSpec).toBe(pkg);
+      expect(e.kind).toBeUndefined(); // not a UI plugin
     }
   });
   it('resolves a provider by package name too', () => {

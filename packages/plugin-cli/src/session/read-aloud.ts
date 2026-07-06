@@ -1,4 +1,5 @@
 import { synthesizeReply, type SynthesizeReplyResult, type SynthesizerSource } from '@moxxy/channel-kit';
+import { assertDefined } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { playAudio, type AudioPlaybackOptions, type PlayAudioResult } from '../audio-play.js';
 
@@ -89,7 +90,8 @@ export function lastAssistantReply(
 ): { readonly content: string; readonly seq: number } | null {
   const messages = session.ofType('assistant_message');
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]!;
+    const m = messages[i];
+    assertDefined(m, 'i in [0, messages.length) (loop bounds)');
     if (m.stopReason === 'end_turn' && m.content.trim().length > 0) {
       return { content: m.content, seq: m.seq };
     }

@@ -138,8 +138,9 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   }
 
   // Providers
-  const primary = config.plugins?.provider?.default ?? 'anthropic';
-  const fallbacks = config.plugins?.provider?.fallbacks ?? [];
+  const providerCfg = config.plugins?.provider;
+  const primary = providerCfg?.default ?? 'anthropic';
+  const fallbacks = providerCfg?.fallbacks ?? [];
   const providerNames = Array.from(new Set([primary, ...fallbacks]));
   for (const name of providerNames) {
     const def = session.providers.list().find((p) => p.name === name);
@@ -167,8 +168,12 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
       });
       continue;
     }
-    if (checkKeys && def.validateKey) {
-      const v = await tryCatch(() => def.validateKey!(key!));
+    const { validateKey } = def;
+    if (checkKeys && validateKey) {
+      // Capture the narrowed key/function as consts so the closure keeps the
+      // narrowing; call with `def` as receiver to preserve `this` semantics.
+      const resolvedKey = key;
+      const v = await tryCatch(() => validateKey.call(def, resolvedKey));
       if (!v.ok) {
         checks.push({
           id: `provider:${name}`,

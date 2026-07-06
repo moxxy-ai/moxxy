@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { createSubagentSpawner, type Session } from '@moxxy/core';
 import {
   asPluginId,
+  assertDefined,
   type EmittedEvent,
   type WorkflowRunResult,
 } from '@moxxy/sdk';
@@ -116,10 +117,11 @@ export function buildWorkflowRunner(args: {
       // surface the paused status to the caller. (In practice awaitInput is
       // gated at validate/save time, so this is a defense-in-depth guard.)
       if (result.status === 'paused') {
-        logger?.warn?.('workflows: run paused awaiting operator input; not delivering to inbox', {
-          workflow: input.name,
-          runId: result.runId,
-        });
+        if (logger?.warn)
+          logger.warn('workflows: run paused awaiting operator input; not delivering to inbox', {
+            workflow: input.name,
+            runId: result.runId,
+          });
         return result;
       }
       await deliverToInbox(entry.workflow, result, logger);
@@ -144,7 +146,8 @@ export function buildWorkflowRunner(args: {
     // workflow name: a resume drives the rest of the DAG (and delivers to the
     // inbox), so letting it race a concurrent runNow of the same workflow would
     // run two executions at once — doubling side effects and inbox deliveries.
-    const name = checkpoint?.workflow?.name;
+    const workflow = checkpoint?.workflow;
+    const name = workflow?.name;
     // A checkpoint with no identifiable workflow name (missing/corrupted/legacy)
     // can't be guarded by the in-flight set, so a resume would silently race a
     // concurrent runNow. Refuse rather than proceed unguarded.
@@ -204,14 +207,16 @@ export function buildWorkflowRunner(args: {
       // A still-paused result (a second awaitInput) is non-terminal — withhold it
       // exactly like runNow. A completed/failed result IS terminal: deliver it.
       if (result.status === 'paused') {
-        logger?.warn?.('workflows: run paused again awaiting operator input; not delivering to inbox', {
-          runId: result.runId,
-        });
+        if (logger?.warn)
+          logger.warn('workflows: run paused again awaiting operator input; not delivering to inbox', {
+            runId: result.runId,
+          });
         return result;
       }
       // Resolve the workflow name from the checkpoint for inbox delivery metadata.
-      // `checkpoint.workflow` is guaranteed by the `!name` guard above.
-      await deliverToInbox(checkpoint!.workflow, result, logger);
+      // `workflow` is guaranteed defined by the `!name` guard above (name derived from it).
+      assertDefined(workflow, 'checkpoint.workflow is defined when a run name resolved (guarded above)');
+      await deliverToInbox(workflow, result, logger);
       return result;
     } finally {
       inFlight.delete(name);
@@ -229,7 +234,8 @@ export function buildWorkflowRunner(args: {
  * terminal fallback matches runTurn's own resolution.
  */
 export function activeModel(session: Session): string {
-  return session.lastResolvedModel ?? safeActiveProvider(session)?.models[0]?.id ?? 'default';
+  const firstModel = safeActiveProvider(session)?.models[0];
+  return session.lastResolvedModel ?? firstModel?.id ?? 'default';
 }
 
 export function safeActiveProvider(session: Session): ReturnType<Session['providers']['getActive']> | null {
@@ -270,8 +276,9 @@ export async function deliverToInbox(
     const body = result.error ? `**error:** ${result.error}\n\n${result.output}` : result.output;
     await writeFileAtomic(file, header + body + '\n');
   } catch (err) {
-    logger?.warn?.('workflows: inbox delivery failed', {
-      err: err instanceof Error ? err.message : String(err),
-    });
+    if (logger?.warn)
+      logger.warn('workflows: inbox delivery failed', {
+        err: err instanceof Error ? err.message : String(err),
+      });
   }
 }

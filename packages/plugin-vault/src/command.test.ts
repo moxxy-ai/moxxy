@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { asSessionId, type CommandDef, type EmittedEvent } from '@moxxy/sdk';
+import { asSessionId, assertDefined, type CommandDef, type EmittedEvent } from '@moxxy/sdk';
 import { buildVaultPlugin } from './index.js';
 import { createStaticKeySource } from './keysource.js';
 import { deriveKey, generateSalt } from './crypto.js';
@@ -64,7 +64,8 @@ describe('/vault command', () => {
 
     // Model-facing note injected into the log has the reference, not the value
     expect(appended).toHaveLength(1);
-    const note = appended[0]!;
+    const note = appended[0];
+    assertDefined(note, 'one note appended');
     expect(note.type).toBe('user_prompt');
     if (note.type !== 'user_prompt') throw new Error('expected user_prompt');
     expect(note.text).toContain('${vault:API_KEY}');

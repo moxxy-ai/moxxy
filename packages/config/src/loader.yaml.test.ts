@@ -27,16 +27,21 @@ describe('YAML config loading', () => {
 `,
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.plugins?.provider?.default).toBe('anthropic');
-    expect(result.config.plugins?.provider?.items?.anthropic?.model).toBe('claude-sonnet-4-6');
-    expect(result.config.plugins?.mode?.default).toBe('default');
+    const provider = result.config.plugins?.provider;
+    expect(provider?.default).toBe('anthropic');
+    const providerItems = provider?.items;
+    const anthropicItem = providerItems?.anthropic;
+    expect(anthropicItem?.model).toBe('claude-sonnet-4-6');
+    const mode = result.config.plugins?.mode;
+    expect(mode?.default).toBe('default');
     expect(result.sources[0]?.scope).toBe('project');
   });
 
   it('loads .yml extension too', async () => {
     await fs.writeFile(path.join(tmp, 'moxxy.config.yml'), `plugins:\n  mode:\n    default: research\n`);
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.plugins?.mode?.default).toBe('research');
+    const mode = result.config.plugins?.mode;
+    expect(mode?.default).toBe('research');
   });
 
   it('walks upward to find a yaml config', async () => {
@@ -44,7 +49,8 @@ describe('YAML config loading', () => {
     await fs.mkdir(nested, { recursive: true });
     await fs.writeFile(path.join(tmp, 'moxxy.config.yaml'), `plugins:\n  mode:\n    default: default\n`);
     const result = await loadConfig({ cwd: nested, skipUser: true });
-    expect(result.config.plugins?.mode?.default).toBe('default');
+    const mode = result.config.plugins?.mode;
+    expect(mode?.default).toBe('default');
   });
 
   it('rejects a yaml config whose schema is invalid', async () => {
@@ -95,8 +101,11 @@ channels:
 `,
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.plugins?.embedder?.default).toBe('openai');
-    expect(result.config.plugins?.packages?.['@moxxy/plugin-browser']?.enabled).toBe(false);
+    const embedder = result.config.plugins?.embedder;
+    expect(embedder?.default).toBe('openai');
+    const packages = result.config.plugins?.packages;
+    const browserPkg = packages?.['@moxxy/plugin-browser'];
+    expect(browserPkg?.enabled).toBe(false);
     expect(result.config.channels?.['http']).toEqual({
       port: 8080,
       allowedTools: ['Read', 'Glob'],
@@ -131,8 +140,11 @@ channels:
       `plugins:\n  embedder:\n    items:\n      openai:\n        model: text-embedding-3-small\n`,
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.plugins?.embedder?.items?.openai?.model).toBe('text-embedding-3-small');
-    expect(result.config.plugins?.embedder?.default).toBeUndefined();
+    const embedder = result.config.plugins?.embedder;
+    const embedderItems = embedder?.items;
+    const openaiItem = embedderItems?.openai;
+    expect(openaiItem?.model).toBe('text-embedding-3-small');
+    expect(embedder?.default).toBeUndefined();
   });
 
   it('YAML at project level is overridden by .ts at same level (loader precedence)', async () => {
@@ -144,6 +156,7 @@ channels:
       `export default { plugins: { mode: { default: 'research' } } };`,
     );
     const result = await loadConfig({ cwd: tmp, skipUser: true });
-    expect(result.config.plugins?.mode?.default).toBe('default');
+    const mode = result.config.plugins?.mode;
+    expect(mode?.default).toBe('default');
   });
 });

@@ -4,6 +4,7 @@
  * the init wizard banner, and the TUI mount all show the same banner +
  * slogan during a single process.
  */
+import { assertDefined } from '@moxxy/sdk';
 
 /**
  * The moxxy mascot, rendered as grayscale ASCII art. Drawn dim-gray
@@ -129,7 +130,9 @@ let cachedSlogan: string | null = null;
  */
 export function pickSlogan(): string {
   if (cachedSlogan !== null) return cachedSlogan;
-  cachedSlogan = SLOGANS[Math.floor(Math.random() * SLOGANS.length)]!;
+  const picked = SLOGANS[Math.floor(Math.random() * SLOGANS.length)];
+  assertDefined(picked, 'random index is always within the non-empty SLOGANS pool');
+  cachedSlogan = picked;
   return cachedSlogan;
 }
 
@@ -176,7 +179,9 @@ export function pickExamples(n: number = 2): ReadonlyArray<string> {
   const out: string[] = [];
   for (let i = 0; i < n && pool.length > 0; i += 1) {
     const idx = Math.floor(Math.random() * pool.length);
-    out.push(pool[idx]!);
+    const example = pool[idx];
+    assertDefined(example, 'random index is always within the non-empty pool');
+    out.push(example);
     pool.splice(idx, 1);
   }
   cachedExamples = out;

@@ -270,9 +270,10 @@ function wirePluginsAdminView(
       // enabled anyway).
       const packageName = entry?.packageName ?? packageNameFromSpec(spec);
       const before = buildPluginSnapshot(session);
+      const pinVersion = cliVersion();
       const { installed } = await installPluginPackagePinned({
         packageName: spec,
-        ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        ...(pinVersion ? { cliVersion: pinVersion } : {}),
         onWarn: (msg) => logger.warn(msg),
       });
       if (packageName) await persistPluginEnabled(packageName, true);
@@ -387,14 +388,14 @@ function buildSecuritySlice(
   // Tools without an `isolation` declaration pass through untouched (unless
   // `security.requireDeclaration` is set, or — for third-party packages —
   // `security.thirdPartyRequireDeclaration` warns/denies).
+  const isolatorCfg = rawConfig.plugins?.isolator;
+  const configuredIsolator = isolatorCfg?.default;
   const security = buildSecurityPlugin({
     config: {
       enabled: rawConfig.security?.enabled ?? false,
       // The default isolator now lives in the unified tree at
       // `plugins.isolator.default` (a registry kind like any other).
-      ...(rawConfig.plugins?.isolator?.default
-        ? { isolator: rawConfig.plugins.isolator.default }
-        : {}),
+      ...(configuredIsolator ? { isolator: configuredIsolator } : {}),
       ...(rawConfig.security?.perTool ? { perTool: rawConfig.security.perTool } : {}),
       ...(rawConfig.security?.perPlugin ? { perPlugin: rawConfig.security.perPlugin } : {}),
       ...(rawConfig.security?.requireDeclaration !== undefined

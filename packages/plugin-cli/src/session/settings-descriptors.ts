@@ -81,8 +81,14 @@ export const SETTINGS_KNOBS: ReadonlyArray<SettingsKnob> = [
     description: 'turn-boundary elision of old tool output (default on)',
     kind: 'boolean',
     dotPath: 'context.elision.enabled',
-    current: (c) => onOff(c.context?.elision?.enabled, true),
-    next: (c) => !(c.context?.elision?.enabled ?? true),
+    current: (c) => {
+      const elision = c.context?.elision;
+      return onOff(elision?.enabled, true);
+    },
+    next: (c) => {
+      const elision = c.context?.elision;
+      return !(elision?.enabled ?? true);
+    },
   },
   {
     id: 'lazy-tools',
@@ -99,8 +105,14 @@ export const SETTINGS_KNOBS: ReadonlyArray<SettingsKnob> = [
     description: 'bail a turn early on repeated identical tool calls (default on)',
     kind: 'boolean',
     dotPath: 'context.loopGuard.enabled',
-    current: (c) => onOff(c.context?.loopGuard?.enabled, true),
-    next: (c) => !(c.context?.loopGuard?.enabled ?? true),
+    current: (c) => {
+      const loopGuard = c.context?.loopGuard;
+      return onOff(loopGuard?.enabled, true);
+    },
+    next: (c) => {
+      const loopGuard = c.context?.loopGuard;
+      return !(loopGuard?.enabled ?? true);
+    },
   },
   {
     id: 'security',

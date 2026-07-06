@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { pinFirstPartySpec } from './pin.js';
 import { installPluginPackagePinned } from './install.js';
 
@@ -63,7 +64,9 @@ describe('installPluginPackagePinned', () => {
       expect.objectContaining({ packageName: '@moxxy/plugin-x' }),
     );
     expect(onWarn).toHaveBeenCalledTimes(1);
-    expect(onWarn.mock.calls[0]![0]).toContain('@moxxy/plugin-x@9.9.9');
+    const firstWarnCall = onWarn.mock.calls[0];
+    assertDefined(firstWarnCall, 'onWarn was called exactly once (asserted above)');
+    expect(firstWarnCall[0]).toContain('@moxxy/plugin-x@9.9.9');
     expect(res.installed).toBe('@moxxy/plugin-x');
   });
 

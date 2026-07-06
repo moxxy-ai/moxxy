@@ -120,7 +120,8 @@ export function applyPluginsTree(session: Session, config: MoxxyConfig, logger: 
     // An *explicit* config default that's missing is a warning (likely a typo
     // or an uninstalled plugin the user named); a *built-in* default whose
     // providing plugin simply isn't installed is a silent skip.
-    let name = config.plugins?.[key]?.default;
+    const slot = config.plugins?.[key];
+    let name = slot?.default;
     let explicit = name !== undefined;
     // Caching is on by default (stable-prefix is the floor). `caching: false`
     // selects the no-op strategy regardless of the configured cacheStrategy.

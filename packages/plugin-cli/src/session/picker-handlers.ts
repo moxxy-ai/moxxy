@@ -1,4 +1,5 @@
 import {
+  assertDefined,
   isFirstPartyPackage,
   type ClientSession as Session,
   type PluginsAdminView,
@@ -128,11 +129,15 @@ function handleSettingSelected(id: string, deps: PickerHandlerDeps): void {
   void (async () => {
     try {
       const { config } = await loadConfig({ cwd: process.cwd() });
-      const value = knob.next!(config);
+      const next = knob.next;
+      const dotPath = knob.dotPath;
+      assertDefined(next, 'boolean/enum knobs always define a next() writer');
+      assertDefined(dotPath, 'boolean/enum knobs always define a dotPath');
+      const value = next(config);
       await setConfigValue({
         scope: 'user',
         cwd: process.cwd(),
-        path: knob.dotPath!,
+        path: dotPath,
         value,
       });
       const admin = deps.session.configAdmin;
@@ -166,7 +171,7 @@ function runPickerInstall(
   opts: { reopenPluginsPicker?: boolean; onSuccess?: () => void } = {},
 ): void {
   const admin = deps.session.pluginsAdmin;
-  const install = admin?.install?.bind(admin);
+  const install = admin?.install ? admin.install.bind(admin) : undefined;
   if (!install) {
     deps.setSystemNotice(`to install: run \`moxxy plugins install ${target}\``);
     return;
@@ -184,15 +189,22 @@ function runPickerInstall(
       // Loaded-package names BEFORE the install: the fallback way to learn
       // the installed package's name when the spec doesn't reveal it
       // (git/path installs) — whatever appears in `loaded()` afterwards is it.
-      const loadedBefore = new Set(admin?.loaded?.().map((p) => p.name) ?? []);
+      const loadedBefore = new Set(
+        admin?.loaded ? admin.loaded().map((p) => p.name) : [],
+      );
       const res = await install(target);
       const kinds = Object.entries(res.registered)
         .filter(([, names]) => names && names.length > 0)
-        .map(([kind, names]) => `${kind}: ${names!.join(', ')}`)
+        .map(([kind, names]) => {
+          assertDefined(names, 'filtered to entries with a non-empty names array above');
+          return `${kind}: ${names.join(', ')}`;
+        })
         .join('; ');
       const pkgName =
         packageNameFromSpec(res.installed) ??
-        deps.session.pluginsAdmin?.loaded?.().find((p) => !loadedBefore.has(p.name))?.name;
+        (admin?.loaded
+          ? admin.loaded().find((p) => !loadedBefore.has(p.name))?.name
+          : undefined);
       // THIRD-PARTY (outside the @moxxy scope): the capability surface must
       // be consented to before the plugin keeps running. The follow-up
       // (setup dialog, slash rerun) is deferred behind the `keep` choice.
@@ -267,10 +279,11 @@ async function runPostInstallFollowUp(
 ): Promise<void> {
   if (res.needsSetup) {
     const admin = deps.session.pluginsAdmin;
-    const pkg =
-      admin?.catalog().find((e) => e.id === target || e.packageName === target)?.packageName ??
-      target;
-    const spec = await admin?.setupSpec?.(pkg).catch(() => null);
+    const catalogEntry = admin?.catalog().find(
+      (e) => e.id === target || e.packageName === target,
+    );
+    const pkg = catalogEntry?.packageName ?? target;
+    const spec = admin?.setupSpec ? await admin.setupSpec(pkg).catch(() => null) : null;
     if (spec && deps.openPluginSetup) {
       deps.openPluginSetup({ packageName: pkg, spec, ...(onSuccess ? { then: onSuccess } : {}) });
       return; // dialog's `then` runs onSuccess after configuration
@@ -375,13 +388,17 @@ function handleInstallConsent(
 function handlePluginSetupPicked(id: string, deps: PickerHandlerDeps): void {
   const admin = deps.session.pluginsAdmin;
   if (!admin?.setupSpec || !deps.openPluginSetup) return;
+  // Capture the narrowed capabilities before the async closure: property
+  // narrowing from the guard above doesn't survive into the nested function.
+  const setupSpec = admin.setupSpec.bind(admin);
+  const openPluginSetup = deps.openPluginSetup;
   void (async () => {
-    const spec = await admin.setupSpec!(id).catch(() => null);
+    const spec = await setupSpec(id).catch(() => null);
     if (!spec) {
       deps.setSystemNotice(`${id} declares no setup step`);
       return;
     }
-    deps.openPluginSetup!({ packageName: id, spec });
+    openPluginSetup({ packageName: id, spec });
   })();
 }
 

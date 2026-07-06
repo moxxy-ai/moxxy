@@ -202,9 +202,10 @@ export async function runTuiWithBootstrap(
  */
 async function applyTuiPreferences(argv: ParsedArgv): Promise<void> {
   try {
+    const explicitPath = stringFlag(argv, 'config');
     const { config } = await loadConfig({
       cwd: process.cwd(),
-      ...(stringFlag(argv, 'config') ? { explicitPath: stringFlag(argv, 'config')! } : {}),
+      ...(explicitPath ? { explicitPath } : {}),
     });
     const tui = config.tui;
     if (!tui) return;
@@ -324,9 +325,10 @@ async function runSelfHostedTui(
   standalone: boolean,
 ): Promise<number> {
   if (process.stdin.isTTY) {
+    const explicitPath = stringFlag(argv, 'config');
     const { sources } = await loadConfig({
       cwd: process.cwd(),
-      ...(stringFlag(argv, 'config') ? { explicitPath: stringFlag(argv, 'config')! } : {}),
+      ...(explicitPath ? { explicitPath } : {}),
     });
     let needsInit = sources.length === 0;
     if (!needsInit) {
@@ -509,7 +511,8 @@ async function runSelfHostedTui(
   const attachOrSpawnCollab = async (goal?: string): Promise<ClientSession> => {
     if (!goal) {
       const active = readActiveCollab();
-      const runningSocket = active?.runnerSocket?.trim();
+      const activeSocket = active?.runnerSocket;
+      const runningSocket = activeSocket?.trim();
       if (runningSocket && (await isRunnerUp(runningSocket))) {
         return connectRemoteSession({ role: 'tui', socketPath: runningSocket, replay: 'full' });
       }

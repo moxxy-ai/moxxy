@@ -11,6 +11,7 @@ import {
   select,
   spinner,
 } from '@clack/prompts';
+import { assertDefined } from '@moxxy/sdk';
 import {
   renderYaml,
   type ProviderAuthKind,
@@ -140,10 +141,12 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
     process.exit(1);
   }
 
+  const firstProviderOption = providerOptions[0];
+  assertDefined(firstProviderOption, 'providerOptions is non-empty (checked above)');
   const providerRaw = await select({
     message: 'Step 1 — Which provider do you want to use?',
     options: providerOptions,
-    initialValue: providerOptions[0]!.value,
+    initialValue: firstProviderOption.value,
   });
   const provider = guard(providerRaw);
 
@@ -191,10 +194,12 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
   // Step 3 — model (from the resolved provider's real models)
   let model: string | null = null;
   if (modelChoices.length > 0) {
+    const firstModelChoice = modelChoices[0];
+    assertDefined(firstModelChoice, 'modelChoices is non-empty (checked above)');
     const modelRaw = await select({
       message: `Step 3 — Default model for ${colors.bold(provider)}`,
       options: toOptions(modelChoices),
-      initialValue: modelChoices[0]!.id,
+      initialValue: firstModelChoice.id,
     });
     model = guard(modelRaw);
   }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 
 // Drive the hook without a React renderer by mocking react's useState/useRef
 // with deterministic, persistent implementations. The hook is mounted ONCE
@@ -19,7 +20,8 @@ vi.mock('react', () => ({
     if (!stateCells[i]) {
       stateCells[i] = { value: typeof init === 'function' ? (init as () => unknown)() : init };
     }
-    const cell = stateCells[i]!;
+    const cell = stateCells[i];
+    assertDefined(cell, 'cell created above');
     const setter = (next: unknown) => {
       cell.value = typeof next === 'function' ? (next as (p: unknown) => unknown)(cell.value) : next;
     };
@@ -28,7 +30,9 @@ vi.mock('react', () => ({
   useRef: (init: unknown) => {
     const i = refIdx++;
     if (!refCells[i]) refCells[i] = { current: init };
-    return refCells[i]!;
+    const refCell = refCells[i];
+    assertDefined(refCell, 'ref cell created above');
+    return refCell;
   },
 }));
 

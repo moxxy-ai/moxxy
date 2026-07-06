@@ -1,3 +1,4 @@
+import { assertDefined } from '@moxxy/sdk';
 import type { Action } from './reducer.js';
 import { matchEscape } from './escape.js';
 
@@ -97,7 +98,8 @@ export function parseInputChunk(chunk: string, ctx: ParseCtx): string {
       i += PASTE_START.length;
       continue;
     }
-    const c = chunk[i]!;
+    const c = chunk[i];
+    assertDefined(c, 'i < chunk.length within the while loop');
     // Control bytes
     if (c === '\r' || c === '\n') {
       // Enter:
@@ -203,7 +205,8 @@ export function parseInputChunk(chunk: string, ctx: ParseCtx): string {
       } else if (action === 'shift-tab') {
         ctx.onShiftTab?.();
       } else if (action === 'command-hotkey' && matched.letter) {
-        ctx.commandHotkeys?.[matched.letter]?.();
+        const hotkey = ctx.commandHotkeys?.[matched.letter];
+        hotkey?.();
       }
       // action === 'noop' falls through here: consume `len` bytes (below)
       // and dispatch nothing — used for unrecognized terminal sequences so

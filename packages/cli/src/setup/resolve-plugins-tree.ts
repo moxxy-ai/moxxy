@@ -40,7 +40,8 @@ export function providerSlot(config: MoxxyConfig): ProviderSlot {
  * (the caller then runs setup rather than pointing at a missing provider).
  */
 export function providerDefault(config: MoxxyConfig): string | undefined {
-  return config.plugins?.provider?.default;
+  const provider = config.plugins?.provider;
+  return provider?.default;
 }
 
 /** Per-item options (model/config) for a provider, defaulting to the active one. */
@@ -56,12 +57,14 @@ export function providerItem(config: MoxxyConfig, name?: string): ProviderItem {
  * built-in default (transcriber/synthesizer/channel) when unset.
  */
 export function categoryDefault(config: MoxxyConfig, key: PluginCategoryKey): string | undefined {
-  return config.plugins?.[key]?.default ?? BUILTIN_DEFAULTS[key];
+  const slot = config.plugins?.[key];
+  return slot?.default ?? BUILTIN_DEFAULTS[key];
 }
 
 /** Per-package settings from the install/enable ledger. */
 export function packageSettings(config: MoxxyConfig, pkg: string) {
-  return config.plugins?.packages?.[pkg];
+  const packages = config.plugins?.packages;
+  return packages?.[pkg];
 }
 
 /** Package names explicitly disabled (`enabled: false`) in the ledger. */

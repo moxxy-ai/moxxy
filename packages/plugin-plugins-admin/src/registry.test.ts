@@ -99,8 +99,10 @@ describe('verifyRegistryIndex / parseRegistryIndex', () => {
     expect(verifyRegistryIndex(bytes, sig, publicKeyPem)).toBe(true);
     const index = parseRegistryIndex(bytes);
     expect(index?.entries).toHaveLength(2);
-    expect(index?.entries[0]?.version).toBe('0.26.0');
-    expect(index?.entries[0]?.capabilities?.net).toEqual({
+    const firstEntry = index?.entries[0];
+    expect(firstEntry?.version).toBe('0.26.0');
+    const firstCapabilities = firstEntry?.capabilities;
+    expect(firstCapabilities?.net).toEqual({
       mode: 'allowlist',
       hosts: ['api.telegram.org'],
     });

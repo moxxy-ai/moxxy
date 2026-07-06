@@ -44,12 +44,14 @@ export async function registerPlugins(
   opts: RegisterPluginsOptions = {},
 ): Promise<RegistrationResult> {
   const registered = new Set<string>();
+  const configuredPackages = config.plugins?.packages;
 
   const resolved = await resolveBuiltinRequirements(builtins, cwd);
   const ordered = toposortBuiltins(builtins, resolved);
   for (const { name, plugin } of ordered) {
     // A hand-edited config can't disable a kernel package — the floor stays.
-    if (config.plugins?.packages?.[name]?.enabled === false && !isCriticalPackage(name)) {
+    const pkgSettings = configuredPackages?.[name];
+    if (pkgSettings?.enabled === false && !isCriticalPackage(name)) {
       logger.info('skipping disabled plugin', { plugin: name });
       continue;
     }
@@ -88,7 +90,8 @@ export async function registerPlugins(
     });
     for (const manifest of manifests) {
       if (registered.has(manifest.packageName)) continue;
-      if (config.plugins?.packages?.[manifest.packageName]?.enabled === false) {
+      const manifestSettings = configuredPackages?.[manifest.packageName];
+      if (manifestSettings?.enabled === false) {
         logger.info('skipping disabled plugin', { plugin: manifest.packageName });
         continue;
       }

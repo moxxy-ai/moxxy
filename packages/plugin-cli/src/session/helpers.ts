@@ -1,3 +1,4 @@
+import { assertDefined } from '@moxxy/sdk';
 import type { ClientSession as Session, ModeBadge } from '@moxxy/sdk';
 import {
   BUILTIN_SLASH_COMMANDS,
@@ -96,7 +97,8 @@ export function deriveMcpServers(
   for (const t of tools) {
     const m = /^mcp__([a-z0-9-]+)__/.exec(t.name);
     if (!m) continue;
-    const server = m[1]!;
+    const server = m[1];
+    assertDefined(server, 'the mcp-tool regex has a required capture group');
     const list = grouped.get(server) ?? [];
     list.push(t.name);
     grouped.set(server, list);

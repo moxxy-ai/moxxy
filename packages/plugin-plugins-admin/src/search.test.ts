@@ -57,7 +57,7 @@ describe('searchInstallablePlugins', () => {
     const hangThenAbort: FetchLike = (_url, init) =>
       new Promise((_resolve, reject) => {
         seenSignal = init?.signal;
-        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        seenSignal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
       });
     const ac = new AbortController();
     const p = searchInstallablePlugins('zzz-no-catalog-match', {

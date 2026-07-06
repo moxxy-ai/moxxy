@@ -131,15 +131,15 @@ function isWordChar(c: string): boolean {
 
 function wordBackPos(buffer: string, cursor: number): number {
   let i = cursor;
-  while (i > 0 && !isWordChar(buffer[i - 1]!)) i -= 1;
-  while (i > 0 && isWordChar(buffer[i - 1]!)) i -= 1;
+  while (i > 0 && !isWordChar(buffer[i - 1] ?? '')) i -= 1;
+  while (i > 0 && isWordChar(buffer[i - 1] ?? '')) i -= 1;
   return i;
 }
 
 function wordForwardPos(buffer: string, cursor: number): number {
   let i = cursor;
-  while (i < buffer.length && !isWordChar(buffer[i]!)) i += 1;
-  while (i < buffer.length && isWordChar(buffer[i]!)) i += 1;
+  while (i < buffer.length && !isWordChar(buffer[i] ?? '')) i += 1;
+  while (i < buffer.length && isWordChar(buffer[i] ?? '')) i += 1;
   return i;
 }
 

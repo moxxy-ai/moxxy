@@ -62,6 +62,7 @@ export interface BuiltinEntriesArgs {
  */
 export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
   const { session, rawConfig, vaultPlugin, viewSurface, webControls, setPluginEnabledLive, categoryLive } = args;
+  const version = cliVersion();
 
   // Publish the shared web-surface ref so the (discovery-loadable) view plugin
   // can read it in onInit — the same mutable ref the web channel writes via its
@@ -72,17 +73,21 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
   // discovery-loaded plugin (self-update) can read its own options in onInit.
   session.services.register(
     'getPluginOptions',
-    (pkg: string): Record<string, unknown> | undefined => rawConfig.plugins?.packages?.[pkg]?.options,
+    (pkg: string): Record<string, unknown> | undefined => {
+      const packages = rawConfig.plugins?.packages;
+      const entry = packages?.[pkg];
+      return entry?.options;
+    },
   );
   // The shared web-controls ref (written by the web channel, read by its
   // web_set_tunnel tool) + the configured default tunnel — for the
   // discovery-loadable web channel to resolve in onInit.
   session.services.register('webControls', webControls);
+  const webChannel = (rawConfig.channels as { web?: { tunnel?: unknown } } | undefined)?.web;
+  const webTunnel = webChannel?.tunnel;
   session.services.register(
     'webDefaultTunnel',
-    typeof (rawConfig.channels as { web?: { tunnel?: unknown } } | undefined)?.web?.tunnel === 'string'
-      ? (rawConfig.channels as { web?: { tunnel?: string } }).web!.tunnel
-      : undefined,
+    typeof webTunnel === 'string' ? webTunnel : undefined,
   );
 
   return [
@@ -146,7 +151,7 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
         setEnabled: setPluginEnabledLive,
         categories: categoryLive.categories,
         setCategoryDefault: categoryLive.setCategoryDefault,
-        ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        ...(version ? { cliVersion: version } : {}),
         // Lets install_plugin report the just-installed package's combined
         // capability surface (union of its tools' isolation declarations).
         toolIsolation: (name) => session.tools.get(name)?.isolation,

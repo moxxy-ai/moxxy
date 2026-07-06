@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { assertDefined } from '@moxxy/sdk';
 import {
   readProvidersConfig,
   removeStoredProvider,
@@ -58,7 +59,9 @@ describe('stored-provider tree store (plugins.provider.items)', () => {
     const updated: StoredProvider = { ...sampleEntry, defaultModel: 'glm-4.5-air' };
     const next = await upsertStoredProvider(updated, cfgPath);
     expect(next.providers).toHaveLength(1);
-    expect(next.providers[0]!.defaultModel).toBe('glm-4.5-air');
+    const first = next.providers[0];
+    assertDefined(first, 'one provider stored after upsert');
+    expect(first.defaultModel).toBe('glm-4.5-air');
   });
 
   it('upsert appends distinct entries', async () => {
@@ -132,7 +135,9 @@ describe('stored-provider tree store (plugins.provider.items)', () => {
       ].join('\n'),
     );
     const cfg = await readProvidersConfig(cfgPath);
-    expect(cfg.providers[0]!.models[0]).toMatchObject({
+    const first = cfg.providers[0];
+    assertDefined(first, 'legacy provider entry surfaced');
+    expect(first.models[0]).toMatchObject({
       id: 'm',
       contextWindow: 1000,
       supportsTools: true,

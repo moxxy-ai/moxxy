@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asSkillId, type Skill, type SkillScope } from '@moxxy/sdk';
+import { asSkillId, assertDefined, type Skill, type SkillScope } from '@moxxy/sdk';
 import { buildSkillRows } from './SkillsPanel.js';
 
 function skill(name: string, scope: SkillScope): Skill {
@@ -20,12 +20,16 @@ describe('buildSkillRows (SkillsPanel)', () => {
       skill('alpha', 'user'),
     ]);
     expect(rows.map((r) => r.name)).toEqual(['alpha', 'beta', 'zeta']);
-    expect(rows[0]!.description).toBe('does alpha');
+    const firstRow = rows[0];
+    assertDefined(firstRow, 'rows rendered');
+    expect(firstRow.description).toBe('does alpha');
   });
 
   it('threads a positive invocation count into row.used, keyed by skill name', () => {
     const rows = buildSkillRows([skill('deploy', 'user')], { deploy: 4 });
-    expect(rows[0]!.used).toBe(4);
+    const firstRow = rows[0];
+    assertDefined(firstRow, 'one row rendered');
+    expect(firstRow.used).toBe(4);
   });
 
   it('omits used for a zero/absent count (badge stays hidden)', () => {
@@ -34,12 +38,18 @@ describe('buildSkillRows (SkillsPanel)', () => {
       { deploy: 0 }, // recorded but never invoked; lint has no entry at all
     );
     const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
-    expect(byName['deploy']!.used).toBeUndefined();
-    expect(byName['lint']!.used).toBeUndefined();
+    const deployRow = byName['deploy'];
+    assertDefined(deployRow, 'deploy row exists');
+    expect(deployRow.used).toBeUndefined();
+    const lintRow = byName['lint'];
+    assertDefined(lintRow, 'lint row exists');
+    expect(lintRow.used).toBeUndefined();
   });
 
   it('works with no usage map at all (all badges hidden)', () => {
     const rows = buildSkillRows([skill('deploy', 'user')]);
-    expect(rows[0]!.used).toBeUndefined();
+    const firstRow = rows[0];
+    assertDefined(firstRow, 'one row rendered');
+    expect(firstRow.used).toBeUndefined();
   });
 });

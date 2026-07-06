@@ -5,7 +5,7 @@ import {
   loadSkillUsage,
   silentLogger,
 } from '@moxxy/core';
-import { createMutex } from '@moxxy/sdk';
+import { assertDefined, createMutex } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from '../setup/builtin-skills-dir.js';
 import { promises as fs } from 'node:fs';
@@ -118,8 +118,10 @@ async function runAudit(argv: ParsedArgv): Promise<number> {
     }
     const groups = groupSimilarPrompts(entries);
     for (const group of groups) {
+      const first = group[0];
+      assertDefined(first, 'groupSimilarPrompts never emits an empty group');
       const header = group.length === 1 ? '' : colors.dim(`  · ${group.length} similar`);
-      process.stdout.write(`\n${colors.bold(truncate(group[0]!.originatingPrompt, 80))}${header}\n`);
+      process.stdout.write(`\n${colors.bold(truncate(first.originatingPrompt, 80))}${header}\n`);
       for (const e of group) {
         process.stdout.write(
           `  ${colors.dim(e.scope.padEnd(7))}  ${colors.bold(e.slug.padEnd(36))}  ${colors.dim(e.ts)}\n`,
@@ -237,11 +239,14 @@ export function groupSimilarPrompts(entries: ReadonlyArray<AuditEntry>): AuditEn
     const tokens = tokenize(entry.originatingPrompt);
     let placed = false;
     for (let i = 0; i < groups.length; i += 1) {
-      const groupTokens = groupTokenSets[i]!;
+      const group = groups[i];
+      const groupTokens = groupTokenSets[i];
+      assertDefined(group, 'i < groups.length within the loop');
+      assertDefined(groupTokens, 'groupTokenSets grows in lockstep with groups');
       let overlap = 0;
       for (const t of tokens) if (groupTokens.has(t)) overlap += 1;
       if (overlap >= 2) {
-        groups[i]!.push(entry);
+        group.push(entry);
         for (const t of tokens) groupTokens.add(t);
         placed = true;
         break;

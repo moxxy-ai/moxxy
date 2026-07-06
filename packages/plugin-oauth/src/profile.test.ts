@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MoxxyError } from '@moxxy/sdk';
+import { assertDefined, MoxxyError } from '@moxxy/sdk';
 import {
   openaiDeviceFlow,
   pollUntil,
@@ -15,7 +15,10 @@ function newFakeVault(): OAuthVault & { dump(): Record<string, string> } {
   const store = new Map<string, string>();
   return {
     async get(key) {
-      return store.has(key) ? store.get(key)! : null;
+      if (!store.has(key)) return null;
+      const value = store.get(key);
+      assertDefined(value, 'store has the key');
+      return value;
     },
     async set(key, value) {
       store.set(key, value);
@@ -113,8 +116,9 @@ describe('storage extras round-trip', () => {
     });
     const stored = await readStoredCreds(vault, 'demo');
     expect(stored).not.toBeNull();
-    expect(stored!.extras).toEqual({ account_id: 'acct_123', team_slug: 'eng' });
-    expect(stored!.tokenSet.accessToken).toBe('AT');
+    assertDefined(stored, 'stored creds readable');
+    expect(stored.extras).toEqual({ account_id: 'acct_123', team_slug: 'eng' });
+    expect(stored.tokenSet.accessToken).toBe('AT');
   });
 
   it('returns an empty extras map when none were stored', async () => {
@@ -124,7 +128,8 @@ describe('storage extras round-trip', () => {
       tokenUrl: 'https://example.test/token',
     });
     const stored = await readStoredCreds(vault, 'demo');
-    expect(stored!.extras).toEqual({});
+    assertDefined(stored, 'stored creds readable');
+    expect(stored.extras).toEqual({});
   });
 });
 
@@ -188,7 +193,11 @@ describe('rfc8628DeviceFlow adapter', () => {
           { status: 200 },
         ),
     ];
-    globalThis.fetch = (async () => responses.shift()!()) as unknown as typeof fetch;
+    globalThis.fetch = (async () => {
+      const nextResponse = responses.shift();
+      assertDefined(nextResponse, 'scripted response remaining');
+      return nextResponse();
+    }) as unknown as typeof fetch;
     try {
       const state = { intervalMs: 5000 };
       const r1 = await adapter.poll(init, state);

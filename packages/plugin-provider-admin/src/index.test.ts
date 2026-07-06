@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ProviderDef, ToolContext, ToolDef } from '@moxxy/sdk';
+import { assertDefined, type ProviderDef, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { buildProviderAdminPlugin, buildProviderAdminPluginWithApi, type ProviderRegistryLike } from './index.js';
 import { readProvidersConfig } from './store.js';
 
@@ -134,7 +134,9 @@ describe('provider_add', () => {
     expect(second.replaced).toBe(true);
     const cfg = await readProvidersConfig(cfgPath);
     expect(cfg.providers).toHaveLength(1);
-    expect(cfg.providers[0]!.defaultModel).toBe('glm-4.5-air');
+    const first = cfg.providers[0];
+    assertDefined(first, 'one provider stored');
+    expect(first.defaultModel).toBe('glm-4.5-air');
   });
 
   it('rejects when defaultModel is not in the models list', async () => {
@@ -147,7 +149,8 @@ describe('provider_add', () => {
   });
 
   it('rejects invalid slug shapes via inputSchema', () => {
-    const tool = tools.get('provider_add')!;
+    const tool = tools.get('provider_add');
+    assertDefined(tool, 'provider_add tool is registered');
     const bad = tool.inputSchema.safeParse({ ...zaiInput, name: 'NotASlug' });
     expect(bad.success).toBe(false);
   });
@@ -161,7 +164,8 @@ describe('provider_add', () => {
     const plugin = buildProviderAdminPlugin({ providerRegistry: withBuiltin, configPath: cfgPath });
     const guardedTools = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
     const addBuiltin = (input: Record<string, unknown>): Promise<unknown> => {
-      const tool = guardedTools.get('provider_add')!;
+      const tool = guardedTools.get('provider_add');
+      assertDefined(tool, 'provider_add tool is registered');
       return Promise.resolve(tool.handler(tool.inputSchema.parse(input), {} as never));
     };
 
@@ -191,11 +195,17 @@ describe('provider_add', () => {
     const reg = new FakeRegistry();
     await seedStoredProviders(cfgPath, [zaiInput]);
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     expect(reg.defs.has('zai')).toBe(true);
-    const priorDef = reg.defs.get('zai')!;
+    const priorDef = reg.defs.get('zai');
+    assertDefined(priorDef, "onInit registered 'zai'");
 
-    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const addTool = pluginTools.find((t) => t.name === 'provider_add');
+    assertDefined(addTool, 'provider_add tool exists');
     await fs.chmod(tmpDir, 0o500);
     try {
       await expect(
@@ -219,7 +229,10 @@ describe('provider_add', () => {
     const reg = new FakeRegistry();
     await fs.writeFile(cfgPath, 'plugins:\n  provider:\n    items: {}\n', 'utf8');
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
-    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const addTool = pluginTools.find((t) => t.name === 'provider_add');
+    assertDefined(addTool, 'provider_add tool exists');
     await fs.chmod(tmpDir, 0o500);
     try {
       await expect(
@@ -250,8 +263,11 @@ describe('provider_add', () => {
       ],
     });
     const cfg = await readProvidersConfig(cfgPath);
-    expect(cfg.providers[0]!.models[0]).toMatchObject({ supportsDocuments: true });
-    const def = registry.defs.get('zai')!;
+    const first = cfg.providers[0];
+    assertDefined(first, 'one provider stored');
+    expect(first.models[0]).toMatchObject({ supportsDocuments: true });
+    const def = registry.defs.get('zai');
+    assertDefined(def, "registry has a live 'zai' def");
     expect(def.models[0]).toMatchObject({ supportsDocuments: true });
   });
 });
@@ -288,7 +304,8 @@ describe('provider_test', () => {
     ({ getSecret: async (name: string) => secrets[name] ?? null }) as unknown as ToolContext;
 
   function callTest(input: Record<string, unknown>, ctx: ToolContext): Promise<unknown> {
-    const tool = tools.get('provider_test')!;
+    const tool = tools.get('provider_test');
+    assertDefined(tool, 'provider_test tool is registered');
     const parsed = tool.inputSchema.parse(input);
     return Promise.resolve(tool.handler(parsed, ctx));
   }
@@ -330,7 +347,8 @@ describe('provider_test', () => {
   });
 
   it('does not accept a plaintext apiKey input (schema requires keyName)', () => {
-    const tool = tools.get('provider_test')!;
+    const tool = tools.get('provider_test');
+    assertDefined(tool, 'provider_test tool is registered');
     const bad = tool.inputSchema.safeParse({
       baseURL: 'https://api.deepseek.com',
       apiKey: 'sk-raw-key',
@@ -345,7 +363,8 @@ describe('provider_test', () => {
   });
 
   it('description asserts the vault-name contract', () => {
-    const tool = tools.get('provider_test')!;
+    const tool = tools.get('provider_test');
+    assertDefined(tool, 'provider_test tool is registered');
     expect(tool.description).toContain('vault');
     expect(tool.description).toMatch(/never enters the conversation/i);
     expect(tool.description).not.toMatch(/supplied API key/i);
@@ -369,7 +388,9 @@ describe('onInit logger guard', () => {
   it('warns through a conforming host logger', async () => {
     const warn = vi.fn();
     const plugin = buildProviderAdminPlugin({ providerRegistry: new ThrowingRegistry(), configPath: cfgPath });
-    await plugin.hooks!.onInit!({ logger: { warn } } as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({ logger: { warn } } as never);
     expect(warn).toHaveBeenCalledWith(
       'provider-admin: failed to register "zai"',
       expect.any(Object),
@@ -378,13 +399,15 @@ describe('onInit logger guard', () => {
 
   it('ignores a non-conforming logger instead of crashing', async () => {
     const plugin = buildProviderAdminPlugin({ providerRegistry: new ThrowingRegistry(), configPath: cfgPath });
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
     // `logger.warn` is a string, not a function — the guard must reject it
     // (a blanket cast would have called a non-function and thrown).
     await expect(
-      plugin.hooks!.onInit!({ logger: { warn: 'nope' } } as never),
+      onInit({ logger: { warn: 'nope' } } as never),
     ).resolves.toBeUndefined();
     // A ctx with no logger at all is likewise a clean no-op.
-    await expect(plugin.hooks!.onInit!({} as never)).resolves.toBeUndefined();
+    await expect(onInit({} as never)).resolves.toBeUndefined();
   });
 });
 
@@ -395,10 +418,15 @@ describe('onInit', () => {
     // Fresh registry — simulate a brand-new session pointing at the same store.
     const fresh = new FakeRegistry();
     const plugin = buildProviderAdminPlugin({ providerRegistry: fresh, configPath: cfgPath });
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     expect(fresh.defs.has('zai')).toBe(true);
-    const def = fresh.defs.get('zai')!;
-    expect(def.models[0]!.id).toBe('glm-4.6');
+    const def = fresh.defs.get('zai');
+    assertDefined(def, "registry has a live 'zai' def");
+    const firstModel = def.models[0];
+    assertDefined(firstModel, 'def has at least one model');
+    expect(firstModel.id).toBe('glm-4.6');
   });
 
   it('does not clobber a built-in when providers.json contains a colliding entry', async () => {
@@ -412,7 +440,9 @@ describe('onInit', () => {
     const builtinDef = { name: 'openai', models: [{ id: 'gpt-x', contextWindow: 1 }] } as unknown as ProviderDef;
     withBuiltin.register(builtinDef);
     const plugin = buildProviderAdminPlugin({ providerRegistry: withBuiltin, configPath: cfgPath });
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     // Built-in untouched...
     expect(withBuiltin.defs.get('openai')).toBe(builtinDef);
     // ...but the genuinely-new provider in the same file still got registered.
@@ -429,7 +459,10 @@ describe('built-in shadowing guard — production wiring order (registry empty a
     // Plugin built against an EMPTY registry (mirrors buildBuiltinsCore running
     // before registerPlugins() seeds the built-in defs).
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
-    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const addTool = pluginTools.find((t) => t.name === 'provider_add');
+    assertDefined(addTool, 'provider_add tool exists');
     // NOW the host registers the real built-in OpenAI def.
     const builtinDef = { name: 'openai', models: [{ id: 'gpt-x', contextWindow: 1 }] } as unknown as ProviderDef;
     reg.register(builtinDef);
@@ -462,11 +495,19 @@ describe('built-in shadowing guard — production wiring order (registry empty a
 describe('baseURL scheme/host hardening', () => {
   const addSchema = (): { safeParse: (i: unknown) => { success: boolean } } => {
     const plugin = buildProviderAdminPlugin({ providerRegistry: new FakeRegistry(), configPath: cfgPath });
-    return plugin.tools!.find((t) => t.name === 'provider_add')!.inputSchema as never;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const addTool = pluginTools.find((t) => t.name === 'provider_add');
+    assertDefined(addTool, 'provider_add tool exists');
+    return addTool.inputSchema as never;
   };
   const testSchema = (): { safeParse: (i: unknown) => { success: boolean } } => {
     const plugin = buildProviderAdminPlugin({ providerRegistry: new FakeRegistry(), configPath: cfgPath });
-    return plugin.tools!.find((t) => t.name === 'provider_test')!.inputSchema as never;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const testTool = pluginTools.find((t) => t.name === 'provider_test');
+    assertDefined(testTool, 'provider_test tool exists');
+    return testTool.inputSchema as never;
   };
 
   it('rejects non-https / dangerous baseURLs on provider_add', () => {
@@ -541,7 +582,10 @@ describe('per-name lock is bounded + serializes concurrent same-slug calls', () 
     const reg = new FakeRegistry();
     await fs.writeFile(cfgPath, 'plugins:\n  provider:\n    items: {}\n', 'utf8');
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
-    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const addTool = pluginTools.find((t) => t.name === 'provider_add');
+    assertDefined(addTool, 'provider_add tool exists');
     const fire = (defaultModel: string): Promise<unknown> =>
       Promise.resolve(
         addTool.handler(
@@ -570,8 +614,12 @@ describe('per-name lock is bounded + serializes concurrent same-slug calls', () 
     const reg = new FakeRegistry();
     await fs.writeFile(cfgPath, 'plugins:\n  provider:\n    items: {}\n', 'utf8');
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
-    const addTool = plugin.tools!.find((t) => t.name === 'provider_add')!;
-    const removeTool = plugin.tools!.find((t) => t.name === 'provider_remove')!;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const addTool = pluginTools.find((t) => t.name === 'provider_add');
+    assertDefined(addTool, 'provider_add tool exists');
+    const removeTool = pluginTools.find((t) => t.name === 'provider_remove');
+    assertDefined(removeTool, 'provider_remove tool exists');
     for (let i = 0; i < 50; i++) {
       const name = `vendor-${i}`;
       await Promise.resolve(
@@ -598,7 +646,9 @@ describe('active-provider safety', () => {
         return { apiKey: 'k-for-' + name };
       },
     });
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     // Activate zai (mirrors the user selecting it). Drops no instance yet.
     reg.setActive('zai', { apiKey: 'k-for-zai' });
 
@@ -626,7 +676,9 @@ describe('active-provider safety', () => {
         return {};
       },
     });
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     reg.setActive('anthropic', {});
     await api.configure('zai', {
       defaultModel: 'glm-4.5-air',
@@ -639,9 +691,14 @@ describe('active-provider safety', () => {
     await seedStoredProviders(cfgPath, [zaiInput]);
     const reg = new FakeRegistry();
     const plugin = buildProviderAdminPlugin({ providerRegistry: reg, configPath: cfgPath });
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     reg.setActive('zai', {});
-    const removeTool = plugin.tools!.find((t) => t.name === 'provider_remove')!;
+    const pluginTools = plugin.tools;
+    assertDefined(pluginTools, 'plugin declares tools');
+    const removeTool = pluginTools.find((t) => t.name === 'provider_remove');
+    assertDefined(removeTool, 'provider_remove tool exists');
     const res = (await removeTool.handler(removeTool.inputSchema.parse({ name: 'zai' }), {} as never)) as {
       ok: boolean;
       removedActive: boolean;
@@ -659,7 +716,9 @@ describe('configure() patch validation (defense-in-depth)', () => {
     await seedStoredProviders(cfgPath, [zaiInput]);
     const reg = new FakeRegistry();
     const { plugin, api } = buildProviderAdminPluginWithApi({ providerRegistry: reg, configPath: cfgPath });
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     // file:// would flow straight into buildProviderDef + key-name derivation
     // without validation; configure() must reject it itself.
     const err = await api
@@ -667,7 +726,8 @@ describe('configure() patch validation (defense-in-depth)', () => {
       .catch((e) => e);
     expect(err).toBeTruthy();
     // Disk untouched.
-    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai')!;
+    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai');
+    assertDefined(stored, "stored provider 'zai' exists");
     expect(stored.baseURL).toBe(zaiInput.baseURL);
   });
 });

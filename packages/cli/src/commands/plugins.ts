@@ -199,10 +199,11 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     // Bare first-party specs pin to the CLI version (co-published via the
     // fixed changeset group); a pin that 404s retries latest with a warning.
     // Explicit --version/--ref specs pass through untouched.
+    const pinVersion = cliVersion();
     const result = await installPluginPackagePinned({
       packageName: spec,
       ...(resolved?.pinnedVersion ? { pinnedVersion: resolved.pinnedVersion } : {}),
-      ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+      ...(pinVersion ? { cliVersion: pinVersion } : {}),
       onWarn: (msg) => process.stderr.write(colors.dim(msg) + '\n'),
     });
     if (resolved?.origin === 'signed' && resolved.pinnedVersion) {

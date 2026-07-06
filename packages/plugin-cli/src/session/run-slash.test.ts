@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { runSlash, type SlashDeps } from './run-slash.js';
 
 // run-slash.ts imports clearUsageStats/readSessionIndex from @moxxy/core and
@@ -230,8 +231,12 @@ describe('runSlash /sessions', () => {
     };
     expect(picker.kind).toBe('sessions');
     // "+ New session" first, then the two persisted ones; current marked.
-    expect(picker.options[0]!.id).toBe('__new__');
-    expect(picker.options.find((o) => o.id === 'sess-current')!.current).toBe(true);
+    const firstOption = picker.options[0];
+    assertDefined(firstOption, 'picker has a first option');
+    expect(firstOption.id).toBe('__new__');
+    const currentOption = picker.options.find((o) => o.id === 'sess-current');
+    assertDefined(currentOption, 'sess-current option exists');
+    expect(currentOption.current).toBe(true);
     expect(picker.options.map((o) => o.id)).toContain('sess-other');
   });
 });

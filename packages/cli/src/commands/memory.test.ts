@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { MemoryType } from '@moxxy/plugin-memory';
+import { assertDefined } from '@moxxy/sdk';
 import { formatRelative, formatSize, groupByType, mapBounded, runMemoryCommand } from './memory.js';
 import type { ParsedArgv } from '../argv.js';
 
@@ -30,8 +31,10 @@ describe('groupByType', () => {
   it('omits empty groups', () => {
     const groups = groupByType([statOfType('fact'), statOfType('fact')]);
     expect(groups).toHaveLength(1);
-    expect(groups[0]![0]).toBe('fact');
-    expect(groups[0]![1]).toHaveLength(2);
+    const firstGroup = groups[0];
+    assertDefined(firstGroup, 'one group returned');
+    expect(firstGroup[0]).toBe('fact');
+    expect(firstGroup[1]).toHaveLength(2);
   });
 
   it('buckets an out-of-order (unmapped) type at the END, after the ordered groups', () => {

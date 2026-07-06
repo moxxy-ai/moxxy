@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ServiceRegistry } from '@moxxy/sdk';
+import { assertDefined, type ServiceRegistry } from '@moxxy/sdk';
 import { oauthPlugin } from './index.js';
 
 /**
@@ -29,7 +29,10 @@ describe('oauthPlugin (discovery-loadable)', () => {
       has: () => true,
       register: () => {},
     } as unknown as ServiceRegistry;
-    oauthPlugin.hooks!.onInit!({ services } as never);
+    const hooks = oauthPlugin.hooks;
+    assertDefined(hooks, 'oauthPlugin declares hooks');
+    assertDefined(hooks.onInit, 'onInit hook declared');
+    hooks.onInit({ services } as never);
     expect(require).toHaveBeenCalledWith('vault');
   });
 });

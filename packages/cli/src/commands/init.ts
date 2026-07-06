@@ -148,9 +148,10 @@ async function runInteractiveInit(
       if (!session.modes.list().some((m) => m.name === selections.mode)) {
         const entry = findCatalogEntryForContribution('mode', selections.mode);
         if (entry) {
+          const pinVersion = cliVersion();
           await installPluginPackagePinned({
             packageName: entry.packageName,
-            ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+            ...(pinVersion ? { cliVersion: pinVersion } : {}),
           });
           await setPluginEnabled(entry.packageName, true);
         }
@@ -180,11 +181,12 @@ async function runInteractiveInit(
       await providerSetup.loginOAuth(providerId);
     },
     async installPlugins(ids: ReadonlyArray<string>): Promise<void> {
+      const pinVersion = cliVersion();
       for (const id of ids) {
         const pkg = resolveCatalogPackageName(id);
         await installPluginPackagePinned({
           packageName: pkg,
-          ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+          ...(pinVersion ? { cliVersion: pinVersion } : {}),
         });
         await setPluginEnabled(pkg, true);
       }
@@ -200,6 +202,7 @@ async function runInteractiveInit(
     description: e.description,
   }));
 
+  const wizardVersion = cliVersion();
   await runSetupWizard({
     providers,
     models,
@@ -208,7 +211,7 @@ async function runInteractiveInit(
     controller,
     authKinds,
     availablePlugins,
-    ...(cliVersion() ? { version: cliVersion()! } : {}),
+    ...(wizardVersion ? { version: wizardVersion } : {}),
   });
 
   // Plugin-declared setup steps (`package.json#moxxy.setup`): every installed

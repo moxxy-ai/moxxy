@@ -1,6 +1,7 @@
 import { type FSWatcher, watch as fsWatch } from 'node:fs';
 import * as path from 'node:path';
 import { type Session } from '@moxxy/core';
+import { assertDefined } from '@moxxy/sdk';
 import type { CrossProcessFireLock, MoxxyEvent, Workflow } from '@moxxy/sdk';
 import { type ScheduleStore, isValidCron, isValidTimeZone } from '@moxxy/plugin-scheduler';
 import type { WorkflowStore } from '@moxxy/plugin-workflows';
@@ -33,7 +34,10 @@ export function detectAfterWorkflowCycles(
   for (const name of enabled.keys()) edges.set(name, []);
   for (const w of enabled.values()) {
     for (const dep of [w.on?.afterWorkflow ?? []].flat()) {
-      if (enabled.has(dep)) edges.get(dep)!.push(w.name);
+      // edges has an entry for exactly the enabled workflow names, so a defined
+      // lookup is equivalent to the prior `enabled.has(dep)` guard.
+      const depEdges = edges.get(dep);
+      if (depEdges) depEdges.push(w.name);
     }
   }
 
@@ -53,15 +57,24 @@ export function detectAfterWorkflowCycles(
     for (const w of edges.get(v) ?? []) {
       if (!index.has(w)) {
         visit(w);
-        lowlink.set(v, Math.min(lowlink.get(v)!, lowlink.get(w)!));
+        const lowV = lowlink.get(v);
+        const lowW = lowlink.get(w);
+        assertDefined(lowV, 'v has a lowlink (set on entry to visit)');
+        assertDefined(lowW, 'w has a lowlink after visit(w)');
+        lowlink.set(v, Math.min(lowV, lowW));
       } else if (onStack.has(w)) {
-        lowlink.set(v, Math.min(lowlink.get(v)!, index.get(w)!));
+        const lowV = lowlink.get(v);
+        const idxW = index.get(w);
+        assertDefined(lowV, 'v has a lowlink (set on entry to visit)');
+        assertDefined(idxW, 'w has an index (index.has(w) is true)');
+        lowlink.set(v, Math.min(lowV, idxW));
       }
     }
     if (lowlink.get(v) === index.get(v)) {
       const scc: string[] = [];
       for (;;) {
-        const w = stack.pop()!;
+        const w = stack.pop();
+        assertDefined(w, 'stack holds v (pushed on entry), so pop yields a node until we reach it');
         onStack.delete(w);
         scc.push(w);
         if (w === v) break;
@@ -93,11 +106,12 @@ export function applyAfterWorkflowCycleGuard(args: {
     const key = [...cycle].sort().join(' -> ');
     if (args.warned.has(key)) continue;
     args.warned.add(key);
-    args.logger?.warn?.(
-      `workflows: afterWorkflow trigger cycle detected (${cycle.join(' -> ')} -> ${cycle[0]}); ` +
-        'auto-refire is disabled for these workflows — run them manually or break the cycle',
-      { cycle: [...cycle] },
-    );
+    if (args.logger?.warn)
+      args.logger.warn(
+        `workflows: afterWorkflow trigger cycle detected (${cycle.join(' -> ')} -> ${cycle[0]}); ` +
+          'auto-refire is disabled for these workflows — run them manually or break the cycle',
+        { cycle: [...cycle] },
+      );
   }
 }
 
@@ -138,46 +152,52 @@ export async function fireAfterWorkflowDependents(args: {
       thisRunnerSessionId &&
       workflow.targetSessionId !== thisRunnerSessionId
     ) {
-      logger?.info?.(
-        'workflows: afterWorkflow dependent is pinned to another session; skipping (co-locate or use a schedule trigger)',
-        { workflow: workflow.name, after: completed, target: workflow.targetSessionId },
-      );
+      if (logger?.info)
+        logger.info(
+          'workflows: afterWorkflow dependent is pinned to another session; skipping (co-locate or use a schedule trigger)',
+          { workflow: workflow.name, after: completed, target: workflow.targetSessionId },
+        );
       continue;
     }
     if (disabled.has(workflow.name)) {
-      logger?.info?.('workflows: afterWorkflow auto-refire disabled by the cycle guard; skipping', {
-        workflow: workflow.name,
-        after: completed,
-      });
+      if (logger?.info)
+        logger.info('workflows: afterWorkflow auto-refire disabled by the cycle guard; skipping', {
+          workflow: workflow.name,
+          after: completed,
+        });
       continue;
     }
     if (nextChain.includes(workflow.name)) {
-      logger?.warn?.(
-        `workflows: refusing afterWorkflow re-fire — trigger cycle ` +
-          `(${[...nextChain, workflow.name].join(' -> ')}); "${workflow.name}" already ran in this chain`,
-        { workflow: workflow.name, chain: [...nextChain] },
-      );
+      if (logger?.warn)
+        logger.warn(
+          `workflows: refusing afterWorkflow re-fire — trigger cycle ` +
+            `(${[...nextChain, workflow.name].join(' -> ')}); "${workflow.name}" already ran in this chain`,
+          { workflow: workflow.name, chain: [...nextChain] },
+        );
       continue;
     }
     if (nextChain.length >= MAX_AFTER_WORKFLOW_CHAIN) {
-      logger?.warn?.(
-        `workflows: refusing afterWorkflow re-fire — chain depth cap of ${MAX_AFTER_WORKFLOW_CHAIN} ` +
-          `reached (${nextChain.join(' -> ')} -> ${workflow.name})`,
-        { workflow: workflow.name, chain: [...nextChain] },
-      );
+      if (logger?.warn)
+        logger.warn(
+          `workflows: refusing afterWorkflow re-fire — chain depth cap of ${MAX_AFTER_WORKFLOW_CHAIN} ` +
+            `reached (${nextChain.join(' -> ')} -> ${workflow.name})`,
+          { workflow: workflow.name, chain: [...nextChain] },
+        );
       continue;
     }
-    logger?.info?.('workflows: afterWorkflow trigger', {
-      workflow: workflow.name,
-      after: completed,
-      depth: nextChain.length,
-    });
-    await run({ name: workflow.name, trigger: `after:${completed}`, chain: nextChain }).catch((err) =>
-      logger?.warn?.('workflows: afterWorkflow run failed', {
+    if (logger?.info)
+      logger.info('workflows: afterWorkflow trigger', {
         workflow: workflow.name,
-        err: err instanceof Error ? err.message : String(err),
-      }),
-    );
+        after: completed,
+        depth: nextChain.length,
+      });
+    await run({ name: workflow.name, trigger: `after:${completed}`, chain: nextChain }).catch((err) => {
+      if (logger?.warn)
+        logger.warn('workflows: afterWorkflow run failed', {
+          workflow: workflow.name,
+          err: err instanceof Error ? err.message : String(err),
+        });
+    });
   }
 }
 
@@ -268,10 +288,11 @@ export function wireWorkflowTriggers(args: {
         claimed = true;
       }
       if (!claimed) {
-        logger?.info?.('workflows: fileChanged already claimed by another runner; skipping', {
-          workflow: name,
-          glob,
-        });
+        if (logger?.info)
+          logger.info('workflows: fileChanged already claimed by another runner; skipping', {
+            workflow: name,
+            glob,
+          });
         return;
       }
     }
@@ -321,21 +342,23 @@ export function wireWorkflowTriggers(args: {
           if (code === 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM') {
             try {
               watchers.push(fsWatch(base, { recursive: false }, onChange));
-              logger?.warn?.(
-                'workflows: recursive fileChanged watch unavailable on this platform (needs Node >=20 on Linux); ' +
-                  'watching the base directory non-recursively — nested-path changes will not fire',
-                { workflow: workflow.name, base, glob },
-              );
+              if (logger?.warn)
+                logger.warn(
+                  'workflows: recursive fileChanged watch unavailable on this platform (needs Node >=20 on Linux); ' +
+                    'watching the base directory non-recursively — nested-path changes will not fire',
+                  { workflow: workflow.name, base, glob },
+                );
               continue;
             } catch {
               // fall through to the generic warning below
             }
           }
-          logger?.warn?.('workflows: cannot watch path', {
-            workflow: workflow.name,
-            base,
-            err: err instanceof Error ? err.message : String(err),
-          });
+          if (logger?.warn)
+            logger.warn('workflows: cannot watch path', {
+              workflow: workflow.name,
+              base,
+              err: err instanceof Error ? err.message : String(err),
+            });
         }
       }
     }
@@ -376,22 +399,25 @@ export function wireWorkflowTriggers(args: {
         const timeZone =
           sched?.timeZone && isValidTimeZone(sched.timeZone) ? sched.timeZone : undefined;
         if (sched && sched.cron && !cron) {
-          logger?.warn?.('workflows: ignoring invalid cron expression', {
-            workflow: workflow.name,
-            cron: sched.cron,
-          });
+          if (logger?.warn)
+            logger.warn('workflows: ignoring invalid cron expression', {
+              workflow: workflow.name,
+              cron: sched.cron,
+            });
         }
         if (sched && sched.runAt !== undefined && runAt === undefined) {
-          logger?.warn?.('workflows: ignoring unparseable schedule.runAt', {
-            workflow: workflow.name,
-            runAt: sched.runAt,
-          });
+          if (logger?.warn)
+            logger.warn('workflows: ignoring unparseable schedule.runAt', {
+              workflow: workflow.name,
+              runAt: sched.runAt,
+            });
         }
         if (sched && sched.timeZone && !timeZone) {
-          logger?.warn?.('workflows: ignoring invalid schedule.timeZone (using system local)', {
-            workflow: workflow.name,
-            timeZone: sched.timeZone,
-          });
+          if (logger?.warn)
+            logger.warn('workflows: ignoring invalid schedule.timeZone (using system local)', {
+              workflow: workflow.name,
+              timeZone: sched.timeZone,
+            });
         }
         if (sched && (cron || runAt !== undefined)) {
           await scheduleStore.syncWorkflowSchedule(workflow.name, {
@@ -422,15 +448,17 @@ export function wireWorkflowTriggers(args: {
         // fileChanged / webhook triggers are recognized but auto-firing for them
         // is wired separately (fileChanged below; webhook is a follow-up).
         if (workflow.enabled && workflow.on?.webhook) {
-          logger?.warn?.('workflows: webhook triggers are not auto-fired yet; run on demand', {
-            workflow: workflow.name,
-          });
+          if (logger?.warn)
+            logger.warn('workflows: webhook triggers are not auto-fired yet; run on demand', {
+              workflow: workflow.name,
+            });
         }
       } catch (err) {
-        logger?.warn?.('workflows: failed to sync schedule for workflow; skipping', {
-          workflow: workflow.name,
-          err: err instanceof Error ? err.message : String(err),
-        });
+        if (logger?.warn)
+          logger.warn('workflows: failed to sync schedule for workflow; skipping', {
+            workflow: workflow.name,
+            err: err instanceof Error ? err.message : String(err),
+          });
       }
     }
     // Rebuild fs watchers too, so a workflow whose `on.fileChanged` trigger is
@@ -465,11 +493,12 @@ export function wireWorkflowTriggers(args: {
         run: runner.runNow,
         ...(logger ? { logger } : {}),
       });
-    })().catch((err) =>
-      logger?.warn?.('workflows: afterWorkflow dispatch failed', {
-        err: err instanceof Error ? err.message : String(err),
-      }),
-    );
+    })().catch((err) => {
+      if (logger?.warn)
+        logger.warn('workflows: afterWorkflow dispatch failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+    });
   });
 
   return {

@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { Session, silentLogger } from '@moxxy/core';
-import { asPluginId, definePlugin, defineProvider, type EmittedEvent } from '@moxxy/sdk';
+import { asPluginId, assertDefined, definePlugin, defineProvider, type EmittedEvent } from '@moxxy/sdk';
 import { ScheduleStore } from '@moxxy/plugin-scheduler';
 import { WORKFLOWS_PLUGIN_NAME } from '@moxxy/plugin-workflows';
 import {
@@ -227,7 +227,9 @@ describe('detectAfterWorkflowCycles', () => {
   it('finds a mutual A<->B cycle', () => {
     const cycles = detectAfterWorkflowCycles([wf('a', { after: 'b' }), wf('b', { after: 'a' })]);
     expect(cycles).toHaveLength(1);
-    expect([...cycles[0]!].sort()).toEqual(['a', 'b']);
+    const firstCycle = cycles[0];
+    assertDefined(firstCycle, 'one cycle detected');
+    expect([...firstCycle].sort()).toEqual(['a', 'b']);
   });
 
   it('finds a self-loop', () => {
@@ -242,7 +244,9 @@ describe('detectAfterWorkflowCycles', () => {
       wf('tail', { after: 'c' }),
     ]);
     expect(cycles).toHaveLength(1);
-    expect([...cycles[0]!].sort()).toEqual(['a', 'b', 'c']);
+    const firstCycle = cycles[0];
+    assertDefined(firstCycle, 'one cycle detected');
+    expect([...firstCycle].sort()).toEqual(['a', 'b', 'c']);
   });
 
   it('reports nothing for linear chains or fan-out', () => {
@@ -424,10 +428,14 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     session.pluginHost.registerStatic(integration.plugin);
     await session.dispatcher.dispatchInit(session.appContext());
     try {
-      const result = await session.workflows!.run('paused-wf');
+      const workflows = session.workflows;
+      assertDefined(workflows, 'workflows view attached');
+      const result = await workflows.run('paused-wf');
       // The view maps the run result; a paused run must not look "ok+complete"
       // with an inbox file behind it.
-      const inboxDir = path.join(process.env.MOXXY_HOME!, 'inbox');
+      const moxxyHome = process.env.MOXXY_HOME;
+      assertDefined(moxxyHome, 'MOXXY_HOME set by test setup');
+      const inboxDir = path.join(moxxyHome, 'inbox');
       let inboxFiles: string[] = [];
       try {
         inboxFiles = await fs.readdir(inboxDir);
@@ -441,11 +449,12 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       // the operator UI can offer a reply box, and `resume` is wired.
       expect(result.status).toBe('paused');
       expect(result.runId).toBe('RUN1');
-      expect(typeof session.workflows!.resume).toBe('function');
+      expect(typeof workflows.resume).toBe('function');
       // Resuming a run with no checkpoint on disk fails fast: with no
       // identifiable workflow name the in-flight guard can't protect it, so the
       // runner refuses rather than proceeding unguarded (or hanging).
-      const resumed = await session.workflows!.resume!('UNKNOWN', 'reply');
+      assertDefined(workflows.resume, 'resume wired on the workflows view');
+      const resumed = await workflows.resume('UNKNOWN', 'reply');
       expect(resumed.ok).toBe(false);
       expect(resumed.error ?? '').toMatch(/no resumable run/);
     } finally {
@@ -485,7 +494,9 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       await fs.mkdir(watchedDir, { recursive: true });
 
       // Save a fileChanged workflow at runtime (the path onReady never saw).
-      await session.workflows!.save(
+      const workflows = session.workflows;
+      assertDefined(workflows, 'workflows view attached');
+      await workflows.save(
         [
           'name: on-touch',
           'description: fires on file change',

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MoxxyError, type ProviderDef } from '@moxxy/sdk';
+import { assertDefined, MoxxyError, type ProviderDef } from '@moxxy/sdk';
 import { buildProviderAdminPluginWithApi, type ProviderRegistryLike } from './index.js';
 import { readProvidersConfig, upsertStoredProvider } from './store.js';
 import type { StoredProvider } from './types.js';
@@ -82,7 +82,8 @@ describe('buildProviderAdminPluginWithApi.configure', () => {
     const { api } = build();
     await api.configure('zai', { baseURL: 'https://new.example.com/v1' });
     const cfg = await readProvidersConfig(cfgPath);
-    const stored = cfg.providers.find((p) => p.name === 'zai')!;
+    const stored = cfg.providers.find((p) => p.name === 'zai');
+    assertDefined(stored, "stored provider 'zai' exists");
     expect(stored.baseURL).toBe('https://new.example.com/v1');
     // Untouched fields preserved.
     expect(stored.defaultModel).toBe('glm-4.6');
@@ -105,7 +106,8 @@ describe('buildProviderAdminPluginWithApi.configure', () => {
       defaultModel: 'glm-4.7',
       models: [{ id: 'glm-4.7', contextWindow: 256_000, supportsTools: true, supportsStreaming: true }],
     });
-    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai')!;
+    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai');
+    assertDefined(stored, "stored provider 'zai' exists");
     expect(stored.defaultModel).toBe('glm-4.7');
     expect(stored.models.map((m) => m.id)).toEqual(['glm-4.7']);
   });
@@ -115,13 +117,17 @@ describe('buildProviderAdminPluginWithApi.configure', () => {
     // Mirror the runtime: the entry is also live in the registry (onInit would
     // have registered it). configure() must replace() it, not register().
     const { plugin, api } = build();
-    await plugin.hooks!.onInit!({} as never);
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
     expect(registry.defs.has('zai')).toBe(true);
 
     await api.configure('zai', { defaultModel: 'glm-4.5-air' });
-    const def = registry.defs.get('zai')!;
+    const def = registry.defs.get('zai');
+    assertDefined(def, "registry has a live 'zai' def");
     expect(def.models.find((m) => m.id === 'glm-4.5-air')).toBeTruthy();
-    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai')!;
+    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai');
+    assertDefined(stored, "stored provider 'zai' exists");
     expect(stored.defaultModel).toBe('glm-4.5-air');
   });
 
@@ -135,8 +141,11 @@ describe('buildProviderAdminPluginWithApi.configure', () => {
     const { plugin, api } = build(reg);
     // onInit registers + CLAIMS OWNERSHIP of 'zai' (so configure treats it as a
     // runtime-registered provider, not a reserved built-in).
-    await plugin.hooks!.onInit!({} as never);
-    const priorDef = reg.defs.get('zai')!;
+    const onInit = plugin.hooks?.onInit;
+    assertDefined(onInit, 'plugin registers onInit');
+    await onInit({} as never);
+    const priorDef = reg.defs.get('zai');
+    assertDefined(priorDef, "onInit registered 'zai'");
     expect(priorDef).toBeTruthy();
 
     // Read still works (file present), but the dir is read-only so the atomic
@@ -151,7 +160,8 @@ describe('buildProviderAdminPluginWithApi.configure', () => {
       await fs.chmod(tmpDir, 0o700);
     }
     // Disk is unchanged: still the seeded defaultModel.
-    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai')!;
+    const stored = (await readProvidersConfig(cfgPath)).providers.find((p) => p.name === 'zai');
+    assertDefined(stored, "stored provider 'zai' exists");
     expect(stored.defaultModel).toBe('glm-4.6');
   });
 });

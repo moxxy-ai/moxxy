@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { createMutex, MoxxyError, type Mutex } from '@moxxy/sdk';
+import { assertDefined, createMutex, MoxxyError, type Mutex } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 import { decrypt, encrypt, generateSalt, type EncryptedBlob } from './crypto.js';
 import type { MasterKeySource } from './keysource.js';
@@ -323,8 +323,10 @@ export class VaultStore {
    * recovery hint instead of crashing the caller with a cryptic crypto error.
    */
   private decryptEntry(name: string, entry: VaultEntry): string {
+    const masterKey = this.masterKey;
+    assertDefined(masterKey, 'decryptEntry is only reached after get() checks the vault is open');
     try {
-      return decrypt(entry, this.masterKey!);
+      return decrypt(entry, masterKey);
     } catch (err) {
       throw new MoxxyError({
         code: 'VAULT_CORRUPT',

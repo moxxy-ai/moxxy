@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { asSessionId, asTurnId, type ToolContext, type ToolDef } from '@moxxy/sdk';
+import { asSessionId, assertDefined, asTurnId, type ToolContext, type ToolDef } from '@moxxy/sdk';
 import { buildSelfUpdatePlugin, type SelfUpdateDeps, type SkipInfo } from './index.js';
 import { readJournal } from './transaction.js';
 import { writeCoreJournal } from './core-update.js';
@@ -103,7 +103,9 @@ describe('self-update happy path', () => {
     const t = tools(host.deps());
     const ctx = makeCtx();
 
-    const begun = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'greeter' }, ctx)) as {
+    const beginTool = t.self_update_begin;
+    assertDefined(beginTool, 'self_update_begin tool registered');
+    const begun = (await beginTool.handler({ kind: 'plugin', name: 'greeter' }, ctx)) as {
       txnId: string;
       existedBefore: boolean;
     };
@@ -111,14 +113,18 @@ describe('self-update happy path', () => {
 
     await writePlugin(moxxy, 'greeter', 'export default { name: "greeter" };\n');
 
-    const verified = (await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx)) as {
+    const verifyTool = t.self_update_verify;
+    assertDefined(verifyTool, 'self_update_verify tool registered');
+    const verified = (await verifyTool.handler({ txnId: begun.txnId }, ctx)) as {
       ok: boolean;
       registered: Record<string, string[]>;
     };
     expect(verified.ok).toBe(true);
     expect(verified.registered.tools).toEqual(['greeter_tool']);
 
-    await t.self_update_apply!.handler({ txnId: begun.txnId }, ctx);
+    const applyTool = t.self_update_apply;
+    assertDefined(applyTool, 'self_update_apply tool registered');
+    await applyTool.handler({ txnId: begun.txnId }, ctx);
     expect((await readJournal(moxxy, begun.txnId)).state).toBe('committed');
   });
 });
@@ -130,12 +136,16 @@ describe('failed build / load auto-rollback + escalation', () => {
     const t = tools(host.deps());
     const ctx = makeCtx();
 
-    const begun = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'oops' }, ctx)) as {
+    const beginTool = t.self_update_begin;
+    assertDefined(beginTool, 'self_update_begin tool registered');
+    const begun = (await beginTool.handler({ kind: 'plugin', name: 'oops' }, ctx)) as {
       txnId: string;
     };
     await writePlugin(moxxy, 'oops', 'BROKEN syntax (((\n');
 
-    const first = (await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx)) as {
+    const verifyTool = t.self_update_verify;
+    assertDefined(verifyTool, 'self_update_verify tool registered');
+    const first = (await verifyTool.handler({ txnId: begun.txnId }, ctx)) as {
       ok: boolean;
       escalate: boolean;
     };
@@ -144,11 +154,11 @@ describe('failed build / load auto-rollback + escalation', () => {
     // New artifact is left in place so the model can fix it and retry.
     await expect(fs.access(path.join(moxxy, 'plugins', 'oops'))).resolves.toBeUndefined();
 
-    const second = (await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx)) as { ok: boolean };
+    const second = (await verifyTool.handler({ txnId: begun.txnId }, ctx)) as { ok: boolean };
     expect(second.ok).toBe(false);
 
     // Third call hits the cap → escalate + clean up.
-    const third = (await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx)) as {
+    const third = (await verifyTool.handler({ txnId: begun.txnId }, ctx)) as {
       ok: boolean;
       escalate: boolean;
     };
@@ -167,7 +177,9 @@ describe('failed build / load auto-rollback + escalation', () => {
     const ctx = makeCtx();
 
     await writePlugin(moxxy, 'mod', 'export default { name: "mod" };\n');
-    const begun = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'mod' }, ctx)) as {
+    const beginTool = t.self_update_begin;
+    assertDefined(beginTool, 'self_update_begin tool registered');
+    const begun = (await beginTool.handler({ kind: 'plugin', name: 'mod' }, ctx)) as {
       txnId: string;
       existedBefore: boolean;
     };
@@ -175,10 +187,12 @@ describe('failed build / load auto-rollback + escalation', () => {
 
     // Break it, then verify three times. Each failure restores the good entry,
     // so subsequent verifies still re-break it first.
+    const verifyTool = t.self_update_verify;
+    assertDefined(verifyTool, 'self_update_verify tool registered');
     const breakAndVerify = async (): Promise<number> => {
       await writePlugin(moxxy, 'mod', 'BROKEN now\n');
       const before = host.reloads;
-      await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx);
+      await verifyTool.handler({ txnId: begun.txnId }, ctx);
       return host.reloads - before;
     };
 
@@ -202,14 +216,18 @@ describe('failed build / load auto-rollback + escalation', () => {
     const good = 'export default { name: "bar" };\n';
     await writePlugin(moxxy, 'bar', good);
 
-    const begun = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'bar' }, ctx)) as {
+    const beginTool = t.self_update_begin;
+    assertDefined(beginTool, 'self_update_begin tool registered');
+    const begun = (await beginTool.handler({ kind: 'plugin', name: 'bar' }, ctx)) as {
       txnId: string;
       existedBefore: boolean;
     };
     expect(begun.existedBefore).toBe(true);
 
     await writePlugin(moxxy, 'bar', 'BROKEN now\n');
-    const res = (await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx)) as {
+    const verifyTool = t.self_update_verify;
+    assertDefined(verifyTool, 'self_update_verify tool registered');
+    const res = (await verifyTool.handler({ txnId: begun.txnId }, ctx)) as {
       ok: boolean;
       recovered: boolean;
     };
@@ -228,19 +246,23 @@ describe('tier-1 serialization', () => {
     const t = tools(host.deps());
     const ctx = makeCtx();
 
-    const first = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'dup' }, ctx)) as {
+    const beginTool = t.self_update_begin;
+    assertDefined(beginTool, 'self_update_begin tool registered');
+    const first = (await beginTool.handler({ kind: 'plugin', name: 'dup' }, ctx)) as {
       txnId: string;
     };
     // Second begin on the SAME target must refuse (state is still 'open').
-    await expect(t.self_update_begin!.handler({ kind: 'plugin', name: 'dup' }, ctx)).rejects.toThrow(
+    await expect(beginTool.handler({ kind: 'plugin', name: 'dup' }, ctx)).rejects.toThrow(
       /already in progress/,
     );
     // A different target is unaffected.
-    await expect(t.self_update_begin!.handler({ kind: 'plugin', name: 'other' }, ctx)).resolves.toBeTruthy();
+    await expect(beginTool.handler({ kind: 'plugin', name: 'other' }, ctx)).resolves.toBeTruthy();
 
     // After the first is rolled back, a fresh begin on the same target is allowed.
-    await t.self_update_rollback!.handler({ txnId: first.txnId }, ctx);
-    await expect(t.self_update_begin!.handler({ kind: 'plugin', name: 'dup' }, ctx)).resolves.toBeTruthy();
+    const rollbackTool = t.self_update_rollback;
+    assertDefined(rollbackTool, 'self_update_rollback tool registered');
+    await rollbackTool.handler({ txnId: first.txnId }, ctx);
+    await expect(beginTool.handler({ kind: 'plugin', name: 'dup' }, ctx)).resolves.toBeTruthy();
   });
 });
 
@@ -251,14 +273,20 @@ describe('rollback', () => {
     const t = tools(host.deps());
     const ctx = makeCtx();
 
-    const begun = (await t.self_update_begin!.handler({ kind: 'plugin', name: 'temp' }, ctx)) as {
+    const beginTool = t.self_update_begin;
+    assertDefined(beginTool, 'self_update_begin tool registered');
+    const begun = (await beginTool.handler({ kind: 'plugin', name: 'temp' }, ctx)) as {
       txnId: string;
     };
     await writePlugin(moxxy, 'temp', 'export default { name: "temp" };\n');
-    await t.self_update_verify!.handler({ txnId: begun.txnId }, ctx);
+    const verifyTool = t.self_update_verify;
+    assertDefined(verifyTool, 'self_update_verify tool registered');
+    await verifyTool.handler({ txnId: begun.txnId }, ctx);
     expect(host.tools.has('temp_tool')).toBe(true);
 
-    await t.self_update_rollback!.handler({ txnId: begun.txnId, reason: 'not needed' }, ctx);
+    const rollbackTool = t.self_update_rollback;
+    assertDefined(rollbackTool, 'self_update_rollback tool registered');
+    await rollbackTool.handler({ txnId: begun.txnId, reason: 'not needed' }, ctx);
     await expect(fs.access(path.join(moxxy, 'plugins', 'temp'))).rejects.toBeTruthy();
     expect(host.tools.has('temp_tool')).toBe(false);
     expect((await readJournal(moxxy, begun.txnId)).state).toBe('rolled_back');
@@ -291,7 +319,8 @@ describe('rollback', () => {
     });
 
     const deps: SelfUpdateDeps = { ...new FakeHost(moxxy).deps(), coreUpdate: { fromUrl } };
-    const begin = tools(deps)['self_update_core_begin']!;
+    const begin = tools(deps)['self_update_core_begin'];
+    assertDefined(begin, 'self_update_core_begin tool registered');
     await expect(begin.handler({ packages: ['@moxxy/core'] }, makeCtx())).rejects.toThrow(
       /already in progress/,
     );

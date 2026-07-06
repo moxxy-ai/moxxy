@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { decrypt, deriveKey, encrypt, generateSalt, randomCode } from './crypto.js';
 
 describe('crypto primitives', () => {
@@ -40,7 +41,9 @@ describe('crypto primitives', () => {
     for (let i = 0; i < 200; i++) {
       const code = randomCode(12);
       expect(code).toMatch(/^\d{12}$/);
-      leads.add(code[0]!);
+      const lead = code[0];
+      assertDefined(lead, '12-digit code has a leading char');
+      leads.add(lead);
     }
     // The old uint32 draw pinned every leading digit to '0' for digits >= 10.
     expect([...leads].some((d) => d !== '0')).toBe(true);
@@ -50,7 +53,10 @@ describe('crypto primitives', () => {
     // Chi-square-lite: the leading digit should spread across 0-9, not cluster.
     const counts = new Array(10).fill(0) as number[];
     for (let i = 0; i < 2000; i++) {
-      counts[Number(randomCode(6)[0])]! += 1;
+      const lead = Number(randomCode(6)[0]);
+      const count = counts[lead];
+      assertDefined(count, 'leading digit indexes the counts array');
+      counts[lead] = count + 1;
     }
     for (const c of counts) {
       // Expected ~200 per bucket; a wide tolerance still catches a stuck/biased draw.

@@ -197,9 +197,10 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
     const s = spinner();
     s.start(`Installing ${picked.entry.packageName}…`);
     try {
+      const pinVersion = cliVersion();
       await installPluginPackagePinned({
         packageName: picked.entry.packageName,
-        ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+        ...(pinVersion ? { cliVersion: pinVersion } : {}),
       });
       await setPluginEnabled(picked.entry.packageName, true);
       s.stop(`Installed ${picked.entry.packageName} ✓`);

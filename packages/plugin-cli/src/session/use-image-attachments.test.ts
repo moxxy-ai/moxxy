@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 
 // Drive the hook without a React renderer by mocking react's useRef with a
 // deterministic, persistent implementation (mirrors use-turn-runner.test.ts).
@@ -10,7 +11,9 @@ vi.mock('react', () => ({
   useRef: (init: unknown) => {
     const i = refIdx++;
     if (!refCells[i]) refCells[i] = { current: init };
-    return refCells[i]!;
+    const refCell = refCells[i];
+    assertDefined(refCell, 'ref cell created above');
+    return refCell;
   },
 }));
 

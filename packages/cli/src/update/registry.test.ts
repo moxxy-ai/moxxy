@@ -73,7 +73,8 @@ describe('fetchLatest', () => {
     // shouldn't and returns null fail-soft.
     const fetchImpl = vi.fn((_url: string, init?: { signal?: AbortSignal }) => {
       return new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => {
+        const signal = init?.signal;
+        signal?.addEventListener('abort', () => {
           abortSeen = true;
           reject(new Error('aborted'));
         });

@@ -169,7 +169,8 @@ function safe<T>(fn: () => T): T | null {
 
 async function compactSession(session: unknown) {
   const s = session as CompactSessionShape;
-  const compactor = s.compactors?.getActive?.();
+  const compactors = s.compactors;
+  const compactor = compactors?.getActive ? compactors.getActive() : undefined;
   if (!compactor) return { kind: 'error' as const, message: 'no active compactor configured' };
 
   // Distinguish an empty log up front so we can keep the specific
@@ -183,7 +184,10 @@ async function compactSession(session: unknown) {
   const isEmpty =
     typeof knownLength === 'number'
       ? knownLength === 0
-      : (safe(() => s.log?.slice?.())?.length ?? 1) === 0;
+      : (safe(() => {
+          const log = s.log;
+          return log?.slice ? log.slice() : undefined;
+        })?.length ?? 1) === 0;
   if (isEmpty) {
     return { kind: 'text' as const, text: 'nothing to compact: event log is empty' };
   }
@@ -199,7 +203,11 @@ async function compactSession(session: unknown) {
   // Resolve model/window inside the guard too: a malformed/foreign provider
   // (e.g. one passed over the WS bridge) whose `.models` is a throwing getter
   // or a non-array would otherwise throw here, escaping the try/catch below.
-  const firstModel = safe(() => provider?.models?.[0]) ?? undefined;
+  const firstModel =
+    safe(() => {
+      const models = provider?.models;
+      return models?.[0];
+    }) ?? undefined;
   const model = firstModel?.id;
   const contextWindow = firstModel?.contextWindow;
 

@@ -39,7 +39,8 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
 
   if (sub === 'status') {
     const enabled = config.security?.enabled ?? false;
-    const isolator = config.plugins?.isolator?.default ?? '(default: inproc)';
+    const isolatorSlot = config.plugins?.isolator;
+    const isolator = isolatorSlot?.default ?? '(default: inproc)';
     // 'warn' is the plugin-side default while security is enabled (grace
     // mode); surface it as such rather than pretending the ratchet is off.
     const ratchet = config.security?.thirdPartyRequireDeclaration ?? 'warn';
@@ -232,8 +233,10 @@ function formatCapabilities(caps: Readonly<Record<string, unknown>> | undefined)
   if (!caps) return '';
   const bits: string[] = [];
   const fs = caps.fs as { read?: ReadonlyArray<string>; write?: ReadonlyArray<string> } | undefined;
-  if (fs?.read?.length) bits.push(`fs:read(${fs.read.length})`);
-  if (fs?.write?.length) bits.push(`fs:write(${fs.write.length})`);
+  const fsRead = fs?.read;
+  const fsWrite = fs?.write;
+  if (fsRead?.length) bits.push(`fs:read(${fsRead.length})`);
+  if (fsWrite?.length) bits.push(`fs:write(${fsWrite.length})`);
   const net = caps.net as { mode?: string } | undefined;
   if (net?.mode) bits.push(`net:${net.mode}`);
   const env = caps.env as ReadonlyArray<string> | undefined;

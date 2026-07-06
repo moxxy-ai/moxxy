@@ -16,7 +16,8 @@ describe('plugins-tree schema — reflector category', () => {
     const parsed = pluginsTreeSchema.parse({
       reflector: { default: 'default', items: { default: { window: 'session' } } },
     });
-    expect(parsed.reflector?.items?.default).toEqual({ window: 'session' });
+    const reflectorItems = parsed.reflector?.items;
+    expect(reflectorItems?.default).toEqual({ window: 'session' });
   });
 
   it('rejects an unknown key inside the reflector slot (.strict())', () => {

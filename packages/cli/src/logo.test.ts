@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LOGO_LINES, LOGO_WIDTH, WORDMARK_LINES } from '@moxxy/plugin-cli';
+import { assertDefined } from '@moxxy/sdk';
 import { colorsEnabled } from './colors.js';
 import { renderLogo } from './logo.js';
 
@@ -10,7 +11,9 @@ function strip(s: string): string {
 
 // First non-blank rendered line, ANSI stripped — the top of the mark.
 function firstLine(out: string): string {
-  return strip(out).split('\n').filter((l) => l.trim())[0]!;
+  const first = strip(out).split('\n').filter((l) => l.trim())[0];
+  assertDefined(first, 'rendered logo has at least one non-blank line');
+  return first;
 }
 
 describe('renderLogo', () => {

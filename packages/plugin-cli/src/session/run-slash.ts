@@ -373,6 +373,10 @@ export function openPluginSetupEntry(deps: SlashDeps, arg = ''): void {
     deps.setSystemNotice('plugin setup is not available on this session — run `moxxy init` instead');
     return;
   }
+  // Capture the narrowed capabilities before the async closure: property
+  // narrowing from the guard above doesn't survive into the nested function.
+  const setupSpec = admin.setupSpec.bind(admin);
+  const openPluginSetup = deps.openPluginSetup;
   const target = arg.trim();
   void (async () => {
     try {
@@ -380,19 +384,19 @@ export function openPluginSetupEntry(deps: SlashDeps, arg = ''): void {
         const pkg =
           admin.catalog().find((e) => e.id === target || e.packageName === target)?.packageName ??
           target;
-        const spec = await admin.setupSpec!(pkg);
+        const spec = await setupSpec(pkg);
         if (!spec) {
           deps.setSystemNotice(`${pkg} is not installed or declares no setup step`);
           return;
         }
-        deps.openPluginSetup!({ packageName: pkg, spec });
+        openPluginSetup({ packageName: pkg, spec });
         return;
       }
       // Bare /setup: list installed plugins that declare a setup step.
       const installed = admin.loaded().filter((pl) => pl.installed);
       const withSpecs: ListPickerOption[] = [];
       for (const pl of installed) {
-        const spec = await admin.setupSpec!(pl.name).catch(() => null);
+        const spec = await setupSpec(pl.name).catch(() => null);
         if (spec) {
           withSpecs.push({
             id: pl.name,

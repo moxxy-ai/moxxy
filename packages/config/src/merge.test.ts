@@ -41,7 +41,8 @@ describe('mergeConfigs', () => {
   it('merges plugin-specific options deeply', () => {
     const a = { plugins: { p: { options: { a: 1, deep: { x: 1 } } } } };
     const b = { plugins: { p: { options: { b: 2, deep: { y: 2 } } } } };
-    expect(mergeConfigs(a, b).plugins?.p?.options).toEqual({
+    const pluginP = mergeConfigs(a, b).plugins?.p;
+    expect(pluginP?.options).toEqual({
       a: 1,
       b: 2,
       deep: { x: 1, y: 2 },

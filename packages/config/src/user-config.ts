@@ -159,7 +159,9 @@ export async function loadProviderItems(
     const parsed = parseYaml(raw) as {
       plugins?: { provider?: { items?: Record<string, ProviderItemState> } };
     } | null;
-    return parsed?.plugins?.provider?.items ?? {};
+    const plugins = parsed?.plugins;
+    const provider = plugins?.provider;
+    return provider?.items ?? {};
   } catch {
     return {};
   }

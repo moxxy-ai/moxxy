@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ProviderSetupView } from '@moxxy/sdk';
+import { assertDefined, type ProviderSetupView } from '@moxxy/sdk';
 import { createConnectFlow, type ConnectPhase } from './provider-connect-flow.js';
 
 function makeSetup(over: Partial<ProviderSetupView> = {}): ProviderSetupView {
@@ -135,8 +135,10 @@ describe('createConnectFlow — oauth', () => {
     const setup = makeSetup({
       authKind: () => 'oauth',
       loginOAuth: vi.fn(async (_id, io) => {
-        io!.write('open https://example.test/auth\n');
-        const code = await io!.prompt!('Paste the code:', { mask: true });
+        assertDefined(io, 'io passed to loginOAuth');
+        io.write('open https://example.test/auth\n');
+        assertDefined(io.prompt, 'io.prompt available');
+        const code = await io.prompt('Paste the code:', { mask: true });
         expect(code).toBe('the-code');
         return { accountId: 'me@example.test' };
       }),
@@ -174,7 +176,9 @@ describe('createConnectFlow — oauth', () => {
     const setup = makeSetup({
       authKind: () => 'oauth',
       loginOAuth: vi.fn(async (_id, io) => {
-        received = await io!.prompt!('Paste:', {});
+        assertDefined(io, 'io passed to loginOAuth');
+        assertDefined(io.prompt, 'io.prompt available');
+        received = await io.prompt('Paste:', {});
         throw new Error('cancelled');
       }),
     });

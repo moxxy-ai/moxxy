@@ -240,9 +240,8 @@ describe('buildConfigPlugin runtime applier', () => {
     )) as { runtime: ConfigApplyResult };
     expect(out.runtime).toEqual({ applied: ['mode'], pending: ['provider.name'] });
     expect(seen).toHaveLength(1);
-    expect((seen[0] as { plugins?: { mode?: { default?: string } } }).plugins?.mode?.default).toBe(
-      'goal',
-    );
+    const seenMode = (seen[0] as { plugins?: { mode?: { default?: string } } }).plugins?.mode;
+    expect(seenMode?.default).toBe('goal');
   });
 
   it('config_set catches an applier throw and reports it as a reload-failed pending entry', async () => {
@@ -282,7 +281,9 @@ describe('buildConfigPlugin runtime applier', () => {
       return { applied: ['mode'], pending: [] };
     };
     const out = (await toolOf(pluginWith(applier), 'config_reload').handler({}, ctx)) as ConfigApplyResult;
-    expect(received?.plugins?.mode?.default).toBe('goal');
+    const receivedPlugins = received?.plugins;
+    const receivedMode = receivedPlugins?.mode;
+    expect(receivedMode?.default).toBe('goal');
     expect(out).toEqual({ applied: ['mode'], pending: [] });
   });
 

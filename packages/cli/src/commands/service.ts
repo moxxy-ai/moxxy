@@ -1,3 +1,4 @@
+import { assertDefined } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { colors } from '../colors.js';
 import { helpRequested, stringFlag } from '../argv-helpers.js';
@@ -167,8 +168,10 @@ async function runList(): Promise<number> {
   // Two-row entry per service: bold name + state badge on row 1, dim
   // description on row 2. Mirrors `moxxy channels` exactly.
   for (let i = 0; i < CATALOG.length; i += 1) {
-    const spec = CATALOG[i]!;
-    const status = statuses[i]!;
+    const spec = CATALOG[i];
+    const status = statuses[i];
+    assertDefined(spec, 'i < CATALOG.length within the loop');
+    assertDefined(status, 'statuses maps 1:1 over CATALOG');
     const badge = stateBadge(status);
     process.stdout.write(`${colors.bold(spec.id.padEnd(nameCol))}  ${badge}\n`);
     process.stdout.write(`${' '.repeat(nameCol + 2)}${colors.dim(spec.description)}\n`);

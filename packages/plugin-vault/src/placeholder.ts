@@ -1,4 +1,4 @@
-import { MoxxyError } from '@moxxy/sdk';
+import { MoxxyError, assertDefined } from '@moxxy/sdk';
 import type { VaultStore } from './store.js';
 
 const PLACEHOLDER_RE = /\$\{vault:([A-Za-z0-9_.-]+)\}/g;
@@ -27,7 +27,11 @@ export async function resolveString(input: string, vault: VaultStore): Promise<s
   PLACEHOLDER_RE.lastIndex = 0;
   const names = new Set<string>();
   let m: RegExpExecArray | null;
-  while ((m = PLACEHOLDER_RE.exec(input))) names.add(m[1]!);
+  while ((m = PLACEHOLDER_RE.exec(input))) {
+    const name = m[1];
+    assertDefined(name, 'the vault placeholder regex has a required capture group');
+    names.add(name);
+  }
 
   const values = new Map<string, string>();
   for (const name of names) {

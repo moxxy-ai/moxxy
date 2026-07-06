@@ -188,7 +188,9 @@ export async function mapBounded<T, R>(
   for (let i = 0; i < items.length; i += limit) {
     const chunk = items.slice(i, i + limit);
     const results = await Promise.all(chunk.map(fn));
-    for (let j = 0; j < results.length; j += 1) out[i + j] = results[j]!;
+    // Promise.all yields a dense array, so entries() visits every result —
+    // including a legitimately-undefined R — without an index assertion.
+    for (const [j, result] of results.entries()) out[i + j] = result;
   }
   return out;
 }

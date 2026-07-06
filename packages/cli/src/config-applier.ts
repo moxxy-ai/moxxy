@@ -53,8 +53,10 @@ export function buildSessionConfigApplier(
     const applied: string[] = [];
     const pending: string[] = [];
 
-    const nextMode = next.plugins?.mode?.default;
-    if (nextMode !== last.plugins?.mode?.default) {
+    const nextModeCfg = next.plugins?.mode;
+    const lastModeCfg = last.plugins?.mode;
+    const nextMode = nextModeCfg?.default;
+    if (nextMode !== lastModeCfg?.default) {
       try {
         if (nextMode) session.modes.setActive(nextMode);
         applied.push('mode');
@@ -63,8 +65,10 @@ export function buildSessionConfigApplier(
       }
     }
 
-    const nextCompactor = next.plugins?.compactor?.default;
-    if (nextCompactor !== last.plugins?.compactor?.default) {
+    const nextCompactorCfg = next.plugins?.compactor;
+    const lastCompactorCfg = last.plugins?.compactor;
+    const nextCompactor = nextCompactorCfg?.default;
+    if (nextCompactor !== lastCompactorCfg?.default) {
       try {
         if (nextCompactor) session.compactors.setActive(nextCompactor);
         applied.push('compactor');
@@ -73,10 +77,12 @@ export function buildSessionConfigApplier(
       }
     }
 
-    const nextCacheStrategy = next.plugins?.cacheStrategy?.default;
+    const nextCacheCfg = next.plugins?.cacheStrategy;
+    const lastCacheCfg = last.plugins?.cacheStrategy;
+    const nextCacheStrategy = nextCacheCfg?.default;
     if (
       next.context?.caching !== last.context?.caching ||
-      nextCacheStrategy !== last.plugins?.cacheStrategy?.default
+      nextCacheStrategy !== lastCacheCfg?.default
     ) {
       try {
         if (next.context?.caching === false) session.cacheStrategies.setActive('none');
@@ -228,7 +234,8 @@ async function applyPluginToggles(
 }
 
 function effectiveEnabled(cfg: MoxxyConfig, name: string): boolean {
-  const entry = cfg.plugins?.packages?.[name];
+  const packages = cfg.plugins?.packages;
+  const entry = packages?.[name];
   if (!entry) return true; // default: enabled when not mentioned
   return entry.enabled !== false;
 }

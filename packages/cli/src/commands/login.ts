@@ -222,8 +222,8 @@ async function runLoginStatus(argv: ParsedArgv, session: Session, vault: VaultSt
   }
 
   for (const def of oauthProviders) {
-    const auth = def.auth!;
-    if (auth.kind !== 'oauth') continue;
+    const auth = def.auth;
+    if (auth?.kind !== 'oauth') continue;
     if (!auth.status) {
       process.stdout.write(
         `${colors.bold(def.name)}  ${colors.dim('status not reported by plugin')}\n`,

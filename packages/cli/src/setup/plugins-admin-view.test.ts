@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Session, silentLogger } from '@moxxy/core';
+import { assertDefined } from '@moxxy/sdk';
 import {
   buildVaultPlugin,
   createStaticKeySource,
@@ -73,9 +74,11 @@ describe('session.pluginsAdmin.install', () => {
 
     const admin = session.pluginsAdmin;
     expect(admin?.install).toBeDefined();
+    assertDefined(admin, 'pluginsAdmin view attached');
+    assertDefined(admin.install, 'install exposed on pluginsAdmin');
     // 'mode-goal' is not a catalog id today, so it resolves as a bare package
     // name; the closure passes it through to the pinned installer.
-    const res = await admin!.install!('@moxxy/mode-goal');
+    const res = await admin.install('@moxxy/mode-goal');
 
     expect(installPluginPackagePinned).toHaveBeenCalledWith(
       expect.objectContaining({ packageName: '@moxxy/mode-goal' }),
@@ -89,7 +92,10 @@ describe('session.pluginsAdmin.install', () => {
   it('skips the enable write for a git/path spec with no derivable package name', async () => {
     const session = buildFixture();
     vi.spyOn(session.pluginHost, 'reload').mockResolvedValue(undefined as never);
-    await session.pluginsAdmin!.install!('github:someone/some-plugin');
+    const admin = session.pluginsAdmin;
+    assertDefined(admin, 'pluginsAdmin view attached');
+    assertDefined(admin.install, 'install exposed on pluginsAdmin');
+    await admin.install('github:someone/some-plugin');
     expect(setPluginEnabled).not.toHaveBeenCalled();
   });
 });

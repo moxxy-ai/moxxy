@@ -2,6 +2,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import {
   detectPastedImagePath,
   extractImagePlaceholders,
@@ -25,8 +26,9 @@ describe('detectPastedImagePath', () => {
       delete process.env.HOME;
       const result = detectPastedImagePath('~/pics/shot.png');
       expect(result).not.toBeNull();
-      expect(path.isAbsolute(result!.absPath)).toBe(true);
-      expect(result!.absPath).toBe(path.join(homedir(), 'pics/shot.png'));
+      assertDefined(result, 'home-relative image path detected');
+      expect(path.isAbsolute(result.absPath)).toBe(true);
+      expect(result.absPath).toBe(path.join(homedir(), 'pics/shot.png'));
     } finally {
       if (prevHome === undefined) delete process.env.HOME;
       else process.env.HOME = prevHome;
@@ -85,7 +87,8 @@ describe('loadImageAttachment', () => {
   it('reads the file and returns a base64 attachment', async () => {
     const detected = detectPastedImagePath(imagePath);
     expect(detected).not.toBeNull();
-    const attachment = await loadImageAttachment(detected!);
+    assertDefined(detected, 'image path detected');
+    const attachment = await loadImageAttachment(detected);
     expect(attachment.kind).toBe('image');
     expect(attachment.mediaType).toBe('image/png');
     expect(attachment.name).toBe('tiny.png');

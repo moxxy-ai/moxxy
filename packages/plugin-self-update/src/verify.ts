@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
+import { assertDefined } from '@moxxy/sdk';
 import type { TxnTarget } from './transaction.js';
 
 /**
@@ -110,7 +111,9 @@ const PM_COMMANDS: Record<string, PmCommands> = {
  */
 function pmFor(pkg: PkgJson): PmCommands {
   const name = (pkg.packageManager ?? '').split('@')[0]?.trim().toLowerCase();
-  return (name && PM_COMMANDS[name]) || PM_COMMANDS.npm!;
+  const npmFallback = PM_COMMANDS.npm;
+  assertDefined(npmFallback, 'PM_COMMANDS always contains the npm entry');
+  return (name && PM_COMMANDS[name]) || npmFallback;
 }
 
 /**
