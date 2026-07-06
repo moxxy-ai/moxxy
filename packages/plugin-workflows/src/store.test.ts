@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { assertDefined } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { validateWorkflow } from './schema.js';
 import { WorkflowStore } from './store.js';
@@ -19,7 +20,9 @@ afterEach(async () => {
 });
 
 function sample(name: string) {
-  return validateWorkflow({ name, description: 'x', steps: [{ id: 'a', prompt: 'go' }] }).workflow!;
+  const wf = validateWorkflow({ name, description: 'x', steps: [{ id: 'a', prompt: 'go' }] }).workflow;
+  assertDefined(wf, 'sample workflow is schema-valid by construction');
+  return wf;
 }
 
 describe('WorkflowStore CRUD', () => {
@@ -82,7 +85,9 @@ describe('WorkflowStore CRUD', () => {
 
   it('save without a rename leaves the file in place', async () => {
     await store.create(sample('keep'), 'user');
-    const before = (await store.get('keep'))!.path;
+    const kept = await store.get('keep');
+    assertDefined(kept, 'workflow "keep" was just created');
+    const before = kept.path;
     const after = await store.save(sample('keep'));
     expect(after.path).toBe(before);
   });

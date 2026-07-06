@@ -213,18 +213,24 @@ export class SchedulerPoller {
       try {
         await syncSkillSchedules(this.opts.skills, this.opts.store);
       } catch (err) {
-        this.opts.logger?.warn?.('scheduler: skill sync during tick failed', {
-          err: err instanceof Error ? err.message : String(err),
-        });
+        const log = this.opts.logger;
+        if (log?.warn) {
+          log.warn('scheduler: skill sync during tick failed', {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     }
     let schedules: ReadonlyArray<ScheduleEntry>;
     try {
       schedules = await this.opts.store.list();
     } catch (err) {
-      this.opts.logger?.error?.('scheduler: failed to read store', {
-        err: err instanceof Error ? err.message : String(err),
-      });
+      const log = this.opts.logger;
+      if (log?.error) {
+        log.error('scheduler: failed to read store', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
       return 0;
     }
     let attempted = 0;
@@ -236,10 +242,13 @@ export class SchedulerPoller {
       try {
         due = isDue(entry, now);
       } catch (err) {
-        this.opts.logger?.warn?.('scheduler: isDue failed; skipping entry', {
-          schedule: entry.name,
-          err: err instanceof Error ? err.message : String(err),
-        });
+        const log = this.opts.logger;
+        if (log?.warn) {
+          log.warn('scheduler: isDue failed; skipping entry', {
+            schedule: entry.name,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
         continue;
       }
       if (!due) continue;
@@ -281,10 +290,13 @@ export class SchedulerPoller {
           // A lock-dir error must not fire blind (that risks the N-times
           // multi-fire this guards). Skip this tick; the durable lastRunAt and
           // the next tick recover once the fs issue clears.
-          this.opts.logger?.warn?.('scheduler: fire-once claim failed; skipping', {
-            schedule: entry.name,
-            err: err instanceof Error ? err.message : String(err),
-          });
+          const log = this.opts.logger;
+          if (log?.warn) {
+            log.warn('scheduler: fire-once claim failed; skipping', {
+              schedule: entry.name,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
           continue;
         }
         if (!claimed) {
@@ -310,11 +322,14 @@ export class SchedulerPoller {
               runSchedule(entry, this.opts.runner, this.opts.store, this.opts.inbox),
             )
           : runSchedule(entry, this.opts.runner, this.opts.store, this.opts.inbox));
-        this.opts.logger?.info?.('scheduler: fired', {
-          schedule: entry.name,
-          ok: outcome.ok,
-          inbox: outcome.inboxPath,
-        });
+        const log = this.opts.logger;
+        if (log?.info) {
+          log.info('scheduler: fired', {
+            schedule: entry.name,
+            ok: outcome.ok,
+            inbox: outcome.inboxPath,
+          });
+        }
         onFired?.(entry, { ok: outcome.ok, text: outcome.text });
       } catch (err) {
         // A throw here is typically the post-run persist failing (the prompt
@@ -322,10 +337,13 @@ export class SchedulerPoller {
         // the entry's lastRunAt/disabled state did not advance — so surface it
         // as an error, not a warning. The firedKeys guard above stops the
         // re-fire it would otherwise cause.
-        this.opts.logger?.error?.('scheduler: run failed', {
-          schedule: entry.name,
-          err: err instanceof Error ? err.message : String(err),
-        });
+        const log = this.opts.logger;
+        if (log?.error) {
+          log.error('scheduler: run failed', {
+            schedule: entry.name,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     }
     // Reap expired cross-process markers so the lock dir can't grow without

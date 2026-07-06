@@ -1,4 +1,5 @@
 import type { Workflow } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { z } from 'zod';
 import { validateCondition } from './template.js';
@@ -161,10 +162,12 @@ const stepSchema = z
         path: ['skill'],
       });
     } else if (present.length > 1) {
+      const second = present[1];
+      assertDefined(second, 'present.length > 1 guarantees index 1 exists');
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: `step "${step.id}" has multiple actions (${present.join(', ')}); pick one`,
-        path: [present[1]!],
+        path: [second],
       });
     }
   });
@@ -327,7 +330,8 @@ export const workflowSchema = z
     for (const step of wf.steps) {
       const owner = bodyOwner.get(step.id);
       if (owner == null) continue;
-      const body = stepById.get(step.id)!;
+      const body = stepById.get(step.id);
+      assertDefined(body, 'stepById is built from wf.steps, so every step.id is a key');
 
       // FINDING 3: a condition/switch used AS a loop body has its branch
       // routing (then/else/cases) silently ignored — runLoopStep runs the body

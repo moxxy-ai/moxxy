@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
-import { asSkillId } from '@moxxy/sdk';
+import { asSkillId, assertDefined } from '@moxxy/sdk';
 import { CrossProcessFireLock } from '@moxxy/sdk/server';
 import { FiringLock } from './firing-lock.js';
 import { isDue, nextCronFire, SchedulerPoller } from './poller.js';
@@ -118,8 +118,9 @@ describe('isDue', () => {
     expect(isDue(entry, now)).toBe(true);
     const next = nextCronFire(entry);
     expect(next).not.toBeNull();
+    assertDefined(next, 'nextCronFire resolves for this cron');
     // Agreement: the shown next-fire is <= now exactly because isDue is true.
-    expect(next!.getTime()).toBeLessThanOrEqual(now);
+    expect(next.getTime()).toBeLessThanOrEqual(now);
   });
 });
 
@@ -145,7 +146,9 @@ describe('SchedulerPoller integration', () => {
     });
     // Backdate so it's already due.
     const entries = await store.list();
-    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+    const entry = entries[0];
+    assertDefined(entry, 'the just-created schedule');
+    await store.update(entry.id, { lastRunAt: Date.now() - 120_000 });
 
     const calls: string[] = [];
     const poller = new SchedulerPoller({
@@ -163,8 +166,10 @@ describe('SchedulerPoller integration', () => {
     expect(calls).toEqual(['wake up']);
 
     const refreshed = await store.list();
-    expect(refreshed[0]!.lastRunAt).toBeDefined();
-    expect(refreshed[0]!.lastResult).toBe('ok');
+    const first = refreshed[0];
+    assertDefined(first, 'the fired schedule row');
+    expect(first.lastRunAt).toBeDefined();
+    expect(first.lastResult).toBe('ok');
 
     const { readdir } = await import('node:fs/promises');
     const files = await readdir(inboxDir);
@@ -174,7 +179,9 @@ describe('SchedulerPoller integration', () => {
   it('tickOnce counts a due schedule even when its store.update throws mid-run (u103-8)', async () => {
     await store.create({ name: 'minute', prompt: 'wake up', cron: '* * * * *' });
     const entries = await store.list();
-    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+    const entry = entries[0];
+    assertDefined(entry, 'the just-created schedule');
+    await store.update(entry.id, { lastRunAt: Date.now() - 120_000 });
 
     // Wrap the real store so list() still returns the due row but update()
     // throws — simulating a store-level failure during the run. The attempt
@@ -284,7 +291,9 @@ describe('SchedulerPoller integration', () => {
     // and race store.update.
     await store.create({ name: 'minute', prompt: 'wake up', cron: '* * * * *' });
     const entries = await store.list();
-    const id = entries[0]!.id;
+    const entry = entries[0];
+    assertDefined(entry, 'the just-created schedule');
+    const id = entry.id;
     await store.update(id, { lastRunAt: Date.now() - 120_000 });
 
     let active = 0;
@@ -304,7 +313,8 @@ describe('SchedulerPoller integration', () => {
     const firingLock = new FiringLock();
     const poller = new SchedulerPoller({ store, runner, inbox: { dir: inboxDir }, firingLock });
     const tools = buildSchedulerTools({ store, runner, inbox: { dir: inboxDir }, firingLock });
-    const runNow = tools.find((t) => t.name === 'schedule_run_now')!;
+    const runNow = tools.find((t) => t.name === 'schedule_run_now');
+    assertDefined(runNow, 'schedule_run_now tool is registered');
 
     // Fire both for the same entry at the same time.
     await Promise.all([
@@ -318,8 +328,10 @@ describe('SchedulerPoller integration', () => {
     // but strictly serialized — and the store ends in a consistent state.
     expect(runs).toBeGreaterThanOrEqual(1);
     const after = await store.list();
-    expect(after[0]!.lastResult).toBe('ok');
-    expect(after[0]!.lastRunAt).toBeDefined();
+    const first = after[0];
+    assertDefined(first, 'the fired schedule row');
+    expect(first.lastResult).toBe('ok');
+    expect(first.lastRunAt).toBeDefined();
   });
 
   it('one-shot fires once then disables itself', async () => {
@@ -335,12 +347,16 @@ describe('SchedulerPoller integration', () => {
     });
     await poller.tickOnce();
     const after = await store.list();
-    expect(after[0]!.enabled).toBe(false);
+    const afterFirst = after[0];
+    assertDefined(afterFirst, 'the one-shot row after firing');
+    expect(afterFirst.enabled).toBe(false);
 
     // Second tick must not fire it again.
     await poller.tickOnce();
     const stillOnce = await store.list();
-    expect(stillOnce[0]!.lastRunAt).toEqual(after[0]!.lastRunAt);
+    const stillOnceFirst = stillOnce[0];
+    assertDefined(stillOnceFirst, 'the one-shot row after the second tick');
+    expect(stillOnceFirst.lastRunAt).toEqual(afterFirst.lastRunAt);
   });
 
   it('records runner errors on lastResult/lastError', async () => {
@@ -350,7 +366,9 @@ describe('SchedulerPoller integration', () => {
       cron: '* * * * *',
     });
     const entries = await store.list();
-    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+    const entry = entries[0];
+    assertDefined(entry, 'the just-created schedule');
+    await store.update(entry.id, { lastRunAt: Date.now() - 120_000 });
 
     const poller = new SchedulerPoller({
       store,
@@ -363,8 +381,10 @@ describe('SchedulerPoller integration', () => {
     });
     await poller.tickOnce();
     const after = await store.list();
-    expect(after[0]!.lastResult).toBe('error');
-    expect(after[0]!.lastError).toContain('provider exploded');
+    const first = after[0];
+    assertDefined(first, 'the fired-with-error schedule row');
+    expect(first.lastResult).toBe('error');
+    expect(first.lastError).toContain('provider exploded');
   });
 
   // Regression for u103-2: skill edits/deletes must propagate on a tick,
@@ -405,8 +425,10 @@ describe('SchedulerPoller integration', () => {
     await poller.tickOnce();
     const stored = await store.list();
     expect(stored).toHaveLength(1);
-    expect(stored[0]!.cron).toBe('0 18 * * *');
-    expect(stored[0]!.prompt).toBe('second');
+    const first = stored[0];
+    assertDefined(first, 'the re-synced skill schedule');
+    expect(first.cron).toBe('0 18 * * *');
+    expect(first.prompt).toBe('second');
   });
 });
 
@@ -444,7 +466,9 @@ describe('SchedulerPoller multi-tenant (concurrent runners)', () => {
       ownerSessionId: 'runner-A',
     });
     const entries = await store.list();
-    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+    const entry = entries[0];
+    assertDefined(entry, 'the just-created schedule');
+    await store.update(entry.id, { lastRunAt: Date.now() - 120_000 });
 
     // The wrong runner (B) sees the due row but must NOT fire it.
     const b = countingRunner();
@@ -477,7 +501,9 @@ describe('SchedulerPoller multi-tenant (concurrent runners)', () => {
     const storeA = new ScheduleStore({ file });
     await storeA.create({ name: 'global-report', prompt: 'do XYZ', cron: '* * * * *' });
     const created = await storeA.list();
-    await storeA.update(created[0]!.id, { lastRunAt: Date.now() - 120_000 });
+    const createdFirst = created[0];
+    assertDefined(createdFirst, 'the owner-less schedule A created');
+    await storeA.update(createdFirst.id, { lastRunAt: Date.now() - 120_000 });
 
     // Runner B is a second process over the SAME shared file — it sees the same
     // due row. Both pre-read so each has the due entry cached, mimicking two
@@ -503,7 +529,9 @@ describe('SchedulerPoller multi-tenant (concurrent runners)', () => {
     const store = new ScheduleStore({ file: path.join(dir, 'schedules.json') });
     await store.create({ name: 'solo', prompt: 'go', cron: '* * * * *' });
     const entries = await store.list();
-    await store.update(entries[0]!.id, { lastRunAt: Date.now() - 120_000 });
+    const entry = entries[0];
+    assertDefined(entry, 'the just-created schedule');
+    await store.update(entry.id, { lastRunAt: Date.now() - 120_000 });
 
     const a = countingRunner();
     const poller = new SchedulerPoller({ store, runner: a.runner, inbox: { dir: inboxDir } });

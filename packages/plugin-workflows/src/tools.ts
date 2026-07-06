@@ -1,5 +1,6 @@
 import {
   asPluginId,
+  assertDefined,
   defineTool,
   MoxxyError,
   z,
@@ -403,7 +404,8 @@ function validateTool(deps: WorkflowToolDeps): ToolDef {
         const r = parseWorkflowYaml(yaml);
         return { ok: r.ok, errors: r.errors };
       }
-      const entry = await deps.store.get(name!);
+      assertDefined(name, 'input schema refine requires yaml or name; yaml handled above');
+      const entry = await deps.store.get(name);
       if (!entry) return { ok: false, errors: [`no workflow named "${name}"`] };
       return { ok: true, errors: [] };
     },

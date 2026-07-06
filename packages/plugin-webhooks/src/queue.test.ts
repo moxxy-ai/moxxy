@@ -2,6 +2,7 @@ import { mkdtemp, rm, readdir, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { WebhookDeliveryQueue } from './queue.js';
 
 describe('WebhookDeliveryQueue', () => {
@@ -41,7 +42,9 @@ describe('WebhookDeliveryQueue', () => {
     await queue.enqueue(rec({ deliveryId: 'dup', prompt: 'newer' }));
     const owned = await queue.listOwned('runner-A');
     expect(owned).toHaveLength(1);
-    expect(owned[0]!.prompt).toBe('newer');
+    const first = owned[0];
+    assertDefined(first, 'first owned delivery');
+    expect(first.prompt).toBe('newer');
   });
 
   it('remove drops a drained record', async () => {

@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { WebhookStore } from './store.js';
 
 describe('WebhookStore', () => {
@@ -41,8 +42,10 @@ describe('WebhookStore', () => {
     const reloaded = new WebhookStore({ file: path.join(dir, 'webhooks.json') });
     const all = await reloaded.list();
     expect(all).toHaveLength(1);
-    expect(all[0]!.name).toBe('gh-issues');
-    expect(all[0]!.fireCount).toBe(0);
+    const first = all[0];
+    assertDefined(first, 'first webhook');
+    expect(first.name).toBe('gh-issues');
+    expect(first.fireCount).toBe(0);
   });
 
   it('rejects duplicate names', async () => {
@@ -154,7 +157,9 @@ describe('WebhookStore', () => {
       expect(warning).toMatch(/\.corrupt-/);
       const sidecars = (await readdir(dir)).filter((f) => f.includes('.corrupt-'));
       expect(sidecars).toHaveLength(1);
-      expect(await readFile(path.join(dir, sidecars[0]!), 'utf8')).toBe(garbage);
+      const sidecar = sidecars[0];
+      assertDefined(sidecar, 'corrupt sidecar');
+      expect(await readFile(path.join(dir, sidecar), 'utf8')).toBe(garbage);
     });
 
     it('preserves a schema-mismatched file aside', async () => {
@@ -164,7 +169,9 @@ describe('WebhookStore', () => {
       expect(await store.loadWarning()).toMatch(/expected \{ version: 1/);
       const sidecars = (await readdir(dir)).filter((f) => f.includes('.corrupt-'));
       expect(sidecars).toHaveLength(1);
-      expect(await readFile(path.join(dir, sidecars[0]!), 'utf8')).toBe(bad);
+      const sidecar = sidecars[0];
+      assertDefined(sidecar, 'corrupt sidecar');
+      expect(await readFile(path.join(dir, sidecar), 'utf8')).toBe(bad);
     });
 
     it('keeps the corrupt copy recoverable after a subsequent write (no wipe)', async () => {
@@ -181,7 +188,9 @@ describe('WebhookStore', () => {
       // …but the original bytes survive in the .corrupt-* sidecar.
       const sidecars = (await readdir(dir)).filter((f) => f.includes('.corrupt-'));
       expect(sidecars).toHaveLength(1);
-      expect(await readFile(path.join(dir, sidecars[0]!), 'utf8')).toBe(original);
+      const sidecar = sidecars[0];
+      assertDefined(sidecar, 'corrupt sidecar');
+      expect(await readFile(path.join(dir, sidecar), 'utf8')).toBe(original);
       const live = JSON.parse(await readFile(file(), 'utf8')) as { triggers: Array<{ name: string }> };
       expect(live.triggers.map((t) => t.name)).toEqual(['fresh']);
     });
@@ -210,12 +219,16 @@ describe('WebhookStore', () => {
       expect(warning).toMatch(/1 trigger entry .*quarantined/);
       const sidecars = (await readdir(dir)).filter((f) => f.includes('.quarantine-'));
       expect(sidecars).toHaveLength(1);
-      const quarantined = JSON.parse(await readFile(path.join(dir, sidecars[0]!), 'utf8')) as {
+      const sidecar = sidecars[0];
+      assertDefined(sidecar, 'quarantine sidecar');
+      const quarantined = JSON.parse(await readFile(path.join(dir, sidecar), 'utf8')) as {
         entries: Array<{ index: number; entry: unknown; issues: string }>;
       };
       expect(quarantined.entries).toHaveLength(1);
-      expect(quarantined.entries[0]!.index).toBe(1);
-      expect(quarantined.entries[0]!.entry).toEqual(invalid);
+      const firstEntry = quarantined.entries[0];
+      assertDefined(firstEntry, 'first quarantined entry');
+      expect(firstEntry.index).toBe(1);
+      expect(firstEntry.entry).toEqual(invalid);
       // Quarantined entries survive a subsequent persist that drops them from the live file.
       await store.create({ name: 'another', prompt: 'x', allowedTools: [], verification: { type: 'none' } });
       const live = JSON.parse(await readFile(file(), 'utf8')) as { triggers: Array<{ name: string }> };

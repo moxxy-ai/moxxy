@@ -42,7 +42,11 @@ const REGEX_CACHE_MAX = 256;
  * can't grow it without limit.
  */
 function compileMatcher(source: string): RegExp | null {
-  if (regexCache.has(source)) return regexCache.get(source)!;
+  // has() proved the key is present, so get() can only return the stored
+  // `RegExp | null` (never the key-absent `undefined`). A cached `null`
+  // (uncompilable/over-long pattern, treated as "no match") is a valid value,
+  // so coalesce the impossible `undefined` rather than asserting non-null.
+  if (regexCache.has(source)) return regexCache.get(source) ?? null;
   let compiled: RegExp | null = null;
   if (source.length <= MAX_REGEX_SOURCE_LEN) {
     try {

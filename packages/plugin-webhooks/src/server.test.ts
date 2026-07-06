@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { RateLimiter } from './rate-limit.js';
 import { WebhookDispatcher, type WebhookFireOutcome } from './runner.js';
 import { WebhookServer } from './server.js';
@@ -170,11 +171,13 @@ describe('WebhookServer', () => {
     // outcome (polls until present rather than guessing a fixed delay).
     await waitUntil(() => fired.length >= 1);
     expect(fired).toHaveLength(1);
-    expect(fired[0]!.outcome.ok).toBe(true);
+    const firstFired = fired[0];
+    assertDefined(firstFired, 'first fired delivery');
+    expect(firstFired.outcome.ok).toBe(true);
     // The header value is fenced as untrusted, so the operator text + the value
     // appear, just not as one verbatim run.
-    expect(fired[0]!.outcome.text).toContain('ran with prompt: New event:');
-    expect(fired[0]!.outcome.text).toContain('issues');
+    expect(firstFired.outcome.text).toContain('ran with prompt: New event:');
+    expect(firstFired.outcome.text).toContain('issues');
   });
 
   it('rejects a bad HMAC with 401 and does not fire', async () => {

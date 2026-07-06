@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
-import { asSkillId } from '@moxxy/sdk';
+import { asSkillId, assertDefined } from '@moxxy/sdk';
 import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
 
@@ -49,9 +49,11 @@ describe('syncSkillSchedules', () => {
     expect(out.added).toBe(1);
     const stored = await store.list();
     expect(stored).toHaveLength(1);
-    expect(stored[0]!.source).toBe('skill');
-    expect(stored[0]!.skillName).toBe('briefing');
-    expect(stored[0]!.channel).toBe('telegram');
+    const first = stored[0];
+    assertDefined(first, 'first stored schedule (list has length 1)');
+    expect(first.source).toBe('skill');
+    expect(first.skillName).toBe('briefing');
+    expect(first.channel).toBe('telegram');
   });
 
   it('skips skills without a schedule block', async () => {
@@ -77,7 +79,8 @@ describe('syncSkillSchedules', () => {
   it('does not resurrect a skill schedule deleted through the shared schedule store', async () => {
     const reg = fakeRegistry([mkSkill('briefing', { cron: '0 9 * * *' })]);
     await syncSkillSchedules(reg, store);
-    const created = (await store.list())[0]!;
+    const created = (await store.list())[0];
+    assertDefined(created, 'the just-synced skill schedule');
 
     await expect(store.delete(created.id)).resolves.toBe(true);
     expect(await store.list()).toEqual([]);
@@ -105,8 +108,10 @@ describe('syncSkillSchedules', () => {
     const out = await syncSkillSchedules(reg, store);
     expect(out.updated).toBe(1);
     const stored = await store.list();
-    expect(stored[0]!.cron).toBe('0 18 * * *');
-    expect(stored[0]!.prompt).toBe('second body');
+    const first = stored[0];
+    assertDefined(first, 'first stored schedule after update');
+    expect(first.cron).toBe('0 18 * * *');
+    expect(first.prompt).toBe('second body');
   });
 
   it('refuses invalid cron expressions silently', async () => {

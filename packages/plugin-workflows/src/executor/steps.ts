@@ -1,4 +1,5 @@
 import {
+  assertDefined,
   type SubagentSpec,
   type WorkflowRunDeps,
   type WorkflowStep,
@@ -41,11 +42,13 @@ export async function runStep(
       return await runStepOnce(step, scope, ctx);
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
-      ctx.deps.logger?.warn?.('workflow step attempt failed', {
-        step: step.id,
-        attempt: attempt + 1,
-        error: lastError,
-      });
+      const logger = ctx.deps.logger;
+      if (logger?.warn)
+        logger.warn('workflow step attempt failed', {
+          step: step.id,
+          attempt: attempt + 1,
+          error: lastError,
+        });
     }
   }
   return { ok: false, output: '', error: lastError };
@@ -110,7 +113,8 @@ async function runNestedWorkflow(
   opts: LoggerOpts,
 ): Promise<StepOutcome> {
   const { deps } = ctx;
-  const nested = deps.lookup.workflow(step.workflow!);
+  assertDefined(step.workflow, 'runNestedWorkflow is only invoked for workflow steps');
+  const nested = deps.lookup.workflow(step.workflow);
   if (!nested) throw new Error(`nested workflow "${step.workflow}" not found`);
   const depth = (deps.depth ?? 0) + 1;
   if (depth > MAX_NESTING_DEPTH) {
@@ -147,7 +151,10 @@ async function runNestedWorkflow(
 
 function buildUpstreamBlock(step: WorkflowStep, scope: TemplateScope): string {
   if (step.needs.length === 0) return '';
-  const parts = step.needs.map((id) => `### ${id}\n${scope.steps?.[id]?.output ?? ''}`);
+  const parts = step.needs.map((id) => {
+    const entry = scope.steps?.[id];
+    return `### ${id}\n${entry?.output ?? ''}`;
+  });
   return `\n\n## Upstream\n${parts.join('\n\n')}`;
 }
 
@@ -241,7 +248,8 @@ async function runLoopStep(
   ctx: ExecutorContext,
   opts: LoggerOpts,
 ): Promise<StepOutcome> {
-  const loop = step.loop!;
+  assertDefined(step.loop, 'runLoopStep is only invoked for loop steps');
+  const loop = step.loop;
   const max = loop.maxIterations;
   const bodySteps = loop.body
     .map((id) => ctx.workflow.steps.find((s) => s.id === id))
@@ -258,7 +266,8 @@ async function runLoopStep(
 
     // Each iteration runs the body fresh: reset state for re-runnable steps.
     for (const body of bodySteps) {
-      const bst = ctx.states.get(body.id)!;
+      const bst = ctx.states.get(body.id);
+      assertDefined(bst, 'loop body ids are real workflow steps with initialized state');
       bst.status = 'pending';
       bst.output = '';
       delete bst.error;
@@ -267,7 +276,8 @@ async function runLoopStep(
     for (const body of bodySteps) {
       if (ctx.deps.signal.aborted) return { ok: false, output: lastBodyOutput, error: 'aborted' };
       const bodyScope = buildScope(ctx, new Date(ctx.now()).toISOString());
-      const bst = ctx.states.get(body.id)!;
+      const bst = ctx.states.get(body.id);
+      assertDefined(bst, 'loop body ids are real workflow steps with initialized state');
       bst.startedAt = ctx.now();
       const outcome = await runStep(body, bodyScope, ctx);
       bst.endedAt = ctx.now();
@@ -295,11 +305,13 @@ async function runLoopStep(
           // body error), rather than failing the whole workflow. Use
           // `onError: continue` on a body step to swallow its error and keep
           // iterating instead.
-          ctx.deps.logger?.warn?.('workflow loop broke on body error', {
-            step: step.id,
-            body: body.id,
-            error: outcome.error,
-          });
+          const logger = ctx.deps.logger;
+          if (logger?.warn)
+            logger.warn('workflow loop broke on body error', {
+              step: step.id,
+              body: body.id,
+              error: outcome.error,
+            });
           return {
             ok: true,
             output:
@@ -330,7 +342,8 @@ async function runLoopStep(
 
   // Reached the iteration cap without the predicate saying stop. Finish
   // cleanly with a clear note — never hang.
-  ctx.deps.logger?.warn?.('workflow loop hit max iterations', { step: step.id, maxIterations: max });
+  const logger = ctx.deps.logger;
+  if (logger?.warn) logger.warn('workflow loop hit max iterations', { step: step.id, maxIterations: max });
   return {
     ok: true,
     output:

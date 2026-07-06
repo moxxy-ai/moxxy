@@ -116,7 +116,8 @@ export function mergeVars(ctx: ExecutorContext, vars: Record<string, unknown> | 
   if (!vars) return;
   for (const [key, value] of Object.entries(vars)) {
     if (UNSAFE_VAR_KEYS.has(key)) {
-      ctx.deps.logger?.warn?.('workflow vars: dropping prototype-pollution key', { key });
+      const logger = ctx.deps.logger;
+      if (logger?.warn) logger.warn('workflow vars: dropping prototype-pollution key', { key });
       continue;
     }
     // Own-property assignment only (skips inherited keys that Object.entries

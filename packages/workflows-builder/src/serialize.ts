@@ -14,6 +14,7 @@
  */
 
 import type { Workflow, WorkflowStep, WorkflowUiLayout } from '@moxxy/sdk';
+import { assertDefined } from './assert.js';
 import type {
   BuilderEdge,
   BuilderLoop,
@@ -126,7 +127,8 @@ function nodeToStep(node: BuilderNode): WorkflowStep {
 
 /** Hydrate the canvas from a saved workflow object. */
 export function hydrate(workflow: Workflow): BuilderState {
-  const positions = workflow.ui?.layout?.nodes;
+  const layout = workflow.ui?.layout;
+  const positions = layout?.nodes;
   const autoPositions = positions ? undefined : autoLayout(workflow.steps);
   const nodes: BuilderNode[] = workflow.steps.map((step, idx) => {
     const pos = positions?.[step.id] ?? autoPositions?.[idx] ?? { x: 0, y: idx * NODE_GAP_Y };
@@ -143,7 +145,7 @@ export function hydrate(workflow: Workflow): BuilderState {
     ...(workflow.targetSessionId ? { targetSessionId: workflow.targetSessionId } : {}),
     ...(workflow.delivery ? { delivery: workflow.delivery } : {}),
   };
-  const viewport = workflow.ui?.layout?.viewport ?? DEFAULT_VIEWPORT;
+  const viewport = layout?.viewport ?? DEFAULT_VIEWPORT;
   return {
     meta,
     nodes,
@@ -365,7 +367,8 @@ export function autoLayout(steps: ReadonlyArray<WorkflowStep>): Array<{ x: numbe
     const stack: string[] = [start];
     const onStack = new Set<string>([start]);
     while (stack.length > 0) {
-      const id = stack[stack.length - 1]!;
+      const id = stack[stack.length - 1];
+      assertDefined(id, 'stack is non-empty (loop guard)');
       const needs = byId.get(id)?.needs ?? [];
       let pending: string | null = null;
       for (const n of needs) {

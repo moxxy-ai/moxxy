@@ -1,4 +1,5 @@
 import {
+  assertDefined,
   type Workflow,
   type WorkflowRunResult,
   type WorkflowRunStatus,
@@ -48,7 +49,8 @@ export function buildStepResults(
   states: Map<string, StepState>,
 ): WorkflowStepResult[] {
   return workflow.steps.map((step) => {
-    const st = states.get(step.id)!;
+    const st = states.get(step.id);
+    assertDefined(st, 'states has an entry for every workflow step');
     const status: WorkflowStepStatus =
       st.status === 'pending' ? 'skipped' : (st.status as WorkflowStepStatus);
     return {

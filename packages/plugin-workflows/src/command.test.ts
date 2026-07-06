@@ -21,8 +21,10 @@ function wf(name: string, steps: Array<Record<string, unknown>> = [{ id: 'a', pr
 function fakeStore(entries: Workflow[]): WorkflowCommandDeps['store'] {
   const byName = new Map(entries.map((w) => [w.name, w]));
   return {
-    get: async (name: string) =>
-      byName.has(name) ? { workflow: byName.get(name)!, path: `/tmp/${name}.yaml`, scope: 'user' } : undefined,
+    get: async (name: string) => {
+      const workflow = byName.get(name);
+      return workflow ? { workflow, path: `/tmp/${name}.yaml`, scope: 'user' } : undefined;
+    },
   } as unknown as WorkflowCommandDeps['store'];
 }
 

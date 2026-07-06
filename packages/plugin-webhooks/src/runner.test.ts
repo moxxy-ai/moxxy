@@ -2,6 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { WebhookDispatcher } from './runner.js';
 import { WebhookStore, type WebhookTrigger } from './store.js';
 
@@ -85,7 +86,9 @@ describe('WebhookDispatcher inbox filenames (burst uniqueness)', () => {
 
     const out = await dispatcher.fire(trigger, 'x', '../../etc/passwd');
     // The written file stays inside the inbox dir (no traversal via the id).
-    expect(path.dirname(out.inboxPath!)).toBe(inbox);
+    const inboxPath = out.inboxPath;
+    assertDefined(inboxPath, 'inbox path written by fire');
+    expect(path.dirname(inboxPath)).toBe(inbox);
     const files = await readdir(inbox);
     expect(files).toHaveLength(1);
   });

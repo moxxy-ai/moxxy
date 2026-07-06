@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Workflow } from '@moxxy/sdk';
+import { assertDefined, type Workflow } from '@moxxy/sdk';
 import type { SerializedStepState } from '../run-store.js';
 import type { ExecutorContext, StepState } from './context.js';
 import {
@@ -42,8 +42,12 @@ describe('state-serde', () => {
       bad: { status: 'failed', output: '', error: 'nope', startedAt: 0, endedAt: 1 },
     };
     const restored = restoreStates(raw);
-    expect('error' in restored.get('ok')!).toBe(false);
-    expect(restored.get('bad')!.error).toBe('nope');
+    const ok = restored.get('ok');
+    assertDefined(ok, 'restored map has the "ok" entry from raw');
+    expect('error' in ok).toBe(false);
+    const bad = restored.get('bad');
+    assertDefined(bad, 'restored map has the "bad" entry from raw');
+    expect(bad.error).toBe('nope');
   });
 
   it('buildStepResults maps pending → "skipped" and reports per-step status', () => {

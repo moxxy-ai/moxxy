@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { renderPrompt } from './template.js';
 import type { WebhookTrigger } from './store.js';
 
@@ -51,7 +52,9 @@ describe('renderPrompt', () => {
     expect(out.startsWith('Delivery to ')).toBe(true);
     const open = out.match(/\[untrusted-webhook-data ([a-z0-9]+):/);
     expect(open).not.toBeNull();
-    const nonce = open![1]!;
+    assertDefined(open, 'untrusted-webhook-data fence present');
+    const nonce = open[1];
+    assertDefined(nonce, 'fence nonce capture group');
     // The injected path text is enclosed by the per-render nonce fence, so its
     // forged `]` cannot close the real envelope.
     expect(out).toContain(`[/untrusted-webhook-data ${nonce}]`);
@@ -76,7 +79,9 @@ describe('renderPrompt', () => {
     expect(out).toContain(malicious);
     const open = out.match(/\[untrusted-webhook-data ([a-z0-9]+):/);
     expect(open).not.toBeNull();
-    const nonce = open![1]!;
+    assertDefined(open, 'untrusted-webhook-data fence present');
+    const nonce = open[1];
+    assertDefined(nonce, 'fence nonce capture group');
     // Closing fence carries the same per-render nonce the payload can't predict.
     expect(out).toContain(`[/untrusted-webhook-data ${nonce}]`);
     // A payload that forges a *different* nonce can't actually close the fence.
@@ -88,7 +93,10 @@ describe('renderPrompt', () => {
       path: '/',
       firedAt: new Date(0),
     });
-    const realNonce = forged.match(/\[untrusted-webhook-data ([a-z0-9]+):/)![1]!;
+    const forgedMatch = forged.match(/\[untrusted-webhook-data ([a-z0-9]+):/);
+    assertDefined(forgedMatch, 'forged fence present');
+    const realNonce = forgedMatch[1];
+    assertDefined(realNonce, 'forged fence nonce capture group');
     expect(realNonce).not.toBe('deadbeef');
     expect(forged).toContain(`[/untrusted-webhook-data ${realNonce}]`);
   });

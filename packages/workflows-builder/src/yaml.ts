@@ -11,6 +11,8 @@
  * own output and re-hydrate canonical YAML that the host returned.
  */
 
+import { assertDefined } from './assert.js';
+
 // ---------------------------------------------------------------------------
 // Emit
 // ---------------------------------------------------------------------------
@@ -67,7 +69,9 @@ function emitArray(arr: ReadonlyArray<unknown>, indent: number, out: string[]): 
       const first = out.length;
       emitMap(item as Record<string, unknown>, indent + 1, out);
       // Splice the dash onto the first emitted child line.
-      out[first] = `${pad}- ${out[first]!.slice((indent + 1) * 2)}`;
+      const firstLine = out[first];
+      assertDefined(firstLine, 'emitMap pushed at least one line for a non-empty map');
+      out[first] = `${pad}- ${firstLine.slice((indent + 1) * 2)}`;
     } else {
       out.push(`${pad}- ${emitScalar(item)}`);
     }
@@ -205,14 +209,21 @@ function findBareHash(line: string): number {
     const c = line[j];
     if (c === '"' && !inSingle) inDouble = !inDouble;
     else if (c === "'" && !inDouble) inSingle = !inSingle;
-    else if (c === '#' && !inSingle && !inDouble && j > 0 && /\s/.test(line[j - 1]!)) return j;
+    else if (c === '#' && !inSingle && !inDouble && j > 0) {
+      const prev = line[j - 1];
+      assertDefined(prev, 'j > 0 so line[j - 1] is a valid index');
+      if (/\s/.test(prev)) return j;
+    }
   }
   return -1;
 }
 
 function indentOf(line: string): number {
   const m = /^( *)/.exec(line);
-  return m ? m[1]!.length : 0;
+  if (!m) return 0;
+  const spaces = m[1];
+  assertDefined(spaces, 'leading-space capture is always present when the regex matches');
+  return spaces.length;
 }
 
 function isBlank(line: string): boolean {
@@ -221,9 +232,15 @@ function isBlank(line: string): boolean {
 
 function parseBlock(ctx: ParseCtx, minIndent: number): unknown {
   // Skip blanks, then dispatch on whether the first content line is a sequence.
-  while (ctx.i < ctx.lines.length && isBlank(ctx.lines[ctx.i]!)) ctx.i++;
+  while (ctx.i < ctx.lines.length) {
+    const blank = ctx.lines[ctx.i];
+    assertDefined(blank, 'ctx.i is within bounds');
+    if (!isBlank(blank)) break;
+    ctx.i++;
+  }
   if (ctx.i >= ctx.lines.length) return null;
-  const line = ctx.lines[ctx.i]!;
+  const line = ctx.lines[ctx.i];
+  assertDefined(line, 'ctx.i < ctx.lines.length (checked above)');
   const indent = indentOf(line);
   if (indent < minIndent) return null;
   return line.slice(indent).startsWith('- ') || line.slice(indent).trim() === '-'
@@ -235,7 +252,8 @@ function parseMap(ctx: ParseCtx, indent: number): Record<string, unknown> {
   enter(ctx);
   const obj: Record<string, unknown> = {};
   while (ctx.i < ctx.lines.length) {
-    const line = ctx.lines[ctx.i]!;
+    const line = ctx.lines[ctx.i];
+    assertDefined(line, 'ctx.i < ctx.lines.length (loop guard)');
     if (isBlank(line)) {
       ctx.i++;
       continue;
@@ -265,9 +283,16 @@ function parseMap(ctx: ParseCtx, indent: number): Record<string, unknown> {
 function parseChild(ctx: ParseCtx, parentIndent: number): unknown {
   // Peek the next non-blank line; if it's deeper, recurse, else the value is null.
   let j = ctx.i;
-  while (j < ctx.lines.length && isBlank(ctx.lines[j]!)) j++;
+  while (j < ctx.lines.length) {
+    const blank = ctx.lines[j];
+    assertDefined(blank, 'j is within bounds');
+    if (!isBlank(blank)) break;
+    j++;
+  }
   if (j >= ctx.lines.length) return null;
-  const ind = indentOf(ctx.lines[j]!);
+  const line = ctx.lines[j];
+  assertDefined(line, 'j < ctx.lines.length (checked above)');
+  const ind = indentOf(line);
   if (ind <= parentIndent) return null;
   ctx.i = j;
   return parseBlock(ctx, ind);
@@ -277,7 +302,8 @@ function parseSequence(ctx: ParseCtx, indent: number): unknown[] {
   enter(ctx);
   const arr: unknown[] = [];
   while (ctx.i < ctx.lines.length) {
-    const line = ctx.lines[ctx.i]!;
+    const line = ctx.lines[ctx.i];
+    assertDefined(line, 'ctx.i < ctx.lines.length (loop guard)');
     if (isBlank(line)) {
       ctx.i++;
       continue;
@@ -319,7 +345,8 @@ function parseBlockScalar(ctx: ParseCtx, parentIndent: number, fold: boolean, st
   const raw: Array<string | null> = [];
   let blockIndent = Infinity;
   while (ctx.i < ctx.lines.length) {
-    const line = ctx.lines[ctx.i]!;
+    const line = ctx.lines[ctx.i];
+    assertDefined(line, 'ctx.i < ctx.lines.length (loop guard)');
     if (isBlank(line)) {
       raw.push(null);
       ctx.i++;

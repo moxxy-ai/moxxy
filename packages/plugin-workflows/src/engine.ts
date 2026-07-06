@@ -71,10 +71,13 @@ export async function runWorkflow(
   const result = await executor.run(workflow, deps);
   if (opts.recordDir !== null) {
     await writeRunRecord(workflow, result, startedAt, executor.name, deps, opts.recordDir ?? defaultRunRecordDir()).catch(
-      (err) =>
-        deps.logger?.warn?.('workflow: failed to write run record', {
-          error: err instanceof Error ? err.message : String(err),
-        }),
+      (err) => {
+        const logger = deps.logger;
+        if (logger?.warn)
+          logger.warn('workflow: failed to write run record', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+      },
     );
   }
   return result;

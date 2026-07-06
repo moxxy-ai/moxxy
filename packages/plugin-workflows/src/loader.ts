@@ -94,11 +94,12 @@ async function loadDir(
     try {
       const st = await fs.stat(full);
       if (st.size > MAX_WORKFLOW_FILE_BYTES) {
-        logger?.warn?.('workflow: file too large, skipping', {
-          path: full,
-          size: st.size,
-          max: MAX_WORKFLOW_FILE_BYTES,
-        });
+        if (logger?.warn)
+          logger.warn('workflow: file too large, skipping', {
+            path: full,
+            size: st.size,
+            max: MAX_WORKFLOW_FILE_BYTES,
+          });
         continue;
       }
     } catch {
@@ -112,15 +113,16 @@ async function loadDir(
       // A file unlinked between readdir and readFile (concurrent `/workflows
       // rm`, or an atomic write's .tmp window) must not abort discovery of
       // every other workflow — skip it like an unparseable file.
-      logger?.warn?.('workflow: unreadable file, skipping', {
-        path: full,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      if (logger?.warn)
+        logger.warn('workflow: unreadable file, skipping', {
+          path: full,
+          error: err instanceof Error ? err.message : String(err),
+        });
       continue;
     }
     const result = parseWorkflowYaml(raw);
     if (!result.ok || !result.workflow) {
-      logger?.warn?.('workflow: invalid file, skipping', { path: full, errors: result.errors });
+      if (logger?.warn) logger.warn('workflow: invalid file, skipping', { path: full, errors: result.errors });
       continue;
     }
     out.push({ workflow: result.workflow, path: full, scope });

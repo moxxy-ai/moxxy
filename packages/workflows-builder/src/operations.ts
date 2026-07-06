@@ -14,6 +14,7 @@
  */
 
 import type { WorkflowStepErrorMode } from '@moxxy/sdk';
+import { assertDefined } from './assert.js';
 import { deriveEdges } from './serialize.js';
 import {
   type BuilderLoop,
@@ -203,7 +204,8 @@ export function wouldCreateCycle(state: BuilderState, from: string, to: string):
   const stack = [from];
   const seen = new Set<string>();
   while (stack.length > 0) {
-    const id = stack.pop()!;
+    const id = stack.pop();
+    assertDefined(id, 'stack is non-empty (loop guard)');
     if (id === to) return true;
     if (seen.has(id)) continue;
     seen.add(id);

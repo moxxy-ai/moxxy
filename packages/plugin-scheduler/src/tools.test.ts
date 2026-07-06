@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ToolContext, ToolDef } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { ScheduleStore } from './store.js';
 import { buildSchedulerTools } from './tools.js';
 
@@ -20,7 +21,9 @@ describe('schedule_create tool — input validation hardening', () => {
       store,
       runner: { runPrompt: async () => ({ text: 'ok' }) },
     });
-    create = tools.find((t) => t.name === 'schedule_create')!;
+    const found = tools.find((t) => t.name === 'schedule_create');
+    assertDefined(found, 'schedule_create tool is registered');
+    create = found;
   });
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -72,8 +75,11 @@ describe('schedule target session (ownerSessionId routing)', () => {
       runner: { runPrompt: async () => ({ text: 'ok' }) },
       ...(ownerSessionId ? { ownerSessionId } : {}),
     });
-  const handler = (list: ReadonlyArray<ToolDef>, name: string): ToolDef['handler'] =>
-    list.find((t) => t.name === name)!.handler;
+  const handler = (list: ReadonlyArray<ToolDef>, name: string): ToolDef['handler'] => {
+    const tool = list.find((t) => t.name === name);
+    assertDefined(tool, `tool "${name}" is registered`);
+    return tool.handler;
+  };
 
   beforeEach(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'moxxy-sched-target-'));

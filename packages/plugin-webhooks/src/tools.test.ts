@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ToolContext, ToolDef } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebhookConfigStore } from './config.js';
 import type { WebhookDispatcher } from './runner.js';
@@ -63,12 +64,15 @@ describe('webhook tools', () => {
       };
 
       expect(result.generatedSecret).not.toBeNull();
-      const { masked, path: secretPath } = result.generatedSecret!;
+      const generated = result.generatedSecret;
+      assertDefined(generated, 'generated secret present');
+      const { masked, path: secretPath } = generated;
       expect(masked).toMatch(/^[0-9a-f]{4}…$/);
 
       // The real secret lives in the trigger store (it must verify HMACs)…
       const trigger = await store.getByName('gh-events');
-      const verification = trigger!.verification;
+      assertDefined(trigger, 'trigger just created via webhook_create');
+      const verification = trigger.verification;
       if (verification.type !== 'hmac') throw new Error('expected hmac verification');
       const realSecret = verification.secret;
       expect(realSecret).toHaveLength(64);
@@ -105,18 +109,19 @@ describe('webhook tools', () => {
       const secret = (await readFile(result.generatedSecret.path, 'utf8')).trim();
 
       const trigger = await store.getByName('hmac-e2e');
+      assertDefined(trigger, 'trigger just created via webhook_create');
       const body = Buffer.from('{"hello":"world"}', 'utf8');
       const sig = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
       expect(
         verifyDelivery({
-          verification: trigger!.verification,
+          verification: trigger.verification,
           headers: { 'x-signature': sig },
           body,
         }),
       ).toEqual({ ok: true });
       expect(
         verifyDelivery({
-          verification: trigger!.verification,
+          verification: trigger.verification,
           headers: { 'x-signature': 'sha256=deadbeef' },
           body,
         }).ok,

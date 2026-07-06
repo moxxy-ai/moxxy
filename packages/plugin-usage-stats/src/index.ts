@@ -138,7 +138,7 @@ export function buildUsageStatsPlugin(opts: BuildUsageStatsPluginOptions = {}): 
           // An unsubscribe that throws must not block the merge below.
         }
         clearUnsubs.delete(ctx.sessionId);
-        const initMaxSeq = cursors.has(ctx.sessionId) ? cursors.get(ctx.sessionId)! : null;
+        const initMaxSeq = cursors.get(ctx.sessionId) ?? null;
         cursors.delete(ctx.sessionId);
         // Best-effort: a throwing reader or a failed fold degrades to "record
         // nothing for this run" rather than rejecting the hook (which the host

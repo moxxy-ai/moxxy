@@ -137,9 +137,12 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
           try {
             await syncSkillSchedules(opts.skills, store);
           } catch (err) {
-            opts.logger?.warn?.('scheduler: initial skill sync failed', {
-              err: err instanceof Error ? err.message : String(err),
-            });
+            const log = opts.logger;
+            if (log?.warn) {
+              log.warn('scheduler: initial skill sync failed', {
+                err: err instanceof Error ? err.message : String(err),
+              });
+            }
           }
         }
         poller.start();
@@ -158,9 +161,12 @@ export function buildSchedulerPlugin(opts: BuildSchedulerPluginOptions): {
         try {
           await syncSkillSchedules(opts.skills, store);
         } catch (err) {
-          opts.logger?.warn?.('scheduler: skill sync after skill_created failed', {
-            err: err instanceof Error ? err.message : String(err),
-          });
+          const log = opts.logger;
+          if (log?.warn) {
+            log.warn('scheduler: skill sync after skill_created failed', {
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
       },
     },

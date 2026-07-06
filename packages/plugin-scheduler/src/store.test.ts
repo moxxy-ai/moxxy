@@ -2,6 +2,7 @@ import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { ScheduleStore } from './store.js';
 
 describe('ScheduleStore', () => {
@@ -31,9 +32,11 @@ describe('ScheduleStore', () => {
     const reloaded = new ScheduleStore({ file: path.join(dir, 'schedules.json') });
     const all = await reloaded.list();
     expect(all).toHaveLength(1);
-    expect(all[0]!.name).toBe('morning');
-    expect(all[0]!.cron).toBe('0 9 * * *');
-    expect(all[0]!.enabled).toBe(true);
+    const first = all[0];
+    assertDefined(first, 'first schedule (list has length 1)');
+    expect(first.name).toBe('morning');
+    expect(first.cron).toBe('0 9 * * *');
+    expect(first.enabled).toBe(true);
   });
 
   it('rejects schedules with neither cron nor runAt', async () => {
@@ -69,7 +72,8 @@ describe('ScheduleStore', () => {
   it('update merges patch into an entry', async () => {
     const created = await store.create({ name: 'a', prompt: 'p', cron: '0 9 * * *' });
     const updated = await store.update(created.id, { enabled: false });
-    expect(updated!.enabled).toBe(false);
+    assertDefined(updated, 'update of an existing id returns the entry');
+    expect(updated.enabled).toBe(false);
   });
 
   it('delete removes by id', async () => {
@@ -91,7 +95,8 @@ describe('ScheduleStore', () => {
       source: 'workflow',
       workflowName: 'daily-report',
     });
-    const created = (await store.list())[0]!;
+    const created = (await store.list())[0];
+    assertDefined(created, 'the just-synced workflow schedule');
 
     expect(await store.delete(created.id)).toBe(true);
     expect(await store.list()).toEqual([]);
@@ -129,11 +134,14 @@ describe('ScheduleStore', () => {
 
     // Replace the briefing skill schedule.
     const entries = await store.list();
-    const briefing = entries.find((e) => e.skillName === 'briefing')!;
+    const briefing = entries.find((e) => e.skillName === 'briefing');
+    assertDefined(briefing, 'the seeded briefing skill schedule');
     await store.update(briefing.id, { prompt: 'new prompt' });
 
     const after = await store.list();
     expect(after.map((s) => s.name).sort()).toEqual(['manual-one', 'other-skill', 'skill-old']);
-    expect(after.find((s) => s.skillName === 'briefing')!.prompt).toBe('new prompt');
+    const briefingAfter = after.find((s) => s.skillName === 'briefing');
+    assertDefined(briefingAfter, 'briefing schedule after update');
+    expect(briefingAfter.prompt).toBe('new prompt');
   });
 });

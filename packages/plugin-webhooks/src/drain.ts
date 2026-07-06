@@ -88,9 +88,12 @@ export class WebhookDrainPoller {
     try {
       records = await this.opts.queue.listOwned(this.opts.ownerSessionId);
     } catch (err) {
-      this.opts.logger?.warn?.('webhooks: queue read failed', {
-        err: err instanceof Error ? err.message : String(err),
-      });
+      const logger = this.opts.logger;
+      if (logger?.warn) {
+        logger.warn('webhooks: queue read failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
       return 0;
     }
     let fired = 0;
@@ -105,10 +108,13 @@ export class WebhookDrainPoller {
         await this.opts.dispatcher.fire(trigger, rec.prompt, rec.deliveryId);
         fired += 1;
       } catch (err) {
-        this.opts.logger?.warn?.('webhooks: drained delivery failed', {
-          trigger: trigger.name,
-          err: err instanceof Error ? err.message : String(err),
-        });
+        const logger = this.opts.logger;
+        if (logger?.warn) {
+          logger.warn('webhooks: drained delivery failed', {
+            trigger: trigger.name,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
       } finally {
         await this.opts.queue.remove(rec.id);
       }

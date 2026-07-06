@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Skill, SkillRegistry } from '@moxxy/sdk';
-import { asSkillId } from '@moxxy/sdk';
+import { asSkillId, assertDefined } from '@moxxy/sdk';
 import { syncSkillSchedules } from './skill-sync.js';
 import { ScheduleStore } from './store.js';
 
@@ -103,7 +103,9 @@ describe('syncSkillSchedules — single batched write', () => {
     const rows = await store.list();
     const names = rows.map((r) => r.name).sort();
     expect(names).toEqual(['a', 'b', 'd', 'e', 'f', 'manual'].sort());
-    expect(rows.find((r) => r.name === 'a')!.prompt).toBe('new body a');
+    const rowA = rows.find((r) => r.name === 'a');
+    assertDefined(rowA, 'skill row "a" survives the reconcile');
+    expect(rowA.prompt).toBe('new body a');
     expect(rows.find((r) => r.name === 'manual')).toBeDefined();
   });
 

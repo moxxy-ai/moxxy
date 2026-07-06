@@ -1,5 +1,5 @@
 import { rename } from 'node:fs/promises';
-import { createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
+import { assertDefined, createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
 import { moxxyPath } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 import { z } from 'zod';
@@ -159,24 +159,30 @@ export class ScheduleStore {
         const quarantine = `${file}.corrupt-${Date.now()}`;
         try {
           await rename(file, quarantine);
-          logger?.warn?.('scheduler: schedules file was corrupt; quarantined and reset', {
-            file,
-            quarantine,
-          });
+          if (logger?.warn) {
+            logger.warn('scheduler: schedules file was corrupt; quarantined and reset', {
+              file,
+              quarantine,
+            });
+          }
         } catch (err) {
-          logger?.warn?.('scheduler: schedules file was corrupt; failed to quarantine', {
-            file,
-            err: err instanceof Error ? err.message : String(err),
-          });
+          if (logger?.warn) {
+            logger.warn('scheduler: schedules file was corrupt; failed to quarantine', {
+              file,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
         }
         return [];
       },
       // Non-ENOENT read errors were previously swallowed to an empty store too.
       onReadError: (err) => {
-        logger?.warn?.('scheduler: failed to read schedules file; using empty set', {
-          file,
-          err: err instanceof Error ? err.message : String(err),
-        });
+        if (logger?.warn) {
+          logger.warn('scheduler: failed to read schedules file; using empty set', {
+            file,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
         return [];
       },
     });
@@ -219,8 +225,10 @@ export class ScheduleStore {
     await this.store.mutate((schedules) => {
       const idx = schedules.findIndex((s) => s.id === id);
       if (idx < 0) return schedules;
-      if (!isVisibleSchedule(schedules[idx]!)) return schedules;
-      const next = scheduleEntrySchema.parse({ ...schedules[idx], ...patch });
+      const existing = schedules[idx];
+      assertDefined(existing, 'findIndex returned an in-bounds index');
+      if (!isVisibleSchedule(existing)) return schedules;
+      const next = scheduleEntrySchema.parse({ ...existing, ...patch });
       schedules[idx] = next;
       updated = next;
       return schedules;
@@ -233,7 +241,8 @@ export class ScheduleStore {
     await this.store.mutate((schedules) => {
       const idx = schedules.findIndex((s) => s.id === id && isVisibleSchedule(s));
       if (idx < 0) return schedules;
-      const entry = schedules[idx]!;
+      const entry = schedules[idx];
+      assertDefined(entry, 'findIndex returned an in-bounds index');
       removed = true;
       if (entry.source === 'manual') {
         return schedules.filter((s) => s.id !== id);
@@ -293,7 +302,8 @@ export class ScheduleStore {
       //    positions in `next` since the remove pass reindexed it.
       const posInNext = new Map<string, number>();
       for (let i = 0; i < next.length; i += 1) {
-        const s = next[i]!;
+        const s = next[i];
+        assertDefined(s, 'loop index i is within next.length');
         if (s.source === 'skill' && s.skillName && !posInNext.has(s.skillName)) {
           posInNext.set(s.skillName, i);
         }
@@ -313,7 +323,8 @@ export class ScheduleStore {
           added += 1;
           continue;
         }
-        const current = next[idx]!;
+        const current = next[idx];
+        assertDefined(current, 'posInNext holds an in-bounds index into next');
         if (!isVisibleSchedule(current)) continue;
         const patch = {
           prompt: draft.prompt,
