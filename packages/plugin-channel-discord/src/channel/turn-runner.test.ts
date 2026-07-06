@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asTurnId, type MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined, asTurnId, type MoxxyEvent } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import type { SendableChannelLike, SentMessageLike } from './discord-like.js';
 import { TypingIndicator } from './typing-indicator.js';
@@ -91,7 +91,9 @@ describe('runDiscordTurn — send-once-then-edit streaming', () => {
     );
     // Exactly one streamed message; later frames are edits of it.
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.startsWith('Hello')).toBe(true);
+    const firstSend = sends[0];
+    assertDefined(firstSend, 'a streamed frame was sent');
+    expect(firstSend.startsWith('Hello')).toBe(true);
     expect(edits.length).toBeGreaterThanOrEqual(1);
     expect(edits[edits.length - 1]).toBe('Hello, world. Done.');
   });
@@ -111,7 +113,8 @@ describe('runDiscordTurn — send-once-then-edit streaming', () => {
     );
     // First send is the streamed head; final tails arrive as extra sends.
     expect(sends.length).toBeGreaterThanOrEqual(3); // head + >=2 tails
-    const finalHead = edits[edits.length - 1]!;
+    const finalHead = edits[edits.length - 1];
+    assertDefined(finalHead, 'the final frame was edited in place');
     expect(finalHead.length).toBeLessThanOrEqual(1_900);
     // Reassembling head + tails recovers the whole final text.
     const reassembled = [finalHead, ...sends.slice(1)].join('\n');

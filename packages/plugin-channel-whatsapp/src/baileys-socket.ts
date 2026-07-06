@@ -23,13 +23,15 @@ export const openBaileysSocket: WhatsAppSocketFactory = async ({ storage, logger
     throw new Error('@whiskeysockets/baileys: could not resolve makeWASocket export');
   }
   const proto = baileys.proto ?? baileys.default?.proto;
+  const protoMessage = proto?.Message;
+  const appStateSyncKeyData = protoMessage?.AppStateSyncKeyData;
   const bridge: BaileysAuthBridge = {
     initAuthCreds: baileys.initAuthCreds,
     BufferJSON: baileys.BufferJSON,
-    ...(proto?.Message?.AppStateSyncKeyData
+    ...(appStateSyncKeyData
       ? {
           reviveAppStateSyncKey: (value: unknown) =>
-            proto.Message!.AppStateSyncKeyData!.fromObject(value as Record<string, unknown>),
+            appStateSyncKeyData.fromObject(value as Record<string, unknown>),
         }
       : {}),
   };

@@ -45,7 +45,9 @@ export async function handleCallback(
   // resolve permission prompts, approve plans, and switch provider/model/mode,
   // so an unpaired chat's callbacks must be refused just like its messages
   // (inline-keyboard messages can be forwarded to arbitrary chats).
-  const chatId = ctx.chat?.id ?? ctx.callbackQuery?.message?.chat?.id;
+  const callbackMessage = ctx.callbackQuery?.message;
+  const callbackChat = callbackMessage?.chat;
+  const chatId = ctx.chat?.id ?? callbackChat?.id;
   if (chatId === undefined || !state.pairing.isAuthorized(chatId)) {
     try {
       await ctx.answerCallbackQuery({ text: 'This bot is paired with a different chat.' });

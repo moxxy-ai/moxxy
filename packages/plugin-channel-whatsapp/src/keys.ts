@@ -33,7 +33,7 @@ export function normalizeJid(raw: string | null | undefined): string | null {
   const server = trimmed.slice(at + 1).toLowerCase();
   if (!/^[a-z0-9.-]+$/.test(server)) return null;
   // Strip the device (`:NN`) and legacy agent (`_N`) suffixes off the user part.
-  const user = trimmed.slice(0, at).split(':')[0]!.split('_')[0]!;
+  const user = (trimmed.slice(0, at).split(':')[0] ?? '').split('_')[0] ?? '';
   if (user.length === 0) return null;
   return `${user}@${server}`;
 }

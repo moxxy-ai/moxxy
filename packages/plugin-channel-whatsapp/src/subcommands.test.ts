@@ -30,7 +30,7 @@ beforeEach(async () => {
     filePath: path.join(tmp, 'vault.json'),
     keySource: createStaticKeySource(deriveKey('test', generateSalt())),
   });
-  def = buildWhatsAppPlugin({ vault }).channels![0]!;
+  def = (buildWhatsAppPlugin({ vault }).channels ?? [])[0] as ChannelDef;
   writeOut = [];
   writeErr = [];
   origOut = process.stdout.write.bind(process.stdout);
@@ -74,7 +74,7 @@ describe('whatsapp channel def', () => {
   });
 
   it('exposes setup, pair, status, unpair subcommands', () => {
-    expect(Object.keys(def.subcommands!)).toEqual(
+    expect(Object.keys(def.subcommands ?? {})).toEqual(
       expect.arrayContaining(['setup', 'pair', 'status', 'unpair']),
     );
   });
@@ -87,22 +87,22 @@ describe('whatsapp channel def', () => {
 
 describe('isAvailable (consent gate + link state)', () => {
   it('is unavailable without consent, naming the ToS risk', async () => {
-    const avail = await def.isAvailable!({ cwd: tmp, vault });
-    expect(avail.ok).toBe(false);
-    expect(avail.reason).toMatch(/ToS|acknowledg|ban/i);
+    const avail = await def.isAvailable?.({ cwd: tmp, vault });
+    expect(avail?.ok).toBe(false);
+    expect(avail?.reason).toMatch(/ToS|acknowledg|ban/i);
   });
 
   it('is unavailable-but-needs-pairing once consent is given', async () => {
     process.env[WHATSAPP_CONSENT_ENV] = 'yes';
-    const avail = await def.isAvailable!({ cwd: tmp, vault });
-    expect(avail.ok).toBe(false);
-    expect(avail.reason).toMatch(/pair/i);
+    const avail = await def.isAvailable?.({ cwd: tmp, vault });
+    expect(avail?.ok).toBe(false);
+    expect(avail?.reason).toMatch(/pair/i);
   });
 });
 
 describe('status subcommand', () => {
   it('reports needs-consent when nothing configured', async () => {
-    const code = await def.subcommands!.status!.run(ctx());
+    const code = await def.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed.state).toBe('needs-consent');
@@ -112,7 +112,7 @@ describe('status subcommand', () => {
 
   it('reports needs-pairing after consent but before linking', async () => {
     await vault.set(WHATSAPP_CONSENT_KEY, 'acknowledged@2026-01-01T00:00:00.000Z');
-    const code = await def.subcommands!.status!.run(ctx());
+    const code = await def.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed.state).toBe('needs-pairing');
@@ -123,7 +123,7 @@ describe('status subcommand', () => {
     await vault.set(WHATSAPP_CONSENT_KEY, 'yes');
     await vault.set(WHATSAPP_OWNER_JID_KEY, '15550000000@s.whatsapp.net');
     await vault.set(WHATSAPP_ALLOWED_JIDS_KEY, JSON.stringify(['15551111111@s.whatsapp.net']));
-    const code = await def.subcommands!.status!.run(ctx());
+    const code = await def.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed.ownerJid).toBe('15550000000@s.whatsapp.net');
@@ -137,7 +137,7 @@ describe('status subcommand', () => {
       startChannel: async () => 0,
       session: { setPermissionResolver: () => {} },
     } as never;
-    const code = await def.subcommands!.status!.run(badCtx);
+    const code = await def.subcommands?.status?.run(badCtx);
     expect(code).toBe(1);
     expect(writeErr.join('')).toContain('vault unavailable');
   });
@@ -145,7 +145,7 @@ describe('status subcommand', () => {
 
 describe('unpair subcommand', () => {
   it('is a no-op when nothing is linked', async () => {
-    const code = await def.subcommands!.unpair!.run(ctx());
+    const code = await def.subcommands?.unpair?.run(ctx());
     expect(code).toBe(0);
     expect(writeOut.join('')).toContain('no linked account');
   });
@@ -157,7 +157,7 @@ describe('pair subcommand', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await def.subcommands!.pair!.run(ctx({ startChannel }));
+      const code = await def.subcommands?.pair?.run(ctx({ startChannel }));
       expect(code).toBe(1);
       expect(startChannel).not.toHaveBeenCalled();
       expect(writeErr.join('')).toMatch(/TTY/);
@@ -173,7 +173,7 @@ describe('setup subcommand (headless)', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await def.subcommands!.setup!.run(ctx({ startChannel }));
+      const code = await def.subcommands?.setup?.run(ctx({ startChannel }));
       expect(code).toBe(1);
       expect(startChannel).not.toHaveBeenCalled();
       expect(writeErr.join('')).toMatch(/acknowledg|ToS|ban/i);
@@ -188,7 +188,7 @@ describe('setup subcommand (headless)', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await def.subcommands!.setup!.run(ctx({ startChannel }));
+      const code = await def.subcommands?.setup?.run(ctx({ startChannel }));
       expect(code).toBe(0);
       expect(startChannel).toHaveBeenCalledTimes(1);
     } finally {

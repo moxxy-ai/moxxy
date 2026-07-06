@@ -1,5 +1,6 @@
 import type { Bot } from 'grammy';
 import { GrammyError } from 'grammy';
+import { assertDefined } from '@moxxy/sdk';
 import { FramePump as StreamPump } from '@moxxy/channel-kit';
 import { TurnRenderer, splitForTelegram } from '../render.js';
 import { composeFrame, stripHtml } from './html.js';
@@ -93,7 +94,9 @@ export class FramePump {
   private async sendFrame(chatId: number, text: string, final: boolean): Promise<number | null> {
     if (!this.bot) return null;
     const parts = splitForTelegram(text);
-    const sent = await this.safeSend(chatId, parts[0]!);
+    const head = parts[0];
+    assertDefined(head, 'telegram: FramePump never sinks empty text (emptyFinalText guarantees a part)');
+    const sent = await this.safeSend(chatId, head);
     if (final && parts.length > 1) {
       for (const tail of parts.slice(1)) {
         await this.safeSend(chatId, tail);
@@ -110,7 +113,9 @@ export class FramePump {
   ): Promise<void> {
     if (!this.bot) return;
     const parts = splitForTelegram(text);
-    await this.safeEdit(chatId, messageId, parts[0]!);
+    const head = parts[0];
+    assertDefined(head, 'telegram: FramePump never sinks empty text (emptyFinalText guarantees a part)');
+    await this.safeEdit(chatId, messageId, head);
     if (final && parts.length > 1) {
       for (const tail of parts.slice(1)) {
         await this.safeSend(chatId, tail);
@@ -125,8 +130,10 @@ export class FramePump {
    * the same edit forever.
    */
   async safeEdit(chatId: number, messageId: number, text: string): Promise<void> {
+    const bot = this.bot;
+    assertDefined(bot, 'safeEdit is only reached after a bot-null guard upstream');
     try {
-      await this.bot!.api.editMessageText(chatId, messageId, text, {
+      await bot.api.editMessageText(chatId, messageId, text, {
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
       });
@@ -135,7 +142,7 @@ export class FramePump {
       if (err instanceof GrammyError && err.description?.includes('not modified')) return;
       if (err instanceof GrammyError && /can't parse entities|Bad Request: can't parse/i.test(err.description ?? '')) {
         try {
-          await this.bot!.api.editMessageText(chatId, messageId, stripHtml(text));
+          await bot.api.editMessageText(chatId, messageId, stripHtml(text));
           return;
         } catch (plainErr) {
           if (plainErr instanceof GrammyError && plainErr.description?.includes('not modified')) return;
@@ -153,8 +160,10 @@ export class FramePump {
    * messageId for future edits.
    */
   async safeSend(chatId: number, text: string): Promise<number | null> {
+    const bot = this.bot;
+    assertDefined(bot, 'safeSend is only reached after a bot-null guard upstream');
     try {
-      const sent = await this.bot!.api.sendMessage(chatId, text, {
+      const sent = await bot.api.sendMessage(chatId, text, {
         parse_mode: 'HTML',
         link_preview_options: { is_disabled: true },
       });
@@ -162,7 +171,7 @@ export class FramePump {
     } catch (err) {
       if (err instanceof GrammyError && /can't parse entities|Bad Request: can't parse/i.test(err.description ?? '')) {
         try {
-          const sent = await this.bot!.api.sendMessage(chatId, stripHtml(text));
+          const sent = await bot.api.sendMessage(chatId, stripHtml(text));
           return sent.message_id;
         } catch (plainErr) {
           this.logger?.warn('sendMessage plain-fallback failed', { err: String(plainErr) });

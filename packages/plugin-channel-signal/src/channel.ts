@@ -1,6 +1,6 @@
 import { newTurnId } from '@moxxy/core';
 import { TurnCoordinator, resolveSecret } from '@moxxy/channel-kit';
-import type { ClientSession as Session } from '@moxxy/sdk';
+import { assertDefined, type ClientSession as Session } from '@moxxy/sdk';
 import type {
   Channel,
   ChannelHandle,
@@ -252,7 +252,8 @@ export class SignalChannel implements Channel<SignalStartOpts> {
     const dedicated = startOpts.dedicated === true || process.env.MOXXY_DEDICATED_RUNNER === '1';
     if (isLinked) {
       this.linked = true;
-      await this.bootDaemon(binary, this.account!);
+      assertDefined(this.account, 'isLinked is only reached when this.account is set');
+      await this.bootDaemon(binary, this.account);
     } else if (startOpts.pair || dedicated) {
       await this.openLinkWindow(binary);
     } else {
@@ -401,7 +402,8 @@ export class SignalChannel implements Channel<SignalStartOpts> {
 
   /** A message from ANOTHER account — gate on the sender allow-list. */
   private handleDataMessage(envelope: SignalEnvelope): void {
-    const data = envelope.dataMessage!;
+    const data = envelope.dataMessage;
+    assertDefined(data, 'handleDataMessage is only called when envelope.dataMessage is present');
     const number = envelope.sourceNumber ?? null;
     const uuid = envelope.sourceUuid ?? null;
     const senderIds = [number, uuid, envelope.source ?? null]
@@ -429,7 +431,9 @@ export class SignalChannel implements Channel<SignalStartOpts> {
       this.warnDrop(`unauthorized sender (${senderIds[0] ?? 'unknown'})`);
       return;
     }
-    const target: SendTarget = { recipient: number ?? uuid ?? senderIds[0]! };
+    const [firstSender] = senderIds;
+    assertDefined(firstSender, 'senderIds is non-empty past the length gate above');
+    const target: SendTarget = { recipient: number ?? uuid ?? firstSender };
     this.dispatchInBackground(
       this.processMessage(target, data.message ?? null, data.attachments),
       'data-message',

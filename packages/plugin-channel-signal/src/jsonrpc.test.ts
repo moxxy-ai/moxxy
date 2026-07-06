@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { SignalRpcClient, type RpcStream } from './jsonrpc.js';
 
 class FakeStream extends EventEmitter implements RpcStream {
@@ -17,7 +18,9 @@ class FakeStream extends EventEmitter implements RpcStream {
     this.emit('data', Buffer.from(raw, 'utf8'));
   }
   lastRequest(): { id: string; method: string; params: unknown } {
-    return JSON.parse(this.written.at(-1)!) as { id: string; method: string; params: unknown };
+    const last = this.written.at(-1);
+    assertDefined(last, 'lastRequest called after at least one write');
+    return JSON.parse(last) as { id: string; method: string; params: unknown };
   }
 }
 
@@ -58,8 +61,12 @@ describe('SignalRpcClient', () => {
     const client = new SignalRpcClient({ stream });
     const p1 = client.request('a');
     const p2 = client.request('b');
-    const id1 = JSON.parse(stream.written[0]!).id as string;
-    const id2 = JSON.parse(stream.written[1]!).id as string;
+    const raw1 = stream.written[0];
+    const raw2 = stream.written[1];
+    assertDefined(raw1, 'first request line was written');
+    assertDefined(raw2, 'second request line was written');
+    const id1 = JSON.parse(raw1).id as string;
+    const id2 = JSON.parse(raw2).id as string;
     const line1 = `{"jsonrpc":"2.0","id":"${id1}","result":1}\n`;
     const line2 = `{"jsonrpc":"2.0","id":"${id2}","result":2}\n`;
     const combined = line1 + line2;

@@ -201,10 +201,10 @@ function parseCallout(stripped: string): ParsedCallout | null {
   const rest = nl === -1 ? '' : stripped.slice(nl + 1);
   const m = /^\[!(\w+)\]([+-]?)[ \t]*(.*)$/.exec(firstLine.trim());
   if (!m) return null;
-  const meta = CALLOUTS[m[1]!.toLowerCase()];
+  const meta = CALLOUTS[(m[1] ?? '').toLowerCase()];
   if (!meta) return null;
   const fold = m[2];
-  const title = m[3]!.trim() || meta.label;
+  const title = (m[3] ?? '').trim() || meta.label;
   return {
     header: `<b>${meta.emoji} ${title}</b>`,
     body: rest,
@@ -243,7 +243,7 @@ function isAllowedUrl(url: string): boolean {
   // RFC3986 scheme: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":".
   const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(trimmed);
   if (!m) return true; // no explicit scheme — relative/anchor/host-only link
-  return ALLOWED_URL_SCHEMES.has(m[1]!.toLowerCase());
+  return ALLOWED_URL_SCHEMES.has((m[1] ?? '').toLowerCase());
 }
 
 function escapeHtml(s: string): string {

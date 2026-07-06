@@ -241,7 +241,7 @@ describe('splitForTelegram', () => {
       if (html.slice(lastIndex, m.index).includes('<')) return false;
       lastIndex = re.lastIndex;
       const closing = m[1] === '/';
-      const name = m[2]!.toLowerCase();
+      const name = (m[2] ?? '').toLowerCase();
       if (m[0].endsWith('/>')) continue;
       if (closing) {
         if (stack.pop() !== name) return false;
@@ -253,7 +253,7 @@ describe('splitForTelegram', () => {
     if (stack.length !== 0) return false;
     // No truncated entity: every '&'-prefixed entity-looking run is `;`-terminated.
     for (const em of html.matchAll(/&[a-zA-Z0-9#]+/g)) {
-      const after = html[em.index! + em[0].length];
+      const after = html[(em.index ?? 0) + em[0].length];
       if (after !== ';') return false;
     }
     return true;

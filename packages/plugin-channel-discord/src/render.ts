@@ -1,4 +1,4 @@
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined, type MoxxyEvent } from '@moxxy/sdk';
 
 /**
  * Discord messages cap at 2000 chars; leave margin for the fence-reopen text a
@@ -222,7 +222,9 @@ function openFenceAt(text: string, idx: number, seed: string | null): string | n
   const fenceRe = /(?:^|\n)(```[^\n]*)/g;
   let m: RegExpExecArray | null;
   while ((m = fenceRe.exec(scan)) !== null) {
-    open = open === null ? m[1]! : null;
+    const fence = m[1];
+    assertDefined(fence, 'fenceRe has a mandatory capture group when it matches');
+    open = open === null ? fence : null;
   }
   return open;
 }

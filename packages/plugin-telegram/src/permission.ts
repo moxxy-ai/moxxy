@@ -32,9 +32,10 @@ export class TelegramPermissionResolver implements PermissionResolver {
     if (!this.deciderFn) {
       return { mode: 'deny', reason: 'no decider attached (bot not running)' };
     }
+    const decider = this.deciderFn;
     const decision = await new Promise<PermissionDecision>((resolve) => {
       this.pending.set(call.callId, { callId: call.callId, call, ctx, resolve });
-      this.deciderFn!(call, ctx).catch((err) => {
+      decider(call, ctx).catch((err) => {
         this.pending.delete(call.callId);
         resolve({ mode: 'deny', reason: err instanceof Error ? err.message : String(err) });
       });

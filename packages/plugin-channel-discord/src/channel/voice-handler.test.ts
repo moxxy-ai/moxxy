@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ClientSession as Session } from '@moxxy/sdk';
+import { assertDefined, type ClientSession as Session } from '@moxxy/sdk';
 import type { InboundMessage } from '../schema.js';
 import { MAX_AUDIO_BYTES } from '../schema.js';
 import type { InboundContext } from './message-handler.js';
@@ -58,9 +58,11 @@ const okFetch = (bytes = 16) =>
 describe('pickAudioAttachment', () => {
   it('picks the first audio/* attachment and ignores others', () => {
     const msg = audioMsg();
+    const first = msg.attachments[0];
+    assertDefined(first, 'audioMsg seeds at least one attachment');
     expect(pickAudioAttachment(msg.attachments)?.contentType).toBe('audio/ogg');
-    expect(pickAudioAttachment([{ ...msg.attachments[0]!, contentType: 'image/png' }])).toBeNull();
-    expect(pickAudioAttachment([{ ...msg.attachments[0]!, contentType: null }])).toBeNull();
+    expect(pickAudioAttachment([{ ...first, contentType: 'image/png' }])).toBeNull();
+    expect(pickAudioAttachment([{ ...first, contentType: null }])).toBeNull();
   });
 });
 

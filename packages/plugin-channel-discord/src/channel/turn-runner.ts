@@ -1,5 +1,5 @@
 import type { newTurnId } from '@moxxy/core';
-import type { ClientSession as Session } from '@moxxy/sdk';
+import { assertDefined, type ClientSession as Session } from '@moxxy/sdk';
 import { FramePump, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
 import { DiscordTurnRenderer, splitForDiscord } from '../render.js';
 import type { ChannelLogger, SendableChannelLike, SentMessageLike } from './discord-like.js';
@@ -82,14 +82,18 @@ export async function runDiscordTurn(
     sink: {
       send: async (t, final) => {
         const parts = splitForDiscord(t);
-        const sent = await sendPart(parts[0]!);
+        const head = parts[0];
+        assertDefined(head, 'discord: FramePump never sinks empty text (emptyFinalText guarantees a part)');
+        const sent = await sendPart(head);
         if (final) for (const tail of parts.slice(1)) await sendPart(tail);
         return sent;
       },
       edit: async (message, t, final) => {
         const parts = splitForDiscord(t);
+        const head = parts[0];
+        assertDefined(head, 'discord: FramePump never sinks empty text (emptyFinalText guarantees a part)');
         try {
-          await message.edit(parts[0]!);
+          await message.edit(head);
         } catch (err) {
           logger?.warn('discord edit failed', { err: String(err) });
         }

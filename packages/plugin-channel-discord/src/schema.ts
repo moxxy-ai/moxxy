@@ -68,7 +68,8 @@ export interface RawMessageLike {
 export function extractInboundMessage(msg: RawMessageLike): InboundMessage | null {
   const attachments: unknown[] = [];
   try {
-    for (const a of msg.attachments?.values?.() ?? []) {
+    const rawAttachments = msg.attachments;
+    for (const a of rawAttachments?.values ? rawAttachments.values() : []) {
       attachments.push({
         id: a?.id,
         url: a?.url,

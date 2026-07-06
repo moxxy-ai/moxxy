@@ -1,5 +1,6 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
 import {
+  assertDefined,
   fileDiffSummary,
   fileDiffVerb,
   isFileDiffDisplay,
@@ -398,10 +399,11 @@ class TagBoundaryIndex {
         const m = /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9-]*)/.exec(raw);
         if (m) {
           const closing = m[1] === '/';
-          const name = m[2]!.toLowerCase();
+          const name = (m[2] ?? '').toLowerCase();
           if (closing) {
             for (let s = stack.length - 1; s >= 0; s--) {
-              if (stack[s]!.name === name) {
+              const entry = stack[s];
+              if (entry?.name === name) {
                 stack.splice(s, 1);
                 break;
               }
@@ -439,14 +441,18 @@ class TagBoundaryIndex {
     let hi = this.checkPos.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (this.checkPos[mid]! <= idx) lo = mid;
+      const pos = this.checkPos[mid];
+      assertDefined(pos, 'binary-search mid is always a valid checkpoint index');
+      if (pos <= idx) lo = mid;
       else hi = mid - 1;
     }
     // Returns the checkpoint stack by reference — it is an immutable snapshot;
     // the only consumer that re-roots it (`new TagBoundaryIndex(.., carry)`)
     // copies via `seed.slice()` before mutating, so no probe can corrupt it.
+    const checkpointStack = this.checkStack[lo];
+    assertDefined(checkpointStack, 'binary-search lo is always a valid checkpoint index');
     return {
-      stack: this.checkStack[lo]!,
+      stack: checkpointStack,
       insideTag: inside,
     };
   }

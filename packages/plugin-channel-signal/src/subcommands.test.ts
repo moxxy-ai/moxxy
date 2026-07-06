@@ -23,7 +23,7 @@ beforeEach(async () => {
     keySource: createStaticKeySource(deriveKey('test', generateSalt())),
   });
   const plugin = buildSignalPlugin({ vault });
-  signalDef = plugin.channels![0]!;
+  signalDef = (plugin.channels ?? [])[0] as ChannelDef;
   writeOut = [];
   writeErr = [];
   origStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -68,7 +68,7 @@ describe('signal ChannelDef shape', () => {
     expect(signalDef.dedicatedRunner).toBe(true);
     expect(signalDef.sessionSource).toBe('signal');
     expect(signalDef.interactiveCommand).toBe('setup');
-    expect(Object.keys(signalDef.subcommands!)).toEqual(
+    expect(Object.keys(signalDef.subcommands ?? {})).toEqual(
       expect.arrayContaining(['setup', 'pair', 'status', 'unpair']),
     );
     expect(signalDef.config?.fields.map((f) => f.vaultKey)).toEqual([SIGNAL_ACCOUNT_KEY]);
@@ -78,36 +78,36 @@ describe('signal ChannelDef shape', () => {
 
 describe('isAvailable', () => {
   it('returns an install hint (never throws) when signal-cli is missing', async () => {
-    const availability = await signalDef.isAvailable!({ cwd: tmp, vault });
-    expect(availability.ok).toBe(false);
-    expect(availability.reason).toMatch(/brew install signal-cli/);
+    const availability = await signalDef.isAvailable?.({ cwd: tmp, vault });
+    expect(availability?.ok).toBe(false);
+    expect(availability?.reason).toMatch(/brew install signal-cli/);
   });
 
   it('asks for an account once the binary exists', async () => {
     fsSync.writeFileSync(path.join(tmp, 'signal-cli'), '#!/bin/sh\n', { mode: 0o755 });
-    const availability = await signalDef.isAvailable!({ cwd: tmp, vault });
-    expect(availability.ok).toBe(false);
-    expect(availability.reason).toMatch(/signal setup/);
+    const availability = await signalDef.isAvailable?.({ cwd: tmp, vault });
+    expect(availability?.ok).toBe(false);
+    expect(availability?.reason).toMatch(/signal setup/);
   });
 
   it('is available with binary + env account', async () => {
     fsSync.writeFileSync(path.join(tmp, 'signal-cli'), '#!/bin/sh\n', { mode: 0o755 });
     vi.stubEnv('MOXXY_SIGNAL_ACCOUNT', '+15551234567');
-    const availability = await signalDef.isAvailable!({ cwd: tmp, vault });
+    const availability = await signalDef.isAvailable?.({ cwd: tmp, vault });
     expect(availability).toEqual({ ok: true });
   });
 
   it('is available with binary + vault account', async () => {
     fsSync.writeFileSync(path.join(tmp, 'signal-cli'), '#!/bin/sh\n', { mode: 0o755 });
     await vault.set(SIGNAL_ACCOUNT_KEY, '+15551234567');
-    const availability = await signalDef.isAvailable!({ cwd: tmp, vault });
+    const availability = await signalDef.isAvailable?.({ cwd: tmp, vault });
     expect(availability).toEqual({ ok: true });
   });
 });
 
 describe('signal channel subcommands', () => {
   it('`status` reports unconfigured state as JSON', async () => {
-    const code = await signalDef.subcommands!.status!.run(ctx());
+    const code = await signalDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed).toEqual({
@@ -122,7 +122,7 @@ describe('signal channel subcommands', () => {
   it('`status` surfaces the stored account + allow-list', async () => {
     await vault.set(SIGNAL_ACCOUNT_KEY, '+15551234567');
     await vault.set(SIGNAL_ALLOWED_SENDERS_KEY, JSON.stringify(['+14440002222']));
-    const code = await signalDef.subcommands!.status!.run(ctx());
+    const code = await signalDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed.account).toBe('+15551234567');
@@ -132,7 +132,7 @@ describe('signal channel subcommands', () => {
   it('`unpair` clears account + allow-list and points at the phone for full unlink', async () => {
     await vault.set(SIGNAL_ACCOUNT_KEY, '+15551234567');
     await vault.set(SIGNAL_ALLOWED_SENDERS_KEY, JSON.stringify(['+14440002222']));
-    const code = await signalDef.subcommands!.unpair!.run(ctx());
+    const code = await signalDef.subcommands?.unpair?.run(ctx());
     expect(code).toBe(0);
     expect(writeOut.join('')).toContain('unpaired');
     expect(writeOut.join('')).toContain('Linked Devices');
@@ -141,7 +141,7 @@ describe('signal channel subcommands', () => {
   });
 
   it('`unpair` is a no-op when nothing is configured', async () => {
-    const code = await signalDef.subcommands!.unpair!.run(ctx());
+    const code = await signalDef.subcommands?.unpair?.run(ctx());
     expect(code).toBe(0);
     expect(writeOut.join('')).toContain('no account was configured');
   });
@@ -151,7 +151,7 @@ describe('signal channel subcommands', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await signalDef.subcommands!.pair!.run(ctx({ startChannel }));
+      const code = await signalDef.subcommands?.pair?.run(ctx({ startChannel }));
       expect(code).toBe(1);
       expect(startChannel).not.toHaveBeenCalled();
       expect(writeErr.join('')).toMatch(/TTY/);
@@ -170,7 +170,7 @@ describe('signal channel subcommands', () => {
       // hint before any process could spawn. We assert `pair` wires the
       // session's resolver (the in-process flow) instead of delegating.
       await expect(
-        signalDef.subcommands!.pair!.run(ctx({ startChannel, session: { setPermissionResolver } })),
+        signalDef.subcommands?.pair?.run(ctx({ startChannel, session: { setPermissionResolver } })),
       ).rejects.toThrow(/signal-cli not found/);
       expect(setPermissionResolver).toHaveBeenCalledTimes(1);
       expect(startChannel).not.toHaveBeenCalled();
@@ -184,7 +184,7 @@ describe('signal channel subcommands', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await signalDef.subcommands!.setup!.run(ctx({ startChannel }));
+      const code = await signalDef.subcommands?.setup?.run(ctx({ startChannel }));
       expect(code).toBe(0);
       expect(startChannel).toHaveBeenCalledTimes(1);
     } finally {
@@ -199,7 +199,7 @@ describe('signal channel subcommands', () => {
       startChannel: async () => 0,
       session: { setPermissionResolver: () => {} },
     } as never;
-    const code = await signalDef.subcommands!.status!.run(badCtx);
+    const code = await signalDef.subcommands?.status?.run(badCtx);
     expect(code).toBe(1);
     expect(writeErr.join('')).toContain('vault unavailable');
   });

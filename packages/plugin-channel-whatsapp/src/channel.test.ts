@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import { FakeProvider, streamingTextReply } from '@moxxy/testing';
-import { definePlugin, defineProvider, defineTranscriber } from '@moxxy/sdk';
+import { assertDefined, definePlugin, defineProvider, defineTranscriber } from '@moxxy/sdk';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
 import { WhatsAppChannel } from './channel.js';
@@ -218,7 +218,8 @@ describe('WhatsAppChannel.start', () => {
     const turnsBefore = provider.received.length;
 
     // Feed the channel's own last send back as an inbound (fromMe echo).
-    const lastOut = fake.sent[fake.sent.length - 1]!;
+    const lastOut = fake.sent[fake.sent.length - 1];
+    assertDefined(lastOut, 'the channel sent at least one message');
     // Reconstruct the outbound key id: the fake numbers them out-N; grab it via
     // a fresh send to learn the id shape isn't needed — echo by a known own id.
     fake.inbound({ key: { remoteJid: OWNER, fromMe: true, id: 'out-1' }, message: { conversation: lastOut.text } });

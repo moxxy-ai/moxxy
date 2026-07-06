@@ -26,7 +26,7 @@ beforeEach(async () => {
     keySource: createStaticKeySource(deriveKey('test', generateSalt())),
   });
   const plugin = buildSlackPlugin({ vault });
-  slackDef = plugin.channels![0]!;
+  slackDef = (plugin.channels ?? [])[0] as ChannelDef;
   writeOut = [];
   writeErr = [];
   origStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -61,14 +61,14 @@ function ctx(overrides: { startChannel?: () => Promise<number> } = {}) {
 describe('slack channel subcommands (registered on ChannelDef)', () => {
   it('exposes setup, pair, status, unpair', () => {
     expect(slackDef.subcommands).toBeDefined();
-    expect(Object.keys(slackDef.subcommands!)).toEqual(
+    expect(Object.keys(slackDef.subcommands ?? {})).toEqual(
       expect.arrayContaining(['setup', 'pair', 'status', 'unpair']),
     );
     expect(slackDef.interactiveCommand).toBe('setup');
   });
 
   it('`status` reports unconfigured vault state as JSON', async () => {
-    const code = await slackDef.subcommands!.status!.run(ctx());
+    const code = await slackDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed).toEqual({
@@ -86,7 +86,7 @@ describe('slack channel subcommands (registered on ChannelDef)', () => {
       SLACK_AUTHORIZED_KEY,
       JSON.stringify({ teamId: 'T1', channelId: 'C1' }),
     );
-    const code = await slackDef.subcommands!.status!.run(ctx());
+    const code = await slackDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed).toEqual({
@@ -100,7 +100,7 @@ describe('slack channel subcommands (registered on ChannelDef)', () => {
   it('`status` honors env overrides for token/secret', async () => {
     process.env.MOXXY_SLACK_BOT_TOKEN = 'xoxb-env-token-abcdefghijkl';
     process.env.MOXXY_SLACK_SIGNING_SECRET = 'env-signing-secret-0123456789';
-    const code = await slackDef.subcommands!.status!.run(ctx());
+    const code = await slackDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed.botTokenConfigured).toBe(true);
@@ -109,7 +109,7 @@ describe('slack channel subcommands (registered on ChannelDef)', () => {
 
   it('`status` reports null for a corrupt authorization record', async () => {
     await vault.set(SLACK_AUTHORIZED_KEY, 'not-json');
-    const code = await slackDef.subcommands!.status!.run(ctx());
+    const code = await slackDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed.authorized).toBeNull();
@@ -117,14 +117,14 @@ describe('slack channel subcommands (registered on ChannelDef)', () => {
 
   it('`unpair` clears the authorization and reports', async () => {
     await vault.set(SLACK_AUTHORIZED_KEY, JSON.stringify({ teamId: 'T1' }));
-    const code = await slackDef.subcommands!.unpair!.run(ctx());
+    const code = await slackDef.subcommands?.unpair?.run(ctx());
     expect(code).toBe(0);
     expect(writeOut.join('')).toContain('unpaired');
     expect(await vault.get(SLACK_AUTHORIZED_KEY)).toBeNull();
   });
 
   it('`unpair` is a no-op when nothing is paired', async () => {
-    const code = await slackDef.subcommands!.unpair!.run(ctx());
+    const code = await slackDef.subcommands?.unpair?.run(ctx());
     expect(code).toBe(0);
     expect(writeOut.join('')).toContain('no pairing was active');
   });
@@ -134,7 +134,7 @@ describe('slack channel subcommands (registered on ChannelDef)', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await slackDef.subcommands!.pair!.run(ctx({ startChannel }));
+      const code = await slackDef.subcommands?.pair?.run(ctx({ startChannel }));
       expect(code).toBe(1);
       expect(startChannel).not.toHaveBeenCalled();
       expect(writeErr.join('')).toMatch(/TTY/);
@@ -148,7 +148,7 @@ describe('slack channel subcommands (registered on ChannelDef)', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await slackDef.subcommands!.setup!.run(ctx({ startChannel }));
+      const code = await slackDef.subcommands?.setup?.run(ctx({ startChannel }));
       expect(code).toBe(0);
       expect(startChannel).toHaveBeenCalledTimes(1);
     } finally {
@@ -163,27 +163,27 @@ describe('slack channel subcommands (registered on ChannelDef)', () => {
       startChannel: async () => 0,
       session: { setPermissionResolver: () => {} },
     } as never;
-    const code = await slackDef.subcommands!.status!.run(badCtx);
+    const code = await slackDef.subcommands?.status?.run(badCtx);
     expect(code).toBe(1);
     expect(writeErr.join('')).toContain('vault unavailable');
   });
 
   it('isAvailable gates on BOTH token and secret', async () => {
     // Neither set → unavailable, reason names both.
-    let avail = await slackDef.isAvailable!({ cwd: tmp, vault });
-    expect(avail.ok).toBe(false);
-    expect(avail.reason).toMatch(/bot token/);
-    expect(avail.reason).toMatch(/signing secret/);
+    let avail = await slackDef.isAvailable?.({ cwd: tmp, vault });
+    expect(avail?.ok).toBe(false);
+    expect(avail?.reason).toMatch(/bot token/);
+    expect(avail?.reason).toMatch(/signing secret/);
 
     // Only token → still unavailable, reason names the secret.
     await vault.set(SLACK_BOT_TOKEN_KEY, 'xoxb-1111-2222-abcdefghijklmnop');
-    avail = await slackDef.isAvailable!({ cwd: tmp, vault });
-    expect(avail.ok).toBe(false);
-    expect(avail.reason).toMatch(/signing secret/);
+    avail = await slackDef.isAvailable?.({ cwd: tmp, vault });
+    expect(avail?.ok).toBe(false);
+    expect(avail?.reason).toMatch(/signing secret/);
 
     // Both → available.
     await vault.set(SLACK_SIGNING_SECRET_KEY, '0123456789abcdef0123456789abcdef');
-    avail = await slackDef.isAvailable!({ cwd: tmp, vault });
-    expect(avail.ok).toBe(true);
+    avail = await slackDef.isAvailable?.({ cwd: tmp, vault });
+    expect(avail?.ok).toBe(true);
   });
 });

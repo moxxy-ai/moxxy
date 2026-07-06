@@ -1,5 +1,5 @@
 import { type Bot, type Context, InlineKeyboard } from 'grammy';
-import { isSelectableMode } from '@moxxy/sdk';
+import { assertDefined, isSelectableMode } from '@moxxy/sdk';
 import type { ClientSession as Session } from '@moxxy/sdk';
 import { resolveVoiceToggle } from '@moxxy/channel-kit';
 
@@ -54,7 +54,8 @@ export async function runSlash(
   const session = state.session;
   if (!session) return;
   const [head, ...rest] = text.split(/\s+/);
-  const name = head!.slice(1);
+  assertDefined(head, 'String.split always yields at least one element');
+  const name = head.slice(1);
   const args = rest.join(' ');
 
   // 1) Shared registry dispatch.

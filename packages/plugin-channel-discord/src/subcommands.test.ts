@@ -27,7 +27,7 @@ beforeEach(async () => {
     keySource: createStaticKeySource(deriveKey('test', generateSalt())),
   });
   const plugin = buildDiscordPlugin({ vault });
-  discordDef = plugin.channels![0]!;
+  discordDef = (plugin.channels ?? [])[0] as ChannelDef;
   writeOut = [];
   writeErr = [];
   origStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -72,24 +72,24 @@ describe('discord ChannelDef', () => {
   });
 
   it('is unavailable without a token, available with one in the vault', async () => {
-    const unavailable = await discordDef.isAvailable!({ cwd: tmp, vault });
-    expect(unavailable.ok).toBe(false);
-    expect(unavailable.reason).toMatch(/MOXXY_DISCORD_TOKEN/);
+    const unavailable = await discordDef.isAvailable?.({ cwd: tmp, vault });
+    expect(unavailable?.ok).toBe(false);
+    expect(unavailable?.reason).toMatch(/MOXXY_DISCORD_TOKEN/);
     await vault.set(DISCORD_TOKEN_KEY, 'x'.repeat(24) + '.abcdef.' + 'y'.repeat(28));
-    const available = await discordDef.isAvailable!({ cwd: tmp, vault });
-    expect(available.ok).toBe(true);
+    const available = await discordDef.isAvailable?.({ cwd: tmp, vault });
+    expect(available?.ok).toBe(true);
   });
 });
 
 describe('discord channel subcommands (registered on ChannelDef)', () => {
   it('exposes setup, pair, unpair, status', () => {
-    expect(Object.keys(discordDef.subcommands!)).toEqual(
+    expect(Object.keys(discordDef.subcommands ?? {})).toEqual(
       expect.arrayContaining(['setup', 'pair', 'unpair', 'status']),
     );
   });
 
   it('`status` reports unconfigured vault state as JSON', async () => {
-    const code = await discordDef.subcommands!.status!.run(ctx());
+    const code = await discordDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed).toEqual({
@@ -103,7 +103,7 @@ describe('discord channel subcommands (registered on ChannelDef)', () => {
     await vault.set(DISCORD_TOKEN_KEY, 'x'.repeat(24) + '.abcdef.' + 'y'.repeat(28));
     await vault.set(DISCORD_AUTHORIZED_USER_KEY, '987654321');
     await vault.set(DISCORD_ALLOWED_CHANNELS_KEY, serializeAllowedChannels(['123456789']));
-    const code = await discordDef.subcommands!.status!.run(ctx());
+    const code = await discordDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed).toEqual({
@@ -115,7 +115,7 @@ describe('discord channel subcommands (registered on ChannelDef)', () => {
 
   it('`status` reports null (not junk) for a corrupt stored user id', async () => {
     await vault.set(DISCORD_AUTHORIZED_USER_KEY, 'not-a-snowflake');
-    const code = await discordDef.subcommands!.status!.run(ctx());
+    const code = await discordDef.subcommands?.status?.run(ctx());
     expect(code).toBe(0);
     const parsed = JSON.parse(writeOut.join(''));
     expect(parsed.authorizedUserId).toBeNull();
@@ -123,14 +123,14 @@ describe('discord channel subcommands (registered on ChannelDef)', () => {
 
   it('`unpair` clears the authorized user and reports', async () => {
     await vault.set(DISCORD_AUTHORIZED_USER_KEY, '111');
-    const code = await discordDef.subcommands!.unpair!.run(ctx());
+    const code = await discordDef.subcommands?.unpair?.run(ctx());
     expect(code).toBe(0);
     expect(writeOut.join('')).toContain('unpaired');
     expect(await vault.get(DISCORD_AUTHORIZED_USER_KEY)).toBeNull();
   });
 
   it('`unpair` is a no-op when nothing is paired', async () => {
-    const code = await discordDef.subcommands!.unpair!.run(ctx());
+    const code = await discordDef.subcommands?.unpair?.run(ctx());
     expect(code).toBe(0);
     expect(writeOut.join('')).toContain('no pairing was active');
   });
@@ -146,7 +146,7 @@ describe('discord channel subcommands (registered on ChannelDef)', () => {
       // assert that `pair` drives the in-process pairing flow (wires the
       // session's permission resolver) instead of delegating to startChannel.
       await expect(
-        discordDef.subcommands!.pair!.run(ctx({ startChannel, session: { setPermissionResolver } })),
+        discordDef.subcommands?.pair?.run(ctx({ startChannel, session: { setPermissionResolver } })),
       ).rejects.toThrow(/token/i);
       expect(setPermissionResolver).toHaveBeenCalledTimes(1);
       expect(startChannel).not.toHaveBeenCalled();
@@ -160,7 +160,7 @@ describe('discord channel subcommands (registered on ChannelDef)', () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, configurable: true });
     try {
       const startChannel = vi.fn(async () => 0);
-      const code = await discordDef.subcommands!.pair!.run(ctx({ startChannel }));
+      const code = await discordDef.subcommands?.pair?.run(ctx({ startChannel }));
       expect(code).toBe(1);
       expect(startChannel).not.toHaveBeenCalled();
       expect(writeErr.join('')).toMatch(/TTY/);
@@ -175,7 +175,7 @@ describe('discord channel subcommands (registered on ChannelDef)', () => {
       args: { positional: [], flags: {} },
       startChannel: async () => 0,
     };
-    const code = await discordDef.subcommands!.status!.run(badCtx as never);
+    const code = await discordDef.subcommands?.status?.run(badCtx as never);
     expect(code).toBe(1);
     expect(writeErr.join('')).toContain('vault unavailable');
   });
