@@ -22,6 +22,13 @@ export const BUILTIN_REQUIREMENTS: Readonly<
       "hint": "discord resolves the vault from the service registry for its bot token + pairing; @moxxy/plugin-vault must load first"
     }
   ],
+  "@moxxy/plugin-channel-imessage": [
+    {
+      "kind": "plugin",
+      "name": "@moxxy/plugin-vault",
+      "hint": "imessage resolves the vault from the service registry for its BlueBubbles server URL + password + handle allow-list; @moxxy/plugin-vault must load first"
+    }
+  ],
   "@moxxy/plugin-channel-signal": [
     {
       "kind": "plugin",

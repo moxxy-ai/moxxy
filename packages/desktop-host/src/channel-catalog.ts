@@ -193,6 +193,48 @@ export const CHANNEL_CATALOG: Readonly<Record<string, ChannelCatalogEntry>> = {
     vaultKeys: { botToken: 'discord_bot_token' },
     requiredKeys: ['discord_bot_token'],
   },
+  imessage: {
+    descriptor: {
+      id: 'imessage',
+      name: 'iMessage',
+      description:
+        'iMessage via a localhost BlueBubbles server on its own dedicated runner. macOS only: ' +
+        'install the BlueBubbles server on this Mac, sign in to Messages, set a password. ' +
+        'Allow-listed handles (and your own self-chat) drive the agent; text-only, 1:1 chats.',
+      docsUrl: 'https://bluebubbles.app',
+      configFields: [
+        {
+          name: 'serverUrl',
+          label: 'BlueBubbles server URL',
+          type: 'text',
+          required: true,
+          placeholder: 'http://localhost:1234',
+          help: 'The BlueBubbles server running on this Mac (default port 1234)',
+        },
+        {
+          name: 'password',
+          label: 'BlueBubbles server password',
+          type: 'password',
+          required: true,
+          help: 'The password set in the BlueBubbles app',
+        },
+      ],
+      hasWebhookUrl: false,
+      runHint:
+        'Install the BlueBubbles server on this Mac, sign in to Messages, set a password, then run `moxxy channels imessage setup` to add allowed handles.',
+      connect: {
+        kind: 'instructions',
+        title: 'Connect BlueBubbles',
+        steps: [
+          'Install the BlueBubbles server on this Mac from https://bluebubbles.app and sign in to Messages.',
+          'In the BlueBubbles app, set a server password and note the port (default 1234).',
+          'Run `moxxy channels imessage setup` and paste the URL + password, then add the handles allowed to talk to moxxy.',
+        ],
+      },
+    },
+    vaultKeys: { serverUrl: 'imessage_server_url', password: 'imessage_server_password' },
+    requiredKeys: ['imessage_server_url', 'imessage_server_password'],
+  },
 };
 
 /** Every catalog entry, in display order. */

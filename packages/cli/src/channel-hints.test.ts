@@ -11,6 +11,7 @@ describe('findCatalogEntryForChannel', () => {
     ['signal', '@moxxy/plugin-channel-signal'],
     ['whatsapp', '@moxxy/plugin-channel-whatsapp'],
     ['discord', '@moxxy/plugin-channel-discord'],
+    ['imessage', '@moxxy/plugin-channel-imessage'],
     ['web', '@moxxy/plugin-channel-web'],
     ['http', '@moxxy/plugin-channel-http'],
   ])('%s → %s', (command, packageName) => {
@@ -22,7 +23,7 @@ describe('findCatalogEntryForChannel', () => {
   });
 
   it('unknown names stay unknown', () => {
-    expect(findCatalogEntryForChannel('imessage')).toBeUndefined();
+    expect(findCatalogEntryForChannel('nonexistent-channel')).toBeUndefined();
     expect(findCatalogEntryForChannel('')).toBeUndefined();
   });
 

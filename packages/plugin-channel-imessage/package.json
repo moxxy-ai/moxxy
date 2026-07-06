@@ -1,0 +1,96 @@
+{
+  "name": "@moxxy/plugin-channel-imessage",
+  "version": "0.0.0",
+  "description": "iMessage channel for moxxy via a localhost BlueBubbles server (macOS only). Sends text with the apple-script method and receives via the BlueBubbles socket.io feed, driving the Session from allow-listed handles (your own self-chat by default). Immutable chunked replies; autonomous allow-list permission model.",
+  "keywords": [
+    "moxxy",
+    "agent",
+    "channel",
+    "imessage",
+    "bluebubbles",
+    "bot"
+  ],
+  "homepage": "https://moxxy.ai",
+  "bugs": {
+    "url": "https://github.com/moxxy-ai/moxxy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moxxy-ai/moxxy.git",
+    "directory": "packages/plugin-channel-imessage"
+  },
+  "author": "Michal Makowski <michal.makowski97@gmail.com>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist .turbo"
+  },
+  "moxxy": {
+    "plugin": {
+      "entry": "./dist/index.js",
+      "kind": "channel"
+    },
+    "requirements": [
+      {
+        "kind": "plugin",
+        "name": "@moxxy/plugin-vault",
+        "hint": "imessage resolves the vault from the service registry for its BlueBubbles server URL + password + handle allow-list; @moxxy/plugin-vault must load first"
+      }
+    ],
+    "setup": {
+      "title": "iMessage (BlueBubbles)",
+      "description": "macOS only. Install the BlueBubbles server (https://bluebubbles.app) on this Mac, sign in to Messages, and set a server password. Then paste the server URL (default http://localhost:1234) and the password below, and run `moxxy channels imessage setup` to add the handles allowed to talk to moxxy.",
+      "fields": [
+        {
+          "key": "serverUrl",
+          "label": "BlueBubbles server URL",
+          "kind": "text",
+          "vaultKey": "imessage_server_url",
+          "required": true,
+          "placeholder": "http://localhost:1234"
+        },
+        {
+          "key": "password",
+          "label": "BlueBubbles server password",
+          "kind": "secret",
+          "vaultKey": "imessage_server_password",
+          "required": true
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@clack/prompts": "catalog:",
+    "@moxxy/channel-kit": "workspace:*",
+    "@moxxy/core": "workspace:*",
+    "@moxxy/plugin-vault": "workspace:*",
+    "@moxxy/sdk": "workspace:*",
+    "socket.io-client": "^4.8.1",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@moxxy/tsconfig": "workspace:*",
+    "@moxxy/vitest-preset": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

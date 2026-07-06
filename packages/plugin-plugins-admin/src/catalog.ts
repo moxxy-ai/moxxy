@@ -265,6 +265,15 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     provides: [{ category: 'channel', name: 'discord' }],
   },
   {
+    id: 'imessage',
+    label: 'iMessage channel',
+    description:
+      'iMessage via a BlueBubbles server on a dedicated runner (macOS only; moxxy imessage).',
+    packageName: '@moxxy/plugin-channel-imessage',
+    installSpec: '@moxxy/plugin-channel-imessage',
+    provides: [{ category: 'channel', name: 'imessage' }],
+  },
+  {
     id: 'stt-whisper',
     label: 'Whisper voice input',
     description: 'Speech-to-text via the OpenAI Whisper API (Ctrl+R in the TUI).',
