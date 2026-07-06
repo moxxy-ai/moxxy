@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { assertDefined } from '@moxxy/sdk';
 import { readRequestBody } from '@moxxy/sdk/server';
 import { DeliveryDedupeCache } from './dedupe.js';
 import { shouldFire } from './filter.js';
@@ -83,9 +84,12 @@ export class WebhookServer {
 
     const server = createServer((req, res) => {
       this.handle(req, res).catch((err) => {
-        this.opts.logger?.warn?.('webhooks: handler threw', {
-          err: err instanceof Error ? err.message : String(err),
-        });
+        const logger = this.opts.logger;
+        if (logger?.warn) {
+          logger.warn('webhooks: handler threw', {
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
         if (!res.headersSent) {
           res.writeHead(500, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'internal' }));
@@ -99,10 +103,13 @@ export class WebhookServer {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(this.opts.port, this.opts.host, () => {
-        this.opts.logger?.info?.('webhooks: listening', {
-          host: this.opts.host,
-          port: this.opts.port,
-        });
+        const logger = this.opts.logger;
+        if (logger?.info) {
+          logger.info('webhooks: listening', {
+            host: this.opts.host,
+            port: this.opts.port,
+          });
+        }
         resolve();
       });
     });
@@ -142,7 +149,10 @@ export class WebhookServer {
       res.end(JSON.stringify({ error: 'not_found' }));
       return;
     }
-    const triggerId = m[1]!;
+    const triggerId = m[1];
+    // Group 1 is a required capture in TRIGGER_PATH_RE; a successful exec (m is
+    // non-null here) guarantees it matched.
+    assertDefined(triggerId, 'webhook trigger id capture group');
     const trigger = await this.opts.store.get(triggerId);
     if (!trigger) {
       // Don't leak which IDs exist — same generic 404.
@@ -163,7 +173,8 @@ export class WebhookServer {
     // valid signature — is shed here with a cheap 429 instead of pinning the
     // single event loop on cryptographic + parse work for every replayed copy.
     if (this.rateLimiter && !this.rateLimiter.tryAcquire(trigger.id)) {
-      this.opts.logger?.warn?.('webhooks: rate limited', { trigger: trigger.name });
+      const logger = this.opts.logger;
+      if (logger?.warn) logger.warn('webhooks: rate limited', { trigger: trigger.name });
       res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '1' });
       res.end(JSON.stringify({ error: 'rate_limited' }));
       return;
@@ -175,11 +186,14 @@ export class WebhookServer {
     } catch (err) {
       // Generic to the (pre-auth) client — don't echo the internal error or the
       // configured size limit. Detail goes to the server log only.
-      this.opts.logger?.warn?.('webhooks: rejected oversized body', {
-        trigger: trigger.name,
-        limit: this.maxBodyBytes,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      const logger = this.opts.logger;
+      if (logger?.warn) {
+        logger.warn('webhooks: rejected oversized body', {
+          trigger: trigger.name,
+          limit: this.maxBodyBytes,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
       res.writeHead(413, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'payload_too_large' }));
       return;
@@ -191,10 +205,13 @@ export class WebhookServer {
       body,
     });
     if (!verdict.ok) {
-      this.opts.logger?.warn?.('webhooks: rejected delivery', {
-        trigger: trigger.name,
-        reason: verdict.reason,
-      });
+      const logger = this.opts.logger;
+      if (logger?.warn) {
+        logger.warn('webhooks: rejected delivery', {
+          trigger: trigger.name,
+          reason: verdict.reason,
+        });
+      }
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: 'verification_failed' }));
       return;
@@ -206,19 +223,25 @@ export class WebhookServer {
     // stays first so we never dedupe-record an unverified request.
     const idempKey = idempotencyKey(trigger, req.headers);
     if (idempKey && !this.dedupe.check(trigger.id, idempKey)) {
-      this.opts.logger?.info?.('webhooks: duplicate delivery, dropped', {
-        trigger: trigger.name,
-        key: idempKey,
-      });
+      const logger = this.opts.logger;
+      if (logger?.info) {
+        logger.info('webhooks: duplicate delivery, dropped', {
+          trigger: trigger.name,
+          key: idempKey,
+        });
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ status: 'duplicate' }));
       return;
     }
 
     if (!shouldFire(trigger.filters, { headers: req.headers, body })) {
-      this.opts.logger?.info?.('webhooks: filtered out, not firing', {
-        trigger: trigger.name,
-      });
+      const logger = this.opts.logger;
+      if (logger?.info) {
+        logger.info('webhooks: filtered out, not firing', {
+          trigger: trigger.name,
+        });
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ status: 'filtered' }));
       return;
@@ -242,10 +265,13 @@ export class WebhookServer {
     // trigger (or it's owner-less), and otherwise hands the delivery to the
     // owning runner via the shared queue. Errors are logged inside the dispatcher.
     void this.opts.dispatcher.route(trigger, prompt, idempKey).catch((err) => {
-      this.opts.logger?.warn?.('webhooks: route failed', {
-        trigger: trigger.name,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      const logger = this.opts.logger;
+      if (logger?.warn) {
+        logger.warn('webhooks: route failed', {
+          trigger: trigger.name,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
     });
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
+import { assertDefined, type LLMProvider, type ProviderEvent } from '@moxxy/sdk';
 import { FakeProvider, textReply } from '@moxxy/testing';
 import { buildSystemPrompt, draftWorkflow } from './draft.js';
 
@@ -76,10 +76,14 @@ describe('draftWorkflow', () => {
     );
     expect(drafted.parse.ok).toBe(true);
     expect(drafted.parse.errors).toEqual([]);
-    expect(drafted.parse.workflow?.name).toBe('image-report-email');
-    expect(drafted.parse.workflow?.steps).toHaveLength(3);
-    expect(drafted.parse.workflow?.inputs?.recipient).toBeDefined();
-    expect(drafted.parse.workflow?.steps[2]?.tool).toBe('gmail_send');
+    const wf = drafted.parse.workflow;
+    assertDefined(wf, 'drafted workflow parsed ok');
+    expect(wf.name).toBe('image-report-email');
+    expect(wf.steps).toHaveLength(3);
+    expect(wf.inputs.recipient).toBeDefined();
+    const emailStep = wf.steps[2];
+    assertDefined(emailStep, 'third drafted step');
+    expect(emailStep.tool).toBe('gmail_send');
     expect(provider.received[0]?.maxTokens).toBe(4096);
     expect(drafted.truncated).toBe(false);
   });

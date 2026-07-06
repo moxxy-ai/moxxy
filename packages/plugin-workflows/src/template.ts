@@ -7,6 +7,8 @@
  * surfaced at author time (`workflow_validate` / `workflow_create`).
  */
 
+import { assertDefined } from '@moxxy/sdk';
+
 export interface TemplateScope {
   /** Completed step outputs, keyed by step id. */
   readonly steps: Record<string, { readonly output: string }>;
@@ -62,7 +64,8 @@ export function renderTemplate(text: string, scope: TemplateScope, opts: RenderO
   return text.replace(REF_RE, (_match, ref: string) => {
     const value = resolveRef(ref.trim(), scope);
     if (value === undefined) {
-      opts.logger?.warn?.('workflow template: unresolved reference', { ref: ref.trim() });
+      const logger = opts.logger;
+      if (logger?.warn) logger.warn('workflow template: unresolved reference', { ref: ref.trim() });
       return '';
     }
     return stringifyValue(value);
@@ -102,11 +105,52 @@ type Atom =
   | { readonly kind: 'empty' | 'notEmpty'; readonly lhs: string };
 
 const ATOM_PATTERNS: ReadonlyArray<{ re: RegExp; build: (m: RegExpMatchArray) => Atom }> = [
-  { re: /^(.+?)\s+is\s+not\s+empty$/i, build: (m) => ({ kind: 'notEmpty', lhs: m[1]!.trim() }) },
-  { re: /^(.+?)\s+is\s+empty$/i, build: (m) => ({ kind: 'empty', lhs: m[1]!.trim() }) },
-  { re: /^(.+?)\s+contains\s+"(.*)"$/i, build: (m) => ({ kind: 'contains', lhs: m[1]!.trim(), literal: m[2]! }) },
-  { re: /^(.+?)\s+==\s+"(.*)"$/, build: (m) => ({ kind: 'eq', lhs: m[1]!.trim(), literal: m[2]! }) },
-  { re: /^(.+?)\s+!=\s+"(.*)"$/, build: (m) => ({ kind: 'neq', lhs: m[1]!.trim(), literal: m[2]! }) },
+  {
+    re: /^(.+?)\s+is\s+not\s+empty$/i,
+    build: (m) => {
+      const lhs = m[1];
+      assertDefined(lhs, 'condition atom regex guarantees capture group 1');
+      return { kind: 'notEmpty', lhs: lhs.trim() };
+    },
+  },
+  {
+    re: /^(.+?)\s+is\s+empty$/i,
+    build: (m) => {
+      const lhs = m[1];
+      assertDefined(lhs, 'condition atom regex guarantees capture group 1');
+      return { kind: 'empty', lhs: lhs.trim() };
+    },
+  },
+  {
+    re: /^(.+?)\s+contains\s+"(.*)"$/i,
+    build: (m) => {
+      const lhs = m[1];
+      const literal = m[2];
+      assertDefined(lhs, 'condition atom regex guarantees capture group 1');
+      assertDefined(literal, 'condition atom regex guarantees capture group 2');
+      return { kind: 'contains', lhs: lhs.trim(), literal };
+    },
+  },
+  {
+    re: /^(.+?)\s+==\s+"(.*)"$/,
+    build: (m) => {
+      const lhs = m[1];
+      const literal = m[2];
+      assertDefined(lhs, 'condition atom regex guarantees capture group 1');
+      assertDefined(literal, 'condition atom regex guarantees capture group 2');
+      return { kind: 'eq', lhs: lhs.trim(), literal };
+    },
+  },
+  {
+    re: /^(.+?)\s+!=\s+"(.*)"$/,
+    build: (m) => {
+      const lhs = m[1];
+      const literal = m[2];
+      assertDefined(lhs, 'condition atom regex guarantees capture group 1');
+      assertDefined(literal, 'condition atom regex guarantees capture group 2');
+      return { kind: 'neq', lhs: lhs.trim(), literal };
+    },
+  },
 ];
 
 /** Split `expr` on a top-level connective word, ignoring quoted regions. */

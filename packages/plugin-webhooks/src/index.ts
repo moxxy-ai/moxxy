@@ -258,20 +258,23 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
           } catch {
             /* fall back to the generic warning below */
           }
-          opts.logger?.warn?.(
-            'webhooks: binding a NON-LOOPBACK host — the unauthenticated POST surface is ' +
-              'reachable from other machines on the network',
-            {
-              host,
-              port,
-              ...(openAuth.length > 0
-                ? {
-                    unauthenticatedTriggers: openAuth.map((t) => t.name),
-                    severity: 'critical: any host on the network can fire these triggers',
-                  }
-                : {}),
-            },
-          );
+          const logger = opts.logger;
+          if (logger?.warn) {
+            logger.warn(
+              'webhooks: binding a NON-LOOPBACK host — the unauthenticated POST surface is ' +
+                'reachable from other machines on the network',
+              {
+                host,
+                port,
+                ...(openAuth.length > 0
+                  ? {
+                      unauthenticatedTriggers: openAuth.map((t) => t.name),
+                      severity: 'critical: any host on the network can fire these triggers',
+                    }
+                  : {}),
+              },
+            );
+          }
         }
         serverInstance = new WebhookServer({
           host,
@@ -289,11 +292,14 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
           // every runner except the one that wins the shared listener port. Log
           // and carry on: this runner still drains its own handed-off deliveries
           // below. The agent can surface a genuine failure via webhook_status.
-          opts.logger?.warn?.('webhooks: listener failed to start', {
-            err: err instanceof Error ? err.message : String(err),
-            host,
-            port,
-          });
+          const logger = opts.logger;
+          if (logger?.warn) {
+            logger.warn('webhooks: listener failed to start', {
+              err: err instanceof Error ? err.message : String(err),
+              host,
+              port,
+            });
+          }
           serverInstance = null;
         }
 
@@ -317,13 +323,17 @@ export function buildWebhooksPlugin(opts: BuildWebhooksPluginOptions): BuiltWebh
           void startTunnel({ host, port })
             .then((t) => {
               tunnelHandle.current = t;
-              opts.logger?.info?.('webhooks: proxy tunnel restored on boot', { url: t.url });
+              const logger = opts.logger;
+              if (logger?.info) logger.info('webhooks: proxy tunnel restored on boot', { url: t.url });
             })
-            .catch((err) =>
-              opts.logger?.warn?.('webhooks: proxy tunnel restore failed', {
-                err: err instanceof Error ? err.message : String(err),
-              }),
-            );
+            .catch((err) => {
+              const logger = opts.logger;
+              if (logger?.warn) {
+                logger.warn('webhooks: proxy tunnel restore failed', {
+                  err: err instanceof Error ? err.message : String(err),
+                });
+              }
+            });
         }
       },
       onShutdown: () => stopAll(),

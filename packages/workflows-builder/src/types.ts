@@ -9,6 +9,7 @@
  * import-cleanly under both the Electron renderer and the Expo (Hermes) bundle.
  */
 
+import { assertDefined } from './assert.js';
 import type {
   WorkflowDelivery,
   WorkflowInputSpec,
@@ -162,5 +163,7 @@ export const STEP_KINDS: ReadonlyArray<StepKindMeta> = [
 ];
 
 export function stepKindMeta(kind: StepKind): StepKindMeta {
-  return STEP_KINDS.find((k) => k.kind === kind) ?? STEP_KINDS[0]!;
+  const meta = STEP_KINDS.find((k) => k.kind === kind) ?? STEP_KINDS[0];
+  assertDefined(meta, 'STEP_KINDS is a non-empty constant array');
+  return meta;
 }

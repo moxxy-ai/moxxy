@@ -7,6 +7,7 @@ import {
   asSessionId,
   asSkillId,
   asTurnId,
+  assertDefined,
   type AppContext,
   type EventLogReader,
   type MoxxyEvent,
@@ -69,7 +70,8 @@ function reader(events: ReadonlyArray<MoxxyEvent>): EventLogReader {
   // Faithfully model the real EventLog: `length` is a COUNT of held events,
   // while `slice(from)`/`at(seq)` are SEQ-addressed (translated through the
   // log's base). On a rebased mirror the held events' seqs start above 0.
-  const base = events.length > 0 ? events[0]!.seq : 0;
+  const first = events[0];
+  const base = first !== undefined ? first.seq : 0;
   return {
     length: events.length,
     at: (seq: number) => events[seq - base],
@@ -97,7 +99,8 @@ class FakeLog {
   private readonly clearListeners = new Set<() => void>();
   constructor(seed: ReadonlyArray<MoxxyEvent> = []) {
     this.events = [...seed];
-    this.base = seed.length > 0 ? seed[0]!.seq : 0;
+    const first = seed[0];
+    this.base = first !== undefined ? first.seq : 0;
   }
   get length() {
     return this.events.length;
@@ -165,12 +168,20 @@ describe('usage-stats plugin', () => {
     const plugin = buildUsageStatsPlugin({ statsPath });
     const events = [resp(0, 'opus', 100), resp(1, 'opus', 50)];
 
-    await plugin.hooks!.onInit!(ctxFor([])); // boots with empty log
-    await plugin.hooks!.onShutdown!(ctxFor(events));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxFor([])); // boots with empty log
+    await onShutdown(ctxFor(events));
 
     const file = await loadUsageStats(statsPath);
-    expect(file.models['anthropic/opus']!.calls).toBe(2);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(150);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(2);
+    expect(opus.inputTokens).toBe(150);
   });
 
   it('skips restored events on resume and folds only the live suffix', async () => {
@@ -178,21 +189,35 @@ describe('usage-stats plugin', () => {
     const liveSuffix = [resp(2, 'opus', 30)];
     const plugin = buildUsageStatsPlugin({ statsPath });
 
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
     // onInit fires after restored events are already seeded into the log.
-    await plugin.hooks!.onInit!(ctxFor(restored));
+    await onInit(ctxFor(restored));
     // onShutdown sees restored + live.
-    await plugin.hooks!.onShutdown!(ctxFor([...restored, ...liveSuffix]));
+    await onShutdown(ctxFor([...restored, ...liveSuffix]));
 
     const file = await loadUsageStats(statsPath);
     // Only the single live call (30 tokens) is counted — not the 3000 restored.
-    expect(file.models['anthropic/opus']!.calls).toBe(1);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(30);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(1);
+    expect(opus.inputTokens).toBe(30);
   });
 
   it('writes nothing when no live events were produced', async () => {
     const plugin = buildUsageStatsPlugin({ statsPath });
-    await plugin.hooks!.onInit!(ctxFor([resp(0, 'opus', 100)]));
-    await plugin.hooks!.onShutdown!(ctxFor([resp(0, 'opus', 100)]));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxFor([resp(0, 'opus', 100)]));
+    await onShutdown(ctxFor([resp(0, 'opus', 100)]));
     // No new events past the cursor → file never created.
     expect((await loadUsageStats(statsPath)).models).toEqual({});
   });
@@ -206,13 +231,21 @@ describe('usage-stats plugin', () => {
     const liveSuffix = [resp(103, 'opus', 30)];
     const plugin = buildUsageStatsPlugin({ statsPath });
 
-    await plugin.hooks!.onInit!(ctxFor(restored));
-    await plugin.hooks!.onShutdown!(ctxFor([...restored, ...liveSuffix]));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxFor(restored));
+    await onShutdown(ctxFor([...restored, ...liveSuffix]));
 
     const file = await loadUsageStats(statsPath);
     // Only the single live call (30 tokens) — never the 7000 restored tokens.
-    expect(file.models['anthropic/opus']!.calls).toBe(1);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(30);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(1);
+    expect(opus.inputTokens).toBe(30);
   });
 
   it('counts the post-/new (log clear/reset) suffix that restarts at seq 0', async () => {
@@ -225,16 +258,24 @@ describe('usage-stats plugin', () => {
     const plugin = buildUsageStatsPlugin({ statsPath });
     const log = new FakeLog([resp(100, 'opus', 1000), resp(101, 'opus', 2000)]);
 
-    await plugin.hooks!.onInit!(ctxForLog(log)); // boundary captured at seq 101
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxForLog(log)); // boundary captured at seq 101
     log.clear(); // /new — events emptied, base reset to 0, onClear fires
     log.push(resp(0, 'opus', 40), resp(1, 'opus', 60)); // post-/new live events
 
-    await plugin.hooks!.onShutdown!(ctxForLog(log));
+    await onShutdown(ctxForLog(log));
 
     const file = await loadUsageStats(statsPath);
     // Both post-/new calls counted (100 tokens) — not dropped as <= old boundary.
-    expect(file.models['anthropic/opus']!.calls).toBe(2);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(100);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(2);
+    expect(opus.inputTokens).toBe(100);
   });
 
   it('isolates the cursor per session so concurrent sessions on one instance never clobber each other', async () => {
@@ -247,19 +288,27 @@ describe('usage-stats plugin', () => {
     const logA = new FakeLog([resp(0, 'opus', 1000)]); // A restored 1 event (seq 0)
     const logB = new FakeLog([]); // B is a fresh run
 
-    await plugin.hooks!.onInit!(ctxForLog(logA, sidA)); // A boundary = 0
-    await plugin.hooks!.onInit!(ctxForLog(logB, sidB)); // B boundary = null (would clobber A's scalar)
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxForLog(logA, sidA)); // A boundary = 0
+    await onInit(ctxForLog(logB, sidB)); // B boundary = null (would clobber A's scalar)
 
     logA.push(resp(1, 'opus', 5)); // A's single live call
     logB.push(resp(0, 'opus', 7)); // B's single live call
 
-    await plugin.hooks!.onShutdown!(ctxForLog(logA, sidA));
-    await plugin.hooks!.onShutdown!(ctxForLog(logB, sidB));
+    await onShutdown(ctxForLog(logA, sidA));
+    await onShutdown(ctxForLog(logB, sidB));
 
     const file = await loadUsageStats(statsPath);
     // A counts only its live call (5), B counts its only call (7) → 2 calls, 12.
-    expect(file.models['anthropic/opus']!.calls).toBe(2);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(12);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(2);
+    expect(opus.inputTokens).toBe(12);
   });
 
   it('folds the whole log when onShutdown fires without a preceding onInit (cursor defaults to null)', async () => {
@@ -271,11 +320,17 @@ describe('usage-stats plugin', () => {
     const plugin = buildUsageStatsPlugin({ statsPath });
     const events = [resp(0, 'opus', 100), resp(1, 'opus', 50)];
 
-    await plugin.hooks!.onShutdown!(ctxFor(events)); // no onInit called
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onShutdown(ctxFor(events)); // no onInit called
 
     const file = await loadUsageStats(statsPath);
-    expect(file.models['anthropic/opus']!.calls).toBe(2);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(150);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(2);
+    expect(opus.inputTokens).toBe(150);
   });
 
   it('onShutdown degrades to a no-op (resolves, writes nothing) when the reader throws', async () => {
@@ -296,7 +351,11 @@ describe('usage-stats plugin', () => {
     } as unknown as EventLogReader;
     const ctx = { sessionId: sid, cwd: '/tmp', log: hostile, env: {} } as AppContext;
 
-    await expect(plugin.hooks!.onShutdown!(ctx)).resolves.toBeUndefined();
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await expect(onShutdown(ctx)).resolves.toBeUndefined();
     // Nothing folded → file never created.
     expect((await loadUsageStats(statsPath)).models).toEqual({});
   });
@@ -322,16 +381,24 @@ describe('usage-stats plugin', () => {
     } as unknown as EventLogReader;
     const initCtx = { sessionId: sid, cwd: '/tmp', log: throwingInit, env: {} } as AppContext;
 
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
     // onInit is synchronous; it must not throw despite ofType + onClear both
     // throwing. (`Promise.resolve` tolerates the sync void return.)
-    expect(() => plugin.hooks!.onInit!(initCtx)).not.toThrow();
+    expect(() => onInit(initCtx)).not.toThrow();
 
     // Now shut down with a healthy reader: null cursor folds the whole log.
-    await plugin.hooks!.onShutdown!(ctxFor([resp(0, 'opus', 10), resp(1, 'opus', 20)]));
+    await onShutdown(ctxFor([resp(0, 'opus', 10), resp(1, 'opus', 20)]));
 
     const file = await loadUsageStats(statsPath);
-    expect(file.models['anthropic/opus']!.calls).toBe(2);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(30);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(2);
+    expect(opus.inputTokens).toBe(30);
   });
 
   it('onShutdown tears down the onClear listener even when the fold/merge path throws (no leak)', async () => {
@@ -357,9 +424,15 @@ describe('usage-stats plugin', () => {
     } as unknown as EventLogReader;
     const ctx = { sessionId: sid, cwd: '/tmp', log, env: {} } as AppContext;
 
-    await plugin.hooks!.onInit!(ctx); // registers the clear listener (ofType ok: empty log path)
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctx); // registers the clear listener (ofType ok: empty log path)
     throwFromOfType = true; // now the fold path will throw on shutdown
-    await expect(plugin.hooks!.onShutdown!(ctx)).resolves.toBeUndefined();
+    await expect(onShutdown(ctx)).resolves.toBeUndefined();
     // Listener was unsubscribed despite the fold throwing → no leak.
     expect(unsubscribed).toBe(true);
   });
@@ -371,6 +444,10 @@ describe('usage-stats plugin', () => {
     // non-array — it must be swallowed by the same best-effort guard, resolving
     // the hook and writing nothing rather than crashing the timeboxed shutdown.
     const plugin = buildUsageStatsPlugin({ statsPath });
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
     for (const bogus of [42, null, 'nope', { length: 1 }] as unknown[]) {
       const garbageReader = {
         length: 1,
@@ -381,7 +458,7 @@ describe('usage-stats plugin', () => {
         toJSON: () => [],
       } as unknown as EventLogReader;
       const ctx = { sessionId: sid, cwd: '/tmp', log: garbageReader, env: {} } as AppContext;
-      await expect(plugin.hooks!.onShutdown!(ctx)).resolves.toBeUndefined();
+      await expect(onShutdown(ctx)).resolves.toBeUndefined();
     }
     // No call ever produced a fold-able array → file never created.
     expect((await loadUsageStats(statsPath)).models).toEqual({});
@@ -397,15 +474,21 @@ describe('usage-stats plugin', () => {
     const plugin = buildUsageStatsPlugin({ statsPath });
     const events = [resp(0, 'opus', 100)];
 
-    await expect(plugin.hooks!.onShutdown!(ctxFor(events))).resolves.toBeUndefined();
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await expect(onShutdown(ctxFor(events))).resolves.toBeUndefined();
     // A repeat shutdown re-folds the same whole log (cursor still absent → null),
     // so it must not throw; the aggregate doubles, which is the documented
     // whole-log-fold default, asserted so a future guard change is deliberate.
-    await expect(plugin.hooks!.onShutdown!(ctxFor(events))).resolves.toBeUndefined();
+    await expect(onShutdown(ctxFor(events))).resolves.toBeUndefined();
 
     const file = await loadUsageStats(statsPath);
-    expect(file.models['anthropic/opus']!.calls).toBe(2);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(200);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(2);
+    expect(opus.inputTokens).toBe(200);
   });
 
   it('a re-init of the same session id replaces (does not stack) the onClear listener', async () => {
@@ -419,12 +502,18 @@ describe('usage-stats plugin', () => {
     const plugin = buildUsageStatsPlugin({ statsPath });
     const log = new FakeLog([resp(0, 'opus', 10)]);
 
-    await plugin.hooks!.onInit!(ctxForLog(log));
-    await plugin.hooks!.onInit!(ctxForLog(log));
-    await plugin.hooks!.onInit!(ctxForLog(log));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxForLog(log));
+    await onInit(ctxForLog(log));
+    await onInit(ctxForLog(log));
     expect(log.clearListenerCount).toBe(1); // replaced each time, never stacked
 
-    await plugin.hooks!.onShutdown!(ctxForLog(log));
+    await onShutdown(ctxForLog(log));
     expect(log.clearListenerCount).toBe(0); // fully torn down
   });
 
@@ -452,14 +541,22 @@ describe('usage-stats plugin', () => {
     } as unknown as EventLogReader;
     const initCtx = { sessionId: sid, cwd: '/tmp', log: onClearThrows, env: {} } as AppContext;
 
-    expect(() => plugin.hooks!.onInit!(initCtx)).not.toThrow();
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    expect(() => onInit(initCtx)).not.toThrow();
     // Shut down with restored prefix + one live call. The preserved boundary (102)
     // must exclude every restored response and include only the live one.
-    await plugin.hooks!.onShutdown!(ctxFor([...restored, resp(103, 'opus', 30)]));
+    await onShutdown(ctxFor([...restored, resp(103, 'opus', 30)]));
 
     const file = await loadUsageStats(statsPath);
-    expect(file.models['anthropic/opus']!.calls).toBe(1);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(30); // not 7030
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(1);
+    expect(opus.inputTokens).toBe(30); // not 7030
   });
 
   it('actually tears down the real onClear listener on shutdown (no leaked subscription)', async () => {
@@ -471,23 +568,31 @@ describe('usage-stats plugin', () => {
     const plugin = buildUsageStatsPlugin({ statsPath });
     const log = new FakeLog([resp(0, 'opus', 100)]);
 
-    await plugin.hooks!.onInit!(ctxForLog(log));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxForLog(log));
     expect(log.clearListenerCount).toBe(1); // listener registered
 
     log.push(resp(1, 'opus', 50));
-    await plugin.hooks!.onShutdown!(ctxForLog(log));
+    await onShutdown(ctxForLog(log));
     expect(log.clearListenerCount).toBe(0); // torn down — no leak
 
     // A clear() now fires no plugin listener; a second shutdown sees an absent
     // cursor (null) and folds the (post-clear, empty) log → still no crash.
     log.clear();
-    await expect(plugin.hooks!.onShutdown!(ctxForLog(log))).resolves.toBeUndefined();
+    await expect(onShutdown(ctxForLog(log))).resolves.toBeUndefined();
 
     const file = await loadUsageStats(statsPath);
     // Only the first run's live call (50) — the restored 100 was excluded, and
     // the post-shutdown clear added nothing.
-    expect(file.models['anthropic/opus']!.calls).toBe(1);
-    expect(file.models['anthropic/opus']!.inputTokens).toBe(50);
+    const opus = file.models['anthropic/opus'];
+    assertDefined(opus, 'anthropic/opus model stats');
+    expect(opus.calls).toBe(1);
+    expect(opus.inputTokens).toBe(50);
   });
 });
 
@@ -497,15 +602,21 @@ describe('summarizeSkillEvents', () => {
       [skillInvoked(0, 'deploy', 1000), skillInvoked(1, 'deploy', 3000), skillInvoked(2, 'lint', 2000)],
       [],
     );
-    expect(delta['deploy']!.invocations).toBe(2);
-    expect(delta['deploy']!.lastInvokedAt).toBe(new Date(3000).toISOString());
-    expect(delta['lint']!.invocations).toBe(1);
+    const deploy = delta['deploy'];
+    assertDefined(deploy, 'deploy skill delta');
+    expect(deploy.invocations).toBe(2);
+    expect(deploy.lastInvokedAt).toBe(new Date(3000).toISOString());
+    const lint = delta['lint'];
+    assertDefined(lint, 'lint skill delta');
+    expect(lint.invocations).toBe(1);
   });
 
   it('records createdAt for a created-but-never-invoked skill (invocations 0)', () => {
     const delta = summarizeSkillEvents([], [skillCreated(0, 'fresh', 5000)]);
-    expect(delta['fresh']!.invocations).toBe(0);
-    expect(delta['fresh']!.createdAt).toBe(new Date(5000).toISOString());
+    const fresh = delta['fresh'];
+    assertDefined(fresh, 'fresh skill delta');
+    expect(fresh.invocations).toBe(0);
+    expect(fresh.createdAt).toBe(new Date(5000).toISOString());
   });
 
   it('is empty for no events', () => {
@@ -523,14 +634,24 @@ describe('usage-stats plugin — skill folding', () => {
       skillInvoked(3, 'lint', 3000),
     ];
 
-    await plugin.hooks!.onInit!(ctxFor([]));
-    await plugin.hooks!.onShutdown!(ctxFor(events));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxFor([]));
+    await onShutdown(ctxFor(events));
 
     const file = await loadSkillUsage(skillUsagePath);
-    expect(file.skills['deploy']!.invocations).toBe(2);
-    expect(file.skills['deploy']!.createdAt).toBe(new Date(1000).toISOString());
-    expect(file.skills['deploy']!.lastInvokedAt).toBe(new Date(4000).toISOString());
-    expect(file.skills['lint']!.invocations).toBe(1);
+    const deploy = file.skills['deploy'];
+    assertDefined(deploy, 'deploy skill usage');
+    expect(deploy.invocations).toBe(2);
+    expect(deploy.createdAt).toBe(new Date(1000).toISOString());
+    expect(deploy.lastInvokedAt).toBe(new Date(4000).toISOString());
+    const lint = file.skills['lint'];
+    assertDefined(lint, 'lint skill usage');
+    expect(lint.invocations).toBe(1);
   });
 
   it('counts only the live skill suffix on resume (skips restored skill events)', async () => {
@@ -538,11 +659,19 @@ describe('usage-stats plugin — skill folding', () => {
     const live = [skillInvoked(2, 'deploy', 3000)];
     const plugin = buildUsageStatsPlugin({ statsPath, skillUsagePath });
 
-    await plugin.hooks!.onInit!(ctxFor(restored));
-    await plugin.hooks!.onShutdown!(ctxFor([...restored, ...live]));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxFor(restored));
+    await onShutdown(ctxFor([...restored, ...live]));
 
     // Only the single live invocation is counted — not the 2 restored.
-    expect((await loadSkillUsage(skillUsagePath)).skills['deploy']!.invocations).toBe(1);
+    const deploy = (await loadSkillUsage(skillUsagePath)).skills['deploy'];
+    assertDefined(deploy, 'deploy skill usage');
+    expect(deploy.invocations).toBe(1);
   });
 
   it('folds skill usage even when the run produced no provider_response (no token early-return)', async () => {
@@ -551,18 +680,32 @@ describe('usage-stats plugin — skill folding', () => {
     const plugin = buildUsageStatsPlugin({ statsPath, skillUsagePath });
     const events = [skillInvoked(0, 'deploy', 1000)];
 
-    await plugin.hooks!.onInit!(ctxFor([]));
-    await plugin.hooks!.onShutdown!(ctxFor(events));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxFor([]));
+    await onShutdown(ctxFor(events));
 
-    expect((await loadSkillUsage(skillUsagePath)).skills['deploy']!.invocations).toBe(1);
+    const deploy = (await loadSkillUsage(skillUsagePath)).skills['deploy'];
+    assertDefined(deploy, 'deploy skill usage');
+    expect(deploy.invocations).toBe(1);
     // No token usage was recorded (no provider_response events).
     expect((await loadUsageStats(statsPath)).models).toEqual({});
   });
 
   it('writes no skill usage file when the run exercised no skills', async () => {
     const plugin = buildUsageStatsPlugin({ statsPath, skillUsagePath });
-    await plugin.hooks!.onInit!(ctxFor([]));
-    await plugin.hooks!.onShutdown!(ctxFor([resp(0, 'opus', 100)]));
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'usage-stats plugin hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'onInit hook');
+    const onShutdown = hooks.onShutdown;
+    assertDefined(onShutdown, 'onShutdown hook');
+    await onInit(ctxFor([]));
+    await onShutdown(ctxFor([resp(0, 'opus', 100)]));
     // Empty skill delta → merge never touches disk.
     await expect(fs.access(skillUsagePath)).rejects.toThrow();
   });

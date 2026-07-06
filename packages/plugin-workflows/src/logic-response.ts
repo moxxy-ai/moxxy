@@ -1,4 +1,5 @@
 import type { WorkflowLogicStepFormat, WorkflowStep } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 
 const PLAIN_PROMPT_MARKERS = [
   'odpowiedz wyłącznie zwykłym tekstem',
@@ -33,7 +34,10 @@ export function wantsPlainResponse(step: WorkflowStep): boolean {
 function stripJsonFence(raw: string): string {
   const trimmed = raw.trim();
   const fence = /^```(?:json)?\s*([\s\S]*?)```$/i.exec(trimmed);
-  return fence ? fence[1]!.trim() : trimmed;
+  if (!fence) return trimmed;
+  const body = fence[1];
+  assertDefined(body, 'a successful match guarantees capture group 1');
+  return body.trim();
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {

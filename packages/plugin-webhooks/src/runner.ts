@@ -143,10 +143,13 @@ export class WebhookDispatcher {
         prompt,
         deliveryId,
       });
-      this.opts.logger?.info?.('webhooks: delivery handed off to owner runner', {
-        trigger: trigger.name,
-        owner,
-      });
+      const logger = this.opts.logger;
+      if (logger?.info) {
+        logger.info('webhooks: delivery handed off to owner runner', {
+          trigger: trigger.name,
+          owner,
+        });
+      }
       return { handled: 'enqueued', ownerSessionId: owner };
     }
     const outcome = await this.fire(trigger, prompt, deliveryId);
@@ -158,6 +161,9 @@ export class WebhookDispatcher {
     prompt: string,
     deliveryId: string | null,
   ): Promise<WebhookFireOutcome> {
+    // Best-effort logging: read the optional logger once and narrow each method
+    // at the call site, preserving the silent path when either is absent.
+    const logger = this.opts.logger;
     let result: WebhookPromptResult;
     try {
       result = await this.opts.runner.runPrompt({
@@ -174,10 +180,12 @@ export class WebhookDispatcher {
     try {
       inboxPath = await writeInbox(trigger, result, deliveryId, this.opts.inbox);
     } catch (err) {
-      this.opts.logger?.warn?.('webhooks: inbox write failed', {
-        trigger: trigger.name,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      if (logger?.warn) {
+        logger.warn('webhooks: inbox write failed', {
+          trigger: trigger.name,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     try {
@@ -186,10 +194,12 @@ export class WebhookDispatcher {
         ...(result.error ? { error: result.error } : {}),
       });
     } catch (err) {
-      this.opts.logger?.warn?.('webhooks: store update failed', {
-        trigger: trigger.name,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      if (logger?.warn) {
+        logger.warn('webhooks: store update failed', {
+          trigger: trigger.name,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     const outcome: WebhookFireOutcome = {
@@ -202,17 +212,21 @@ export class WebhookDispatcher {
     try {
       this.opts.onFired?.(trigger, outcome);
     } catch (err) {
-      this.opts.logger?.warn?.('webhooks: onFired hook threw', {
-        trigger: trigger.name,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      if (logger?.warn) {
+        logger.warn('webhooks: onFired hook threw', {
+          trigger: trigger.name,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
-    this.opts.logger?.info?.('webhooks: fired', {
-      trigger: trigger.name,
-      ok: outcome.ok,
-      inbox: outcome.inboxPath,
-    });
+    if (logger?.info) {
+      logger.info('webhooks: fired', {
+        trigger: trigger.name,
+        ok: outcome.ok,
+        inbox: outcome.inboxPath,
+      });
+    }
     return outcome;
   }
 }

@@ -10,6 +10,7 @@
  * that node id, everything else falls into {@link WORKFLOW_ERROR_KEY}.
  */
 
+import { assertDefined } from './assert.js';
 import type { BuilderState } from './types.js';
 import { WORKFLOW_ERROR_KEY } from './types.js';
 import { serialize } from './serialize.js';
@@ -100,11 +101,17 @@ export function mapErrorsToNodes(
   for (const issue of issues) {
     const mentioned = new Set<string>();
     const dup = DUP_RE.exec(issue);
-    if (dup && known.has(dup[1]!)) mentioned.add(dup[1]!);
+    if (dup) {
+      const dupId = dup[1];
+      assertDefined(dupId, 'DUP_RE has a mandatory capture group');
+      if (known.has(dupId)) mentioned.add(dupId);
+    }
     let m: RegExpExecArray | null;
     STEP_MENTION_RE.lastIndex = 0;
     while ((m = STEP_MENTION_RE.exec(issue))) {
-      if (known.has(m[1]!)) mentioned.add(m[1]!);
+      const stepId = m[1];
+      assertDefined(stepId, 'STEP_MENTION_RE has a mandatory capture group');
+      if (known.has(stepId)) mentioned.add(stepId);
     }
     if (mentioned.size === 0) {
       push(WORKFLOW_ERROR_KEY, issue);
@@ -112,7 +119,8 @@ export function mapErrorsToNodes(
       // Attribute to the FIRST named step (the one whose definition is wrong);
       // additional mentions are usually the unknown target the author must add.
       const [first] = [...mentioned];
-      push(first!, issue);
+      assertDefined(first, 'mentioned is non-empty in this branch');
+      push(first, issue);
     }
   }
   return out;

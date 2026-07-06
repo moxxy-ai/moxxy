@@ -1,5 +1,5 @@
 import { rename } from 'node:fs/promises';
-import { createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
+import { assertDefined, createJsonFileStore, type JsonFileStore } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { ulid } from 'ulid';
 import { z } from 'zod';
@@ -302,7 +302,9 @@ export class WebhookStore {
     await this.store.mutate((triggers) => {
       const idx = triggers.findIndex((t) => t.id === id);
       if (idx < 0) return triggers;
-      const current = triggers[idx]!;
+      const current = triggers[idx];
+      // idx >= 0 here (the < 0 case returned above), so the element exists.
+      assertDefined(current, 'trigger at findIndex result');
       const next = webhookTriggerSchema.parse({
         ...current,
         lastFiredAt: Date.now(),
@@ -378,11 +380,14 @@ export class WebhookStore {
       `the webhook trigger store (${this.file}) ${reason}; the original file was preserved ` +
       `at ${preserved} and the store restarted empty. Previously configured triggers (and ` +
       'their secrets) are recoverable from that file — repair it by hand or recreate the triggers.';
-    this.logger?.error?.('webhooks: store file corrupt — preserved aside, starting empty', {
-      file: this.file,
-      preserved,
-      reason,
-    });
+    const logger = this.logger;
+    if (logger?.error) {
+      logger.error('webhooks: store file corrupt — preserved aside, starting empty', {
+        file: this.file,
+        preserved,
+        reason,
+      });
+    }
     return [];
   }
 
@@ -410,12 +415,15 @@ export class WebhookStore {
       `${invalid.length} trigger entr${invalid.length === 1 ? 'y' : 'ies'} in ${this.file} ` +
       `failed schema validation and ${invalid.length === 1 ? 'was' : 'were'} quarantined to ` +
       `${quarantine} (valid triggers were kept). Inspect that file to repair or recreate them.`;
-    this.logger?.error?.('webhooks: invalid trigger entries quarantined', {
-      file: this.file,
-      quarantine,
-      count: invalid.length,
-      issues: invalid.map((i) => ({ index: i.index, issues: i.issues })),
-    });
+    const logger = this.logger;
+    if (logger?.error) {
+      logger.error('webhooks: invalid trigger entries quarantined', {
+        file: this.file,
+        quarantine,
+        count: invalid.length,
+        issues: invalid.map((i) => ({ index: i.index, issues: i.issues })),
+      });
+    }
   }
 
 }

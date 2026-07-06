@@ -25,6 +25,8 @@
  * matches on EITHER. We follow that convention.
  */
 
+import { assertDefined } from '@moxxy/sdk';
+
 interface FieldSpec {
   readonly values: ReadonlySet<number>;
   readonly restricted: boolean;
@@ -67,8 +69,12 @@ function parseField(raw: string, range: FieldRange, fieldName: string): FieldSpe
       hi = range.max;
     } else if (rangePart.includes('-')) {
       const [a, b] = rangePart.split('-');
-      lo = toIntStrict(a!, fieldName);
-      hi = toIntStrict(b!, fieldName);
+      // A string containing '-' always splits into >= 2 parts, so both bounds
+      // are present by construction (empty strings are caught by toIntStrict).
+      assertDefined(a, 'range lower bound (rangePart contains "-")');
+      assertDefined(b, 'range upper bound (rangePart contains "-")');
+      lo = toIntStrict(a, fieldName);
+      hi = toIntStrict(b, fieldName);
     } else {
       lo = toIntStrict(rangePart, fieldName);
       hi = lo;
@@ -299,11 +305,15 @@ function decomposeInZone(d: Date, timeZone?: string): DateParts {
   const parts: Record<string, string> = {};
   for (const part of fmt.formatToParts(d)) parts[part.type] = part.value;
   const weekdayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  // The formatter is configured with `weekday: 'short'`, so formatToParts
+  // always emits a weekday part, so its presence is impossible by construction.
+  const weekday = parts.weekday;
+  assertDefined(weekday, 'formatToParts includes weekday (formatter sets weekday: short)');
   return {
     year: Number(parts.year),
     month: Number(parts.month),
     dom: Number(parts.day),
-    dow: weekdayMap[parts.weekday!] ?? 0,
+    dow: weekdayMap[weekday] ?? 0,
     hour: Number(parts.hour) % 24,
     minute: Number(parts.minute),
   };

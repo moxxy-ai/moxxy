@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { isValidCron, isValidTimeZone, nextFireTime, parseCron } from './cron.js';
 
 describe('parseCron', () => {
@@ -57,30 +58,34 @@ describe('nextFireTime', () => {
     const after = new Date(2026, 4, 11, 8, 30, 0);
     const next = nextFireTime('0 9 * * *', after);
     expect(next).not.toBeNull();
-    expect(next!.getHours()).toBe(9);
-    expect(next!.getMinutes()).toBe(0);
-    expect(next!.getDate()).toBe(11);
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getHours()).toBe(9);
+    expect(next.getMinutes()).toBe(0);
+    expect(next.getDate()).toBe(11);
   });
 
   it('wraps to next day when already past', () => {
     const after = new Date(2026, 4, 11, 10, 0, 0);
     const next = nextFireTime('0 9 * * *', after);
-    expect(next!.getDate()).toBe(12);
-    expect(next!.getHours()).toBe(9);
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getDate()).toBe(12);
+    expect(next.getHours()).toBe(9);
   });
 
   it('every-15-min fires at the next quarter', () => {
     const after = new Date(2026, 4, 11, 10, 7, 0);
     const next = nextFireTime('*/15 * * * *', after);
-    expect(next!.getHours()).toBe(10);
-    expect(next!.getMinutes()).toBe(15);
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getHours()).toBe(10);
+    expect(next.getMinutes()).toBe(15);
   });
 
   it('every hour at minute 30 finds the next half-hour', () => {
     const after = new Date(2026, 4, 11, 10, 45, 0);
     const next = nextFireTime('30 * * * *', after);
-    expect(next!.getHours()).toBe(11);
-    expect(next!.getMinutes()).toBe(30);
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getHours()).toBe(11);
+    expect(next.getMinutes()).toBe(30);
   });
 
   it('returns null for impossible expressions', () => {
@@ -94,8 +99,9 @@ describe('nextFireTime', () => {
     // 2026-05-11 is a Monday. "9 AM on Sundays" -> next Sunday 2026-05-17
     const after = new Date(2026, 4, 11, 8, 0, 0);
     const next = nextFireTime('0 9 * * 0', after);
-    expect(next!.getDay()).toBe(0);
-    expect(next!.getDate()).toBe(17);
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getDay()).toBe(0);
+    expect(next.getDate()).toBe(17);
   });
 
   // u103-4: jumpToNextMonth must walk across a year boundary. From mid-year,
@@ -104,20 +110,22 @@ describe('nextFireTime', () => {
     const after = new Date(2026, 5, 15, 12, 0, 0); // mid-June 2026
     const next = nextFireTime('0 0 1 1 *', after);
     expect(next).not.toBeNull();
-    expect(next!.getFullYear()).toBe(2027);
-    expect(next!.getMonth()).toBe(0); // January
-    expect(next!.getDate()).toBe(1);
-    expect(next!.getHours()).toBe(0);
-    expect(next!.getMinutes()).toBe(0);
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getFullYear()).toBe(2027);
+    expect(next.getMonth()).toBe(0); // January
+    expect(next.getDate()).toBe(1);
+    expect(next.getHours()).toBe(0);
+    expect(next.getMinutes()).toBe(0);
   });
 
   it('jumps to the next valid month within the same year', () => {
     // From January, "midnight on the 1st of March" -> 2026-03-01.
     const after = new Date(2026, 0, 10, 0, 0, 0); // 2026-01-10
     const next = nextFireTime('0 0 1 3 *', after);
-    expect(next!.getFullYear()).toBe(2026);
-    expect(next!.getMonth()).toBe(2); // March
-    expect(next!.getDate()).toBe(1);
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getFullYear()).toBe(2026);
+    expect(next.getMonth()).toBe(2); // March
+    expect(next.getDate()).toBe(1);
   });
 
   // u103-4: vixie-cron OR semantics — when BOTH DOM and DOW are restricted,
@@ -128,8 +136,9 @@ describe('nextFireTime', () => {
     const after = new Date(2026, 5, 6, 0, 0, 0); // Sat 2026-06-06
     const next = nextFireTime('0 0 13 * 5', after);
     expect(next).not.toBeNull();
-    expect(next!.getDate()).toBe(12);
-    expect(next!.getDay()).toBe(5); // Friday
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getDate()).toBe(12);
+    expect(next.getDay()).toBe(5); // Friday
   });
 
   it('matches the 13th via the DOM arm even when it is not a Friday', () => {
@@ -138,8 +147,9 @@ describe('nextFireTime', () => {
     const after = new Date(2026, 5, 12, 0, 1, 0); // just past midnight Fri 06-12
     const next = nextFireTime('0 0 13 * 5', after);
     expect(next).not.toBeNull();
-    expect(next!.getDate()).toBe(13);
-    expect(next!.getDay()).toBe(6); // Saturday — matched purely via DOM
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    expect(next.getDate()).toBe(13);
+    expect(next.getDay()).toBe(6); // Saturday — matched purely via DOM
   });
 
   // Regression for u103-1: with an explicit IANA zone the cursor walk must
@@ -163,7 +173,8 @@ describe('nextFireTime', () => {
     const after = new Date(Date.UTC(2026, 4, 11, 0, 0, 0));
     const next = nextFireTime('0 9 * * *', after, 'America/New_York');
     expect(next).not.toBeNull();
-    const wc = wallClockInZone(next!, 'America/New_York');
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    const wc = wallClockInZone(next, 'America/New_York');
     expect(wc.hour).toBe(9);
     expect(wc.minute).toBe(0);
   });
@@ -172,7 +183,8 @@ describe('nextFireTime', () => {
     const after = new Date(Date.UTC(2026, 4, 11, 0, 0, 0));
     const next = nextFireTime('0 9 * * *', after, 'Asia/Tokyo');
     expect(next).not.toBeNull();
-    const wc = wallClockInZone(next!, 'Asia/Tokyo');
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    const wc = wallClockInZone(next, 'Asia/Tokyo');
     expect(wc.hour).toBe(9);
     expect(wc.minute).toBe(0);
   });
@@ -184,7 +196,8 @@ describe('nextFireTime', () => {
     const after = new Date(Date.UTC(2026, 2, 8, 0, 0, 0));
     const next = nextFireTime('30 2 * * *', after, 'America/New_York');
     expect(next).not.toBeNull();
-    const wc = wallClockInZone(next!, 'America/New_York');
+    assertDefined(next, 'nextFireTime resolves to a fire time');
+    const wc = wallClockInZone(next, 'America/New_York');
     expect(wc.hour).toBe(2);
     expect(wc.minute).toBe(30);
   });
@@ -211,7 +224,8 @@ describe('nextFireTime', () => {
     // Jan 31 exists — must resolve, not be short-circuited to null.
     const jan31 = nextFireTime('0 0 31 1 *', after, 'America/New_York');
     expect(jan31).not.toBeNull();
-    const wc = wallClockInZone(jan31!, 'America/New_York');
+    assertDefined(jan31, 'Jan 31 exists, so nextFireTime resolves');
+    const wc = wallClockInZone(jan31, 'America/New_York');
     expect(wc.hour).toBe(0);
   });
 
@@ -221,8 +235,9 @@ describe('nextFireTime', () => {
     const after = new Date(2028, 0, 1, 0, 0, 0);
     const next = nextFireTime('0 0 29 2 *', after);
     expect(next).not.toBeNull();
-    expect(next!.getMonth()).toBe(1); // February
-    expect(next!.getDate()).toBe(29);
+    assertDefined(next, 'Feb 29 in a leap year resolves');
+    expect(next.getMonth()).toBe(1); // February
+    expect(next.getDate()).toBe(29);
   });
 
   it('does NOT treat an impossible-DOM cron as impossible when DOW is restricted (OR-semantics)', () => {
@@ -231,7 +246,8 @@ describe('nextFireTime', () => {
     const after = new Date(2026, 0, 1, 0, 0, 0);
     const next = nextFireTime('0 0 30 2 5', after);
     expect(next).not.toBeNull();
-    expect(next!.getDay()).toBe(5); // matched via the Friday (DOW) arm
+    assertDefined(next, 'the Friday (DOW) arm makes this reachable');
+    expect(next.getDay()).toBe(5); // matched via the Friday (DOW) arm
   });
 
   // Worst case: a non-IANA timeZone must NOT throw a RangeError out of

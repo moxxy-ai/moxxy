@@ -1,3 +1,4 @@
+import { assertDefined } from '@moxxy/sdk';
 import { describe, expect, it } from 'vitest';
 import { parseWorkflowYaml, serializeWorkflow, validateWorkflow } from './schema.js';
 
@@ -26,24 +27,30 @@ describe('workflow schema', () => {
   it('parses a valid workflow and applies defaults', () => {
     const r = parseWorkflowYaml(VALID);
     expect(r.ok).toBe(true);
-    const wf = r.workflow!;
+    const wf = r.workflow;
+    assertDefined(wf, 'parsed workflow');
     expect(wf.name).toBe('stock-digest');
     expect(wf.version).toBe(1);
     expect(wf.enabled).toBe(true);
     expect(wf.concurrency).toBe(4);
     expect(wf.steps).toHaveLength(3);
     // step-level defaults
-    expect(wf.steps[0]!.needs).toEqual([]);
-    expect(wf.steps[0]!.onError).toBe('fail');
-    expect(wf.steps[0]!.retries).toBe(0);
+    const first = wf.steps[0];
+    assertDefined(first, 'first step');
+    expect(first.needs).toEqual([]);
+    expect(first.onError).toBe('fail');
+    expect(first.retries).toBe(0);
   });
 
   it('round-trips through serialize → parse', () => {
-    const wf = parseWorkflowYaml(VALID).workflow!;
+    const wf = parseWorkflowYaml(VALID).workflow;
+    assertDefined(wf, 'parsed workflow');
     const reparsed = parseWorkflowYaml(serializeWorkflow(wf));
     expect(reparsed.ok).toBe(true);
-    expect(reparsed.workflow!.name).toBe(wf.name);
-    expect(reparsed.workflow!.steps).toHaveLength(3);
+    const rewf = reparsed.workflow;
+    assertDefined(rewf, 'reparsed workflow');
+    expect(rewf.name).toBe(wf.name);
+    expect(rewf.steps).toHaveLength(3);
   });
 
   it('accepts and preserves UI layout metadata for the visual builder', () => {
@@ -73,12 +80,20 @@ steps:
 `);
 
     expect(r.ok).toBe(true);
-    expect(r.workflow!.ui?.layout?.nodes.fetch).toEqual({ x: 120, y: 80 });
-    expect(r.workflow!.ui?.layout?.viewport).toEqual({ x: -40, y: 12, zoom: 0.85 });
+    const wf = r.workflow;
+    assertDefined(wf, 'parsed workflow');
+    const layout = wf.ui?.layout;
+    assertDefined(layout, 'ui layout');
+    expect(layout.nodes.fetch).toEqual({ x: 120, y: 80 });
+    expect(layout.viewport).toEqual({ x: -40, y: 12, zoom: 0.85 });
 
-    const reparsed = parseWorkflowYaml(serializeWorkflow(r.workflow!));
+    const reparsed = parseWorkflowYaml(serializeWorkflow(wf));
     expect(reparsed.ok).toBe(true);
-    expect(reparsed.workflow!.ui?.layout?.nodes.summarize).toEqual({ x: 420, y: 160 });
+    const rewf = reparsed.workflow;
+    assertDefined(rewf, 'reparsed workflow');
+    const relayout = rewf.ui?.layout;
+    assertDefined(relayout, 'reparsed ui layout');
+    expect(relayout.nodes.summarize).toEqual({ x: 420, y: 160 });
   });
 
   it('rejects a cycle in `needs`', () => {
@@ -203,7 +218,11 @@ steps:
       ],
     });
     expect(r.ok).toBe(true);
-    expect(r.workflow!.steps[1]!.then).toEqual(['heavy']);
+    const wf = r.workflow;
+    assertDefined(wf, 'parsed workflow');
+    const gate = wf.steps[1];
+    assertDefined(gate, 'second step');
+    expect(gate.then).toEqual(['heavy']);
   });
 
   it('rejects condition without then/else', () => {
@@ -239,7 +258,12 @@ steps:
       ],
     });
     expect(r.ok).toBe(true);
-    const loop = r.workflow!.steps[1]!.loop!;
+    const wf = r.workflow;
+    assertDefined(wf, 'parsed workflow');
+    const spin = wf.steps[1];
+    assertDefined(spin, 'second step');
+    const loop = spin.loop;
+    assertDefined(loop, 'loop action');
     expect(loop.body).toEqual(['work']);
     expect(loop.maxIterations).toBe(10); // default
   });
@@ -314,7 +338,11 @@ steps:
       steps: [{ id: 'ask', prompt: 'ask the operator', awaitInput: true }],
     });
     expect(r.ok).toBe(true);
-    expect(r.workflow?.steps[0]?.awaitInput).toBe(true);
+    const wf = r.workflow;
+    assertDefined(wf, 'parsed workflow');
+    const step = wf.steps[0];
+    assertDefined(step, 'first step');
+    expect(step.awaitInput).toBe(true);
   });
 
   it('accepts awaitInput on a skill step', () => {
@@ -324,7 +352,11 @@ steps:
       steps: [{ id: 'ask', skill: 'web-research', input: 'ask', awaitInput: true }],
     });
     expect(r.ok).toBe(true);
-    expect(r.workflow?.steps[0]?.awaitInput).toBe(true);
+    const wf = r.workflow;
+    assertDefined(wf, 'parsed workflow');
+    const step = wf.steps[0];
+    assertDefined(step, 'first step');
+    expect(step.awaitInput).toBe(true);
   });
 
   it('rejects awaitInput on a tool step', () => {

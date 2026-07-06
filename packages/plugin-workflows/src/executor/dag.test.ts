@@ -1,5 +1,6 @@
 import {
   asSessionId,
+  assertDefined,
   type Skill,
   type SubagentResult,
   type SubagentSpec,
@@ -124,7 +125,10 @@ function makeHarness(overrides: Partial<WorkflowRunDeps> = {}, skills: Record<st
       },
     },
     lookup: {
-      skill: (n) => (skills[n] !== undefined ? fakeSkill(n, skills[n]!) : undefined),
+      skill: (n) => {
+        const body = skills[n];
+        return body !== undefined ? fakeSkill(n, body) : undefined;
+      },
       workflow: () => undefined,
     },
     signal: new AbortController().signal,
@@ -150,7 +154,8 @@ describe('dag executor', () => {
     );
     expect(result.ok).toBe(true);
     expect(result.steps.map((s) => s.status)).toEqual(['completed', 'completed']);
-    const analyze = h.specs.find((s) => s.label === 'analyze')!;
+    const analyze = h.specs.find((s) => s.label === 'analyze');
+    assertDefined(analyze, 'the analyze step spawned a subagent');
     expect(analyze.prompt).toBe('see OUT_fetch');
     expect(result.output).toBe('OUT_analyze'); // sink
   });
@@ -200,7 +205,9 @@ describe('dag executor', () => {
     expect(h.order.indexOf('fetch')).toBeLessThan(h.order.indexOf('check'));
     expect(h.order.indexOf('analyze')).toBeLessThan(h.order.indexOf('tool:send'));
     expect(h.order.indexOf('check')).toBeLessThan(h.order.indexOf('tool:send'));
-    expect(h.toolCalls[0]!.input).toEqual({ body: 'OUT_analyze|OUT_check' });
+    const sendCall = h.toolCalls[0];
+    assertDefined(sendCall, 'the send tool was called');
+    expect(sendCall.input).toEqual({ body: 'OUT_analyze|OUT_check' });
   });
 
   it('skips a step whose `when` is false but still runs its dependents', async () => {
@@ -232,7 +239,8 @@ describe('dag executor', () => {
       }),
       h.deps,
     );
-    const spec = h.specs[0]!;
+    const spec = h.specs[0];
+    assertDefined(spec, 'the skill step spawned a subagent');
     expect(spec.systemPrompt).toBe('RESEARCH PLAYBOOK');
     expect(spec.prompt).toBe('find news');
     expect(spec.allowedTools).toEqual(['Read']);
@@ -313,7 +321,9 @@ describe('dag executor', () => {
     );
     expect(result.ok).toBe(true);
     expect(attempts).toBe(2);
-    expect(result.steps[0]!.status).toBe('completed');
+    const first = result.steps[0];
+    assertDefined(first, 'first step result');
+    expect(first.status).toBe('completed');
   });
 
   // Retry contract (u117-3): `retries` is gated on `onError: 'retry'`. The three
@@ -341,7 +351,9 @@ describe('dag executor', () => {
     );
     expect(result.ok).toBe(false);
     expect(attempts).toBe(3); // 1 initial + 2 retries
-    expect(result.steps[0]!.status).toBe('failed');
+    const first = result.steps[0];
+    assertDefined(first, 'first step result');
+    expect(first.status).toBe('failed');
   });
 
   it('onError=fail runs exactly ONE attempt even with retries set', async () => {
@@ -365,7 +377,9 @@ describe('dag executor', () => {
     );
     expect(result.ok).toBe(false);
     expect(attempts).toBe(1); // retries ignored outside retry mode
-    expect(result.steps[0]!.status).toBe('failed');
+    const first = result.steps[0];
+    assertDefined(first, 'first step result');
+    expect(first.status).toBe('failed');
   });
 
   it('onError=continue runs exactly ONE attempt even with retries set', async () => {
@@ -409,7 +423,9 @@ describe('dag executor', () => {
       deps,
     );
     expect(result.ok).toBe(true);
-    expect(result.steps[0]!.output).toBe('OUT_i');
+    const first = result.steps[0];
+    assertDefined(first, 'first step result');
+    expect(first.output).toBe('OUT_i');
   });
 
   it('a hard failure breaks the rest of the wave (no later step runs or completes)', async () => {
@@ -468,8 +484,10 @@ describe('dag executor', () => {
     // The run fails loudly (does NOT report paused/completed) and names awaitInput.
     expect(result.ok).toBe(false);
     expect(result.status).toBe('failed');
-    expect(result.steps[0]!.status).toBe('failed');
-    expect(result.steps[0]!.error).toMatch(/awaitInput/i);
+    const first = result.steps[0];
+    assertDefined(first, 'first step result');
+    expect(first.status).toBe('failed');
+    expect(first.error).toMatch(/awaitInput/i);
     // No orphaned inner checkpoint left behind in the store.
     const leftover = (await readdir(dir)).filter((f) => f.endsWith('.json'));
     expect(leftover).toEqual([]);
@@ -517,7 +535,8 @@ describe('dag executor', () => {
       h.deps,
     );
     const completed = events.find((e) => e.subtype === 'workflow_completed');
-    expect((completed?.payload as { empty?: boolean })?.empty).toBeUndefined();
+    assertDefined(completed, 'workflow_completed event was emitted');
+    expect((completed.payload as { empty?: boolean }).empty).toBeUndefined();
   });
 
   it('pauses on awaitInput and resumes after operator reply', async () => {
@@ -541,10 +560,13 @@ describe('dag executor', () => {
     expect(events).toContain('workflow_step_awaiting_input');
     expect(events).toContain('workflow_paused');
 
-    const resumed = await resumeWorkflowRun(paused.runId!, 'cyberpunk city at night', h.deps, store);
+    const runId = paused.runId;
+    assertDefined(runId, 'a paused run reports its runId');
+    const resumed = await resumeWorkflowRun(runId, 'cyberpunk city at night', h.deps, store);
     expect(resumed.status).toBe('completed');
     expect(resumed.ok).toBe(true);
-    const go = h.specs.find((s) => s.label === 'go')!;
+    const go = h.specs.find((s) => s.label === 'go');
+    assertDefined(go, 'the go step spawned after resume');
     expect(go.prompt).toContain('FINAL_ask');
     await rm(dir, { recursive: true, force: true });
   });
@@ -565,8 +587,10 @@ describe('dag executor', () => {
       h.deps,
     );
     expect(paused.status).toBe('paused');
+    const runId = paused.runId;
+    assertDefined(runId, 'a paused run reports its runId');
     // Same emit spy drives the resume — assert ONE workflow_started total.
-    await resumeWorkflowRun(paused.runId!, 'reply', h.deps, store);
+    await resumeWorkflowRun(runId, 'reply', h.deps, store);
     expect(events.filter((e) => e === 'workflow_started')).toHaveLength(1);
     // workflow_resumed precedes any continued step-completed event.
     const resumedAt = events.indexOf('workflow_resumed');
@@ -605,21 +629,23 @@ describe('dag executor', () => {
     // PAUSED — checkpoint written, workflow_paused emitted with the prompt step + runId.
     expect(paused.status).toBe('paused');
     expect(paused.runId).toBeTruthy();
+    const runId = paused.runId;
+    assertDefined(runId, 'a paused run reports its runId');
     const pausedEvent = events.find((e) => e.subtype === 'workflow_paused');
-    expect(pausedEvent?.payload).toMatchObject({ runId: paused.runId, stepId: 'ask' });
+    expect(pausedEvent?.payload).toMatchObject({ runId, stepId: 'ask' });
     // The pending step's prompt is surfaced to the operator (awaiting_input preview).
     const awaiting = events.find((e) => e.subtype === 'workflow_step_awaiting_input');
     expect(awaiting?.payload).toMatchObject({ id: 'ask' });
-    expect(await store.load(paused.runId!)).not.toBeNull();
+    expect(await store.load(runId)).not.toBeNull();
 
     // RESUME with the operator reply → run COMPLETES (not paused/hung).
-    const resumed = await resumeWorkflowRun(paused.runId!, 'ship it', h.deps, store);
+    const resumed = await resumeWorkflowRun(runId, 'ship it', h.deps, store);
     expect(resumed.status).toBe('completed');
     expect(resumed.ok).toBe(true);
     // The downstream tool ran with the reply AND the pre-pause var.
     expect(h.toolCalls.find((c) => c.name === 'notify')?.input).toEqual({ to: '#ops', body: 'FINAL_Approve' });
     // The checkpoint is cleaned up once resumed (no orphaned paused run).
-    expect(await store.load(paused.runId!)).toBeNull();
+    expect(await store.load(runId)).toBeNull();
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -648,7 +674,9 @@ describe('dag executor', () => {
     );
     expect(paused.status).toBe('paused');
 
-    const resumed = await resumeWorkflowRun(paused.runId!, 'go ahead', h.deps, store);
+    const runId = paused.runId;
+    assertDefined(runId, 'a paused run reports its runId');
+    const resumed = await resumeWorkflowRun(runId, 'go ahead', h.deps, store);
     expect(resumed.ok).toBe(true);
     expect(h.toolCalls.find((c) => c.name === 'notify')?.input).toEqual({ to: 'ops@example.com' });
     await rm(dir, { recursive: true, force: true });
@@ -701,10 +729,12 @@ describe('dag executor', () => {
     );
     expect(paused.status).toBe('paused');
 
+    const runId = paused.runId;
+    assertDefined(runId, 'a paused run reports its runId');
     const resumeDeps = { ...h.deps, spawner: slowContinue } as WorkflowRunDeps;
     const [a, b] = await Promise.all([
-      resumeWorkflowRun(paused.runId!, 'one', resumeDeps, countingStore),
-      resumeWorkflowRun(paused.runId!, 'two', resumeDeps, countingStore),
+      resumeWorkflowRun(runId, 'one', resumeDeps, countingStore),
+      resumeWorkflowRun(runId, 'two', resumeDeps, countingStore),
     ]);
     // Exactly one resume proceeded; the other was rejected by the in-flight lock.
     const oks = [a, b].filter((r) => r.ok);
@@ -736,7 +766,9 @@ describe('dag executor', () => {
     );
     expect(result.ok).toBe(true);
     // The safe key still merges…
-    expect(h.toolCalls[0]!.input).toEqual({ v: 'ok' });
+    const notifyCall = h.toolCalls[0];
+    assertDefined(notifyCall, 'the notify tool was called');
+    expect(notifyCall.input).toEqual({ v: 'ok' });
     // …but the prototype is not polluted.
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(Object.prototype, 'polluted')).toBe(false);
@@ -761,7 +793,9 @@ describe('dag executor', () => {
       h.deps,
     );
     expect(result.ok).toBe(true);
-    expect(h.toolCalls[0]!.input).toEqual({ to: 'ops@example.com' });
+    const notifyCall = h.toolCalls[0];
+    assertDefined(notifyCall, 'the notify tool was called');
+    expect(notifyCall.input).toEqual({ to: 'ops@example.com' });
   });
 
   it('condition skips the inactive branch', async () => {
@@ -821,7 +855,9 @@ describe('dag executor', () => {
       h.deps,
     );
     expect(result.ok).toBe(false);
-    expect(result.steps[0]!.status).toBe('failed');
+    const first = result.steps[0];
+    assertDefined(first, 'first step result');
+    expect(first.status).toBe('failed');
   });
 });
 
@@ -896,7 +932,8 @@ describe('dag executor — while-loop node', () => {
     const result = await dagExecutor.run(loopWf('loop-cap', 4), h.deps);
     expect(result.ok).toBe(true);
     expect(h.order.filter((o) => o === 'bump').length).toBe(4); // exactly maxIterations
-    const spin = result.steps.find((s) => s.id === 'spin')!;
+    const spin = result.steps.find((s) => s.id === 'spin');
+    assertDefined(spin, 'the spin step has a result');
     expect(spin.status).toBe('completed');
     expect(spin.output).toMatch(/max iterations \(4\)/);
   });
@@ -910,9 +947,11 @@ describe('dag executor — while-loop node', () => {
     } as Partial<WorkflowRunDeps>);
     const result = await dagExecutor.run(loopWf('loop-vars'), h.deps);
     expect(result.ok).toBe(true);
-    const condSpec = h.specs.find((s) => s.label === 'spin (condition)')!;
+    const condSpec = h.specs.find((s) => s.label === 'spin (condition)');
+    assertDefined(condSpec, 'the loop condition spawned a subagent');
     expect(condSpec.prompt).toContain('42'); // {{ vars.count }} rendered the body's var
-    const done = h.specs.find((s) => s.label === 'done')!;
+    const done = h.specs.find((s) => s.label === 'done');
+    assertDefined(done, 'the done step spawned a subagent');
     expect(done.prompt).toContain('42'); // downstream step also sees the var
   });
 
@@ -955,7 +994,8 @@ describe('dag executor — while-loop node', () => {
     const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
     expect(byId.spin).toBe('completed');
     expect(byId.after).toBe('completed'); // downstream of the loop RUNS
-    const spin = result.steps.find((s) => s.id === 'spin')!;
+    const spin = result.steps.find((s) => s.id === 'spin');
+    assertDefined(spin, 'the spin step has a result');
     expect(spin.output).toMatch(/broke on error/);
   });
 
@@ -994,7 +1034,8 @@ describe('dag executor — while-loop node', () => {
     const byId = Object.fromEntries(result.steps.map((s) => [s.id, s.status]));
     expect(byId.spin).toBe('completed');
     expect(byId.after).toBe('completed');
-    const spin = result.steps.find((s) => s.id === 'spin')!;
+    const spin = result.steps.find((s) => s.id === 'spin');
+    assertDefined(spin, 'the spin step has a result');
     expect(spin.output).not.toMatch(/broke on error/); // it was not a break
   });
 
@@ -1031,7 +1072,8 @@ describe('dag executor — while-loop node', () => {
     // guard throws, failing the body step (onError=fail) → the body error
     // BREAKS the loop (loop returns ok), and the downstream step still runs.
     expect(result.ok).toBe(true);
-    const loopnest = result.steps.find((s) => s.id === 'loopnest')!;
+    const loopnest = result.steps.find((s) => s.id === 'loopnest');
+    assertDefined(loopnest, 'the loopnest step has a result');
     expect(loopnest.status).toBe('completed');
     expect(loopnest.output).toMatch(/broke on error/);
     expect(loopnest.output).toMatch(/depth exceeded/);

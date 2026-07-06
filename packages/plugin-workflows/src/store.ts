@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { createMutex, type Mutex, type Workflow } from '@moxxy/sdk';
+import { assertDefined, createMutex, type Mutex, type Workflow } from '@moxxy/sdk';
 import { writeFileAtomic } from '@moxxy/sdk/server';
 import {
   defaultProjectWorkflowsDir,
@@ -145,7 +145,8 @@ export class WorkflowStore {
       previousName != null && previousName !== workflow.name ? this.byName.get(previousName) : undefined;
     if (renamed && (renamed.scope === 'user' || renamed.scope === 'project')) {
       await fs.rm(renamed.path, { force: true });
-      this.byName.delete(previousName!);
+      assertDefined(previousName, 'renamed is only set when previousName != null');
+      this.byName.delete(previousName);
     }
 
     const existing = this.byName.get(workflow.name);

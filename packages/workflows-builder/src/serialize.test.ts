@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowStep } from '@moxxy/sdk';
+import { assertDefined } from './assert.js';
 import {
   addStep,
   emptyState,
@@ -43,13 +44,20 @@ describe('serialize → Workflow', () => {
     const { workflow, yaml } = serialize(s);
     expect(workflow.name).toBe('refine-draft');
     expect(workflow.steps).toHaveLength(4);
-    const loop = workflow.steps.find((st) => st.id === 'refine')!;
+    const loop = workflow.steps.find((st) => st.id === 'refine');
+    assertDefined(loop, 'refine step');
     expect(loop.loop).toEqual({ body: ['improve'], condition: 'Is the draft good enough?', maxIterations: 5 });
     // body + exit steps carry needs:[refine]
-    expect(workflow.steps.find((st) => st.id === 'improve')!.needs).toContain('refine');
-    expect(workflow.steps.find((st) => st.id === 'finish')!.needs).toContain('refine');
-    expect(workflow.ui?.layout?.nodes.first_draft).toBeDefined();
-    expect(workflow.ui?.layout?.viewport).toEqual({ x: 0, y: 0, zoom: 1 });
+    const improve = workflow.steps.find((st) => st.id === 'improve');
+    assertDefined(improve, 'improve step');
+    expect(improve.needs).toContain('refine');
+    const finish = workflow.steps.find((st) => st.id === 'finish');
+    assertDefined(finish, 'finish step');
+    expect(finish.needs).toContain('refine');
+    const layout = workflow.ui?.layout;
+    assertDefined(layout, 'ui layout');
+    expect(layout.nodes.first_draft).toBeDefined();
+    expect(layout.viewport).toEqual({ x: 0, y: 0, zoom: 1 });
     expect(yaml).toContain('name: refine-draft');
     expect(yaml).toContain('loop:');
   });
@@ -71,7 +79,8 @@ describe('serialize → Workflow', () => {
     const { yaml } = serialize(s);
     expect(yaml).toMatch(/prompt: \|/);
     const parsed = fromYaml(yaml) as { steps: Array<{ id: string; prompt?: string }> };
-    const draft = parsed.steps.find((st) => st.id === 'first_draft')!;
+    const draft = parsed.steps.find((st) => st.id === 'first_draft');
+    assertDefined(draft, 'first_draft step');
     expect(draft.prompt).toContain('Write a first draft');
     expect(draft.prompt).toContain('Keep it short.');
   });
@@ -84,7 +93,8 @@ describe('hydrate ← Workflow (round-trip)', () => {
     const re = hydrate(workflow);
 
     expect(re.nodes.map((n) => n.id).sort()).toEqual(['finish', 'first_draft', 'improve', 'refine']);
-    const loop = re.nodes.find((n) => n.id === 'refine')!;
+    const loop = re.nodes.find((n) => n.id === 'refine');
+    assertDefined(loop, 'refine node');
     expect(loop.kind).toBe('loop');
     expect(loop.loop).toEqual({ body: ['improve'], condition: 'Is the draft good enough?', maxIterations: 5 });
     // loop-body + single loop-exit edges survive the round-trip
@@ -92,7 +102,13 @@ describe('hydrate ← Workflow (round-trip)', () => {
     expect(re.edges.filter((e) => e.kind === 'loop-exit')).toHaveLength(1);
     expect(re.edges).toContainEqual(expect.objectContaining({ kind: 'loop-exit', from: 'refine', to: 'finish' }));
     // positions preserved from ui.layout
-    expect(re.nodes.find((n) => n.id === 'first_draft')!.x).toBe(workflow.ui!.layout!.nodes.first_draft!.x);
+    const firstDraftNode = re.nodes.find((n) => n.id === 'first_draft');
+    assertDefined(firstDraftNode, 'first_draft node');
+    const layout = workflow.ui?.layout;
+    assertDefined(layout, 'ui layout');
+    const laidOut = layout.nodes.first_draft;
+    assertDefined(laidOut, 'first_draft layout position');
+    expect(firstDraftNode.x).toBe(laidOut.x);
   });
 
   it('round-trips condition + switch branch edges', () => {
@@ -113,9 +129,13 @@ describe('hydrate ← Workflow (round-trip)', () => {
 
     const { workflow } = serialize(s);
     const re = hydrate(workflow);
-    expect(re.nodes.find((n) => n.id === 'gate')!.then).toEqual(['a']);
-    expect(re.nodes.find((n) => n.id === 'sw')!.cases).toEqual({ high: ['hi'], low: ['lo'] });
-    expect(re.nodes.find((n) => n.id === 'sw')!.default).toEqual(['fb']);
+    const gate = re.nodes.find((n) => n.id === 'gate');
+    assertDefined(gate, 'gate node');
+    expect(gate.then).toEqual(['a']);
+    const sw = re.nodes.find((n) => n.id === 'sw');
+    assertDefined(sw, 'sw node');
+    expect(sw.cases).toEqual({ high: ['hi'], low: ['lo'] });
+    expect(sw.default).toEqual(['fb']);
     expect(re.edges).toContainEqual(expect.objectContaining({ kind: 'then', from: 'gate', to: 'a' }));
     expect(re.edges).toContainEqual(expect.objectContaining({ kind: 'case', caseId: 'high', from: 'sw', to: 'hi' }));
   });
@@ -123,7 +143,11 @@ describe('hydrate ← Workflow (round-trip)', () => {
   it('hydrateYaml parses canonical YAML back into a canvas', () => {
     const { yaml } = serialize(refineFixture());
     const re = hydrateYaml(yaml);
-    expect(re.nodes.find((n) => n.id === 'refine')!.loop!.condition).toBe('Is the draft good enough?');
+    const refine = re.nodes.find((n) => n.id === 'refine');
+    assertDefined(refine, 'refine node');
+    const cfg = refine.loop;
+    assertDefined(cfg, 'refine loop config');
+    expect(cfg.condition).toBe('Is the draft good enough?');
     expect(re.dirty).toBe(false);
   });
 });
@@ -139,17 +163,25 @@ describe('auto-layout when ui.layout is absent', () => {
     // strip ui so hydrate must auto-layout
     const bare = { ...workflow, ui: undefined };
     const re = hydrate(bare);
-    const x = (id: string) => re.nodes.find((n) => n.id === id)!.x;
+    const x = (id: string) => {
+      const node = re.nodes.find((n) => n.id === id);
+      assertDefined(node, `node ${id}`);
+      return node.x;
+    };
     expect(x('a')).toBeLessThan(x('b'));
     expect(x('b')).toBeLessThan(x('c'));
   });
 
   it('autoLayout assigns increasing columns by depth', () => {
     const positions = autoLayout([step('a'), step('b', ['a']), step('c', ['a'])]);
-    expect(positions[0]!.x).toBeLessThan(positions[1]!.x);
+    const [p0, p1, p2] = positions;
+    assertDefined(p0, 'position 0');
+    assertDefined(p1, 'position 1');
+    assertDefined(p2, 'position 2');
+    expect(p0.x).toBeLessThan(p1.x);
     // b and c are siblings at the same depth → same column, stacked rows
-    expect(positions[1]!.x).toBe(positions[2]!.x);
-    expect(positions[1]!.y).not.toBe(positions[2]!.y);
+    expect(p1.x).toBe(p2.x);
+    expect(p1.y).not.toBe(p2.y);
   });
 });
 
@@ -190,7 +222,8 @@ describe('hydrateYaml hardening — malformed / hand-authored drafts', () => {
       ],
     } as unknown as import('@moxxy/sdk').Workflow;
     const re = hydrate(wf);
-    const node = re.nodes.find((n) => n.id === 'c')!;
+    const node = re.nodes.find((n) => n.id === 'c');
+    assertDefined(node, 'node c');
     // `then` was not an array → dropped, not spread into ['o','o','p','s'].
     expect(node.then).toBeUndefined();
     expect(node.else).toEqual(['ok']);
@@ -204,8 +237,12 @@ describe('hydrateYaml hardening — malformed / hand-authored drafts', () => {
     );
     expect(() => autoLayout(steps)).not.toThrow();
     const positions = autoLayout(steps);
+    const first = positions[0];
+    const last = positions[4999];
+    assertDefined(first, 'position 0');
+    assertDefined(last, 'position 4999');
     // depth strictly increases along the chain.
-    expect(positions[0]!.x).toBeLessThan(positions[4999]!.x);
+    expect(first.x).toBeLessThan(last.x);
   });
 });
 
@@ -234,8 +271,10 @@ describe('yaml codec edge cases', () => {
     const back = fromYaml(toYaml(value)) as typeof value;
     // The `|` block scalar keeps a trailing newline (clip chomping); the body
     // content — including every `#` — must be intact and uncorrupted.
-    expect(back.steps[0]!.prompt!.replace(/\n$/, '')).toBe(prompt);
+    const firstStep = back.steps[0];
+    assertDefined(firstStep, 'first step');
+    expect(firstStep.prompt.replace(/\n$/, '')).toBe(prompt);
     // A genuine trailing comment on a structural (non-block) line is still stripped.
-    expect(back.steps[0]!.after).toBe('plain');
+    expect(firstStep.after).toBe('plain');
   });
 });

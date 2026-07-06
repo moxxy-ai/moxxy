@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from './assert.js';
 import {
   addStep,
   connectNeeds,
@@ -24,7 +25,9 @@ describe('addStep / removeStep', () => {
   it('adds a node, selects it, flips dirty', () => {
     const s = addStep(emptyState(), { kind: 'prompt', id: 'a' });
     expect(s.nodes).toHaveLength(1);
-    expect(s.nodes[0]!.id).toBe('a');
+    const first = s.nodes[0];
+    assertDefined(first, 'first node');
+    expect(first.id).toBe('a');
     expect(s.selected).toBe('a');
     expect(s.dirty).toBe(true);
   });
@@ -38,7 +41,9 @@ describe('addStep / removeStep', () => {
   it('wires `after` into a needs edge', () => {
     let s = addStep(emptyState(), { kind: 'prompt', id: 'a' });
     s = addStep(s, { kind: 'prompt', id: 'b', after: 'a' });
-    expect(s.nodes.find((n) => n.id === 'b')!.needs).toEqual(['a']);
+    const b = s.nodes.find((n) => n.id === 'b');
+    assertDefined(b, 'node b');
+    expect(b.needs).toEqual(['a']);
     expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'needs', from: 'a', to: 'b' }));
   });
 
@@ -50,7 +55,9 @@ describe('addStep / removeStep', () => {
     s = setBranchTargets(s, 'c', 'then', ['b']);
     s = removeStep(s, 'b');
     expect(s.nodes.map((n) => n.id)).toEqual(['a', 'c']);
-    expect(s.nodes.find((n) => n.id === 'c')!.then).toEqual([]);
+    const c = s.nodes.find((n) => n.id === 'c');
+    assertDefined(c, 'node c');
+    expect(c.then).toEqual([]);
     expect(s.edges.some((e) => e.to === 'b')).toBe(false);
   });
 });
@@ -61,9 +68,13 @@ describe('needs edges', () => {
     s = connectNeeds(s, 'a', 'b');
     s = connectNeeds(s, 'a', 'b'); // dup ignored
     s = connectNeeds(s, 'b', 'b'); // self ignored
-    expect(s.nodes.find((n) => n.id === 'b')!.needs).toEqual(['a']);
+    const b1 = s.nodes.find((n) => n.id === 'b');
+    assertDefined(b1, 'node b');
+    expect(b1.needs).toEqual(['a']);
     s = disconnectNeeds(s, 'a', 'b');
-    expect(s.nodes.find((n) => n.id === 'b')!.needs).toEqual([]);
+    const b2 = s.nodes.find((n) => n.id === 'b');
+    assertDefined(b2, 'node b');
+    expect(b2.needs).toEqual([]);
   });
 
   it('refuses a connection that would create a cycle', () => {
@@ -75,7 +86,9 @@ describe('needs edges', () => {
     const before = s;
     s = connectNeeds(s, 'c', 'a');
     expect(s).toBe(before); // no-op, no cycle authored
-    expect(s.nodes.find((n) => n.id === 'a')!.needs).toEqual([]);
+    const a = s.nodes.find((n) => n.id === 'a');
+    assertDefined(a, 'node a');
+    expect(a.needs).toEqual([]);
     // the reverse direction (already implied) is fine and idempotent
     expect(wouldCreateCycle(s, 'a', 'c')).toBe(false);
   });
@@ -100,7 +113,9 @@ describe('branch targets', () => {
     expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'case', from: 'sw', to: 'hi', caseId: 'high' }));
     expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'default', from: 'sw', to: 'fb' }));
     s = removeSwitchCase(s, 'sw', 'low');
-    expect(s.nodes.find((n) => n.id === 'sw')!.cases).toEqual({ high: ['hi'] });
+    const sw = s.nodes.find((n) => n.id === 'sw');
+    assertDefined(sw, 'node sw');
+    expect(sw.cases).toEqual({ high: ['hi'] });
   });
 });
 
@@ -117,8 +132,14 @@ describe('loop node body + exit model', () => {
   it('setLoopBody scopes body steps to the loop via needs and derives loop-body edges', () => {
     let s = loopFixture();
     s = setLoopBody(s, 'loop', ['improve']);
-    expect(s.nodes.find((n) => n.id === 'loop')!.loop!.body).toEqual(['improve']);
-    expect(s.nodes.find((n) => n.id === 'improve')!.needs).toEqual(['loop']);
+    const loop = s.nodes.find((n) => n.id === 'loop');
+    assertDefined(loop, 'loop node');
+    const cfg = loop.loop;
+    assertDefined(cfg, 'loop config');
+    expect(cfg.body).toEqual(['improve']);
+    const improve = s.nodes.find((n) => n.id === 'improve');
+    assertDefined(improve, 'improve node');
+    expect(improve.needs).toEqual(['loop']);
     expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'loop-body', from: 'loop', to: 'improve' }));
     // body step's needs:[loop] is NOT rendered as a plain needs edge.
     expect(s.edges.some((e) => e.kind === 'needs' && e.from === 'loop' && e.to === 'improve')).toBe(false);
@@ -128,15 +149,23 @@ describe('loop node body + exit model', () => {
     let s = loopFixture();
     s = setLoopBody(s, 'loop', ['improve']);
     s = setLoopBody(s, 'loop', []);
-    expect(s.nodes.find((n) => n.id === 'improve')!.needs).toEqual([]);
-    expect(s.nodes.find((n) => n.id === 'loop')!.loop!.body).toEqual([]);
+    const improve = s.nodes.find((n) => n.id === 'improve');
+    assertDefined(improve, 'improve node');
+    expect(improve.needs).toEqual([]);
+    const loop = s.nodes.find((n) => n.id === 'loop');
+    assertDefined(loop, 'loop node');
+    const cfg = loop.loop;
+    assertDefined(cfg, 'loop config');
+    expect(cfg.body).toEqual([]);
   });
 
   it('setLoopExit wires the single exit needs edge and re-points it', () => {
     let s = loopFixture();
     s = setLoopBody(s, 'loop', ['improve']);
     s = setLoopExit(s, 'loop', 'finish');
-    expect(loopExitTarget(s.nodes.find((n) => n.id === 'loop')!, s.nodes)).toBe('finish');
+    const loop = s.nodes.find((n) => n.id === 'loop');
+    assertDefined(loop, 'loop node');
+    expect(loopExitTarget(loop, s.nodes)).toBe('finish');
     expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'loop-exit', from: 'loop', to: 'finish' }));
     // exactly one loop-exit edge per loop
     expect(s.edges.filter((e) => e.kind === 'loop-exit')).toHaveLength(1);
@@ -167,17 +196,23 @@ describe('loop node body + exit model', () => {
     s = connectNeeds(s, 'loop', 'tail'); // routed through setLoopExit → re-points
     expect(s.edges.filter((e) => e.kind === 'loop-exit')).toHaveLength(1);
     expect(s.edges).toContainEqual(expect.objectContaining({ kind: 'loop-exit', from: 'loop', to: 'tail' }));
-    expect(loopExitTarget(s.nodes.find((n) => n.id === 'loop')!, s.nodes)).toBe('tail');
+    const loop = s.nodes.find((n) => n.id === 'loop');
+    assertDefined(loop, 'loop node');
+    expect(loopExitTarget(loop, s.nodes)).toBe('tail');
     // the prior exit ('finish') lost its loop dependency entirely — so it can no
     // longer be mistaken for a second exit.
-    expect(s.nodes.find((n) => n.id === 'finish')!.needs).not.toContain('loop');
+    const finish = s.nodes.find((n) => n.id === 'finish');
+    assertDefined(finish, 'finish node');
+    expect(finish.needs).not.toContain('loop');
     // exactly one non-body node still depends on the loop (the chosen exit).
     const dependsOnLoop = s.nodes.filter(
       (n) => n.id !== 'improve' && n.needs.includes('loop'),
     );
     expect(dependsOnLoop.map((n) => n.id)).toEqual(['tail']);
     // body membership untouched.
-    expect(s.nodes.find((n) => n.id === 'improve')!.needs).toEqual(['loop']);
+    const improve = s.nodes.find((n) => n.id === 'improve');
+    assertDefined(improve, 'improve node');
+    expect(improve.needs).toEqual(['loop']);
   });
 
   it('refuses a loop-exit edge that would close a cycle', () => {
@@ -189,7 +224,9 @@ describe('loop node body + exit model', () => {
     const before = s;
     s = setLoopExit(s, 'loop', 'seed');
     expect(s).toBe(before); // no-op, cycle refused
-    expect(s.nodes.find((n) => n.id === 'seed')!.needs).not.toContain('loop');
+    const seed = s.nodes.find((n) => n.id === 'seed');
+    assertDefined(seed, 'seed node');
+    expect(seed.needs).not.toContain('loop');
     expect(s.edges.some((e) => e.kind === 'loop-exit')).toBe(false);
   });
 
@@ -210,21 +247,36 @@ describe('loop node body + exit model', () => {
     expect(wouldCreateCycle(s, 'loop', 'seed')).toBe(true);
     s = setLoopBody(s, 'loop', ['seed', 'improve']);
     // seed (the ancestor) is excluded; the legitimate member is kept.
-    expect(s.nodes.find((n) => n.id === 'loop')!.loop!.body).toEqual(['improve']);
+    const loop = s.nodes.find((n) => n.id === 'loop');
+    assertDefined(loop, 'loop node');
+    const cfg = loop.loop;
+    assertDefined(cfg, 'loop config');
+    expect(cfg.body).toEqual(['improve']);
     // seed did NOT gain needs:[loop] — the cycle was refused, not authored.
-    expect(s.nodes.find((n) => n.id === 'seed')!.needs).not.toContain('loop');
-    expect(s.nodes.find((n) => n.id === 'improve')!.needs).toContain('loop');
+    const seed = s.nodes.find((n) => n.id === 'seed');
+    assertDefined(seed, 'seed node');
+    expect(seed.needs).not.toContain('loop');
+    const improve = s.nodes.find((n) => n.id === 'improve');
+    assertDefined(improve, 'improve node');
+    expect(improve.needs).toContain('loop');
     // and no body member both depends on and is depended-on-by the loop.
-    const loop = s.nodes.find((n) => n.id === 'loop')!;
     expect(loop.needs).toEqual(['seed']); // loop still plainly downstream of seed
   });
 
   it('setLoopConfig clamps maxIterations to 1..50', () => {
     let s = loopFixture();
     s = setLoopConfig(s, 'loop', { maxIterations: 999, condition: 'good enough?' });
-    expect(s.nodes.find((n) => n.id === 'loop')!.loop!.maxIterations).toBe(50);
+    const loop1 = s.nodes.find((n) => n.id === 'loop');
+    assertDefined(loop1, 'loop node');
+    const cfg1 = loop1.loop;
+    assertDefined(cfg1, 'loop config');
+    expect(cfg1.maxIterations).toBe(50);
     s = setLoopConfig(s, 'loop', { maxIterations: 0 });
-    expect(s.nodes.find((n) => n.id === 'loop')!.loop!.maxIterations).toBe(1);
+    const loop2 = s.nodes.find((n) => n.id === 'loop');
+    assertDefined(loop2, 'loop node');
+    const cfg2 = loop2.loop;
+    assertDefined(cfg2, 'loop config');
+    expect(cfg2.maxIterations).toBe(1);
   });
 });
 
@@ -233,15 +285,19 @@ describe('updateNode / updateMeta / move / rename', () => {
     let s = addStep(emptyState(), { kind: 'prompt', id: 'a' });
     const edgesRef = s.edges;
     s = updateNode(s, 'a', { action: 'do the thing', label: 'Step A' });
-    expect(s.nodes[0]!.action).toBe('do the thing');
-    expect(s.nodes[0]!.label).toBe('Step A');
+    const first = s.nodes[0];
+    assertDefined(first, 'first node');
+    expect(first.action).toBe('do the thing');
+    expect(first.label).toBe('Step A');
     expect(s.edges).toBe(edgesRef);
   });
 
   it('clamps retries to 0..3', () => {
     let s = addStep(emptyState(), { kind: 'prompt', id: 'a' });
     s = updateNode(s, 'a', { retries: 9 });
-    expect(s.nodes[0]!.retries).toBe(3);
+    const first = s.nodes[0];
+    assertDefined(first, 'first node');
+    expect(first.retries).toBe(3);
   });
 
   it('moveNode updates position, keeps edges', () => {
@@ -265,8 +321,12 @@ describe('updateNode / updateMeta / move / rename', () => {
     s = setBranchTargets(s, 'c', 'then', ['old']);
     s = renameNode(s, 'old', 'fresh');
     expect(s.nodes.map((n) => n.id)).toContain('fresh');
-    expect(s.nodes.find((n) => n.id === 'c')!.then).toEqual(['fresh']);
-    expect(s.nodes.find((n) => n.id === 'fresh')!.needs).toEqual(['c']);
+    const c = s.nodes.find((n) => n.id === 'c');
+    assertDefined(c, 'node c');
+    expect(c.then).toEqual(['fresh']);
+    const fresh = s.nodes.find((n) => n.id === 'fresh');
+    assertDefined(fresh, 'node fresh');
+    expect(fresh.needs).toEqual(['c']);
   });
 
   it('renameNode rejects a schema-invalid id (spaces/punctuation) as a no-op', () => {
@@ -285,14 +345,18 @@ describe('updateNode / updateMeta / move / rename', () => {
     s = updateNode(s, 't', { args });
     // Mutating the caller's object must not retroactively edit the snapshot.
     args.count = 999;
-    expect(s.nodes.find((n) => n.id === 't')!.args).toEqual({ count: 1 });
+    const t = s.nodes.find((n) => n.id === 't');
+    assertDefined(t, 'node t');
+    expect(t.args).toEqual({ count: 1 });
   });
 });
 
 describe('uniqueId', () => {
   it('slugifies and de-dupes', () => {
     const s = addStep(emptyState(), { kind: 'prompt', id: 'my step' });
-    expect(s.nodes[0]!.id).toBe('my_step');
+    const first = s.nodes[0];
+    assertDefined(first, 'first node');
+    expect(first.id).toBe('my_step');
     expect(uniqueId(s, 'my step')).toBe('my_step_2');
   });
 });

@@ -1,4 +1,5 @@
 import {
+  assertDefined,
   type SessionId,
   type Workflow,
   type WorkflowRunDeps,
@@ -59,7 +60,8 @@ export async function runExecutorLoop(
       skippedSomething = false;
       for (const step of workflow.steps) {
         if (ctx.loopBodyIds.has(step.id)) continue; // owned by a loop
-        const st = ctx.states.get(step.id)!;
+        const st = ctx.states.get(step.id);
+        assertDefined(st, 'runExecutor initializes a state for every step');
         if (st.status !== 'pending') continue;
         if (!step.needs.every(settled)) continue;
         if (step.when == null) continue;
@@ -95,7 +97,8 @@ export async function runExecutorLoop(
     //    Loop-body steps are owned by their loop and never scheduled here.
     const ready = workflow.steps.filter((step) => {
       if (ctx.loopBodyIds.has(step.id)) return false;
-      const st = ctx.states.get(step.id)!;
+      const st = ctx.states.get(step.id);
+      assertDefined(st, 'runExecutor initializes a state for every step');
       return st.status === 'pending' && step.needs.every(settled);
     });
 
@@ -141,7 +144,8 @@ export async function runExecutorLoop(
       // subagent/tool calls and emitting completed events for steps that ran
       // after the run had logically failed.
       if (aborted) break;
-      const st = ctx.states.get(step.id)!;
+      const st = ctx.states.get(step.id);
+      assertDefined(st, 'runExecutor initializes a state for every step');
       st.startedAt = ctx.now();
       await deps.emit?.('workflow_step_started', {
         id: step.id,
@@ -151,6 +155,8 @@ export async function runExecutorLoop(
       st.endedAt = ctx.now();
 
       if (outcome.paused) {
+        const interactionAgentId = outcome.interactionAgentId;
+        assertDefined(interactionAgentId, 'a paused outcome always carries interactionAgentId');
         st.status = 'awaiting_input';
         st.output = outcome.output;
         await deps.emit?.('workflow_step_awaiting_input', {
@@ -169,7 +175,7 @@ export async function runExecutorLoop(
           // resume restores them (otherwise downstream `{{ vars.x }}` is lost).
           vars: ctx.vars,
           pendingStepId: step.id,
-          interactionAgentId: outcome.interactionAgentId!,
+          interactionAgentId,
           startedAt: ctx.now(),
         });
         await deps.emit?.('workflow_paused', {
@@ -342,7 +348,8 @@ async function resumeWorkflowRunInner(
   };
   mergeVars(ctx, checkpoint.vars);
 
-  const st = ctx.states.get(step.id)!;
+  const st = ctx.states.get(step.id);
+  assertDefined(st, 'the paused step has a restored state in the checkpoint');
   await deps.emit?.('workflow_resumed', { runId, stepId: step.id });
 
   if (typeof deps.spawner.continue !== 'function') {
