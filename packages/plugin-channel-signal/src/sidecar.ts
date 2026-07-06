@@ -367,14 +367,16 @@ export function startLinkProcess(opts: {
   let child: SpawnedProcess;
   let output = '';
 
-  let resolveUri: (uri: string) => void;
-  let rejectUri: (err: Error) => void;
+  // Defaulted no-ops the synchronous Promise executors below always overwrite;
+  // they let us dereference plainly instead of asserting definite assignment.
+  let resolveUri: (uri: string) => void = () => undefined;
+  let rejectUri: (err: Error) => void = () => undefined;
   const uri = new Promise<string>((resolve, reject) => {
     resolveUri = resolve;
     rejectUri = reject;
   });
-  let resolveCompleted: (r: { account: string | null }) => void;
-  let rejectCompleted: (err: Error) => void;
+  let resolveCompleted: (r: { account: string | null }) => void = () => undefined;
+  let rejectCompleted: (err: Error) => void = () => undefined;
   const completed = new Promise<{ account: string | null }>((resolve, reject) => {
     resolveCompleted = resolve;
     rejectCompleted = reject;
@@ -389,8 +391,8 @@ export function startLinkProcess(opts: {
     child = spawnFn(binary, ['link', '-n', opts.deviceName]);
   } catch (err) {
     const e = new Error(`failed to spawn ${binary} link: ${err instanceof Error ? err.message : String(err)}`);
-    rejectUri!(e);
-    rejectCompleted!(e);
+    rejectUri(e);
+    rejectCompleted(e);
     return { uri, completed, cancel: () => undefined };
   }
 
@@ -402,7 +404,7 @@ export function startLinkProcess(opts: {
       const m = LINK_URI_RE.exec(output);
       if (m?.[1]) {
         uriSettled = true;
-        resolveUri!(m[1]);
+        resolveUri(m[1]);
       }
     }
   };
@@ -412,14 +414,14 @@ export function startLinkProcess(opts: {
     const e = new Error(`signal-cli link failed to start: ${err.message}`);
     if (!uriSettled) {
       uriSettled = true;
-      rejectUri!(e);
+      rejectUri(e);
     }
-    rejectCompleted!(e);
+    rejectCompleted(e);
   });
   child.once('exit', (code) => {
     if (code === 0) {
       const account = ASSOCIATED_RE.exec(output)?.[1] ?? null;
-      resolveCompleted!({ account });
+      resolveCompleted({ account });
     } else {
       const tail = output.split('\n').slice(-4).join('\n').trim();
       const e = new Error(
@@ -428,9 +430,9 @@ export function startLinkProcess(opts: {
       );
       if (!uriSettled) {
         uriSettled = true;
-        rejectUri!(e);
+        rejectUri(e);
       }
-      rejectCompleted!(e);
+      rejectCompleted(e);
     }
   });
 

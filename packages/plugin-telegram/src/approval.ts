@@ -36,10 +36,11 @@ export class TelegramApprovalResolver implements ApprovalResolver {
       // headless behavior (run the plan as drafted).
       return { optionId: request.defaultOptionId ?? request.options[0]?.id ?? 'approve' };
     }
+    const decider = this.deciderFn;
     const id = `appr_${this.nextId++}`;
     return new Promise<ApprovalDecision>((resolve) => {
       this.pending.set(id, { id, request, resolve });
-      this.deciderFn!(id, request).catch((err) => {
+      decider(id, request).catch((err) => {
         this.pending.delete(id);
         resolve({
           optionId: request.defaultOptionId ?? request.options[0]?.id ?? 'cancel',

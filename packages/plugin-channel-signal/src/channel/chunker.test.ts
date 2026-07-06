@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import {
   ChunkedSender,
   SIGNAL_CHUNK_HARD_LIMIT,
@@ -16,23 +17,29 @@ describe('takeChunk', () => {
     const text = 'a'.repeat(1_200) + '\n\n' + 'b'.repeat(600);
     const taken = takeChunk(text);
     expect(taken).not.toBeNull();
-    expect(taken!.chunk).toBe('a'.repeat(1_200));
-    expect(taken!.rest).toBe('b'.repeat(600));
+    assertDefined(taken, 'takeChunk splits past the soft limit');
+    expect(taken.chunk).toBe('a'.repeat(1_200));
+    expect(taken.rest).toBe('b'.repeat(600));
   });
 
   it('falls back to newline, then word boundaries', () => {
     const nl = 'a'.repeat(1_200) + '\n' + 'b'.repeat(600);
-    expect(takeChunk(nl)!.chunk).toBe('a'.repeat(1_200));
+    const takenNl = takeChunk(nl);
+    assertDefined(takenNl, 'newline boundary splits');
+    expect(takenNl.chunk).toBe('a'.repeat(1_200));
     const word = 'a'.repeat(1_200) + ' ' + 'b'.repeat(600);
-    expect(takeChunk(word)!.chunk).toBe('a'.repeat(1_200));
+    const takenWord = takeChunk(word);
+    assertDefined(takenWord, 'word boundary splits');
+    expect(takenWord.chunk).toBe('a'.repeat(1_200));
   });
 
   it('never returns a chunk above the hard limit (hard cut when boundary-less)', () => {
     const text = 'x'.repeat(SIGNAL_CHUNK_HARD_LIMIT + 500);
     const taken = takeChunk(text);
     expect(taken).not.toBeNull();
-    expect(taken!.chunk.length).toBe(SIGNAL_CHUNK_HARD_LIMIT);
-    expect(taken!.rest.length).toBe(500);
+    assertDefined(taken, 'boundary-less text hard-cuts');
+    expect(taken.chunk.length).toBe(SIGNAL_CHUNK_HARD_LIMIT);
+    expect(taken.rest.length).toBe(500);
   });
 
   it('waits for more text when boundary-less but under the hard limit', () => {

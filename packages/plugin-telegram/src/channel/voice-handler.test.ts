@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'grammy';
 import { Session } from '@moxxy/core';
-import { defineTranscriber } from '@moxxy/sdk';
+import { assertDefined, defineTranscriber } from '@moxxy/sdk';
 import { handleVoiceMessage } from './voice-handler.js';
 
 const TOKEN = '1234567890:test-token';
@@ -103,7 +103,8 @@ describe('handleVoiceMessage', () => {
     );
     expect(getFile).toHaveBeenCalledWith('voice-1');
     expect(transcribe).toHaveBeenCalled();
-    const transcribeArgs = transcribe.mock.calls[0]!;
+    const transcribeArgs = transcribe.mock.calls[0];
+    assertDefined(transcribeArgs, 'transcribe was asserted called, so calls[0] exists');
     expect((transcribeArgs[1] as { mimeType: string }).mimeType).toBe('audio/ogg');
     expect(replies.some((r) => /heard:/.test(r) && /hello agent/.test(r))).toBe(true);
     expect(runUserTurn).toHaveBeenCalledWith(ctx, 99, 'hello agent');
@@ -322,7 +323,9 @@ describe('handleVoiceMessage', () => {
       baseDeps(),
       { runUserTurn, fetchAudio: okFetch(new Uint8Array([9])) },
     );
-    expect((transcribe.mock.calls[0]![1] as { mimeType: string }).mimeType).toBe('audio/mpeg');
+    const transcribeArgs = transcribe.mock.calls[0];
+    assertDefined(transcribeArgs, 'handleVoiceMessage transcribes the upload, so calls[0] exists');
+    expect((transcribeArgs[1] as { mimeType: string }).mimeType).toBe('audio/mpeg');
     expect(runUserTurn).toHaveBeenCalledWith(ctx, 99, 'recorded earlier');
   });
 });

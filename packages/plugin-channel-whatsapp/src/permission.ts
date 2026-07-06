@@ -1,4 +1,5 @@
 import {
+  assertDefined,
   createDeferredPermissionResolver,
   type DeferredPermissionResolver,
   type PendingToolCall,
@@ -98,7 +99,8 @@ export function createWhatsAppPermissionController(): WhatsAppPermissionControll
       if (pending.length === 0) return false;
       const decision = parsePermissionReply(text);
       if (!decision) return false;
-      const prompt = pending.shift()!;
+      const prompt = pending.shift();
+      assertDefined(prompt, 'pending is non-empty past the length guard above');
       prompt.resolve(decision);
       return true;
     },

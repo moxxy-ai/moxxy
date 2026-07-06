@@ -1,6 +1,6 @@
 import type { newTurnId } from '@moxxy/core';
 import { FramePump, PlainTurnRenderer, driveTurn, subscribeTurn } from '@moxxy/channel-kit';
-import type { ClientSession as Session } from '@moxxy/sdk';
+import { assertDefined, type ClientSession as Session } from '@moxxy/sdk';
 import type { WaMessageKey, WhatsAppSocket } from '../socket.js';
 
 /**
@@ -116,8 +116,10 @@ export async function runWhatsAppTurn(
       send: async (t) => sendChunks(splitWhatsAppText(t)),
       edit: async (key, t, final) => {
         const chunks = splitWhatsAppText(t);
+        const head = chunks[0];
+        assertDefined(head, 'whatsapp: splitWhatsAppText always yields at least one chunk');
         try {
-          await socket.editText(jid, key, chunks[0]!);
+          await socket.editText(jid, key, head);
         } catch (err) {
           logger?.warn?.('whatsapp edit failed', { err: String(err), final });
           if (final) {

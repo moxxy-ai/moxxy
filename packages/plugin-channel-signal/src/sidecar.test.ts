@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import type { RpcStream } from './jsonrpc.js';
 import {
   SignalSidecar,
@@ -65,8 +66,10 @@ describe('SignalSidecar lifecycle', () => {
     });
     const rpc = await sidecar.start();
     expect(spawned).not.toBeNull();
-    expect(spawned!.command).toBe('/opt/bin/signal-cli');
-    expect(spawned!.args).toEqual([
+    const capturedSpawn = spawned;
+    assertDefined(capturedSpawn, 'spawnFn was invoked during start()');
+    expect(capturedSpawn.command).toBe('/opt/bin/signal-cli');
+    expect(capturedSpawn.args).toEqual([
       '-a',
       '+15551234567',
       'daemon',

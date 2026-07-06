@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ClientSession as Session } from '@moxxy/sdk';
+import { assertDefined, type ClientSession as Session } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { SignalChannel, type SignalRpcLike } from './channel.js';
 import { SIGNAL_ACCOUNT_KEY, SIGNAL_ALLOWED_SENDERS_KEY } from './keys.js';
@@ -332,7 +332,8 @@ describe('lifecycle', () => {
     expect(channel.requestUrl).toBe('sgnl://linkdevice?uuid=abc&pub_key=def');
     expect(channel.connected).toBe(false);
 
-    completeLink!({ account: OWNER });
+    assertDefined(completeLink, 'linkFactory captured the resolver during start()');
+    completeLink({ account: OWNER });
     await vi.waitFor(() => expect(channel.connected).toBe(true));
     expect(channel.requestUrl).toBeNull();
     expect(sidecarAccounts).toEqual([OWNER]);

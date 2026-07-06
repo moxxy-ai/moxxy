@@ -1,4 +1,4 @@
-import type { ChannelHandle, ClientSession as Session } from '@moxxy/sdk';
+import { assertDefined, type ChannelHandle, type ClientSession as Session } from '@moxxy/sdk';
 import { gateInbound } from '../allow-list.js';
 import type { InboundMessage } from '../schema.js';
 import type { DiscordApprovalResolver } from '../approval.js';
@@ -130,7 +130,8 @@ export async function handleInboundMessage(
   if (text.startsWith('/')) {
     if (!state.session) return;
     const [head, ...rest] = text.split(/\s+/);
-    const reply = await runSlash(head!.slice(1), rest.join(' '), state.session, {
+    assertDefined(head, 'splitting a non-empty command string yields at least one token');
+    const reply = await runSlash(head.slice(1), rest.join(' '), state.session, {
       toggleYolo: cb.toggleYolo,
       voice: cb.voice,
       performSessionAction: (action, notice) =>

@@ -14,8 +14,9 @@ export class TypingIndicator {
   start(channel: SendableChannelLike): void {
     this.stop();
     if (!channel.sendTyping) return;
+    const sendTyping = channel.sendTyping;
     const ping = (): void => {
-      void channel.sendTyping?.()?.catch?.(() => undefined);
+      void sendTyping().catch(() => undefined);
     };
     ping();
     this.timer = setInterval(ping, REFRESH_MS);
