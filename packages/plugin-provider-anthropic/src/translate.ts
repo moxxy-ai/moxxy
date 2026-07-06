@@ -1,5 +1,5 @@
 import type { ContentBlock, ProviderMessage, ToolDef } from '@moxxy/sdk';
-import { zodToJsonSchema } from '@moxxy/sdk';
+import { assertDefined, zodToJsonSchema } from '@moxxy/sdk';
 
 type CacheControl = { type: 'ephemeral' };
 
@@ -234,7 +234,9 @@ export function toAnthropicTools(
     input_schema: t.inputJsonSchema ?? zodToJsonSchema(t.inputSchema),
   })) as AnthropicToolDef[];
   if (opts.cacheLast && out.length > 0) {
-    out[out.length - 1]!.cache_control = { type: 'ephemeral' };
+    const last = out[out.length - 1];
+    assertDefined(last, 'out is non-empty (length > 0 checked above)');
+    last.cache_control = { type: 'ephemeral' };
   }
   return out;
 }

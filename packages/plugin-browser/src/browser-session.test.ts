@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
-import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
+import { asSessionId, asToolCallId, asTurnId, assertDefined } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
 import {
   browserSidecarCall,
@@ -98,7 +98,9 @@ describe('browser_session tool (sidecar protocol)', () => {
     );
     expect(out).toEqual({ url: 'https://example.com' });
     expect(receivedRequests).toHaveLength(1);
-    expect(receivedRequests[0]!.method).toBe('goto');
+    const first = receivedRequests[0];
+    assertDefined(first, 'receivedRequests has length 1');
+    expect(first.method).toBe('goto');
 
     await closeBrowserSidecar();
   });
@@ -130,7 +132,9 @@ describe('browser_session tool (sidecar protocol)', () => {
       baseCtx(),
     );
     expect(out).toBe(42);
-    expect((receivedRequests[0]!.params as { expression: string }).expression).toBe('1 + 41');
+    const first = receivedRequests[0];
+    assertDefined(first, 'sidecar received the eval request');
+    expect((first.params as { expression: string }).expression).toBe('1 + 41');
     await closeBrowserSidecar();
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { OpenAIProvider } from './provider.js';
 
 function fakeOpenAI(chunks: ReadonlyArray<unknown>): { chat: { completions: { create: () => Promise<AsyncIterable<unknown>> } } } {
@@ -434,9 +435,12 @@ describe('OpenAIProvider.stream', () => {
       events.push(e);
     }
     expect(events.some((e) => e.type === 'error')).toBe(false);
-    expect(captured?.messages?.map((m) => m.role)).toEqual(['system', 'system', 'user']);
-    expect(captured?.messages?.[0]).toMatchObject({ content: 'BASE PROMPT' });
-    expect(captured?.messages?.[1]).toMatchObject({ content: '[memory note] consider consolidating' });
+    assertDefined(captured, 'client captured the request body');
+    const capturedMessages = captured.messages;
+    assertDefined(capturedMessages, 'request has messages');
+    expect(capturedMessages.map((m) => m.role)).toEqual(['system', 'system', 'user']);
+    expect(capturedMessages[0]).toMatchObject({ content: 'BASE PROMPT' });
+    expect(capturedMessages[1]).toMatchObject({ content: '[memory note] consider consolidating' });
   });
 
   it('reports an overridden name + model catalog for runtime-registered vendors', () => {

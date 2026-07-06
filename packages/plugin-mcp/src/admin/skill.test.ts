@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assertDefined } from '@moxxy/sdk';
 import type { Skill } from '@moxxy/sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { McpServerConfig, McpToolDescriptor } from '../types.js';
@@ -22,20 +23,27 @@ function parseFrontmatter(raw: string): { fm: Record<string, unknown>; body: str
   const fm: Record<string, unknown> = {};
   const lines = fmText.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
+    const line = lines[i];
+    assertDefined(line, 'frontmatter line present within bounds');
     if (!line.trim()) continue;
     const m = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
     if (!m) throw new Error(`unparseable frontmatter line: ${JSON.stringify(line)}`);
     const [, key, val] = m;
+    assertDefined(key, 'regex capture group 1 present when the line matched');
     if (val) {
-      fm[key!] = val;
+      fm[key] = val;
     } else {
       const items: string[] = [];
-      while (i + 1 < lines.length && /^\s+-\s/.test(lines[i + 1]!)) {
+      while (i + 1 < lines.length) {
+        const next = lines[i + 1];
+        assertDefined(next, 'next frontmatter line present within bounds');
+        if (!/^\s+-\s/.test(next)) break;
         i++;
-        items.push(lines[i]!.replace(/^\s+-\s*/, '').replace(/^"(.*)"$/, '$1'));
+        const item = lines[i];
+        assertDefined(item, 'frontmatter sequence item present');
+        items.push(item.replace(/^\s+-\s*/, '').replace(/^"(.*)"$/, '$1'));
       }
-      fm[key!] = items;
+      fm[key] = items;
     }
   }
   return { fm, body };
@@ -73,10 +81,11 @@ describe('admin/skill (createMcpUsageSkillWriter)', () => {
     const write = createMcpUsageSkillWriter({ skillRegistry: registry, userSkillsDir: dir });
     const result = await write(server, DESCRIPTORS);
     expect(result).not.toBeNull();
-    expect(result!.skillName).toBe('acme-mcp');
-    expect(result!.path).toBe(join(dir, 'acme-mcp.md'));
+    assertDefined(result, 'write() returns a result for a fresh skill');
+    expect(result.skillName).toBe('acme-mcp');
+    expect(result.path).toBe(join(dir, 'acme-mcp.md'));
 
-    const raw = await readFile(result!.path, 'utf8');
+    const raw = await readFile(result.path, 'utf8');
     const { fm, body } = parseFrontmatter(raw);
     expect(fm.name).toBe('acme-mcp');
     expect(fm.description).toBe('Use the acme MCP server (2 tools).');
@@ -95,7 +104,8 @@ describe('admin/skill (createMcpUsageSkillWriter)', () => {
     const write = createMcpUsageSkillWriter({ skillRegistry: registry, userSkillsDir: dir });
     await write(server, DESCRIPTORS);
     expect(registry.registered).toHaveLength(1);
-    const skill = registry.registered[0]!;
+    const skill = registry.registered[0];
+    assertDefined(skill, 'first registered skill present');
     expect(skill.id).toBe('user/acme-mcp');
     expect(skill.scope).toBe('user');
     expect(skill.path).toBe(join(dir, 'acme-mcp.md'));
@@ -119,7 +129,8 @@ describe('admin/skill (createMcpUsageSkillWriter)', () => {
     const write = createMcpUsageSkillWriter({ skillRegistry: null, userSkillsDir: dir });
     const result = await write(server, DESCRIPTORS);
     expect(result).not.toBeNull();
-    const raw = await readFile(result!.path, 'utf8');
+    assertDefined(result, 'write() returns a result even with no registry');
+    const raw = await readFile(result.path, 'utf8');
     expect(raw).toContain('name: acme-mcp');
   });
 
@@ -131,7 +142,8 @@ describe('admin/skill (createMcpUsageSkillWriter)', () => {
     }));
     const write = createMcpUsageSkillWriter({ skillRegistry: null, userSkillsDir: dir });
     const result = await write(server, many);
-    const raw = await readFile(result!.path, 'utf8');
+    assertDefined(result, 'write() returns a result for a fresh skill');
+    const raw = await readFile(result.path, 'utf8');
     const { fm, body } = parseFrontmatter(raw);
     expect(fm.description).toBe('Use the acme MCP server (5 tools).');
     expect((fm['allowed-tools'] as string[])).toHaveLength(5);

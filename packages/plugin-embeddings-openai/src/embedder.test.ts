@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type OpenAI from 'openai';
+import { assertDefined } from '@moxxy/sdk';
 import { OpenAIEmbedder } from './embedder.js';
 
 function fakeClient(responses: number[][][]): { embeddings: { create: ReturnType<typeof vi.fn> } } {
@@ -7,7 +8,9 @@ function fakeClient(responses: number[][][]): { embeddings: { create: ReturnType
   return {
     embeddings: {
       create: vi.fn(async () => {
-        const data = responses[call++]!.map((embedding, index) => ({ embedding, index }));
+        const response = responses[call++];
+        assertDefined(response, 'test provides a response for every create call');
+        const data = response.map((embedding, index) => ({ embedding, index }));
         return { data };
       }),
     },

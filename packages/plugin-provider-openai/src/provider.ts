@@ -6,7 +6,7 @@ import type {
   ProviderRequest,
   StopReason,
 } from '@moxxy/sdk';
-import { estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
+import { assertDefined, estimateTextTokens, toFriendlyError } from '@moxxy/sdk';
 import { toOpenAIMessages, toOpenAITools } from './translate.js';
 
 export interface OpenAIProviderConfig {
@@ -142,7 +142,12 @@ export class OpenAIProvider implements LLMProvider {
     // reordering the conversation.
     if (req.system) {
       let insertAt = 0;
-      while (insertAt < messages.length && messages[insertAt]!.role === 'system') insertAt += 1;
+      while (insertAt < messages.length) {
+        const msg = messages[insertAt];
+        assertDefined(msg, 'insertAt < messages.length');
+        if (msg.role !== 'system') break;
+        insertAt += 1;
+      }
       messages.splice(insertAt, 0, { role: 'system', content: req.system });
     }
     const tools = req.tools && req.tools.length > 0 ? toOpenAITools(req.tools) : undefined;

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -68,16 +69,20 @@ describe('MemoryStore', () => {
     await store.save({ name: 'b', type: 'preference', description: 'B', body: '.' });
     const facts = await store.list('fact');
     expect(facts).toHaveLength(1);
-    expect(facts[0]!.frontmatter.name).toBe('a');
+    const fact = facts[0];
+    assertDefined(fact, 'facts has one entry');
+    expect(fact.frontmatter.name).toBe('a');
   });
 
   it('update preserves createdAt but bumps updatedAt', async () => {
     const store = newStore();
     await store.save({ name: 'foo', type: 'fact', description: 'd', body: 'orig' });
-    const first = (await store.get('foo'))!;
+    const first = await store.get('foo');
+    assertDefined(first, 'foo was just saved');
     await new Promise((r) => setTimeout(r, 10));
     await store.update('foo', { body: 'updated' });
-    const second = (await store.get('foo'))!;
+    const second = await store.get('foo');
+    assertDefined(second, 'foo still exists after update');
     expect(second.frontmatter.createdAt).toBe(first.frontmatter.createdAt);
     expect(second.frontmatter.updatedAt).not.toBe(first.frontmatter.updatedAt);
     expect(second.body).toBe('updated');
@@ -112,9 +117,13 @@ describe('MemoryStore', () => {
       body: 'All migrations target Postgres 16. Use `pg_dump` for backups.',
     });
     const matches = await store.recall('trpc endpoints');
-    expect(matches[0]!.entry.frontmatter.name).toBe('team-likes-trpc');
+    const topMatch = matches[0];
+    assertDefined(topMatch, 'recall returns a match');
+    expect(topMatch.entry.frontmatter.name).toBe('team-likes-trpc');
     const pg = await store.recall('postgres');
-    expect(pg[0]!.entry.frontmatter.name).toBe('prod-postgres');
+    const topPg = pg[0];
+    assertDefined(topPg, 'recall returns a match');
+    expect(topPg.entry.frontmatter.name).toBe('prod-postgres');
   });
 
   it('rejects invalid frontmatter at save time via the schema', async () => {

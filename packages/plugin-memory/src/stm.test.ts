@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asPluginId, asSessionId, asToolCallId, asTurnId, type MoxxyEvent } from '@moxxy/sdk';
+import { asPluginId, asSessionId, asToolCallId, asTurnId, assertDefined, type MoxxyEvent } from '@moxxy/sdk';
 import { recentExchanges, summarizeSession } from './stm.js';
 
 const sid = asSessionId('s');
@@ -37,7 +37,9 @@ describe('recentExchanges', () => {
     ]);
     const recent = recentExchanges(log, 2);
     expect(recent.map((r) => r.source)).toEqual(['assistant', 'user']);
-    expect(recent[1]!.text).toBe('next');
+    const second = recent[1];
+    assertDefined(second, 'recentExchanges returns two exchanges');
+    expect(second.text).toBe('next');
   });
 
   it('ignores non-message events', () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { xaiPlugin, xaiProviderDef, grokModels } from './index.js';
 
 describe('@moxxy/plugin-provider-xai', () => {
@@ -40,8 +41,10 @@ describe('@moxxy/plugin-provider-xai', () => {
     // instead of pre-emptively elided.
     for (const m of grokModels) {
       expect(typeof m.maxOutputTokens, `${m.id} maxOutputTokens`).toBe('number');
-      expect(m.maxOutputTokens!, `${m.id} maxOutputTokens > 0`).toBeGreaterThan(0);
-      expect(m.maxOutputTokens!, `${m.id} maxOutputTokens <= contextWindow`).toBeLessThanOrEqual(m.contextWindow);
+      const maxOutputTokens = m.maxOutputTokens;
+      assertDefined(maxOutputTokens, `${m.id} maxOutputTokens is a number (asserted above)`);
+      expect(maxOutputTokens, `${m.id} maxOutputTokens > 0`).toBeGreaterThan(0);
+      expect(maxOutputTokens, `${m.id} maxOutputTokens <= contextWindow`).toBeLessThanOrEqual(m.contextWindow);
     }
   });
 

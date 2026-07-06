@@ -142,7 +142,8 @@ export function buildTerminalSurface() {
             // A viewer/relay sending a wrong-shaped message (field rename,
             // numeric data, protocol skew) gets the keystroke silently dropped.
             // Log it so the "terminal ignores my input" symptom is diagnosable.
-            ctx.logger?.debug?.('terminal surface dropped unrecognized input', { type: msg.type });
+            const logger = ctx.logger;
+            if (logger) logger.debug?.('terminal surface dropped unrecognized input', { type: msg.type });
           }
         },
         resize: (size) => {
@@ -154,7 +155,8 @@ export function buildTerminalSurface() {
           if (isValidDimension(size.cols) && isValidDimension(size.rows)) {
             proc.resize(size.cols as number, size.rows as number);
           } else {
-            ctx.logger?.debug?.('terminal surface dropped malformed resize', { size });
+            const logger = ctx.logger;
+            if (logger) logger.debug?.('terminal surface dropped malformed resize', { size });
           }
         },
         close: () => {

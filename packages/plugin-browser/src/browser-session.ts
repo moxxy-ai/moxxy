@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MoxxyError, defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, assertDefined, defineTool, z } from '@moxxy/sdk';
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
 
 /**
@@ -188,7 +188,8 @@ class Sidecar {
     // for install progress ("downloading chromium…") and other
     // human-readable status; callers wire `onStderr` to surface it.
     let stderrBuf = '';
-    this.child.stderr?.on?.('data', (chunk: string | Buffer) => {
+    const stderr = this.child.stderr;
+    if (stderr) stderr.on('data', (chunk: string | Buffer) => {
       stderrBuf += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
       let nl: number;
       while ((nl = stderrBuf.indexOf('\n')) !== -1) {
@@ -316,7 +317,9 @@ class Sidecar {
       });
       signal?.addEventListener('abort', onAbort, { once: true });
       try {
-        this.child!.stdin.write(JSON.stringify(req) + '\n');
+        const child = this.child;
+        assertDefined(child, 'sidecar child running (guarded via `if (!this.child) throw` at call() entry)');
+        child.stdin.write(JSON.stringify(req) + '\n');
       } catch (err) {
         this.pending.delete(id);
         cleanup();

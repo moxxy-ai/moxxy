@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { terminalPlugin } from './index.js';
 import { buildTerminalSurface, closeAllTerminals, getSharedTerminal } from './terminal.js';
 import type { TerminalProcess } from './pty.js';
+import { assertDefined } from '@moxxy/sdk';
 
 describe('plugin-terminal', () => {
   it('contributes a terminal surface and a terminal tool', () => {
@@ -12,12 +13,13 @@ describe('plugin-terminal', () => {
   it('terminal tool validates its input schema', () => {
     const tool = terminalPlugin.tools?.find((t) => t.name === 'terminal');
     expect(tool).toBeDefined();
+    assertDefined(tool, 'terminalPlugin always contributes a "terminal" tool');
     // A command is required; an empty object is rejected.
-    expect(tool!.inputSchema.safeParse({ command: 'ls -la' }).success).toBe(true);
-    expect(tool!.inputSchema.safeParse({}).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ command: 'ls -la' }).success).toBe(true);
+    expect(tool.inputSchema.safeParse({}).success).toBe(false);
     // timeoutMs is bounded.
-    expect(tool!.inputSchema.safeParse({ command: 'x', timeoutMs: 5000 }).success).toBe(true);
-    expect(tool!.inputSchema.safeParse({ command: 'x', timeoutMs: -1 }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ command: 'x', timeoutMs: 5000 }).success).toBe(true);
+    expect(tool.inputSchema.safeParse({ command: 'x', timeoutMs: -1 }).success).toBe(false);
   });
 
   it('getSharedTerminal does not spawn a duplicate PTY under a concurrent create', async () => {

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ProviderRequest } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import {
   UserModelStore,
   userModelTool,
@@ -39,7 +40,9 @@ describe('parseUserModel / serializeUserModel', () => {
     const text = '## Identity\n\nAlex, a backend dev.\n\n## Preferences\n\nTerse replies.\n';
     const model = parseUserModel(text);
     expect(model.sections.map((s) => s.title)).toEqual(['Identity', 'Preferences']);
-    expect(model.sections[0]!.content).toBe('Alex, a backend dev.');
+    const identity = model.sections[0];
+    assertDefined(identity, 'parsed model has an Identity section');
+    expect(identity.content).toBe('Alex, a backend dev.');
     // serialize → parse is stable
     const reparsed = parseUserModel(serializeUserModel(model));
     expect(reparsed.sections).toEqual(model.sections);
@@ -132,11 +135,13 @@ describe('UserModelStore.load (mtime cache)', () => {
     const store = newStore();
     await store.update('identity', 'first', 'replace');
     const before = await store.load();
-    expect(before?.sections.find((s) => s.title === 'Identity')?.content).toBe('first');
+    assertDefined(before, 'store has content after update');
+    expect(before.sections.find((s) => s.title === 'Identity')?.content).toBe('first');
     await new Promise((r) => setTimeout(r, 10)); // ensure a distinct mtime
     await store.update('identity', 'second', 'replace');
     const after = await store.load();
-    expect(after?.sections.find((s) => s.title === 'Identity')?.content).toBe('second');
+    assertDefined(after, 'store has content after update');
+    expect(after.sections.find((s) => s.title === 'Identity')?.content).toBe('second');
   });
 
   it('picks up an out-of-band write with a newer mtime', async () => {
@@ -145,9 +150,9 @@ describe('UserModelStore.load (mtime cache)', () => {
     await store.load(); // prime the cache
     await new Promise((r) => setTimeout(r, 10));
     await fs.writeFile(modelPath(), '## Identity\n\nrewritten\n');
-    expect((await store.load())?.sections.find((s) => s.title === 'Identity')?.content).toBe(
-      'rewritten',
-    );
+    const loaded = await store.load();
+    assertDefined(loaded, 'store has content after an out-of-band write');
+    expect(loaded.sections.find((s) => s.title === 'Identity')?.content).toBe('rewritten');
   });
 });
 
@@ -171,23 +176,26 @@ describe('UserModelStore.update', () => {
     await store.update('preferences', 'terse', 'replace');
     await store.update('preferences', 'verbose', 'replace');
     const m = await store.load();
-    expect(m?.sections.find((s) => s.title === 'Preferences')?.content).toBe('verbose');
+    assertDefined(m, 'store has content after update');
+    expect(m.sections.find((s) => s.title === 'Preferences')?.content).toBe('verbose');
   });
 
   it('append adds to existing content on its own line', async () => {
     const store = newStore();
     await store.update('workflows', 'uses pnpm', 'replace');
     await store.update('workflows', 'rebases often', 'append');
-    const content = (await store.load())?.sections.find((s) => s.title === 'Workflows')?.content;
+    const loaded = await store.load();
+    assertDefined(loaded, 'store has content after update');
+    const content = loaded.sections.find((s) => s.title === 'Workflows')?.content;
     expect(content).toBe('uses pnpm\nrebases often');
   });
 
   it('append on an empty section behaves like replace', async () => {
     const store = newStore();
     await store.update('context', 'sole line', 'append');
-    expect((await store.load())?.sections.find((s) => s.title === 'Context')?.content).toBe(
-      'sole line',
-    );
+    const loaded = await store.load();
+    assertDefined(loaded, 'store has content after append');
+    expect(loaded.sections.find((s) => s.title === 'Context')?.content).toBe('sole line');
   });
 
   it('preserves an unknown section when a tool write touches a fixed one', async () => {
@@ -222,13 +230,15 @@ describe('UserModelStore.injectInto', () => {
     const store = newStore();
     await store.update('identity', 'Alex, backend dev', 'replace');
     const out = (await store.injectInto(req('BASE SYSTEM'))) as ProviderRequest;
-    expect(out.system!.startsWith(USER_MODEL_OPEN)).toBe(true);
+    const system = out.system;
+    assertDefined(system, 'injectInto returns a system prompt');
+    expect(system.startsWith(USER_MODEL_OPEN)).toBe(true);
     expect(out.system).toContain('## Identity\nAlex, backend dev');
     expect(out.system).toContain('</user-model>');
     expect(out.system).toContain('memory_update_user_model');
     // Original system prompt is retained, AFTER the block.
     expect(out.system).toContain('BASE SYSTEM');
-    expect(out.system!.indexOf(USER_MODEL_OPEN)).toBeLessThan(out.system!.indexOf('BASE SYSTEM'));
+    expect(system.indexOf(USER_MODEL_OPEN)).toBeLessThan(system.indexOf('BASE SYSTEM'));
   });
 
   it('injects even when req.system is undefined', async () => {
@@ -246,7 +256,9 @@ describe('UserModelStore.injectInto', () => {
     const second = await store.injectInto(first);
     expect(second).toBeUndefined();
     // Only one opening delimiter present.
-    expect(first.system!.match(/<user-model>/g)).toHaveLength(1);
+    const firstSystem = first.system;
+    assertDefined(firstSystem, 'first injection produced a system prompt');
+    expect(firstSystem.match(/<user-model>/g)).toHaveLength(1);
   });
 
   it('returns the request unchanged when parsing/reading throws', async () => {
@@ -264,8 +276,12 @@ describe('userModelTool', () => {
     const tool = userModelTool(newStore());
     expect(tool.name).toBe('memory_update_user_model');
     expect(tool.permission).toEqual({ action: 'prompt' });
-    expect(tool.isolation?.capabilities?.fs?.write).toEqual(['~/.moxxy/memory/**']);
-    expect(tool.isolation?.capabilities?.net).toEqual({ mode: 'none' });
+    const isolation = tool.isolation;
+    assertDefined(isolation, 'the tool declares an isolation policy');
+    const capabilities = isolation.capabilities;
+    assertDefined(capabilities, 'the isolation policy declares capabilities');
+    expect(capabilities.fs?.write).toEqual(['~/.moxxy/memory/**']);
+    expect(capabilities.net).toEqual({ mode: 'none' });
   });
 
   it('rejects an out-of-enum section and over-long content', () => {
@@ -289,7 +305,9 @@ describe('userModelTool', () => {
       {} as never,
     )) as { section: string; mode: string; path: string };
     expect(out.section).toBe('identity');
-    expect((await store.load())?.sections.find((s) => s.title === 'Identity')?.content).toBe('Alex');
+    const loaded = await store.load();
+    assertDefined(loaded, 'store has content after the tool write');
+    expect(loaded.sections.find((s) => s.title === 'Identity')?.content).toBe('Alex');
     const raw = await fs.readFile(modelPath(), 'utf8');
     expect(raw).toContain('<!-- moxxy user model');
   });

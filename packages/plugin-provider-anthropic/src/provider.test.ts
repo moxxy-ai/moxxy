@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { AnthropicProvider } from './provider.js';
 
 // A minimal fake Anthropic SDK client to drive the translator without HTTP.
@@ -236,9 +237,13 @@ describe('AnthropicProvider.stream', () => {
     for await (const _ of p.stream({ model: 'claude-haiku-4-5-20251001', maxTokens: 5_000_000, messages: [] })) {
       void _;
     }
-    expect(calls[0]!.max_tokens).toBe(64_000);
+    const call0 = calls[0];
+    assertDefined(call0, 'first call recorded');
+    expect(call0.max_tokens).toBe(64_000);
     // No maxTokens → defaults to the descriptor ceiling.
     for await (const _ of p.stream({ model: 'claude-haiku-4-5-20251001', messages: [] })) void _;
-    expect(calls[1]!.max_tokens).toBe(64_000);
+    const call1 = calls[1];
+    assertDefined(call1, 'second call recorded');
+    expect(call1.max_tokens).toBe(64_000);
   });
 });

@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { EmbeddingProvider } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { MemoryStore } from './store.js';
 
 let tmp: string;
@@ -40,21 +41,27 @@ describe('MemoryStore vector recall (TF-IDF default)', () => {
     expect(store.embedderName).toBe('tfidf');
     await sampleCorpus(store);
     const matches = await store.recall('what API style does the team prefer');
-    expect(matches[0]!.entry.frontmatter.name).toBe('trpc-preference');
+    const top = matches[0];
+    assertDefined(top, 'recall returns a match');
+    expect(top.entry.frontmatter.name).toBe('trpc-preference');
   });
 
   it('vector recall ranks semantically relevant entries above incidental keyword matches', async () => {
     const store = new MemoryStore({ dir: tmp });
     await sampleCorpus(store);
     const matches = await store.recall('postgres database backups', { limit: 3 });
-    expect(matches[0]!.entry.frontmatter.name).toBe('postgres-prod');
+    const top = matches[0];
+    assertDefined(top, 'recall returns a match');
+    expect(top.entry.frontmatter.name).toBe('postgres-prod');
   });
 
   it('mode: "keyword" forces the legacy scorer', async () => {
     const store = new MemoryStore({ dir: tmp });
     await sampleCorpus(store);
     const matches = await store.recall('postgres', { mode: 'keyword' });
-    expect(matches[0]!.entry.frontmatter.name).toBe('postgres-prod');
+    const top = matches[0];
+    assertDefined(top, 'recall returns a match');
+    expect(top.entry.frontmatter.name).toBe('postgres-prod');
   });
 
   it('embedder: null disables vector entirely and forces keyword', async () => {
@@ -63,7 +70,9 @@ describe('MemoryStore vector recall (TF-IDF default)', () => {
     await sampleCorpus(store);
     const matches = await store.recall('database flavor in prod');
     // Falls through to keyword: "database" + "prod" only appear in postgres-prod
-    expect(matches[0]!.entry.frontmatter.name).toBe('postgres-prod');
+    const top = matches[0];
+    assertDefined(top, 'recall returns a match');
+    expect(top.entry.frontmatter.name).toBe('postgres-prod');
   });
 
   it('accepts a custom EmbeddingProvider via the constructor', async () => {
@@ -78,7 +87,9 @@ describe('MemoryStore vector recall (TF-IDF default)', () => {
     expect(store.embedderName).toBe('stub');
     await sampleCorpus(store);
     const matches = await store.recall('postgres');
-    expect(matches[0]!.entry.frontmatter.name).toBe('postgres-prod');
+    const top = matches[0];
+    assertDefined(top, 'recall returns a match');
+    expect(top.entry.frontmatter.name).toBe('postgres-prod');
   });
 
   it('returns empty list when corpus is empty', async () => {

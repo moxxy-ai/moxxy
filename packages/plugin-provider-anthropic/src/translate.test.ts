@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineTool } from '@moxxy/sdk';
+import { assertDefined, defineTool } from '@moxxy/sdk';
 import { toAnthropicMessages, toAnthropicTools } from './translate.js';
 
 describe('toAnthropicMessages', () => {
@@ -86,17 +86,28 @@ describe('toAnthropicMessages', () => {
       ],
       { cacheMessageIndices: new Set([2]) },
     );
-    const marked = messages[messages.length - 1]!.content[0]!;
+    const lastMsg = messages[messages.length - 1];
+    assertDefined(lastMsg, 'messages non-empty');
+    const marked = lastMsg.content[0];
+    assertDefined(marked, 'content non-empty');
     expect(marked.cache_control).toEqual({ type: 'ephemeral' });
     // Unhinted messages stay unmarked.
-    expect(messages[0]!.content[0]!.cache_control).toBeUndefined();
+    const firstMsg = messages[0];
+    assertDefined(firstMsg, 'messages non-empty');
+    const firstBlock = firstMsg.content[0];
+    assertDefined(firstBlock, 'content non-empty');
+    expect(firstBlock.cache_control).toBeUndefined();
   });
 
   it('adds no cache_control when no hints are given', () => {
     const { messages } = toAnthropicMessages([
       { role: 'user', content: [{ type: 'text', text: 'a' }] },
     ]);
-    expect(messages[0]!.content[0]!.cache_control).toBeUndefined();
+    const firstMsg = messages[0];
+    assertDefined(firstMsg, 'messages non-empty');
+    const firstBlock = firstMsg.content[0];
+    assertDefined(firstBlock, 'content non-empty');
+    expect(firstBlock.cache_control).toBeUndefined();
   });
 
   it('joins all text blocks of a multi-block system message (does not drop the rest)', () => {
@@ -119,7 +130,10 @@ describe('toAnthropicMessages', () => {
         content: [{ type: 'image', mediaType: 'image/tiff', data: 'AAAA' }],
       },
     ]);
-    const block = messages[0]!.content[0]!;
+    const firstMsg = messages[0];
+    assertDefined(firstMsg, 'messages non-empty');
+    const block = firstMsg.content[0];
+    assertDefined(block, 'content non-empty');
     expect(block.type).toBe('text');
     expect((block as { text: string }).text).toContain('image/tiff');
   });
@@ -131,7 +145,10 @@ describe('toAnthropicMessages', () => {
         content: [{ type: 'document', mediaType: 'application/zip', data: 'AAAA' }],
       },
     ]);
-    const block = messages[0]!.content[0]!;
+    const firstMsg = messages[0];
+    assertDefined(firstMsg, 'messages non-empty');
+    const block = firstMsg.content[0];
+    assertDefined(block, 'content non-empty');
     expect(block.type).toBe('text');
     expect((block as { text: string }).text).toContain('application/zip');
   });
@@ -147,8 +164,10 @@ describe('toAnthropicMessages', () => {
       },
     ]);
     // The reasoning block is dropped; only the visible answer survives.
-    expect(messages[0]!.content).toHaveLength(1);
-    expect(messages[0]!.content[0]).toMatchObject({ type: 'text', text: 'answer' });
+    const firstMsg = messages[0];
+    assertDefined(firstMsg, 'messages non-empty');
+    expect(firstMsg.content).toHaveLength(1);
+    expect(firstMsg.content[0]).toMatchObject({ type: 'text', text: 'answer' });
   });
 });
 

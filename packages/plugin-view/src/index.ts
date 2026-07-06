@@ -1,6 +1,7 @@
 import {
   defineTool,
   definePlugin,
+  assertDefined,
   z,
   type LifecycleHooks,
   type Plugin,
@@ -31,7 +32,8 @@ function countNodesBounded(root: ViewNode, limit: number): number {
   const stack: ViewNode[] = [root];
   let count = 0;
   while (stack.length > 0) {
-    const node = stack.pop()!;
+    const node = stack.pop();
+    assertDefined(node, 'stack is non-empty inside the while (stack.length > 0) loop');
     count++;
     if (count > limit) return count;
     if (node.kind === 'element') {
@@ -95,7 +97,8 @@ export function buildViewPlugin(opts: BuildViewPluginOptions, hooks?: LifecycleH
       // Short-circuit a cancelled turn before the heaviest work (parse + count
       // + AST serialization on a near-20k spec). ctx is optional only so unit
       // tests can call the handler bare; the registry always supplies it.
-      if (ctx?.signal?.aborted) {
+      const signal = ctx?.signal;
+      if (signal?.aborted) {
         return { ok: false, rendered: false, errors: [{ message: 'aborted' }] };
       }
       const renderer = opts.getRenderer();

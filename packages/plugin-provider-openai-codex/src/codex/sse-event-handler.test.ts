@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { handleSseEvent } from './sse-event-handler.js';
 import type { PendingFunctionCall, ResponsesSseEvent } from './stream-types.js';
 
@@ -56,10 +57,13 @@ describe('handleSseEvent — hostile-stream bounds', () => {
       );
       if (result.terminal) break;
     }
-    expect(result?.terminal).toBe(true);
-    expect(result?.events?.[0]).toMatchObject({ type: 'error', retryable: false });
+    assertDefined(result, 'loop ran at least once');
+    expect(result.terminal).toBe(true);
+    expect(result.events?.[0]).toMatchObject({ type: 'error', retryable: false });
     // It bailed well before 20 * 2 MiB = 40 MiB accumulated (cap is 16 MiB).
-    expect(pending.get('fc1')!.args.length).toBeLessThanOrEqual(16 * 1024 * 1024);
+    const fc1 = pending.get('fc1');
+    assertDefined(fc1, 'seeded function call is pending');
+    expect(fc1.args.length).toBeLessThanOrEqual(16 * 1024 * 1024);
   });
 
   it('caps the number of concurrently-pending tool calls', () => {
@@ -78,8 +82,9 @@ describe('handleSseEvent — hostile-stream bounds', () => {
       );
       if (result.terminal) break;
     }
-    expect(result?.terminal).toBe(true);
-    expect(result?.events?.[0]).toMatchObject({ type: 'error', retryable: false });
+    assertDefined(result, 'loop ran at least once');
+    expect(result.terminal).toBe(true);
+    expect(result.events?.[0]).toMatchObject({ type: 'error', retryable: false });
     expect(pending.size).toBeLessThanOrEqual(1024);
   });
 });

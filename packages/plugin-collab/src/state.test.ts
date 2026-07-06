@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CollaborationState, pathsConflict } from './state.js';
 import type { CollabEvent, RosterEntry } from './hub-types.js';
+import { assertDefined } from '@moxxy/sdk';
 
 const roster: RosterEntry[] = [
   { id: 'architect', name: 'Architect', role: 'architect', subtask: 'design' },
@@ -236,7 +237,10 @@ describe('board file locks', () => {
     // Re-claim the SAME item with a different path — the old path must survive.
     const second = state.boardClaim('backend', ['src/b'], id);
     expect(second.ok).toBe(true);
-    if (second.ok) expect([...second.item.paths!].sort()).toEqual(['src/a', 'src/b']);
+    if (second.ok) {
+      assertDefined(second.item.paths, 'a successful claim always records the claimed paths');
+      expect([...second.item.paths].sort()).toEqual(['src/a', 'src/b']);
+    }
 
     // Another agent still cannot take src/a (its lock was not silently dropped).
     expect(state.boardClaim('tests', ['src/a']).ok).toBe(false);

@@ -6,7 +6,7 @@
  * them here keeps the wrapper plugins thin.
  */
 
-import { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk';
+import { assertDefined, MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk';
 
 /** A custom MIME tag used by the TUI voice recorder to flag raw PCM16
  *  mono @ 24kHz bytes (ffmpeg's `-f s16le` output) so the transcriber
@@ -75,7 +75,9 @@ export function normalizeWhisperUpload(
   // Guard the runtime type so `.toLowerCase()` can't throw on hostile input —
   // anything non-string degrades to the default rather than crashing the path.
   const rawMime = typeof mimeType === 'string' ? mimeType : '';
-  const mt = (rawMime || 'audio/wav').toLowerCase().split(';')[0]!.trim();
+  const firstSegment = (rawMime || 'audio/wav').toLowerCase().split(';')[0];
+  assertDefined(firstSegment, 'String.split always yields at least one element');
+  const mt = firstSegment.trim();
   if (mt === MOXXY_PCM16_24KHZ_MIME) {
     return {
       bytes: pcm16MonoToWav(bytes, 24_000),

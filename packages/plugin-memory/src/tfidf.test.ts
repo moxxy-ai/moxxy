@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { TfIdfEmbedder, cosineSimilarity, tokenize } from './tfidf.js';
 
 describe('tokenize', () => {
@@ -29,8 +30,12 @@ describe('TfIdfEmbedder', () => {
     e.fit(corpus);
     const vectors = await e.embed(corpus);
     expect(vectors).toHaveLength(3);
-    expect(vectors[0]!.length).toBeGreaterThan(0);
-    expect(vectors[0]!.length).toBe(vectors[1]!.length);
+    const v0 = vectors[0];
+    const v1 = vectors[1];
+    assertDefined(v0, 'embed returns a vector per corpus entry');
+    assertDefined(v1, 'embed returns a vector per corpus entry');
+    expect(v0.length).toBeGreaterThan(0);
+    expect(v0.length).toBe(v1.length);
   });
 
   it('ranks a relevant query higher than an irrelevant one', async () => {
@@ -42,11 +47,20 @@ describe('TfIdfEmbedder', () => {
     const e = new TfIdfEmbedder();
     e.fit([...corpus, 'what API style does the team use', 'database flavor in prod']);
     const v = await e.embed([...corpus, 'what API style does the team use']);
-    const queryVec = v[v.length - 1]!;
-    const scores = corpus.map((_, i) => cosineSimilarity(v[i]!, queryVec));
+    const queryVec = v[v.length - 1];
+    assertDefined(queryVec, 'embed returns the query vector last');
+    const scores = corpus.map((_, i) => {
+      const vi = v[i];
+      assertDefined(vi, 'embed returns a vector per corpus entry');
+      return cosineSimilarity(vi, queryVec);
+    });
     // tRPC entry should be most similar to "API style" query
-    expect(scores[0]).toBeGreaterThan(scores[1]!);
-    expect(scores[0]).toBeGreaterThan(scores[2]!);
+    const s1 = scores[1];
+    const s2 = scores[2];
+    assertDefined(s1, 'scores has an entry per corpus entry');
+    assertDefined(s2, 'scores has an entry per corpus entry');
+    expect(scores[0]).toBeGreaterThan(s1);
+    expect(scores[0]).toBeGreaterThan(s2);
   });
 
   it('cosineSimilarity returns 1 for identical normalized vectors', () => {

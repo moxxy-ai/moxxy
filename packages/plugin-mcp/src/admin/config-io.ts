@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { createMutex } from '@moxxy/sdk';
+import { assertDefined, createMutex } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { mcpStoredConfigRootSchema, mcpStoredServerSchema } from './config-schema.js';
 import type { McpStoredConfig, McpStoredServer } from './types.js';
@@ -90,7 +90,9 @@ export async function setServerDisabled(name: string, disabled: boolean): Promis
     const idx = cfg.servers.findIndex((s) => s.name === name);
     // Unknown name → same reference skips the write (mutateMcpConfig no-op).
     if (idx < 0) return { next: cfg, result: null };
-    const updated: McpStoredServer = { ...cfg.servers[idx]!, disabled };
+    const existing = cfg.servers[idx];
+    assertDefined(existing, `mcp server at index ${idx} must exist (findIndex matched name "${name}")`);
+    const updated: McpStoredServer = { ...existing, disabled };
     const nextServers = [...cfg.servers];
     nextServers[idx] = updated;
     return { next: { servers: nextServers }, result: updated };

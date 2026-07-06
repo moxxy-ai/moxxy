@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import {
   z,
+  assertDefined,
   defineTool,
   createMutex,
   type Mutex,
@@ -94,7 +95,9 @@ export function parseUserModel(text: string): UserModel {
     if (m) {
       seenHeading = true;
       if (current) sections.push({ title: current.title, content: current.body.join('\n').trim() });
-      current = { title: m[1]!.trim(), body: [] };
+      const title = m[1];
+      assertDefined(title, 'HEADING_RE capture group 1 is present on any match');
+      current = { title: title.trim(), body: [] };
     } else if (!seenHeading) {
       preambleLines.push(line);
     } else if (current) {
