@@ -93,7 +93,8 @@ export async function installFullAppUpdate(opts: {
 
   opts.onProgress({ phase: 'download', message: 'Fetching installer…' });
   const check = await autoUpdater.checkForUpdates();
-  if (!check?.updateInfo?.version) {
+  const updateInfo = check?.updateInfo;
+  if (!updateInfo?.version) {
     throw new Error('No installer found for this release.');
   }
   await autoUpdater.downloadUpdate();

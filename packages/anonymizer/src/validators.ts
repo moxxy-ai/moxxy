@@ -12,6 +12,8 @@
  * validators reject all-zeros explicitly via {@link notAllZeros}.
  */
 
+import { required } from './assert.js';
+
 /** Strip everything but ASCII digits. */
 export function digitsOnly(s: string): string {
   return s.replace(/[^0-9]/g, '');
@@ -34,7 +36,8 @@ function alnumValue(ch: string): number {
 /** Weighted sum of `digits` against `weights` (positionally aligned). */
 function weightedSum(digits: string, weights: readonly number[]): number {
   let sum = 0;
-  for (let i = 0; i < weights.length; i++) sum += (digits.charCodeAt(i) - 48) * weights[i]!;
+  for (let i = 0; i < weights.length; i++)
+    sum += (digits.charCodeAt(i) - 48) * required(weights[i], 'weight index within weights');
   return sum;
 }
 
@@ -233,9 +236,9 @@ export function isDowodOsobisty(m: string): boolean {
   if (!/^[A-Z]{3}\d{6}$/.test(s)) return false;
   let sum = 0;
   for (let i = 0; i < 9; i++) {
-    const v = alnumValue(s[i]!);
+    const v = alnumValue(required(s[i], 'char index within s'));
     if (Number.isNaN(v)) return false;
-    sum += v * DOWOD_WEIGHTS[i]!;
+    sum += v * required(DOWOD_WEIGHTS[i], 'weight index within DOWOD_WEIGHTS');
   }
   return sum % 10 === 0;
 }
@@ -248,9 +251,9 @@ export function isPlPassport(m: string): boolean {
   if (!/^[A-Z]{2}\d{7}$/.test(s)) return false;
   let sum = 0;
   for (let i = 0; i < 9; i++) {
-    const v = alnumValue(s[i]!);
+    const v = alnumValue(required(s[i], 'char index within s'));
     if (Number.isNaN(v)) return false;
-    sum += v * PL_PASSPORT_WEIGHTS[i]!;
+    sum += v * required(PL_PASSPORT_WEIGHTS[i], 'weight index within PL_PASSPORT_WEIGHTS');
   }
   return sum % 10 === 0;
 }
@@ -277,7 +280,7 @@ export function isUtr(m: string): boolean {
   const d = digitsOnly(m);
   if (d.length !== 10) return false;
   const sum = weightedSum(d.slice(1), UTR_WEIGHTS);
-  const expected = UTR_LOOKUP[sum % 11]!;
+  const expected = required(UTR_LOOKUP[sum % 11], 'UTR lookup index within range');
   return expected === d.charCodeAt(0) - 48;
 }
 
@@ -301,10 +304,10 @@ export function isVin(m: string): boolean {
   if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(v)) return false;
   let sum = 0;
   for (let i = 0; i < 17; i++) {
-    const ch = v[i]!;
+    const ch = required(v[i], 'char index within v');
     const val = /\d/.test(ch) ? ch.charCodeAt(0) - 48 : VIN_TRANSLIT[ch];
     if (val == null) return false;
-    sum += val * VIN_WEIGHTS[i]!;
+    sum += val * required(VIN_WEIGHTS[i], 'weight index within VIN_WEIGHTS');
   }
   const remainder = sum % 11;
   const expected = remainder === 10 ? 'X' : String(remainder);

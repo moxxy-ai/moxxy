@@ -5,6 +5,7 @@
 
 import { detect } from './detect.js';
 import { shortHash } from './hash.js';
+import { required } from './assert.js';
 import type {
   PiiCategory,
   PiiSpan,
@@ -113,7 +114,7 @@ export function redact(text: string, opts: RedactOptions = {}): RedactResult {
   // ...then splice RIGHT-TO-LEFT so earlier offsets stay valid as we go.
   let out = text;
   for (let i = spans.length - 1; i >= 0; i--) {
-    const span = spans[i]!;
+    const span = required(spans[i], 'loop index is within spans bounds');
     out = out.slice(0, span.start) + replacements[i] + out.slice(span.end);
   }
 

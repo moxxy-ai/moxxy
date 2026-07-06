@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useRef, useState } from 'react';
+import { assertDefined } from '@/lib/assert';
 import { summarizeArgs, oneLine } from '@moxxy/chat-model';
 import type { AskRequest, ApprovalRequest, ApprovalOption } from '@moxxy/desktop-ipc-contract';
 import { Icon } from '@moxxy/desktop-ui';
@@ -26,7 +27,8 @@ export function AskSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
 }
 
 function WorkflowSheet({ ask }: { readonly ask: AskRequest }): JSX.Element {
-  const workflow = ask.workflow!;
+  const workflow = ask.workflow;
+  assertDefined(workflow, 'WorkflowSheet is only rendered for a workflow ask');
   const [reply, setReply] = useState('');
   const send = (): void => askStore.respond(ask.requestId, { text: reply.trim() });
 
@@ -128,8 +130,10 @@ function ApprovalSheet({
     }
     askStore.respond(ask.requestId, { optionId: opt.id });
   };
-  const sendText = (): void =>
-    askStore.respond(ask.requestId, { optionId: textOption!.id, text: text.trim() });
+  const sendText = (): void => {
+    assertDefined(textOption, 'sendText is only reachable once a text option is selected');
+    askStore.respond(ask.requestId, { optionId: textOption.id, text: text.trim() });
+  };
 
   // Escape in the text sub-step backs out to the options; in the options view
   // it picks the default option only when that default is non-destructive (we

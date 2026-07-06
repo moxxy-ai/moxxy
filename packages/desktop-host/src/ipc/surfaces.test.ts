@@ -17,6 +17,7 @@ import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
 import type { RunnerPool } from '../runner-pool';
 import { setActiveBus } from './shared';
 import { registerSurfaceHandlers } from './surfaces';
+import { assertDefined } from '@moxxy/sdk';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -84,20 +85,26 @@ describe('registerSurfaceHandlers', () => {
   it('surface.list returns the session surfaces', async () => {
     const { session } = fakeSession();
     const handlers = register(fakePool(session));
-    const result = await handlers.get('surface.list')!({ workspaceId: 'ws1' });
+    const listHandler = handlers.get('surface.list');
+    assertDefined(listHandler, 'surface.list handler');
+    const result = await listHandler({ workspaceId: 'ws1' });
     expect(result).toEqual([{ id: 's1', kind: 'terminal' }]);
   });
 
   it('surface.list degrades to [] when no session is connected yet', async () => {
     const handlers = register(fakePool(null));
-    const result = await handlers.get('surface.list')!({ workspaceId: 'ws1' });
+    const listHandler = handlers.get('surface.list');
+    assertDefined(listHandler, 'surface.list handler');
+    const result = await listHandler({ workspaceId: 'ws1' });
     expect(result).toEqual([]);
   });
 
   it('surface.open forwards the kind and returns the open result', async () => {
     const { session, calls } = fakeSession();
     const handlers = register(fakePool(session));
-    const result = await handlers.get('surface.open')!({ workspaceId: 'ws1', kind: 'terminal' });
+    const openHandler = handlers.get('surface.open');
+    assertDefined(openHandler, 'surface.open handler');
+    const result = await openHandler({ workspaceId: 'ws1', kind: 'terminal' });
     expect(result).toEqual({ surfaceId: 's2' });
     expect(calls).toContainEqual({ op: 'openSurface', args: ['terminal'] });
   });
@@ -105,28 +112,36 @@ describe('registerSurfaceHandlers', () => {
   it('surface.input forwards surfaceId + message', async () => {
     const { session, calls } = fakeSession();
     const handlers = register(fakePool(session));
-    await handlers.get('surface.input')!({ workspaceId: 'ws1', surfaceId: 's2', message: { data: 'ls\n' } });
+    const inputHandler = handlers.get('surface.input');
+    assertDefined(inputHandler, 'surface.input handler');
+    await inputHandler({ workspaceId: 'ws1', surfaceId: 's2', message: { data: 'ls\n' } });
     expect(calls).toContainEqual({ op: 'inputSurface', args: ['s2', { data: 'ls\n' }] });
   });
 
   it('surface.resize forwards surfaceId + size', async () => {
     const { session, calls } = fakeSession();
     const handlers = register(fakePool(session));
-    await handlers.get('surface.resize')!({ workspaceId: 'ws1', surfaceId: 's2', size: { cols: 80, rows: 24 } });
+    const resizeHandler = handlers.get('surface.resize');
+    assertDefined(resizeHandler, 'surface.resize handler');
+    await resizeHandler({ workspaceId: 'ws1', surfaceId: 's2', size: { cols: 80, rows: 24 } });
     expect(calls).toContainEqual({ op: 'resizeSurface', args: ['s2', { cols: 80, rows: 24 }] });
   });
 
   it('surface.close forwards surfaceId', async () => {
     const { session, calls } = fakeSession();
     const handlers = register(fakePool(session));
-    await handlers.get('surface.close')!({ workspaceId: 'ws1', surfaceId: 's2' });
+    const closeHandler = handlers.get('surface.close');
+    assertDefined(closeHandler, 'surface.close handler');
+    await closeHandler({ workspaceId: 'ws1', surfaceId: 's2' });
     expect(calls).toContainEqual({ op: 'closeSurface', args: ['s2'] });
   });
 
   it('a mutating op throws when no session is connected (requireSession default)', async () => {
     const handlers = register(fakePool(null));
+    const openHandler = handlers.get('surface.open');
+    assertDefined(openHandler, 'surface.open handler');
     await expect(
-      handlers.get('surface.open')!({ workspaceId: 'ws1', kind: 'terminal' }),
+      openHandler({ workspaceId: 'ws1', kind: 'terminal' }),
     ).rejects.toThrow(/not connected/);
   });
 });

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { assertDefined } from '@/lib/assert';
 import { useSettings } from '@moxxy/client-core';
 import { Skeleton, Icon } from '@moxxy/desktop-ui';
 import { SkillsView } from './SkillsView';
@@ -120,7 +121,9 @@ export function SettingsPanel({
   const [tab, setTab] = useState<Tab>('providers');
   const [query, setQuery] = useState('');
 
-  const active = TAB_DESCRIPTORS.find((d) => d.id === tab) ?? TAB_DESCRIPTORS[0]!;
+  const firstTab = TAB_DESCRIPTORS[0];
+  assertDefined(firstTab, 'TAB_DESCRIPTORS is a non-empty constant list');
+  const active = TAB_DESCRIPTORS.find((d) => d.id === tab) ?? firstTab;
   const ctx: TabContext = { s, query, setQuery };
 
   return (

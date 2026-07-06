@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { assertDefined } from '@/lib/assert';
 import { Button, Icon, Modal, TextInput } from '@moxxy/desktop-ui';
 import { humanize } from './steppers';
 import type { ArgStep, CommandInfo } from './types';
@@ -26,7 +27,12 @@ export function ArgsForm({
   readonly onCancel: () => void;
 }): JSX.Element {
   const [values, setValues] = useState<string[]>(() => steps.map(() => ''));
-  const canRun = steps.every((_, i) => values[i]!.trim().length > 0) && !running;
+  const canRun =
+    steps.every((_, i) => {
+      const v = values[i];
+      assertDefined(v, 'values holds one entry per step');
+      return v.trim().length > 0;
+    }) && !running;
 
   return (
     <Modal title={humanize(command.name)} onClose={onCancel} width={520}>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detect } from './detect.js';
+import { required } from './assert.js';
 
 describe('detect', () => {
   it('returns non-overlapping spans in document order', () => {
@@ -11,7 +12,9 @@ describe('detect', () => {
     ]);
     // ascending, non-overlapping
     for (let i = 1; i < spans.length; i++) {
-      expect(spans[i]!.start).toBeGreaterThanOrEqual(spans[i - 1]!.end);
+      const cur = required(spans[i], 'span at index i');
+      const prev = required(spans[i - 1], 'span at index i - 1');
+      expect(cur.start).toBeGreaterThanOrEqual(prev.end);
     }
   });
 
@@ -20,13 +23,14 @@ describe('detect', () => {
     const text = 'pay 4111-1111-1111-1111 now';
     const spans = detect(text, { categories: ['creditCard', 'phone'] });
     expect(spans).toHaveLength(1);
-    expect(spans[0]!.category).toBe('creditCard');
+    expect(required(spans[0], 'first detected span').category).toBe('creditCard');
   });
 
   it('offsets slice back to the matched value', () => {
     const text = 'contact John.Doe@example.com here';
     const [span] = detect(text);
-    expect(text.slice(span!.start, span!.end)).toBe(span!.value);
+    const found = required(span, 'detect returns at least one span');
+    expect(text.slice(found.start, found.end)).toBe(found.value);
   });
 
   it('merges extraSpans (e.g. NER) through overlap resolution', () => {
@@ -59,7 +63,9 @@ describe('detect', () => {
       ['org', 22, 25],
     ]);
     for (let i = 1; i < spans.length; i++) {
-      expect(spans[i]!.start).toBeGreaterThanOrEqual(spans[i - 1]!.end);
+      const cur = required(spans[i], 'span at index i');
+      const prev = required(spans[i - 1], 'span at index i - 1');
+      expect(cur.start).toBeGreaterThanOrEqual(prev.end);
     }
   });
 
@@ -77,7 +83,9 @@ describe('detect', () => {
     expect(Date.now() - t0).toBeLessThan(3_000);
     // Sorted + non-overlapping.
     for (let i = 1; i < spans.length; i++) {
-      expect(spans[i]!.start).toBeGreaterThanOrEqual(spans[i - 1]!.end);
+      const cur = required(spans[i], 'span at index i');
+      const prev = required(spans[i - 1], 'span at index i - 1');
+      expect(cur.start).toBeGreaterThanOrEqual(prev.end);
     }
   });
 });

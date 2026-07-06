@@ -27,6 +27,7 @@ import { mkdir, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs
 import os from 'node:os';
 import path from 'node:path';
 import type { UserPromptAttachment } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { parseOfficeAsync } from 'officeparser';
 import { extractPdfText } from './pdf-text.js';
 
@@ -116,7 +117,8 @@ function rtfToText(buf: Buffer): string | null {
   const controlWord = /\\([a-z]+)(-?\d+)? ?/iy;
 
   for (let i = 0; i < rtf.length; i++) {
-    const ch = rtf[i]!;
+    const ch = rtf[i];
+    assertDefined(ch, 'char index within rtf bounds');
     if (ch === '{') {
       // Open a group. Decide if it's a skip group by peeking the destination
       // control word that (optionally after `\*`) starts it.
@@ -124,7 +126,8 @@ function rtfToText(buf: Buffer): string | null {
       const dest = groupDest.exec(rtf);
       starDest.lastIndex = i + 1;
       const isStar = starDest.test(rtf);
-      const skip = (dest !== null && RTF_SKIP_GROUPS.has(dest[1]!.toLowerCase())) || isStar;
+      const destWord = dest?.[1];
+      const skip = (destWord !== undefined && RTF_SKIP_GROUPS.has(destWord.toLowerCase())) || isStar;
       skipStack.push(Boolean(skip));
       continue;
     }
@@ -149,7 +152,9 @@ function rtfToText(buf: Buffer): string | null {
       controlWord.lastIndex = i;
       const m = controlWord.exec(rtf); // /y → matches only when anchored at `i`
       if (m) {
-        const word = m[1]!.toLowerCase();
+        const controlName = m[1];
+        assertDefined(controlName, 'control-word capture group is present');
+        const word = controlName.toLowerCase();
         if (!suppressed()) {
           if (word === 'par' || word === 'line' || word === 'sect') out += '\n';
           else if (word === 'tab') out += '\t';
@@ -196,7 +201,8 @@ function legacyDocToText(buf: Buffer): string | null {
     cur = '';
   };
   for (let i = 0; i < buf.length; i++) {
-    const b = buf[i]!;
+    const b = buf[i];
+    assertDefined(b, 'byte index within buf bounds');
     // Treat tab/newline/CR and printable ASCII (0x20–0x7e) + Latin-1 high range
     // (0xa0–0xfe) as text. The C1 control range (0x80–0x9f) is excluded so
     // stray control bytes don't get mapped into the recovered prose.

@@ -393,7 +393,7 @@ function ConfigureProviderModal({
             >
               {REASONING_LEVELS.map((level) => (
                 <option key={level} value={level}>
-                  {level === 'off' ? 'Off' : level[0]!.toUpperCase() + level.slice(1)}
+                  {level === 'off' ? 'Off' : (level[0] ?? '').toUpperCase() + level.slice(1)}
                 </option>
               ))}
             </select>

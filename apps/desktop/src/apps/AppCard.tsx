@@ -150,18 +150,18 @@ export function AppCard({
         </div>
       ) : state === 'installing' || installing ? (
         (() => {
-          const known = !!progress && progress.totalBytes > 0;
-          const pct = known
-            ? Math.round(Math.min(100, (progress!.receivedBytes / progress!.totalBytes) * 100))
+          const active = progress && progress.totalBytes > 0 ? progress : null;
+          const pct = active
+            ? Math.round(Math.min(100, (active.receivedBytes / active.totalBytes) * 100))
             : null;
-          const label = known
-            ? `Downloading ${mb(progress!.receivedBytes)} of ${mb(progress!.totalBytes)}`
+          const label = active
+            ? `Downloading ${mb(active.receivedBytes)} of ${mb(active.totalBytes)}`
             : 'Downloading…';
           return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 12, color: 'var(--color-text-dim)' }} aria-hidden>
-                {known
-                  ? `Downloading… ${mb(progress!.receivedBytes)} / ${mb(progress!.totalBytes)}`
+                {active
+                  ? `Downloading… ${mb(active.receivedBytes)} / ${mb(active.totalBytes)}`
                   : 'Downloading…'}
               </div>
               <div

@@ -168,7 +168,8 @@ export function CollaboratePanel({
     else await runCmd('collab_say', `${channel === 'all' ? 'all' : channel} ${body}`);
   };
 
-  const paused = collab?.control?.paused ?? false;
+  const control = collab?.control;
+  const paused = control?.paused ?? false;
 
   const visibleMessages = useMemo(
     () => (collab ? filterCollabMessages(collab.messages, channel) : []),

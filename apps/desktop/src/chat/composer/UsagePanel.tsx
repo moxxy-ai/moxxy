@@ -329,7 +329,13 @@ function CompRow({
 function Sparkline({ series }: { readonly series: ReadonlyArray<number> }): JSX.Element {
   const tail = series.slice(-44);
   const max = Math.max(...tail, 1);
-  const growing = tail.length >= 4 && tail[tail.length - 1]! > tail[0]! * 1.5;
+  const lastPoint = tail[tail.length - 1];
+  const firstPoint = tail[0];
+  const growing =
+    tail.length >= 4 &&
+    lastPoint !== undefined &&
+    firstPoint !== undefined &&
+    lastPoint > firstPoint * 1.5;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
       <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end', gap: 1, height: 22 }}>

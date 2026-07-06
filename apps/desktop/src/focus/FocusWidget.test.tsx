@@ -23,6 +23,7 @@ import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testi
 import { __setApiOverride } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
 import { FocusWidget } from './FocusWidget';
 import { __resetThemeForTests } from '@/lib/useTheme';
@@ -389,7 +390,8 @@ describe('FocusWidget stages', () => {
       expect(spy.invokes.some((i) => i.channel === 'focus.dragStart')).toBe(true);
       const move = spy.invokes.find((i) => i.channel === 'focus.dragMove');
       expect(move).toBeTruthy();
-      expect(move!.args).toEqual({ screenX: 690, screenY: 470 });
+      assertDefined(move, 'focus.dragMove invoke');
+      expect(move.args).toEqual({ screenX: 690, screenY: 470 });
       expect(spy.invokes.some((i) => i.channel === 'focus.dragEnd')).toBe(true);
     });
     expect(spy.invokes.some((i) => i.channel === 'focus.moveBy')).toBe(false);
@@ -481,7 +483,8 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       const load = spy.invokes.find((i) => i.channel === 'chat.loadHistory');
       expect(load).toBeTruthy();
-      expect((load!.args as { workspaceId: string }).workspaceId).toBe('ws-test');
+      assertDefined(load, 'chat.loadHistory invoke');
+      expect((load.args as { workspaceId: string }).workspaceId).toBe('ws-test');
     });
     await waitFor(() => {
       expect(screen.getByText(/cached assistant answer/i)).toBeTruthy();
@@ -509,8 +512,9 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       const turnCall = spy.invokes.find((i) => i.channel === 'session.runTurn');
       expect(turnCall).toBeTruthy();
-      expect((turnCall!.args as { prompt: string }).prompt).toBe('hello from focus');
-      expect((turnCall!.args as { workspaceId: string }).workspaceId).toBe(
+      assertDefined(turnCall, 'session.runTurn invoke');
+      expect((turnCall.args as { prompt: string }).prompt).toBe('hello from focus');
+      expect((turnCall.args as { workspaceId: string }).workspaceId).toBe(
         'ws-test',
       );
     });
@@ -551,7 +555,8 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       const turnCall = spy.invokes.find((i) => i.channel === 'session.runTurn');
       expect(turnCall).toBeTruthy();
-      expect((turnCall!.args as { attachments?: ReadonlyArray<{ path: string; name: string }> }).attachments).toEqual([
+      assertDefined(turnCall, 'session.runTurn invoke');
+      expect((turnCall.args as { attachments?: ReadonlyArray<{ path: string; name: string }> }).attachments).toEqual([
         { path: '/tmp/moxxy-focus/screen.png', name: 'screen.png' },
       ]);
     });
@@ -620,7 +625,8 @@ describe('FocusWidget bidirectional sync', () => {
             ?.width === 900,
       );
       expect(update).toBeTruthy();
-      expect(update!.args).toMatchObject({ focusMiniTextSize: { width: 900, height: 700 } });
+      assertDefined(update, 'prefs.update invoke');
+      expect(update.args).toMatchObject({ focusMiniTextSize: { width: 900, height: 700 } });
     });
   });
 
@@ -761,7 +767,8 @@ describe('FocusWidget bidirectional sync', () => {
           (i.args as { width: number; height: number }).width >= 600,
       );
       expect(previewResize).toBeTruthy();
-      expect((previewResize!.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+      assertDefined(previewResize, 'focus.resize preview invoke');
+      expect((previewResize.args as { height: number }).height).toBeGreaterThanOrEqual(100);
     });
   });
 
@@ -819,7 +826,8 @@ describe('FocusWidget bidirectional sync', () => {
           (i.args as { width: number; height: number }).width >= 400,
       );
       expect(previewResize).toBeTruthy();
-      expect((previewResize!.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+      assertDefined(previewResize, 'focus.resize preview invoke');
+      expect((previewResize.args as { height: number }).height).toBeGreaterThanOrEqual(100);
     });
   });
 
@@ -888,7 +896,8 @@ describe('FocusWidget bidirectional sync', () => {
           (i.args as { width: number; height: number }).width >= 520,
       );
       expect(askResize).toBeTruthy();
-      expect((askResize!.args as { height: number }).height).toBeGreaterThanOrEqual(130);
+      assertDefined(askResize, 'focus.resize ask invoke');
+      expect((askResize.args as { height: number }).height).toBeGreaterThanOrEqual(130);
     });
 
     fireEvent.click(screen.getByRole('button', { name: /^allow$/i }));
@@ -896,7 +905,8 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       const respond = spy.invokes.find((i) => i.channel === 'ask.respond');
       expect(respond).toBeTruthy();
-      expect(respond!.args).toEqual({
+      assertDefined(respond, 'ask.respond invoke');
+      expect(respond.args).toEqual({
         requestId: 'ask-focus-toast',
         response: { mode: 'allow_session' },
       });
@@ -955,7 +965,8 @@ describe('FocusWidget bidirectional sync', () => {
     await waitFor(() => {
       const respond = spy.invokes.find((i) => i.channel === 'ask.respond');
       expect(respond).toBeTruthy();
-      expect(respond!.args).toEqual({
+      assertDefined(respond, 'ask.respond invoke');
+      expect(respond.args).toEqual({
         requestId: 'ask-focus-mini',
         response: { mode: 'allow_always' },
       });
@@ -992,7 +1003,8 @@ describe('FocusWidget bidirectional sync', () => {
           (i.args as { width: number; height: number }).width >= 600,
       );
       expect(askResize).toBeTruthy();
-      expect((askResize!.args as { height: number }).height).toBeGreaterThanOrEqual(210);
+      assertDefined(askResize, 'focus.resize ask invoke');
+      expect((askResize.args as { height: number }).height).toBeGreaterThanOrEqual(210);
     });
   });
 

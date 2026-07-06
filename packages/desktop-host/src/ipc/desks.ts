@@ -13,6 +13,7 @@ import { dialog, BrowserWindow as BrowserWindowApi } from 'electron';
 import type { RunnerPool } from '../runner-pool';
 import { cwdForSession, type DeskStore } from '../desks';
 import { broadcastHostEvent } from '../event-bus';
+import { assertDefined } from '@moxxy/sdk';
 import { handle } from './shared';
 
 export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void {
@@ -73,7 +74,9 @@ export function registerDesksHandlers(pool: RunnerPool, desks: DeskStore): void 
       ? await dialog.showOpenDialog(window, opts)
       : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
-    return result.filePaths[0]!;
+    const picked = result.filePaths[0];
+    assertDefined(picked, 'a folder path is present when filePaths is non-empty');
+    return picked;
   });
 }
 

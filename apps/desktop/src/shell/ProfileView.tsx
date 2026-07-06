@@ -29,7 +29,8 @@ export function ProfileView({ tier, onClose }: Props): JSX.Element {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const email = user?.primaryEmailAddress?.emailAddress ?? null;
+  const primaryEmail = user?.primaryEmailAddress;
+  const email = primaryEmail?.emailAddress ?? null;
   const fullName =
     user?.fullName ?? email ?? prefs?.clerkDisplayName ?? 'Account';
   const joined = user?.createdAt ? new Date(user.createdAt) : null;

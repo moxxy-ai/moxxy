@@ -171,7 +171,8 @@ describe('Transcript stick-to-bottom wiring', () => {
       />,
     );
 
-    act(() => captured.props?.atTopStateChange?.(true));
+    const onAtTop = captured.props?.atTopStateChange;
+    act(() => onAtTop?.(true));
     rerender(
       <Transcript
         events={[e1]}

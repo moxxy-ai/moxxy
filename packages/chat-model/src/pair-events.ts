@@ -1,4 +1,5 @@
 import type { MoxxyEvent, PluginEvent, ToolCompactPresentation } from '@moxxy/sdk';
+import { assertDefined, invariant } from './assert.js';
 import { isFileDiffDisplay } from '@moxxy/sdk/tool-display';
 import type {
   Block,
@@ -682,7 +683,11 @@ function mixEventId(h: number, id: string): number {
  *  dev-only interior integrity check; never on the production path. */
 function hashEventIds(events: ReadonlyArray<MoxxyEvent>, upto: number): number {
   let h = FNV_BASIS;
-  for (let i = 0; i < upto; i += 1) h = mixEventId(h, events[i]!.id);
+  for (let i = 0; i < upto; i += 1) {
+    const event = events[i];
+    assertDefined(event, 'event index within bounds (upto <= events.length)');
+    h = mixEventId(h, event.id);
+  }
   return h >>> 0;
 }
 
@@ -753,7 +758,11 @@ export class IncrementalFold {
    */
   syncTo(events: ReadonlyArray<MoxxyEvent>): Block[] {
     if (this.canExtend(events)) {
-      for (let i = this.prefixLength; i < events.length; i += 1) this.push(events[i]!);
+      for (let i = this.prefixLength; i < events.length; i += 1) {
+        const event = events[i];
+        assertDefined(event, 'event index within bounds');
+        this.push(event);
+      }
       return this.state.root;
     }
     // The known prefix changed (or shrank): the carry is no longer valid, so
@@ -800,8 +809,11 @@ export class IncrementalFold {
   private canExtend(events: ReadonlyArray<MoxxyEvent>): boolean {
     if (this.prefixLength === 0) return true; // empty fold extends to anything
     if (events.length < this.prefixLength) return false; // shrank → rebuild
-    if (events[0]!.id !== this.headId) return false; // head shifted (prepend)
-    const tail = events[this.prefixLength - 1]!;
+    const first = events[0];
+    assertDefined(first, 'events is non-empty when prefixLength >= 1');
+    if (first.id !== this.headId) return false; // head shifted (prepend)
+    const tail = events[this.prefixLength - 1];
+    assertDefined(tail, 'tail event within bounds (events.length >= prefixLength >= 1)');
     if (tail.id !== this.tailId) return false; // tail id rewritten
     if (this.tailEvent !== null && tail !== this.tailEvent) return false; // tail object swapped
     if (FOLD_DEV_CHECKS && hashEventIds(events, this.prefixLength) !== (this.foldedHash >>> 0)) {
@@ -873,7 +885,11 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     if (a.agentType !== b.agentType) return false;
     if (a.agents.length !== b.agents.length) return false;
     for (let i = 0; i < a.agents.length; i += 1) {
-      if (!blocksEquivalent(a.agents[i]!, b.agents[i]!)) return false;
+      const aAgent = a.agents[i];
+      const bAgent = b.agents[i];
+      invariant(aAgent !== undefined, 'agent index within bounds');
+      invariant(bAgent !== undefined, 'agent index within bounds (equal lengths checked)');
+      if (!blocksEquivalent(aAgent, bAgent)) return false;
     }
     return true;
   }
@@ -881,7 +897,11 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     if (a.closed !== b.closed) return false;
     if (a.children.length !== b.children.length) return false;
     for (let i = 0; i < a.children.length; i += 1) {
-      if (!blocksEquivalent(a.children[i]!, b.children[i]!)) return false;
+      const aChild = a.children[i];
+      const bChild = b.children[i];
+      invariant(aChild !== undefined, 'child index within bounds');
+      invariant(bChild !== undefined, 'child index within bounds (equal lengths checked)');
+      if (!blocksEquivalent(aChild, bChild)) return false;
     }
     return true;
   }
@@ -913,8 +933,12 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     if (a.closed !== b.closed) return false;
     if (a.calls.length !== b.calls.length) return false;
     for (let i = 0; i < a.calls.length; i += 1) {
-      if (a.calls[i]!.outcome !== b.calls[i]!.outcome) return false;
-      if (a.calls[i]!.request !== b.calls[i]!.request) return false;
+      const aCall = a.calls[i];
+      const bCall = b.calls[i];
+      invariant(aCall !== undefined, 'call index within bounds');
+      invariant(bCall !== undefined, 'call index within bounds (equal lengths checked)');
+      if (aCall.outcome !== bCall.outcome) return false;
+      if (aCall.request !== bCall.request) return false;
     }
     return true;
   }

@@ -9,6 +9,7 @@
  * `topoOrder`/`topologySignature` so its existing public surface is unchanged.
  */
 import type { BuilderAction, BuilderEdge, BuilderNode } from '@moxxy/workflows-builder';
+import { assertDefined } from '@/lib/assert';
 
 /** Step-node card width in world (pre-transform) units. */
 export const NODE_W = 200;
@@ -99,7 +100,8 @@ export function nodeAt(
 ): string | null {
   // Iterate in reverse so a node drawn on top wins when cards overlap.
   for (let i = nodes.length - 1; i >= 0; i--) {
-    const n = nodes[i]!;
+    const n = nodes[i];
+    assertDefined(n, 'node index within bounds');
     if (n.id === exclude) continue;
     if (p.x >= n.x && p.x <= n.x + NODE_W && p.y >= n.y && p.y <= n.y + NODE_H) return n.id;
   }
@@ -141,7 +143,8 @@ export function topoOrder(nodes: ReadonlyArray<BuilderNode>): Map<string, number
     const onStack = new Set<string>();
     const stack: Array<{ id: string; expanded: boolean }> = [{ id: root, expanded: false }];
     while (stack.length > 0) {
-      const frame = stack[stack.length - 1]!;
+      const frame = stack[stack.length - 1];
+      assertDefined(frame, 'stack is non-empty inside the while guard');
       const { id } = frame;
       if (depth.has(id)) {
         stack.pop();

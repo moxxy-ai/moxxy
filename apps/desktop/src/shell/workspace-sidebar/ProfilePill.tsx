@@ -84,9 +84,10 @@ function ClerkProfilePill(): JSX.Element {
   // Treat a prior on-disk identity as "signed in" while Clerk is still
   // loading so returning users don't flash a "Sign in" prompt on launch.
   const showProfile = signedIn || (!isLoaded && !!prefs?.clerkUserId);
+  const primaryEmail = user?.primaryEmailAddress;
   const displayName =
     user?.fullName ??
-    user?.primaryEmailAddress?.emailAddress ??
+    primaryEmail?.emailAddress ??
     user?.username ??
     prefs?.clerkDisplayName ??
     'Account';
@@ -98,11 +99,13 @@ function ClerkProfilePill(): JSX.Element {
   // privateMetadata is server-only by Clerk's design and never reaches
   // the renderer.
   const claims = (sessionClaims ?? {}) as Record<string, unknown>;
+  const publicMeta = user?.publicMetadata as Record<string, unknown> | undefined;
+  const unsafeMeta = user?.unsafeMetadata as Record<string, unknown> | undefined;
   const tier = formatTier(
-    (user?.publicMetadata as Record<string, unknown> | undefined)?.accountType ??
+    publicMeta?.accountType ??
       claims['accountType'] ??
       claims['account_type'] ??
-      (user?.unsafeMetadata as Record<string, unknown> | undefined)?.accountType,
+      unsafeMeta?.accountType,
   );
   // Single-line profile row, no background — a top border separates it
   // from the workspace list above. Signed-out reads as a sign-in prompt;

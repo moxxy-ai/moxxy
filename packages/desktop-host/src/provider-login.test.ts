@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { encodeLoginPrompt } from '@moxxy/sdk';
+import { assertDefined, encodeLoginPrompt } from '@moxxy/sdk';
 
 const h = vi.hoisted(() => ({
   spawn: undefined as undefined | ((...args: unknown[]) => unknown),
@@ -23,7 +23,10 @@ vi.mock('electron', () => ({}));
 vi.mock('./cli-resolver', () => ({
   augmentedPaths: () => [],
   resolveMoxxyCli: () => ({ kind: 'direct', bin: '/fake/moxxy' }),
-  spawnCli: (...args: unknown[]) => h.spawn!(...args),
+  spawnCli: (...args: unknown[]) => {
+    assertDefined(h.spawn, 'spawn stub');
+    return h.spawn(...args);
+  },
 }));
 vi.mock('./send-event', () => ({
   sendEvent: (_w: unknown, channel: string, payload: Record<string, unknown>) =>

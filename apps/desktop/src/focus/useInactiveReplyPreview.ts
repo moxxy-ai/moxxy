@@ -7,6 +7,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { chatStore } from '@moxxy/client-core';
+import { assertDefined } from '@/lib/assert';
 
 export interface InactiveReplyPreview {
   readonly text: string;
@@ -59,7 +60,8 @@ function latestAssistantCandidate(workspaceId: string | null): AssistantPreviewC
     });
   }
   for (let i = snap.events.length - 1; i >= 0; i--) {
-    const event = snap.events[i]!;
+    const event = snap.events[i];
+    assertDefined(event, 'event index within bounds');
     if (event.type !== 'assistant_message' || !event.content.trim()) continue;
     return cachedCandidate(workspaceId, {
       key: `message:${event.id ?? event.turnId}:${event.content.length}`,

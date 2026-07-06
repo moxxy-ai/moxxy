@@ -16,6 +16,7 @@ import {
   readActiveVersion,
   type ShellInfo,
 } from './resolve';
+import { assertDefined } from '@moxxy/sdk';
 
 const SHELL: ShellInfo = { electron: '33.4.11', nodeAbi: '115' };
 const keys = generateKeyPairSync('ed25519');
@@ -438,7 +439,8 @@ describe('downloadAndStage hardening', () => {
     );
 
     const downloads = progress.filter((p) => p.phase === 'download' && p.received !== undefined);
-    const final = downloads.at(-1)!;
+    const final = downloads.at(-1);
+    assertDefined(final, 'final download progress event');
     expect(final.received).toBeGreaterThan(0);
     expect(final.total).toBe(final.received); // lands at exactly 100%
   });

@@ -48,7 +48,9 @@ async function readActiveProviderAt(moxxyDir: string): Promise<string | null> {
   try {
     const body = await readFile(path.join(moxxyDir, 'config.yaml'), 'utf8');
     const cfg = parseYaml(body) as { plugins?: { provider?: { default?: string } } } | null;
-    return cfg?.plugins?.provider?.default ?? null;
+    const plugins = cfg?.plugins;
+    const provider = plugins?.provider;
+    return provider?.default ?? null;
   } catch {
     return null;
   }

@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 import { ensureDesktopVaultKey } from './vault-key';
+import { assertDefined } from '@moxxy/sdk';
 
 // moxxyPath resolves under ~/.moxxy via MOXXY_HOME / HOME; point it at a temp dir.
 let tmp: string;
@@ -23,10 +24,14 @@ afterEach(() => {
 });
 
 function keyPath(): string {
-  return path.join(process.env.MOXXY_HOME!, 'vault.key');
+  const home = process.env.MOXXY_HOME;
+  assertDefined(home, 'MOXXY_HOME');
+  return path.join(home, 'vault.key');
 }
 function vaultPath(): string {
-  return path.join(process.env.MOXXY_HOME!, 'vault.json');
+  const home = process.env.MOXXY_HOME;
+  assertDefined(home, 'MOXXY_HOME');
+  return path.join(home, 'vault.json');
 }
 
 describe('ensureDesktopVaultKey', () => {
@@ -39,14 +44,18 @@ describe('ensureDesktopVaultKey', () => {
   });
 
   it('does NOT overwrite an existing vault.key', () => {
-    mkdirSync(process.env.MOXXY_HOME!, { recursive: true });
+    const home = process.env.MOXXY_HOME;
+    assertDefined(home, 'MOXXY_HOME');
+    mkdirSync(home, { recursive: true });
     writeFileSync(keyPath(), 'existing-key\n');
     ensureDesktopVaultKey();
     expect(readFileSync(keyPath(), 'utf8')).toBe('existing-key\n');
   });
 
   it('does NOT seed when a vault.json already exists (keyed by keychain/passphrase)', () => {
-    mkdirSync(process.env.MOXXY_HOME!, { recursive: true });
+    const home = process.env.MOXXY_HOME;
+    assertDefined(home, 'MOXXY_HOME');
+    mkdirSync(home, { recursive: true });
     writeFileSync(vaultPath(), '{}');
     ensureDesktopVaultKey();
     expect(existsSync(keyPath())).toBe(false);

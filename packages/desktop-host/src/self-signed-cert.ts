@@ -31,6 +31,7 @@
 import { promises as fsp } from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { assertDefined } from '@moxxy/sdk';
 
 /** The single public hostname the packaged renderer is served under. It is a
  *  subdomain of `moxxy.ai`, so a Clerk production key accepts its origin; the
@@ -79,9 +80,15 @@ function setOf(...items: Buffer[]): Buffer {
 
 function oid(dotted: string): Buffer {
   const parts = dotted.split('.').map(Number);
-  const body: number[] = [40 * parts[0]! + parts[1]!];
+  const first = parts[0];
+  const second = parts[1];
+  assertDefined(first, 'OID has a first arc');
+  assertDefined(second, 'OID has a second arc');
+  const body: number[] = [40 * first + second];
   for (let i = 2; i < parts.length; i++) {
-    let v = parts[i]!;
+    const arc = parts[i];
+    assertDefined(arc, 'OID arc index within bounds');
+    let v = arc;
     const stack: number[] = [v & 0x7f];
     v >>= 7;
     while (v > 0) {
@@ -111,7 +118,9 @@ export function derInteger(magnitude: Buffer): Buffer {
   let i = 0;
   while (i < m.length - 1 && m[i] === 0x00) i += 1;
   m = m.subarray(i);
-  if (m[0]! & 0x80) m = Buffer.concat([Buffer.from([0x00]), m]);
+  const firstByte = m[0];
+  assertDefined(firstByte, 'derInteger keeps at least one byte');
+  if (firstByte & 0x80) m = Buffer.concat([Buffer.from([0x00]), m]);
   return tlv(0x02, m);
 }
 
@@ -231,7 +240,9 @@ function normalizeFingerprint(fp: string | undefined | null): string | null {
   const b64 = /^sha256\/(.+)$/i.exec(s);
   if (b64) {
     try {
-      const hex = Buffer.from(b64[1]!, 'base64').toString('hex');
+      const encoded = b64[1];
+      assertDefined(encoded, 'sha256 fingerprint capture group is present');
+      const hex = Buffer.from(encoded, 'base64').toString('hex');
       return hex.length === 64 ? hex : null;
     } catch {
       return null;

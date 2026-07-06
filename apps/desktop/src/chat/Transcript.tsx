@@ -150,7 +150,8 @@ export function Transcript({
   // Changes on APPENDS only (new last row or streaming chunk) — stable
   // across upward-pagination prepends, so paging in history never fakes an
   // unread hint or flickers the jump button.
-  const lastKey = nodes.length > 0 ? keyOf(nodes[nodes.length - 1]!) : '';
+  const lastNode = nodes.length > 0 ? nodes[nodes.length - 1] : undefined;
+  const lastKey = lastNode ? keyOf(lastNode) : '';
   const newBelow = useNewContentBelow(atBottom, `${lastKey}:${streamingText.length}`);
 
   const jumpToLatest = useCallback(() => {

@@ -20,8 +20,10 @@ export function useReducedMotion(): boolean {
   return useSyncExternalStore(
     (cb) => {
       const mq = query();
-      mq?.addEventListener?.('change', cb);
-      return () => mq?.removeEventListener?.('change', cb);
+      if (mq) mq.addEventListener?.('change', cb);
+      return () => {
+        if (mq) mq.removeEventListener?.('change', cb);
+      };
     },
     () => !!query()?.matches,
     () => false,

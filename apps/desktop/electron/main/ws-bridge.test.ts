@@ -5,6 +5,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { splitConnectUrl } from '@moxxy/client-transport-ws';
 import { encodeWsBearerProtocol, MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk/server';
+import { assertDefined } from '@moxxy/sdk';
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
 import {
   WebSocketCommandBus,
@@ -395,7 +396,8 @@ describe('MobileGatewayManager', () => {
       startSpy: () => fake.server,
     });
     // Wrap startWsBridge to delay the first resolve until we release the gate.
-    const original = rt.wsBridge!.startWsBridge as (b: unknown, o: unknown) => Promise<unknown>;
+    assertDefined(rt.wsBridge, 'ws bridge runtime');
+    const original = rt.wsBridge.startWsBridge as (b: unknown, o: unknown) => Promise<unknown>;
     (rt.wsBridge as { startWsBridge: unknown }).startWsBridge = async (
       bus: unknown,
       o: unknown,
@@ -508,7 +510,8 @@ describe('MobileGatewayManager — E2E proxy relay', () => {
     const lastOrigins = fake.originSets.at(-1) ?? [];
     expect(lastOrigins).toContain('https://uuid123.proxy.moxxy.ai');
     // The shipped mobile app parser recovers the token + fingerprint from the QR.
-    const parsed = splitConnectUrl(status.connectUrl!);
+    assertDefined(status.connectUrl, 'gateway connect url');
+    const parsed = splitConnectUrl(status.connectUrl);
     expect(parsed.token).toBe(status.token);
     expect(parsed.fingerprint).toBe('AGENT_FP');
   });
@@ -575,7 +578,8 @@ describe('QR ↔ mobile app round-trip', () => {
     expect(status.connectUrl).toBeTruthy();
 
     // The mobile app scans this exact string off the QR.
-    const parsed = splitConnectUrl(status.connectUrl!);
+    assertDefined(status.connectUrl, 'gateway connect url');
+    const parsed = splitConnectUrl(status.connectUrl);
     // The token round-trips intact…
     expect(parsed.token).toBe(status.token);
     // …and the bare gateway URL is a ws:// address with the bound port and the

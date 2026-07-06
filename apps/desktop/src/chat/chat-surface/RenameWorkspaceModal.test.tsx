@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { assertDefined } from '@moxxy/sdk';
 import { RenameWorkspaceModal } from './RenameWorkspaceModal';
 
 const desk = { id: 'd1', name: 'old name', cwd: '/tmp/work' };
@@ -31,7 +32,8 @@ describe('RenameWorkspaceModal — rejected rename', () => {
     );
     render(<RenameWorkspaceModal desk={desk} onSubmit={onSubmit} onClose={() => {}} />);
     fireEvent.change(screen.getByDisplayValue('old name'), { target: { value: 'new name' } });
-    const form = screen.getByRole('button', { name: /Renam/ }).closest('form')!;
+    const form = screen.getByRole('button', { name: /Renam/ }).closest('form');
+    assertDefined(form, 'rename form element');
     fireEvent.submit(form);
     fireEvent.submit(form);
     expect(onSubmit).toHaveBeenCalledTimes(1);

@@ -1,4 +1,5 @@
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined } from '@/lib/assert';
 
 /** Hand-tuned starter prompts shown when the transcript is empty. */
 export const COLD_START_SUGGESTIONS: ReadonlyArray<string> = [
@@ -24,7 +25,8 @@ export const COLD_START_SUGGESTIONS: ReadonlyArray<string> = [
 export function deriveSuggestions(events: ReadonlyArray<MoxxyEvent>): ReadonlyArray<string> {
   if (events.length === 0) return COLD_START_SUGGESTIONS.slice(0, 3);
   for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i]!;
+    const e = events[i];
+    assertDefined(e, 'event index within bounds');
     if (e.type === 'assistant_message') {
       const topic = pickTopic(e.content);
       const list = ['Continue', 'Tell me more'];
@@ -54,12 +56,24 @@ function pickTopic(text: string): string | null {
   const last = trimmed.split(/[.!?]\s+/).filter(Boolean).pop() ?? trimmed;
   // 1. Backticked spans (almost always a thing — function, file, tool).
   const ticks = /`([^`]{2,60})`/.exec(last);
-  if (ticks) return ticks[1]!.trim();
+  if (ticks) {
+    const inner = ticks[1];
+    assertDefined(inner, 'backtick capture group is present when the pattern matches');
+    return inner.trim();
+  }
   // 2. Quoted spans.
   const quoted = /["“]([A-Za-z][^"”]{2,60})["”]/.exec(last);
-  if (quoted) return quoted[1]!.trim();
+  if (quoted) {
+    const inner = quoted[1];
+    assertDefined(inner, 'quoted capture group is present when the pattern matches');
+    return inner.trim();
+  }
   // 3. Sequences of Capitalised Words.
   const cap = /([A-Z][\w-]+(?:\s+[A-Z][\w-]+){0,4})/.exec(last);
-  if (cap) return cap[1]!.trim();
+  if (cap) {
+    const inner = cap[1];
+    assertDefined(inner, 'capitalised-words capture group is present when the pattern matches');
+    return inner.trim();
+  }
   return null;
 }

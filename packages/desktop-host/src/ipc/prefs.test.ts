@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DesktopPrefs } from '@moxxy/desktop-ipc-contract';
 import { setActiveBus } from './shared';
 import { registerPrefsHandlers } from './prefs';
+import { assertDefined } from '@moxxy/sdk';
 
 const BASE: DesktopPrefs = {
   onboardingComplete: true,
@@ -69,12 +70,16 @@ describe('prefs IPC handlers', () => {
   });
 
   it('prefs.read returns the stored prefs (theme defaults to system)', async () => {
-    const prefs = (await handlers.get('prefs.read')!()) as DesktopPrefs;
+    const readHandler = handlers.get('prefs.read');
+    assertDefined(readHandler, 'prefs.read handler');
+    const prefs = (await readHandler()) as DesktopPrefs;
     expect(prefs).toEqual(BASE);
   });
 
   it('prefs.update merges and returns the patched prefs', async () => {
-    const next = (await handlers.get('prefs.update')!({
+    const updateHandler = handlers.get('prefs.update');
+    assertDefined(updateHandler, 'prefs.update handler');
+    const next = (await updateHandler({
       mobileGatewayEnabled: true,
     })) as DesktopPrefs;
     expect(next.mobileGatewayEnabled).toBe(true);
@@ -84,9 +89,13 @@ describe('prefs IPC handlers', () => {
   it('a theme patch persists and survives the nativeTheme sync outside electron', async () => {
     // In plain-node vitest the `electron` module is either missing or exports
     // a binary-path string with no `nativeTheme` — the handler must not throw.
-    const next = (await handlers.get('prefs.update')!({ theme: 'dark' })) as DesktopPrefs;
+    const updateHandler = handlers.get('prefs.update');
+    assertDefined(updateHandler, 'prefs.update handler');
+    const next = (await updateHandler({ theme: 'dark' })) as DesktopPrefs;
     expect(next.theme).toBe('dark');
-    const read = (await handlers.get('prefs.read')!()) as DesktopPrefs;
+    const readHandler = handlers.get('prefs.read');
+    assertDefined(readHandler, 'prefs.read handler');
+    const read = (await readHandler()) as DesktopPrefs;
     expect(read.theme).toBe('dark');
   });
 });

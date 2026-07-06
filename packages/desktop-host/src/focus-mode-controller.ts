@@ -82,7 +82,7 @@ export function createFocusModeController(
 
   async function enterFocusMode(): Promise<void> {
     const mainWindow = await getOrEnsureMainWindow();
-    const wasFullscreen = Boolean(mainWindow?.isFullScreen?.());
+    const wasFullscreen = mainWindow ? Boolean(mainWindow.isFullScreen?.()) : false;
 
     await deps.showFocus();
     restoreFullscreen = wasFullscreen;

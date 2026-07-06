@@ -7,6 +7,7 @@
 
 import { useSyncExternalStore } from 'react';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined } from '@/lib/assert';
 import { chatStore } from '@moxxy/client-core';
 
 // ---- Types ---------------------------------------------------------------
@@ -63,7 +64,8 @@ function latestLineFromSnapshot(snap: {
 }): LatestBlock | null {
   if (snap.streamingText.trim()) return { who: 'assistant', text: snap.streamingText };
   for (let i = snap.events.length - 1; i >= 0; i--) {
-    const e = snap.events[i]!;
+    const e = snap.events[i];
+    assertDefined(e, 'event index within bounds');
     if (e.type === 'assistant_message' && e.content.trim()) {
       return { who: 'assistant', text: e.content };
     }

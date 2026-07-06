@@ -10,6 +10,7 @@ import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
 import { WebhookStore } from '@moxxy/plugin-webhooks';
 import { setActiveBus } from './shared';
 import { registerWebhookHandlers } from './webhooks';
+import { assertDefined } from '@moxxy/sdk';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -56,12 +57,14 @@ describe('webhooks IPC handlers', () => {
     registerWebhookHandlers(store);
 
     const first = await store.create(triggerInput('github-push'));
-    expect(await handlers.get('webhooks.list')!()).toEqual([
+    const listHandler = handlers.get('webhooks.list');
+    assertDefined(listHandler, 'webhooks.list handler');
+    expect(await listHandler()).toEqual([
       expect.objectContaining({ id: first.id, name: 'github-push', localPath: `/webhook/${first.id}` }),
     ]);
 
     const second = await externalStore.create(triggerInput('stripe-charge'));
-    expect(await handlers.get('webhooks.list')!()).toEqual([
+    expect(await listHandler()).toEqual([
       expect.objectContaining({ id: first.id, name: 'github-push' }),
       expect.objectContaining({ id: second.id, name: 'stripe-charge' }),
     ]);
@@ -77,7 +80,9 @@ describe('webhooks IPC handlers', () => {
       verification: { type: 'bearer', secret: 'super-secret-token' },
     });
 
-    const listed = (await handlers.get('webhooks.list')!()) as Array<Record<string, unknown>>;
+    const listHandler = handlers.get('webhooks.list');
+    assertDefined(listHandler, 'webhooks.list handler');
+    const listed = (await listHandler()) as Array<Record<string, unknown>>;
     expect(JSON.stringify(listed)).not.toContain('super-secret-token');
   });
 
@@ -88,12 +93,18 @@ describe('webhooks IPC handlers', () => {
     registerWebhookHandlers(store);
     const created = await store.create(triggerInput('weekly-recap'));
 
+    const setEnabledHandler = handlers.get('webhooks.setEnabled');
+    assertDefined(setEnabledHandler, 'webhooks.setEnabled handler');
     await expect(
-      handlers.get('webhooks.setEnabled')!({ id: created.id, enabled: false }),
+      setEnabledHandler({ id: created.id, enabled: false }),
     ).resolves.toEqual(expect.objectContaining({ id: created.id, enabled: false }));
-    await expect(handlers.get('webhooks.delete')!({ id: created.id })).resolves.toEqual({
+    const deleteHandler = handlers.get('webhooks.delete');
+    assertDefined(deleteHandler, 'webhooks.delete handler');
+    await expect(deleteHandler({ id: created.id })).resolves.toEqual({
       deleted: true,
     });
-    await expect(handlers.get('webhooks.list')!()).resolves.toEqual([]);
+    const listHandler = handlers.get('webhooks.list');
+    assertDefined(listHandler, 'webhooks.list handler');
+    await expect(listHandler()).resolves.toEqual([]);
   });
 });

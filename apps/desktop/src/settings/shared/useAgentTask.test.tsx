@@ -13,6 +13,7 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { __setApiOverride, chatStore } from '@moxxy/client-core';
+import { assertDefined } from '@moxxy/sdk';
 import { useAgentTask } from './useAgentTask';
 
 interface IpcSpy {
@@ -92,7 +93,8 @@ describe('useAgentTask', () => {
 
     const run = spy.invokes.find((i) => i.channel === 'session.runTurn');
     expect(run).toBeTruthy();
-    expect(run!.args).toEqual({ workspaceId: 'ws-test', prompt: 'PROMPT' });
+    assertDefined(run, 'session.runTurn invoke');
+    expect(run.args).toEqual({ workspaceId: 'ws-test', prompt: 'PROMPT' });
     expect(hide).toHaveBeenCalledWith('t-1');
     expect(result.current.phase).toBe('streaming');
 
@@ -160,7 +162,8 @@ describe('useAgentTask', () => {
     // abort it, not leave it consuming model tokens.
     const abort = spy.invokes.find((i) => i.channel === 'session.abortTurn');
     expect(abort).toBeTruthy();
-    expect((abort!.args as { turnId: string }).turnId).toBe('t-1');
+    assertDefined(abort, 'session.abortTurn invoke');
+    expect((abort.args as { turnId: string }).turnId).toBe('t-1');
   });
 
   it('does NOT abort a turn that already completed', async () => {
@@ -197,7 +200,8 @@ describe('useAgentTask', () => {
       expect(result.current.error).toMatch(/timed out/i);
       const abort = spy.invokes.find((i) => i.channel === 'session.abortTurn');
       expect(abort).toBeTruthy();
-      expect((abort!.args as { turnId: string }).turnId).toBe('t-1');
+      assertDefined(abort, 'session.abortTurn invoke');
+      expect((abort.args as { turnId: string }).turnId).toBe('t-1');
     } finally {
       vi.useRealTimers();
     }

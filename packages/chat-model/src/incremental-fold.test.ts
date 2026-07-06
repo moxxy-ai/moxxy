@@ -21,6 +21,7 @@ import {
   asSkillId,
   asToolCallId,
   asTurnId,
+  assertDefined,
   type AssistantMessageEvent,
   type MoxxyEvent,
   type PluginEvent,
@@ -291,7 +292,9 @@ describe('IncrementalFold — golden byte-identity vs pairToolEvents', () => {
       const events = seqDef.events();
       const fold = new IncrementalFold(seqDef.compact);
       for (let n = 0; n < events.length; n += 1) {
-        fold.push(events[n]!);
+        const event = events[n];
+        assertDefined(event, 'event at loop index within bounds');
+        fold.push(event);
         const incremental = fold.tree();
         const golden = pairToolEvents(events.slice(0, n + 1), seqDef.compact);
         expectByteIdentical(seqDef.name, n + 1, incremental, golden);
@@ -316,7 +319,9 @@ describe('IncrementalFold — golden byte-identity vs pairToolEvents', () => {
 
 describe('IncrementalFold.syncTo — append-only resync', () => {
   it('folds only the tail on a pure append (no rebuild)', () => {
-    const events = SEQUENCES.find((s) => s.name.startsWith('mixed'))!.events();
+    const mixedSeq = SEQUENCES.find((s) => s.name.startsWith('mixed'));
+    assertDefined(mixedSeq, 'mixed sequence present in SEQUENCES');
+    const events = mixedSeq.events();
     const fold = new IncrementalFold(compactMap);
     // Drive it the way a store would: re-sync to a growing snapshot each tick.
     for (let n = 1; n <= events.length; n += 1) {
@@ -329,19 +334,25 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
   });
 
   it('rebuilds from scratch when the prefix is replaced (/clear → new session)', () => {
-    const first = SEQUENCES[0]!.events();
+    const firstSeq = SEQUENCES[0];
+    assertDefined(firstSeq, 'first sequence present');
+    const first = firstSeq.events();
     const fold = new IncrementalFold();
     fold.syncTo(first);
     expect(fold.tree()).toEqual(pairToolEvents(first));
     // A fresh, unrelated session: different event ids at the head.
-    const second = SEQUENCES[3]!.events();
+    const secondSeq = SEQUENCES[3];
+    assertDefined(secondSeq, 'fourth sequence present');
+    const second = secondSeq.events();
     const tree = fold.syncTo(second);
     expect(tree).toEqual(pairToolEvents(second));
     expect(fold.length).toBe(second.length);
   });
 
   it('rebuilds from scratch when older history is prepended (scroll-up)', () => {
-    const tail = SEQUENCES[0]!.events();
+    const tailSeq = SEQUENCES[0];
+    assertDefined(tailSeq, 'first sequence present');
+    const tail = tailSeq.events();
     const fold = new IncrementalFold();
     fold.syncTo(tail);
     // Older page prepended at the front: head id shifts → must rebuild.
@@ -352,7 +363,9 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
   });
 
   it('rebuilds when the array shrinks below the high-water mark', () => {
-    const events = SEQUENCES.find((s) => s.name.startsWith('mixed'))!.events();
+    const mixedSeq = SEQUENCES.find((s) => s.name.startsWith('mixed'));
+    assertDefined(mixedSeq, 'mixed sequence present in SEQUENCES');
+    const events = mixedSeq.events();
     const fold = new IncrementalFold(compactMap);
     fold.syncTo(events);
     const shorter = events.slice(0, 3);
@@ -364,11 +377,15 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
   it('stays correct when the tail event id is replaced in place', () => {
     // canExtend matches head+tail ids; a replaced TAIL is detected and the fold
     // rebuilds, so the tree stays byte-identical to a from-scratch fold.
-    const events = SEQUENCES[0]!.events();
+    const firstSeq = SEQUENCES[0];
+    assertDefined(firstSeq, 'first sequence present');
+    const events = firstSeq.events();
     const fold = new IncrementalFold();
     fold.syncTo(events);
     const swapped = events.slice();
-    swapped[swapped.length - 1] = { ...events[events.length - 1]!, id: asEventId('swapped-tail') };
+    const lastEvent = events[events.length - 1];
+    assertDefined(lastEvent, 'last event present');
+    swapped[swapped.length - 1] = { ...lastEvent, id: asEventId('swapped-tail') };
     const tree = fold.syncTo(swapped);
     expect(tree).toEqual(pairToolEvents(swapped));
   });
@@ -378,10 +395,13 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
     // id was reused (a regression in the upstream log). The tail REFERENCE check
     // catches it: a different object at prefixLength-1 forces a rebuild, so the
     // fold reflects the rewritten content instead of folding stale.
-    const events = SEQUENCES[0]!.events();
+    const firstSeq = SEQUENCES[0];
+    assertDefined(firstSeq, 'first sequence present');
+    const events = firstSeq.events();
     const fold = new IncrementalFold();
     fold.syncTo(events);
-    const last = events[events.length - 1]!;
+    const last = events[events.length - 1];
+    assertDefined(last, 'last event present');
     const swapped = events.slice();
     // Same id, different object & content (assistant text changed).
     swapped[swapped.length - 1] =
@@ -398,20 +418,26 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
     // not 'production' under vitest, so the dev check is live here.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const events = SEQUENCES.find((s) => s.name.startsWith('mixed'))!.events();
+      const mixedSeq = SEQUENCES.find((s) => s.name.startsWith('mixed'));
+      assertDefined(mixedSeq, 'mixed sequence present in SEQUENCES');
+      const events = mixedSeq.events();
       const fold = new IncrementalFold(compactMap);
       fold.syncTo(events);
       // Rewrite an INTERIOR event's id (not head, not tail). Keep length and the
       // head/tail ids identical so ONLY the interior check can catch it.
       const mid = Math.floor(events.length / 2);
       const tampered = events.slice();
-      tampered[mid] = { ...events[mid]!, id: asEventId('interior-rewrite') };
+      const midEvent = events[mid];
+      assertDefined(midEvent, 'event at mid index present');
+      tampered[mid] = { ...midEvent, id: asEventId('interior-rewrite') };
       const tree = fold.syncTo(tampered);
       // Despite the head+tail looking like a pure append, the fold rebuilt and
       // is byte-identical to a from-scratch fold of the tampered prefix.
       expect(tree).toEqual(pairToolEvents(tampered, compactMap));
       expect(warn).toHaveBeenCalledOnce();
-      expect(String(warn.mock.calls[0]![0])).toContain('integrity check failed');
+      const firstCall = warn.mock.calls[0];
+      assertDefined(firstCall, 'console.warn called at least once');
+      expect(String(firstCall[0])).toContain('integrity check failed');
     } finally {
       warn.mockRestore();
     }
@@ -422,7 +448,9 @@ describe('IncrementalFold.syncTo — append-only resync', () => {
     // extending the array with new tail events keeps the interior hash valid.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const events = SEQUENCES.find((s) => s.name.startsWith('long burst'))!.events();
+      const burstSeq = SEQUENCES.find((s) => s.name.startsWith('long burst'));
+      assertDefined(burstSeq, 'long burst sequence present in SEQUENCES');
+      const events = burstSeq.events();
       const fold = new IncrementalFold(compactMap);
       for (let n = 1; n <= events.length; n += 1) {
         const snapshot = events.slice(0, n);
@@ -444,7 +472,9 @@ describe('IncrementalFold — complexity (O(k) not O(k²) per turn)', () => {
     //   - naive re-fold (the bug): re-fold the whole prefix on  → k(k+1)/2
     //     every committed event
     // The wrapper below is the real stepFold, so both counts are exact.
-    const events = SEQUENCES.find((s) => s.name.startsWith('long burst'))!.events();
+    const burstSeq = SEQUENCES.find((s) => s.name.startsWith('long burst'));
+    assertDefined(burstSeq, 'long burst sequence present in SEQUENCES');
+    const events = burstSeq.events();
     const k = events.length;
 
     let incrementalSteps = 0;
@@ -459,7 +489,9 @@ describe('IncrementalFold — complexity (O(k) not O(k²) per turn)', () => {
     for (let n = 1; n <= k; n += 1) {
       const s = createFoldState(compactMap);
       for (let i = 0; i < n; i += 1) {
-        stepFold(s, events[i]!);
+        const event = events[i];
+        assertDefined(event, 'event at loop index within bounds');
+        stepFold(s, event);
         naiveSteps += 1;
       }
     }

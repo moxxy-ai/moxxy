@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen, fireEvent, waitFor, within, act, createEvent } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MoxxyApi, WorkflowSummary } from '@moxxy/desktop-ipc-contract';
+import { assertDefined } from '@moxxy/sdk';
 import { WorkflowsPanel } from './WorkflowsPanel';
 
 interface Spy {
@@ -249,7 +250,9 @@ describe('WorkflowsPanel — builder', () => {
     await screen.findByTestId('wf-node-skill');
     const picker = await screen.findByTestId('field-action');
     await waitFor(() => expect(picker.tagName).toBe('SELECT'));
-    expect(within(picker).getAllByRole('option')[0]!.textContent).toContain('Select a skill');
+    const firstOption = within(picker).getAllByRole('option')[0];
+    assertDefined(firstOption, 'first select option');
+    expect(firstOption.textContent).toContain('Select a skill');
   });
 
   it('keeps a saved-but-uninstalled skill selectable instead of rewriting it', async () => {

@@ -95,8 +95,10 @@ export function useTheme(): void {
     const onChange = (): void => {
       if (pref === 'system') applyDom();
     };
-    mq?.addEventListener?.('change', onChange);
-    return () => mq?.removeEventListener?.('change', onChange);
+    if (mq) mq.addEventListener?.('change', onChange);
+    return () => {
+      if (mq) mq.removeEventListener?.('change', onChange);
+    };
   }, []);
 }
 

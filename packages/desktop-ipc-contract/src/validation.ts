@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { assertDefined } from '@moxxy/sdk';
 import type { UserPromptAttachment } from '@moxxy/sdk';
 import type { IpcCommandName } from './index.js';
 
@@ -252,7 +253,8 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       .superRefine((entries, ctx) => {
         let total = 0;
         for (let i = 0; i < entries.length; i++) {
-          const e = entries[i]!;
+          const e = entries[i];
+          assertDefined(e, 'entry index is within the bounds of entries');
           // Binary kinds (image/document/audio) carry base64 bytes that get
           // decoded host-side / by the provider — a non-base64 string would
           // decode to garbage, so reject it here (text kinds carry UTF-8 and

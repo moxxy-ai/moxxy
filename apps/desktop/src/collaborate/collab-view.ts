@@ -6,6 +6,7 @@
  * unchanged; the panel imports these instead of declaring them inline.
  */
 import type { Block, CollaborationBlock, CollabMsgView } from '@moxxy/chat-model';
+import { invariant } from '@/lib/assert';
 
 /** Status-dot colour for an agent row in the left rail. */
 export function dotColor(status: string): string {
@@ -26,7 +27,8 @@ export function taskChipBg(status: string): string {
 /** The most recent `collab` block in a folded block list, or undefined. */
 export function latestCollab(blocks: ReadonlyArray<Block>): CollaborationBlock | undefined {
   for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i]!;
+    const b = blocks[i];
+    invariant(b !== undefined, 'block index within bounds');
     if (b.kind === 'collab') return b;
   }
   return undefined;

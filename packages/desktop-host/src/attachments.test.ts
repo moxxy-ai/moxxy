@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { buildAttachments, parseFileToText, persistImageBlob } from './attachments';
+import { assertDefined } from '@moxxy/sdk';
 
 /** Temp files persistImageBlob writes; cleaned up after each test. */
 const written: string[] = [];
@@ -201,7 +202,8 @@ describe('buildAttachments', () => {
     const input = await tmpFile('huge.log', big);
     const out = await buildAttachments([input]);
     expect(out).toHaveLength(1);
-    const att = out[0]!;
+    const att = out[0];
+    assertDefined(att, 'built attachment');
     expect(att.kind).toBe('file');
     expect(att.name).toBe('huge.log');
     // Only a preview is inlined, plus a note pointing at the original path.
@@ -222,7 +224,8 @@ describe('buildAttachments', () => {
     const input = await tmpFile('massive.log', Buffer.alloc(size, 0x41 /* 'A' */));
     const out = await buildAttachments([input]);
     expect(out).toHaveLength(1);
-    const att = out[0]!;
+    const att = out[0];
+    assertDefined(att, 'built attachment');
     expect(att.kind).toBe('file');
     // Only a small preview is inlined (8 KB head + note), never the whole file.
     expect(att.content.length).toBeLessThan(64 * 1024);

@@ -1,3 +1,4 @@
+import { assertDefined } from '../assert.js';
 import type { InlineTok } from './types.js';
 
 /**
@@ -18,11 +19,19 @@ export function tokenizeInline(input: string): InlineTok[] {
     if (match[1]) {
       out.push({ kind: 'code', value: match[1].slice(1, -1) });
     } else if (match[2]) {
-      out.push({ kind: 'bold', value: match[3]! });
+      const value = match[3];
+      assertDefined(value, 'bold inner group is captured when the bold group matches');
+      out.push({ kind: 'bold', value });
     } else if (match[4]) {
-      out.push({ kind: 'italic', value: match[5]! });
+      const value = match[5];
+      assertDefined(value, 'italic inner group is captured when the italic group matches');
+      out.push({ kind: 'italic', value });
     } else if (match[6]) {
-      out.push({ kind: 'link', label: match[7]!, url: match[8]! });
+      const label = match[7];
+      const url = match[8];
+      assertDefined(label, 'link label group is captured when the link group matches');
+      assertDefined(url, 'link url group is captured when the link group matches');
+      out.push({ kind: 'link', label, url });
     }
     lastIdx = match.index + match[0].length;
   }

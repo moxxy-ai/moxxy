@@ -13,6 +13,7 @@ import {
   installContentSecurityPolicy,
   lockDownNavigation,
 } from './security';
+import { assertDefined } from '@moxxy/sdk';
 
 describe('provider-name validation', () => {
   it('accepts well-formed slugs', () => {
@@ -65,7 +66,9 @@ describe('navigation lockdown', () => {
       },
       allows: (target) => {
         let prevented = false;
-        handlers.get('will-navigate')!({ preventDefault: () => (prevented = true) }, target);
+        const willNavigate = handlers.get('will-navigate');
+        assertDefined(willNavigate, 'will-navigate handler');
+        willNavigate({ preventDefault: () => (prevented = true) }, target);
         return !prevented;
       },
     };
@@ -368,7 +371,8 @@ describe('CSP injection gate', () => {
     const run = probe({ isDev: false, clerkPublishableKey: LIVE, loopbackOrigin: LOOPBACK });
     for (const url of ['file:///app/dist/index.html', `${LOOPBACK}/index.html`]) {
       const headers = run(url);
-      const csp = headers?.['Content-Security-Policy']?.[0] ?? '';
+      const cspHeader = headers?.['Content-Security-Policy'];
+      const csp = cspHeader?.[0] ?? '';
       expect(csp).toContain("default-src 'self'");
       // the live-key prod host folds in
       expect(csp).toContain('https://clerk.acme.com');

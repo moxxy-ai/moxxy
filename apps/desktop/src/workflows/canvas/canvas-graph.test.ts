@@ -6,6 +6,7 @@
  * disconnect-op routing be tested directly without rendering the canvas.
  */
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import type { BuilderAction, BuilderEdge, BuilderNode } from '@moxxy/workflows-builder';
 import {
   ANCHOR_OFFSET,
@@ -210,12 +211,13 @@ describe('topoOrder / topologySignature (re-tested at the source module)', () =>
     for (let i = 0; i < N; i++) {
       nodes.push(node(`n${i}`, i > 0 ? { needs: [`n${i - 1}`] } : {}));
     }
-    let order: ReturnType<typeof topoOrder>;
+    let order: ReturnType<typeof topoOrder> | undefined;
     expect(() => {
       order = topoOrder(nodes);
     }).not.toThrow();
     // The chain numbers 1..N in dependency order.
-    expect(order!.get('n0')).toBe(1);
-    expect(order!.get(`n${N - 1}`)).toBe(N);
+    assertDefined(order, 'topo order map');
+    expect(order.get('n0')).toBe(1);
+    expect(order.get(`n${N - 1}`)).toBe(N);
   });
 });

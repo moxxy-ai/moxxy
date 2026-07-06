@@ -64,7 +64,9 @@ export function registerOnboardingHandlers(pool: RunnerPool): void {
     // declared auth kind (including OAuth ones like claude-code), so no list
     // here can drift. Fall back to the known built-in OAuth providers only
     // when the runner isn't reachable yet (early in onboarding).
-    const info = pool.active()?.remote()?.getInfo();
+    const active = pool.active();
+    const remote = active?.remote();
+    const info = remote?.getInfo();
     const known = info?.providers.find((p) => p.name === provider);
     if (known) return known.authKind;
     const OAUTH_FALLBACK = new Set(['openai-codex', 'claude-code']);
