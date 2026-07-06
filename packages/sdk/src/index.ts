@@ -212,7 +212,7 @@ export {
   type JsonFileStore,
   type JsonFileStoreOptions,
 } from './json-file-store.js';
-export { assertNever } from './assert.js';
+export { assertDefined, assertNever, invariant } from './assert.js';
 export { compareSemver, parseSemverCore } from './semver.js';
 // readRequestBody/bearerTokenMatches (http-utils) and the channel-auth value
 // helpers live on the './server' subpath — they reach node:http/crypto/fs/path.
