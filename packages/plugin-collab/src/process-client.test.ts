@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createCollaborationHub, type CollaborationHub } from './hub.js';
 import { COLLAB_ENV, getProcessHubClient, __resetProcessHubClient } from './process-client.js';
 import type { RosterEntry } from './hub-types.js';
+import { assertDefined } from '@moxxy/sdk';
 
 const roster: RosterEntry[] = [
   { id: 'backend', name: 'Backend', role: 'implementer', subtask: 'api' },
@@ -73,12 +74,13 @@ describe('getProcessHubClient', () => {
 
     const first = await getProcessHubClient();
     expect(first).not.toBeNull();
-    first!.close();
+    assertDefined(first, 'getProcessHubClient resolved and was asserted non-null above');
+    first.close();
     // Wait for the close to propagate through the transport before re-resolving.
-    for (let i = 0; i < 100 && !first!.isClosed; i++) {
+    for (let i = 0; i < 100 && !first.isClosed; i++) {
       await new Promise((r) => setTimeout(r, 5));
     }
-    expect(first!.isClosed).toBe(true);
+    expect(first.isClosed).toBe(true);
 
     // A dropped link must transparently re-establish on the next resolve. Retry
     // a few times to absorb the hub-side close lag (it frees the id on onClose).

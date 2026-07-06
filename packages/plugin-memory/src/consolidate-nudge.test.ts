@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { MemoryStore } from './store.js';
 import { buildMemoryConsolidatePlugin } from './consolidate.js';
 
@@ -54,18 +55,23 @@ describe('auto-consolidation nudge hook', () => {
     const store = new MemoryStore({ dir: tmp, embedder: null });
     await fillMemories(store, 5);
     const plugin = buildMemoryConsolidatePlugin(store, () => stubProvider, { autoNudgeThreshold: 3 });
-    const result = await plugin.hooks?.onBeforeProviderCall?.(baseReq('be terse'), ctx());
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'nudge plugin registers hooks');
+    const result = await hooks.onBeforeProviderCall?.(baseReq('be terse'), ctx());
     expect(result).toBeDefined();
-    expect(result!.system).toContain('be terse');
-    expect(result!.system).toContain('memory_consolidate');
-    expect(result!.system).toContain('5 entries');
+    assertDefined(result, 'the nudge fires above threshold');
+    expect(result.system).toContain('be terse');
+    expect(result.system).toContain('memory_consolidate');
+    expect(result.system).toContain('5 entries');
   });
 
   it('does NOT append a hint when memory count is below threshold', async () => {
     const store = new MemoryStore({ dir: tmp, embedder: null });
     await fillMemories(store, 2);
     const plugin = buildMemoryConsolidatePlugin(store, () => stubProvider, { autoNudgeThreshold: 10 });
-    const result = await plugin.hooks?.onBeforeProviderCall?.(baseReq(), ctx());
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'nudge plugin registers hooks');
+    const result = await hooks.onBeforeProviderCall?.(baseReq(), ctx());
     expect(result).toBeUndefined();
   });
 
@@ -73,8 +79,10 @@ describe('auto-consolidation nudge hook', () => {
     const store = new MemoryStore({ dir: tmp, embedder: null });
     await fillMemories(store, 5);
     const plugin = buildMemoryConsolidatePlugin(store, () => stubProvider, { autoNudgeThreshold: 3 });
-    const first = await plugin.hooks?.onBeforeProviderCall?.(baseReq(), ctx());
-    const second = await plugin.hooks?.onBeforeProviderCall?.(baseReq(), ctx());
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'nudge plugin registers hooks');
+    const first = await hooks.onBeforeProviderCall?.(baseReq(), ctx());
+    const second = await hooks.onBeforeProviderCall?.(baseReq(), ctx());
     expect(first).toBeDefined();
     expect(second).toBeUndefined();
   });
@@ -91,7 +99,9 @@ describe('auto-consolidation nudge hook', () => {
     await fillMemories(store, 30);
     const plugin = buildMemoryConsolidatePlugin(store, () => stubProvider);
     // 30 is not greater than 30 → no nudge
-    const result = await plugin.hooks?.onBeforeProviderCall?.(baseReq(), ctx());
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'nudge plugin registers hooks');
+    const result = await hooks.onBeforeProviderCall?.(baseReq(), ctx());
     expect(result).toBeUndefined();
   });
 

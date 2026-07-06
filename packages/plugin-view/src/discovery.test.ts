@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ServiceRegistry } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { viewPlugin } from './index.js';
 
 /**
@@ -22,7 +23,11 @@ describe('viewPlugin (discovery-loadable)', () => {
           : undefined,
     );
     const services = { get, register: () => {}, require: () => undefined, has: () => true } as unknown as ServiceRegistry;
-    viewPlugin.hooks!.onInit!({ services } as never);
+    const hooks = viewPlugin.hooks;
+    assertDefined(hooks, 'plugin declares hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'plugin declares onInit');
+    onInit({ services } as never);
     expect(get).toHaveBeenCalledWith('viewRenderers');
     expect(get).toHaveBeenCalledWith('viewSurface');
   });

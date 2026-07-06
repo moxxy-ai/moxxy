@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { LLMProvider, ProviderEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { MemoryStore } from './store.js';
 import { consolidateMemory, planConsolidation } from './consolidate.js';
 
@@ -108,7 +109,9 @@ describe('planConsolidation', () => {
     ];
     const plan = planConsolidation(entries, { tag: 'api' });
     expect(plan.clusters).toHaveLength(1);
-    expect(plan.clusters[0]!.members.sort()).toEqual(['a', 'b']);
+    const cluster = plan.clusters[0];
+    assertDefined(cluster, 'plan has one cluster');
+    expect(cluster.members.sort()).toEqual(['a', 'b']);
   });
 });
 

@@ -4,6 +4,7 @@ import { APIError, APIConnectionError, APIUserAbortError } from 'openai';
 import { WhisperTranscriber } from './whisper.js';
 import { buildWhisperPlugin } from './index.js';
 import { MOXXY_PCM16_24KHZ_MIME, normalizeWhisperUpload, pcm16MonoToWav } from './audio.js';
+import { assertDefined } from '@moxxy/sdk';
 
 const fakeOpenAI = (impl: (req: unknown) => unknown): OpenAI =>
   ({
@@ -52,7 +53,9 @@ describe('WhisperTranscriber', () => {
     const client = { audio: { transcriptions: { create } } } as unknown as OpenAI;
     const t = new WhisperTranscriber({ client, language: 'pl' });
     await t.transcribe(new Uint8Array(), { mimeType: 'audio/ogg', prompt: 'jargon-list' });
-    const req = create.mock.calls[0]![0] as { language: string; prompt: string; response_format: string };
+    const call = create.mock.calls[0];
+    assertDefined(call, 'transcribe invokes the OpenAI create() exactly once');
+    const req = call[0] as { language: string; prompt: string; response_format: string };
     expect(req.language).toBe('pl');
     expect(req.prompt).toBe('jargon-list');
     expect(req.response_format).toBe('verbose_json');
@@ -63,7 +66,9 @@ describe('WhisperTranscriber', () => {
     const client = { audio: { transcriptions: { create } } } as unknown as OpenAI;
     const t = new WhisperTranscriber({ client, language: 'pl' });
     await t.transcribe(new Uint8Array(), { language: 'en' });
-    const req = create.mock.calls[0]![0] as { language: string };
+    const call = create.mock.calls[0];
+    assertDefined(call, 'transcribe invokes the OpenAI create() exactly once');
+    const req = call[0] as { language: string };
     expect(req.language).toBe('en');
   });
 
@@ -73,14 +78,19 @@ describe('WhisperTranscriber', () => {
     const t = new WhisperTranscriber({ client, model: 'gpt-4o-transcribe' });
     const out = await t.transcribe(new Uint8Array(), { mimeType: 'audio/wav' });
     expect(out.text).toBe('plain');
-    const req = create.mock.calls[0]![0] as { response_format?: string };
+    const call = create.mock.calls[0];
+    assertDefined(call, 'transcribe invokes the OpenAI create() exactly once');
+    const req = call[0] as { response_format?: string };
     expect(req.response_format).toBeUndefined();
   });
 
   it('plugin registers a transcriber whose createClient yields the right name', () => {
     const plugin = buildWhisperPlugin({});
     expect(plugin.transcribers).toHaveLength(1);
-    const def = plugin.transcribers![0]!;
+    const transcribers = plugin.transcribers;
+    assertDefined(transcribers, 'buildWhisperPlugin always registers transcribers');
+    const def = transcribers[0];
+    assertDefined(def, 'the plugin registers at least one transcriber');
     expect(def.name).toBe('openai-whisper-1');
     expect(def.displayName).toBe('OpenAI whisper-1');
     const inst = def.createClient({ apiKey: 'sk-test' });
@@ -95,7 +105,9 @@ describe('WhisperTranscriber', () => {
     const raw = new Uint8Array([0, 0, 0, 0, 0, 0, 0, 0]);
     await t.transcribe(raw, { mimeType: MOXXY_PCM16_24KHZ_MIME });
 
-    const req = create.mock.calls[0]![0] as { file: File };
+    const call = create.mock.calls[0];
+    assertDefined(call, 'transcribe invokes the OpenAI create() exactly once');
+    const req = call[0] as { file: File };
     expect(req.file.type).toBe('audio/wav');
     const header = new Uint8Array(await req.file.arrayBuffer());
     const ascii = (s: number, e: number): string =>
@@ -108,7 +120,11 @@ describe('WhisperTranscriber', () => {
 
   it('plugin honors a non-default model name', () => {
     const plugin = buildWhisperPlugin({ model: 'gpt-4o-mini-transcribe' });
-    expect(plugin.transcribers![0]!.name).toBe('openai-gpt-4o-mini-transcribe');
+    const transcribers = plugin.transcribers;
+    assertDefined(transcribers, 'buildWhisperPlugin always registers transcribers');
+    const def = transcribers[0];
+    assertDefined(def, 'the plugin registers at least one transcriber');
+    expect(def.name).toBe('openai-gpt-4o-mini-transcribe');
   });
 
   it('throws PROVIDER_UNKNOWN_RESPONSE when verbose_json lacks a string text', async () => {
@@ -180,7 +196,9 @@ describe('WhisperTranscriber', () => {
       mimeType: 123 as unknown as string,
     });
     expect(result.text).toBe('ok');
-    const req = create.mock.calls[0]![0] as { file: File };
+    const call = create.mock.calls[0];
+    assertDefined(call, 'transcribe invokes the OpenAI create() exactly once');
+    const req = call[0] as { file: File };
     // Defaults to the audio/wav fallback filename rather than crashing.
     expect(req.file.name).toBe('audio.wav');
   });

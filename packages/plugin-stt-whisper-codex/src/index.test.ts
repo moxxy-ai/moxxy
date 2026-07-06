@@ -19,6 +19,7 @@ import {
   MOXXY_PCM16_24KHZ_MIME,
   pcm16MonoToWav,
 } from './index.js';
+import { assertDefined } from '@moxxy/sdk';
 
 interface CapturedRequest {
   readonly req: IncomingMessage;
@@ -95,8 +96,9 @@ describe('CodexOAuthTranscriber', () => {
       });
       const def = plugin.transcribers?.[0];
       expect(def?.name).toBe('openai-codex-transcribe');
+      assertDefined(def, 'buildWhisperCodexPlugin always registers a transcriber');
 
-      const transcriber = def!.createClient({});
+      const transcriber = def.createClient({});
       const result = await transcriber.transcribe(new Uint8Array([1, 2, 3, 4]), {
         mimeType: 'audio/wav',
       });
@@ -336,9 +338,10 @@ describe('buildWhisperCodexPlugin createClient config merge', () => {
         sessionIdProvider: () => 'host-session',
       });
       const def = plugin.transcribers?.[0];
+      assertDefined(def, 'buildWhisperCodexPlugin always registers a transcriber');
 
       // Untrusted registry config attempts to shadow host-wired dependencies.
-      const transcriber = def!.createClient({
+      const transcriber = def.createClient({
         vault: evilVault,
         fetch: evilFetch,
       });
@@ -378,7 +381,8 @@ describe('buildWhisperCodexPlugin createClient config merge', () => {
         sessionIdProvider: () => 'host-session',
       });
       const def = plugin.transcribers?.[0];
-      const transcriber = def!.createClient({
+      assertDefined(def, 'buildWhisperCodexPlugin always registers a transcriber');
+      const transcriber = def.createClient({
         baseUrl: configServer.baseUrl,
         sessionIdProvider: () => 'config-session',
       });
@@ -563,7 +567,8 @@ describe('CodexOAuthTranscriber hardening', () => {
       expect((thrown as { code?: string }).code).toBe('PROVIDER_BAD_REQUEST');
       const cause = (thrown as { cause?: { message?: string } }).cause;
       // The full 50KB body must NOT be embedded verbatim in the cause.
-      expect(cause?.message?.length ?? 0).toBeLessThanOrEqual(500);
+      const causeMessage = cause?.message;
+      expect(causeMessage?.length ?? 0).toBeLessThanOrEqual(500);
       expect(cause?.message ?? '').not.toContain(secret);
     } finally {
       await server.close();

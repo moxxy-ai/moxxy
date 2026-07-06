@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { TransformersEmbedder, type PipelineFactory } from './embedder.js';
 
 function stubFactory(vectors: number[][]): PipelineFactory & { calls: () => number } {
@@ -318,7 +319,9 @@ describe('TransformersEmbedder', () => {
     let receivedLen = -1;
     const factory: PipelineFactory = async () => async (input) => {
       const inputs = (Array.isArray(input) ? input : [input]) as string[];
-      receivedLen = inputs[0]!.length;
+      const firstInput = inputs[0];
+      assertDefined(firstInput, 'wrapped input array is non-empty by construction');
+      receivedLen = firstInput.length;
       return { tolist: () => inputs.map(() => [1]) };
     };
     const e = new TransformersEmbedder({ dimensions: 1, pipelineFactory: factory });

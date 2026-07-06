@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ToolContext, ToolDef } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { defaultViewRenderer } from '@moxxy/core';
 import { buildViewPlugin, type PresentViewResult, type ViewSurface } from './index.js';
 
@@ -50,10 +51,15 @@ describe('present_view — output', () => {
 
   it('reports no active renderer', () => {
     const plugin = buildViewPlugin({ getRenderer: () => null });
-    const t = plugin.tools!.find((x) => x.name === 'present_view')!;
+    const tools = plugin.tools;
+    assertDefined(tools, 'plugin declares tools');
+    const t = tools.find((x) => x.name === 'present_view');
+    assertDefined(t, 'plugin registers present_view');
     const r = run(t, '<view/>');
     expect(r.ok).toBe(false);
-    expect(r.errors?.[0]?.message).toMatch(/no active view renderer/);
+    const err = r.errors?.[0];
+    assertDefined(err, 'a failed parse reports at least one error');
+    expect(err.message).toMatch(/no active view renderer/);
   });
 
   it('without a surface: rendered=false, no url/viewId', () => {

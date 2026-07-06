@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ServiceRegistry } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { memoryConsolidatePlugin } from './index.js';
 
 /**
@@ -26,7 +27,10 @@ describe('memoryConsolidatePlugin (discovery-loadable)', () => {
       has: () => true,
       register: () => {},
     } as unknown as ServiceRegistry;
-    memoryConsolidatePlugin.hooks!.onInit!({ services } as never);
+    const hooks = memoryConsolidatePlugin.hooks;
+    assertDefined(hooks, 'plugin defines hooks');
+    assertDefined(hooks.onInit, 'plugin defines an onInit hook');
+    hooks.onInit({ services } as never);
     expect(get).toHaveBeenCalledWith('memory');
     expect(get).toHaveBeenCalledWith('providers');
   });

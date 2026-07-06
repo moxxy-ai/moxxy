@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { AnthropicProvider } from './provider.js';
 
 /**
@@ -223,7 +224,9 @@ describe('AnthropicProvider OAuth token refresh', () => {
     expect(fake.streamCalls).toBe(1);
     const errors = out.filter((e): e is Extract<ProviderEvent, { type: 'error' }> => e.type === 'error');
     expect(errors).toHaveLength(1);
-    expect(errors[0]!.message).toContain('refresh endpoint down');
+    const err = errors[0];
+    assertDefined(err, 'one error event asserted above');
+    expect(err.message).toContain('refresh endpoint down');
     expect(out.filter((e) => e.type === 'message_end')).toHaveLength(0);
   });
 
@@ -248,7 +251,9 @@ describe('AnthropicProvider OAuth token refresh', () => {
     expect(fake.streamCalls).toBe(0);
     const errors = out.filter((e): e is Extract<ProviderEvent, { type: 'error' }> => e.type === 'error');
     expect(errors).toHaveLength(1);
-    expect(errors[0]!.message).toContain('proactive refresh failed');
+    const err = errors[0];
+    assertDefined(err, 'one error event asserted above');
+    expect(err.message).toContain('proactive refresh failed');
     // A failed proactive refresh emits NO message_start — the turn never opens,
     // so consumers pairing message_start/message_end see nothing dangling.
     expect(out.some((e) => e.type === 'message_start')).toBe(false);

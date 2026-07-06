@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { wrapMcpServerTools, wrapMcpServerToolsLazy } from './wrap.js';
 import type { McpClientLike, McpToolDescriptor } from './types.js';
-import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
+import { asSessionId, asToolCallId, asTurnId, assertDefined } from '@moxxy/sdk';
 
 const baseCtx = () => ({
   sessionId: asSessionId('s'),
@@ -52,15 +52,19 @@ describe('wrapMcpServerTools', () => {
       client,
     });
     expect(tools).toHaveLength(2);
-    expect(tools[0]!.name).toBe('mcp__demo__fetch');
-    expect(tools[0]!.description).toBe('Fetch a URL');
-    expect(tools[0]!.inputJsonSchema).toEqual({
+    const t0 = tools[0];
+    assertDefined(t0, 'first wrapped mcp tool present');
+    const t1 = tools[1];
+    assertDefined(t1, 'second wrapped mcp tool present');
+    expect(t0.name).toBe('mcp__demo__fetch');
+    expect(t0.description).toBe('Fetch a URL');
+    expect(t0.inputJsonSchema).toEqual({
       type: 'object',
       properties: { url: { type: 'string' } },
       required: ['url'],
     });
-    expect(tools[1]!.name).toBe('mcp__demo__shell');
-    expect(tools[1]!.description).toContain('shell');
+    expect(t1.name).toBe('mcp__demo__shell');
+    expect(t1.description).toContain('shell');
   });
 
   it('routes tool invocations through callTool and stringifies the content', async () => {
@@ -69,7 +73,9 @@ describe('wrapMcpServerTools', () => {
       server: { name: 'demo', command: 'noop' },
       client,
     });
-    const result = await tools[0]!.handler({ url: 'https://x' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({ url: 'https://x' }, baseCtx());
     expect(result).toBe('called fetch');
     expect(client.calls).toEqual([{ name: 'fetch', arguments: { url: 'https://x' } }]);
   });
@@ -84,7 +90,9 @@ describe('wrapMcpServerTools', () => {
       server: { name: 'demo', command: 'noop' },
       client,
     });
-    const result = await tools[0]!.handler({ url: 'https://x' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({ url: 'https://x' }, baseCtx());
     expect(result).toBe('[error] no permission');
   });
 
@@ -95,7 +103,9 @@ describe('wrapMcpServerTools', () => {
       isError: false,
     } as never);
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
-    const result = await tools[0]!.handler({ url: 'x' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({ url: 'x' }, baseCtx());
     expect(result).toBe('hello body');
   });
 
@@ -106,7 +116,9 @@ describe('wrapMcpServerTools', () => {
       isError: false,
     } as never);
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
-    const result = await tools[0]!.handler({ url: 'x' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({ url: 'x' }, baseCtx());
     expect(result).toBe('[resource:file:///a.bin application/octet-stream]');
   });
 
@@ -117,7 +129,9 @@ describe('wrapMcpServerTools', () => {
       isError: false,
     } as never);
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
-    const result = await tools[0]!.handler({ url: 'x' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({ url: 'x' }, baseCtx());
     expect(result).toBe('[image:image/png]');
   });
 
@@ -128,7 +142,9 @@ describe('wrapMcpServerTools', () => {
       client,
       toolNamePrefix: (s, t) => `x_${s}_${t}`,
     });
-    expect(tools[0]!.name).toBe('x_demo_fetch');
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    expect(first.name).toBe('x_demo_fetch');
   });
 
   it('aborts when ctx.signal is fired', async () => {
@@ -140,14 +156,18 @@ describe('wrapMcpServerTools', () => {
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
     controller.abort();
-    await expect(tools[0]!.handler({ url: 'x' }, ctx)).rejects.toThrow(/aborted/);
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    await expect(first.handler({ url: 'x' }, ctx)).rejects.toThrow(/aborted/);
   });
 
   it('rejects a missing required field WITHOUT calling the server', async () => {
     const client = makeFakeClient();
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
     // `fetch` declares required: ['url']; emit it missing.
-    const result = await tools[0]!.handler({}, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({}, baseCtx());
     expect(result).toMatch(/invalid arguments.*missing required field "url"/);
     expect(client.calls).toHaveLength(0);
   });
@@ -155,7 +175,9 @@ describe('wrapMcpServerTools', () => {
   it('rejects a wrong primitive type WITHOUT calling the server', async () => {
     const client = makeFakeClient();
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
-    const result = await tools[0]!.handler({ url: 123 }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({ url: 123 }, baseCtx());
     expect(result).toMatch(/field "url" must be of type string/);
     expect(client.calls).toHaveLength(0);
   });
@@ -163,7 +185,9 @@ describe('wrapMcpServerTools', () => {
   it('forwards a well-formed call that satisfies the declared schema', async () => {
     const client = makeFakeClient();
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
-    const result = await tools[0]!.handler({ url: 'https://ok' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const result = await first.handler({ url: 'https://ok' }, baseCtx());
     expect(result).toBe('called fetch');
     expect(client.calls).toEqual([{ name: 'fetch', arguments: { url: 'https://ok' } }]);
   });
@@ -172,7 +196,9 @@ describe('wrapMcpServerTools', () => {
     const client = makeFakeClient();
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
     // `shell` (tools[1]) declares only { type: 'object' } — anything passes.
-    const result = await tools[1]!.handler({ anything: ['goes'] }, baseCtx());
+    const second = tools[1];
+    assertDefined(second, 'second wrapped mcp tool present');
+    const result = await second.handler({ anything: ['goes'] }, baseCtx());
     expect(result).toBe('called shell');
   });
 });
@@ -189,7 +215,9 @@ describe('runMcpCallWithFallback (timeout + settle-once)', () => {
     vi.spyOn(client, 'callTool').mockImplementation(() => new Promise<never>(() => {}));
     const tools = await wrapMcpServerTools({ server: { name: 'demo', command: 'noop' }, client });
 
-    const promise = tools[0]!.handler({ url: 'x' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const promise = first.handler({ url: 'x' }, baseCtx());
     // Attach the rejection assertion before advancing so the rejection is observed.
     const assertion = expect(promise).rejects.toThrow(/timed out/);
     await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
@@ -209,7 +237,9 @@ describe('runMcpCallWithFallback (timeout + settle-once)', () => {
     const controller = new AbortController();
     const ctx = { ...baseCtx(), signal: controller.signal };
 
-    const promise = tools[0]!.handler({ url: 'x' }, ctx);
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    const promise = first.handler({ url: 'x' }, ctx);
     controller.abort();
     // The late resolution must NOT win or throw "already settled".
     resolveCall({ content: [{ type: 'text', text: 'too late' }], isError: false });
@@ -232,8 +262,10 @@ describe('wrapMcpServerToolsLazy', () => {
     });
     expect(getClient).not.toHaveBeenCalled(); // building does not connect
 
-    await tools[0]!.handler({ url: 'a' }, baseCtx());
-    await tools[0]!.handler({ url: 'b' }, baseCtx());
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
+    await first.handler({ url: 'a' }, baseCtx());
+    await first.handler({ url: 'b' }, baseCtx());
     // Two invocations, but the lazy wrapper hands the same factory each time.
     // The connection caching itself is the factory's job; here we assert the
     // factory is invoked per call and the calls reach the client.
@@ -253,8 +285,10 @@ describe('wrapMcpServerToolsLazy', () => {
     });
     const controller = new AbortController();
     controller.abort();
+    const first = tools[0];
+    assertDefined(first, 'wrapped mcp tool present');
     await expect(
-      tools[0]!.handler({ url: 'x' }, { ...baseCtx(), signal: controller.signal }),
+      first.handler({ url: 'x' }, { ...baseCtx(), signal: controller.signal }),
     ).rejects.toThrow(/aborted/);
     expect(getClient).not.toHaveBeenCalled();
   });

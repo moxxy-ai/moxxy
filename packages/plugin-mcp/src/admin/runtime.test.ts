@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import type { McpClientLike, McpServerConfig, McpToolDescriptor } from '../types.js';
 import type { AdminToolRegistryLike, McpStoredServer } from './types.js';
 
@@ -162,7 +163,8 @@ describe('admin/runtime', () => {
       const registry = makeRegistry();
       const rt = createMcpRuntime(registry);
       rt.attachServerLazy(stored());
-      const handle = rt.runtimes.get('demo')!;
+      const handle = rt.runtimes.get('demo');
+      assertDefined(handle, "runtime 'demo' registered by attachServerLazy");
       // Closing before any tool runs must not connect or throw.
       await handle.client.close();
       expect(hoisted.connectCalls).toHaveLength(0);

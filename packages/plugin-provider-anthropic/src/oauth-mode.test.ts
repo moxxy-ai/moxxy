@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { ProviderEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { AnthropicProvider } from './provider.js';
 
 /** Build a fake Anthropic SDK client that records `messages.stream` args. */
@@ -66,13 +67,17 @@ describe('AnthropicProvider OAuth mode', () => {
       }),
     );
 
-    const sys = calls[0]!.system as Array<{ type: string; text: string }>;
+    const call0 = calls[0];
+    assertDefined(call0, 'a call was recorded');
+    const sys = call0.system as Array<{ type: string; text: string }>;
     expect(Array.isArray(sys)).toBe(true);
     expect(sys[0]).toEqual({
       type: 'text',
       text: "You are Claude Code, Anthropic's official CLI for Claude.",
     });
-    expect(sys[1]!.text).toBe('REAL SYSTEM');
+    const sysBlock1 = sys[1];
+    assertDefined(sysBlock1, 'system has a second block');
+    expect(sysBlock1.text).toBe('REAL SYSTEM');
     expect(out.at(-1)).toMatchObject({ type: 'message_end', stopReason: 'end_turn' });
   });
 
@@ -88,7 +93,9 @@ describe('AnthropicProvider OAuth mode', () => {
         ],
       }),
     );
-    expect(calls[0]!.system).toBe('REAL');
+    const call0 = calls[0];
+    assertDefined(call0, 'a call was recorded');
+    expect(call0.system).toBe('REAL');
   });
 
   it('delivers hook-injected req.system as an extra system block after the prompt', async () => {
@@ -104,7 +111,9 @@ describe('AnthropicProvider OAuth mode', () => {
         ],
       }),
     );
-    const sys = calls[0]!.system as Array<{ type: string; text: string }>;
+    const call0 = calls[0];
+    assertDefined(call0, 'a call was recorded');
+    const sys = call0.system as Array<{ type: string; text: string }>;
     expect(Array.isArray(sys)).toBe(true);
     expect(sys.map((b) => b.text)).toEqual(['BASE PROMPT', '[memory note] consider consolidating']);
   });
@@ -123,7 +132,9 @@ describe('AnthropicProvider OAuth mode', () => {
         ],
       }),
     );
-    const sys = calls[0]!.system as Array<{ type: string; text: string; cache_control?: unknown }>;
+    const call0 = calls[0];
+    assertDefined(call0, 'a call was recorded');
+    const sys = call0.system as Array<{ type: string; text: string; cache_control?: unknown }>;
     expect(sys[0]).toEqual({ type: 'text', text: 'BASE PROMPT', cache_control: { type: 'ephemeral' } });
     expect(sys[1]).toEqual({ type: 'text', text: 'VOLATILE NUDGE' });
   });
@@ -145,7 +156,9 @@ describe('AnthropicProvider OAuth mode', () => {
         ],
       }),
     );
-    const sys = calls[0]!.system as Array<{ type: string; text: string }>;
+    const call0 = calls[0];
+    assertDefined(call0, 'a call was recorded');
+    const sys = call0.system as Array<{ type: string; text: string }>;
     expect(sys.map((b) => b.text)).toEqual(['PREAMBLE', 'REAL SYSTEM', 'NUDGE']);
   });
 });

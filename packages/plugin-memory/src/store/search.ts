@@ -1,4 +1,5 @@
 import type { EmbeddingProvider, Mutex } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { TfIdfEmbedder, cosineSimilarity, tokenize } from '../tfidf.js';
 import type { EmbeddingIndex } from '../embedding-cache.js';
 import type { MemoryEntry } from './types.js';
@@ -36,9 +37,13 @@ export async function recallVector(
       const cached: Array<ReadonlyArray<number> | null> = [];
       const misses: { index: number; text: string }[] = [];
       for (let i = 0; i < all.length; i++) {
-        const hit = index.lookup(all[i]!.frontmatter.name, corpus[i]!);
+        const entry = all[i];
+        const text = corpus[i];
+        assertDefined(entry, 'loop index i < all.length');
+        assertDefined(text, 'corpus is built 1:1 from all');
+        const hit = index.lookup(entry.frontmatter.name, text);
         cached.push(hit);
-        if (!hit) misses.push({ index: i, text: corpus[i]! });
+        if (!hit) misses.push({ index: i, text });
       }
       const queryIdx = misses.length;
       const toEmbed = [...misses.map((m) => m.text), query];
@@ -64,7 +69,11 @@ export async function recallVector(
       // future recall would read back a corrupt entry).
       for (const [j, m] of misses.entries()) {
         const v = fresh[j];
-        if (Array.isArray(v)) index.set(all[m.index]!.frontmatter.name, m.text, v);
+        if (Array.isArray(v)) {
+          const entry = all[m.index];
+          assertDefined(entry, 'm.index was recorded from the bounds-checked all[] loop');
+          index.set(entry.frontmatter.name, m.text, v);
+        }
       }
       index.prune(all.map((e) => e.frontmatter.name));
       await index.flush();
@@ -128,6 +137,8 @@ function rankCosine(
   }
   const ranked: RankedMemory[] = [];
   for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    assertDefined(entry, 'loop index i < entries.length');
     const vec = vectors[i];
     // cosineSimilarity silently truncates to the shorter vector, so a stale
     // cached vector or a provider quirk of the wrong dimensionality would
@@ -136,13 +147,13 @@ function rankCosine(
     // loudly instead of ranking it on a mismatched or absent basis.
     if (!Array.isArray(vec) || vec.length !== query.length) {
       console.warn(
-        `[plugin-memory] skipping '${entries[i]!.frontmatter.name}' in recall: ` +
+        `[plugin-memory] skipping '${entry.frontmatter.name}' in recall: ` +
           `vector dim ${Array.isArray(vec) ? vec.length : 'missing'} != query dim ${query.length} (cache/embedder drift)`,
       );
       continue;
     }
     const score = cosineSimilarity(vec, query);
-    if (score > 0) ranked.push({ entry: entries[i]!, score });
+    if (score > 0) ranked.push({ entry, score });
   }
   ranked.sort((a, b) => b.score - a.score);
   return ranked.slice(0, limit);

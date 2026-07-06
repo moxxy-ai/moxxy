@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ServiceRegistry } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { voiceAdminPlugin } from './index.js';
 
 function fakeSynths(active: string | null, names: string[]) {
@@ -36,13 +37,21 @@ describe('voiceAdminPlugin (discovery-loadable)', () => {
       has: () => true,
       register: () => {},
     } as unknown as ServiceRegistry;
-    voiceAdminPlugin.hooks!.onInit!({ services } as never);
+    const hooks = voiceAdminPlugin.hooks;
+    assertDefined(hooks, 'plugin declares hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'plugin declares onInit');
+    onInit({ services } as never);
 
-    const listVoices = voiceAdminPlugin.tools!.find((t) => t.name === 'list_voices')!;
+    const tools = voiceAdminPlugin.tools;
+    assertDefined(tools, 'plugin declares tools');
+    const listVoices = tools.find((t) => t.name === 'list_voices');
+    assertDefined(listVoices, 'plugin registers list_voices');
     const listed = await listVoices.handler({} as never, {} as never);
     expect(listed).toEqual({ active: 'eleven', available: ['system', 'eleven', 'openai'] });
 
-    const setVoice = voiceAdminPlugin.tools!.find((t) => t.name === 'set_voice')!;
+    const setVoice = tools.find((t) => t.name === 'set_voice');
+    assertDefined(setVoice, 'plugin registers set_voice');
     const set = await setVoice.handler({ synthesizer: 'openai' } as never, {} as never);
     expect(set).toEqual({ active: 'openai' });
     expect(synths.getActiveName()).toBe('openai');

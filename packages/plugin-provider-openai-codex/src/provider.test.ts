@@ -6,6 +6,7 @@ import { CodexProvider } from './provider.js';
 import { CODEX_RESPONSES_URL } from './oauth.js';
 import type { CodexTokens } from './types.js';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 
 // The refresh path takes a cross-process lockfile under `<moxxy home>/locks`;
 // point MOXXY_HOME at a temp dir so tests never touch the real ~/.moxxy.
@@ -238,16 +239,20 @@ describe('CodexProvider.stream', () => {
 
     // Token endpoint must be hit before the Codex API call.
     expect(calls[0]?.url).toContain('/oauth/token');
-    expect(calls[1]?.url).toBe(CODEX_RESPONSES_URL);
-    expect((calls[1]?.init?.headers as Record<string, string>)['Authorization']).toBe('Bearer NEW_AT');
+    const codexCall = calls[1];
+    assertDefined(codexCall, 'codex API call recorded after the token call');
+    expect(codexCall.url).toBe(CODEX_RESPONSES_URL);
+    expect((codexCall.init?.headers as Record<string, string>)['Authorization']).toBe('Bearer NEW_AT');
 
     // onTokensRefreshed was called BEFORE the codex call went out.
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]!.access).toBe('NEW_AT');
-    expect(persisted[0]!.refresh).toBe('NEW_RT');
+    const persisted0 = persisted[0];
+    assertDefined(persisted0, 'one persisted token set asserted above');
+    expect(persisted0.access).toBe('NEW_AT');
+    expect(persisted0.refresh).toBe('NEW_RT');
     // accountId is preserved from the prior token bundle even though the
     // refresh response doesn't re-issue an id_token.
-    expect(persisted[0]!.accountId).toBe('acct_test');
+    expect(persisted0.accountId).toBe('acct_test');
   });
 
   it('coalesces concurrent in-process refreshes — one token-endpoint call for two streams', async () => {
@@ -339,8 +344,10 @@ describe('CodexProvider.stream', () => {
 
     expect(attempted).toEqual(['RT', 'ROTATED_RT']);
     expect(persisted).toHaveLength(1);
-    expect(persisted[0]!.access).toBe('NEW_AT');
-    expect(persisted[0]!.refresh).toBe('NEW_RT');
+    const persisted0 = persisted[0];
+    assertDefined(persisted0, 'one persisted token set asserted above');
+    expect(persisted0.access).toBe('NEW_AT');
+    expect(persisted0.refresh).toBe('NEW_RT');
   });
 
   it('refreshes and replays once on a 401, then surfaces error on a second 401', async () => {
@@ -372,10 +379,10 @@ describe('CodexProvider.stream', () => {
     const err = events.find((e) => e.type === 'error') as
       | { type: 'error'; message: string; retryable?: boolean }
       | undefined;
-    expect(err).toBeDefined();
-    expect(err!.message).toMatch(/moxxy login openai-codex/);
-    expect(err!.message).toMatch(/re-authenticate/i);
-    expect(err!.retryable).toBe(false);
+    assertDefined(err, 'stream surfaced an error event');
+    expect(err.message).toMatch(/moxxy login openai-codex/);
+    expect(err.message).toMatch(/re-authenticate/i);
+    expect(err.retryable).toBe(false);
   });
 
   it('aborts a stalled request via the internal idle watchdog (no caller signal needed)', async () => {
@@ -414,10 +421,10 @@ describe('CodexProvider.stream', () => {
     });
     const events = await collect(provider.stream(baseRequest()));
     const err = events.find((e) => e.type === 'error') as { message: string } | undefined;
-    expect(err).toBeDefined();
+    assertDefined(err, 'stream surfaced an error event');
     // The message includes only a bounded slice of the body, not all 5 MiB.
-    expect(err!.message.length).toBeLessThan(4096);
-    expect(err!.message).toMatch(/returned 400/);
+    expect(err.message.length).toBeLessThan(4096);
+    expect(err.message).toMatch(/returned 400/);
   });
 
   it('countTokens does not stringify base64 payloads and stays bounded for a large image', async () => {

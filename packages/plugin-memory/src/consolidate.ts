@@ -1,5 +1,6 @@
 import {
   z,
+  assertDefined,
   defineTool,
   definePlugin,
   type LifecycleHooks,
@@ -46,8 +47,9 @@ export function planConsolidation(
   entries: ReadonlyArray<MemoryEntry>,
   opts: { tag?: string } = {},
 ): ConsolidatePlan {
-  const filtered = opts.tag
-    ? entries.filter((e) => (e.frontmatter.tags ?? []).includes(opts.tag!))
+  const tag = opts.tag;
+  const filtered = tag
+    ? entries.filter((e) => (e.frontmatter.tags ?? []).includes(tag))
     : entries;
   if (filtered.length < 2) {
     return { clusters: [], stable: filtered.map((e) => e.frontmatter.name) };
@@ -63,7 +65,8 @@ export function planConsolidation(
       tagless.push(e);
     } else {
       // Use the first tag as the cluster key (deterministic, simple)
-      const key = tags[0]!;
+      const key = tags[0];
+      assertDefined(key, 'tags is non-empty here (tags.length === 0 handled above)');
       const list = byTag.get(key) ?? [];
       list.push(e);
       byTag.set(key, list);
@@ -99,14 +102,18 @@ export function planConsolidation(
     if (members.length >= 2) {
       clusters.push({ key: `tag:${key}`, members: members.map((m) => m.frontmatter.name) });
     } else {
-      stable.push(members[0]!.frontmatter.name);
+      const only = members[0];
+      assertDefined(only, 'byTag lists always carry ≥1 member');
+      stable.push(only.frontmatter.name);
     }
   }
   for (const cluster of descClusters) {
     if (cluster.members.length >= 2) {
       clusters.push({ key: cluster.key, members: cluster.members.map((m) => m.frontmatter.name) });
     } else {
-      stable.push(cluster.members[0]!.frontmatter.name);
+      const only = cluster.members[0];
+      assertDefined(only, 'desc clusters are created with ≥1 member');
+      stable.push(only.frontmatter.name);
     }
   }
 
@@ -374,7 +381,7 @@ function extractJson(text: string): unknown {
   // Take the span from the first `{` to the last `}` in the response. Some
   // providers wrap the object in ```json ... ```, which we strip first.
   const fenced = /```(?:json)?\n?([\s\S]*?)```/.exec(text);
-  const candidate = fenced ? fenced[1]! : text;
+  const candidate = fenced?.[1] ?? text;
   const start = candidate.indexOf('{');
   const end = candidate.lastIndexOf('}');
   // `end <= start` (e.g. a stray `}` before the first `{`) means there's no

@@ -38,6 +38,18 @@ export function setSsrfDnsResolver(fn: DnsResolver | null): void {
   resolver = fn ?? defaultResolver;
 }
 
+/**
+ * Local presence guard for impossible-by-construction absences (a `String.split`
+ * first element, a matched regex's capture groups) that TS's index/capture types
+ * widen to `T | undefined`. This module deliberately imports NO non-builtin deps
+ * (see header) — the Playwright sidecar bundles it — so we cannot use
+ * `assertDefined` from `@moxxy/sdk`.
+ */
+function present<T>(value: T | undefined, why: string): T {
+  if (value === undefined) throw new Error(`ssrf-guard: unreachable — ${why}`);
+  return value;
+}
+
 function isBlockedIpv4(ip: string): boolean {
   const parts = ip.split('.').map((p) => Number(p));
   if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true;
@@ -54,7 +66,11 @@ function isBlockedIpv4(ip: string): boolean {
 }
 
 function isBlockedIpv6(ip: string): boolean {
-  const addr = ip.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0]!; // strip zone id
+  // strip zone id
+  const addr = present(
+    ip.toLowerCase().replace(/^\[|\]$/g, '').split('%')[0],
+    'String.split always yields at least one element',
+  );
   if (addr === '::1' || addr === '::') return true; // loopback / unspecified
   if (addr.startsWith('fe80')) return true; // link-local
   if (addr.startsWith('fc') || addr.startsWith('fd')) return true; // unique-local fc00::/7
@@ -80,13 +96,13 @@ function extractEmbeddedV4(addr: string): string | null {
   // Dotted spelling: ::ffff:a.b.c.d, ::ffff:0:a.b.c.d, ::a.b.c.d, 64:ff9b::a.b.c.d
   const dotted = addr.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
   if (dotted && (addr.startsWith('::ffff:') || addr.startsWith('::') || addr.startsWith('64:ff9b:'))) {
-    return dotted[1]!;
+    return present(dotted[1], 'dotted regex matched and has a capture group');
   }
   // Hex spelling: the embedded v4 lives in the two trailing 16-bit groups.
   const hex = addr.match(/^(?:::ffff:|::ffff:0:|64:ff9b:(?::|.*:)|::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
   if (hex) {
-    const hi = parseInt(hex[1]!, 16);
-    const lo = parseInt(hex[2]!, 16);
+    const hi = parseInt(present(hex[1], 'hex regex matched and has capture group 1'), 16);
+    const lo = parseInt(present(hex[2], 'hex regex matched and has capture group 2'), 16);
     if (Number.isInteger(hi) && Number.isInteger(lo) && hi <= 0xffff && lo <= 0xffff) {
       return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
     }

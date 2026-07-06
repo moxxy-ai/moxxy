@@ -5,6 +5,8 @@
  * browser_session.
  */
 
+import { assertDefined } from '@moxxy/sdk';
+
 export interface ExtractOptions {
   selector?: string;
 }
@@ -119,7 +121,11 @@ function decodeEntities(s: string): string {
     '&nbsp;': ' ',
   };
   return s.replace(/&[a-zA-Z]+;|&#\d+;/g, (m) => {
-    if (m in map) return map[m as keyof typeof map]!;
+    if (m in map) {
+      const decoded = map[m as keyof typeof map];
+      assertDefined(decoded, `entity "${m}" is a known map key ("m in map" checked above)`);
+      return decoded;
+    }
     const numMatch = /^&#(\d+);$/.exec(m);
     if (numMatch) return String.fromCharCode(Number(numMatch[1]));
     return m;
@@ -139,12 +145,12 @@ function extractFirstTagBlock(html: string, selector: string): string | null {
       'i',
     );
     const match = re.exec(html);
-    return match ? match[2]! : null;
+    return match?.[2] ?? null;
   }
   const tag = selector.toLowerCase();
   const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
   const match = re.exec(html);
-  return match ? match[1]! : null;
+  return match?.[1] ?? null;
 }
 
 function escapeReSelector(s: string): string {

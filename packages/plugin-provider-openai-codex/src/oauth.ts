@@ -6,6 +6,7 @@
  */
 
 import { Buffer } from 'node:buffer';
+import { assertDefined } from '@moxxy/sdk';
 import {
   buildAuthUrl,
   computeCodeChallenge,
@@ -92,7 +93,8 @@ export function parseJwtClaims(jwt: string): Record<string, unknown> | undefined
   if (typeof jwt !== 'string') return undefined;
   const parts = jwt.split('.');
   if (parts.length !== 3) return undefined;
-  const payload = parts[1]!;
+  const payload = parts[1];
+  assertDefined(payload, 'parts.length === 3 checked above');
   // Bound the decode: never allocate/parse an oversized payload segment.
   if (payload.length > MAX_JWT_SEGMENT_CHARS) return undefined;
   try {

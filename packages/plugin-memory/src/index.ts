@@ -262,8 +262,10 @@ export const memoryPlugin: Plugin = (() => {
       onInit: async (ctx) => {
         embeddersReg =
           ctx.services.get<{ tryGetActive(): unknown }>('embedders') ?? null;
-        await base.hooks?.onInit?.(ctx);
-        await consolidate.hooks?.onInit?.(ctx);
+        const baseHooks = base.hooks;
+        if (baseHooks) await baseHooks.onInit?.(ctx);
+        const consolidateHooks = consolidate.hooks;
+        if (consolidateHooks) await consolidateHooks.onInit?.(ctx);
       },
       // A Plugin has a single onBeforeProviderCall, but this composed plugin
       // carries TWO: base's always-on user-model injection and consolidate's
@@ -271,9 +273,15 @@ export const memoryPlugin: Plugin = (() => {
       // block, the nudge appends its hint); either may return void to pass through.
       onBeforeProviderCall: async (req, ctx) => {
         let out: ProviderRequest | undefined;
-        const injected = await base.hooks?.onBeforeProviderCall?.(out ?? req, ctx);
+        const baseHooks = base.hooks;
+        const injected = baseHooks
+          ? await baseHooks.onBeforeProviderCall?.(out ?? req, ctx)
+          : undefined;
         if (injected) out = injected;
-        const nudged = await consolidate.hooks?.onBeforeProviderCall?.(out ?? req, ctx);
+        const consolidateHooks = consolidate.hooks;
+        const nudged = consolidateHooks
+          ? await consolidateHooks.onBeforeProviderCall?.(out ?? req, ctx)
+          : undefined;
         if (nudged) out = nudged;
         return out;
       },

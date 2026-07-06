@@ -518,7 +518,8 @@ export class AnthropicProvider implements LLMProvider {
         const s = stream as unknown as { abort?: () => void; controller?: { abort?: () => void } };
         try {
           s.abort?.();
-          s.controller?.abort?.();
+          const controller = s.controller;
+          if (controller) controller.abort?.();
         } catch {
           // Best-effort cleanup — a fake/partial stream may expose neither.
         }

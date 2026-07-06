@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { createMcpPlugin } from './index.js';
 import type { McpClientLike } from './types.js';
 
@@ -24,7 +25,11 @@ describe('createMcpPlugin', () => {
     });
     expect(plugin.name).toBe('@moxxy/plugin-mcp');
     expect(plugin.tools).toHaveLength(1);
-    expect(plugin.tools![0]!.name).toBe('mcp__demo__ping');
+    const tools = plugin.tools;
+    assertDefined(tools, 'plugin.tools present after createMcpPlugin');
+    const first = tools[0];
+    assertDefined(first, 'first mcp tool present');
+    expect(first.name).toBe('mcp__demo__ping');
   });
 
   it('aggregates tools across multiple servers', async () => {
@@ -36,7 +41,9 @@ describe('createMcpPlugin', () => {
       clientFactory: async () => fakeClient,
     });
     expect(plugin.tools).toHaveLength(2);
-    expect(plugin.tools!.map((t) => t.name)).toEqual(['mcp__a__ping', 'mcp__b__ping']);
+    const tools = plugin.tools;
+    assertDefined(tools, 'plugin.tools present after createMcpPlugin');
+    expect(tools.map((t) => t.name)).toEqual(['mcp__a__ping', 'mcp__b__ping']);
   });
 
   it('connects servers in parallel and bounds boot at the slowest, not the sum (u86-5)', async () => {
@@ -59,7 +66,9 @@ describe('createMcpPlugin', () => {
       clientFactory: async (s) => slowClient(s.name),
     });
     const elapsed = Date.now() - start;
-    expect(plugin.tools!.map((t) => t.name)).toEqual(['mcp__a__ping', 'mcp__b__ping']);
+    const tools = plugin.tools;
+    assertDefined(tools, 'plugin.tools present after createMcpPlugin');
+    expect(tools.map((t) => t.name)).toEqual(['mcp__a__ping', 'mcp__b__ping']);
     expect(elapsed).toBeLessThan(90); // < the ~100ms serial sum
   });
 
@@ -89,7 +98,9 @@ describe('createMcpPlugin', () => {
       servers: [{ name: 'a', command: 'noop' }, { name: 'b', command: 'noop' }],
       clientFactory: async () => c,
     });
-    await plugin.hooks?.onShutdown?.({} as never);
+    const hooks = plugin.hooks;
+    assertDefined(hooks, 'plugin.hooks registered by createMcpPlugin');
+    await hooks.onShutdown?.({} as never);
     expect(closed).toBe(2);
   });
 });

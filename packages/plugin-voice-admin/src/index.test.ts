@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Session, silentLogger } from '@moxxy/core';
+import { assertDefined } from '@moxxy/sdk';
 import { buildVoiceAdminPlugin } from './index.js';
 
 /**
@@ -9,10 +10,11 @@ import { buildVoiceAdminPlugin } from './index.js';
 function tools(session: Session) {
   const plugin = buildVoiceAdminPlugin(session);
   const byName = new Map((plugin.tools ?? []).map((t) => [t.name, t]));
-  return {
-    listVoices: byName.get('list_voices')!,
-    setVoice: byName.get('set_voice')!,
-  };
+  const listVoices = byName.get('list_voices');
+  assertDefined(listVoices, 'plugin registers list_voices');
+  const setVoice = byName.get('set_voice');
+  assertDefined(setVoice, 'plugin registers set_voice');
+  return { listVoices, setVoice };
 }
 
 const ctx = { sessionId: 's', turnId: 't' } as never;

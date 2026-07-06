@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinnedLookup, htmlToMarkdown, htmlToPlainText, setWebFetchDnsResolver, webFetchTool } from './web-fetch.js';
-import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
+import { asSessionId, asToolCallId, asTurnId, assertDefined } from '@moxxy/sdk';
 import type { ToolContext } from '@moxxy/sdk';
 
 const baseCtx = (): ToolContext => ({
@@ -264,7 +264,9 @@ describe('web_fetch DNS pinning (rebinding TOCTOU)', () => {
     // pinned answer, not a fresh (rebindable) one.
     expect(resolutions).toEqual(['example.com']);
     expect(inits).toHaveLength(1);
-    expect(inits[0]!.dispatcher).toBeDefined();
+    const init0 = inits[0];
+    assertDefined(init0, 'inits has length 1');
+    expect(init0.dispatcher).toBeDefined();
   });
 
   it('re-pins every redirect hop with that hop\'s own vetted address', async () => {
@@ -289,10 +291,14 @@ describe('web_fetch DNS pinning (rebinding TOCTOU)', () => {
     expect(out).toContain('arrived');
     expect(resolutions).toEqual(['a.example.com', 'b.example.com']);
     expect(inits).toHaveLength(2);
-    expect(inits[0]!.dispatcher).toBeDefined();
-    expect(inits[1]!.dispatcher).toBeDefined();
+    const init0 = inits[0];
+    const init1 = inits[1];
+    assertDefined(init0, 'inits has length 2');
+    assertDefined(init1, 'inits has length 2');
+    expect(init0.dispatcher).toBeDefined();
+    expect(init1.dispatcher).toBeDefined();
     // Each hop gets its OWN pinned dispatcher.
-    expect(inits[0]!.dispatcher).not.toBe(inits[1]!.dispatcher);
+    expect(init0.dispatcher).not.toBe(init1.dispatcher);
   });
 });
 

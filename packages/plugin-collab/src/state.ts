@@ -25,6 +25,7 @@ import type {
   RosterView,
 } from './hub-types.js';
 import type { BoardClaimResult } from './hub-protocol.js';
+import { assertDefined } from '@moxxy/sdk';
 
 export interface CollaborationStateOptions {
   readonly task: string;
@@ -164,7 +165,11 @@ export class CollaborationState {
 
   allDone(): boolean {
     const live = this.agentOrder
-      .map((id) => this.agents.get(id)!)
+      .map((id) => {
+        const agent = this.agents.get(id);
+        assertDefined(agent, 'agentOrder only ever holds live agent ids');
+        return agent;
+      })
       .filter((a) => a.status !== 'crashed' && a.status !== 'killed' && a.status !== 'failed');
     return live.length > 0 && live.every((a) => a.status === 'done');
   }
@@ -182,7 +187,11 @@ export class CollaborationState {
     return {
       self,
       task: this.task,
-      agents: this.agentOrder.map((id) => ({ ...this.agents.get(id)! })),
+      agents: this.agentOrder.map((id) => {
+        const agent = this.agents.get(id);
+        assertDefined(agent, 'agentOrder only ever holds live agent ids');
+        return { ...agent };
+      }),
       control: { ...this.control },
     };
   }
@@ -205,9 +214,16 @@ export class CollaborationState {
 
   doneSummaries(): ReadonlyArray<{ agentId: string; summary: string }> {
     return this.agentOrder
-      .map((id) => this.agents.get(id)!)
+      .map((id) => {
+        const agent = this.agents.get(id);
+        assertDefined(agent, 'agentOrder only ever holds live agent ids');
+        return agent;
+      })
       .filter((a) => a.status === 'done' && a.doneSummary)
-      .map((a) => ({ agentId: a.id, summary: a.doneSummary! }));
+      .map((a) => {
+        assertDefined(a.doneSummary, 'filtered to agents whose doneSummary is set');
+        return { agentId: a.id, summary: a.doneSummary };
+      });
   }
 
   // --- messaging ------------------------------------------------------------
@@ -297,7 +313,11 @@ export class CollaborationState {
   // --- task board + file locks ----------------------------------------------
 
   boardItems(): ReadonlyArray<BoardItem> {
-    return this.boardOrder.map((id) => ({ ...this.board.get(id)! }));
+    return this.boardOrder.map((id) => {
+      const item = this.board.get(id);
+      assertDefined(item, 'boardOrder only ever holds live board ids');
+      return { ...item };
+    });
   }
 
   boardAdd(by: string, title: string, detail?: string, paths?: ReadonlyArray<string>): BoardItem {
@@ -331,7 +351,8 @@ export class CollaborationState {
   /** Find the agent that already owns a path conflicting with any of `paths`. */
   private conflictingOwner(claimant: string, paths: ReadonlyArray<string>): string | null {
     for (const id of this.boardOrder) {
-      const item = this.board.get(id)!;
+      const item = this.board.get(id);
+      assertDefined(item, 'boardOrder only ever holds live board ids');
       if (!item.owner || item.owner === claimant || !item.paths) continue;
       if (item.status === 'done') continue; // released by completion
       for (const owned of item.paths) {
@@ -407,8 +428,16 @@ export class CollaborationState {
           (it): it is BoardItem => it !== undefined && it.owner === by,
         )
       : this.boardOrder
-          .map((id) => this.board.get(id)!)
-          .filter((it) => it.owner === by && it.paths && opts.paths?.some((p) => it.paths!.some((q) => pathsConflict(p, q))));
+          .map((id) => {
+            const item = this.board.get(id);
+            assertDefined(item, 'boardOrder only ever holds live board ids');
+            return item;
+          })
+          .filter((it) => {
+            if (it.owner !== by || !it.paths) return false;
+            const itPaths = it.paths;
+            return opts.paths?.some((p) => itPaths.some((q) => pathsConflict(p, q))) ?? false;
+          });
     for (const item of targets) {
       delete item.owner;
       item.updatedBy = by;
@@ -423,7 +452,8 @@ export class CollaborationState {
    *  any survivor that needs those paths. */
   private releaseAllFor(agentId: string): void {
     for (const id of this.boardOrder) {
-      const item = this.board.get(id)!;
+      const item = this.board.get(id);
+      assertDefined(item, 'boardOrder only ever holds live board ids');
       if (item.owner !== agentId) continue;
       delete item.owner;
       item.updatedBy = agentId;
@@ -435,7 +465,11 @@ export class CollaborationState {
   // --- contracts ------------------------------------------------------------
 
   contractList(): ReadonlyArray<ContractEntry> {
-    return this.contractOrder.map((id) => ({ ...this.contracts.get(id)! }));
+    return this.contractOrder.map((id) => {
+      const entry = this.contracts.get(id);
+      assertDefined(entry, 'contractOrder only ever holds live contract ids');
+      return { ...entry };
+    });
   }
 
   contractPublish(
@@ -475,7 +509,9 @@ export class CollaborationState {
       entry.pendingChange = { ...entry.pendingChange, acks: [...entry.pendingChange.acks, by] };
     }
     const required = new Set<string>([entry.owner, ...entry.consumers]);
-    const agreed = [...required].every((a) => entry.pendingChange!.acks.includes(a));
+    const pending = entry.pendingChange;
+    assertDefined(pending, 'pendingChange is guarded non-null at entry and only reassigned to a fresh object');
+    const agreed = [...required].every((a) => pending.acks.includes(a));
     return { entry: { ...entry }, agreed };
   }
 
@@ -496,8 +532,9 @@ export class CollaborationState {
     const authorized = by === entry.owner || this.roleOf(by) === 'architect';
     if (!authorized) return null;
     if (entry.pendingChange) {
+      const pending = entry.pendingChange;
       const required = new Set<string>([entry.owner, ...entry.consumers]);
-      const agreed = [...required].every((a) => entry.pendingChange!.acks.includes(a));
+      const agreed = [...required].every((a) => pending.acks.includes(a));
       if (!agreed) return null;
     }
     entry.spec = spec;

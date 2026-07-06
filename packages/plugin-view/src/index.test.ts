@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ToolContext, ToolDef, ViewNode, ViewParseResult, ViewRendererDef } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { defaultViewRenderer } from '@moxxy/core';
 import { buildViewPlugin, type PresentViewResult } from './index.js';
 
@@ -54,7 +55,9 @@ describe('present_view tool', () => {
   it('returns errors for a bad spec without throwing', () => {
     const r = call(`<view><script>x</script></view>`);
     expect(r.ok).toBe(false);
-    expect(r.errors?.[0]?.message).toMatch(/unknown tag/);
+    const err = r.errors?.[0];
+    assertDefined(err, 'a failed parse reports at least one error');
+    expect(err.message).toMatch(/unknown tag/);
   });
 
   it('surfaces the url + viewId when a surface is attached', () => {
@@ -75,7 +78,9 @@ describe('present_view tool', () => {
     const t = toolOf(buildViewPlugin({ getRenderer: () => null }));
     const r = t.handler({ spec: `<view><text>hi</text></view>` }, ctx) as PresentViewResult;
     expect(r.ok).toBe(false);
-    expect(r.errors?.[0]?.message).toMatch(/no active view renderer/);
+    const err = r.errors?.[0];
+    assertDefined(err, 'a failed parse reports at least one error');
+    expect(err.message).toMatch(/no active view renderer/);
   });
 
   it('rejects an over-large AST (node-count ceiling) without serializing it', () => {
@@ -86,19 +91,22 @@ describe('present_view tool', () => {
     expect(r.ok).toBe(false);
     expect(r.rendered).toBe(false);
     expect(r.ast).toBeUndefined();
-    expect(r.errors?.[0]?.message).toMatch(/view too large/);
+    const err = r.errors?.[0];
+    assertDefined(err, 'a failed parse reports at least one error');
+    expect(err.message).toMatch(/view too large/);
   });
 
   it('does not throw (no stack overflow) on a pathologically deep AST', () => {
     // Deeper than any recursion limit; iterative counting + node cap must turn
     // this into a structured error, never a RangeError out of the handler.
     const t = toolOf(buildViewPlugin({ getRenderer: () => fixedRenderer(deepChain(200_000)) }));
-    let r: PresentViewResult;
+    let r: PresentViewResult | undefined;
     expect(() => {
       r = t.handler({ spec: '<view/>' }, ctx) as PresentViewResult;
     }).not.toThrow();
-    expect(r!.ok).toBe(false);
-    expect(r!.ast).toBeUndefined();
+    assertDefined(r, 'handler assigned r inside the non-throwing closure');
+    expect(r.ok).toBe(false);
+    expect(r.ast).toBeUndefined();
   });
 
   it('accepts an AST exactly at the ceiling', () => {
@@ -170,13 +178,16 @@ describe('present_view tool', () => {
       validate: () => [],
     };
     const t = toolOf(buildViewPlugin({ getRenderer: () => throwing }));
-    let r: PresentViewResult;
+    let r: PresentViewResult | undefined;
     expect(() => {
       r = t.handler({ spec: '<view/>' }, ctx) as PresentViewResult;
     }).not.toThrow();
-    expect(r!.ok).toBe(false);
-    expect(r!.rendered).toBe(false);
-    expect(r!.errors?.[0]?.message).toMatch(/renderer exploded/);
+    assertDefined(r, 'handler assigned r inside the non-throwing closure');
+    expect(r.ok).toBe(false);
+    expect(r.rendered).toBe(false);
+    const err = r.errors?.[0];
+    assertDefined(err, 'a failed parse reports at least one error');
+    expect(err.message).toMatch(/renderer exploded/);
   });
 
   it('rejects a malformed AST (missing root) with an honest message', () => {
@@ -189,13 +200,16 @@ describe('present_view tool', () => {
       validate: () => [],
     };
     const t = toolOf(buildViewPlugin({ getRenderer: () => malformed }));
-    let r: PresentViewResult;
+    let r: PresentViewResult | undefined;
     expect(() => {
       r = t.handler({ spec: '<view/>' }, ctx) as PresentViewResult;
     }).not.toThrow();
-    expect(r!.ok).toBe(false);
-    expect(r!.ast).toBeUndefined();
-    expect(r!.errors?.[0]?.message).toMatch(/malformed AST/);
+    assertDefined(r, 'handler assigned r inside the non-throwing closure');
+    expect(r.ok).toBe(false);
+    expect(r.ast).toBeUndefined();
+    const err = r.errors?.[0];
+    assertDefined(err, 'a failed parse reports at least one error');
+    expect(err.message).toMatch(/malformed AST/);
   });
 
   it('degrades when a custom renderer reports a failure with non-iterable errors', () => {
@@ -208,12 +222,15 @@ describe('present_view tool', () => {
       validate: () => [],
     };
     const t = toolOf(buildViewPlugin({ getRenderer: () => bad }));
-    let r: PresentViewResult;
+    let r: PresentViewResult | undefined;
     expect(() => {
       r = t.handler({ spec: '<view/>' }, ctx) as PresentViewResult;
     }).not.toThrow();
-    expect(r!.ok).toBe(false);
-    expect(r!.errors?.[0]?.message).toMatch(/parse failure/);
+    assertDefined(r, 'handler assigned r inside the non-throwing closure');
+    expect(r.ok).toBe(false);
+    const err = r.errors?.[0];
+    assertDefined(err, 'a failed parse reports at least one error');
+    expect(err.message).toMatch(/parse failure/);
   });
 
   it('short-circuits when the turn is already aborted', () => {
@@ -224,6 +241,8 @@ describe('present_view tool', () => {
     const r = t.handler({ spec: '<view><text>hi</text></view>' }, abortedCtx) as PresentViewResult;
     expect(r.ok).toBe(false);
     expect(r.rendered).toBe(false);
-    expect(r.errors?.[0]?.message).toMatch(/aborted/);
+    const err = r.errors?.[0];
+    assertDefined(err, 'an aborted call reports at least one error');
+    expect(err.message).toMatch(/aborted/);
   });
 });

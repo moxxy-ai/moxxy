@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { storeTokenSet, type OAuthVault } from '@moxxy/plugin-oauth';
 import type { ProviderAuthContext } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { CLAUDE_CLIENT_ID, CLAUDE_TOKEN_URL } from './constants.js';
 import {
   claudeLogin,
@@ -128,14 +129,16 @@ describe('claudeLogin', () => {
     const res = await claudeLogin(makeCtx(vault, ['', 'AUTHCODE']));
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(CLAUDE_TOKEN_URL);
-    expect(calls[0]!.body).toMatchObject({
+    const call0 = calls[0];
+    assertDefined(call0, 'one call asserted above');
+    expect(call0.url).toBe(CLAUDE_TOKEN_URL);
+    expect(call0.body).toMatchObject({
       grant_type: 'authorization_code',
       code: 'AUTHCODE',
       client_id: CLAUDE_CLIENT_ID,
       redirect_uri: 'https://console.anthropic.com/oauth/code/callback',
     });
-    expect(typeof calls[0]!.body.code_verifier).toBe('string');
+    expect(typeof call0.body.code_verifier).toBe('string');
     expect(vault.store.get('oauth/claude-code/access_token')).toBe('access-1');
     expect(vault.store.get('oauth/claude-code/refresh_token')).toBe('refresh-1');
     expect(vault.store.get('oauth/claude-code/extras')).toContain('me@example.com');

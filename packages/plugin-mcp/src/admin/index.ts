@@ -185,9 +185,10 @@ function buildMcpAdminPluginInternal(
             try {
               return await runtime.refreshServerCache(server);
             } catch (err) {
-              log?.warn?.(`mcp: failed to refresh cache for "${server.name}"`, {
-                err: err instanceof Error ? err.message : String(err),
-              });
+              if (log?.warn)
+                log.warn(`mcp: failed to refresh cache for "${server.name}"`, {
+                  err: err instanceof Error ? err.message : String(err),
+                });
               return null;
             }
           }),
@@ -200,9 +201,10 @@ function buildMcpAdminPluginInternal(
           try {
             runtime.attachServerLazy(entry);
           } catch (err) {
-            log?.warn?.(`mcp: failed to attach lazy stubs for "${entry.name}"`, {
-              err: err instanceof Error ? err.message : String(err),
-            });
+            if (log?.warn)
+              log.warn(`mcp: failed to attach lazy stubs for "${entry.name}"`, {
+                err: err instanceof Error ? err.message : String(err),
+              });
           }
         }
       },

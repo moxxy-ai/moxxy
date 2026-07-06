@@ -141,8 +141,10 @@ export function handleSseEvent(
   if (type === 'response.completed') {
     const usage = ev.response?.usage;
     const input = usage?.input_tokens ?? 0;
-    const cacheRead = usage?.input_tokens_details?.cached_tokens ?? 0;
-    const incomplete = ev.response?.incomplete_details?.reason;
+    const inputTokenDetails = usage?.input_tokens_details;
+    const cacheRead = inputTokenDetails?.cached_tokens ?? 0;
+    const incompleteDetails = ev.response?.incomplete_details;
+    const incomplete = incompleteDetails?.reason;
     let stopReason: StopReason = 'end_turn';
     if (incomplete === 'max_output_tokens') stopReason = 'max_tokens';
     else if (incomplete === 'stop_sequence') stopReason = 'stop_sequence';

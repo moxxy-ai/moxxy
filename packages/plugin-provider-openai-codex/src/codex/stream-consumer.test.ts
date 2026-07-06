@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProviderEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { consumeResponsesSse } from './stream-consumer.js';
 
 /**
@@ -13,7 +14,9 @@ function streamOf(chunks: ReadonlyArray<string>): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     pull(controller) {
       if (i < chunks.length) {
-        controller.enqueue(enc.encode(chunks[i]!));
+        const chunk = chunks[i];
+        assertDefined(chunk, 'i < chunks.length checked above');
+        controller.enqueue(enc.encode(chunk));
         i += 1;
       } else {
         controller.close();

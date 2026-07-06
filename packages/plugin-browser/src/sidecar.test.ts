@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { enqueueLine } from './sidecar.js';
 import type { Reply } from './sidecar/types.js';
 
@@ -43,15 +44,19 @@ describe('sidecar request queue resilience', () => {
     // rejected instead of left waiting for its timeout.
     await enqueueLine(JSON.stringify({ id: 'real-id' }), out);
     expect(writes).toHaveLength(1);
-    expect(writes[0]!.id).toBe('real-id');
-    expect(writes[0]!.ok).toBe(false);
+    const write0 = writes[0];
+    assertDefined(write0, 'writes has length 1');
+    expect(write0.id).toBe('real-id');
+    expect(write0.ok).toBe(false);
   });
 
   it('falls back to "unknown" for wholly unparseable input', async () => {
     const writes: Reply[] = [];
     const out = (reply: Reply): void => void writes.push(reply);
     await enqueueLine('{not json', out);
-    expect(writes[0]!.id).toBe('unknown');
-    expect(writes[0]!.ok).toBe(false);
+    const write0 = writes[0];
+    assertDefined(write0, 'enqueueLine wrote a reply');
+    expect(write0.id).toBe('unknown');
+    expect(write0.ok).toBe(false);
   });
 });

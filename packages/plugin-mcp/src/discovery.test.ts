@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import type { ServiceRegistry } from '@moxxy/sdk';
 import { mcpAdminPlugin } from './index.js';
 
@@ -35,7 +36,11 @@ describe('mcpAdminPlugin (discovery-loadable)', () => {
 
     // The inner onInit reads ~/.moxxy/mcp.json (absent on CI → caught + skipped);
     // we only assert the service wiring here.
-    await mcpAdminPlugin.hooks!.onInit!({ services } as never);
+    const hooks = mcpAdminPlugin.hooks;
+    assertDefined(hooks, 'mcpAdminPlugin.hooks present');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'mcpAdminPlugin onInit hook present');
+    await onInit({ services } as never);
 
     expect(get).toHaveBeenCalledWith('tools');
     expect(get).toHaveBeenCalledWith('skills');

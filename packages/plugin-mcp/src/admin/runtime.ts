@@ -1,4 +1,4 @@
-import { MoxxyError } from '@moxxy/sdk';
+import { assertDefined, MoxxyError } from '@moxxy/sdk';
 import type { McpClientLike, McpServerConfig, McpToolDescriptor } from '../types.js';
 import { defaultClientFactory } from '../client.js';
 import { MCP_CONNECT_TIMEOUT_MS, withTimeout } from '../timeout.js';
@@ -115,7 +115,11 @@ export function createMcpRuntime(
    */
   const attachServerLazy: McpRuntime['attachServerLazy'] = (server) => {
     if (!registry) return { toolNames: [] };
-    if (runtimes.has(server.name)) return { toolNames: runtimes.get(server.name)!.toolNames };
+    if (runtimes.has(server.name)) {
+      const existing = runtimes.get(server.name);
+      assertDefined(existing, `runtime for "${server.name}" must exist (has() returned true)`);
+      return { toolNames: existing.toolNames };
+    }
     const descriptors = server.cachedTools ?? [];
     if (descriptors.length === 0) {
       return { toolNames: [] };

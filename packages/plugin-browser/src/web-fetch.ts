@@ -1,7 +1,7 @@
 import { isIP } from 'node:net';
 import type { LookupFunction } from 'node:net';
 import { Agent } from 'undici';
-import { MoxxyError, defineTool, z } from '@moxxy/sdk';
+import { MoxxyError, assertDefined, defineTool, z } from '@moxxy/sdk';
 import { htmlToMarkdown, htmlToPlainText } from './html-extract.js';
 import {
   assertPublicUrl,
@@ -84,7 +84,11 @@ export function createPinnedLookup(addresses: ReadonlyArray<string>): LookupFunc
     }
     const all = addresses.map((address) => ({ address, family: isIP(address) }));
     if (options?.all) callback(null, all);
-    else callback(null, all[0]!.address, all[0]!.family);
+    else {
+      const first = all[0];
+      assertDefined(first, 'addresses is non-empty (length === 0 returned above)');
+      callback(null, first.address, first.family);
+    }
   };
   return lookup as unknown as LookupFunction;
 }
@@ -230,7 +234,9 @@ async function fetchFollowRedirects(
       throw err;
     }
     if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
-      const next = new URL(res.headers.get('location')!, current).toString();
+      const location = res.headers.get('location');
+      assertDefined(location, 'redirect (3xx) with a truthy Location header (checked above)');
+      const next = new URL(location, current).toString();
       current = next;
       // drain to avoid the connection leaking
       try { await res.body?.cancel(); } catch { /* ignore */ }
