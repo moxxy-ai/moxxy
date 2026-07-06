@@ -1,5 +1,13 @@
 # @moxxy/cache-strategy-stable-prefix
 
+## 0.0.43
+
+### Patch Changes
+
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/sdk@0.29.0
+
 ## 0.0.42
 
 ### Patch Changes

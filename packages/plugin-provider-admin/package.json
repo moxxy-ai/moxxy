@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-admin",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Model-callable provider admin: provider_add / provider_list / provider_remove / provider_test. Persists user-registered providers to ~/.moxxy/providers.json and hot-registers them in the live session by wrapping the OpenAI-compatible client with a vendor baseURL.",
   "keywords": [
     "moxxy",

@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/channel-kit",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Shared channel-building machinery for moxxy messaging channels: throttled send-once-then-edit frame pump, turnId-filtered turn running with single-flight coordination, pairing state machines (host-issued code + TOFU), vault-backed secret resolution, audited allow-list permissions, and an inbound-webhook ingest scaffold.",
   "keywords": [
     "moxxy",

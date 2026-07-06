@@ -1,5 +1,14 @@
 # @moxxy/plugin-workflows
 
+## 0.29.0
+
+### Patch Changes
+
+- f837396: Replace non-null assertions and depth-2+ optional chains with guard clauses per the "Guard, don't chain" rule: `assertDefined`/`invariant` from `@moxxy/sdk` where absence is impossible by construction, narrow-once guards preserving silent paths where absence is a normal runtime path (optional loggers, optional layout, cache lookups). No behavior change on normal-absence paths.
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/sdk@0.29.0
+
 ## 0.28.1
 
 ### Patch Changes

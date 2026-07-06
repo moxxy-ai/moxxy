@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-channel-discord",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Discord channel for moxxy via discord.js. Treats Discord DMs and allow-listed guild channels as a bidirectional channel: prompts in, streamed assistant replies out (edit-throttled), button-based permission prompts, DM code pairing.",
   "keywords": [
     "moxxy",

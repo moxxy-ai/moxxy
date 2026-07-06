@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-tts-elevenlabs",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "ElevenLabs text-to-speech Synthesizer for moxxy. Text → spoken audio bytes via POST /v1/text-to-speech/{voiceId}. Plugs into the session's SynthesizerRegistry; read-aloud surfaces (desktop 'Read aloud', a voice channel) consume it transparently. The higher-quality Synthesizer backend alongside OpenAI TTS.",
   "keywords": [
     "moxxy",

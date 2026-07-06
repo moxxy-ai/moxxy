@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/ipc-server-ws",
   "private": true,
-  "version": "0.1.46",
+  "version": "0.1.47",
   "description": "Serves the moxxy IPC contract (IpcCommands/IpcEvents) over an authenticated WebSocket so a remote client (the mobile app) can drive the same host as the desktop renderer. A WebSocketCommandBus reuses the contract's dispatch core + the runner's JsonRpcPeer; bearer-token auth at the handshake. Node-only, no Electron.",
   "type": "module",
   "main": "./dist/index.js",

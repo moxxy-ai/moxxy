@@ -1,5 +1,16 @@
 # @moxxy/client-platform-web
 
+## 0.1.48
+
+### Patch Changes
+
+- 6546a06: Apply the "guard, don't chain" rule across the client-layer, IPC, and channel packages: replaced non-null assertions (`x!`) and depth-2+ optional chains with single-narrowing guard clauses (`assertDefined`/`invariant` from `@moxxy/sdk`, or local guards where `@moxxy/sdk` is not a dependency). Behavior is preserved — genuinely-optional single `?.` reads and silent absence paths are kept; only impossible-by-construction sites became loud throws. No runtime behavior change intended.
+- Updated dependencies [6546a06]
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/client-core@0.13.9
+  - @moxxy/sdk@0.29.0
+
 ## 0.1.47
 
 ### Patch Changes

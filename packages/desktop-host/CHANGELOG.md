@@ -1,5 +1,51 @@
 # @moxxy/desktop-host
 
+## 0.14.0
+
+### Minor Changes
+
+- d99087f: New iMessage channel (`moxxy imessage`): drive moxxy from iMessage via a
+  localhost BlueBubbles server (macOS only). v1 sends text with the stock
+  apple-script method and receives via the BlueBubbles socket.io `new-message`
+  feed; 1:1 text chats only. Trust is a vault-stored server URL + password plus a
+  JSON handle allow-list, with your own self-chat allowed via a separate owner-handle
+  list; unknown senders are dropped silently and the channel's own echoes are
+  filtered. Runs on a dedicated isolated runner with `sessionSource: 'imessage'`.
+  Subcommands: `setup` (interactive wizard), `status`, `unpair`. Wires
+  `'imessage'` into SDK `SESSION_SOURCES`, the plugins-admin install catalog, and
+  the desktop channel catalog.
+
+### Patch Changes
+
+- 2d085b2: Replace non-null assertions (`x!`) and deep optional chains (`a?.b?.c`) with
+  guard clauses across the desktop-group packages, per the "Guard, don't chain"
+  rule. Behaviour is preserved: silent-absence paths keep their early return /
+  single-level `?.` / fallback, while accesses that are impossible-by-construction
+  (in-bounds loop indices, mandatory regex capture groups, class invariants,
+  checked preconditions) now fail loudly at the assumption site via
+  `assertDefined`/`invariant` instead of a cryptic downstream `undefined`.
+
+  Browser-bundled code (`@moxxy/chat-model` and the desktop renderer) uses a small
+  dependency-free local guard helper rather than importing the helpers from the
+  `@moxxy/sdk` root barrel, which transitively pulls Node-only modules (`node:fs`)
+  and cannot be bundled for the browser.
+
+- Updated dependencies [f837396]
+- Updated dependencies [2d085b2]
+- Updated dependencies [ea24f82]
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/plugin-scheduler@0.29.0
+  - @moxxy/plugin-webhooks@0.29.0
+  - @moxxy/desktop-ipc-contract@0.14.5
+  - @moxxy/plugin-stt-whisper-codex@0.29.0
+  - @moxxy/sdk@0.29.0
+  - @moxxy/workspace-registry@0.2.17
+  - @moxxy/mode-collaborative@0.29.0
+  - @moxxy/core@0.29.0
+  - @moxxy/plugin-vault@0.29.0
+  - @moxxy/runner@0.2.34
+
 ## 0.13.2
 
 ### Patch Changes

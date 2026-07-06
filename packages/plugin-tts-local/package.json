@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-tts-local",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Fully local, on-device text-to-speech Synthesizer for moxxy. Runs Piper voices (English + Polish) via sherpa-onnx in a forked sidecar process; voice models download once on first use from sherpa-onnx's pinned releases (sha256-verified). No API key, no network at synthesis time. Plugs into the session SynthesizerRegistry — desktop read-aloud, the TUI, and channel voice replies consume it transparently.",
   "keywords": [
     "moxxy",

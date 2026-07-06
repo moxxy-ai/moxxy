@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-channel-whatsapp",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "WhatsApp channel for moxxy via Baileys (UNOFFICIAL WhatsApp Web protocol — violates WhatsApp's Terms of Service; the linked number can be banned, use a secondary number). QR device-link pairing, JID allow-list, voice-note transcription, dedicated isolated runner.",
   "keywords": [
     "moxxy",

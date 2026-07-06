@@ -1,5 +1,44 @@
 # @moxxy/desktop
 
+## 0.29.1
+
+### Patch Changes
+
+- 2d085b2: Replace non-null assertions (`x!`) and deep optional chains (`a?.b?.c`) with
+  guard clauses across the desktop-group packages, per the "Guard, don't chain"
+  rule. Behaviour is preserved: silent-absence paths keep their early return /
+  single-level `?.` / fallback, while accesses that are impossible-by-construction
+  (in-bounds loop indices, mandatory regex capture groups, class invariants,
+  checked preconditions) now fail loudly at the assumption site via
+  `assertDefined`/`invariant` instead of a cryptic downstream `undefined`.
+
+  Browser-bundled code (`@moxxy/chat-model` and the desktop renderer) uses a small
+  dependency-free local guard helper rather than importing the helpers from the
+  `@moxxy/sdk` root barrel, which transitively pulls Node-only modules (`node:fs`)
+  and cannot be bundled for the browser.
+
+- Updated dependencies [f837396]
+- Updated dependencies [6546a06]
+- Updated dependencies [2d085b2]
+- Updated dependencies [ea24f82]
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/workflows-builder@0.1.31
+  - @moxxy/client-core@0.13.9
+  - @moxxy/client-platform-web@0.1.48
+  - @moxxy/design-tokens@0.2.1
+  - @moxxy/ipc-server-ws@0.1.47
+  - @moxxy/plugin-channel-mobile@0.29.0
+  - @moxxy/anonymizer@0.1.1
+  - @moxxy/chat-model@0.3.20
+  - @moxxy/desktop-host@0.14.0
+  - @moxxy/desktop-ipc-contract@0.14.5
+  - @moxxy/plugin-stt-whisper-codex@0.29.0
+  - @moxxy/sdk@0.29.0
+  - @moxxy/cli@0.29.0
+  - @moxxy/plugin-vault@0.29.0
+  - @moxxy/runner@0.2.34
+
 ## 0.29.0
 
 ### Minor Changes

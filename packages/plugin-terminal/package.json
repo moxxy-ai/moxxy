@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-terminal",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "A shared terminal surface for moxxy: an embedded PTY the user and the agent drive together (the `terminal` tool runs commands; the desktop renders the live session).",
   "keywords": [
     "moxxy",

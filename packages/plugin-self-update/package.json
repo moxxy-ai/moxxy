@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-self-update",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Model-callable self-update: guardrailed, transactional editing of moxxy's own plugins/skills (Tier 1, hot-reloaded) and core packages (Tier 2, build+overlay+restart). Every change is approval-gated, verified, and auto-rolled-back on failure. Disable to lock the code base.",
   "keywords": [
     "moxxy",

@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-view",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Agent-authored UIs for moxxy. A present_view tool parses the agent's JSX-like view-spec (via the active view renderer) into a validated AST that channels render as rich interactive UI.",
   "keywords": [
     "moxxy",

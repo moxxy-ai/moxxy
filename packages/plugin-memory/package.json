@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-memory",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Journal-based long-term memory for moxxy. Markdown files at ~/.moxxy/memory/ with type/description frontmatter + an index. Plus STM selectors over the event log.",
   "keywords": [
     "moxxy",

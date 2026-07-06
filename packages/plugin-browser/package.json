@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-browser",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Browser capabilities for moxxy: web_fetch (zero-deps light tier) + browser_session (Playwright sidecar for JS-heavy / interactive pages).",
   "keywords": [
     "moxxy",

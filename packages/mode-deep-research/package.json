@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/mode-deep-research",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Deep-research loop strategy for moxxy: decompose the user question into parallel sub-queries, fan out via subagents, synthesize a cited writeup.",
   "keywords": [
     "moxxy",

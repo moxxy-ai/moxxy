@@ -1,5 +1,22 @@
 # @moxxy/plugin-telegram
 
+## 0.29.0
+
+### Patch Changes
+
+- 8ef529a: Replace non-null assertions (`x!`) and deep optional chains (`a?.b?.c`) in the
+  channel plugins with guard clauses. Source sites that are impossible-by-construction
+  now assert loudly via `assertDefined`/`invariant` from `@moxxy/sdk` instead of
+  silently propagating `undefined`; inbound-message silent-drop gates are preserved
+  exactly. No behavior change on the success path.
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/sdk@0.29.0
+  - @moxxy/channel-kit@0.29.0
+  - @moxxy/config@0.29.0
+  - @moxxy/core@0.29.0
+  - @moxxy/plugin-vault@0.29.0
+
 ## 0.28.1
 
 ### Patch Changes

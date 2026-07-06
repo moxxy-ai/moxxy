@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-usage-stats",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Records cross-session token usage. On session close it folds this run's provider_response events by provider/model and merges the delta into ~/.moxxy/usage.json (a forward-going aggregate surfaced in the /usage panel and reset by /usage clear).",
   "keywords": [
     "moxxy",

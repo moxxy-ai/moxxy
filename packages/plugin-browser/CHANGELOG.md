@@ -1,5 +1,14 @@
 # @moxxy/plugin-browser
 
+## 0.29.0
+
+### Patch Changes
+
+- ea24f82: Replace non-null assertions and depth-≥2 optional chains with explicit guards (`invariant`/`assertDefined` from `@moxxy/sdk`) across the provider, embeddings, memory, mcp, browser, view, terminal, collab, stt, and voice-admin plugins. Behavior-preserving: normal-absence paths (streaming heartbeats, optional hooks, best-effort cleanup) keep their silent skips; only impossible-by-construction absences now fail loudly at the assumption site.
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/sdk@0.29.0
+
 ## 0.28.1
 
 ### Patch Changes

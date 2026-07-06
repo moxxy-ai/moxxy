@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-channel-http",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Request-response HTTP channel for moxxy. POST /v1/turn drives one turn synchronously; POST /v1/turn/stream returns Server-Sent Events. Bearer-token auth + allow-list permission flow (no human in the loop).",
   "keywords": [
     "moxxy",

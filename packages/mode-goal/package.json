@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/mode-goal",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Goal mode: state a goal once and the agent works autonomously across many turns until it calls goal_complete (or goal_abandon), guarded by an iteration cap, a token budget, a stuck-loop detector, no-progress detection, and the user's abort.",
   "keywords": [
     "moxxy",

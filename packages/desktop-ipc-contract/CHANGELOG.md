@@ -1,5 +1,26 @@
 # @moxxy/desktop-ipc-contract
 
+## 0.14.5
+
+### Patch Changes
+
+- 2d085b2: Replace non-null assertions (`x!`) and deep optional chains (`a?.b?.c`) with
+  guard clauses across the desktop-group packages, per the "Guard, don't chain"
+  rule. Behaviour is preserved: silent-absence paths keep their early return /
+  single-level `?.` / fallback, while accesses that are impossible-by-construction
+  (in-bounds loop indices, mandatory regex capture groups, class invariants,
+  checked preconditions) now fail loudly at the assumption site via
+  `assertDefined`/`invariant` instead of a cryptic downstream `undefined`.
+
+  Browser-bundled code (`@moxxy/chat-model` and the desktop renderer) uses a small
+  dependency-free local guard helper rather than importing the helpers from the
+  `@moxxy/sdk` root barrel, which transitively pulls Node-only modules (`node:fs`)
+  and cannot be bundled for the browser.
+
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/sdk@0.29.0
+
 ## 0.14.4
 
 ### Patch Changes

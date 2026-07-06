@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-channel-slack",
-  "version": "0.28.1",
+  "version": "0.29.0",
   "description": "Slack bot channel for moxxy. Ingests Slack Events API over the proxy relay, drives the Session, and streams threaded replies. Autonomous allow-list permission model (no human in the loop).",
   "keywords": [
     "moxxy",

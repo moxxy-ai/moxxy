@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/reflector-default",
-  "version": "0.27.2",
+  "version": "0.27.3",
   "description": "The default learning-loop reflector: watches finished turns and proposes memory/skill improvements as a one-time nudge on the next provider call — never a silent write. The model may act via memory_save/synthesize_skill, which still hit their own permission prompts.",
   "keywords": [
     "moxxy",

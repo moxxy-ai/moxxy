@@ -1,5 +1,22 @@
 # @moxxy/plugin-channel-mobile
 
+## 0.29.0
+
+### Patch Changes
+
+- 6546a06: Apply the "guard, don't chain" rule across the client-layer, IPC, and channel packages: replaced non-null assertions (`x!`) and depth-2+ optional chains with single-narrowing guard clauses (`assertDefined`/`invariant` from `@moxxy/sdk`, or local guards where `@moxxy/sdk` is not a dependency). Behavior is preserved — genuinely-optional single `?.` reads and silent absence paths are kept; only impossible-by-construction sites became loud throws. No runtime behavior change intended.
+- Updated dependencies [6546a06]
+- Updated dependencies [2d085b2]
+- Updated dependencies [d99087f]
+- Updated dependencies [f360bf6]
+  - @moxxy/ipc-server-ws@0.1.47
+  - @moxxy/desktop-ipc-contract@0.14.5
+  - @moxxy/sdk@0.29.0
+  - @moxxy/workspace-registry@0.2.17
+  - @moxxy/core@0.29.0
+  - @moxxy/e2e@0.29.0
+  - @moxxy/plugin-tunnel-proxy@0.29.0
+
 ## 0.28.1
 
 ### Patch Changes
