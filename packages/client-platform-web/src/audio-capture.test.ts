@@ -33,7 +33,12 @@ class FakeRecorder {
   stopCalls = 0;
   private listeners = new Map<string, Set<(ev: unknown) => void>>();
   addEventListener(type: string, fn: (ev: unknown) => void): void {
-    (this.listeners.get(type) ?? this.listeners.set(type, new Set()).get(type)!).add(fn);
+    let set = this.listeners.get(type);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(type, set);
+    }
+    set.add(fn);
   }
   removeEventListener(type: string, fn: (ev: unknown) => void): void {
     this.listeners.get(type)?.delete(fn);

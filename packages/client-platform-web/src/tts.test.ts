@@ -14,6 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 
 /** A controllable fake <audio> element: records the src it was built with and
  *  lets a test drive its lifecycle events and the play() promise. */
@@ -86,12 +87,14 @@ describe('playAudioClip', () => {
     expect(FakeAudio.last?.src).toBe(created[0]);
 
     // Engine signals natural completion.
-    FakeAudio.last?.onended?.();
+    const audio = FakeAudio.last;
+    assertDefined(audio, 'an audio element was created');
+    audio.onended?.();
     expect(onend).toHaveBeenCalledTimes(1);
     expect(revoked).toEqual([created[0]]);
 
     // A second onended must NOT double-revoke or re-fire the callback.
-    FakeAudio.last?.onended?.();
+    audio.onended?.();
     expect(onend).toHaveBeenCalledTimes(1);
     expect(revoked).toEqual([created[0]]);
   });
@@ -107,7 +110,9 @@ describe('playAudioClip', () => {
 
     // stop() again + a stale onended must not revoke twice nor fire onend.
     handle.stop();
-    FakeAudio.last?.onended?.();
+    const audio = FakeAudio.last;
+    assertDefined(audio, 'an audio element was created');
+    audio.onended?.();
     expect(revoked).toEqual([created[0]]);
     expect(onend).not.toHaveBeenCalled();
   });
@@ -125,7 +130,9 @@ describe('playAudioClip', () => {
 
     // The element later reports it can't decode → onerror fires once, no revoke
     // (there is no object URL to revoke).
-    FakeAudio.last?.onerror?.();
+    const audio = FakeAudio.last;
+    assertDefined(audio, 'an audio element was created');
+    audio.onerror?.();
     expect(onerror).toHaveBeenCalledTimes(1);
     expect(revoked).toHaveLength(0);
   });

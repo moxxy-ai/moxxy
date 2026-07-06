@@ -97,7 +97,8 @@ export function buildWebChannelPlugin(opts: BuildWebChannelOptions = {}): Plugin
             }
             tunnels.setActive(name);
             await writeTunnelSetting(name, opts.settingsFile);
-            const url = (await opts.getControls?.()?.retunnel()) ?? null;
+            const controls = opts.getControls?.();
+            const url = (await controls?.retunnel()) ?? null;
             return { ok: true, active: name, ...(url ? { url } : { note: 'applies when the web surface (re)starts' }) };
           },
         }),
@@ -166,7 +167,10 @@ export const webChannelPlugin: Plugin = (() => {
 
   const tunnels: TunnelControls = {
     list: () => tp?.list().map((p) => p.name) ?? [],
-    active: () => tp?.getActive()?.name ?? null,
+    active: () => {
+      const activeTunnel = tp?.getActive();
+      return activeTunnel?.name ?? null;
+    },
     setActive: (n) => {
       tp?.setActive(n);
     },

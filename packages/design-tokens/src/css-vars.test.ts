@@ -20,7 +20,8 @@ const NAME_OVERRIDES: Record<string, string> = {
   'gradient.accent': '--grad-accent',
 };
 function expectedVarName(path: string): string {
-  if (NAME_OVERRIDES[path]) return NAME_OVERRIDES[path]!;
+  const override = NAME_OVERRIDES[path];
+  if (override) return override;
   return `--${path
     .split('.')
     .map((s) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase())
@@ -79,7 +80,8 @@ describe('generateThemeCss', () => {
   });
 
   it('declares every dark-mapped variable with its darkTokens value', () => {
-    const dark = generateThemeCss().split('[data-theme="dark"]')[1]!;
+    const dark = generateThemeCss().split('[data-theme="dark"]')[1];
+    if (dark === undefined) throw new Error('generated CSS contains a dark-theme block');
     for (const [name, value] of DARK_CSS_VAR_MAP) {
       expect(dark).toContain(`  ${name}: ${value};`);
     }
@@ -250,7 +252,10 @@ describe.skipIf(!stylesExists)('apps/desktop styles.css parity', () => {
   function declsOf(block: string): Map<string, string> {
     const map = new Map<string, string>();
     for (const m of block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
-      map.set(m[1]!, m[2]!.trim().replace(/\s+/g, ' '));
+      const name = m[1];
+      const value = m[2];
+      if (name === undefined || value === undefined) continue;
+      map.set(name, value.trim().replace(/\s+/g, ' '));
     }
     return map;
   }

@@ -60,8 +60,9 @@ export function useAttachments(options: { readonly disabled?: boolean } = {}) {
         base64: true,
         quality: 0.92,
       });
-      if (result.canceled || result.assets.length === 0) return;
-      const asset = result.assets[0]!;
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset) return;
       const content = asset.base64 ?? await readBase64(asset.uri);
       const bytes = asset.fileSize ?? estimateBase64Bytes(content);
       const tooLarge = validateAttachmentBytes({ name: asset.fileName ?? 'image', bytes });
@@ -83,8 +84,9 @@ export function useAttachments(options: { readonly disabled?: boolean } = {}) {
     if (options.disabled) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
-      if (result.canceled || result.assets.length === 0) return;
-      const asset = result.assets[0]!;
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset) return;
       const mediaType = asset.mimeType ?? inferMediaType(asset.name);
       const name = asset.name || 'attachment';
       if (isTextAttachmentMediaType(mediaType)) {

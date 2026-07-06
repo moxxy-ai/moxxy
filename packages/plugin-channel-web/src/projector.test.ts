@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { EventProjector } from './projector.js';
 
 // Minimal event factory — only the fields the projector reads.
@@ -15,7 +16,8 @@ describe('EventProjector', () => {
     expect(p.project(ev({ type: 'tool_call_requested', callId: 'c1', name: 'present_view', input: { fallbackText: 'fb' } }))).toEqual([]);
     const frames = p.project(ev({ type: 'tool_result', callId: 'c1', ok: true, output: { ast: sampleDoc } }));
     expect(frames).toHaveLength(1);
-    const f = frames[0]!;
+    const f = frames[0];
+    assertDefined(f, 'projector emitted a view frame');
     expect(f.kind).toBe('view');
     if (f.kind !== 'view') return;
     expect(f.doc).toEqual(sampleDoc);
@@ -26,9 +28,13 @@ describe('EventProjector', () => {
   it('sets `replaces` to the prior view id on the second view', () => {
     const p = new EventProjector();
     p.project(ev({ type: 'tool_call_requested', callId: 'c1', name: 'present_view', input: {} }));
-    const first = p.project(ev({ type: 'tool_result', callId: 'c1', ok: true, output: { ast: sampleDoc } }))[0]!;
+    const firstFrames = p.project(ev({ type: 'tool_result', callId: 'c1', ok: true, output: { ast: sampleDoc } }));
+    const first = firstFrames[0];
+    assertDefined(first, 'projector emitted a view frame');
     p.project(ev({ type: 'tool_call_requested', callId: 'c2', name: 'present_view', input: {} }));
-    const second = p.project(ev({ type: 'tool_result', callId: 'c2', ok: true, output: { ast: sampleDoc } }))[0]!;
+    const secondFrames = p.project(ev({ type: 'tool_result', callId: 'c2', ok: true, output: { ast: sampleDoc } }));
+    const second = secondFrames[0];
+    assertDefined(second, 'projector emitted a view frame');
     if (first.kind !== 'view' || second.kind !== 'view') throw new Error('expected views');
     expect(second.replaces).toBe(first.viewId);
     expect(second.viewId).not.toBe(first.viewId);
@@ -38,14 +44,18 @@ describe('EventProjector', () => {
     const p = new EventProjector();
     p.project(ev({ type: 'tool_call_requested', callId: 'c1', name: 'present_view', input: {} }));
     const namedDoc = { root: { kind: 'element', tag: 'view', props: { name: 'search' }, children: [] } };
-    const f = p.project(ev({ type: 'tool_result', callId: 'c1', ok: true, output: { ast: namedDoc } }))[0]!;
+    const namedFrames = p.project(ev({ type: 'tool_result', callId: 'c1', ok: true, output: { ast: namedDoc } }));
+    const f = namedFrames[0];
+    assertDefined(f, 'projector emitted a view frame');
     expect(f.kind === 'view' && f.name).toBe('search');
   });
 
   it('omits name when the view has none', () => {
     const p = new EventProjector();
     p.project(ev({ type: 'tool_call_requested', callId: 'c1', name: 'present_view', input: {} }));
-    const f = p.project(ev({ type: 'tool_result', callId: 'c1', ok: true, output: { ast: sampleDoc } }))[0]!;
+    const frames = p.project(ev({ type: 'tool_result', callId: 'c1', ok: true, output: { ast: sampleDoc } }));
+    const f = frames[0];
+    assertDefined(f, 'projector emitted a view frame');
     expect(f.kind === 'view' && f.name).toBeUndefined();
   });
 
@@ -142,9 +152,13 @@ describe('EventProjector', () => {
   it('handles two present_view calls in one turn, each replacing the last', () => {
     const p = new EventProjector();
     p.project(ev({ type: 'tool_call_requested', callId: 'a', name: 'present_view', input: {} }));
-    const first = p.project(ev({ type: 'tool_result', callId: 'a', ok: true, output: { ast: sampleDoc } }))[0]!;
+    const firstFrames = p.project(ev({ type: 'tool_result', callId: 'a', ok: true, output: { ast: sampleDoc } }));
+    const first = firstFrames[0];
+    assertDefined(first, 'projector emitted a view frame');
     p.project(ev({ type: 'tool_call_requested', callId: 'b', name: 'present_view', input: {} }));
-    const second = p.project(ev({ type: 'tool_result', callId: 'b', ok: true, output: { ast: sampleDoc } }))[0]!;
+    const secondFrames = p.project(ev({ type: 'tool_result', callId: 'b', ok: true, output: { ast: sampleDoc } }));
+    const second = secondFrames[0];
+    assertDefined(second, 'projector emitted a view frame');
     if (first.kind !== 'view' || second.kind !== 'view') throw new Error('views');
     expect(second.replaces).toBe(first.viewId);
   });
@@ -167,6 +181,8 @@ describe('EventProjector', () => {
     p.project(ev({ type: 'tool_call_requested', callId: 'live', name: 'present_view', input: {} }));
     const frames = p.project(ev({ type: 'tool_result', callId: 'live', ok: true, output: { ast: sampleDoc } }));
     expect(frames).toHaveLength(1);
-    expect(frames[0]!.kind).toBe('view');
+    const frame = frames[0];
+    assertDefined(frame, 'projector emitted a view frame');
+    expect(frame.kind).toBe('view');
   });
 });

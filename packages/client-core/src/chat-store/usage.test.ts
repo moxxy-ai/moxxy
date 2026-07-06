@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined, type MoxxyEvent } from '@moxxy/sdk';
 import { EMPTY_USAGE, PER_CALL_CAP, recordUsage } from './usage.js';
 
 type ProviderResponse = Extract<MoxxyEvent, { type: 'provider_response' }>;
@@ -28,8 +28,12 @@ describe('recordUsage', () => {
 
   it('folds prompt + output token counts cumulatively', () => {
     let u = EMPTY_USAGE;
-    u = recordUsage(u, providerResponse({ inputTokens: 100, outputTokens: 20 }))!;
-    u = recordUsage(u, providerResponse({ inputTokens: 50, cacheReadTokens: 10, outputTokens: 5 }))!;
+    const u1 = recordUsage(u, providerResponse({ inputTokens: 100, outputTokens: 20 }));
+    assertDefined(u1, 'a prompt-bearing call folds to a usage snapshot');
+    u = u1;
+    const u2 = recordUsage(u, providerResponse({ inputTokens: 50, cacheReadTokens: 10, outputTokens: 5 }));
+    assertDefined(u2, 'a prompt-bearing call folds to a usage snapshot');
+    u = u2;
     expect(u.calls).toBe(2);
     expect(u.totalInput).toBe(150);
     expect(u.totalCacheRead).toBe(10);
@@ -41,9 +45,13 @@ describe('recordUsage', () => {
 
   it('counts an output-only call without growing perCall', () => {
     let u = EMPTY_USAGE;
-    u = recordUsage(u, providerResponse({ inputTokens: 100 }))!;
+    const u1 = recordUsage(u, providerResponse({ inputTokens: 100 }));
+    assertDefined(u1, 'a prompt-bearing call folds to a usage snapshot');
+    u = u1;
     const beforeLen = u.perCall.length;
-    u = recordUsage(u, providerResponse({ outputTokens: 12 }))!;
+    const u2 = recordUsage(u, providerResponse({ outputTokens: 12 }));
+    assertDefined(u2, 'an output-only call folds to a usage snapshot');
+    u = u2;
     expect(u.calls).toBe(2);
     expect(u.totalOutput).toBe(12);
     // No prompt tokens → no new sparkline point, latestPrompt unchanged.
@@ -56,7 +64,9 @@ describe('recordUsage', () => {
     const calls = PER_CALL_CAP + 50;
     for (let i = 0; i < calls; i += 1) {
       // distinct prompt size per call so we can assert the retained window.
-      u = recordUsage(u, providerResponse({ inputTokens: i + 1 }))!;
+      const next = recordUsage(u, providerResponse({ inputTokens: i + 1 }));
+      assertDefined(next, 'a prompt-bearing call folds to a usage snapshot');
+      u = next;
     }
     // perCall is bounded; the OLDEST entries were evicted, newest kept.
     expect(u.perCall).toHaveLength(PER_CALL_CAP);

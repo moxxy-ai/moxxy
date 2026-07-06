@@ -110,6 +110,7 @@ export function renderNode(node: ViewNode, h: RenderHandlers, key?: number): Rea
     case 'link': {
       // A `to` link navigates client-side; otherwise it is an external anchor.
       if (node.nav) {
+        const nav = node.nav;
         return (
           <a
             className="v-link"
@@ -117,7 +118,7 @@ export function renderNode(node: ViewNode, h: RenderHandlers, key?: number): Rea
             key={key}
             onClick={(e) => {
               e.preventDefault();
-              h.navigate(node.nav!);
+              h.navigate(nav);
             }}
           >
             {kids}
@@ -223,7 +224,10 @@ function gatherFormValues(form: HTMLFormElement | null): Record<string, string> 
 function pick(values: Record<string, string>, fields: ReadonlyArray<string>): Record<string, string> {
   if (fields.length === 0) return values;
   const out: Record<string, string> = {};
-  for (const f of fields) if (f in values) out[f] = values[f]!;
+  for (const f of fields) {
+    const v = values[f];
+    if (v !== undefined) out[f] = v;
+  }
   return out;
 }
 

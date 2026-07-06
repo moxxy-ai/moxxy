@@ -172,7 +172,7 @@ export class WsRpcClient {
     return new Promise<unknown>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       const frame = JSON.stringify({ id, method, ...(params !== undefined ? { params } : {}) });
-      if (open) this.socket!.send(frame);
+      if (open && this.socket) this.socket.send(frame);
       else this.outbox.push(frame);
     });
   }

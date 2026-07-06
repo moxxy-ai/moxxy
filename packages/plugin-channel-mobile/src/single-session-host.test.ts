@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test doubles cast loosely */
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { denyByDefaultResolver, type ClientSession } from '@moxxy/sdk';
+import { assertDefined, denyByDefaultResolver, type ClientSession } from '@moxxy/sdk';
 import type { CommandBus, EventSink } from '@moxxy/desktop-ipc-contract/bus';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
@@ -18,7 +18,9 @@ async function seedSessionFile(meta: {
   firstPrompt?: string | null;
   source?: 'cli' | 'tui' | 'desktop' | 'mobile';
 }): Promise<void> {
-  const dir = path.join(process.env.MOXXY_HOME!, 'sessions');
+  const home = process.env.MOXXY_HOME;
+  assertDefined(home, 'MOXXY_HOME set in test setup');
+  const dir = path.join(home, 'sessions');
   await mkdir(dir, { recursive: true });
   await writeFile(
     path.join(dir, `${meta.id}.json`),
@@ -210,7 +212,9 @@ describe('MobileSessionHost', () => {
   });
 
   it('runs a turn for the selected registry session', async () => {
-    const cwd = path.join(process.env.MOXXY_HOME!, 'project');
+    const home = process.env.MOXXY_HOME;
+    assertDefined(home, 'MOXXY_HOME set in test setup');
+    const cwd = path.join(home, 'project');
     await mkdir(cwd, { recursive: true });
     await seedSessionFile({ id: 'old-session', cwd, firstPrompt: 'Old work' });
 
@@ -279,7 +283,9 @@ describe('MobileSessionHost', () => {
   });
 
   it('loads archived transcript pages from the desktop chat mirror when no core log exists', async () => {
-    const chatsDir = path.join(process.env.MOXXY_HOME!, 'chats');
+    const home = process.env.MOXXY_HOME;
+    assertDefined(home, 'MOXXY_HOME set in test setup');
+    const chatsDir = path.join(home, 'chats');
     await mkdir(chatsDir, { recursive: true });
     const events = [0, 1, 2].map((i) => ({
       id: `mirror-${i}`,
@@ -557,7 +563,8 @@ describe('MobileSessionHost', () => {
     const verdict = resolver.check({ name: 'web_fetch', input: {} }, {});
     const ask = bus.event('ask.request')[0];
     expect(ask?.payload.kind).toBe('permission');
-    await bus.invoke('ask.respond', { requestId: ask!.payload.requestId, response: { mode: 'allow' } });
+    assertDefined(ask, 'a permission ask was broadcast');
+    await bus.invoke('ask.respond', { requestId: ask.payload.requestId, response: { mode: 'allow' } });
     await expect(verdict).resolves.toEqual({ mode: 'allow' });
   });
 
@@ -591,7 +598,8 @@ describe('MobileSessionHost', () => {
     const verdict = getPermissionResolver().check({ name: 'web_fetch', input: {} }, {});
     const ask = bus.event('ask.request').at(-1);
     expect(ask?.payload.kind).toBe('permission');
-    await bus.invoke('ask.respond', { requestId: ask!.payload.requestId, response: { mode: 'deny' } });
+    assertDefined(ask, 'a permission ask was broadcast');
+    await bus.invoke('ask.respond', { requestId: ask.payload.requestId, response: { mode: 'deny' } });
     await expect(verdict).resolves.toEqual({ mode: 'deny' });
   });
 
@@ -603,7 +611,8 @@ describe('MobileSessionHost', () => {
       runTurn: vi.fn((_p: string, opts?: { signal?: AbortSignal }) => {
         if (opts?.signal) aborts.push(opts.signal);
         return (async function* () {
-          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+          const signal = opts?.signal;
+          await new Promise<void>((resolve) => signal?.addEventListener('abort', () => resolve()));
         })();
       }),
     });
@@ -624,7 +633,8 @@ describe('MobileSessionHost', () => {
     // NOT disposed: a reconnecting client can still drive the host.
     const verdict2 = resolver.check({ name: 'web_fetch', input: {} }, {});
     const ask2 = bus.event('ask.request').at(-1);
-    await bus.invoke('ask.respond', { requestId: ask2!.payload.requestId, response: { mode: 'allow' } });
+    assertDefined(ask2, 'a follow-up permission ask was broadcast');
+    await bus.invoke('ask.respond', { requestId: ask2.payload.requestId, response: { mode: 'allow' } });
     await expect(verdict2).resolves.toEqual({ mode: 'allow' });
   });
 
@@ -676,7 +686,8 @@ describe('MobileSessionHost', () => {
     const throwingBus: CommandBus & EventSink = {
       handle: () => {},
       broadcast: (channel: string, payload: unknown) => {
-        if (channel === 'runner.event' && (payload as any)?.event?.bad) throw new TypeError('not serializable');
+        const evt = (payload as any)?.event;
+        if (channel === 'runner.event' && evt?.bad) throw new TypeError('not serializable');
         bus.broadcast(channel, payload);
       },
     };

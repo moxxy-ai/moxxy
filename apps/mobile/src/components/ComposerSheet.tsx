@@ -81,7 +81,7 @@ export function ComposerSheet(props: ComposerSheetProps) {
   };
 
   const inArgs = page === 'actions' && props.actions.argsFor;
-  const title = page === 'model' ? 'Model' : page === 'mode' ? 'Mode' : page === 'actions' ? (inArgs ? props.actions.argsFor!.label : 'Actions') : 'Options';
+  const title = page === 'model' ? 'Model' : page === 'mode' ? 'Mode' : page === 'actions' ? (inArgs ? inArgs.label : 'Actions') : 'Options';
   const back = page === 'main' ? undefined : inArgs ? props.actions.onBack : backToMain;
 
   return (

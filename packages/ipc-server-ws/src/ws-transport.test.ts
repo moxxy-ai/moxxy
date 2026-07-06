@@ -2,6 +2,7 @@ import net from 'node:net';
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import type { Transport } from '@moxxy/runner';
+import { assertDefined } from '@moxxy/sdk';
 import { encodeWsBearerProtocol, MOXXY_WS_SUBPROTOCOL } from '@moxxy/sdk/server';
 import {
   createWebSocketTransportServer,
@@ -262,8 +263,9 @@ describe('createWebSocketTransportServer', () => {
     (client as unknown as { _socket: net.Socket })._socket.pause();
 
     expect(accepted).toBeDefined();
+    assertDefined(accepted, 'a server connection was accepted');
     const big = 'x'.repeat(256 * 1024);
-    for (let i = 0; i < 200; i++) accepted!.send({ big });
+    for (let i = 0; i < 200; i++) accepted.send({ big });
     // Still admitted right after the blast — the per-send check did NOT evict
     // (backlog is under the hard ceiling and grace has not elapsed).
     expect(server.clientCount()).toBe(1);

@@ -78,7 +78,8 @@ function prune(state: NavState): NavState {
   const order = [...state.order];
   // Walk oldest→newest, dropping evictable (non-history) keys until within cap.
   for (let i = 0; i < order.length && order.length > MAX_CACHED_VIEWS; ) {
-    const key = order[i]!;
+    const key = order[i];
+    if (key === undefined) break;
     if (live.has(key)) {
       i += 1; // pinned by history — skip, keep it
       continue;

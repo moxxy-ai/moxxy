@@ -278,10 +278,13 @@ function readExpoHostUri(): string | null {
     manifest?: { debuggerHost?: string | null };
   };
 
+  const extra = constants.manifest2?.extra;
+  const expoClient = extra?.expoClient;
+  const expoGo = extra?.expoGo;
   return (
     constants.expoConfig?.hostUri ??
-    constants.manifest2?.extra?.expoClient?.hostUri ??
-    constants.manifest2?.extra?.expoGo?.debuggerHost ??
+    expoClient?.hostUri ??
+    expoGo?.debuggerHost ??
     constants.manifest?.debuggerHost ??
     null
   );

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { FileDiffDisplay } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { FileDiffView } from './render-diff.js';
 
 const render = (display: FileDiffDisplay): string => renderToStaticMarkup(createElement(FileDiffView, { display }));
@@ -58,10 +59,12 @@ describe('FileDiffView', () => {
   });
 
   it('inserts a ⋯ gap row between non-contiguous hunks', () => {
+    const hunk = baseDisplay.hunks[0];
+    assertDefined(hunk, 'baseDisplay has a hunk');
     const twoHunks: FileDiffDisplay = {
       ...baseDisplay,
       hunks: [
-        baseDisplay.hunks[0]!,
+        hunk,
         { oldStart: 40, oldLines: 1, newStart: 41, newLines: 1, lines: [{ kind: 'context', text: 'far away', oldNo: 40, newNo: 41 }] },
       ],
     };

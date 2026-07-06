@@ -471,7 +471,7 @@ function parseUtility(token: string): AnyStyle | undefined {
       left: 'left',
     };
     // The regex alternation guarantees `key` is captured and present in `map`.
-    const styleKey = map[key!];
+    const styleKey = key ? map[key] : undefined;
     if (styleKey) return { [styleKey]: value } as ViewStyle;
   }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ViewDoc } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { applyView, canGoBack, currentEntry, goBack, initialNav, navigateTo } from './view-store.js';
 
 const doc = (tag = 'view'): ViewDoc => ({ root: { kind: 'element', tag, props: {}, children: [] } });
@@ -48,7 +49,8 @@ describe('view-store', () => {
     s = applyView(s, frame('v2', 'results'));
     const back = navigateTo(s, 'search');
     expect(back).not.toBeNull();
-    expect(currentEntry(back!)?.key).toBe('search');
+    assertDefined(back, 'navigateTo returned a cached view');
+    expect(currentEntry(back)?.key).toBe('search');
     expect(navigateTo(s, 'detail')).toBeNull(); // not cached → caller asks the agent
   });
 

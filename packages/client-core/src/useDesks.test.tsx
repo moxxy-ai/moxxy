@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { Desk, DesksOverview, IpcEvents, MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import { assertDefined } from '@moxxy/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { __setApiOverride } from './transport';
@@ -127,7 +128,11 @@ describe('useDesks', () => {
       renamePromise = result.current.renameSession('session-a', 'New name');
     });
 
-    expect(result.current.desks[0]?.sessions[0]?.name).toBe('New name');
+    const optimisticDesk = result.current.desks[0];
+    assertDefined(optimisticDesk, 'a desk is present after the optimistic rename');
+    const optimisticSession = optimisticDesk.sessions[0];
+    assertDefined(optimisticSession, 'the desk has a session after the optimistic rename');
+    expect(optimisticSession.name).toBe('New name');
     expect(resolveRename).not.toBeNull();
 
     host.invoke.mockImplementation((cmd: string) => {
@@ -141,7 +146,11 @@ describe('useDesks', () => {
     await act(async () => {
       await renamePromise;
     });
-    expect(result.current.desks[0]?.sessions[0]?.name).toBe('New name');
+    const finalDesk = result.current.desks[0];
+    assertDefined(finalDesk, 'a desk is present after the host refresh');
+    const finalSession = finalDesk.sessions[0];
+    assertDefined(finalSession, 'the desk has a session after the host refresh');
+    expect(finalSession.name).toBe('New name');
   });
 
   it('keeps an optimistic session switch when a stale desks.changed arrives while the host is loading', async () => {

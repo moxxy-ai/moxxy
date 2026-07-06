@@ -51,7 +51,7 @@ export function ChatPanel(props: {
   useEffect(() => {
     const opener = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
     inputRef.current?.focus();
-    return () => opener?.focus?.();
+    return () => opener?.focus();
   }, []);
 
   const onKeyDown = useCallback(
@@ -64,9 +64,9 @@ export function ChatPanel(props: {
       if (e.key !== 'Tab') return;
       // Trap Tab within the panel so focus never escapes to the obscured view.
       const focusables = focusableWithin(panelRef.current);
-      if (focusables.length === 0) return;
-      const first = focusables[0]!;
-      const last = focusables[focusables.length - 1]!;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (!first || !last) return;
       const active = document.activeElement;
       if (e.shiftKey && active === first) {
         e.preventDefault();

@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import { Socket } from 'node:net';
 import { Session, silentLogger } from '@moxxy/core';
-import { defineTranscriber } from '@moxxy/sdk';
+import { assertDefined, defineTranscriber } from '@moxxy/sdk';
 import type { ClientSession } from '@moxxy/sdk';
 import {
   routeRequest,
@@ -80,7 +80,9 @@ function makeResponse(): ServerResponse & {
     },
     on(event: string, fn: (...args: unknown[]) => void) {
       if (!listeners.has(event)) listeners.set(event, new Set());
-      listeners.get(event)!.add(fn);
+      const set = listeners.get(event);
+      assertDefined(set, 'listener set exists after ensure');
+      set.add(fn);
       return this;
     },
     once(event: string, fn: (...args: unknown[]) => void) {
@@ -89,7 +91,9 @@ function makeResponse(): ServerResponse & {
         fn(...args);
       };
       if (!listeners.has(event)) listeners.set(event, new Set());
-      listeners.get(event)!.add(wrap);
+      const set = listeners.get(event);
+      assertDefined(set, 'listener set exists after ensure');
+      set.add(wrap);
       return this;
     },
     off(event: string, fn: (...args: unknown[]) => void) {
@@ -255,7 +259,8 @@ describe('handleTurn — client-disconnect abort (u70-1)', () => {
         resolveClosed();
         return (async function* () {
           await new Promise<void>((resolve) => {
-            opts?.signal?.addEventListener('abort', () => resolve());
+            const signal = opts?.signal;
+            signal?.addEventListener('abort', () => resolve());
           });
         })();
       },
@@ -276,9 +281,10 @@ describe('handleTurn — client-disconnect abort (u70-1)', () => {
     // Wait until runTurn is in-flight, then simulate the client disconnect.
     await sawSignal;
     expect(capturedSignal).toBeDefined();
-    expect(capturedSignal!.aborted).toBe(false);
+    assertDefined(capturedSignal, 'an abort signal was captured');
+    expect(capturedSignal.aborted).toBe(false);
     res._emit('close');
-    expect(capturedSignal!.aborted).toBe(true);
+    expect(capturedSignal.aborted).toBe(true);
 
     await handlerDone;
     // The close listener is detached after the turn settles (no leak).
@@ -323,7 +329,10 @@ describe('driveTurn', () => {
         signal = opts?.signal;
         started();
         return (async function* () {
-          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+          await new Promise<void>((resolve) => {
+            const sig = opts?.signal;
+            sig?.addEventListener('abort', () => resolve());
+          });
         })();
       },
     } as unknown as ClientSession;
@@ -331,9 +340,10 @@ describe('driveTurn', () => {
     const res = makeResponse();
     const done = driveTurn(session, 'hi', {}, res);
     await inFlight;
-    expect(signal!.aborted).toBe(false);
+    assertDefined(signal, 'an abort signal was captured');
+    expect(signal.aborted).toBe(false);
     res._emit('close');
-    expect(signal!.aborted).toBe(true);
+    expect(signal.aborted).toBe(true);
     await done;
   });
 
@@ -436,7 +446,10 @@ describe('handleTurn — concurrency cap', () => {
     ({
       runTurn: (_p: string, opts?: { signal?: AbortSignal }) =>
         (async function* () {
-          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+          await new Promise<void>((resolve) => {
+            const signal = opts?.signal;
+            signal?.addEventListener('abort', () => resolve());
+          });
         })(),
     }) as unknown as ClientSession;
 
@@ -502,7 +515,8 @@ describe('driveTurn — buffered-events bound', () => {
     let aborted = false;
     const session = {
       runTurn: (_p: string, opts?: { signal?: AbortSignal }) => {
-        opts?.signal?.addEventListener('abort', () => {
+        const signal = opts?.signal;
+        signal?.addEventListener('abort', () => {
           aborted = true;
         });
         return (async function* () {
@@ -604,13 +618,14 @@ describe('handleTurnStream — backpressure + closed-socket safety', () => {
     // Let the handler reach the first parked write.
     await new Promise((r) => setTimeout(r, 5));
     expect(settled).toBe(false);
-    expect(signal!.aborted).toBe(false);
+    assertDefined(signal, 'an abort signal was captured');
+    expect(signal.aborted).toBe(false);
 
     // Fire the inactivity timeout — must abort the turn and let the handler exit.
     res._fireTimeout();
     await done;
     expect(settled).toBe(true);
-    expect(signal!.aborted).toBe(true);
+    expect(signal.aborted).toBe(true);
   });
 
   it('disarms the stall timer after the stream settles cleanly', async () => {
@@ -640,7 +655,10 @@ describe('handleTurnStream — backpressure + closed-socket safety', () => {
       runTurn: (_p: string, opts?: { signal?: AbortSignal }) => {
         signal = opts?.signal;
         return (async function* () {
-          await new Promise<void>((resolve) => opts?.signal?.addEventListener('abort', () => resolve()));
+          await new Promise<void>((resolve) => {
+            const sig = opts?.signal;
+            sig?.addEventListener('abort', () => resolve());
+          });
         })();
       },
     } as unknown as ClientSession;
@@ -656,7 +674,8 @@ describe('handleTurnStream — backpressure + closed-socket safety', () => {
     // Emit a socket error mid-stream — must not propagate.
     expect(() => res._emit('error', new Error('ECONNRESET'))).not.toThrow();
     await expect(done).resolves.toBeUndefined();
-    expect(signal!.aborted).toBe(true);
+    assertDefined(signal, 'an abort signal was captured');
+    expect(signal.aborted).toBe(true);
     expect(warn).toHaveBeenCalledWith('http stream response error', expect.objectContaining({}));
   });
 });
