@@ -98,7 +98,8 @@ export async function startE2EShim(opts: E2EShimOptions): Promise<E2EShimHandle>
 
   wss.on('connection', (phone) => {
     void handlePhone(phone, opts, bridgeHost).catch((err) => {
-      opts.logger?.warn?.('e2e shim: connection failed', { err: String(err) });
+      const logger = opts.logger;
+      if (logger?.warn) logger.warn('e2e shim: connection failed', { err: String(err) });
       try {
         phone.close();
       } catch {
@@ -109,7 +110,8 @@ export async function startE2EShim(opts: E2EShimOptions): Promise<E2EShimHandle>
 
   await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
   const port = (http.address() as AddressInfo).port;
-  opts.logger?.info?.('e2e shim listening', { port });
+  const logger = opts.logger;
+  if (logger?.info) logger.info('e2e shim listening', { port });
 
   return {
     port,
@@ -153,7 +155,8 @@ async function handlePhone(
     if (!authed) {
       authed = true;
       if (!bearerTokenMatches(text, opts.token)) {
-        opts.logger?.warn?.('e2e shim: bad token, closing');
+        const logger = opts.logger;
+        if (logger?.warn) logger.warn('e2e shim: bad token, closing');
         teardown();
         return;
       }

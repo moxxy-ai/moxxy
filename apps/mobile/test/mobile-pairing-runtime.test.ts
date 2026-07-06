@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { openBridgePairingTransport, resolveBridgePairingTarget } from '../src/pairingRuntime';
 
 describe('mobile bridge pairing runtime', () => {
@@ -54,7 +55,9 @@ describe('mobile bridge pairing runtime', () => {
     expect(configureTransport).toHaveBeenCalledWith(api);
     expect(configurePlatform).toHaveBeenCalledWith({});
     expect(handle.status()).toBe('connecting');
-    makeWsApiHandle.mock.calls[0]?.[0].onStatus?.('open');
+    const firstCall = makeWsApiHandle.mock.calls[0];
+    assertDefined(firstCall, 'handle was called at least once');
+    firstCall[0].onStatus?.('open');
     expect(handle.status()).toBe('open');
 
     handle.close();

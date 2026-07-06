@@ -110,7 +110,10 @@ export function openBridgePairingTransport(
 }
 
 function cleanBridgeUrl(rawUrl: string): string {
-  const withoutQuery = rawUrl.split('#')[0]!.split('?')[0]!.trim();
+  // `String.split` always yields at least one element, so both `[0]` reads are
+  // present by construction; `?? ''` only satisfies the index type.
+  const beforeHash = rawUrl.split('#')[0] ?? '';
+  const withoutQuery = (beforeHash.split('?')[0] ?? '').trim();
   return withoutQuery.replace(/^(wss?:\/\/[^/]+)\/$/, '$1');
 }
 

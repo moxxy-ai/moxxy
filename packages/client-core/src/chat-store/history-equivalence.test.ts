@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined, type MoxxyEvent } from '@moxxy/sdk';
 import { chatStore } from './store.js';
 import { applyAction, createRuntime } from '../chatModel.js';
 import type { ChatPersistence } from '../chatPersistence.js';
@@ -132,13 +132,18 @@ function pageRawBySeq(before: number | null, limit: number): { events: MoxxyEven
   if (before !== null) {
     end = 0;
     for (let i = 0; i < RAW_LOG.length; i += 1) {
-      if (RAW_LOG[i]!.seq < before) end = i + 1;
+      const ev = RAW_LOG[i];
+      assertDefined(ev, 'loop index stays within the raw log bounds');
+      if (ev.seq < before) end = i + 1;
       else break;
     }
   }
   const start = Math.max(0, end - limit);
   const page = RAW_LOG.slice(start, end);
-  return { events: page, prevCursor: start <= 0 ? null : page[0]!.seq };
+  if (start <= 0) return { events: page, prevCursor: null };
+  const first = page[0];
+  assertDefined(first, 'a non-initial page has a first event');
+  return { events: page, prevCursor: first.seq };
 }
 
 /** The production backend serves history from the runner (raw + seq cursor). */

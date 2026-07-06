@@ -165,9 +165,10 @@ export function buildCommittedChatTranscript(
   };
 
   const flushTools = (): void => {
-    if (tools.length === 0) return;
+    const first = tools[0];
+    if (!first) return;
     pushItem({
-      id: `tools:${tools[0]!.id}`,
+      id: `tools:${first.id}`,
       kind: 'tool-group',
       title: 'Tools',
       collapsed: true,
@@ -178,9 +179,10 @@ export function buildCommittedChatTranscript(
   };
 
   const flushSystem = (): void => {
-    if (systemEvents.length === 0) return;
+    const first = systemEvents[0];
+    if (!first) return;
     pushItem({
-      id: `system:${systemEvents[0]!.id}`,
+      id: `system:${first.id}`,
       kind: 'system-group',
       title: 'Runtime',
       collapsed: true,
@@ -307,7 +309,8 @@ export function buildCommittedChatTranscript(
 
   const uniqueEvents = dedupeEventsById(events);
   for (let index = 0; index < uniqueEvents.length; index += 1) {
-    const event = uniqueEvents[index]!;
+    const event = uniqueEvents[index];
+    if (!event) continue;
     const type = eventType(event);
 
     if (type === 'assistant_chunk') {

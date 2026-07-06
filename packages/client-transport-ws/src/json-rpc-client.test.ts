@@ -9,6 +9,10 @@ import {
 } from './json-rpc-client.js';
 import { makeWsApi, makeWsApiHandle } from './index.js';
 
+function assertDefined<T>(v: T, msg: string): asserts v is NonNullable<T> {
+  if (v === null || v === undefined) throw new Error(msg);
+}
+
 class FakeSocket implements WebSocketLike {
   sent: string[] = [];
   readyState = 0;
@@ -35,7 +39,9 @@ class FakeSocket implements WebSocketLike {
     this.onmessage?.({ data: JSON.stringify(frame) });
   }
   lastReq(): { id: number; method: string; params?: unknown } {
-    return JSON.parse(this.sent[this.sent.length - 1]!);
+    const raw = this.sent[this.sent.length - 1];
+    assertDefined(raw, 'a request frame was sent');
+    return JSON.parse(raw);
   }
 }
 
@@ -53,7 +59,9 @@ function makeClient(opts: WsRpcClientOptions = {}): {
   }
   const client = new WsRpcClient('ws://x:1', CtorFake as unknown as WebSocketCtor, opts);
   client.connect();
-  return { client, socket: instances[0]!, instances };
+  const socket = instances[0];
+  assertDefined(socket, 'connect() constructs the first socket');
+  return { client, socket, instances };
 }
 
 function makeFakeSocketCtor(): {
@@ -131,7 +139,8 @@ describe('WsRpcClient', () => {
 
     // Reconnect: the abandoned runTurn must NOT be re-executed.
     vi.advanceTimersByTime(60_000);
-    const next = instances[1]!;
+    const next = instances[1];
+    assertDefined(next, 'the reconnect constructs a second socket');
     next.open();
     expect(next.sent).toEqual([]);
     client.close();
@@ -141,9 +150,11 @@ describe('WsRpcClient', () => {
     vi.useFakeTimers();
     const statuses: WsClientStatus[] = [];
     const { instances } = makeClient({ onStatus: (s) => statuses.push(s) });
-    instances[0]!.open();
+    const socket0 = instances[0];
+    assertDefined(socket0, 'connect() constructs the first socket');
+    socket0.open();
     statuses.length = 0; // discard 'connecting'/'open' from setup
-    instances[0]!.close();
+    socket0.close();
     // The socket is dead and the reconnect timer has NOT fired yet — status must
     // already reflect the degraded state rather than lingering on 'open'.
     expect(statuses).toContain('reconnecting');
@@ -163,13 +174,19 @@ describe('WsRpcClient', () => {
       onStatus: (s) => statuses.push(s),
     });
     // Drop the link three times: two reconnect attempts, then terminal.
-    instances[0]!.close();
+    const socket0 = instances[0];
+    assertDefined(socket0, 'connect() constructs the first socket');
+    socket0.close();
     vi.advanceTimersByTime(60_000);
     expect(instances.length).toBe(2);
-    instances[1]!.close();
+    const socket1 = instances[1];
+    assertDefined(socket1, 'the first reconnect constructs a second socket');
+    socket1.close();
     vi.advanceTimersByTime(60_000);
     expect(instances.length).toBe(3);
-    instances[2]!.close();
+    const socket2 = instances[2];
+    assertDefined(socket2, 'the second reconnect constructs a third socket');
+    socket2.close();
     vi.advanceTimersByTime(600_000);
     expect(instances.length).toBe(3); // no further attempts
 
@@ -236,13 +253,15 @@ describe('WsRpcClient', () => {
   it('does not dispatch a frame from a stale dead socket after a drop', () => {
     vi.useFakeTimers();
     const { client, instances } = makeClient({ maxReconnectAttempts: 5 });
-    instances[0]!.open();
+    const socket = instances[0];
+    assertDefined(socket, 'connect() constructs the first socket');
+    socket.open();
     let got = 0;
     client.on('runner.turn.complete', () => got++);
-    instances[0]!.close(); // link drops; handleClose detaches the dead socket
+    socket.close(); // link drops; handleClose detaches the dead socket
     // A stale notification the dead socket buffered must not dispatch into the
     // reconnecting client.
-    instances[0]!.emit({ method: 'runner.turn.complete', params: {} });
+    socket.emit({ method: 'runner.turn.complete', params: {} });
     expect(got).toBe(0);
     client.close();
   });
@@ -250,11 +269,13 @@ describe('WsRpcClient', () => {
   it('ignores a late onopen from a stale socket (does not flush into it)', async () => {
     vi.useFakeTimers();
     const { client, instances } = makeClient({ maxReconnectAttempts: 5 });
-    const stale = instances[0]!;
+    const stale = instances[0];
+    assertDefined(stale, 'connect() constructs the first socket');
     stale.close(); // drop -> handleClose detaches `stale`
     expect(stale.onopen).toBeNull(); // handlers detached on the dead socket
     vi.advanceTimersByTime(60_000);
-    const fresh = instances[1]!;
+    const fresh = instances[1];
+    assertDefined(fresh, 'the reconnect constructs a second socket');
     // Queue a frame while the fresh socket is still connecting.
     const pending = client.request('connection.activeWorkspace');
     // The fresh socket opens and the queued frame flushes into the LIVE socket,
@@ -269,10 +290,14 @@ describe('WsRpcClient', () => {
   it('resets the reconnect budget after a successful open', () => {
     vi.useFakeTimers();
     const { client, instances } = makeClient({ maxReconnectAttempts: 1 });
-    instances[0]!.close(); // attempt 1 scheduled
+    const socket0 = instances[0];
+    assertDefined(socket0, 'connect() constructs the first socket');
+    socket0.close(); // attempt 1 scheduled
     vi.advanceTimersByTime(60_000);
-    instances[1]!.open(); // success resets the budget
-    instances[1]!.close(); // a fresh drop gets a fresh attempt
+    const socket1 = instances[1];
+    assertDefined(socket1, 'the reconnect constructs a second socket');
+    socket1.open(); // success resets the budget
+    socket1.close(); // a fresh drop gets a fresh attempt
     vi.advanceTimersByTime(60_000);
     expect(instances.length).toBe(3);
     expect(client.status).not.toBe('disconnected');
@@ -286,7 +311,8 @@ describe('makeWsApiHandle', () => {
     const { api, close } = makeWsApiHandle({ url: 'ws://host:8765', WebSocket });
 
     expect(instances).toHaveLength(1);
-    const socket = instances[0]!;
+    const socket = instances[0];
+    assertDefined(socket, 'the api constructs a socket');
     const p = api.invoke('connection.activeWorkspace');
     expect(socket.sent).toEqual([]);
 
@@ -302,7 +328,8 @@ describe('makeWsApiHandle', () => {
   it('returns an api that subscribes to WebSocket notifications', () => {
     const { WebSocket, instances } = makeFakeSocketCtor();
     const { api, close } = makeWsApiHandle({ url: 'ws://host:8765', WebSocket });
-    const socket = instances[0]!;
+    const socket = instances[0];
+    assertDefined(socket, 'the api constructs a socket');
     socket.open();
     const got: unknown[] = [];
 
@@ -322,7 +349,8 @@ describe('makeWsApiHandle', () => {
   it('closes the underlying WebSocket client', () => {
     const { WebSocket, instances } = makeFakeSocketCtor();
     const { close } = makeWsApiHandle({ url: 'ws://host:8765', WebSocket });
-    const socket = instances[0]!;
+    const socket = instances[0];
+    assertDefined(socket, 'the api constructs a socket');
 
     close();
 
@@ -334,7 +362,8 @@ describe('makeWsApi', () => {
   it('still returns the api directly', async () => {
     const { WebSocket, instances } = makeFakeSocketCtor();
     const api = makeWsApi({ url: 'ws://host:8765', WebSocket });
-    const socket = instances[0]!;
+    const socket = instances[0];
+    assertDefined(socket, 'the api constructs a socket');
     socket.open();
 
     const p = api.invoke('connection.activeWorkspace');
@@ -352,7 +381,8 @@ describe('makeWsApi', () => {
       token: 'tok+en=1',
       WebSocket,
     });
-    const socket = instances[0]!;
+    const socket = instances[0];
+    assertDefined(socket, 'the api constructs a socket');
     expect(socket.url).toBe('ws://host:8765'); // no ?t= in the URL
     expect(socket.protocols).toEqual(['moxxy.v1', 'moxxy.bearer.tok%2Ben%3D1']);
   });
@@ -360,6 +390,8 @@ describe('makeWsApi', () => {
   it('omits subprotocols when no token is configured', () => {
     const { WebSocket, instances } = makeFakeSocketCtor();
     makeWsApi({ url: 'ws://host:8765', WebSocket });
-    expect(instances[0]!.protocols).toBeUndefined();
+    const socket = instances[0];
+    assertDefined(socket, 'the api constructs a socket');
+    expect(socket.protocols).toBeUndefined();
   });
 });

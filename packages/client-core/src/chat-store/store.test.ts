@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined, type MoxxyEvent } from '@moxxy/sdk';
 import type { ChatPersistence } from '../chatPersistence.js';
 import { chatStore } from './store.js';
 
@@ -49,9 +49,13 @@ describe('chatStore slot isolation', () => {
     const snapB = chatStore.getChat(b);
     expect(snapA.events).toHaveLength(1);
     expect(snapB.events).toHaveLength(1);
-    expect(snapA.events[0]!.id).not.toBe(snapB.events[0]!.id);
+    const a0 = snapA.events[0];
+    const b0 = snapB.events[0];
+    assertDefined(a0, 'workspace A has its first event');
+    assertDefined(b0, 'workspace B has its first event');
+    expect(a0.id).not.toBe(b0.id);
     // A's events never leak into B's snapshot.
-    expect(snapA.events[0]!.id).not.toBe(snapB.events[0]!.id);
+    expect(a0.id).not.toBe(b0.id);
   });
 
   it('returns the shared EMPTY_SNAPSHOT for an unseen workspace', () => {
@@ -93,7 +97,8 @@ describe('chatStore queue', () => {
     chatStore.enqueue(id, 'a');
     chatStore.enqueue(id, 'b');
     chatStore.shiftQueue(id); // removes 'a'; queue.length now 1, rev unchanged
-    const survivor = chatStore.getQueue(id)[0]!;
+    const survivor = chatStore.getQueue(id)[0];
+    assertDefined(survivor, 'a queued item survives the shift');
     const fresh = chatStore.enqueue(id, 'c');
     // The freshly-minted id must NOT collide with the surviving item's id.
     expect(fresh).not.toBe(survivor.id);
@@ -107,8 +112,10 @@ describe('chatStore queue', () => {
     chatStore.enqueue(id, 'with', [{ path: '/a', name: 'a' }]);
     chatStore.enqueue(id, 'without', []);
     const [a, b] = chatStore.getQueue(id);
-    expect(a!.attachments).toEqual([{ path: '/a', name: 'a' }]);
-    expect(b!.attachments).toBeUndefined();
+    assertDefined(a, 'the first queued item is present');
+    assertDefined(b, 'the second queued item is present');
+    expect(a.attachments).toEqual([{ path: '/a', name: 'a' }]);
+    expect(b.attachments).toBeUndefined();
   });
 });
 
@@ -271,8 +278,10 @@ describe('chatStore compaction side-channel', () => {
     expect(chatStore.getUsage(id).latestPrompt).toBe(700);
     const snap = chatStore.getChat(id);
     expect(snap.extensions).toHaveLength(1);
-    expect(snap.extensions[0]!.kind).toBe('notice');
-    expect(snap.extensions[0]!.text).toContain('Context compacted');
+    const ext = snap.extensions[0];
+    assertDefined(ext, 'compaction appended a notice extension');
+    expect(ext.kind).toBe('notice');
+    expect(ext.text).toContain('Context compacted');
   });
 
   it('ignores a zero-tokensSaved compaction', () => {
@@ -330,13 +339,18 @@ describe('chatStore history loading', () => {
         if (before !== null) {
           end = 0;
           for (let i = 0; i < rawAscending.length; i += 1) {
-            if (rawAscending[i]!.seq < before) end = i + 1;
+            const ev = rawAscending[i];
+            assertDefined(ev, 'loop index stays within the raw log bounds');
+            if (ev.seq < before) end = i + 1;
             else break;
           }
         }
         const start = Math.max(0, end - limit);
         const page = rawAscending.slice(start, end);
-        return { events: page, prevCursor: start <= 0 ? null : page[0]!.seq };
+        if (start <= 0) return { events: page, prevCursor: null };
+        const first = page[0];
+        assertDefined(first, 'a non-initial page has a first event');
+        return { events: page, prevCursor: first.seq };
       },
     };
     return { persistence, calls: () => calls };

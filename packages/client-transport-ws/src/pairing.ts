@@ -28,8 +28,10 @@ export function splitConnectUrl(scanned: string): {
   const read = (name: string): string | undefined => {
     const m = new RegExp(`[?&]${name}=([^&#]+)`).exec(scanned);
     if (!m) return undefined;
+    const encoded = m[1];
+    if (encoded === undefined) return undefined;
     try {
-      return decodeURIComponent(m[1]!);
+      return decodeURIComponent(encoded);
     } catch {
       return undefined;
     }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { ClientSession, MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import {
   freeTcpPortIfMoxxy,
   WebChannel,
@@ -188,7 +189,8 @@ describe('WebChannel', () => {
     });
     handle = await channel.start({ session: fakeSession().session });
     expect(published).not.toBeNull();
-    expect(published!.url).toBe('https://abc.trycloudflare.com/?t=tkn');
+    assertDefined(published, 'a surface was published');
+    expect(published.url).toBe('https://abc.trycloudflare.com/?t=tkn');
   });
 
   it('co-attached to a real Session publishes a localhost URL by default (the TUI case)', async () => {
@@ -206,8 +208,9 @@ describe('WebChannel', () => {
     });
     handle = await channel.start({ session: session as never });
     expect(published).not.toBeNull();
+    assertDefined(published, 'a surface was published');
     // A real, tokenized URL present_view can hand back — never null/rendered:false.
-    expect(published!.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?t=tkn$/);
+    expect(published.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?t=tkn$/);
   });
 
   it('falls back to the local URL when the tunnel provider fails', async () => {
@@ -227,8 +230,9 @@ describe('WebChannel', () => {
     });
     handle = await channel.start({ session: fakeSession().session });
     expect(published).not.toBeNull();
-    expect(published!.url).toContain('http://127.0.0.1:');
-    expect(published!.url).toContain('?t=tkn');
+    assertDefined(published, 'a surface was published');
+    expect(published.url).toContain('http://127.0.0.1:');
+    expect(published.url).toContain('?t=tkn');
   });
 
   it('opens a WS handshake under the relay base path (proxy /web)', async () => {

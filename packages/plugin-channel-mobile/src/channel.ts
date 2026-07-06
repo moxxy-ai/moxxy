@@ -161,9 +161,11 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     // from what a restart resolves and silently revoke nothing durable. Refuse
     // and tell the caller to rotate at the source instead of faking success.
     if (this.tokenPinned) {
-      this.logger?.warn?.(
-        'mobile token is pinned via MOXXY_MOBILE_TOKEN / config — rotate it at the source; the persisted secret is not used',
-      );
+      const logger = this.logger;
+      if (logger?.warn)
+        logger.warn(
+          'mobile token is pinned via MOXXY_MOBILE_TOKEN / config — rotate it at the source; the persisted secret is not used',
+        );
       return this.token;
     }
     this.token = rotateMobileToken();
@@ -180,7 +182,10 @@ export class MobileChannel implements Channel<MobileStartOpts> {
     // `allowedCommands: null` keeps that curated subset authoritative here.
     const bus = new WebSocketCommandBus({ allowedCommands: null });
     const host = new MobileSessionHost(bus, startOpts.session, {
-      logErr: (err) => this.logger?.warn?.('mobile host background error', { err: String(err) }),
+      logErr: (err) => {
+        const logger = this.logger;
+        if (logger?.warn) logger.warn('mobile host background error', { err: String(err) });
+      },
     });
     this.host = host;
     host.register(); // populate the method map BEFORE accepting connections
@@ -219,7 +224,8 @@ export class MobileChannel implements Channel<MobileStartOpts> {
         allowQueryToken: this.allowQueryToken,
       });
       this.server = server;
-      this.logger?.info?.('mobile channel listening', { address: server.address });
+      const logger = this.logger;
+      if (logger?.info) logger.info('mobile channel listening', { address: server.address });
 
       // A network client is the EXPECTED-to-drop case (network loss, app killed
       // or backgrounded). The bridge exposes no per-disconnect event the host can
@@ -291,12 +297,15 @@ export class MobileChannel implements Channel<MobileStartOpts> {
           tunnelUrl = this.tunnel.url;
           // The phone reaches the shim (E2E) or the bridge (plain) via this origin.
           server.setAllowedOrigins([...localOrigins, connectUrlOrigin(tunnelUrl)]);
-          this.logger?.info?.('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
+          const logger = this.logger;
+          if (logger?.info) logger.info('mobile tunnel open', { provider: provider.name, url: tunnelUrl });
         } catch (err) {
-          this.logger?.warn?.('mobile tunnel failed; using the local URL', {
-            provider: provider.name,
-            err: String(err),
-          });
+          const logger = this.logger;
+          if (logger?.warn)
+            logger.warn('mobile tunnel failed; using the local URL', {
+              provider: provider.name,
+              err: String(err),
+            });
           if (this.shim) {
             await this.shim.close().catch(() => undefined);
             this.shim = null;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import {
   buildBottomTabs,
   buildComposerAttachmentActionItems,
@@ -217,7 +218,9 @@ describe('mobile chat chrome navigation model', () => {
     ], null);
 
     expect(sections).toHaveLength(1);
-    expect(sections[0]!.sessions.map((session) => session.id)).toEqual(['persisted-session']);
+    const section = sections[0];
+    assertDefined(section, 'sections has one entry');
+    expect(section.sessions.map((session) => session.id)).toEqual(['persisted-session']);
   });
 
   it('preserves the desktop session order inside each workspace section', () => {
@@ -252,7 +255,9 @@ describe('mobile chat chrome navigation model', () => {
       },
     ], 'wlacz');
 
-    expect(sections[0]!.sessions.map((session) => session.id)).toEqual([
+    const section = sections[0];
+    assertDefined(section, 'sections has a first entry');
+    expect(section.sessions.map((session) => session.id)).toEqual([
       'znasz',
       'czesc',
       'wlacz',

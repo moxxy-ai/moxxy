@@ -122,9 +122,10 @@ export async function freeTcpPortIfMoxxy(
   );
   const foreign = holders.filter((h) => !looksLikeMoxxy(h.command));
   if (foreign.length > 0) {
-    logger?.warn?.(`port ${port} is held by non-moxxy process(es); not killing them`, {
-      holders: foreign.map((h) => `${h.pid}: ${h.command || '<unknown command>'}`),
-    });
+    if (logger?.warn)
+      logger.warn(`port ${port} is held by non-moxxy process(es); not killing them`, {
+        holders: foreign.map((h) => `${h.pid}: ${h.command || '<unknown command>'}`),
+      });
     return false;
   }
   // Re-verify identity immediately before each signal. Between the `ps`
@@ -139,7 +140,7 @@ export async function freeTcpPortIfMoxxy(
     try {
       // Log the exact command we judged moxxy-owned before signalling, so a
       // mis-fire on a substring-collision process is auditable after the fact.
-      logger?.warn?.('freeing port: SIGTERM to apparent stale moxxy process', { pid, command });
+      if (logger?.warn) logger.warn('freeing port: SIGTERM to apparent stale moxxy process', { pid, command });
       deps.kill(pid, 'SIGTERM');
       attempted = true;
     } catch {
@@ -158,7 +159,7 @@ export async function freeTcpPortIfMoxxy(
     const command = await deps.pidCommand(pid);
     if (!looksLikeMoxxy(command)) continue;
     try {
-      logger?.warn?.('freeing port: SIGKILL to apparent stale moxxy process', { pid, command });
+      if (logger?.warn) logger.warn('freeing port: SIGKILL to apparent stale moxxy process', { pid, command });
       deps.kill(pid, 'SIGKILL');
     } catch {
       /* dead */
@@ -328,7 +329,10 @@ export class WebChannel implements Channel<WebStartOpts> {
     wss.on('connection', (ws) => this.onConnection(ws));
     // Never leave an EventEmitter 'error' unhandled — it would throw at the
     // process level. Forwarded server errors after bind are log-and-survive.
-    wss.on('error', (err) => this.logger?.warn?.('web socket server error', { err: String(err) }));
+    wss.on('error', (err) => {
+      const logger = this.logger;
+      if (logger?.warn) logger.warn('web socket server error', { err: String(err) });
+    });
 
     await this.openTunnel();
     this.publishSurface?.({ url: this.shareUrl, nextViewId: () => `v_srv_${++this.viewSeq}` });
@@ -358,7 +362,8 @@ export class WebChannel implements Channel<WebStartOpts> {
           server.off('error', onError);
           const addr = server.address();
           if (addr && typeof addr === 'object') this.port = (addr as AddressInfo).port;
-          this.logger?.info?.('web channel listening', { url: this.url });
+          const logger = this.logger;
+          if (logger?.info) logger.info('web channel listening', { url: this.url });
           resolve();
         };
         server.once('error', onError);
@@ -376,9 +381,11 @@ export class WebChannel implements Channel<WebStartOpts> {
     const requested = this.port;
     const freed = await freeTcpPortIfMoxxy(requested, this.logger).catch(() => false);
     if (freed) {
-      this.logger?.warn?.(
-        `web channel port ${requested} was held by a stale moxxy process; freed it, retrying`,
-      );
+      const logger = this.logger;
+      if (logger?.warn)
+        logger.warn(
+          `web channel port ${requested} was held by a stale moxxy process; freed it, retrying`,
+        );
       try {
         await tryListen();
         return;
@@ -392,10 +399,12 @@ export class WebChannel implements Channel<WebStartOpts> {
     // this.url / shareUrl / the tunnel all carry it automatically.
     this.port = 0;
     await tryListen();
-    this.logger?.warn?.(
-      `web channel port ${requested} was in use by another process; bound ephemeral port ${this.port} instead`,
-      { requestedPort: requested, boundPort: this.port, url: this.url },
-    );
+    const logger = this.logger;
+    if (logger?.warn)
+      logger.warn(
+        `web channel port ${requested} was in use by another process; bound ephemeral port ${this.port} instead`,
+        { requestedPort: requested, boundPort: this.port, url: this.url },
+      );
   }
 
   /**
@@ -422,9 +431,11 @@ export class WebChannel implements Channel<WebStartOpts> {
       this.tunnel = await provider.open({ port: this.port, host: this.host, label: 'web' });
       this.tunnelBase = this.tunnel.url;
       this.basePath = basePathFromUrl(this.tunnel.url);
-      this.logger?.info?.('web surface tunnel open', { provider: provider.name, url: this.shareUrl });
+      const logger = this.logger;
+      if (logger?.info) logger.info('web surface tunnel open', { provider: provider.name, url: this.shareUrl });
     } catch (err) {
-      this.logger?.warn?.('web surface tunnel failed; using local URL', { provider: provider.name, err: String(err) });
+      const logger = this.logger;
+      if (logger?.warn) logger.warn('web surface tunnel failed; using local URL', { provider: provider.name, err: String(err) });
     }
   }
 
@@ -622,10 +633,12 @@ export class WebChannel implements Channel<WebStartOpts> {
     const now = Date.now();
     if (now - this.lastDropWarnAt < DROP_WARN_INTERVAL_MS) return;
     this.lastDropWarnAt = now;
-    this.logger?.warn?.('web channel dropped invalid client frame(s)', {
-      reason,
-      droppedTotal: this.droppedFrames,
-    });
+    const logger = this.logger;
+    if (logger?.warn)
+      logger.warn('web channel dropped invalid client frame(s)', {
+        reason,
+        droppedTotal: this.droppedFrames,
+      });
   }
 
   private async drive(prompt: string): Promise<void> {

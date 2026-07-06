@@ -6,6 +6,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -28,15 +29,16 @@ describe('webEventBus', () => {
     vi.resetModules();
     const { webEventBus } = await import('./event-bus.js');
     expect(webEventBus).toBeDefined();
+    assertDefined(webEventBus, 'a window exists so the bus is defined');
 
     const handler = (): void => {};
-    const off = webEventBus!.on('x', handler);
+    const off = webEventBus.on('x', handler);
     expect(addEventListener).toHaveBeenCalledWith('x', handler);
 
     off();
     expect(removeEventListener).toHaveBeenCalledWith('x', handler);
 
-    webEventBus!.emit('y');
+    webEventBus.emit('y');
     expect(dispatchEvent).toHaveBeenCalledTimes(1);
   });
 });

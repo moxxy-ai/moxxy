@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { buildSubagentDetailUi, selectSubagentDetailAgent } from '../src/subagentDetailUi';
 import type { SubagentGroupTranscriptItem, SubagentTranscriptItem } from '../src/chatTranscript';
 
@@ -83,6 +84,8 @@ describe('mobile subagent detail modal ui model', () => {
       summary: '1 default agent running',
       agents: [agent({ status: 'running', toolCallCount: 1 })],
     };
+    const firstAgent = firstGroup.agents[0];
+    assertDefined(firstAgent, 'firstGroup has an agent');
     const refreshedGroup: SubagentGroupTranscriptItem = {
       ...firstGroup,
       agents: [
@@ -90,7 +93,7 @@ describe('mobile subagent detail modal ui model', () => {
           status: 'running',
           toolCallCount: 2,
           toolCalls: [
-            ...firstGroup.agents[0]!.toolCalls,
+            ...firstAgent.toolCalls,
             {
               id: 'tool-2',
               name: 'web_fetch',

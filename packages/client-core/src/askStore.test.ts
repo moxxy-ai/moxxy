@@ -7,6 +7,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AskRequest, AskResponse, MoxxyApi } from '@moxxy/desktop-ipc-contract';
+import { assertDefined } from '@moxxy/sdk';
 import { __setApiOverride } from './transport.js';
 import { askStore, wireAskBridge } from './askStore.js';
 
@@ -95,6 +96,7 @@ describe('wireAskBridge workflow asks', () => {
     });
 
     const globalAsk = askStore.getAll().find((item) => item.requestId.includes('run-global'));
+    assertDefined(globalAsk, 'the workflow pause surfaced a global ask');
     expect(globalAsk).toMatchObject({
       workspaceId: 'ws-workflows',
       kind: 'workflow',
@@ -107,14 +109,14 @@ describe('wireAskBridge workflow asks', () => {
       },
     });
 
-    askStore.respond(globalAsk!.requestId, { text: 'eggs and tomatoes' });
+    askStore.respond(globalAsk.requestId, { text: 'eggs and tomatoes' });
     await Promise.resolve();
 
     expect(invoke).toHaveBeenCalledWith('workflows.resume', {
       runId: 'run-global',
       reply: 'eggs and tomatoes',
     });
-    expect(askStore.getAll().some((item) => item.requestId === globalAsk!.requestId)).toBe(false);
+    expect(askStore.getAll().some((item) => item.requestId === globalAsk.requestId)).toBe(false);
 
     off();
   });

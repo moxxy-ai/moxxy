@@ -68,10 +68,13 @@ export function groupToolNodes(nodes: ReadonlyArray<RenderNode>): RenderNode[] {
   const out: RenderNode[] = [];
   let run: ToolCallBlockData[] = [];
   const flush = (): void => {
-    if (run.length >= 2) {
-      out.push({ kind: 'tool-group', id: `toolgroup:${run[0]!.id}`, tools: run });
-    } else if (run.length === 1) {
-      out.push({ kind: 'block', block: run[0]! });
+    const first = run[0];
+    if (first) {
+      if (run.length >= 2) {
+        out.push({ kind: 'tool-group', id: `toolgroup:${first.id}`, tools: run });
+      } else {
+        out.push({ kind: 'block', block: first });
+      }
     }
     run = [];
   };

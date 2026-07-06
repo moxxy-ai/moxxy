@@ -635,7 +635,8 @@ function maxEventSeq(events: ReadonlyArray<MoxxyEvent>): number | null {
 
 function terminalEventForTurn(events: ReadonlyArray<MoxxyEvent>, turnId: string): MoxxyEvent | null {
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]!;
+    const event = events[index];
+    if (!event) continue;
     if (event.turnId !== turnId) continue;
     if (event.type === 'assistant_message') return event.stopReason === 'tool_use' ? null : event;
     if (event.type === 'abort') return event;

@@ -140,7 +140,7 @@ export function buildSnapshot(slot: Slot): ChatSnapshot {
     return slot.snap;
   }
   const eventsChanged = !slot.snap || slot.snap.eventsVersion !== rt.log.version;
-  const events = eventsChanged ? rt.log.toArray() : slot.snap!.events;
+  const events = eventsChanged || !slot.snap ? rt.log.toArray() : slot.snap.events;
   slot.snap = {
     rev: rt.rev,
     eventsVersion: rt.log.version,

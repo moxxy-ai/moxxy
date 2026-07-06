@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined, type MoxxyEvent } from '@moxxy/sdk';
 import {
   applyAction,
   applyEvent,
@@ -180,8 +180,10 @@ describe('chat model runtime', () => {
     expect(tools).toHaveLength(2);
     const c1 = tools.find((t) => t.request.callId === 'c1');
     const c2 = tools.find((t) => t.request.callId === 'c2');
-    expect(c1!.outcome).toMatchObject({ type: 'tool_result', ok: true });
-    expect(c2!.outcome).toBeNull();
+    assertDefined(c1, 'tool call c1 is present');
+    assertDefined(c2, 'tool call c2 is present');
+    expect(c1.outcome).toMatchObject({ type: 'tool_result', ok: true });
+    expect(c2.outcome).toBeNull();
   });
 
   it('carries tool_result error.message through', () => {
@@ -189,7 +191,8 @@ describe('chat model runtime', () => {
     applyEvent(rt, toolReq('c1', 'grep', {}));
     applyEvent(rt, toolRes('c1', false, undefined, { message: 'boom', kind: 'threw' }));
     const tool = blocksOf(rt).find((b): b is Extract<FoldedBlock, { kind: 'tool-call' }> => b.kind === 'tool-call');
-    expect(tool!.outcome).toMatchObject({ type: 'tool_result', ok: false, error: { message: 'boom' } });
+    assertDefined(tool, 'tool-call block is present');
+    expect(tool.outcome).toMatchObject({ type: 'tool_result', ok: false, error: { message: 'boom' } });
   });
 
   it('renders error events as an event block', () => {
@@ -256,7 +259,9 @@ describe('buildRenderNodes', () => {
   it('dismiss_block removes an extension', () => {
     const rt = createRuntime();
     applyAction(rt, { type: 'action_result', commandName: 'x', argsLine: '', tone: 'info', text: 'y' });
-    const id = rt.extensions[0]!.id;
+    const ext = rt.extensions[0];
+    assertDefined(ext, 'action_result added an extension');
+    const id = ext.id;
     const changed = applyAction(rt, { type: 'dismiss_block', blockId: id });
     expect(changed).toBe(true);
     expect(rt.extensions).toEqual([]);
@@ -298,7 +303,8 @@ describe('groupToolNodes', () => {
     const b = toolNode('grep');
     const out = groupToolNodes([a, b]);
     expect(out).toHaveLength(1);
-    const group = out[0]!;
+    const group = out[0];
+    assertDefined(group, 'grouping yields at least one node');
     expect(group.kind).toBe('tool-group');
     if (group.kind !== 'tool-group') throw new Error('unreachable');
     expect(group.id).toBe(`toolgroup:${(a as { block: ToolCallBlockData }).block.id}`);
@@ -308,7 +314,9 @@ describe('groupToolNodes', () => {
   it('keeps a lone tool as its own block (run of 1 is not grouped)', () => {
     const out = groupToolNodes([toolNode('bash')]);
     expect(out).toHaveLength(1);
-    expect(out[0]!.kind).toBe('block');
+    const node = out[0];
+    assertDefined(node, 'grouping yields at least one node');
+    expect(node.kind).toBe('block');
   });
 
   it('never folds a Write/Edit (FILE_DIFF) tool into a group', () => {
@@ -332,7 +340,8 @@ describe('groupToolNodes', () => {
     const out = groupToolNodes([eventNode(), toolNode('bash'), toolNode('grep'), toolNode('ls')]);
     // event + one tool-group of 3
     expect(out.map((n) => n.kind)).toEqual(['block', 'tool-group']);
-    const group = out[1]!;
+    const group = out[1];
+    assertDefined(group, 'grouping yields a second node');
     if (group.kind !== 'tool-group') throw new Error('unreachable');
     expect(group.tools).toHaveLength(3);
   });

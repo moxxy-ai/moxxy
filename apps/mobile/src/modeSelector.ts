@@ -48,7 +48,8 @@ function normalizeBadge(value: MobileModeBadge | null): {
   readonly label: string;
   readonly tone: 'attention' | 'info';
 } | null {
-  const label = value?.label?.trim();
+  const rawLabel = value?.label;
+  const label = rawLabel?.trim();
   if (!label) return null;
   return {
     label,

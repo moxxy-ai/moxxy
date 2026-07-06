@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ServiceRegistry } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { webChannelPlugin } from './index.js';
 
 /**
@@ -32,7 +33,11 @@ describe('webChannelPlugin (discovery-loadable)', () => {
       }
     });
     const services = { get, register: () => {}, require: () => undefined, has: () => true } as unknown as ServiceRegistry;
-    webChannelPlugin.hooks!.onInit!({ services } as never);
+    const hooks = webChannelPlugin.hooks;
+    assertDefined(hooks, 'plugin defines hooks');
+    const onInit = hooks.onInit;
+    assertDefined(onInit, 'hooks define onInit');
+    onInit({ services } as never);
     expect(get).toHaveBeenCalledWith('tunnelProviders');
     expect(get).toHaveBeenCalledWith('viewSurface');
     expect(get).toHaveBeenCalledWith('webControls');

@@ -247,10 +247,12 @@ export function createMoxxyLiveActivityClient(options: {
       return { active: true };
     },
     async end(snapshot) {
-      await nativeModule?.end?.(snapshot);
+      if (!nativeModule?.end) return;
+      await nativeModule.end(snapshot);
     },
     async notifyCompletion(notification) {
-      await nativeModule?.notifyCompletion?.(notification);
+      if (!nativeModule?.notifyCompletion) return;
+      await nativeModule.notifyCompletion(notification);
     },
   };
 }

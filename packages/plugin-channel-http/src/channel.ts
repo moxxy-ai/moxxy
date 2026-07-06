@@ -121,7 +121,8 @@ export class HttpChannel implements Channel<HttpStartOpts> {
       } catch (err) {
         // Log the full error server-side; return a generic message so internal
         // paths/provider details can't leak to a (possibly remote) caller.
-        this.logger?.warn?.('http handler threw', { err: String(err) });
+        const logger = this.logger;
+        if (logger?.warn) logger.warn('http handler threw', { err: String(err) });
         if (!res.headersSent) {
           res.writeHead(500, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ error: 'internal' }));
@@ -169,16 +170,19 @@ export class HttpChannel implements Channel<HttpStartOpts> {
         // `running` promise so callers awaiting it observe the crash instead of
         // mistaking it for a clean shutdown.
         server.on('error', (err: unknown) => {
-          this.logger?.warn?.('http server error', { err: String(err) });
+          const logger = this.logger;
+          if (logger?.warn) logger.warn('http server error', { err: String(err) });
           rejectRunning(err);
         });
         const addr = server.address();
         this.boundPortValue = typeof addr === 'object' && addr ? addr.port : this.port;
-        this.logger?.info?.('http channel listening', {
-          host: this.host,
-          port: this.boundPortValue,
-          authEnabled: this.authToken !== null,
-        });
+        const logger = this.logger;
+        if (logger?.info)
+          logger.info('http channel listening', {
+            host: this.host,
+            port: this.boundPortValue,
+            authEnabled: this.authToken !== null,
+          });
         resolve();
       });
     });
@@ -201,7 +205,8 @@ export class HttpChannel implements Channel<HttpStartOpts> {
         await new Promise<void>((resolve) => {
           if (!srv) return resolve();
           srv.close((err) => {
-            if (err) this.logger?.warn?.('http server close error', { err: String(err) });
+            const logger = this.logger;
+            if (err && logger?.warn) logger.warn('http server close error', { err: String(err) });
             resolve();
           });
         });
