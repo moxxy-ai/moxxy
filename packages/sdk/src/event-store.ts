@@ -25,6 +25,7 @@ export const SESSION_SOURCES = [
   'signal',
   'whatsapp',
   'discord',
+  'imessage',
 ] as const;
 
 /** Originating channel of a session (persisted into the meta sidecar). */

@@ -101,6 +101,7 @@ const PLUGIN_LOADERS: Readonly<Record<string, () => Promise<PluginModule>>> = {
   signal: () => import('../../plugin-channel-signal/src/index.ts'),
   whatsapp: () => import('../../plugin-channel-whatsapp/src/index.ts'),
   discord: () => import('../../plugin-channel-discord/src/index.ts'),
+  imessage: () => import('../../plugin-channel-imessage/src/index.ts'),
 };
 
 type FieldContract = { readonly required: boolean; readonly type: 'password' | 'text' };
