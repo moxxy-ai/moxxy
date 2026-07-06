@@ -283,7 +283,11 @@ async function createWindow(): Promise<void> {
   }
 
   if (isDev) {
-    await mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']!);
+    const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
+    if (rendererUrl === undefined) {
+      throw new Error('ELECTRON_RENDERER_URL is set by electron-vite in dev mode');
+    }
+    await mainWindow.loadURL(rendererUrl);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else if (loopback) {
     // Prod: serve from the loopback http origin (Clerk-friendly secure
@@ -503,7 +507,11 @@ if (!gotSingleInstanceLock) {
   // resolves back to us; a packaged app registers via electron-builder's
   // `protocols` / CFBundleURLTypes.
   if (process.defaultApp && process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('moxxy', process.execPath, [path.resolve(process.argv[1]!)]);
+    const entryScript = process.argv[1];
+    if (entryScript === undefined) {
+      throw new Error('argv[1] is present when argv.length >= 2');
+    }
+    app.setAsDefaultProtocolClient('moxxy', process.execPath, [path.resolve(entryScript)]);
   } else {
     app.setAsDefaultProtocolClient('moxxy');
   }

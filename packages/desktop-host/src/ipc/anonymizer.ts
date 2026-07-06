@@ -26,6 +26,7 @@ import type { DeskStore } from '../desks';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
 import { parseFileToText, parseBufferToText } from '../attachments.js';
 import { handle } from './shared';
+import { assertDefined } from '@moxxy/sdk';
 
 /** True when these bytes are a PDF (by `%PDF-` magic). */
 function looksLikePdf(buf: Buffer): boolean {
@@ -85,7 +86,8 @@ export function registerAnonymizerHandlers(pool: RunnerPool, desks: DeskStore): 
       ? await dialog.showOpenDialog(window, opts)
       : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
-    const picked = result.filePaths[0]!;
+    const picked = result.filePaths[0];
+    assertDefined(picked, 'a file path is present when filePaths is non-empty');
     // Remember the choice so the follow-up parseDocument is authorized even
     // though the file lives outside any workspace cwd.
     await rememberPickedAttachment(picked);

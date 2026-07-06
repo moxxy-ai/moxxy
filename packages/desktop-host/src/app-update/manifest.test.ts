@@ -7,6 +7,7 @@ import {
   parseManifest,
   verifyManifestSignature,
 } from './manifest';
+import { assertDefined } from '@moxxy/sdk';
 
 /** Produce a signed manifest for an ad-hoc Ed25519 keypair. */
 function signed(overrides: Partial<AppManifest> = {}): {
@@ -68,7 +69,8 @@ describe('verifyManifestSignature', () => {
     // …including after a parse round-trip (the published-manifest path).
     const parsed = parseManifest(JSON.stringify(manifest));
     expect(parsed?.files).toEqual(files);
-    expect(verifyManifestSignature(parsed!, publicKeyPem)).toBe(true);
+    assertDefined(parsed, 'parsed manifest');
+    expect(verifyManifestSignature(parsed, publicKeyPem)).toBe(true);
   });
 
   it('rejects when a per-file hash is tampered after signing', () => {
@@ -99,7 +101,8 @@ describe('verifyManifestSignature', () => {
     const reordered = parseManifest(
       JSON.stringify({ ...manifest, files: { 'a.js': 'a'.repeat(64), 'b.js': 'b'.repeat(64) } }),
     );
-    expect(verifyManifestSignature(reordered!, publicKeyPem)).toBe(true);
+    assertDefined(reordered, 'reordered manifest');
+    expect(verifyManifestSignature(reordered, publicKeyPem)).toBe(true);
   });
 
   it('round-trips a manifest carrying a signed runnerProtocol stamp', () => {
@@ -107,7 +110,8 @@ describe('verifyManifestSignature', () => {
     expect(verifyManifestSignature(manifest, publicKeyPem)).toBe(true);
     const parsed = parseManifest(JSON.stringify(manifest));
     expect(parsed?.runnerProtocol).toBe(4);
-    expect(verifyManifestSignature(parsed!, publicKeyPem)).toBe(true);
+    assertDefined(parsed, 'parsed manifest');
+    expect(verifyManifestSignature(parsed, publicKeyPem)).toBe(true);
   });
 
   it('rejects a downgrade that strips (or alters) the runnerProtocol stamp', () => {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { assertDefined } from '@/lib/assert';
 import { oneLine, summarizeArgs } from '@moxxy/chat-model';
 import { askStore, useActiveAsk } from '@moxxy/client-core';
 import type { ApprovalOption, AskRequest } from '@moxxy/desktop-ipc-contract';
@@ -97,7 +98,8 @@ function buildApprovalPrompt(
   setTextOptionId: (id: string | null) => void,
   setText: (value: string) => void,
 ): FocusAskPrompt {
-  const approval = ask.approval!;
+  const approval = ask.approval;
+  assertDefined(approval, 'buildApprovalPrompt is only called for an approval ask');
   const textOption = textOptionId
     ? approval.options.find((option) => option.id === textOptionId) ?? null
     : null;
@@ -174,7 +176,8 @@ function buildWorkflowPrompt(
   text: string,
   setText: (value: string) => void,
 ): FocusAskPrompt {
-  const workflow = ask.workflow!;
+  const workflow = ask.workflow;
+  assertDefined(workflow, 'buildWorkflowPrompt is only called for a workflow ask');
   const body = [workflow.label, workflow.stepId].filter(Boolean).join(' · ');
 
   return {

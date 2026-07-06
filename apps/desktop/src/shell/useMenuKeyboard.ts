@@ -67,7 +67,8 @@ export function useMenuKeyboard<T extends HTMLElement>(open: boolean): RefObject
       menu.removeEventListener('keydown', onKey);
       // Restore focus to the trigger when the menu closes (it's removed from
       // the DOM, so focus would otherwise fall back to <body>).
-      restoreRef.current?.focus?.();
+      const toRestore = restoreRef.current;
+      if (toRestore) toRestore.focus?.();
     };
   }, [open]);
 

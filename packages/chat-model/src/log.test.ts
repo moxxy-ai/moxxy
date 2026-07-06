@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { assertDefined } from '@moxxy/sdk';
 import { ChunkedBlockLog } from './log.js';
 import { newBlockId } from './id.js';
 
@@ -60,10 +61,13 @@ describe('ChunkedBlockLog', () => {
     const before = log.version;
     const hit = log.findLast((x) => x.id === 'b');
     expect(hit).toBeDefined();
-    hit!.done = true;
+    assertDefined(hit, 'findLast locates item b');
+    hit.done = true;
     log.touch();
     expect(log.version).toBeGreaterThan(before);
-    expect(log.toArray().find((x) => x.id === 'b')!.done).toBe(true);
+    const found = log.toArray().find((x) => x.id === 'b');
+    assertDefined(found, 'item b present after touch');
+    expect(found.done).toBe(true);
   });
 
   it('mutateLast / setLast / last are no-ops on an empty log', () => {

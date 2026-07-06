@@ -12,6 +12,7 @@
  * each re-implement (divergent) trap logic.
  */
 import { useEffect, type RefObject } from 'react';
+import { assertDefined } from '@/lib/assert';
 
 const FOCUSABLE =
   'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
@@ -54,8 +55,10 @@ export function useFocusTrap({ containerRef, initialFocusRef, onEscape }: FocusT
         e.preventDefault();
         return;
       }
-      const first = focusable[0]!;
-      const last = focusable[focusable.length - 1]!;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      assertDefined(first, 'first focusable element present when the list is non-empty');
+      assertDefined(last, 'last focusable element present when the list is non-empty');
       const activeInside = container.contains(document.activeElement);
       if (e.shiftKey) {
         if (!activeInside || document.activeElement === first) {

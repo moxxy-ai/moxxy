@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { assertDefined } from '@/lib/assert';
 import { decodeError, toErrorMessage } from '@moxxy/client-core';
 import { api } from '@moxxy/client-core';
 import { retryWhileReconnecting } from '@moxxy/client-core';
@@ -45,7 +46,9 @@ export function ProviderStep({
       .then((list) => {
         if (cancelled || list.length === 0) return;
         setCatalog(list);
-        setProvider((cur) => (list.includes(cur) ? cur : list[0]!));
+        const first = list[0];
+        assertDefined(first, 'catalog has a first entry when non-empty');
+        setProvider((cur) => (list.includes(cur) ? cur : first));
       })
       .catch(() => {
         /* keep static fallback */

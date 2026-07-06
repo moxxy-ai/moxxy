@@ -33,7 +33,7 @@ import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { RecordedProvider } from '@moxxy/testing';
 import type { LLMProvider } from '@moxxy/sdk';
-import { definePlugin, defineProvider } from '@moxxy/sdk';
+import { assertDefined, definePlugin, defineProvider } from '@moxxy/sdk';
 
 interface Flags {
   prompt: string;
@@ -169,7 +169,8 @@ export function parseFlags(argv: ReadonlyArray<string>): Flags | { help: true } 
     verbose: false,
   };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    assertDefined(a, 'loop index is within the bounds of argv');
     // Consume the value following a value-bearing flag, rejecting a missing or
     // flag-shaped token so a typo (`--prompt --name x`) yields a clear
     // "requires a value" error instead of swallowing the next flag.

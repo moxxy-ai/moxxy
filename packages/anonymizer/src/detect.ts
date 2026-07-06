@@ -14,6 +14,7 @@ import {
 } from './dictionary.js';
 import type { DetectOptions, PiiCategory, PiiSpan, Region } from './types.js';
 import { ALL_REGIONS } from './types.js';
+import { required } from './assert.js';
 
 /**
  * Overlap-resolution priority. A 16-digit Luhn-valid card overlaps a phone
@@ -87,7 +88,8 @@ function lowerBoundByStart(kept: readonly PiiSpan[], start: number): number {
   let hi = kept.length;
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (kept[mid]!.start < start) lo = mid + 1;
+    const midSpan = required(kept[mid], 'binary-search midpoint is within kept bounds');
+    if (midSpan.start < start) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -117,7 +119,7 @@ function resolveOverlaps(spans: readonly PiiSpan[]): PiiSpan[] {
     // The only kept span that can overlap `span` is its left neighbour (the one
     // with the largest start below `span.end`); every earlier kept span ends at
     // or before that neighbour's start, so it cannot reach `span.start`.
-    const left = i > 0 ? kept[i - 1]! : null;
+    const left = i > 0 ? required(kept[i - 1], 'left neighbour is within kept bounds when i > 0') : null;
     const overlaps = left ? span.start < left.end && left.start < span.end : false;
     if (!overlaps) kept.splice(i, 0, span);
   }

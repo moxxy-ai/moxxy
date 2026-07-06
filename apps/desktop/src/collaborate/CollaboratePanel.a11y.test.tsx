@@ -13,6 +13,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
+import { assertDefined } from '@moxxy/sdk';
 
 // A running collaboration whose board has one claimed item ("api.ts") — folded
 // by pairToolEvents into the task chip the TaskModal opens from. Built via
@@ -92,7 +93,8 @@ describe('CollaboratePanel TaskModal accessibility', () => {
     const labelledBy = dialog.getAttribute('aria-labelledby');
     expect(labelledBy).toBeTruthy();
     // The label target is the task title.
-    expect(document.getElementById(labelledBy!)?.textContent).toMatch(/api\.ts/i);
+    assertDefined(labelledBy, 'aria-labelledby target id');
+    expect(document.getElementById(labelledBy)?.textContent).toMatch(/api\.ts/i);
   });
 
   it('moves focus into the dialog on open (not left on the obscured trigger)', () => {

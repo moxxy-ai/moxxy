@@ -14,6 +14,7 @@
 import { useReducer } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { assertDefined } from '@moxxy/sdk';
 import { NodeInspector } from './NodeInspector';
 import {
   builderReducer,
@@ -112,7 +113,8 @@ describe('NodeInspector Args (JSON)', () => {
     fireEvent.change(argsField(), {
       target: { value: '{ "__proto__": { "polluted": true }, "constructor": { "x": 1 }, "safe": 2 }' },
     });
-    const last = committed[committed.length - 1]!;
+    const last = committed[committed.length - 1];
+    assertDefined(last, 'last committed args');
     expect(Object.keys(last)).toEqual(['safe']);
     // The global Object.prototype is never polluted by the committed value.
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
@@ -146,7 +148,8 @@ function switchNode(): BuilderNode {
 /** Host backed by the REAL builderReducer so set-case / rename actually apply. */
 function ReducerHarness({ initial }: { initial: BuilderState }): JSX.Element {
   const [state, dispatch] = useReducer(builderReducer, initial);
-  const node = state.nodes.find((n) => n.id === state.selected)!;
+  const node = state.nodes.find((n) => n.id === state.selected);
+  assertDefined(node, 'selected node');
   return <NodeInspector state={state} node={node} dispatch={dispatch} />;
 }
 

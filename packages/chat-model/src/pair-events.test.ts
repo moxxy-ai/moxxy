@@ -6,6 +6,7 @@ import {
   asSkillId,
   asToolCallId,
   asTurnId,
+  assertDefined,
   type AssistantMessageEvent,
   type MoxxyEvent,
   type PluginEvent,
@@ -171,7 +172,11 @@ const asSubagentGroup = (b: unknown): SubagentGroupBlock => {
 
 // Every projection folds even a lone agent into a group; unwrap to its first
 // member so the per-agent assertions below read naturally.
-const asSubagent = (b: unknown): SubagentBlock => asSubagentGroup(b).agents[0]!;
+const asSubagent = (b: unknown): SubagentBlock => {
+  const first = asSubagentGroup(b).agents[0];
+  assertDefined(first, 'subagent group has at least one agent');
+  return first;
+};
 
 describe('pairToolEvents — verbose tool pairing', () => {
   it('pairs a tool_call_requested with its tool_result into one settled block', () => {
@@ -249,7 +254,8 @@ describe('pairToolEvents — orphan tool call at a turn boundary', () => {
     const tc = asToolCall(blocks[0]);
     expect(tc.outcome).toMatchObject({ type: 'denied' });
     // The late result falls through to a generic event block.
-    const last = blocks[blocks.length - 1]!;
+    const last = blocks[blocks.length - 1];
+    assertDefined(last, 'blocks is non-empty');
     expect(last.kind).toBe('event');
   });
 });
@@ -273,7 +279,9 @@ describe('pairToolEvents — mid-turn checkpoint prompt is NOT a turn boundary',
   it('renders the injected feedback as an ordinary in-order block', () => {
     const blocks = pairToolEvents([userPrompt('go'), checkpointPrompt('feedback')]);
     expect(blocks).toHaveLength(2);
-    expect(blocks[1]!.kind).toBe('event');
+    const second = blocks[1];
+    assertDefined(second, 'second block present');
+    expect(second.kind).toBe('event');
   });
 });
 
@@ -341,7 +349,9 @@ describe('pairToolEvents — skill grouping', () => {
     expect(firstScope.children).toHaveLength(1);
     expect(isSettled(firstScope)).toBe(true);
 
-    expect(blocks[1]!.kind).toBe('event');
+    const second = blocks[1];
+    assertDefined(second, 'second block present');
+    expect(second.kind).toBe('event');
 
     const contScope = asScope(blocks[2]);
     // Continuation carries the SAME skill event through to the grouping.
@@ -433,7 +443,9 @@ describe('pairToolEvents — compact-tool live aggregation', () => {
     const live = asLive(blocks[0]);
     expect(live.closed).toBe(true);
     expect(isSettled(live)).toBe(true);
-    expect(blocks[1]!.kind).toBe('event');
+    const second = blocks[1];
+    assertDefined(second, 'second block present');
+    expect(second.kind).toBe('event');
   });
 });
 
@@ -512,9 +524,13 @@ describe('pairToolEvents — subagent lifecycle accretion', () => {
     expect(group.agentType).toBe('Explore');
     expect(group.agents).toHaveLength(2);
     // Each child accretes independently by childSessionId.
-    expect(group.agents[0]!.toolCallCount).toBe(1);
-    expect(group.agents[0]!.tokensUsed).toBe(1200);
-    expect(group.agents[1]!.tokensUsed).toBe(65300);
+    const agent0 = group.agents[0];
+    const agent1 = group.agents[1];
+    assertDefined(agent0, 'group has a first agent');
+    assertDefined(agent1, 'group has a second agent');
+    expect(agent0.toolCallCount).toBe(1);
+    expect(agent0.tokensUsed).toBe(1200);
+    expect(agent1.tokensUsed).toBe(65300);
     expect(isSettled(group)).toBe(true);
   });
 
@@ -555,26 +571,32 @@ describe('pairToolEvents — subagent lifecycle accretion', () => {
 describe('blocksEquivalent', () => {
   it('returns true for identical references (fast path)', () => {
     const [block] = pairToolEvents([toolRequest('c1', 'bash'), toolResult('c1')]);
-    expect(blocksEquivalent(block!, block!)).toBe(true);
+    assertDefined(block, 'first block present');
+    expect(blocksEquivalent(block, block)).toBe(true);
   });
 
   it('returns false across different kinds', () => {
     const tc = asToolCall(pairToolEvents([toolRequest('c1', 'bash')])[0]);
-    const ev = pairToolEvents([userPrompt('hi')])[0]!;
+    const ev = pairToolEvents([userPrompt('hi')])[0];
+    assertDefined(ev, 'event block present');
     expect(blocksEquivalent(tc, ev)).toBe(false);
   });
 
   it('tool-call: equivalent when request+outcome refs match, different when outcome changes', () => {
     const req = toolRequest('c1', 'bash');
     const res = toolResult('c1');
-    const pending = pairToolEvents([req])[0]!;
-    const settled = pairToolEvents([req, res])[0]!;
+    const pending = pairToolEvents([req])[0];
+    assertDefined(pending, 'pending block present');
+    const settled = pairToolEvents([req, res])[0];
+    assertDefined(settled, 'settled block present');
     // Same request ref, different outcome (null vs result) → not equivalent.
     expect(blocksEquivalent(pending, settled)).toBe(false);
 
     // Two independent folds of the same events: equal field refs → equivalent.
-    const a = pairToolEvents([req, res])[0]!;
-    const b = pairToolEvents([req, res])[0]!;
+    const a = pairToolEvents([req, res])[0];
+    assertDefined(a, 'block a present');
+    const b = pairToolEvents([req, res])[0];
+    assertDefined(b, 'block b present');
     expect(blocksEquivalent(a, b)).toBe(true);
   });
 
@@ -750,7 +772,9 @@ describe('pairToolEvents — subagent map bounded at the turn boundary', () => {
       subagentEvent('subagent_completed', { childSessionId: 'cs1', stopReason: 'end_turn', text: 'STALE' }),
     ]);
     const group = asSubagentGroup(blocks[0]);
-    expect(group.agents[0]!.finalPreview).toBe('first');
+    const agent0 = group.agents[0];
+    assertDefined(agent0, 'group has a first agent');
+    expect(agent0.finalPreview).toBe('first');
     // The stale event produced no new block (no matching started block post-clear).
     expect(blocks.filter((b) => b.kind === 'subagent-group')).toHaveLength(1);
   });
@@ -772,7 +796,11 @@ describe('blocksEquivalent — collab content edits + subagent stopReason', () =
     const b = foldCollab([start, open, edited]);
     expect(a.tasks).toHaveLength(1);
     expect(b.tasks).toHaveLength(1);
-    expect(a.tasks[0]!.status).toBe(b.tasks[0]!.status); // status unchanged
+    const aTask0 = a.tasks[0];
+    const bTask0 = b.tasks[0];
+    assertDefined(aTask0, 'block a has a first task');
+    assertDefined(bTask0, 'block b has a first task');
+    expect(aTask0.status).toBe(bTask0.status); // status unchanged
     // Content changed though — comparator must NOT skip the re-render.
     expect(blocksEquivalent(a, b)).toBe(false);
   });

@@ -7,6 +7,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { AskRequest } from '@moxxy/desktop-ipc-contract';
+import { assertDefined } from '@moxxy/sdk';
 
 const respond = vi.fn();
 vi.mock('@moxxy/client-core', () => ({
@@ -52,7 +53,9 @@ describe('AskSheet — permission gate operability', () => {
 
   it('Escape denies (safe default) instead of leaving the turn parked', () => {
     const { container } = render(<AskSheet ask={permissionAsk} />);
-    fireEvent.keyDown(container.querySelector('[role="dialog"]')!, { key: 'Escape' });
+    const dialog = container.querySelector('[role="dialog"]');
+    assertDefined(dialog, 'permission dialog element');
+    fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(respond).toHaveBeenCalledWith('r1', { mode: 'deny' });
   });
 
@@ -96,11 +99,12 @@ describe('AskSheet — approval gate operability', () => {
   });
 
   it('Escape never auto-confirms when the default option is destructive', () => {
+    assertDefined(approvalAsk.approval, 'approval payload');
     const dangerDefault: AskRequest = {
       ...approvalAsk,
       requestId: 'r3',
       approval: {
-        ...approvalAsk.approval!,
+        ...approvalAsk.approval,
         defaultOptionId: 'no',
         options: [
           { id: 'yes', label: 'Approve' },

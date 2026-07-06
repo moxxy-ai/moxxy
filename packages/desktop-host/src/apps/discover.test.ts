@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { discoverApps } from './discover';
+import { assertDefined } from '@moxxy/sdk';
 
 let root: string;
 
@@ -43,8 +44,10 @@ describe('discoverApps', () => {
     const { apps, skipped } = await discoverApps(root);
     expect(skipped).toEqual([]);
     expect(apps).toHaveLength(1);
-    expect(apps[0]!.manifest.id).toBe('demo');
-    expect(apps[0]!.dir).toBe(path.join(root, 'demo'));
+    const first = apps[0];
+    assertDefined(first, 'discovered app');
+    expect(first.manifest.id).toBe('demo');
+    expect(first.dir).toBe(path.join(root, 'demo'));
   });
 
   it('skips a folder whose manifest id != folder name (no masquerade)', async () => {

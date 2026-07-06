@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { assertDefined } from '@/lib/assert';
 import { api } from '@moxxy/client-core';
 import { useAppUpdate } from '@moxxy/client-core';
 import { Section } from './settings-primitives';
@@ -134,7 +135,11 @@ export function UpdateSection(): JSX.Element {
               <button
                 type="button"
                 style={primaryBtn(false)}
-                onClick={() => void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })}
+                onClick={() => {
+                  const url = check?.releaseUrl;
+                  assertDefined(url, 'release URL present when the manual-fallback button is shown');
+                  void api().invoke('onboarding.openExternal', { url });
+                }}
               >
                 Get it manually
               </button>

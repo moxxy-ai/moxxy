@@ -10,6 +10,7 @@ import type { IpcCommandName } from '@moxxy/desktop-ipc-contract';
 import { ScheduleStore } from '@moxxy/plugin-scheduler';
 import { setActiveBus } from './shared';
 import { registerSchedulerHandlers } from './scheduler';
+import { assertDefined } from '@moxxy/sdk';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -49,7 +50,9 @@ describe('scheduler IPC handlers', () => {
       prompt: 'Write the morning summary',
       cron: '0 8 * * *',
     });
-    expect(await handlers.get('scheduler.list')!()).toEqual([
+    const listHandler = handlers.get('scheduler.list');
+    assertDefined(listHandler, 'scheduler.list handler');
+    expect(await listHandler()).toEqual([
       expect.objectContaining({ id: first.id, name: 'morning-summary' }),
     ]);
 
@@ -59,7 +62,7 @@ describe('scheduler IPC handlers', () => {
       cron: '0 18 * * *',
     });
 
-    expect(await handlers.get('scheduler.list')!()).toEqual([
+    expect(await listHandler()).toEqual([
       expect.objectContaining({ id: first.id, name: 'morning-summary' }),
       expect.objectContaining({ id: second.id, name: 'evening-summary' }),
     ]);
@@ -76,11 +79,17 @@ describe('scheduler IPC handlers', () => {
       cron: '0 9 * * 1',
     });
 
-    await expect(handlers.get('scheduler.setEnabled')!({
+    const setEnabledHandler = handlers.get('scheduler.setEnabled');
+    assertDefined(setEnabledHandler, 'scheduler.setEnabled handler');
+    await expect(setEnabledHandler({
       id: created.id,
       enabled: false,
     })).resolves.toEqual(expect.objectContaining({ id: created.id, enabled: false }));
-    await expect(handlers.get('scheduler.delete')!({ id: created.id })).resolves.toEqual({ deleted: true });
-    await expect(handlers.get('scheduler.list')!()).resolves.toEqual([]);
+    const deleteHandler = handlers.get('scheduler.delete');
+    assertDefined(deleteHandler, 'scheduler.delete handler');
+    await expect(deleteHandler({ id: created.id })).resolves.toEqual({ deleted: true });
+    const listHandler = handlers.get('scheduler.list');
+    assertDefined(listHandler, 'scheduler.list handler');
+    await expect(listHandler()).resolves.toEqual([]);
   });
 });

@@ -13,6 +13,7 @@ import path, { delimiter } from 'node:path';
 import os from 'node:os';
 
 import { setupNativeResolution } from './native-resolution';
+import { assertDefined } from '@moxxy/sdk';
 
 let tmp: string;
 let savedNodePath: string | undefined;
@@ -47,9 +48,9 @@ describe('setupNativeResolution', () => {
 
     expect(process.env.NODE_PATH).toBe(`/pre/existing${delimiter}${nm}`);
     // The pre-existing entry comes FIRST (append, not prepend).
-    expect(process.env.NODE_PATH!.indexOf('/pre/existing')).toBeLessThan(
-      process.env.NODE_PATH!.indexOf(nm),
-    );
+    const nodePath = process.env.NODE_PATH;
+    assertDefined(nodePath, 'NODE_PATH');
+    expect(nodePath.indexOf('/pre/existing')).toBeLessThan(nodePath.indexOf(nm));
   });
 
   it('leaves NODE_PATH untouched when no candidate node_modules dir exists', () => {

@@ -1,4 +1,5 @@
 import type { PiiCategory, PiiSpan } from '@moxxy/anonymizer';
+import { assertDefined } from '@/lib/assert';
 
 /** One per-token classification result from transformers.js (BIO-tagged). */
 export interface NerToken {
@@ -17,7 +18,13 @@ const TYPE_TO_CATEGORY: Readonly<Record<string, PiiCategory | undefined>> = {
 
 function parseLabel(entity: string): { bio: string; type: string } {
   const m = /^([BILUES])-(.+)$/.exec(entity);
-  if (m) return { bio: m[1]!, type: m[2]! };
+  if (m) {
+    const bio = m[1];
+    const type = m[2];
+    assertDefined(bio, 'BIO capture group is present when the label matches');
+    assertDefined(type, 'type capture group is present when the label matches');
+    return { bio, type };
+  }
   return { bio: 'B', type: entity };
 }
 
@@ -41,7 +48,9 @@ function escapeRegExp(s: string): string {
  *  chars. */
 function isBoundaryAt(text: string, i: number): boolean {
   if (i < 0 || i >= text.length) return true;
-  return !/[\p{L}\p{N}]/u.test(text[i]!);
+  const ch = text[i];
+  assertDefined(ch, 'char index within text bounds');
+  return !/[\p{L}\p{N}]/u.test(ch);
 }
 
 /** True when the half-open range `[start, end)` is bounded by non-word chars (or

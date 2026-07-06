@@ -364,7 +364,9 @@ async function verifyChecksum(
   const shasums = await fetchText(shasumsUrl);
   // Lines look like: "<sha256>  node-v22.12.0-darwin-arm64.tar.gz"
   const line = shasums.split(/\r?\n/).find((l) => l.trim().endsWith(` ${fileName}`) || l.trim().endsWith(`  ${fileName}`));
-  const expected = line?.trim().split(/\s+/)[0]?.toLowerCase();
+  const fields = line?.trim().split(/\s+/);
+  const firstField = fields?.[0];
+  const expected = firstField?.toLowerCase();
   if (!expected) throw new Error(`No checksum found for ${fileName}.`);
   const actual = (await sha256File(archivePath)).toLowerCase();
   if (actual !== expected) {

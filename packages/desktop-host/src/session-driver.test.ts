@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import {
   asPluginId,
+  assertDefined,
   defineMode,
   definePlugin,
   defineProvider,
@@ -232,13 +233,16 @@ describe('SessionDriver approval-gate survival', () => {
     const { win, sent } = fakeWindow();
     const driver = new SessionDriver(remote, win, 'ws-ask');
 
-    const decision = captured.permission!.check(
+    assertDefined(captured.permission, 'captured permission resolver');
+    const decision = captured.permission.check(
       { name: 'Write', input: { file_path: 'out.txt' } },
       { toolDescription: 'write a file' },
     );
     await waitFor(() => sent.some((f) => f.channel === 'ask.request'));
 
-    const req = sent.find((f) => f.channel === 'ask.request')!.payload as AskRequest;
+    const askFrame = sent.find((f) => f.channel === 'ask.request');
+    assertDefined(askFrame, 'ask.request frame');
+    const req = askFrame.payload as AskRequest;
     answerAsk(req.requestId, { mode: 'allow_session' } as never);
 
     await expect(decision).resolves.toEqual({ mode: 'allow_session' });
@@ -376,7 +380,8 @@ describe('SessionDriver auto-approve', () => {
     const driver = new SessionDriver(remote, win, 'ws');
     driver.setAutoApprove(true);
 
-    const res = await captured.permission!.check({ name: 'Write', input: {} }, {});
+    assertDefined(captured.permission, 'captured permission resolver');
+    const res = await captured.permission.check({ name: 'Write', input: {} }, {});
 
     expect(res).toEqual({ mode: 'allow' });
     expect(sent.some((f) => f.channel === 'ask.request')).toBe(false);
@@ -389,7 +394,8 @@ describe('SessionDriver auto-approve', () => {
     const driver = new SessionDriver(remote, win, 'ws');
 
     // Don't answer — leave the ask parked, like a user still deciding.
-    const p = captured.permission!.check({ name: 'Write', input: {} }, {});
+    assertDefined(captured.permission, 'captured permission resolver');
+    const p = captured.permission.check({ name: 'Write', input: {} }, {});
     await waitFor(() => sent.some((f) => f.channel === 'ask.request'));
     expect(sent.some((f) => f.channel === 'ask.request')).toBe(true);
 
@@ -409,7 +415,9 @@ describe('SessionDriver info-changed forwarding', () => {
     fireInfoChanged();
     const frames = sent.filter((f) => f.channel === 'session.info.changed');
     expect(frames).toHaveLength(1);
-    expect(frames[0]!.payload).toEqual({ workspaceId: 'ws-1' });
+    const firstFrame = frames[0];
+    assertDefined(firstFrame, 'info.changed frame');
+    expect(firstFrame.payload).toEqual({ workspaceId: 'ws-1' });
 
     // After dispose the subscription is dropped — no more forwards.
     driver.dispose();

@@ -559,7 +559,9 @@ function InsertNodeMenu({
   useEffect(() => {
     itemRefs.current[0]?.focus();
     const surface = restoreFocusRef.current;
-    return () => surface?.focus?.();
+    return () => {
+      if (surface) surface.focus?.();
+    };
   }, [restoreFocusRef]);
 
   const focusItem = (i: number): void => {

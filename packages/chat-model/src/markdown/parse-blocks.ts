@@ -1,3 +1,4 @@
+import { assertDefined } from '../assert.js';
 import type { Align, Block } from './types.js';
 
 export function parseBlocks(src: string): Block[] {
@@ -5,7 +6,8 @@ export function parseBlocks(src: string): Block[] {
   const blocks: Block[] = [];
   let i = 0;
   while (i < lines.length) {
-    const line = lines[i]!;
+    const line = lines[i];
+    assertDefined(line, 'line index within bounds');
 
     // Fenced code block
     const fence = /^```(\w*)\s*$/.exec(line);
@@ -13,8 +15,11 @@ export function parseBlocks(src: string): Block[] {
       const lang = fence[1] || null;
       const body: string[] = [];
       i++;
-      while (i < lines.length && !/^```/.test(lines[i]!)) {
-        body.push(lines[i]!);
+      while (i < lines.length) {
+        const bodyLine = lines[i];
+        assertDefined(bodyLine, 'line index within bounds');
+        if (/^```/.test(bodyLine)) break;
+        body.push(bodyLine);
         i++;
       }
       i++; // skip closing fence
@@ -27,14 +32,18 @@ export function parseBlocks(src: string): Block[] {
     // the separator to distinguish real tables from prose that
     // happens to contain pipe characters.
     if (line.trim().startsWith('|') && i + 1 < lines.length) {
-      const sep = lines[i + 1]!;
+      const sep = lines[i + 1];
+      assertDefined(sep, 'separator line present when i + 1 < lines.length');
       if (isTableSeparator(sep)) {
         const header = parseTableCells(line);
         const aligns = parseTableAligns(sep);
         const rows: string[][] = [];
         i += 2;
-        while (i < lines.length && lines[i]!.trim().startsWith('|')) {
-          const cells = parseTableCells(lines[i]!);
+        while (i < lines.length) {
+          const row = lines[i];
+          assertDefined(row, 'line index within bounds');
+          if (!row.trim().startsWith('|')) break;
+          const cells = parseTableCells(row);
           if (cells.length === 0) break;
           // Pad / clamp to header length so the grid stays rectangular.
           while (cells.length < header.length) cells.push('');
@@ -49,8 +58,12 @@ export function parseBlocks(src: string): Block[] {
     // ATX heading
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
     if (heading) {
-      const level = Math.min(6, Math.max(1, heading[1]!.length)) as 1 | 2 | 3 | 4 | 5 | 6;
-      blocks.push({ kind: 'heading', level, text: heading[2]!.trim() });
+      const hashes = heading[1];
+      assertDefined(hashes, 'heading hash group is captured when the heading matches');
+      const text = heading[2];
+      assertDefined(text, 'heading text group is captured when the heading matches');
+      const level = Math.min(6, Math.max(1, hashes.length)) as 1 | 2 | 3 | 4 | 5 | 6;
+      blocks.push({ kind: 'heading', level, text: text.trim() });
       i++;
       continue;
     }
@@ -60,11 +73,15 @@ export function parseBlocks(src: string): Block[] {
       const ordered = /^\s*\d+\.\s+/.test(line);
       const items: string[] = [];
       while (i < lines.length) {
+        const cur = lines[i];
+        assertDefined(cur, 'line index within bounds');
         const m = ordered
-          ? /^\s*\d+\.\s+(.*)$/.exec(lines[i]!)
-          : /^\s*[-*+]\s+(.*)$/.exec(lines[i]!);
+          ? /^\s*\d+\.\s+(.*)$/.exec(cur)
+          : /^\s*[-*+]\s+(.*)$/.exec(cur);
         if (!m) break;
-        items.push(m[1]!.trim());
+        const item = m[1];
+        assertDefined(item, 'list item capture group is present when the item matches');
+        items.push(item.trim());
         i++;
       }
       blocks.push({ kind: 'list', ordered, items });
@@ -80,8 +97,10 @@ export function parseBlocks(src: string): Block[] {
 
     // Otherwise: paragraph — gather until blank/structural line
     const paraLines: string[] = [];
-    while (i < lines.length && lines[i]!.trim() !== '') {
-      const next = lines[i]!;
+    while (i < lines.length) {
+      const next = lines[i];
+      assertDefined(next, 'line index within bounds');
+      if (next.trim() === '') break;
       if (
         /^```/.test(next) ||
         /^#{1,6}\s+/.test(next) ||
@@ -93,11 +112,8 @@ export function parseBlocks(src: string): Block[] {
       // Mid-paragraph table: pipe row followed by a separator row.
       // Stop the paragraph here so the table check at the top of the
       // outer loop picks it up.
-      if (
-        next.trim().startsWith('|') &&
-        i + 1 < lines.length &&
-        isTableSeparator(lines[i + 1]!)
-      ) {
+      const nextLine = i + 1 < lines.length ? lines[i + 1] : undefined;
+      if (next.trim().startsWith('|') && nextLine !== undefined && isTableSeparator(nextLine)) {
         break;
       }
       paraLines.push(next);

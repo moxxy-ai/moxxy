@@ -22,6 +22,7 @@ import { DeskStore } from '../desks';
 import type { RunnerPool } from '../runner-pool';
 import { setActiveBus } from './shared';
 import { registerSessionsHandlers } from './sessions';
+import { assertDefined } from '@moxxy/sdk';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -93,7 +94,11 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-const invoke = (channel: string, args?: unknown): Promise<unknown> => handlers.get(channel)!(args);
+const invoke = (channel: string, args?: unknown): Promise<unknown> => {
+  const handler = handlers.get(channel);
+  assertDefined(handler, `handler for ${channel}`);
+  return handler(args);
+};
 
 describe('sessions.* handlers', () => {
   it('registers the full command set', () => {
@@ -149,7 +154,8 @@ describe('sessions.* handlers', () => {
     await invoke('sessions.remove', { id: desk.id });
     const overview = await desks.listSessions(desk.id);
     expect(overview.sessions).toHaveLength(1);
-    const fresh = overview.sessions[0]!;
+    const fresh = overview.sessions[0];
+    assertDefined(fresh, 'promoted replacement session');
     expect(fresh.id).not.toBe(desk.id);
     expect(calls).toContainEqual({ op: 'getOrCreate', id: fresh.id, cwd: cwdA });
     expect(calls).toContainEqual({ op: 'setActive', id: fresh.id });
@@ -161,6 +167,8 @@ describe('sessions.* handlers', () => {
       name: string;
     };
     expect(renamed.name).toBe('Deep dive');
-    expect((await desks.listSessions(desk.id)).sessions[0]!.name).toBe('Deep dive');
+    const [firstSession] = (await desks.listSessions(desk.id)).sessions;
+    assertDefined(firstSession, 'renamed session');
+    expect(firstSession.name).toBe('Deep dive');
   });
 });

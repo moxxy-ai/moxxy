@@ -69,7 +69,8 @@ env.remotePathTemplate = '{model}/resolve/{revision}/';
 // `wasmPaths` is unset — setting it here, before the pipeline creates the ORT
 // session, defeats that fallback). Force single-threaded (no SharedArrayBuffer /
 // COOP-COEP) and no proxy worker so nothing tries to re-fetch a loader at runtime.
-const wasmBackend = env.backends?.onnx?.wasm;
+const onnxBackend = env.backends?.onnx;
+const wasmBackend = onnxBackend?.wasm;
 if (wasmBackend) {
   wasmBackend.wasmPaths = ortWasmBase();
   wasmBackend.numThreads = 1;
@@ -94,10 +95,11 @@ function getNer(): Promise<NerFn> {
 ctx.onmessage = (e: MessageEvent): void => {
   const msg = e.data as { type?: string; id?: number; text?: string };
   if (msg?.type !== 'infer' || typeof msg.text !== 'string') return;
+  const text = msg.text;
   void (async () => {
     try {
       const ner = await getNer();
-      const tokens = await ner(msg.text!);
+      const tokens = await ner(text);
       ctx.postMessage({ type: 'result', id: msg.id, tokens });
     } catch (err) {
       ctx.postMessage({

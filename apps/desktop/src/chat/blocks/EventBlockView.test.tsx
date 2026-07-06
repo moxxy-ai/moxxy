@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { MoxxyEvent } from '@moxxy/sdk';
+import { assertDefined } from '@moxxy/sdk';
 import { EventBlockView } from './EventBlockView';
 
 function userPrompt(extra: Partial<MoxxyEvent>): MoxxyEvent {
@@ -36,7 +37,9 @@ describe('EventBlockView — ambient trigger marker', () => {
 
   it('reveals the full prompt when the marker is expanded', () => {
     render(<EventBlockView event={userPrompt({ origin: { kind: 'schedule', name: 'daily' } })} />);
-    fireEvent.click(screen.getByTestId('block-trigger').querySelector('button')!);
+    const triggerButton = screen.getByTestId('block-trigger').querySelector('button');
+    assertDefined(triggerButton, 'trigger expand button');
+    fireEvent.click(triggerButton);
     expect(screen.getByText(/PAYLOAD-BODY-12345/)).toBeTruthy();
   });
 

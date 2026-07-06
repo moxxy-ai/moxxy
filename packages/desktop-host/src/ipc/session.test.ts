@@ -58,6 +58,7 @@ import type { RunnerSupervisor } from '../runner-supervisor';
 import type { SessionDriver } from '../session-driver';
 import { desktopEventBus } from '../event-bus';
 import { __resetPickedAttachments } from '../attachment-authz';
+import { assertDefined } from '@moxxy/sdk';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -103,7 +104,9 @@ describe('session.info handler', () => {
     setActiveBus(bus);
     registerSessionHandlers(pool);
 
-    const result = handlers.get('session.info')!({ workspaceId: 'fresh-session' });
+    const infoHandler = handlers.get('session.info');
+    assertDefined(infoHandler, 'session.info handler');
+    const result = infoHandler({ workspaceId: 'fresh-session' });
     await Promise.resolve();
     supervisor = { remote: () => ({ getInfo: () => sessionInfo('fresh-session') }) };
     poolEmitter.emit('change', 'fresh-session');
@@ -130,7 +133,9 @@ describe('session.setModel handler', () => {
     setActiveBus(bus);
     registerSessionHandlers(pool);
 
-    await handlers.get('session.setModel')!({ workspaceId: 'ws-model', model: 'gpt-5.4' });
+    const setModelHandler = handlers.get('session.setModel');
+    assertDefined(setModelHandler, 'session.setModel handler');
+    await setModelHandler({ workspaceId: 'ws-model', model: 'gpt-5.4' });
 
     expect(events).toContainEqual({
       channel: 'session.model.changed',
@@ -157,7 +162,9 @@ describe('session.setAutoApprove handler', () => {
     registerSessionHandlers(pool);
 
     try {
-      await handlers.get('session.setAutoApprove')!({
+      const setAutoApproveHandler = handlers.get('session.setAutoApprove');
+      assertDefined(setAutoApproveHandler, 'session.setAutoApprove handler');
+      await setAutoApproveHandler({
         workspaceId: 'ws-auto',
         enabled: true,
       });
@@ -201,7 +208,9 @@ describe('session.runTurn handler', () => {
     registerSessionHandlers(pool);
 
     try {
-      await handlers.get('session.runTurn')!({
+      const runTurnHandler = handlers.get('session.runTurn');
+      assertDefined(runTurnHandler, 'session.runTurn handler');
+      await runTurnHandler({
         workspaceId: 'ws-inline',
         prompt: 'Przeanalizuj obraz',
         inlineAttachments,
@@ -253,12 +262,16 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
     };
     const handlers = register(makePool(remote));
 
+    const transcribeHandler = handlers.get('session.transcribe');
+    assertDefined(transcribeHandler, 'session.transcribe handler');
     await expect(
-      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO, mimeType: MIME }),
+      transcribeHandler({ workspaceId: WS, audioBase64: AUDIO, mimeType: MIME }),
     ).resolves.toBe('hello from the runner');
     expect(runnerTranscribe).toHaveBeenCalledTimes(1);
     // The mic's mimeType flows through to the runner transcriber unchanged.
-    expect(runnerTranscribe.mock.calls[0]![1]).toEqual({ mimeType: MIME });
+    const firstCall = runnerTranscribe.mock.calls[0];
+    assertDefined(firstCall, 'runner transcribe first call');
+    expect(firstCall[1]).toEqual({ mimeType: MIME });
     expect(codexTranscribe).not.toHaveBeenCalled();
   });
 
@@ -270,19 +283,25 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
     };
     const handlers = register(makePool(remote));
 
+    const transcribeHandler = handlers.get('session.transcribe');
+    assertDefined(transcribeHandler, 'session.transcribe handler');
     await expect(
-      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO, mimeType: MIME }),
+      transcribeHandler({ workspaceId: WS, audioBase64: AUDIO, mimeType: MIME }),
     ).resolves.toBe('from codex');
     expect(codexTranscribe).toHaveBeenCalledTimes(1);
-    expect(codexTranscribe.mock.calls[0]![1]).toEqual({ mimeType: MIME });
+    const firstCall = codexTranscribe.mock.calls[0];
+    assertDefined(firstCall, 'codex transcribe first call');
+    expect(firstCall[1]).toEqual({ mimeType: MIME });
   });
 
   it('falls back to Codex when not connected to a runner at all', async () => {
     codexTranscribe.mockResolvedValue({ text: 'from codex, no runner' });
     const handlers = register(makePool(null)); // supervisor.remote() → null
 
+    const transcribeHandler = handlers.get('session.transcribe');
+    assertDefined(transcribeHandler, 'session.transcribe handler');
     await expect(
-      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO }),
+      transcribeHandler({ workspaceId: WS, audioBase64: AUDIO }),
     ).resolves.toBe('from codex, no runner');
     expect(codexTranscribe).toHaveBeenCalledTimes(1);
   });
@@ -297,8 +316,10 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
     };
     const handlers = register(makePool(remote));
 
+    const transcribeHandler = handlers.get('session.transcribe');
+    assertDefined(transcribeHandler, 'session.transcribe handler');
     await expect(
-      handlers.get('session.transcribe')!({ workspaceId: WS, audioBase64: AUDIO }),
+      transcribeHandler({ workspaceId: WS, audioBase64: AUDIO }),
     ).rejects.toThrow('whisper model missing');
     // A broken local model must NOT quietly fall through to the cloud path.
     expect(codexTranscribe).not.toHaveBeenCalled();
@@ -306,8 +327,10 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
 
   it('rejects a malformed base64 payload at the handler boundary', async () => {
     const handlers = register(makePool(null));
+    const transcribeHandler = handlers.get('session.transcribe');
+    assertDefined(transcribeHandler, 'session.transcribe handler');
     await expect(
-      handlers.get('session.transcribe')!({ audioBase64: 'not base64!!!' }),
+      transcribeHandler({ audioBase64: 'not base64!!!' }),
     ).rejects.toThrow(/base64/);
     expect(codexTranscribe).not.toHaveBeenCalled();
   });
@@ -316,7 +339,9 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
     const remote = { getInfo: () => ({ ...sessionInfo(WS), activeTranscriber: 'stt-local' }) };
     const handlers = register(makePool(remote));
 
-    await expect(handlers.get('session.hasTranscriber')!()).resolves.toBe(true);
+    const hasTranscriberHandler = handlers.get('session.hasTranscriber');
+    assertDefined(hasTranscriberHandler, 'session.hasTranscriber handler');
+    await expect(hasTranscriberHandler()).resolves.toBe(true);
     expect(vaultGet).not.toHaveBeenCalled();
   });
 
@@ -325,7 +350,9 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
     const remote = { getInfo: () => sessionInfo(WS) }; // activeTranscriber: null
     const handlers = register(makePool(remote));
 
-    await expect(handlers.get('session.hasTranscriber')!()).resolves.toBe(true);
+    const hasTranscriberHandler = handlers.get('session.hasTranscriber');
+    assertDefined(hasTranscriberHandler, 'session.hasTranscriber handler');
+    await expect(hasTranscriberHandler()).resolves.toBe(true);
     expect(vaultGet).toHaveBeenCalledWith('oauth/openai-codex/refresh_token');
   });
 
@@ -334,7 +361,9 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
     const remote = { getInfo: () => sessionInfo(WS) };
     const handlers = register(makePool(remote));
 
-    await expect(handlers.get('session.hasTranscriber')!()).resolves.toBe(false);
+    const hasTranscriberHandler = handlers.get('session.hasTranscriber');
+    assertDefined(hasTranscriberHandler, 'session.hasTranscriber handler');
+    await expect(hasTranscriberHandler()).resolves.toBe(false);
   });
 });
 
@@ -374,12 +403,18 @@ describe('session.* attachment provenance', () => {
     await rm(CWD, { recursive: true, force: true });
   });
 
-  const invoke = (channel: string, args?: unknown): Promise<unknown> =>
-    provenanceHandlers.get(channel)!(args);
+  const invoke = (channel: string, args?: unknown): Promise<unknown> => {
+    const handler = provenanceHandlers.get(channel);
+    assertDefined(handler, `handler for ${channel}`);
+    return handler(args);
+  };
 
   /** The attachments `session.runTurn` forwarded to the driver after the gate. */
-  const forwardedAttachments = (): ReadonlyArray<unknown> =>
-    driverRunTurn.mock.calls[0]![2] as ReadonlyArray<unknown>;
+  const forwardedAttachments = (): ReadonlyArray<unknown> => {
+    const firstCall = driverRunTurn.mock.calls[0];
+    assertDefined(firstCall, 'driver runTurn first call');
+    return firstCall[2] as ReadonlyArray<unknown>;
+  };
 
   it('saveImageAttachment remembers its temp path so a later runTurn keeps the image', async () => {
     const saved = (await invoke('session.saveImageAttachment', {

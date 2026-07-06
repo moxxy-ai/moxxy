@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { assertDefined } from '@/lib/assert';
 import { api } from '@moxxy/client-core';
 import { useAppUpdate } from '@moxxy/client-core';
 
@@ -77,9 +78,11 @@ export function UpdateBanner(): JSX.Element | null {
           <button
             type="button"
             style={primaryBtn}
-            onClick={() =>
-              void api().invoke('onboarding.openExternal', { url: check.releaseUrl! })
-            }
+            onClick={() => {
+              const url = check?.releaseUrl;
+              assertDefined(url, 'release URL present when the manual-fallback button is shown');
+              void api().invoke('onboarding.openExternal', { url });
+            }}
           >
             Get it manually
           </button>

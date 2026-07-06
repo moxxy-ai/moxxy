@@ -8,6 +8,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { moxxyHome, writeFileAtomic } from '@moxxy/sdk/server';
+import { assertDefined } from '@moxxy/sdk';
 import type { SkillFile } from '@moxxy/desktop-ipc-contract';
 
 /** Pull the frontmatter `description` (cheap regex — no YAML dep) so the
@@ -17,8 +18,13 @@ async function readDescription(file: string): Promise<string | undefined> {
     const raw = await readFile(file, 'utf8');
     const fm = /^---\s*\n([\s\S]*?)\n---/.exec(raw);
     if (!fm) return undefined;
-    const m = /^description:\s*(.+)$/m.exec(fm[1]!);
-    return m ? m[1]!.trim().replace(/^["']|["']$/g, '') : undefined;
+    const frontmatter = fm[1];
+    assertDefined(frontmatter, 'frontmatter capture group is present when the fence matches');
+    const m = /^description:\s*(.+)$/m.exec(frontmatter);
+    if (!m) return undefined;
+    const value = m[1];
+    assertDefined(value, 'description capture group is present when the line matches');
+    return value.trim().replace(/^["']|["']$/g, '');
   } catch {
     return undefined;
   }

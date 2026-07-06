@@ -10,6 +10,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { __setApiOverride } from '@moxxy/client-core';
 import type { MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
+import { assertDefined } from '@moxxy/sdk';
 import { MobileTab } from './MobileTab';
 
 interface IpcSpy {
@@ -99,7 +100,8 @@ describe('MobileTab', () => {
     await waitFor(() => {
       const call = spy.invokes.find((i) => i.channel === 'mobileGateway.setEnabled');
       expect(call).toBeTruthy();
-      expect((call!.args as { enabled: boolean }).enabled).toBe(true);
+      assertDefined(call, 'mobileGateway.setEnabled invoke');
+      expect((call.args as { enabled: boolean }).enabled).toBe(true);
     });
   });
 
@@ -111,7 +113,8 @@ describe('MobileTab', () => {
     await waitFor(() => {
       const img = screen.getByTestId('mobile-qr').querySelector('img');
       expect(img).toBeTruthy();
-      expect(img!.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
+      assertDefined(img, 'mobile QR img element');
+      expect(img.getAttribute('src')).toMatch(/^data:image\/svg\+xml/);
     });
     // No raw SVG is injected into the DOM (supply-chain hardening).
     expect(screen.getByTestId('mobile-qr').querySelector('svg')).toBeNull();

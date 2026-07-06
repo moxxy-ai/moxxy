@@ -228,7 +228,8 @@ export async function startCollab(args: { cwd: string; goal: string }): Promise<
 export async function ensureCollabAttached(): Promise<void> {
   if (coordinator) return;
   const active = readActiveCollab();
-  const socket = active?.runnerSocket?.trim();
+  const runnerSocket = active?.runnerSocket;
+  const socket = runnerSocket?.trim();
   if (!active || !socket) return;
   if (!(await isRunnerUp(socket))) return;
   try {
@@ -322,7 +323,8 @@ export function stopAllCollab(): void {
 // coordinator WE spawned; a read-only attach holds no child.)
 process.once('exit', () => {
   try {
-    coordinator?.child?.kill('SIGTERM');
+    const child = coordinator?.child;
+    child?.kill('SIGTERM');
   } catch {
     /* ignore */
   }

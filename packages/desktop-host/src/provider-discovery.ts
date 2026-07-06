@@ -83,7 +83,9 @@ async function readStoredProviders(): Promise<StoredProvidersConfig> {
         };
       };
     } | null;
-    const items = cfg?.plugins?.provider?.items ?? {};
+    const plugins = cfg?.plugins;
+    const provider = plugins?.provider;
+    const items = provider?.items ?? {};
     const providers: StoredProvider[] = [];
     for (const [name, item] of Object.entries(items)) {
       const c = item?.config;

@@ -22,6 +22,7 @@ import type { RunnerPool } from '../runner-pool';
 import { authorizeAttachments, rememberPickedAttachment } from '../attachment-authz';
 import { persistImageBlob, previewImageAttachment } from '../attachments.js';
 import { broadcastHostEvent } from '../event-bus.js';
+import { assertDefined } from '@moxxy/sdk';
 import { getSessionModel, setSessionModel } from '../session-models.js';
 import {
   getInProcessPlugins,
@@ -360,7 +361,8 @@ export function registerSessionHandlers(pool: RunnerPool): void {
       ? await dialog.showOpenDialog(window, opts)
       : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
-    const picked = result.filePaths[0]!;
+    const picked = result.filePaths[0];
+    assertDefined(picked, 'a file path is present when filePaths is non-empty');
     // Remember the user's choice so the later runTurn that references it is
     // authorized even though it lives outside the workspace cwd.
     await rememberPickedAttachment(picked);

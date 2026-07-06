@@ -13,6 +13,8 @@
  * Generic over the element type so it can hold raw events, folded blocks,
  * or anything else a surface needs to stream + paginate.
  */
+import { assertDefined, invariant } from './assert.js';
+
 export class ChunkedBlockLog<T> {
   private readonly segments: T[][];
   private readonly segmentSize: number;
@@ -42,7 +44,9 @@ export class ChunkedBlockLog<T> {
   }
 
   private tailSegment(): T[] {
-    return this.segments[this.segments.length - 1]!;
+    const seg = this.segments[this.segments.length - 1];
+    assertDefined(seg, 'segments always holds at least one segment');
+    return seg;
   }
 
   /** Append one item. O(1) amortised. */
@@ -76,7 +80,9 @@ export class ChunkedBlockLog<T> {
   mutateLast(update: (item: T) => T): void {
     if (this.count === 0) return;
     const seg = this.tailSegment();
-    seg[seg.length - 1] = update(seg[seg.length - 1]!);
+    const last = seg[seg.length - 1];
+    assertDefined(last, 'tail segment is non-empty when count > 0');
+    seg[seg.length - 1] = update(last);
     this.rev += 1;
   }
 
@@ -108,9 +114,12 @@ export class ChunkedBlockLog<T> {
    */
   findLast(pred: (item: T) => boolean): T | undefined {
     for (let s = this.segments.length - 1; s >= 0; s -= 1) {
-      const seg = this.segments[s]!;
+      const seg = this.segments[s];
+      assertDefined(seg, 'segment index within bounds');
       for (let i = seg.length - 1; i >= 0; i -= 1) {
-        if (pred(seg[i]!)) return seg[i];
+        const item = seg[i];
+        invariant(item !== undefined, 'item index within segment bounds');
+        if (pred(item)) return item;
       }
     }
     return undefined;
@@ -127,7 +136,11 @@ export class ChunkedBlockLog<T> {
    * per change (memoise on `version`); prefer `tail(n)` for a window.
    */
   toArray(): T[] {
-    if (this.segments.length === 1) return this.segments[0]!.slice();
+    if (this.segments.length === 1) {
+      const only = this.segments[0];
+      assertDefined(only, 'single segment present when segments.length === 1');
+      return only.slice();
+    }
     return this.segments.flat();
   }
 
@@ -138,9 +151,12 @@ export class ChunkedBlockLog<T> {
     if (n >= this.count) return this.toArray();
     const out: T[] = [];
     for (let s = this.segments.length - 1; s >= 0 && out.length < n; s -= 1) {
-      const seg = this.segments[s]!;
+      const seg = this.segments[s];
+      assertDefined(seg, 'segment index within bounds');
       for (let i = seg.length - 1; i >= 0 && out.length < n; i -= 1) {
-        out.push(seg[i]!);
+        const item = seg[i];
+        invariant(item !== undefined, 'item index within segment bounds');
+        out.push(item);
       }
     }
     out.reverse();

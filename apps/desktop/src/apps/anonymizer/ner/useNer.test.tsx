@@ -11,6 +11,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { assertDefined } from '@moxxy/sdk';
 import { useNer } from './useNer';
 import type { NerToken } from './aggregate';
 
@@ -63,13 +64,15 @@ afterEach(() => {
 describe('useNer', () => {
   it('aggregates the worker reply into PII spans on the happy path', async () => {
     const { result } = renderHook(() => useNer());
-    const worker = FakeWorker.instances[0]!;
+    const worker = FakeWorker.instances[0];
+    assertDefined(worker, 'ner worker instance');
 
     let spans: readonly unknown[] = [];
     await act(async () => {
       const p = result.current.detectNames('Alice Smith met Bob');
       // The hook posts one infer request; answer it with two BIO tokens.
-      const req = worker.posted.at(-1)!;
+      const req = worker.posted.at(-1);
+      assertDefined(req, 'posted infer request');
       worker.reply(req.id, [
         { entity: 'B-PER', word: 'Alice', index: 0, score: 0.99 },
         { entity: 'I-PER', word: 'Smith', index: 1, score: 0.99 },
@@ -83,7 +86,8 @@ describe('useNer', () => {
 
   it('short-circuits detectNames after the worker dies (no leaked pending request)', async () => {
     const { result } = renderHook(() => useNer());
-    const worker = FakeWorker.instances[0]!;
+    const worker = FakeWorker.instances[0];
+    assertDefined(worker, 'ner worker instance');
 
     // The worker fails to load — the hook flips to `error` and drops the worker.
     await act(async () => {
@@ -106,7 +110,8 @@ describe('useNer', () => {
 
   it('returns [] for blank input without touching the worker', async () => {
     const { result } = renderHook(() => useNer());
-    const worker = FakeWorker.instances[0]!;
+    const worker = FakeWorker.instances[0];
+    assertDefined(worker, 'ner worker instance');
     let spans: readonly unknown[] = [{ sentinel: true }];
     await act(async () => {
       spans = await result.current.detectNames('   ');
@@ -136,7 +141,8 @@ describe('useNer', () => {
 
   it('settles in-flight requests to [] when the worker errors mid-flight', async () => {
     const { result } = renderHook(() => useNer());
-    const worker = FakeWorker.instances[0]!;
+    const worker = FakeWorker.instances[0];
+    assertDefined(worker, 'ner worker instance');
 
     let spans: readonly unknown[] | 'unsettled' = 'unsettled';
     const p = result.current.detectNames('Alice Smith met Bob').then((s) => {
