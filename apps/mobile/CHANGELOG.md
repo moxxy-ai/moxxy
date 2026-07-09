@@ -1,5 +1,15 @@
 # @moxxy/workspaces-app
 
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [c124a15]
+  - @moxxy/sdk@0.30.0
+  - @moxxy/chat-model@0.3.21
+  - @moxxy/client-core@0.13.10
+  - @moxxy/client-transport-ws@0.2.19
+
 ## 0.4.2
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @moxxy/plugin-provider-openai-codex
 
+## 0.30.0
+
+### Minor Changes
+
+- c124a15: Add the GPT-5.6 model family (Sol, Terra, Luna; GA July 9 2026) to both the OpenAI API provider and the Codex (ChatGPT-plan) provider. API model ids `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` — flagship / balanced / fast-cheap — each a reasoning model with a 1,050,000-token window and 128k max output (Codex serves the same ids capped at the ChatGPT-plan ~400k window). The Codex default model moves to `gpt-5.6-sol`, matching OpenAI's own Codex default.
+- c124a15: `moxxy init`: let OAuth providers with a device-code flow (openai-codex) offer a browser vs. no-browser choice during the wizard, so a headless/remote box can sign in by pasting a URL + code instead of relying on a loopback browser that can't open. Providers advertise the capability via `ProviderAuthDescriptor.supportsHeadless`; `ProviderSetupView.loginOAuth` now accepts an optional `{ headless }`.
+
+### Patch Changes
+
+- Updated dependencies [c124a15]
+  - @moxxy/sdk@0.30.0
+  - @moxxy/plugin-oauth@0.30.0
+
 ## 0.29.0
 
 ### Patch Changes
