@@ -444,10 +444,14 @@ export interface ProviderSetupView {
    * Drive the provider's OAuth flow. `io` routes the flow's output/prompts
    * into the calling channel's UI; when omitted the host's default terminal
    * prompting applies (the clack path `moxxy init`/`moxxy login` use).
+   * `opts.headless` forces the provider's no-browser (device-code) flow —
+   * only meaningful for providers whose auth descriptor declares
+   * `supportsHeadless`.
    */
   loginOAuth(
     providerId: string,
     io?: ProviderConnectIo,
+    opts?: { readonly headless?: boolean },
   ): Promise<{ readonly accountId?: string | null; readonly expiresAt?: number }>;
 }
 

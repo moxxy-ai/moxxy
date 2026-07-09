@@ -74,7 +74,7 @@ export function buildProviderSetupView(opts: BuildProviderSetupOptions): Provide
       markReady(providerId);
     },
 
-    loginOAuth: async (providerId, io) => {
+    loginOAuth: async (providerId, io, opts) => {
       const def = registered(providerId);
       if (!def || def.auth?.kind !== 'oauth') {
         throw new MoxxyError({
@@ -86,7 +86,14 @@ export function buildProviderSetupView(opts: BuildProviderSetupOptions): Provide
           context: { provider: providerId },
         });
       }
-      const ctx = io ? channelAuthContext(vault, io) : buildProviderAuthContext(vault, { headless: false });
+      // `headless` picks the no-browser (device-code) flow. It only lands here as
+      // `true` when the caller asked for it (e.g. the init wizard's browser-vs-no-
+      // browser choice) AND the provider declared `supportsHeadless`. Defaults to
+      // the interactive browser flow.
+      const headless = opts?.headless === true;
+      const ctx = io
+        ? channelAuthContext(vault, io, headless)
+        : buildProviderAuthContext(vault, { headless });
       const result = await def.auth.login(ctx);
       markReady(providerId);
       return result;
@@ -96,12 +103,18 @@ export function buildProviderSetupView(opts: BuildProviderSetupOptions): Provide
 
 /**
  * A `ProviderAuthContext` whose output/prompts route into a channel's own UI
- * (the TUI connect dialog) instead of clack/stdout. Never headless — the
- * channel IS the interactive surface, so browser-based flows stay available.
+ * (the TUI connect dialog) instead of clack/stdout. Defaults to non-headless —
+ * the channel is normally the interactive surface, so the browser flow stays
+ * available — but honours an explicit `headless` request (a channel on a
+ * browser-less box driving a device-code flow).
  */
-function channelAuthContext(vault: VaultStore, io: ProviderConnectIo): ProviderAuthContext {
+function channelAuthContext(
+  vault: VaultStore,
+  io: ProviderConnectIo,
+  headless = false,
+): ProviderAuthContext {
   return {
-    headless: false,
+    headless,
     write: io.write,
     ...(io.prompt ? { prompt: io.prompt } : {}),
     vault: {

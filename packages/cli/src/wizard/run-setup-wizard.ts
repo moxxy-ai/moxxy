@@ -49,9 +49,18 @@ export interface SetupWizardController {
    * Drive the OAuth sign-in flow for a provider whose `authKind` is `'oauth'`.
    * Implementations should print their own progress (browser URL, device code,
    * etc.) and persist credentials to the vault. Throw on failure / user
-   * cancellation; the wizard offers a retry.
+   * cancellation; the wizard offers a retry. `opts.headless` requests the
+   * no-browser (device-code) flow — only passed when the provider reports
+   * {@link oauthSupportsHeadless}.
    */
-  loginOAuth?(providerId: string): Promise<void>;
+  loginOAuth?(providerId: string, opts?: { readonly headless?: boolean }): Promise<void>;
+  /**
+   * Whether this OAuth provider has a real no-browser (device-code / manual-URL)
+   * flow. When true the wizard offers the user a browser-vs-no-browser choice
+   * before signing in — useful on a headless box where a loopback browser flow
+   * can't complete. Absent / false → the wizard just runs the default flow.
+   */
+  oauthSupportsHeadless?(providerId: string): boolean;
   /**
    * Install + enable the chosen optional plugins (by catalog id / package name).
    * Best-effort: implementations should report per-plugin failures and continue.
@@ -182,7 +191,8 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
       );
       process.exit(1);
     }
-    await collectOAuth(provider, opts.controller.loginOAuth);
+    const supportsHeadless = opts.controller.oauthSupportsHeadless?.(provider) ?? false;
+    await collectOAuth(provider, opts.controller.loginOAuth, supportsHeadless);
     oauthCompleted.push(provider);
   } else {
     apiKeys[provider] = await collectKey(provider, opts.controller);
@@ -312,12 +322,37 @@ export async function runSetupWizard(opts: RunSetupWizardOptions): Promise<strin
 
 async function collectOAuth(
   providerId: string,
-  loginOAuth: (providerId: string) => Promise<void>,
+  loginOAuth: (providerId: string, opts?: { readonly headless?: boolean }) => Promise<void>,
+  supportsHeadless: boolean,
 ): Promise<void> {
+  // Providers with a device-code fallback let the user pick how to sign in. On
+  // a headless / remote box the loopback browser flow can't complete, so offer
+  // a no-browser path that just prints a URL + code to enter elsewhere.
+  let headless: boolean | undefined;
+  if (supportsHeadless) {
+    const choiceRaw = await select({
+      message: `Step 2 — How do you want to sign in to ${colors.bold(providerId)}?`,
+      options: [
+        {
+          value: 'browser',
+          label: 'Open a browser on this machine',
+          hint: 'loopback callback — for a local desktop',
+        },
+        {
+          value: 'no-browser',
+          label: 'No browser — show a URL + code to enter elsewhere',
+          hint: 'device-code flow — for a headless / remote box',
+        },
+      ],
+      initialValue: 'browser',
+    });
+    headless = guard(choiceRaw) === 'no-browser';
+  }
+  const loginOpts = headless === undefined ? undefined : { headless };
   while (true) {
     log.step(`Step 2 — Sign in to ${colors.bold(providerId)} (OAuth)`);
     try {
-      await loginOAuth(providerId);
+      await loginOAuth(providerId, loginOpts);
       log.success(`${providerId} sign-in complete`);
       return;
     } catch (err) {
