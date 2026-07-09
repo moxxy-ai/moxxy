@@ -13,6 +13,9 @@ export const openaiCodexProviderDef = defineProvider({
   auth: {
     kind: 'oauth',
     serviceName: 'ChatGPT Pro/Plus',
+    // The codex profile carries a device-flow adapter, so `codexLogin` honours
+    // `ctx.headless` with a real no-browser flow — let hosts offer the choice.
+    supportsHeadless: true,
     login: codexLogin,
     logout: codexLogout,
     status: codexStatus,

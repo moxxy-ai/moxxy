@@ -108,4 +108,23 @@ describe('buildProviderSetupView', () => {
     expect(lines).toEqual(['hello']);
     expect(session.readyProviders.has('oauthy')).toBe(true);
   });
+
+  it('loginOAuth threads opts.headless into the auth context (no-browser flow)', async () => {
+    const seen: boolean[] = [];
+    const login = vi.fn(async (ctx: { headless: boolean }) => {
+      seen.push(ctx.headless);
+      return {};
+    });
+    const session = fakeSession([{ name: 'oauthy', auth: { kind: 'oauth', login }, models: [] }]);
+    const view = buildProviderSetupView({ session: session as never, vault: fakeVault() as never });
+
+    // Default (no opts) → interactive browser flow.
+    await view.loginOAuth('oauthy');
+    // Explicit headless → device-code flow.
+    await view.loginOAuth('oauthy', undefined, { headless: true });
+    // Explicit non-headless stays interactive.
+    await view.loginOAuth('oauthy', undefined, { headless: false });
+
+    expect(seen).toEqual([false, true, false]);
+  });
 });

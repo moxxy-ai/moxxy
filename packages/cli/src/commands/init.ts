@@ -18,7 +18,7 @@ import { renderLogo } from '../logo.js';
 import { cancel, isCancel, note, password } from '@clack/prompts';
 import { colors } from '../colors.js';
 import type { ProviderAuthKind, SetupSelections } from '@moxxy/plugin-cli';
-import { MoxxyError, type ProviderDef } from '@moxxy/sdk';
+import type { ProviderDef } from '@moxxy/sdk';
 
 /**
  * Interactive first-time setup. Renders a @clack/prompts vertical stepper
@@ -174,10 +174,16 @@ async function runInteractiveInit(
     ): Promise<{ ok: true } | { ok: false; message: string }> {
       return await providerSetup.testKey(providerId, key);
     },
-    async loginOAuth(providerId: string): Promise<void> {
+    async loginOAuth(providerId: string, loginOpts?: { headless?: boolean }): Promise<void> {
       // No io → the shared view falls back to the clack/stdout auth context.
       // (We already bailed to runHeadlessInit when stdin wasn't a TTY.)
-      await providerSetup.loginOAuth(providerId);
+      // `loginOpts.headless` forces the no-browser/device-code flow when the
+      // user picked it (only offered for providers that support it).
+      await providerSetup.loginOAuth(providerId, undefined, loginOpts);
+    },
+    oauthSupportsHeadless(providerId: string): boolean {
+      const def = session.providers.list().find((p) => p.name === providerId);
+      return def?.auth?.kind === 'oauth' && def.auth.supportsHeadless === true;
     },
     async installPlugins(ids: ReadonlyArray<string>): Promise<void> {
       for (const id of ids) {
