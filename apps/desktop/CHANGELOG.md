@@ -1,5 +1,24 @@
 # @moxxy/desktop
 
+## 0.29.2
+
+### Patch Changes
+
+- Updated dependencies [c124a15]
+  - @moxxy/cli@0.30.0
+  - @moxxy/sdk@0.30.0
+  - @moxxy/plugin-stt-whisper-codex@0.30.0
+  - @moxxy/chat-model@0.3.21
+  - @moxxy/client-core@0.13.10
+  - @moxxy/client-platform-web@0.1.49
+  - @moxxy/desktop-host@0.14.1
+  - @moxxy/desktop-ipc-contract@0.14.6
+  - @moxxy/ipc-server-ws@0.1.48
+  - @moxxy/plugin-channel-mobile@0.30.0
+  - @moxxy/plugin-vault@0.30.0
+  - @moxxy/runner@0.2.35
+  - @moxxy/workflows-builder@0.1.32
+
 ## 0.29.1
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @moxxy/client-platform-web
 
+## 0.1.49
+
+### Patch Changes
+
+- Updated dependencies [c124a15]
+  - @moxxy/sdk@0.30.0
+  - @moxxy/client-core@0.13.10
+
 ## 0.1.48
 
 ### Patch Changes

@@ -15,6 +15,13 @@ export const codexModels: ReadonlyArray<ModelDescriptor> = [
   // the proactive compactor's `estimatedTokens > 0.75 * contextWindow` gate
   // unreachable, so every overflow fell through to the reactive
   // compact-on-overflow retry. Keep these in step with the rest of the catalog.
+  // GPT-5.6 family (GA July 9, 2026): served to ChatGPT-Pro/Plus subscribers
+  // under the same ids the API uses (sol/terra/luna — no `-codex` variant).
+  // Sol is OpenAI's default Codex model. The ChatGPT-plan window cap applies
+  // here too, so keep them at 400k like the rest of this list.
+  { id: 'gpt-5.6-sol', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.6-terra', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
+  { id: 'gpt-5.6-luna', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.5', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.4', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
   { id: 'gpt-5.4-mini', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
@@ -23,4 +30,6 @@ export const codexModels: ReadonlyArray<ModelDescriptor> = [
   { id: 'gpt-5.2', contextWindow: 400_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
 ];
 
-export const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex';
+// OpenAI's own Codex default moved to gpt-5.6-sol at GA (July 9, 2026); mirror
+// it so a ChatGPT-plan user who hasn't pinned a model gets the current flagship.
+export const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol';

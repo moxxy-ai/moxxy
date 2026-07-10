@@ -234,6 +234,15 @@ export type ProviderAuthDescriptor =
       /** Human-readable name of the upstream service (e.g. "ChatGPT Pro/Plus"). */
       readonly serviceName?: string;
       /**
+       * True when `login` honours `ctx.headless` with a real no-browser
+       * (device-code / manual-URL) flow, so the host may offer the user a
+       * browser-vs-no-browser choice even on a TTY. When omitted/false the
+       * host only goes headless when it has to (no TTY) and never presents the
+       * choice, since forcing `headless` would just fail with
+       * "no headless flow".
+       */
+      readonly supportsHeadless?: boolean;
+      /**
        * Drive the OAuth flow and persist credentials. Throws on failure /
        * user cancellation; the host typically offers a retry prompt.
        */
