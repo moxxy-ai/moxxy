@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Session, silentLogger } from '@moxxy/core';
 import { definePlugin, defineProvider, defineTranscriber } from '@moxxy/sdk';
-import { buildPluginDoctorChecks, buildVoiceDoctorCheck } from './doctor.js';
+import { __setClaudeCommandRunner } from '@moxxy/plugin-provider-claude-code';
+import { buildClaudeProviderDoctorCheck, buildPluginDoctorChecks, buildVoiceDoctorCheck } from './doctor.js';
 
 function makeSession(): Session {
   const session = new Session({ cwd: '/tmp', logger: silentLogger });
@@ -88,6 +89,31 @@ describe('buildVoiceDoctorCheck', () => {
       status: 'warn',
       message: 'unavailable — ffmpeg is required for voice input',
     });
+  });
+});
+
+describe('buildClaudeProviderDoctorCheck', () => {
+  it('uses configured CLI auth instead of canonical API-key lookup', async () => {
+    process.env.CLAUDE_CODE_API_KEY = 'must-not-be-used';
+    const seen: string[] = [];
+    __setClaudeCommandRunner(async (executable) => {
+      seen.push(executable);
+      return { code: 0, stdout: '{"loggedIn":true}', stderr: '' };
+    });
+    await expect(buildClaudeProviderDoctorCheck({
+      plugins: { provider: { items: { 'claude-code': { config: { executable: '/Applications/Claude Code/bin/claude' } } } } },
+    })).resolves.toMatchObject({ status: 'ok', message: expect.stringMatching(/signed in/) });
+    expect(seen).toEqual(['/Applications/Claude Code/bin/claude']);
+    delete process.env.CLAUDE_CODE_API_KEY;
+  });
+
+  it('reports signed-out as a warning and missing binary as a failure', async () => {
+    __setClaudeCommandRunner(async () => ({ code: 0, stdout: '{"loggedIn":false}', stderr: '' }));
+    await expect(buildClaudeProviderDoctorCheck({})).resolves.toMatchObject({ status: 'warn' });
+    __setClaudeCommandRunner(async () => ({
+      code: 1, stdout: '', stderr: '', error: Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    }));
+    await expect(buildClaudeProviderDoctorCheck({})).resolves.toMatchObject({ status: 'fail' });
   });
 });
 

@@ -9,10 +9,11 @@ import {
   resolveClaudeExecutable,
 } from './login.js';
 
-function ctx(): ProviderAuthContext {
+function ctx(providerConfig?: Readonly<Record<string, unknown>>): ProviderAuthContext {
   const store = new Map<string, string>();
   return {
     headless: false,
+    ...(providerConfig ? { providerConfig } : {}),
     write: () => {},
     vault: {
       get: async (key) => store.get(key) ?? null,
@@ -58,16 +59,35 @@ describe('Claude CLI authentication', () => {
     ]);
   });
 
-  it('keeps executable paths containing spaces as one spawn argument', async () => {
-    process.env.CLAUDE_CODE_EXECUTABLE = '/Applications/Claude Code/bin/claude';
-    const executables: string[] = [];
-    __setClaudeCommandRunner(async (exe) => {
-      executables.push(exe);
-      return ok('{"loggedIn":true}');
+  it('uses a configured executable path containing spaces in every auth surface', async () => {
+    process.env.CLAUDE_CODE_EXECUTABLE = '/wrong/path/claude';
+    const executable = '/Applications/Claude Code/bin/claude';
+    const calls: Array<{ executable: string; args: readonly string[] }> = [];
+    __setClaudeCommandRunner(async (seenExecutable, args) => {
+      calls.push({ executable: seenExecutable, args });
+      return args[1] === 'logout' ? ok() : ok('{"loggedIn":true}');
     });
-    await claudeLogin(ctx());
-    expect(executables).toEqual(['/Applications/Claude Code/bin/claude']);
+    await claudeLogin(ctx({ executable }));
+    await claudeStatus(ctx({ executable }));
+    await claudeLogout(ctx({ executable }));
+    expect(calls.map((call) => call.executable)).toEqual([executable, executable, executable, executable]);
+    expect(calls.map((call) => call.args)).toEqual([
+      ['auth', 'status'],
+      ['auth', 'status'],
+      ['auth', 'status'],
+      ['auth', 'logout'],
+    ]);
     expect(resolveClaudeExecutable({ executable: '/a path/claude' })).toBe('/a path/claude');
+  });
+
+  it('does not accept signed-in JSON from a failed status command', async () => {
+    __setClaudeCommandRunner(async () => ({ code: 2, stdout: '{"loggedIn":true}', stderr: 'status failed' }));
+    await expect(checkClaudeCliAuth()).resolves.toMatchObject({ state: 'error' });
+  });
+
+  it('preserves signed-out JSON from a non-zero status command', async () => {
+    __setClaudeCommandRunner(async () => ({ code: 1, stdout: '{"loggedIn":false}', stderr: '' }));
+    await expect(checkClaudeCliAuth()).resolves.toMatchObject({ state: 'signed-out' });
   });
 
   it('distinguishes a missing executable', async () => {

@@ -94,6 +94,22 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
   }
 }
 
+export async function buildClaudeProviderDoctorCheck(config: MoxxyConfig): Promise<Check> {
+  const executable = resolveClaudeExecutable(
+    config.plugins?.provider?.items?.['claude-code']?.config ?? {},
+  );
+  const auth = await checkClaudeCliAuth(executable);
+  return {
+    id: 'provider:claude-code',
+    status: auth.state === 'signed-in'
+      ? 'ok'
+      : auth.state === 'missing' || auth.state === 'unsupported' || auth.state === 'error'
+        ? 'fail'
+        : 'warn',
+    message: auth.message,
+  };
+}
+
 interface DoctorChecksDeps {
   readonly session: Session;
   readonly config: MoxxyConfig;
@@ -153,16 +169,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
       continue;
     }
     if (name === 'claude-code') {
-      const itemConfig = config.plugins?.provider?.items?.[name]?.config;
-      const executable = resolveClaudeExecutable(
-        itemConfig && typeof itemConfig === 'object' ? itemConfig as Record<string, unknown> : {},
-      );
-      const auth = await checkClaudeCliAuth(executable);
-      checks.push({
-        id: `provider:${name}`,
-        status: auth.state === 'signed-in' ? 'ok' : auth.state === 'missing' || auth.state === 'unsupported' ? 'fail' : 'warn',
-        message: auth.message,
-      });
+      checks.push(await buildClaudeProviderDoctorCheck(config));
       continue;
     }
     const canonical = canonicalKey(name);

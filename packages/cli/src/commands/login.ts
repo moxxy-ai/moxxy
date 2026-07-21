@@ -97,6 +97,13 @@ export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
   return await loginProvider(argv, sub);
 }
 
+function providerAuthConfig(
+  config: MoxxyConfig,
+  providerName: string,
+): Readonly<Record<string, unknown>> {
+  return config.plugins?.provider?.items?.[providerName]?.config ?? {};
+}
+
 async function loginProvider(argv: ParsedArgv, providerName: string): Promise<number> {
   const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
@@ -110,7 +117,7 @@ async function loginProvider(argv: ParsedArgv, providerName: string): Promise<nu
   }
 }
 
-async function runLoginProvider(
+export async function runLoginProvider(
   argv: ParsedArgv,
   providerName: string,
   session: Session,
@@ -203,7 +210,7 @@ async function loginStatus(argv: ParsedArgv): Promise<number> {
   }
 }
 
-async function runLoginStatus(
+export async function runLoginStatus(
   argv: ParsedArgv,
   session: Session,
   vault: VaultStore,
@@ -297,10 +304,11 @@ async function loginLogout(argv: ParsedArgv): Promise<number> {
   }
 }
 
-async function runLoginLogout(
+export async function runLoginLogout(
   providerName: string,
   session: Session,
   vault: VaultStore,
+  providerConfig: Readonly<Record<string, unknown>> = {},
 ): Promise<number> {
   await vault.open();
   const def = session.providers.list().find((d) => d.name === providerName);
@@ -314,15 +322,15 @@ async function runLoginLogout(
     );
     return 1;
   }
-  const ctx = buildProviderAuthContext(vault, { headless: true });
-  const removed = await def.auth.logout(ctx);
-  if (removed) {
+  const ctx = buildProviderAuthContext(vault, { headless: true, providerConfig });
+  const loggedOut = await def.auth.logout(ctx);
+  if (loggedOut) {
     session.requirements.clearRuntime(`auth:provider:${providerName}`);
     process.stdout.write(
-      `${colors.bold('logged out')}  ${colors.dim('OAuth credentials removed from the vault')}\n`,
+      `${colors.bold('logged out')}  ${colors.dim(`${providerName} sign-out completed`)}\n`,
     );
     return 0;
   }
-  process.stdout.write(colors.dim(`no stored credentials for ${providerName}`) + '\n');
+  process.stdout.write(colors.dim(`${providerName} was not signed in; no sign-out was needed`) + '\n');
   return 0;
 }

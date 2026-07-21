@@ -63,15 +63,18 @@ export async function checkClaudeCliAuth(executable = resolveClaudeExecutable())
 
   const combined = `${result.stdout}\n${result.stderr}`.trim();
   const parsed = parseStatusOutput(result.stdout);
-  if (parsed) {
-    if (parsed.loggedIn) {
-      return {
-        state: 'signed-in', executable,
-        ...(parsed.accountId ? { accountId: parsed.accountId } : {}),
-        message: `Claude CLI is signed in${parsed.accountId ? ` as ${parsed.accountId}` : ''}.`,
-      };
-    }
+  // Claude uses a machine-readable signed-out response on supported versions.
+  // Preserve that state even if a CLI version chooses a non-zero exit for it,
+  // but never accept signed-in readiness from a failed command.
+  if (parsed && !parsed.loggedIn) {
     return { state: 'signed-out', executable, message: 'Claude CLI is installed but signed out. Run `moxxy login claude-code`.' };
+  }
+  if (parsed?.loggedIn && result.code === 0) {
+    return {
+      state: 'signed-in', executable,
+      ...(parsed.accountId ? { accountId: parsed.accountId } : {}),
+      message: `Claude CLI is signed in${parsed.accountId ? ` as ${parsed.accountId}` : ''}.`,
+    };
   }
 
   if (looksUnsupported(combined)) {
@@ -92,8 +95,8 @@ export async function checkClaudeCliAuth(executable = resolveClaudeExecutable())
   };
 }
 
-export async function claudeLogin(_ctx: ProviderAuthContext): Promise<ProviderOAuthResult> {
-  const executable = resolveClaudeExecutable();
+export async function claudeLogin(ctx: ProviderAuthContext): Promise<ProviderOAuthResult> {
+  const executable = resolveClaudeExecutable(ctx.providerConfig);
   let status = await checkClaudeCliAuth(executable);
   if (status.state === 'signed-in') return status.accountId ? { accountId: status.accountId } : {};
   if (status.state !== 'signed-out') throw authError(status);
@@ -114,8 +117,8 @@ export async function claudeLogin(_ctx: ProviderAuthContext): Promise<ProviderOA
 }
 
 /** Log out the CLI account. Legacy moxxy vault values are deliberately untouched. */
-export async function claudeLogout(_ctx: ProviderAuthContext): Promise<boolean> {
-  const executable = resolveClaudeExecutable();
+export async function claudeLogout(ctx: ProviderAuthContext): Promise<boolean> {
+  const executable = resolveClaudeExecutable(ctx.providerConfig);
   const before = await checkClaudeCliAuth(executable);
   if (before.state !== 'signed-in') return false;
   const result = await runCommandImpl(executable, CLAUDE_AUTH_LOGOUT_ARGS, { inherit: true });
@@ -125,8 +128,8 @@ export async function claudeLogout(_ctx: ProviderAuthContext): Promise<boolean> 
   return true;
 }
 
-export async function claudeStatus(_ctx: ProviderAuthContext): Promise<ProviderOAuthStatus | null> {
-  const status = await checkClaudeCliAuth();
+export async function claudeStatus(ctx: ProviderAuthContext): Promise<ProviderOAuthStatus | null> {
+  const status = await checkClaudeCliAuth(resolveClaudeExecutable(ctx.providerConfig));
   return {
     accountId: status.accountId ?? null,
     authState: status.state,
