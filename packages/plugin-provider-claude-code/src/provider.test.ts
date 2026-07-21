@@ -1,4 +1,6 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +13,26 @@ import {
   claudeCodeProviderDef,
   createClaudeCodeClient,
 } from './index.js';
+
+class ControlledProviderChild extends EventEmitter {
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  exitCode: number | null = null;
+  signalCode: NodeJS.Signals | null = null;
+  readonly kills: NodeJS.Signals[] = [];
+
+  kill(signal: NodeJS.Signals = 'SIGTERM'): boolean {
+    this.kills.push(signal);
+    this.signalCode = signal;
+    this.emit('close', null, signal);
+    return true;
+  }
+
+  asChild(): ChildProcessWithoutNullStreams {
+    return this as unknown as ChildProcessWithoutNullStreams;
+  }
+}
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -290,6 +312,58 @@ describe('claude-code provider definition', () => {
     for (const model of supported) expect((rejected[1] as { message: string }).message).toContain(model);
   });
 
+  it.each([
+    ['Not logged in. Authentication required', /signed out|authentication/i, false],
+    ['Rate limit exceeded (429)', /service failure.*rate limit/i, true],
+    ['Service temporarily unavailable', /service failure.*unavailable/i, true],
+  ] as const)('classifies CLI failure %s', async (detail, message, retryable) => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'error_during_execution', is_error: true, result: detail },
+    ]);
+    const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
+    expect(events[1]).toMatchObject({ type: 'error', message: expect.stringMatching(message), retryable });
+    expect(events.filter((event) => event.type === 'error')).toHaveLength(1);
+  });
+
+  it('emits exactly one non-retryable error when a request is cancelled', async () => {
+    const child = new ControlledProviderChild();
+    const controller = new AbortController();
+    const eventsPromise = collect(createClaudeCodeClient({ spawn: () => child.asChild() }).stream({
+      ...textRequest(),
+      signal: controller.signal,
+    }));
+    controller.abort();
+    const events = await eventsPromise;
+    expect(events.filter((event) => event.type === 'error')).toEqual([{
+      type: 'error',
+      message: 'Claude CLI request aborted',
+      retryable: false,
+    }]);
+    expect(child.kills).toEqual(['SIGTERM']);
+  });
+
+  it('reports a missing executable and an unexpected exit as actionable non-retryable errors', async () => {
+    const missing = Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' });
+    const missingEvents = await collect(createClaudeCodeClient({
+      executable: '/missing/claude',
+      spawn: () => { throw missing; },
+    }).stream(textRequest()));
+    expect(missingEvents[1]).toMatchObject({
+      type: 'error',
+      message: expect.stringMatching(/executable not found.*npm install/i),
+      retryable: false,
+    });
+
+    const dir = await makeFailingClaude('unexpected local failure', 9);
+    const exitEvents = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
+    expect(exitEvents[1]).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('unexpected local failure'),
+      retryable: false,
+    });
+    expect(exitEvents.filter((event) => event.type === 'error')).toHaveLength(1);
+  });
+
   it('surfaces a permission denial as a clear non-retryable error', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'error_during_execution', is_error: true, result: 'Permission denied for Edit' },
@@ -406,6 +480,15 @@ function textRequest(): ProviderRequest {
       { role: 'user', content: [{ type: 'text', text: 'latest user' }] },
     ],
   };
+}
+
+async function makeFailingClaude(stderr: string, exitCode: number): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'moxxy-claude-test-'));
+  tempDirs.push(dir);
+  const executable = join(dir, 'claude');
+  await writeFile(executable, `#!/usr/bin/env node\nconsole.error(${JSON.stringify(stderr)});\nprocess.exit(${exitCode});\n`, 'utf8');
+  await chmod(executable, 0o755);
+  return dir;
 }
 
 async function makeFakeClaude(
