@@ -181,6 +181,8 @@ export interface ProviderVault {
  */
 export interface ProviderAuthContext {
   readonly vault: ProviderVault;
+  /** Effective per-provider configuration from `plugins.provider.items.<name>.config`. */
+  readonly providerConfig?: Readonly<Record<string, unknown>>;
   /**
    * True when there is no usable browser or interactive TTY. OAuth flows
    * should fall back to device-code (or equivalent) in this mode rather
