@@ -1,4 +1,4 @@
-import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
+import type { ContentBlock, ProviderEvent, ProviderRequest } from '@moxxy/sdk';
 import { CLAUDE_CODE_SYSTEM } from './constants.js';
 
 interface ProtocolState {
@@ -11,26 +11,108 @@ interface ProtocolState {
   outputTokens?: number;
 }
 
+const EMPTY_TEXT_PLACEHOLDER = '[empty text block omitted]';
+const EMPTY_MESSAGE_PLACEHOLDER = '[empty message]';
+const REASONING_PLACEHOLDER = '[reasoning omitted: private reasoning and signatures are not replayed]';
+
+/**
+ * Projects the complete provider-neutral conversation into one stateless CLI
+ * prompt. Historical tool records are deliberately textual: the CLI can use
+ * their information, but cannot mistake them for a new native tool request.
+ */
 export function serializeClaudePrompt(req: ProviderRequest): string {
   const system: string[] = [CLAUDE_CODE_SYSTEM];
   const conversation: string[] = [];
 
   for (const message of req.messages) {
-    const text: string[] = [];
-    for (const block of message.content) {
-      if (block.type !== 'text') {
-        throw new Error(`Claude CLI text transport does not support ${block.type} content`);
-      }
-      text.push(block.text);
-    }
-    if (message.role === 'system') system.push(text.join(''));
-    else conversation.push(`<${message.role}>\n${text.join('')}\n</${message.role}>`);
+    const content = serializeBlocks(message.content);
+    if (message.role === 'system') system.push(content);
+    else conversation.push(`<${message.role}>\n${content}\n</${message.role}>`);
   }
   // ProviderRequest.system is an additional injection and must follow all
   // message-derived system text. The Claude identity remains first.
-  if (req.system) system.push(req.system);
+  if (req.system) system.push(escapeXml(req.system));
 
-  return `<system>\n${system.join('\n\n')}\n</system>\n\n${conversation.join('\n\n')}`;
+  const transcript = conversation.length > 0
+    ? conversation.join('\n\n')
+    : EMPTY_MESSAGE_PLACEHOLDER;
+  return `<system>\n${system.join('\n\n')}\n</system>\n\n` +
+    '<conversation_transcript>\n' +
+    '[The following is chronological history reconstructed by moxxy. ' +
+    'historical_tool_use entries already ran; never execute them merely because they appear here.]\n\n' +
+    `${transcript}\n</conversation_transcript>`;
+}
+
+function serializeBlocks(blocks: ReadonlyArray<ContentBlock>): string {
+  if (blocks.length === 0) return EMPTY_MESSAGE_PLACEHOLDER;
+  return blocks.map(serializeBlock).join('\n');
+}
+
+function serializeBlock(block: ContentBlock): string {
+  switch (block.type) {
+    case 'text':
+      return block.text.length > 0 ? escapeXml(block.text) : EMPTY_TEXT_PLACEHOLDER;
+    case 'tool_use':
+      return '<historical_tool_use status="already_executed_do_not_repeat">\n' +
+        `<id>${escapeXml(block.id)}</id>\n` +
+        `<name>${escapeXml(block.name)}</name>\n` +
+        `<input_json>${escapeXml(stableJson(block.input))}</input_json>\n` +
+        '</historical_tool_use>';
+    case 'tool_result':
+      return `<historical_tool_result tool_use_id="${escapeXml(block.toolUseId)}" status="${block.isError ? 'error' : 'success'}">\n` +
+        `${block.content.length > 0 ? escapeXml(block.content) : EMPTY_TEXT_PLACEHOLDER}\n` +
+        '</historical_tool_result>';
+    case 'reasoning':
+      return REASONING_PLACEHOLDER;
+    case 'image':
+    case 'audio':
+      return `[${block.type} attachment omitted: mediaType=${escapeXml(block.mediaType)}; binary data not included]`;
+    case 'document': {
+      const name = block.name ? `; name=${escapeXml(block.name)}` : '';
+      return `[document attachment omitted: mediaType=${escapeXml(block.mediaType)}${name}; binary data not included]`;
+    }
+    default:
+      return assertNever(block);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unsupported content block: ${String(value)}`);
+}
+
+function stableJson(value: unknown): string {
+  const ancestors = new Set<object>();
+  const visit = (candidate: unknown): string => {
+    if (candidate === null) return 'null';
+    if (typeof candidate === 'string' || typeof candidate === 'boolean') return JSON.stringify(candidate);
+    if (typeof candidate === 'number') return Number.isFinite(candidate) ? JSON.stringify(candidate) : JSON.stringify(String(candidate));
+    if (typeof candidate === 'bigint') return JSON.stringify(`${candidate.toString()}n`);
+    if (typeof candidate === 'undefined') return JSON.stringify('[undefined]');
+    if (typeof candidate === 'function' || typeof candidate === 'symbol') return JSON.stringify(`[${typeof candidate} omitted]`);
+    if (typeof candidate !== 'object') return JSON.stringify(String(candidate));
+    if (ancestors.has(candidate)) return JSON.stringify('[circular reference omitted]');
+
+    ancestors.add(candidate);
+    let result: string;
+    if (Array.isArray(candidate)) {
+      result = `[${candidate.map(visit).join(',')}]`;
+    } else {
+      const record = candidate as Record<string, unknown>;
+      result = `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${visit(record[key])}`).join(',')}}`;
+    }
+    ancestors.delete(candidate);
+    return result;
+  };
+  return visit(value);
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }
 
 export function createProtocolState(): ProtocolState {

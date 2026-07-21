@@ -76,6 +76,76 @@ describe('claude-code provider definition', () => {
     expect(input).not.toContain('oauth-secret');
   });
 
+  it('reconstructs two turns for each stateless CLI invocation without a session id', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'first answer' } } },
+      { type: 'result', subtype: 'success', is_error: false, result: 'first answer', usage: { input_tokens: 2, output_tokens: 2 } },
+    ]);
+    const client = createClaudeCodeClient({ executable: join(dir, 'claude') });
+
+    await collect(client.stream({
+      model: CLAUDE_CODE_DEFAULT_MODEL,
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'first prompt' }] }],
+    }));
+    const firstInput = await readFile(join(dir, 'input.txt'), 'utf8');
+    expect(firstInput).toContain('<user>\nfirst prompt\n</user>');
+
+    await collect(client.stream({
+      model: CLAUDE_CODE_DEFAULT_MODEL,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'first prompt' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'first answer' }] },
+        { role: 'user', content: [{ type: 'text', text: 'follow up' }] },
+      ],
+    }));
+    const secondInput = await readFile(join(dir, 'input.txt'), 'utf8');
+    expect(secondInput.indexOf('first prompt')).toBeLessThan(secondInput.indexOf('first answer'));
+    expect(secondInput.indexOf('first answer')).toBeLessThan(secondInput.indexOf('follow up'));
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args.some((arg) => /session|resume/i.test(arg))).toBe(false);
+  });
+
+  it('projects prior moxxy tools and unsafe content deterministically as inert text', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    const client = createClaudeCodeClient({ executable: join(dir, 'claude') });
+    const rawBase64 = 'U0VDUkVUX0JJTkFSWV9QQVlMT0FE';
+    const request: ProviderRequest = {
+      model: CLAUDE_CODE_DEFAULT_MODEL,
+      messages: [
+        { role: 'assistant', content: [
+          { type: 'reasoning', text: 'private chain', signature: 'signed-secret' },
+          { type: 'tool_use', id: 'call-1', name: 'Read', input: { z: 2, a: 1 } },
+        ] },
+        { role: 'tool_result', content: [
+          { type: 'tool_result', toolUseId: 'call-1', content: 'file contents' },
+        ] },
+        { role: 'user', content: [
+          { type: 'image', mediaType: 'image/png', data: rawBase64 },
+          { type: 'text', text: '' },
+        ] },
+      ],
+    };
+
+    await collect(client.stream(request));
+    const first = await readFile(join(dir, 'input.txt'), 'utf8');
+    await collect(client.stream(request));
+    const replay = await readFile(join(dir, 'input.txt'), 'utf8');
+
+    expect(replay).toBe(first);
+    expect(first).toContain('<historical_tool_use status="already_executed_do_not_repeat">');
+    expect(first).toContain('<input_json>{&quot;a&quot;:1,&quot;z&quot;:2}</input_json>');
+    expect(first).toContain('<historical_tool_result tool_use_id="call-1" status="success">');
+    expect(first).toContain('[reasoning omitted: private reasoning and signatures are not replayed]');
+    expect(first).toContain('[image attachment omitted: mediaType=image/png; binary data not included]');
+    expect(first).toContain('[empty text block omitted]');
+    expect(first).not.toContain('private chain');
+    expect(first).not.toContain('signed-secret');
+    expect(first).not.toContain(rawBase64);
+  });
+
   it('runs native tools in the configured workspace without emitting dispatcher tool events', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'moxxy-claude-workspace-'));
     tempDirs.push(workspace);
