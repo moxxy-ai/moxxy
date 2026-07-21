@@ -57,12 +57,6 @@ export interface BuiltinRequirementDecision {
 }
 
 export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequirementDecision>> = {
-  '@moxxy/plugin-provider-anthropic': { hardRequirements: false, reason: 'provider is independently activatable' },
-  '@moxxy/plugin-provider-openai': { hardRequirements: false, reason: 'provider is independently activatable' },
-  '@moxxy/plugin-provider-zai': { hardRequirements: false, reason: 'provider is independently activatable' },
-  '@moxxy/plugin-provider-xai': { hardRequirements: false, reason: 'provider is independently activatable' },
-  '@moxxy/plugin-provider-google': { hardRequirements: false, reason: 'provider is independently activatable' },
-  '@moxxy/plugin-provider-local': { hardRequirements: false, reason: 'local provider needs no credentials; activatable without setup' },
   '@moxxy/tools-builtin': { hardRequirements: false, reason: 'core tool pack has no plugin dependency' },
   '@moxxy/mode-default': { hardRequirements: false, reason: 'default mode has no plugin dependency' },
   '@moxxy/mode-goal': { hardRequirements: false, reason: 'mode ships its own goal_complete/goal_abandon tools; no hard plugin dependency' },

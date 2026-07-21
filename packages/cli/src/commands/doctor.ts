@@ -151,7 +151,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
       });
       continue;
     }
-    const resolved = await tryCatch(() => resolveProviderCredentials(def, vault, {
+    const resolved = await tryCatch(() => resolveProviderCredentials(def, vault, { cwd: session.cwd }, {
       interactive: false,
       providerConfig: config.plugins?.provider?.items?.[name]?.config ?? {},
     }));

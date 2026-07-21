@@ -87,7 +87,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       try {
         const def = session.providers.list().find((provider) => provider.name === candidate);
         if (!def) throw new Error(`Provider "${candidate}" is not registered.`);
-        const resolved = await resolveProviderCredentials(def, vault, {
+        const resolved = await resolveProviderCredentials(def, vault, { cwd: session.cwd }, {
           providerConfig: effectiveProviderConfig(candidate),
           interactive,
         });
@@ -140,7 +140,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   for (const p of session.providers.list()) {
     if (readyProviders.has(p.name)) continue;
     try {
-      await resolveProviderCredentials(p, vault, {
+      await resolveProviderCredentials(p, vault, { cwd: session.cwd }, {
         interactive: false,
         providerConfig: effectiveProviderConfig(p.name),
       });
@@ -161,7 +161,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   const credentialResolver: CredentialResolver = async (providerName) => {
     const def = session.providers.list().find((provider) => provider.name === providerName);
     if (!def) throw new Error(`Provider \"${providerName}\" is not registered.`);
-    return resolveProviderCredentials(def, vault, {
+    return resolveProviderCredentials(def, vault, { cwd: session.cwd }, {
       interactive: false,
       providerConfig: effectiveProviderConfig(providerName),
     });

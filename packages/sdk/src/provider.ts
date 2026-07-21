@@ -212,9 +212,16 @@ export interface ProviderAuthContext {
  * refresh callbacks, and other provider-specific credential details inside the
  * provider plugin instead of teaching hosts about individual providers.
  */
+export interface ProviderHostContext {
+  /** Absolute workspace used by the session that is activating the provider. */
+  readonly cwd: string;
+}
+
 export interface ProviderCredentialContext {
   readonly vault: ProviderVault;
   readonly providerConfig: Readonly<Record<string, unknown>>;
+  /** Provider-neutral host state that must survive activation and runtime switching. */
+  readonly host: ProviderHostContext;
 }
 
 export interface ProviderOAuthResult {

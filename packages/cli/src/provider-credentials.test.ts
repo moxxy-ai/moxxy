@@ -11,14 +11,16 @@ describe('resolveProviderCredentials', () => {
   it('delegates custom authentication to the provider', async () => {
     const resolveCredentials = vi.fn(async ({ providerConfig }) => ({ ...providerConfig, token: 'subscription' }));
     const provider = defineProvider({ name: 'subscription-provider', models: [], createClient: () => client('subscription-provider'), resolveCredentials });
-    await expect(resolveProviderCredentials(provider, vault, { providerConfig: { model: 'm1' } }))
+    await expect(resolveProviderCredentials(provider, vault, { cwd: '/workspace' }, { providerConfig: { model: 'm1' } }))
       .resolves.toEqual({ model: 'm1', token: 'subscription' });
-    expect(resolveCredentials).toHaveBeenCalledWith(expect.objectContaining({ vault, providerConfig: { model: 'm1' } }));
+    expect(resolveCredentials).toHaveBeenCalledWith(expect.objectContaining({
+      vault, providerConfig: { model: 'm1' }, host: { cwd: '/workspace' },
+    }));
   });
 
   it('passes config through for providers that require no credentials', async () => {
     const provider = defineProvider({ name: 'local', models: [], createClient: () => client('local'), auth: { kind: 'none' } });
-    await expect(resolveProviderCredentials(provider, vault, { providerConfig: { baseURL: 'http://localhost' } }))
+    await expect(resolveProviderCredentials(provider, vault, { cwd: '/workspace' }, { providerConfig: { baseURL: 'http://localhost' } }))
       .resolves.toEqual({ baseURL: 'http://localhost' });
   });
 
@@ -27,6 +29,6 @@ describe('resolveProviderCredentials', () => {
       name: 'broken-oauth', models: [], createClient: () => client('broken-oauth'),
       auth: { kind: 'oauth', login: async () => ({}) },
     });
-    await expect(resolveProviderCredentials(provider, vault)).rejects.toThrow(/resolveCredentials/);
+    await expect(resolveProviderCredentials(provider, vault, { cwd: '/workspace' })).rejects.toThrow(/resolveCredentials/);
   });
 });

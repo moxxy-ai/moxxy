@@ -60,17 +60,28 @@ describe('activateProvider', () => {
     ).toEqual({ ready: true, issues: [] });
   });
 
-  it('delegates credentials and provider-specific config to the selected provider', async () => {
-    const resolveCredentials = vi.fn(async ({ providerConfig }) => ({ ...providerConfig, credential: 'ready' }));
-    const custom = { ...testProvider('custom'), resolveCredentials };
+  it('carries the session workspace through production activation', async () => {
+    const createClient = vi.fn(() => ({
+      name: 'custom', models: [], stream: async function* () {}, countTokens: async () => 0,
+    }));
+    const resolveCredentials = vi.fn(async ({ providerConfig, host }) => ({
+      ...providerConfig, credential: 'ready', cwd: host.cwd,
+    }));
+    const custom = defineProvider({ name: 'custom', models: [], createClient, resolveCredentials });
     const session = makeSession([custom]);
+    expect(session.cwd).not.toBe(process.cwd());
+
     const result = await activateProvider({
       ...baseArgs,
       session,
       config: { plugins: { provider: { default: 'custom', items: { custom: { config: { option: true } } } } } },
       providerConfig: {},
     });
-    expect(result.activated).toEqual({ name: 'custom', cfg: { option: true, credential: 'ready' } });
-    expect(resolveCredentials).toHaveBeenCalledWith(expect.objectContaining({ providerConfig: { option: true } }));
+    const expected = { option: true, credential: 'ready', cwd: session.cwd };
+    expect(result.activated).toEqual({ name: 'custom', cfg: expected });
+    expect(resolveCredentials).toHaveBeenCalledWith(expect.objectContaining({
+      providerConfig: { option: true }, host: { cwd: session.cwd },
+    }));
+    expect(createClient).toHaveBeenCalledWith(expected);
   });
 });

@@ -1,4 +1,4 @@
-import type { ProviderDef } from '@moxxy/sdk';
+import type { ProviderDef, ProviderHostContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { storedProviderApiKeyName } from '@moxxy/plugin-provider-admin';
 import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
@@ -11,11 +11,12 @@ import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
 export async function resolveProviderCredentials(
   provider: ProviderDef,
   vault: VaultStore,
+  host: ProviderHostContext,
   opts: ResolveOptions = {},
 ): Promise<Record<string, unknown>> {
   const providerConfig = { ...(opts.providerConfig ?? {}) };
   if (provider.resolveCredentials) {
-    return provider.resolveCredentials({ vault, providerConfig });
+    return provider.resolveCredentials({ vault, providerConfig, host });
   }
   if (provider.auth?.kind === 'oauth') {
     throw new Error(

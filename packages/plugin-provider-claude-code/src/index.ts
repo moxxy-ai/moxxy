@@ -24,8 +24,8 @@ export const claudeCodeProviderDef = defineProvider({
         ? (config as { model: string }).model
         : (config as ClaudeCodeProviderConfig).defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL,
   }),
-  async resolveCredentials({ providerConfig }) {
-    const config = { ...providerConfig };
+  async resolveCredentials({ providerConfig, host }) {
+    const config = { ...providerConfig, cwd: host.cwd };
     const executable = resolveClaudeExecutable(config);
     const status = await checkClaudeCliAuth(executable);
     if (status.state !== 'signed-in') {

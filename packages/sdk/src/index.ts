@@ -142,6 +142,7 @@ export type {
   ProviderKeyValidation,
   ProviderVault,
   ProviderAuthContext,
+  ProviderHostContext,
   ProviderCredentialContext,
   ProviderOAuthResult,
   ProviderOAuthStatus,
