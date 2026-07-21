@@ -14,6 +14,11 @@ import { buildConfigPlugin, loadConfig as loadMergedConfig, loadDisabledProvider
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './setup/builtin-skills-dir.js';
 import { buildVaultPlugin } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
+import {
+  findCatalogEntryForContribution,
+  installPluginPackagePinned,
+} from '@moxxy/plugin-plugins-admin';
+import { cliVersion } from './version.js';
 import { buildSessionConfigApplier } from './config-applier.js';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { selectEmbedder } from './setup/embedder.js';
@@ -141,7 +146,33 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     },
   };
 
-  const pluginRegistration = await registerPlugins(session, config, builtins, opts.cwd, logger);
+  let pluginRegistration = await registerPlugins(session, config, builtins, opts.cwd, logger);
+
+  // Compatibility migration for providers that used to ship inside the CLI.
+  // If any configured provider is missing but advertises itself through a
+  // provider-owned catalog manifest, install it into the normal user plugin
+  // directory and reload before activation. This is generic for every catalog
+  // provider (not a special case for the formerly bundled OAuth pair).
+  const configuredProviders = [
+    config.plugins?.provider?.default,
+    ...(config.plugins?.provider?.fallbacks ?? []),
+  ].filter((name): name is string => typeof name === 'string' && name.length > 0);
+  for (const name of new Set(configuredProviders)) {
+    if (session.providers.list().some((provider) => provider.name === name)) continue;
+    const entry = findCatalogEntryForContribution('provider', name);
+    if (!entry || config.plugins?.packages?.[entry.packageName]?.enabled === false) continue;
+    logger.info('installing configured provider on first use', { provider: name, package: entry.packageName });
+    await installPluginPackagePinned({
+      packageName: entry.installSpec,
+      ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+      onWarn: (message) => logger.warn(message),
+    });
+    await session.pluginHost.reload();
+    pluginRegistration = {
+      registered: new Set(session.pluginHost.list().map((plugin) => plugin.name)),
+      skipped: session.pluginHost.listSkipped(),
+    };
+  }
   progress({
     kind: 'plugins-registered',
     count: pluginRegistration.registered.size,

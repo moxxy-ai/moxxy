@@ -47,6 +47,19 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "provider"
+    },
+    "catalog": {
+      "label": "xAI (Grok)",
+      "description": "xAI Grok models. Needs an API key (moxxy init or /vault).",
+      "provides": [
+        {
+          "category": "provider",
+          "name": "xai"
+        }
+      ],
+      "provider": {
+        "auth": "key"
+      }
     }
   },
   "dependencies": {

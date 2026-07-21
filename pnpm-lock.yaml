@@ -1993,6 +1993,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.18
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

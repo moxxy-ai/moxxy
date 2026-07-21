@@ -19,17 +19,18 @@ export interface ProviderCatalogEntry {
  */
 export const PROVIDER_CATALOG: ReadonlyArray<ProviderCatalogEntry> =
   INSTALLABLE_PLUGIN_CATALOG.flatMap((entry) => {
-    const contribution = entry.provides?.find((provided) => provided.category === 'provider');
-    if (!contribution || !entry.provider) return [];
-    return [{
-      slug: contribution.name,
-      label: entry.label,
-      description: entry.description,
-      packageName: entry.packageName,
-      auth: entry.provider.auth,
-      ...(entry.provider.defaultModel ? { defaultModel: entry.provider.defaultModel } : {}),
-      ...(entry.provider.recommended ? { recommended: true } : {}),
-    }];
+    if (!entry.provider) return [];
+    return (entry.provides ?? [])
+      .filter((provided) => provided.category === 'provider')
+      .map((contribution) => ({
+        slug: contribution.name,
+        label: entry.label,
+        description: entry.description,
+        packageName: entry.packageName,
+        auth: entry.provider!.auth,
+        ...(entry.provider!.defaultModel ? { defaultModel: entry.provider!.defaultModel } : {}),
+        ...(entry.provider!.recommended ? { recommended: true } : {}),
+      }));
   });
 
 export function resolveProvider(slugOrPackage: string): ProviderCatalogEntry | undefined {

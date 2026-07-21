@@ -12,7 +12,7 @@ import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
 import { embedderSelection } from '../setup/resolve-plugins-tree.js';
 import type { RegistrationResult } from '../setup/register-plugins.js';
-import { canonicalKey } from '../provider-keys.js';
+import { resolveProviderCredentials } from '../provider-credentials.js';
 import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
 
@@ -133,9 +133,14 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   }
 
   // Providers
-  const primary = config.plugins?.provider?.default ?? 'anthropic';
+  const primary = config.plugins?.provider?.default;
   const fallbacks = config.plugins?.provider?.fallbacks ?? [];
-  const providerNames = Array.from(new Set([primary, ...fallbacks]));
+  const providerNames = Array.from(new Set([primary, ...fallbacks].filter(
+    (name): name is string => typeof name === 'string' && name.length > 0,
+  )));
+  if (providerNames.length === 0) {
+    checks.push({ id: 'providers', status: 'warn', message: 'no provider configured — run moxxy init' });
+  }
   for (const name of providerNames) {
     const def = session.providers.list().find((p) => p.name === name);
     if (!def) {
@@ -146,55 +151,27 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
       });
       continue;
     }
-    if (def.resolveCredentials || def.auth?.kind === 'oauth' || def.auth?.kind === 'none') {
-      const resolved = await tryCatch(() => def.resolveCredentials
-        ? def.resolveCredentials({
-            vault,
-            providerConfig: config.plugins?.provider?.items?.[name]?.config ?? {},
-          })
-        : Promise.resolve(config.plugins?.provider?.items?.[name]?.config ?? {}));
-      checks.push({
-        id: `provider:${name}`,
-        status: resolved.ok ? 'ok' : 'warn',
-        message: resolved.ok ? 'credentials ready' : resolved.error,
-      });
+    const resolved = await tryCatch(() => resolveProviderCredentials(def, vault, {
+      interactive: false,
+      providerConfig: config.plugins?.provider?.items?.[name]?.config ?? {},
+    }));
+    if (!resolved.ok) {
+      checks.push({ id: `provider:${name}`, status: 'warn', message: resolved.error });
       continue;
     }
-    const canonical = canonicalKey(name);
-    let key: string | null = null;
-    try {
-      key = await vault.get(canonical);
-    } catch {
-      // vault unavailable already reported
-    }
-    if (!key) key = process.env[canonical] ?? null;
-    if (!key) {
-      checks.push({
-        id: `provider:${name}`,
-        status: 'warn',
-        message: `no key in vault or ${canonical} env — interactive prompt would fire`,
-      });
-      continue;
-    }
-    if (checkKeys && def.validateKey) {
-      const v = await tryCatch(() => def.validateKey!(key!));
-      if (!v.ok) {
-        checks.push({
-          id: `provider:${name}`,
-          status: 'fail',
-          message: `validateKey threw: ${v.error}`,
-        });
-      } else if (!v.value.ok) {
-        checks.push({
-          id: `provider:${name}`,
-          status: 'fail',
-          message: v.value.message,
-        });
+    if (checkKeys && def.validateKey && typeof resolved.value.apiKey === 'string') {
+      const validation = await tryCatch(() => def.validateKey!(resolved.value.apiKey as string));
+      let check: Check;
+      if (!validation.ok) {
+        check = { id: `provider:${name}`, status: 'fail', message: validation.error };
+      } else if (!validation.value.ok) {
+        check = { id: `provider:${name}`, status: 'fail', message: validation.value.message };
       } else {
-        checks.push({ id: `provider:${name}`, status: 'ok', message: 'key resolved + validated' });
+        check = { id: `provider:${name}`, status: 'ok', message: 'credentials ready + validated' };
       }
+      checks.push(check);
     } else {
-      checks.push({ id: `provider:${name}`, status: 'ok', message: 'key resolved' });
+      checks.push({ id: `provider:${name}`, status: 'ok', message: 'credentials ready' });
     }
   }
 
@@ -214,7 +191,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   }
 
   // Voice / STT
-  checks.push(buildVoiceDoctorCheck(await checkVoiceCaptureAvailable()));
+  checks.push(buildVoiceDoctorCheck(session, await checkVoiceCaptureAvailable()));
 
   // Plugins
   checks.push(...buildPluginDoctorChecks(pluginRegistration));
@@ -288,16 +265,30 @@ export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Chec
   return { id: 'self-update', status: 'warn', message: `Tier 1 ready; Tier 2 unavailable — ${failed}` };
 }
 
-export function buildVoiceDoctorCheck(captureReadiness: import('@moxxy/sdk').RequirementCheck): Check {
-  if (captureReadiness.ready) {
-    return { id: 'voice', status: 'ok', message: 'audio capture available' };
+export function buildVoiceDoctorCheck(
+  session: Pick<Session, 'transcribers'>,
+  captureReadiness: import('@moxxy/sdk').RequirementCheck,
+): Check {
+  if (!captureReadiness.ready) {
+    const issue = captureReadiness.issues[0];
+    return {
+      id: 'voice',
+      status: 'warn',
+      message: issue?.hint ? issue.hint.replace(/`/g, '').replace(/\.$/, '') : issue?.message ?? 'audio capture unavailable',
+    };
   }
-  const issue = captureReadiness.issues[0];
-  return {
-    id: 'voice',
-    status: 'warn',
-    message: issue?.hint ? issue.hint.replace(/`/g, '').replace(/\.$/, '') : issue?.message ?? 'audio capture unavailable',
-  };
+  const active = session.transcribers.getActiveName();
+  if (!active) {
+    const registered = session.transcribers.list().map((def) => def.name);
+    return {
+      id: 'voice',
+      status: 'warn',
+      message: registered.length > 0
+        ? `audio capture available; no active transcriber (installed: ${registered.join(', ')})`
+        : 'audio capture available; no transcriber installed',
+    };
+  }
+  return { id: 'voice', status: 'ok', message: `ready — transcriber=${active}` };
 }
 
 export function buildPluginDoctorChecks(summary: RegistrationResult): Check[] {
