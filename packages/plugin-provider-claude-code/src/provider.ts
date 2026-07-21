@@ -1,7 +1,7 @@
 import type { LLMProvider, ModelDescriptor, ProviderEvent, ProviderRequest } from '@moxxy/sdk';
 import { estimateTextTokens } from '@moxxy/sdk';
 import { CLAUDE_CODE_PROVIDER_ID } from './constants.js';
-import { runClaudeProcess, type ClaudeSpawn } from './process.js';
+import { ClaudeProcessError, runClaudeProcess, type ClaudeSpawn } from './process.js';
 import { createProtocolState, parseClaudeRecord, serializeClaudePrompt } from './protocol.js';
 
 export const CLAUDE_CODE_DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -50,6 +50,14 @@ export interface ClaudeCodeProviderConfig {
   readonly defaultModel?: string;
   /** Process test seam; production callers should leave this unset. */
   readonly spawn?: ClaudeSpawn;
+  /** Time allowed for the first stream record. Defaults to 30 seconds. */
+  readonly startupTimeoutMs?: number;
+  /** Maximum silence between stream records. Defaults to 120 seconds. */
+  readonly idleTimeoutMs?: number;
+  /** Maximum captured stderr characters. Defaults to 2048. */
+  readonly maxStderrChars?: number;
+  /** Maximum characters in one stdout stream-json record. Defaults to 64 KiB. */
+  readonly maxRecordChars?: number;
 }
 
 export class ClaudeCodeProvider implements LLMProvider {
@@ -63,6 +71,10 @@ export class ClaudeCodeProvider implements LLMProvider {
   private readonly allowedTools: ReadonlyArray<string>;
   private readonly cwd: string;
   private readonly spawn?: ClaudeSpawn;
+  private readonly startupTimeoutMs?: number;
+  private readonly idleTimeoutMs?: number;
+  private readonly maxStderrChars?: number;
+  private readonly maxRecordChars?: number;
 
   constructor(config: ClaudeCodeProviderConfig = {}) {
     this.executable = config.executable ?? 'claude';
@@ -72,6 +84,10 @@ export class ClaudeCodeProvider implements LLMProvider {
     this.allowedTools = config.allowedTools ?? [];
     this.cwd = config.cwd ?? process.cwd();
     if (config.spawn) this.spawn = config.spawn;
+    if (config.startupTimeoutMs) this.startupTimeoutMs = config.startupTimeoutMs;
+    if (config.idleTimeoutMs) this.idleTimeoutMs = config.idleTimeoutMs;
+    if (config.maxStderrChars) this.maxStderrChars = config.maxStderrChars;
+    if (config.maxRecordChars) this.maxRecordChars = config.maxRecordChars;
   }
 
   async *stream(req: ProviderRequest): AsyncIterable<ProviderEvent> {
@@ -101,19 +117,19 @@ export class ClaudeCodeProvider implements LLMProvider {
         ...(this.permissionMode ? { permissionMode: this.permissionMode } : {}),
         ...(req.signal ? { signal: req.signal } : {}),
         ...(this.spawn ? { spawn: this.spawn } : {}),
+        ...(this.startupTimeoutMs ? { startupTimeoutMs: this.startupTimeoutMs } : {}),
+        ...(this.idleTimeoutMs ? { idleTimeoutMs: this.idleTimeoutMs } : {}),
+        ...(this.maxStderrChars ? { maxStderrChars: this.maxStderrChars } : {}),
+        ...(this.maxRecordChars ? { maxRecordChars: this.maxRecordChars } : {}),
       });
       while (true) {
         const next = await lines.next();
         if (next.done) {
           if (next.value.exitCode !== 0 && !terminal) {
-            yield {
-              type: 'error',
-              message: claudeCliError(
-                model,
-                next.value.stderr || `Claude CLI exited with code ${next.value.exitCode}`,
-              ),
-              retryable: false,
-            };
+            yield classifyClaudeFailure(
+              model,
+              next.value.stderr || `Claude CLI exited unexpectedly with code ${next.value.exitCode}`,
+            );
             return;
           }
           break;
@@ -122,7 +138,7 @@ export class ClaudeCodeProvider implements LLMProvider {
           if (event.type === 'message_end') terminal = true;
           if (event.type === 'error') {
             terminal = true;
-            yield { ...event, message: claudeCliError(model, event.message) };
+            yield classifyClaudeFailure(model, event.message);
           } else {
             yield event;
           }
@@ -132,7 +148,15 @@ export class ClaudeCodeProvider implements LLMProvider {
         yield { type: 'error', message: 'Claude CLI ended without a terminal result record', retryable: false };
       }
     } catch (error) {
-      yield nonRetryableError(error);
+      if (error instanceof ClaudeProcessError) {
+        yield {
+          type: 'error',
+          message: error.message,
+          retryable: error.failure === 'startup_timeout' || error.failure === 'idle_timeout',
+        };
+      } else {
+        yield classifySpawnFailure(error, this.executable);
+      }
     }
   }
 
@@ -173,13 +197,44 @@ function assertTextOnlyRequest(req: ProviderRequest): void {
   }
 }
 
-function claudeCliError(model: string, detail: string): string {
-  if (/permission|denied|not allowed/i.test(detail)) {
-    return `Claude Code permission denied: ${detail}. ` +
-      'Review plugins.provider.items.claude-code.config.permissionMode and allowedTools.';
+function classifyClaudeFailure(model: string, detail: string): ProviderEvent {
+  if (/rate.?limit|too many requests|\b429\b|overload|temporar|unavailable|service error|\b5\d\d\b/i.test(detail)) {
+    return { type: 'error', message: `Claude Code service failure: ${detail}`, retryable: true };
   }
-  return `Claude Code rejected model "${model}": ${detail}. ` +
-    `Select a supported model: ${claudeCodeModels.map((candidate) => candidate.id).join(', ')}.`;
+  if (/not logged in|signed out|login required|authenticate|authentication|unauthorized|invalid.*(?:token|credential)|\b401\b/i.test(detail)) {
+    return {
+      type: 'error',
+      message: `Claude CLI is signed out or its authentication was rejected: ${detail}. Run \`moxxy login claude-code\` to sign in again.`,
+      retryable: false,
+    };
+  }
+  if (/permission|denied|not allowed|forbidden|\b403\b/i.test(detail)) {
+    return {
+      type: 'error',
+      message: `Claude Code permission denied: ${detail}. Review plugins.provider.items.claude-code.config.permissionMode and allowedTools.`,
+      retryable: false,
+    };
+  }
+  if (/model|unknown model|invalid model/i.test(detail)) {
+    return {
+      type: 'error',
+      message: `Claude Code rejected model "${model}": ${detail}. Select a supported model: ${claudeCodeModels.map((candidate) => candidate.id).join(', ')}.`,
+      retryable: false,
+    };
+  }
+  return { type: 'error', message: `Claude CLI failed: ${detail}`, retryable: false };
+}
+
+function classifySpawnFailure(error: unknown, executable: string): ProviderEvent {
+  const nodeError = error as NodeJS.ErrnoException;
+  if (nodeError?.code === 'ENOENT') {
+    return {
+      type: 'error',
+      message: `Claude CLI executable not found: ${executable}. Install it with \`npm install -g @anthropic-ai/claude-code\` or configure plugins.provider.items.claude-code.config.executable.`,
+      retryable: false,
+    };
+  }
+  return nonRetryableError(error);
 }
 
 function nonRetryableError(error: unknown): ProviderEvent {
