@@ -78,6 +78,24 @@ describe('resolveProviderCredentials', () => {
     expect(cfg.apiKey).toBe('sk-canonical');
   });
 
+  it('activates claude-code without a vault token and preserves provider config', async () => {
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    const cfg = await resolveProviderCredentials('claude-code', vault, {
+      interactive: false,
+      providerConfig: { executable: '/opt/bin/claude' },
+    });
+    expect(cfg).toEqual({ executable: '/opt/bin/claude' });
+  });
+
+  it('passes a stored claude-code token to the provider config', async () => {
+    await vault.set('oauth/claude-code/access_token', 'stored-claude-token');
+    await vault.set('oauth/claude-code/client_id', 'claude-client');
+    await vault.set('oauth/claude-code/token_url', 'https://example.test/oauth/token');
+    const cfg = await resolveProviderCredentials('claude-code', vault, { interactive: false });
+    expect(cfg.oauthToken).toBe('stored-claude-token');
+  });
+
   it('passes provider.config options through to the codex client config', async () => {
     // Seed the OAuth bundle the codex resolver reads. client_id + token_url
     // are required setup-meta — readStoredCreds treats their absence as a
