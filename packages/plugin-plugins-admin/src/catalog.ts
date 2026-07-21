@@ -5,31 +5,9 @@
  * folded here so plugin install + lifecycle live in one package.
  */
 import { PROVIDER_PLUGIN_CATALOG } from './provider-catalog.generated.js';
+import type { PluginCatalogEntry } from './catalog-types.js';
 
-export interface PluginCatalogEntry {
-  readonly id: string;
-  readonly label: string;
-  readonly description: string;
-  readonly packageName: string;
-  readonly installSpec: string;
-  readonly startCommand?: string;
-  readonly defaultPort?: number;
-  readonly kind?: 'ui' | 'runtime' | 'cli';
-  /**
-   * Registry contributions this package provides, so surfaces can offer
-   * "install on first use" at the point a missing capability is asked for
-   * (`/goal` without mode-goal, an uninstalled mode in the picker, a
-   * `set_default` naming it). Category = registry kind (`mode`, `provider`,
-   * …), name = the contribution's registered name.
-   */
-  readonly provides?: ReadonlyArray<{ readonly category: string; readonly name: string }>;
-  /** Provider onboarding metadata, present only for provider packages. */
-  readonly provider?: {
-    readonly auth: 'key' | 'oauth' | 'none';
-    readonly defaultModel?: string;
-    readonly recommended?: boolean;
-  };
-}
+export type { PluginCatalogEntry } from './catalog-types.js';
 
 export interface PluginPickerOption {
   readonly value: string;

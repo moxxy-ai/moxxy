@@ -4,8 +4,6 @@ import {
   definePlugin,
   defineProvider,
   type ProviderDef,
-  type ProviderEvent,
-  type ProviderRequest,
 } from '@moxxy/sdk';
 import { activateProvider } from './activate-provider.js';
 
