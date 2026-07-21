@@ -1,6 +1,7 @@
 import { defineProvider, definePlugin } from '@moxxy/sdk';
 import { CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
 import {
+  CLAUDE_CODE_DEFAULT_MODEL,
   claudeCodeModels,
   createClaudeCodeClient,
   type ClaudeCodeProviderConfig,
@@ -10,7 +11,13 @@ import { claudeLogin, claudeLogout, claudeStatus } from './login.js';
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
   models: claudeCodeModels,
-  createClient: (config) => createClaudeCodeClient(config as ClaudeCodeProviderConfig),
+  createClient: (config) => createClaudeCodeClient({
+    ...(config as ClaudeCodeProviderConfig),
+    defaultModel:
+      typeof (config as { model?: unknown }).model === 'string'
+        ? (config as { model: string }).model
+        : (config as ClaudeCodeProviderConfig).defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL,
+  }),
   // No validateKey: readiness is reported by the installed Claude CLI.
   auth: {
     kind: 'oauth',
@@ -46,4 +53,9 @@ export {
   type ClaudeCommandResult,
   __setClaudeCommandRunner,
 } from './login.js';
-export { claudeCodeModels, createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';
+export {
+  CLAUDE_CODE_DEFAULT_MODEL,
+  claudeCodeModels,
+  createClaudeCodeClient,
+  type ClaudeCodeProviderConfig,
+} from './provider.js';
