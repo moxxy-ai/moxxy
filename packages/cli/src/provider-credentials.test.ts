@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { VaultStore, createStaticKeySource, deriveKey, generateSalt } from '@moxxy/plugin-vault';
+import { __setClaudeCommandRunner } from '@moxxy/plugin-provider-claude-code';
 import { resolveProviderCredentials } from './provider-credentials.js';
 
 let tmp: string;
@@ -18,6 +19,9 @@ beforeEach(async () => {
     filePath: path.join(tmp, 'vault.json'),
     keySource: createStaticKeySource(deriveKey('test', generateSalt())),
   });
+  __setClaudeCommandRunner(async () => ({
+    code: 0, stdout: JSON.stringify({ loggedIn: true }), stderr: '',
+  }));
 });
 
 afterEach(async () => {
@@ -88,12 +92,40 @@ describe('resolveProviderCredentials', () => {
     expect(cfg).toEqual({ executable: '/opt/bin/claude' });
   });
 
-  it('passes a stored claude-code token to the provider config', async () => {
+  it('preserves but neither reads nor forwards stored claude-code tokens', async () => {
     await vault.set('oauth/claude-code/access_token', 'stored-claude-token');
-    await vault.set('oauth/claude-code/client_id', 'claude-client');
-    await vault.set('oauth/claude-code/token_url', 'https://example.test/oauth/token');
     const cfg = await resolveProviderCredentials('claude-code', vault, { interactive: false });
-    expect(cfg.oauthToken).toBe('stored-claude-token');
+    expect(cfg).toEqual({ executable: 'claude' });
+    expect(await vault.get('oauth/claude-code/access_token')).toBe('stored-claude-token');
+  });
+
+  it('rejects activation when the CLI is signed out', async () => {
+    __setClaudeCommandRunner(async () => ({ code: 0, stdout: '{"loggedIn":false}', stderr: '' }));
+    await expect(resolveProviderCredentials('claude-code', vault, { interactive: false }))
+      .rejects.toThrow(/signed out/);
+  });
+
+  it('passes a configured executable path containing spaces as one value', async () => {
+    const seen: string[] = [];
+    __setClaudeCommandRunner(async (executable) => {
+      seen.push(executable);
+      return { code: 0, stdout: '{"loggedIn":true}', stderr: '' };
+    });
+    const executable = '/Applications/Claude Code/bin/claude';
+    const cfg = await resolveProviderCredentials('claude-code', vault, {
+      interactive: false, providerConfig: { executable },
+    });
+    expect(seen).toEqual([executable]);
+    expect(cfg.executable).toBe(executable);
+  });
+
+  it('rejects unsupported and failed auth-status commands', async () => {
+    __setClaudeCommandRunner(async () => ({ code: 1, stdout: '', stderr: 'unknown command auth' }));
+    await expect(resolveProviderCredentials('claude-code', vault, { interactive: false }))
+      .rejects.toThrow(/does not support/);
+    __setClaudeCommandRunner(async () => ({ code: 2, stdout: '', stderr: 'broken config' }));
+    await expect(resolveProviderCredentials('claude-code', vault, { interactive: false }))
+      .rejects.toThrow(/broken config/);
   });
 
   it('passes provider.config options through to the codex client config', async () => {

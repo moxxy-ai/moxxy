@@ -165,10 +165,10 @@ async function runLoginProvider(
     const expires =
       result.expiresAt !== undefined
         ? `token expires ${new Date(result.expiresAt).toLocaleString()}`
-        : 'credentials stored';
+        : 'sign-in ready';
     const rows: Array<[string, string]> = [
       ['account', result.accountId ?? '(none)'],
-      ['token', expires],
+      ['auth', expires],
     ];
     const col = Math.max(...rows.map(([k]) => k.length));
     process.stdout.write(colors.bold('logged in') + '\n');
@@ -231,6 +231,13 @@ async function runLoginStatus(argv: ParsedArgv, session: Session, vault: VaultSt
       continue;
     }
     const status = await auth.status(ctx);
+    if (status?.authState && status.authState !== 'signed-in') {
+      process.stdout.write(
+        `${colors.bold(def.name)}  ${colors.dim(status.authState)}\n` +
+          `${' '.repeat(def.name.length)}  ${colors.dim(status.message ?? 'authentication is not ready')}\n`,
+      );
+      continue;
+    }
     if (!status) {
       process.stdout.write(
         `${colors.bold(def.name)}  ${colors.dim('not logged in')}\n` +

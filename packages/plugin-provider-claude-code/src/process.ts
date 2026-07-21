@@ -15,8 +15,6 @@ export interface ClaudeProcessOptions {
   readonly executable: string;
   readonly model: string;
   readonly prompt: string;
-  /** Optional moxxy-managed bearer passed only in the child's environment. */
-  readonly oauthToken?: string;
   readonly signal?: AbortSignal;
   readonly spawn?: ClaudeSpawn;
 }
@@ -42,10 +40,7 @@ export async function* runClaudeProcess(
     '--model',
     options.model,
   ];
-  const env = {
-    ...process.env,
-    ...(options.oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN: options.oauthToken } : {}),
-  };
+  const env = { ...process.env };
   const spawnImpl = options.spawn ?? ((file, childArgs, childOptions) => spawn(file, [...childArgs], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: childOptions.env,

@@ -7,6 +7,7 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
+import { checkClaudeCliAuth, resolveClaudeExecutable } from '@moxxy/plugin-provider-claude-code';
 import type { RequirementIssue } from '@moxxy/sdk';
 import type { RequirementCheck } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
@@ -148,6 +149,19 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
         id: `provider:${name}`,
         status: 'fail',
         message: `not registered (configured in provider.name or .fallbacks)`,
+      });
+      continue;
+    }
+    if (name === 'claude-code') {
+      const itemConfig = config.plugins?.provider?.items?.[name]?.config;
+      const executable = resolveClaudeExecutable(
+        itemConfig && typeof itemConfig === 'object' ? itemConfig as Record<string, unknown> : {},
+      );
+      const auth = await checkClaudeCliAuth(executable);
+      checks.push({
+        id: `provider:${name}`,
+        status: auth.state === 'signed-in' ? 'ok' : auth.state === 'missing' || auth.state === 'unsupported' ? 'fail' : 'warn',
+        message: auth.message,
       });
       continue;
     }

@@ -62,25 +62,27 @@ describe('claude-code provider definition', () => {
     expect(input).not.toContain('oauth-secret');
   });
 
-  it('passes a moxxy-managed token to the child environment without exposing it in args', async () => {
+  it('does not inject a moxxy-managed Claude token into the child environment', async () => {
     let childEnv: NodeJS.ProcessEnv | undefined;
+    const prior = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
-    const executable = join(dir, 'claude');
     const client = createClaudeCodeClient({
-      executable,
-      oauthToken: 'oauth-secret',
+      executable: join(dir, 'claude'),
       spawn: (file, args, options) => {
         childEnv = options.env;
         return spawn(file, [...args], { stdio: ['pipe', 'pipe', 'pipe'], env: options.env });
       },
     });
-
-    await collect(client.stream(textRequest()));
-    expect(childEnv?.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-secret');
-    expect(await readFile(join(dir, 'args.json'), 'utf8')).not.toContain('oauth-secret');
-    expect(await readFile(join(dir, 'input.txt'), 'utf8')).not.toContain('oauth-secret');
+    try {
+      await collect(client.stream(textRequest()));
+      expect(childEnv?.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    } finally {
+      if (prior === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = prior;
+    }
   });
 
   it('orders the identity, message-derived system text, and extra system text', async () => {

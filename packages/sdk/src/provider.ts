@@ -265,6 +265,10 @@ export interface ProviderOAuthStatus {
   readonly expiresAt?: number;
   /** Vault key the credentials are stored under (informational). */
   readonly vaultKey?: string;
+  /** Optional provider-specific state for keyless/external authentication. */
+  readonly authState?: string;
+  /** Actionable status detail shown by CLI and desktop surfaces. */
+  readonly message?: string;
 }
 
 export interface ProviderDef {
