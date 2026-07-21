@@ -3,7 +3,7 @@ import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
-import { providerDefault, providerSlot } from './resolve-plugins-tree.js';
+import { providerDefault, providerItem, providerSlot } from './resolve-plugins-tree.js';
 import type { BootStep } from './types.js';
 
 type Logger = {
@@ -51,6 +51,13 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   const candidates = [primaryProvider, ...fallbacks].filter(
     (c): c is string => typeof c === 'string' && c.length > 0,
   );
+  // The caller may overlay boot-time options onto the primary item's config.
+  // Every other path must still use that provider's own configured item rather
+  // than silently falling back to environment/default values.
+  const effectiveProviderConfig = (providerName: string): Record<string, unknown> =>
+    providerName === primaryProvider
+      ? providerConfig
+      : { ...(providerItem(config, providerName).config ?? {}) };
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;
   let lastErr: unknown = null;
@@ -72,7 +79,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       const interactive = i === 0 && !skipKeyPrompt && process.stdin.isTTY === true;
       try {
         const resolved = await resolveProviderCredentials(candidate, vault, {
-          providerConfig: i === 0 ? providerConfig : {},
+          providerConfig: effectiveProviderConfig(candidate),
           interactive,
         });
         activated = { name: candidate, cfg: resolved };
@@ -124,7 +131,10 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   for (const p of session.providers.list()) {
     if (readyProviders.has(p.name)) continue;
     try {
-      await resolveProviderCredentials(p.name, vault, { interactive: false });
+      await resolveProviderCredentials(p.name, vault, {
+        interactive: false,
+        providerConfig: effectiveProviderConfig(p.name),
+      });
       readyProviders.add(p.name);
       session.requirements.setRuntime(`auth:provider:${p.name}`, 'ready');
     } catch {
@@ -140,7 +150,10 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   // createClient({}) and OAuth-backed providers (openai-codex) throw
   // "no credentials" on the next turn.
   const credentialResolver: CredentialResolver = async (providerName) =>
-    resolveProviderCredentials(providerName, vault, { interactive: false });
+    resolveProviderCredentials(providerName, vault, {
+      interactive: false,
+      providerConfig: effectiveProviderConfig(providerName),
+    });
   session.credentialResolver = credentialResolver;
 
   return { activated, credentialResolver };
