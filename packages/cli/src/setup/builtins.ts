@@ -59,8 +59,6 @@ export interface BuiltinRequirementDecision {
 export const BUILTIN_REQUIREMENT_DECISIONS: Readonly<Record<string, BuiltinRequirementDecision>> = {
   '@moxxy/plugin-provider-anthropic': { hardRequirements: false, reason: 'provider is independently activatable' },
   '@moxxy/plugin-provider-openai': { hardRequirements: false, reason: 'provider is independently activatable' },
-  '@moxxy/plugin-provider-openai-codex': { hardRequirements: false, reason: 'provider owns its OAuth flow' },
-  '@moxxy/plugin-provider-claude-code': { hardRequirements: false, reason: 'provider owns its OAuth flow' },
   '@moxxy/plugin-provider-zai': { hardRequirements: false, reason: 'provider is independently activatable' },
   '@moxxy/plugin-provider-xai': { hardRequirements: false, reason: 'provider is independently activatable' },
   '@moxxy/plugin-provider-google': { hardRequirements: false, reason: 'provider is independently activatable' },

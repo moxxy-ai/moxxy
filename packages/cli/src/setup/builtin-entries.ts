@@ -1,14 +1,7 @@
 import { buildSynthesizeSkillPlugin, type Session } from '@moxxy/core';
 import { type CategoryView, type Plugin } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
-// The API-key providers (anthropic, openai, google, xai, zai, local) are NOT
-// bundled — they install on demand from npm via `moxxy init` / `moxxy provision`
-// into ~/.moxxy/plugins and are discovered by the plugin host, keeping the
-// kernel slim. The two OAuth/subscription providers stay bundled: they're the
-// out-of-box "sign in" default AND the CLI's credential resolver
-// (provider-credentials.ts) links their token helpers directly.
-import { openaiCodexPlugin } from '@moxxy/plugin-provider-openai-codex';
-import { claudeCodePlugin } from '@moxxy/plugin-provider-claude-code';
+// Provider plugins are installed/discovered like every other optional capability.
 import { builtinToolsPlugin } from '@moxxy/tools-builtin';
 import { defaultModePlugin } from '@moxxy/mode-default';
 import { collaborativeModePlugin } from '@moxxy/mode-collaborative';
@@ -86,10 +79,8 @@ export function buildBuiltinEntries(args: BuiltinEntriesArgs): BuiltinEntry[] {
   );
 
   return [
-    // Bundled OAuth providers (out-of-box "sign in"; CLI credential resolver
-    // links their token helpers). The API-key providers install on demand.
-    { name: '@moxxy/plugin-provider-openai-codex', plugin: openaiCodexPlugin },
-    { name: '@moxxy/plugin-provider-claude-code', plugin: claudeCodePlugin },
+    // Providers are never bundled here; discovery loads whichever provider packages
+    // the user installed and each ProviderDef owns its credential resolution.
     { name: '@moxxy/tools-builtin', plugin: builtinToolsPlugin },
     { name: '@moxxy/mode-default', plugin: defaultModePlugin },
     // mode-goal / mode-deep-research / plugin-subagents / plugin-oauth /

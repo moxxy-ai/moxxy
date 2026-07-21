@@ -206,6 +206,17 @@ export interface ProviderAuthContext {
   readonly prompt?: (question: string, opts?: { readonly mask?: boolean }) => Promise<string>;
 }
 
+/**
+ * Context supplied when a provider resolves the configuration needed by
+ * `createClient`. This keeps subscription tokens, external CLI probes, token
+ * refresh callbacks, and other provider-specific credential details inside the
+ * provider plugin instead of teaching hosts about individual providers.
+ */
+export interface ProviderCredentialContext {
+  readonly vault: ProviderVault;
+  readonly providerConfig: Readonly<Record<string, unknown>>;
+}
+
 export interface ProviderOAuthResult {
   /** Human-readable account identifier shown in the success message. */
   readonly accountId?: string | null;
@@ -218,12 +229,16 @@ export interface ProviderOAuthResult {
  * `ProviderDef`. Lets the CLI's setup wizard and `moxxy login` operate
  * generically over any installed provider — no CLI-side branch table.
  *
+ * `none`    : the provider requires no credentials; config passes through.
  * `apiKey`  : the host prompts for a key and calls `validateKey` (if any).
  * `oauth`   : the host hands the provider a `ProviderAuthContext`; the
  *             provider drives the full OAuth dance, including any local
  *             callback server, and persists tokens to `ctx.vault`.
  */
 export type ProviderAuthDescriptor =
+  | {
+      readonly kind: 'none';
+    }
   | {
       readonly kind: 'apiKey';
       /** Canonical env-var name (e.g. `ANTHROPIC_API_KEY`). Inferred when omitted. */
@@ -277,6 +292,13 @@ export interface ProviderDef {
   readonly name: string;
   readonly models: ReadonlyArray<ModelDescriptor>;
   createClient(config: Record<string, unknown>): LLMProvider;
+  /**
+   * Optional provider-owned credential/config resolver. Hosts call this before
+   * activation and pass the result to `createClient`. Providers that omit it
+   * use the generic API-key resolver (or their supplied config when auth is
+   * explicitly `none`).
+   */
+  resolveCredentials?(ctx: ProviderCredentialContext): Promise<Record<string, unknown>>;
   /**
    * Optional check that the given key is actually accepted by the vendor.
    * Implementations should be cheap (a free metadata call or a 1-token

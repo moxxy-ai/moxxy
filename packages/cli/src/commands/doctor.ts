@@ -7,9 +7,6 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
-import { checkClaudeCliAuth, resolveClaudeExecutable } from '@moxxy/plugin-provider-claude-code';
-import type { RequirementIssue } from '@moxxy/sdk';
-import type { RequirementCheck } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
@@ -27,9 +24,6 @@ export interface Check {
   readonly message: string;
 }
 
-const CODEX_TRANSCRIBER_NAME = 'openai-codex-transcribe';
-const CODEX_PROVIDER_NAME = 'openai-codex';
-const CODEX_AUTH_RUNTIME = 'auth:provider:openai-codex';
 
 const HELP = formatHelp({
   title: 'moxxy doctor',
@@ -94,22 +88,6 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
   }
 }
 
-export async function buildClaudeProviderDoctorCheck(config: MoxxyConfig): Promise<Check> {
-  const executable = resolveClaudeExecutable(
-    config.plugins?.provider?.items?.['claude-code']?.config ?? {},
-  );
-  const auth = await checkClaudeCliAuth(executable);
-  return {
-    id: 'provider:claude-code',
-    status: auth.state === 'signed-in'
-      ? 'ok'
-      : auth.state === 'missing' || auth.state === 'unsupported' || auth.state === 'error'
-        ? 'fail'
-        : 'warn',
-    message: auth.message,
-  };
-}
-
 interface DoctorChecksDeps {
   readonly session: Session;
   readonly config: MoxxyConfig;
@@ -168,8 +146,18 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
       });
       continue;
     }
-    if (name === 'claude-code') {
-      checks.push(await buildClaudeProviderDoctorCheck(config));
+    if (def.resolveCredentials || def.auth?.kind === 'oauth' || def.auth?.kind === 'none') {
+      const resolved = await tryCatch(() => def.resolveCredentials
+        ? def.resolveCredentials({
+            vault,
+            providerConfig: config.plugins?.provider?.items?.[name]?.config ?? {},
+          })
+        : Promise.resolve(config.plugins?.provider?.items?.[name]?.config ?? {}));
+      checks.push({
+        id: `provider:${name}`,
+        status: resolved.ok ? 'ok' : 'warn',
+        message: resolved.ok ? 'credentials ready' : resolved.error,
+      });
       continue;
     }
     const canonical = canonicalKey(name);
@@ -226,7 +214,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   }
 
   // Voice / STT
-  checks.push(buildVoiceDoctorCheck(session, await checkVoiceCaptureAvailable()));
+  checks.push(buildVoiceDoctorCheck(await checkVoiceCaptureAvailable()));
 
   // Plugins
   checks.push(...buildPluginDoctorChecks(pluginRegistration));
@@ -300,50 +288,16 @@ export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Chec
   return { id: 'self-update', status: 'warn', message: `Tier 1 ready; Tier 2 unavailable — ${failed}` };
 }
 
-export function buildVoiceDoctorCheck(
-  session: Session,
-  captureReadiness: RequirementCheck = { ready: true, issues: [] },
-): Check {
-  const readiness = combineRequirementChecks(
-    session.requirements.check([
-      { kind: 'transcriber', name: CODEX_TRANSCRIBER_NAME },
-      { kind: 'provider', name: 'openai-codex', state: 'active' },
-      { kind: 'runtime', name: 'auth:provider:openai-codex', state: 'ready' },
-    ]),
-    captureReadiness,
-  );
-  const activeProvider = session.providers.getActiveName() ?? '(none)';
-  const activeTranscriber = session.transcribers.getActiveName();
-  const hasCodexTranscriber = session.transcribers.has(CODEX_TRANSCRIBER_NAME);
-
-  if (!readiness.ready) {
-    return {
-      id: 'voice',
-      status: 'warn',
-      message: `unavailable — ${formatVoiceRequirementIssue(readiness.issues[0])}`,
-    };
+export function buildVoiceDoctorCheck(captureReadiness: import('@moxxy/sdk').RequirementCheck): Check {
+  if (captureReadiness.ready) {
+    return { id: 'voice', status: 'ok', message: 'audio capture available' };
   }
-
-  if (activeTranscriber && activeTranscriber !== CODEX_TRANSCRIBER_NAME) {
-    return {
-      id: 'voice',
-      status: 'warn',
-      message: `unavailable — active transcriber is ${activeTranscriber}; expected ${CODEX_TRANSCRIBER_NAME}`,
-    };
-  }
-
+  const issue = captureReadiness.issues[0];
   return {
     id: 'voice',
-    status: hasCodexTranscriber && activeProvider === CODEX_PROVIDER_NAME ? 'ok' : 'warn',
-    message:
-      hasCodexTranscriber && activeProvider === CODEX_PROVIDER_NAME
-        ? `ready — provider=${activeProvider} transcriber=${CODEX_TRANSCRIBER_NAME}`
-        : `unavailable — ${CODEX_TRANSCRIBER_NAME} is not registered`,
+    status: 'warn',
+    message: issue?.hint ? issue.hint.replace(/`/g, '').replace(/\.$/, '') : issue?.message ?? 'audio capture unavailable',
   };
-}
-
-function combineRequirementChecks(a: RequirementCheck, b: RequirementCheck): RequirementCheck {
-  return { ready: a.ready && b.ready, issues: [...a.issues, ...b.issues] };
 }
 
 export function buildPluginDoctorChecks(summary: RegistrationResult): Check[] {
@@ -366,28 +320,6 @@ export function buildPluginDoctorChecks(summary: RegistrationResult): Check[] {
     });
   }
   return checks;
-}
-
-function formatVoiceRequirementIssue(issue: RequirementIssue | undefined): string {
-  if (!issue) return 'unknown voice requirement is not ready';
-  if (issue.requirement.kind === 'provider' && issue.requirement.name === CODEX_PROVIDER_NAME) {
-    if (issue.code === 'missing') return `${CODEX_PROVIDER_NAME} is not registered`;
-    return `${CODEX_PROVIDER_NAME} is not active`;
-  }
-  if (issue.requirement.kind === 'runtime' && issue.requirement.name === CODEX_AUTH_RUNTIME) {
-    return 'run moxxy login openai-codex';
-  }
-  if (issue.requirement.kind === 'runtime' && issue.requirement.name === 'voice:capture:ffmpeg') {
-    return 'ffmpeg is required for voice input';
-  }
-  if (issue.requirement.kind === 'transcriber' && issue.requirement.name === CODEX_TRANSCRIBER_NAME) {
-    return `${CODEX_TRANSCRIBER_NAME} is not registered`;
-  }
-  return issue.hint ? stripBackticks(issue.hint).replace(/\.$/, '') : issue.message;
-}
-
-function stripBackticks(value: string): string {
-  return value.replace(/`/g, '');
 }
 
 function emit(checks: ReadonlyArray<Check>, asJson: boolean): number {

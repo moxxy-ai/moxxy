@@ -21,6 +21,12 @@ export interface PluginCatalogEntry {
    * …), name = the contribution's registered name.
    */
   readonly provides?: ReadonlyArray<{ readonly category: string; readonly name: string }>;
+  /** Provider onboarding metadata, present only for provider packages. */
+  readonly provider?: {
+    readonly auth: 'key' | 'oauth' | 'none';
+    readonly defaultModel?: string;
+    readonly recommended?: boolean;
+  };
 }
 
 export interface PluginPickerOption {
@@ -54,6 +60,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/plugin-provider-anthropic',
     installSpec: '@moxxy/plugin-provider-anthropic',
     provides: [{ category: 'provider', name: 'anthropic' }],
+    provider: { auth: 'key', defaultModel: 'claude-opus-4-8', recommended: true },
   },
   {
     id: 'provider-openai',
@@ -62,6 +69,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/plugin-provider-openai',
     installSpec: '@moxxy/plugin-provider-openai',
     provides: [{ category: 'provider', name: 'openai' }],
+    provider: { auth: 'key' },
   },
   {
     id: 'provider-google',
@@ -70,6 +78,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/plugin-provider-google',
     installSpec: '@moxxy/plugin-provider-google',
     provides: [{ category: 'provider', name: 'google' }],
+    provider: { auth: 'key' },
   },
   {
     id: 'provider-xai',
@@ -78,6 +87,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/plugin-provider-xai',
     installSpec: '@moxxy/plugin-provider-xai',
     provides: [{ category: 'provider', name: 'xai' }],
+    provider: { auth: 'key' },
   },
   {
     id: 'provider-zai',
@@ -89,6 +99,7 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
       { category: 'provider', name: 'zai' },
       { category: 'provider', name: 'zai-plan' },
     ],
+    provider: { auth: 'key' },
   },
   {
     id: 'provider-local',
@@ -97,6 +108,25 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
     packageName: '@moxxy/plugin-provider-local',
     installSpec: '@moxxy/plugin-provider-local',
     provides: [{ category: 'provider', name: 'local' }],
+    provider: { auth: 'none' },
+  },
+  {
+    id: 'provider-claude-code',
+    label: 'Claude (Pro/Max sign-in)',
+    description: 'Claude models through an existing Claude Code subscription sign-in.',
+    packageName: '@moxxy/plugin-provider-claude-code',
+    installSpec: '@moxxy/plugin-provider-claude-code',
+    provides: [{ category: 'provider', name: 'claude-code' }],
+    provider: { auth: 'oauth', defaultModel: 'claude-sonnet-4-6' },
+  },
+  {
+    id: 'provider-openai-codex',
+    label: 'OpenAI Codex (ChatGPT sign-in)',
+    description: 'Codex models through a ChatGPT subscription sign-in.',
+    packageName: '@moxxy/plugin-provider-openai-codex',
+    installSpec: '@moxxy/plugin-provider-openai-codex',
+    provides: [{ category: 'provider', name: 'openai-codex' }],
+    provider: { auth: 'oauth' },
   },
   // Modes + capability plugins — NOT bundled (the kernel is slim); they
   // install on demand. The `provides` mapping lets /goal, /mode and

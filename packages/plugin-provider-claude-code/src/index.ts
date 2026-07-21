@@ -1,4 +1,4 @@
-import { defineProvider, definePlugin } from '@moxxy/sdk';
+import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
 import {
   CLAUDE_CODE_DEFAULT_MODEL,
@@ -6,7 +6,13 @@ import {
   createClaudeCodeClient,
   type ClaudeCodeProviderConfig,
 } from './provider.js';
-import { claudeLogin, claudeLogout, claudeStatus } from './login.js';
+import {
+  claudeLogin,
+  claudeLogout,
+  claudeStatus,
+  checkClaudeCliAuth,
+  resolveClaudeExecutable,
+} from './login.js';
 
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
@@ -18,6 +24,20 @@ export const claudeCodeProviderDef = defineProvider({
         ? (config as { model: string }).model
         : (config as ClaudeCodeProviderConfig).defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL,
   }),
+  async resolveCredentials({ providerConfig }) {
+    const config = { ...providerConfig };
+    const executable = resolveClaudeExecutable(config);
+    const status = await checkClaudeCliAuth(executable);
+    if (status.state !== 'signed-in') {
+      throw new MoxxyError({
+        code: status.state === 'signed-out' ? 'AUTH_NO_CREDENTIALS' : 'AUTH_INVALID',
+        message: status.message,
+        hint: status.state === 'signed-out' ? `Run \`moxxy login ${CLAUDE_CODE_PROVIDER_ID}\`.` : undefined,
+        context: { provider: CLAUDE_CODE_PROVIDER_ID, executable, state: status.state },
+      });
+    }
+    return { ...config, executable };
+  },
   // No validateKey: readiness is reported by the installed Claude CLI.
   auth: {
     kind: 'oauth',

@@ -21,7 +21,7 @@ export interface BuildAuthContextOptions {
    * prompts. `'stdin'` relays each prompt to the host as a NUL-bracketed marker
    * on stdout and reads the answer back as one stdin line — for a GUI host (the
    * desktop app) that drives `moxxy login` as a subprocess with no TTY and so
-   * can't render a clack prompt. The out-of-band paste flows (claude-code)
+   * can't render a clack prompt. The out-of-band paste flows
    * work identically; only the input transport differs.
    */
   readonly promptMode?: 'clack' | 'stdin';

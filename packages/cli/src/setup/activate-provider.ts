@@ -1,7 +1,6 @@
 import type { Session } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { CLAUDE_CODE_PROVIDER_ID } from '@moxxy/plugin-provider-claude-code';
 import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
 import { providerDefault, providerItem, providerSlot } from './resolve-plugins-tree.js';
@@ -64,11 +63,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
     const effective = providerName === primaryProvider
       ? { ...persisted, ...providerConfig }
       : persisted;
-    // Provider clients do not receive the Session object, so explicitly carry
-    // the runner workspace into Claude Code activation and runtime switching.
-    return providerName === CLAUDE_CODE_PROVIDER_ID
-      ? { ...effective, cwd: session.cwd }
-      : effective;
+    return effective;
   };
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;
@@ -90,7 +85,9 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       // through fallbacks via prompts would be confusing.
       const interactive = i === 0 && !skipKeyPrompt && process.stdin.isTTY === true;
       try {
-        const resolved = await resolveProviderCredentials(candidate, vault, {
+        const def = session.providers.list().find((provider) => provider.name === candidate);
+        if (!def) throw new Error(`Provider "${candidate}" is not registered.`);
+        const resolved = await resolveProviderCredentials(def, vault, {
           providerConfig: effectiveProviderConfig(candidate),
           interactive,
         });
@@ -143,7 +140,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   for (const p of session.providers.list()) {
     if (readyProviders.has(p.name)) continue;
     try {
-      await resolveProviderCredentials(p.name, vault, {
+      await resolveProviderCredentials(p, vault, {
         interactive: false,
         providerConfig: effectiveProviderConfig(p.name),
       });
@@ -159,13 +156,16 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   // Expose a credential resolver so runtime provider switches (TUI
   // /model picker, preference re-apply below) can re-resolve credentials
   // before calling setActive — otherwise the new provider gets
-  // createClient({}) and OAuth-backed providers (openai-codex) throw
+  // createClient({}) and OAuth-backed providers throw
   // "no credentials" on the next turn.
-  const credentialResolver: CredentialResolver = async (providerName) =>
-    resolveProviderCredentials(providerName, vault, {
+  const credentialResolver: CredentialResolver = async (providerName) => {
+    const def = session.providers.list().find((provider) => provider.name === providerName);
+    if (!def) throw new Error(`Provider \"${providerName}\" is not registered.`);
+    return resolveProviderCredentials(def, vault, {
       interactive: false,
       providerConfig: effectiveProviderConfig(providerName),
     });
+  };
   session.credentialResolver = credentialResolver;
 
   return { activated, credentialResolver };

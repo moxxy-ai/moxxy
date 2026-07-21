@@ -49,7 +49,7 @@ export function buildProviderSetupView(opts: BuildProviderSetupOptions): Provide
   return {
     authKind: (providerId) => {
       const def = registered(providerId);
-      if (def) return def.auth?.kind === 'oauth' ? 'oauth' : 'apiKey';
+      if (def) return def.auth?.kind === 'oauth' ? 'oauth' : def.auth?.kind === 'none' ? 'none' : 'apiKey';
       const entry = resolveProvider(providerId);
       if (!entry) return null;
       return entry.auth === 'oauth' ? 'oauth' : entry.auth === 'none' ? 'none' : 'apiKey';

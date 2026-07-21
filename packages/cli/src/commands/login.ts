@@ -146,7 +146,7 @@ export async function runLoginProvider(
 
   // `--stdin-prompts` is the desktop GUI's mode: the provider's prompts are
   // relayed to the host over the pipe (markers on stdout, answers as stdin
-  // lines) so the out-of-band paste flow (claude-code) works without a TTY.
+  // lines) so out-of-band paste flows work without a TTY.
   // It implies an interactive (non-headless) flow — the host IS the terminal.
   const stdinPrompts = hasBoolFlag(argv, 'stdin-prompts');
 

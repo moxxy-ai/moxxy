@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CLAUDE_CODE_DEFAULT_MODEL } from '@moxxy/plugin-provider-claude-code';
 import { pinFirstPartySpec } from './pin.js';
 import { resolveProvider } from './provider-catalog.js';
 import { provision, type ProvisionEffects } from './provision.js';
@@ -69,7 +68,7 @@ describe('provision', () => {
   });
 
   it('pins the exported Claude Code default and persists it in the provider item write', async () => {
-    expect(resolveProvider('claude-code')?.defaultModel).toBe(CLAUDE_CODE_DEFAULT_MODEL);
+    expect(resolveProvider('claude-code')?.defaultModel).toBe('claude-sonnet-4-6');
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     const res = await provision({ provider: 'claude-code', key: 'should-ignore' }, eff);
 
@@ -77,7 +76,7 @@ describe('provision', () => {
     expect(res.keyStored).toBe(false);
     expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({
       providerSlug: 'claude-code',
-      model: CLAUDE_CODE_DEFAULT_MODEL,
+      model: 'claude-sonnet-4-6',
     }));
   });
 
