@@ -111,7 +111,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toEqual(expect.arrayContaining(['--tools', '']));
   });
 
-  it('uses a safe permission default and a valid no-tools invocation for an empty native allow-list', async () => {
+  it('leaves the safe permission default to Claude and uses a valid no-tools invocation for an empty native allow-list', async () => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);
@@ -122,7 +122,8 @@ describe('claude-code provider definition', () => {
     }).stream(textRequest()));
 
     const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
-    expect(args).toEqual(expect.arrayContaining(['--tools', '', '--permission-mode', 'default']));
+    expect(args).toEqual(expect.arrayContaining(['--tools', '']));
+    expect(args).not.toContain('--permission-mode');
     expect(args).not.toContain('--allowedTools');
     expect(args).not.toContain('bypassPermissions');
   });
@@ -316,8 +317,15 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
-  fs.writeFileSync(path.join(__dirname, 'args.json'), JSON.stringify(process.argv.slice(2)));
+  const args = process.argv.slice(2);
+  fs.writeFileSync(path.join(__dirname, 'args.json'), JSON.stringify(args));
   fs.writeFileSync(path.join(__dirname, 'input.txt'), input);
+  const permissionModeIndex = args.indexOf('--permission-mode');
+  if (permissionModeIndex >= 0 && !['acceptEdits', 'plan', 'dontAsk', 'bypassPermissions'].includes(args[permissionModeIndex + 1])) {
+    console.error('Invalid permission mode: ' + args[permissionModeIndex + 1]);
+    process.exitCode = 2;
+    return;
+  }
   fs.writeFileSync(path.join(__dirname, 'cwd.txt'), process.cwd());
   const workspaceWrite = ${JSON.stringify(workspaceWrite)};
   if (workspaceWrite) fs.writeFileSync(path.join(process.cwd(), workspaceWrite.path), workspaceWrite.content);

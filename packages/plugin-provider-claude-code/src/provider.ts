@@ -40,8 +40,8 @@ export interface ClaudeCodeProviderConfig {
   readonly model?: string;
   /** Transport mode. Native tools are opt-in; omitted defaults to text-only. */
   readonly mode?: 'text' | 'native-tools';
-  /** Claude CLI permission mode. Unsafe modes are never selected by the adapter. */
-  readonly permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'dontAsk' | 'bypassPermissions';
+  /** Claude CLI permission mode. Omitted uses the CLI's safe default. */
+  readonly permissionMode?: 'acceptEdits' | 'plan' | 'dontAsk' | 'bypassPermissions';
   /** Optional allow-list of Claude native tool names. */
   readonly allowedTools?: ReadonlyArray<string>;
   /** Runner workspace. Supplied by CLI activation rather than user configuration. */
