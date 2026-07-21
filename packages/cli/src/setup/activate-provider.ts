@@ -54,10 +54,16 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   // The caller may overlay boot-time options onto the primary item's config.
   // Every other path must still use that provider's own configured item rather
   // than silently falling back to environment/default values.
-  const effectiveProviderConfig = (providerName: string): Record<string, unknown> =>
-    providerName === primaryProvider
-      ? providerConfig
-      : { ...(providerItem(config, providerName).config ?? {}) };
+  const effectiveProviderConfig = (providerName: string): Record<string, unknown> => {
+    const item = providerItem(config, providerName);
+    const persisted = {
+      ...(item.config ?? {}),
+      ...(item.model ? { model: item.model } : {}),
+    };
+    return providerName === primaryProvider
+      ? { ...persisted, ...providerConfig }
+      : persisted;
+  };
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;
   let lastErr: unknown = null;
