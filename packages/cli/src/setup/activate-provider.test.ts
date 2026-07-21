@@ -152,6 +152,12 @@ describe('activateProvider', () => {
 
   it('uses provider item config for readiness probes and runtime switching', async () => {
     const executable = '/Applications/Claude Code/bin/claude';
+    const claudeConfig = {
+      executable,
+      mode: 'native-tools',
+      permissionMode: 'acceptEdits',
+      allowedTools: ['Read', 'Edit'],
+    };
     const seen: string[] = [];
     __setClaudeCommandRunner(async (value) => {
       seen.push(value);
@@ -166,7 +172,7 @@ describe('activateProvider', () => {
         plugins: {
           provider: {
             default: 'test-provider',
-            items: { 'claude-code': { config: { executable } } },
+            items: { 'claude-code': { config: claudeConfig } },
           },
         },
       },
@@ -174,7 +180,10 @@ describe('activateProvider', () => {
     });
 
     expect(session.readyProviders.has('claude-code')).toBe(true);
-    await expect(credentialResolver('claude-code')).resolves.toMatchObject({ executable });
+    await expect(credentialResolver('claude-code')).resolves.toMatchObject({
+      ...claudeConfig,
+      cwd: '/tmp',
+    });
     expect(seen).toEqual([executable, executable]);
   });
 });

@@ -87,9 +87,19 @@ describe('resolveProviderCredentials', () => {
     delete process.env.ANTHROPIC_AUTH_TOKEN;
     const cfg = await resolveProviderCredentials('claude-code', vault, {
       interactive: false,
-      providerConfig: { executable: '/opt/bin/claude' },
+      providerConfig: {
+        executable: '/opt/bin/claude',
+        mode: 'native-tools',
+        permissionMode: 'acceptEdits',
+        allowedTools: ['Read', 'Edit'],
+      },
     });
-    expect(cfg).toEqual({ executable: '/opt/bin/claude' });
+    expect(cfg).toEqual({
+      executable: '/opt/bin/claude',
+      mode: 'native-tools',
+      permissionMode: 'acceptEdits',
+      allowedTools: ['Read', 'Edit'],
+    });
   });
 
   it('preserves but neither reads nor forwards stored claude-code tokens', async () => {

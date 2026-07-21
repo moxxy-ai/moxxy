@@ -4,6 +4,8 @@ import { CLAUDE_CODE_SYSTEM } from './constants.js';
 interface ProtocolState {
   started: boolean;
   ended: boolean;
+  /** Current streamed block. Native tool records are consumed by Claude itself. */
+  blockType?: 'text' | 'tool_use' | 'tool_result';
   stopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'error';
   inputTokens?: number;
   outputTokens?: number;
@@ -47,23 +49,31 @@ export function parseClaudeRecord(line: string, state: ProtocolState): ProviderE
   }
 
   if (value.type === 'system') return [];
-  if (value.type === 'assistant') return parseAssistantRecord(value);
+  if (value.type === 'assistant' || value.type === 'user') return parseMessageRecord(value);
   if (value.type === 'stream_event') return parseStreamEvent(value.event, state);
   if (value.type === 'result') return parseResult(value, state);
   throw new Error(`Claude CLI emitted unsupported stream-json record: ${value.type}`);
 }
 
-function parseAssistantRecord(record: Record<string, unknown>): ProviderEvent[] {
+function parseMessageRecord(record: Record<string, unknown>): ProviderEvent[] {
   if (!isRecord(record.message) || !Array.isArray(record.message.content)) {
     throw new Error('Claude CLI emitted malformed assistant record');
   }
   for (const block of record.message.content) {
-    if (!isRecord(block) || block.type !== 'text' || typeof block.text !== 'string') {
+    if (!isRecord(block) || typeof block.type !== 'string') {
+      throw new Error('Claude CLI emitted malformed assistant content');
+    }
+    if (block.type === 'text' && typeof block.text !== 'string') {
+      throw new Error('Claude CLI emitted malformed assistant text');
+    }
+    // tool_use/tool_result are internal CLI bookkeeping. Claude has already
+    // executed them; translating these records to ProviderEvents would make the
+    // moxxy dispatcher execute the same operation a second time.
+    if (block.type !== 'text' && block.type !== 'tool_use' && block.type !== 'tool_result') {
       throw new Error('Claude CLI emitted unsupported assistant content');
     }
   }
-  // Partial text arrives through stream_event records; validating this envelope
-  // prevents a new native-tool block from being silently ignored.
+  // Partial text arrives through stream_event records.
   return [];
 }
 
@@ -76,18 +86,32 @@ function parseStreamEvent(raw: unknown, state: ProtocolState): ProviderEvent[] {
       state.started = true;
       return [];
     case 'content_block_start': {
-      if (!isRecord(raw.content_block) || raw.content_block.type !== 'text') {
-        throw new Error('Claude CLI emitted unsupported non-text content block');
+      if (!isRecord(raw.content_block) || typeof raw.content_block.type !== 'string') {
+        throw new Error('Claude CLI emitted malformed content block');
       }
+      if (raw.content_block.type !== 'text' && raw.content_block.type !== 'tool_use' && raw.content_block.type !== 'tool_result') {
+        throw new Error('Claude CLI emitted unsupported content block');
+      }
+      state.blockType = raw.content_block.type;
       return [];
     }
     case 'content_block_delta': {
-      if (!isRecord(raw.delta) || raw.delta.type !== 'text_delta' || typeof raw.delta.text !== 'string') {
-        throw new Error('Claude CLI emitted unsupported content delta');
+      if (!isRecord(raw.delta) || typeof raw.delta.type !== 'string') {
+        throw new Error('Claude CLI emitted malformed content delta');
+      }
+      if (state.blockType !== 'text') {
+        // input_json_delta and tool result deltas describe work performed by the
+        // child and must not escape as moxxy tool events.
+        return [];
+      }
+      if (raw.delta.type !== 'text_delta' || typeof raw.delta.text !== 'string') {
+        throw new Error('Claude CLI emitted unsupported text delta');
       }
       return [{ type: 'text_delta', delta: raw.delta.text }];
     }
     case 'content_block_stop':
+      state.blockType = undefined;
+      return [];
     case 'message_stop':
       return [];
     case 'message_delta': {
