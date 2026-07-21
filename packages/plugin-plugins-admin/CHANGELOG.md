@@ -1,5 +1,14 @@
 # @moxxy/plugin-plugins-admin
 
+## 0.31.0
+
+### Patch Changes
+
+- Updated dependencies [8bb26b1]
+- Updated dependencies [43926ab]
+  - @moxxy/sdk@0.31.0
+  - @moxxy/config@0.31.0
+
 ## 0.30.0
 
 ### Patch Changes

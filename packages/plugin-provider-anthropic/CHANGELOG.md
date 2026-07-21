@@ -1,5 +1,14 @@
 # @moxxy/plugin-provider-anthropic
 
+## 0.31.0
+
+### Patch Changes
+
+- 43926ab: Move provider credential resolution and onboarding metadata to provider-owned contracts and manifests. Unbundled configured providers are installed automatically on first use, while diagnostics now share activation credential semantics and verify both audio capture and transcription readiness.
+- Updated dependencies [8bb26b1]
+- Updated dependencies [43926ab]
+  - @moxxy/sdk@0.31.0
+
 ## 0.30.0
 
 ### Patch Changes
