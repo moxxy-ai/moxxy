@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { CLAUDE_CODE_DEFAULT_MODEL } from '@moxxy/plugin-provider-claude-code';
 import { pinFirstPartySpec } from './pin.js';
+import { resolveProvider } from './provider-catalog.js';
 import { provision, type ProvisionEffects } from './provision.js';
 
 describe('pinFirstPartySpec', () => {
@@ -66,11 +68,26 @@ describe('provision', () => {
     expect(order).toEqual(['install:@moxxy/plugin-provider-openai@1.0.0', 'config']); // config last
   });
 
-  it('does not store a key for an oauth provider', async () => {
+  it('pins the exported Claude Code default and persists it in the provider item write', async () => {
+    expect(resolveProvider('claude-code')?.defaultModel).toBe(CLAUDE_CODE_DEFAULT_MODEL);
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     const res = await provision({ provider: 'claude-code', key: 'should-ignore' }, eff);
+
     expect(eff.storeSecret).not.toHaveBeenCalled();
     expect(res.keyStored).toBe(false);
+    expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({
+      providerSlug: 'claude-code',
+      model: CLAUDE_CODE_DEFAULT_MODEL,
+    }));
+  });
+
+  it.each(['claude-fable-5', 'claude-opus-4-8'])('persists an explicit %s selection', async (model) => {
+    const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
+    await provision({ provider: 'claude-code', model }, eff);
+    expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({
+      providerSlug: 'claude-code',
+      model,
+    }));
   });
 
   it('installs accepted basics too (pinned)', async () => {
