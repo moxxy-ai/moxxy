@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
-import { claudeCodeProviderDef, createClaudeCodeClient } from './index.js';
+import {
+  CLAUDE_CODE_DEFAULT_MODEL,
+  claudeCodeModels,
+  claudeCodeProviderDef,
+  createClaudeCodeClient,
+} from './index.js';
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -13,10 +18,19 @@ afterEach(async () => {
 });
 
 describe('claude-code provider definition', () => {
-  it('registers text-only Claude model capabilities', () => {
+  it('registers the exact Claude Code catalog, default, and text-only capabilities', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');
-    expect(claudeCodeProviderDef.models.map((model) => model.id)).toContain('claude-sonnet-4-6');
+    expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-4-6');
+    expect(claudeCodeProviderDef.models).toBe(claudeCodeModels);
+    expect(claudeCodeProviderDef.models.map((model) => model.id)).toEqual([
+      'claude-sonnet-4-6',
+      'claude-fable-5',
+      'claude-opus-4-8',
+      'claude-opus-4-7',
+      'claude-opus-4-6',
+      'claude-haiku-4-5-20251001',
+    ]);
     for (const model of claudeCodeProviderDef.models) {
       expect(model).toMatchObject({
         supportsStreaming: true,
@@ -60,6 +74,56 @@ describe('claude-code provider definition', () => {
     expect(input).toContain('<assistant>\nprior assistant');
     expect(input).toContain('<user>\nlatest user');
     expect(input).not.toContain('oauth-secret');
+  });
+
+  it.each(['claude-fable-5', 'claude-opus-4-8'])('passes the selected %s model as an exact structured argument', async (model) => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    const client = createClaudeCodeClient({ executable: join(dir, 'claude') });
+    await collect(client.stream({ ...textRequest(), model }));
+
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args.slice(-2)).toEqual(['--model', model]);
+    expect(args.filter((arg) => arg === '--model')).toHaveLength(1);
+  });
+
+  it('uses the persisted provider-item model as its default selection', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    const client = claudeCodeProviderDef.createClient({ model: 'claude-fable-5', executable: join(dir, 'claude') });
+    await collect(client.stream({ ...textRequest(), model: '' }));
+
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args.slice(-2)).toEqual(['--model', 'claude-fable-5']);
+  });
+
+  it('returns actionable errors for locally unsupported and CLI-rejected models', async () => {
+    const supported = claudeCodeModels.map((model) => model.id);
+    const unsupported = await collect(createClaudeCodeClient({
+      spawn: () => { throw new Error('should not spawn'); },
+    }).stream({ ...textRequest(), model: 'claude-imaginary-9' }));
+    expect(unsupported[1]).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('claude-imaginary-9'),
+      retryable: false,
+    });
+    for (const model of supported) expect((unsupported[1] as { message: string }).message).toContain(model);
+
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'error_during_execution', is_error: true, result: 'Model is unavailable' },
+    ]);
+    const rejected = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream({
+      ...textRequest(),
+      model: 'claude-fable-5',
+    }));
+    expect(rejected[1]).toMatchObject({
+      type: 'error',
+      message: expect.stringMatching(/Claude Code rejected model "claude-fable-5".*Model is unavailable/),
+      retryable: false,
+    });
+    for (const model of supported) expect((rejected[1] as { message: string }).message).toContain(model);
   });
 
   it('does not inject a moxxy-managed Claude token into the child environment', async () => {

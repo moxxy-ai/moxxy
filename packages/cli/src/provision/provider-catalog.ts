@@ -1,3 +1,5 @@
+import { CLAUDE_CODE_DEFAULT_MODEL } from '@moxxy/plugin-provider-claude-code';
+
 /**
  * First-party provider catalog — the source of truth for `moxxy init` / `moxxy
  * provision` when picking a provider. Maps a provider **slug** (the contribution
@@ -50,6 +52,7 @@ export const PROVIDER_CATALOG: ReadonlyArray<ProviderCatalogEntry> = [
     description: 'Claude via a Claude Pro/Max OAuth token — no separate API key.',
     packageName: '@moxxy/plugin-provider-claude-code',
     auth: 'oauth',
+    defaultModel: CLAUDE_CODE_DEFAULT_MODEL,
   },
   {
     slug: 'openai-codex',

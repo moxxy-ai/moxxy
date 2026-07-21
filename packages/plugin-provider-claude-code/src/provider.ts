@@ -12,16 +12,25 @@ const NON_TEXT_BLOCK_TOKENS = 256;
  *
  * This is deliberately independent of the Anthropic API catalog: the CLI has
  * its own availability policy, and this adapter only preserves streamed text.
- * Optional capability flags are omitted rather than copied from the API
- * provider so hosts cannot route images, documents, tools, or reasoning here.
+ * Unsupported capabilities are explicit so every host sees the same text-only
+ * contract rather than relying on how it interprets absent optional flags.
  */
+const textOnlyCapabilities = {
+  supportsTools: false,
+  supportsStreaming: true,
+  supportsImages: false,
+  supportsDocuments: false,
+  supportsAudio: false,
+  supportsReasoning: false,
+} as const;
+
 export const claudeCodeModels: ReadonlyArray<ModelDescriptor> = [
-  { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: false, supportsStreaming: true },
-  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: false, supportsStreaming: true },
-  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: false, supportsStreaming: true },
-  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: false, supportsStreaming: true },
-  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: false, supportsStreaming: true },
-  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: false, supportsStreaming: true },
+  { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
+  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
+  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
+  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
+  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
+  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
 ];
 
 export interface ClaudeCodeProviderConfig {
@@ -90,8 +99,13 @@ export class ClaudeCodeProvider implements LLMProvider {
           break;
         }
         for (const event of parseClaudeRecord(next.value, state)) {
-          if (event.type === 'message_end' || event.type === 'error') terminal = true;
-          yield event;
+          if (event.type === 'message_end') terminal = true;
+          if (event.type === 'error') {
+            terminal = true;
+            yield { ...event, message: modelSelectionError(model, event.message) };
+          } else {
+            yield event;
+          }
         }
       }
       if (!terminal) {
