@@ -8,14 +8,22 @@ Moxxy can load a `moxxy.config.ts` file from the project root. The CLI setup flo
 import { defineConfig } from '@moxxy/config';
 
 export default defineConfig({
-  provider: {
-    name: 'anthropic',
-    model: 'claude-sonnet-4-6',
-    config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },
-  },
-  mode: 'default',
   plugins: {
-    '@moxxy/plugin-browser': { enabled: false },
+    provider: {
+      default: 'anthropic',
+      items: {
+        anthropic: {
+          model: 'claude-sonnet-4-6',
+          config: { apiKey: '${vault:ANTHROPIC_API_KEY}' },
+        },
+      },
+    },
+    mode: {
+      default: 'default',
+    },
+    packages: {
+      '@moxxy/plugin-browser': { enabled: false },
+    },
   },
 });
 ```
@@ -51,7 +59,7 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 | `MOXXY_NO_WEB_SURFACE=1` | Prevents `moxxy serve` from starting the web surface. |
 | `MOXXY_MOBILE_TOKEN` | Sets the bearer token for the mobile WebSocket bridge. |
 | `MOXXY_MOBILE_HOST` | Sets the mobile channel bind host. The default is `127.0.0.1`; `0.0.0.0` exposes it to the LAN. |
-| `MOXXY_MOBILE_TUNNEL` | Selects `localhost`, `cloudflared`, or `ngrok` for the mobile channel tunnel. |
+| `MOXXY_MOBILE_TUNNEL` | Selects `localhost` (no tunnel) or `proxy` (the self-hosted encrypted relay) for the mobile channel tunnel. |
 | `MOXXY_VOICE_AUDIO_DEVICE` | Selects the audio capture device for TUI voice input. |
 | `MOXXY_MCP_STDERR=inherit` | Surfaces MCP server stderr. It is ignored by default. |
 
