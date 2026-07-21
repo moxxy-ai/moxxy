@@ -160,7 +160,7 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   // "no credentials" on the next turn.
   const credentialResolver: CredentialResolver = async (providerName) => {
     const def = session.providers.list().find((provider) => provider.name === providerName);
-    if (!def) throw new Error(`Provider \"${providerName}\" is not registered.`);
+    if (!def) throw new Error(`Provider "${providerName}" is not registered.`);
     return resolveProviderCredentials(def, vault, { cwd: session.cwd }, {
       interactive: false,
       providerConfig: effectiveProviderConfig(providerName),
