@@ -58,6 +58,35 @@ describe('defaultMode end-to-end', () => {
     expect(last.stopReason).toBe('end_turn');
   });
 
+  it('omits registered tools when the active model does not support them', async () => {
+    const provider = new FakeProvider({
+      models: [{
+        id: 'text-only',
+        contextWindow: 200_000,
+        maxOutputTokens: 8000,
+        supportsTools: false,
+        supportsStreaming: true,
+      }],
+      script: [textReply('plain response')],
+    });
+    const session = sessionWith(provider);
+    session.tools.register(
+      defineTool({
+        name: 'registered_but_unsupported',
+        description: 'must not be sent to a text-only model',
+        inputSchema: z.object({}),
+        handler: () => 'unused',
+      }),
+    );
+
+    const events = await collectTurn(session, 'answer without tools');
+
+    expect(provider.received).toHaveLength(1);
+    expect(provider.received[0]?.tools).toBeUndefined();
+    const last = events.at(-1);
+    expect(last).toMatchObject({ type: 'assistant_message', content: 'plain response' });
+  });
+
   it('runs tool_use then continues loop with the result', async () => {
     const provider = new FakeProvider({
       script: [toolUseReply('echo', { msg: 'world' }, 'c1'), textReply('done: world')],

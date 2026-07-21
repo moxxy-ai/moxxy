@@ -89,12 +89,22 @@ export async function collectProviderStream(
     volatileTailCount?: number;
   } = {},
 ): Promise<StreamResult> {
-  // Lazy tool gating (opt-in): send only always-on + loaded tool schemas, and
-  // index the rest in the system prompt. Runs BEFORE cache planning since it
-  // rewrites the system message and the tool list.
+  const descriptor = ctx.provider.models.find((model) => model.id === ctx.model);
+
+  // Tool schemas are useful only when both the caller requests them and the
+  // selected model advertises tool support. Keeping this gate in the shared
+  // collection path prevents normal ReAct turns from sending every registered
+  // tool to text-only providers. An unknown model retains the previous behavior
+  // so custom/dynamic model ids are not silently stripped of tools.
+  //
+  // Lazy tool gating (opt-in) then sends only always-on + loaded schemas and
+  // indexes the rest in the system prompt. It runs BEFORE cache planning since
+  // it rewrites the system message and the tool list.
   let effectiveMessages = messages;
   let toolList: ReadonlyArray<import('../tool.js').ToolDef> | undefined =
-    opts.includeTools === false ? undefined : ctx.tools.list();
+    opts.includeTools === false || descriptor?.supportsTools === false
+      ? undefined
+      : ctx.tools.list();
   if (ctx.lazyTools && toolList) {
     const gated = applyLazyTools(messages, toolList, ctx.log);
     effectiveMessages = gated.messages;
@@ -105,7 +115,6 @@ export async function collectProviderStream(
   // The strategy is provider-neutral (returns CacheHints); the provider
   // translates them (Anthropic → cache_control). Falls back to no hints when
   // no strategy is registered. The onBeforeProviderCall hook can still adjust.
-  const descriptor = ctx.provider.models.find((m) => m.id === ctx.model);
   const cacheHints = ctx.cacheStrategy
     ? ctx.cacheStrategy.plan(effectiveMessages, {
         model: ctx.model,
