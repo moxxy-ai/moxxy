@@ -106,8 +106,9 @@ export class ClaudeCodeProvider implements LLMProvider {
 
     const state = createProtocolState();
     let terminal = false;
+    let lines: ReturnType<typeof runClaudeProcess> | undefined;
     try {
-      const lines = runClaudeProcess({
+      lines = runClaudeProcess({
         executable: this.executable,
         model,
         prompt,
@@ -135,13 +136,17 @@ export class ClaudeCodeProvider implements LLMProvider {
           break;
         }
         for (const event of parseClaudeRecord(next.value, state)) {
-          if (event.type === 'message_end') terminal = true;
+          if (event.type === 'message_end') {
+            terminal = true;
+            yield event;
+            return;
+          }
           if (event.type === 'error') {
             terminal = true;
             yield classifyClaudeFailure(model, event.message);
-          } else {
-            yield event;
+            return;
           }
+          yield event;
         }
       }
       if (!terminal) {
@@ -157,6 +162,8 @@ export class ClaudeCodeProvider implements LLMProvider {
       } else {
         yield classifySpawnFailure(error, this.executable);
       }
+    } finally {
+      await lines?.return({ exitCode: 0, stderr: '' });
     }
   }
 
@@ -198,8 +205,12 @@ function assertTextOnlyRequest(req: ProviderRequest): void {
 }
 
 function classifyClaudeFailure(model: string, detail: string): ProviderEvent {
-  if (/rate.?limit|too many requests|\b429\b|overload|temporar|unavailable|service error|\b5\d\d\b/i.test(detail)) {
-    return { type: 'error', message: `Claude Code service failure: ${detail}`, retryable: true };
+  if (/model|unknown model|invalid model/i.test(detail)) {
+    return {
+      type: 'error',
+      message: `Claude Code rejected model "${model}": ${detail}. Select a supported model: ${claudeCodeModels.map((candidate) => candidate.id).join(', ')}.`,
+      retryable: false,
+    };
   }
   if (/not logged in|signed out|login required|authenticate|authentication|unauthorized|invalid.*(?:token|credential)|\b401\b/i.test(detail)) {
     return {
@@ -215,12 +226,8 @@ function classifyClaudeFailure(model: string, detail: string): ProviderEvent {
       retryable: false,
     };
   }
-  if (/model|unknown model|invalid model/i.test(detail)) {
-    return {
-      type: 'error',
-      message: `Claude Code rejected model "${model}": ${detail}. Select a supported model: ${claudeCodeModels.map((candidate) => candidate.id).join(', ')}.`,
-      retryable: false,
-    };
+  if (/rate.?limit|too many requests|\b429\b|overload|temporar|unavailable|service error|\b5\d\d\b/i.test(detail)) {
+    return { type: 'error', message: `Claude Code service failure: ${detail}`, retryable: true };
   }
   return { type: 'error', message: `Claude CLI failed: ${detail}`, retryable: false };
 }

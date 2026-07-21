@@ -77,6 +77,7 @@ export async function* runClaudeProcess(
   let failure: Error | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
+  let terminationRequested = false;
   const startupTimeoutMs = positive(options.startupTimeoutMs, DEFAULT_STARTUP_TIMEOUT_MS);
   const idleTimeoutMs = positive(options.idleTimeoutMs, DEFAULT_IDLE_TIMEOUT_MS);
   const maxStderrChars = positive(options.maxStderrChars, DEFAULT_MAX_STDERR_CHARS);
@@ -93,10 +94,12 @@ export async function* runClaudeProcess(
     timer = undefined;
   };
   const terminate = (): void => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (closed || child.exitCode !== null || child.signalCode !== null || terminationRequested) return;
+    terminationRequested = true;
     child.kill('SIGTERM');
     killTimer = setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      killTimer = undefined;
+      if (!closed && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     }, KILL_GRACE_MS);
     killTimer.unref?.();
   };
@@ -158,10 +161,9 @@ export async function* runClaudeProcess(
     }
   });
 
-  const completion = new Promise<number>((resolve, reject) => {
+  const completion = new Promise<number>((resolve) => {
     child.once('error', (error) => {
       fail(error);
-      reject(error);
     });
     child.once('close', (code) => {
       closed = true;
@@ -180,9 +182,6 @@ export async function* runClaudeProcess(
       resolve(code ?? 1);
     });
   });
-  // A rejected completion is observed again in finally; prevent an early
-  // child 'error' event from becoming an unhandled rejection first.
-  void completion.catch(() => undefined);
 
   options.signal?.addEventListener('abort', onAbort, { once: true });
   if (options.signal?.aborted) onAbort();
