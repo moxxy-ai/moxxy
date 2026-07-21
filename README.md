@@ -100,7 +100,23 @@ Already running? Keep it current:
 moxxy update    # checks npm and upgrades in place (the TUI also nudges you when a new version ships)
 ```
 
-**Requirements:** Node.js ≥ 20.10 and an API key for a supported provider (Anthropic, OpenAI, or ChatGPT/Claude via OAuth). `moxxy --help` lists every command.
+**Requirements:** Node.js ≥ 20.10 and either an API key for a supported provider, ChatGPT OAuth, or an authenticated Claude Code installation for a Claude Pro/Max subscription. `moxxy --help` lists every command.
+
+### Claude Code subscription provider
+
+Install the official `claude` CLI and sign in (`claude auth login` or `moxxy login claude-code`), then choose `claude-code` during `moxxy init`. Moxxy uses the CLI's existing subscription session and never needs an `ANTHROPIC_API_KEY`. Check and recover the installation with:
+
+```sh
+claude auth status
+moxxy doctor
+moxxy login claude-code
+# custom/non-PATH install:
+CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude moxxy doctor
+```
+
+The default model is `claude-sonnet-4-6`; use `--model` or `plugins.provider.items.claude-code.model` to select another model advertised by moxxy. The provider is text-only by default. Native Claude tools are a separate opt-in provider setting (`config.mode: native-tools`) and should be paired with explicit `allowedTools` and, when needed, `permissionMode`. **Claude CLI owns and enforces those native-tool permissions**; moxxy's `--allow-tools`, permission resolver, and isolators govern only moxxy tools and do not override Claude's internal tools.
+
+Interactive desktop/TUI sessions can launch sign-in. Headless channels and OS services cannot complete browser/TTY authentication reliably: sign in once as the same OS user before installing/starting the service, ensure that user's `PATH` (or `CLAUDE_CODE_EXECUTABLE`) reaches `claude`, then restart the service. The CLI's auth files remain owned by Claude and are not copied into moxxy's vault.
 
 ---
 

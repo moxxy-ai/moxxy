@@ -5,7 +5,7 @@ interface ProtocolState {
   started: boolean;
   ended: boolean;
   /** Current streamed block. Native tool records are consumed by Claude itself. */
-  blockType?: 'text' | 'tool_use' | 'tool_result';
+  blockType?: 'text' | 'thinking' | 'tool_use' | 'tool_result';
   stopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'error';
   inputTokens?: number;
   outputTokens?: number;
@@ -130,7 +130,9 @@ export function parseClaudeRecord(line: string, state: ProtocolState): ProviderE
     throw new Error('Claude CLI emitted malformed stream-json record');
   }
 
-  if (value.type === 'system') return [];
+  // Informational envelope records can appear between protocol events on newer
+  // Claude CLI versions. They carry no assistant content or terminal state.
+  if (value.type === 'system' || value.type === 'rate_limit_event') return [];
   if (value.type === 'assistant' || value.type === 'user') return parseMessageRecord(value);
   if (value.type === 'stream_event') return parseStreamEvent(value.event, state);
   if (value.type === 'result') return parseResult(value, state);

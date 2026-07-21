@@ -46,6 +46,7 @@ describe('claude-code provider definition', () => {
   it('streams text through a fake Claude executable with structured non-interactive arguments', async () => {
     const dir = await makeFakeClaude([
       { type: 'system', subtype: 'init' },
+      { type: 'rate_limit_event', rate_limit_info: { status: 'allowed' } },
       { type: 'stream_event', event: { type: 'message_start', message: {} } },
       { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
       { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello ' } } },

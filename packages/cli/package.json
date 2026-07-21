@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/cli",
   "version": "0.30.0",
-  "description": "moxxy command-line binary. Subcommand dispatcher consuming the moxxy SDK.",
+  "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",
     "agent",

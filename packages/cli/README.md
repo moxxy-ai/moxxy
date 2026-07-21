@@ -75,7 +75,41 @@ Or run it without installing:
 npx @moxxy/cli init
 ```
 
-Requirements: Node.js 20.10 or later. An API key for a supported provider (Anthropic, OpenAI), or sign into ChatGPT via `moxxy login openai-codex`.
+Requirements: Node.js 20.10 or later. Use an API key for Anthropic/OpenAI, sign into ChatGPT with `moxxy login openai-codex`, or reuse an authenticated Claude Code Pro/Max subscription as described below.
+
+### Claude Code (Pro/Max subscription, no API key)
+
+1. Install the official Claude CLI so `claude` is on `PATH` (or set `CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude`).
+2. Run `claude auth login` or `moxxy login claude-code`, then confirm with `claude auth status` and `moxxy doctor`.
+3. Select `claude-code` in `moxxy init`. It defaults to `claude-sonnet-4-6`; override per run with `--model`, or persist `plugins.provider.items.claude-code.model`.
+
+The default transport disables Claude's internal tools. To opt into an isolated coding task, configure the provider item explicitly:
+
+```yaml
+plugins:
+  provider:
+    default: claude-code
+    items:
+      claude-code:
+        model: claude-sonnet-4-6
+        config:
+          mode: native-tools
+          permissionMode: acceptEdits
+          allowedTools: [Read, Write, Edit]
+```
+
+`allowedTools` and `permissionMode` are forwarded to and enforced by Claude CLI. Moxxy's permission resolver, `--allow-tools`, and isolators govern moxxy-registered tools only; they do **not** govern Claude's internal native tools. Claude also owns its login files—moxxy neither reads nor stores subscription credentials in its vault.
+
+Desktop and interactive CLI setup can start sign-in. Headless runners/services generally cannot complete browser or TTY authentication: authenticate first as the same OS account that runs the service, make `claude` available in that account's service `PATH` (or set the executable path), and restart it. Recovery commands are `claude auth status`, `claude auth login`, `moxxy login claude-code`, and `moxxy doctor`.
+
+Contributors with an authenticated subscription can run the opt-in, no-API-key smoke gate after `pnpm build`:
+
+```sh
+node scripts/e2e-claude-cli-live.mjs
+# optional: MOXXY_CLAUDE_E2E_MODEL=claude-opus-4-6 node scripts/e2e-claude-cli-live.mjs
+```
+
+It skips clearly when `claude` is missing or signed out, streams a real text prompt, and performs its native-tool assertion only inside a generated temporary git repository.
 
 ## Quickstart
 

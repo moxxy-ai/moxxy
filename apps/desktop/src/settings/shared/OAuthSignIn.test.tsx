@@ -36,7 +36,7 @@ function fakeApi(): { api: MoxxyApi; emit: (event: string, payload: unknown) => 
 }
 
 describe('OAuthSignIn', () => {
-  it('fires the latest onSignedIn, not the one captured at mount', async () => {
+  it('reports successful CLI readiness and fires the latest onSignedIn', async () => {
     const { api, emit } = fakeApi();
     __setApiOverride(api);
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-1' as `${string}-${string}-${string}-${string}-${string}`);
@@ -58,7 +58,56 @@ describe('OAuthSignIn', () => {
     // Login completes successfully.
     act(() => emit('provider.login.done', { loginId: 'login-1', code: 0 }));
 
+    expect(await screen.findByText('Signed in to codex.')).toBeTruthy();
     expect(v2).toHaveBeenCalledTimes(1);
     expect(v1).not.toHaveBeenCalled();
+  });
+
+  it('shows missing-binary diagnostics without exposing credential input', async () => {
+    const { api, emit } = fakeApi();
+    __setApiOverride(api);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-missing' as `${string}-${string}-${string}-${string}-${string}`);
+    render(<OAuthSignIn provider="claude-code" />);
+
+    fireEvent.click(screen.getByText('Sign in with claude-code'));
+    act(() => emit('provider.login.output', {
+      loginId: 'login-missing',
+      text: 'Claude CLI executable not found: claude. Install Claude Code or set CLAUDE_CODE_EXECUTABLE.\n',
+    }));
+    act(() => emit('provider.login.done', { loginId: 'login-missing', code: 1 }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in did not complete');
+    expect(screen.getByText(/Claude CLI executable not found/)).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
+
+  it('can cancel an in-progress Claude CLI sign-in and reports cancellation', async () => {
+    const { api } = fakeApi();
+    __setApiOverride(api);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-cancel' as `${string}-${string}-${string}-${string}-${string}`);
+    render(<OAuthSignIn provider="claude-code" />);
+
+    fireEvent.click(screen.getByText('Sign in with claude-code'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel sign-in' }));
+
+    await waitFor(() => expect(api.invoke).toHaveBeenCalledWith(
+      'provider.login.cancel', { loginId: 'login-cancel' },
+    ));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in cancelled.');
+  });
+
+  it('reports a failed CLI sign-in and preserves diagnostic output', async () => {
+    const { api, emit } = fakeApi();
+    __setApiOverride(api);
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('login-failed' as `${string}-${string}-${string}-${string}-${string}`);
+    render(<OAuthSignIn provider="claude-code" />);
+
+    fireEvent.click(screen.getByText('Sign in with claude-code'));
+    act(() => emit('provider.login.output', { loginId: 'login-failed', text: 'Claude CLI login failed.\n' }));
+    act(() => emit('provider.login.done', { loginId: 'login-failed', code: 7 }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('exit 7');
+    expect(screen.getByText('Claude CLI login failed.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 });
