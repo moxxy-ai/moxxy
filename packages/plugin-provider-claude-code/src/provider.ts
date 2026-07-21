@@ -57,6 +57,7 @@ export class ClaudeCodeProvider implements LLMProvider {
 
     let prompt: string;
     try {
+      assertTextOnlyRequest(req);
       prompt = serializeClaudePrompt(req);
     } catch (error) {
       yield nonRetryableError(error);
@@ -127,6 +128,15 @@ export class ClaudeCodeProvider implements LLMProvider {
 
 export function createClaudeCodeClient(config: ClaudeCodeProviderConfig = {}): LLMProvider {
   return new ClaudeCodeProvider(config);
+}
+
+function assertTextOnlyRequest(req: ProviderRequest): void {
+  if (req.tools && req.tools.length > 0) {
+    throw new Error('Claude CLI text transport does not support tools');
+  }
+  if (req.reasoning) {
+    throw new Error('Claude CLI text transport does not support reasoning');
+  }
 }
 
 function nonRetryableError(error: unknown): ProviderEvent {

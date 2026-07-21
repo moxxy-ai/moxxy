@@ -3,6 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
 import { claudeCodeProviderDef, createClaudeCodeClient } from './index.js';
 
@@ -99,6 +100,33 @@ describe('claude-code provider definition', () => {
     const input = await readFile(join(dir, 'input.txt'), 'utf8');
     expect(input.indexOf("You are Claude Code")).toBeLessThan(input.indexOf('message system'));
     expect(input.indexOf('message system')).toBeLessThan(input.indexOf('system instructions'));
+  });
+
+  it('rejects capabilities that the text-only descriptors disable', async () => {
+    const spawn = () => { throw new Error('should not spawn'); };
+    const client = createClaudeCodeClient({ spawn });
+
+    const withTools = await collect(client.stream({
+      ...textRequest(),
+      tools: [{
+        name: 'lookup',
+        description: 'Look something up',
+        inputSchema: z.object({}),
+        handler: async () => 'unused',
+      }],
+    }));
+    expect(withTools[1]).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('does not support tools'),
+      retryable: false,
+    });
+
+    const withReasoning = await collect(client.stream({ ...textRequest(), reasoning: true }));
+    expect(withReasoning[1]).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining('does not support reasoning'),
+      retryable: false,
+    });
   });
 
   it('turns malformed and unsupported records into non-retryable errors', async () => {
