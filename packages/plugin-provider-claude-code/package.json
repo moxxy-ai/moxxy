@@ -48,6 +48,20 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "provider"
+    },
+    "catalog": {
+      "label": "Claude (Pro/Max sign-in)",
+      "description": "Claude models through an existing Claude Code subscription sign-in.",
+      "provides": [
+        {
+          "category": "provider",
+          "name": "claude-code"
+        }
+      ],
+      "provider": {
+        "auth": "oauth",
+        "defaultModel": "claude-sonnet-4-6"
+      }
     }
   },
   "dependencies": {

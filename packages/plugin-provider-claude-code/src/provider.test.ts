@@ -12,6 +12,7 @@ import {
   claudeCodeModels,
   claudeCodeProviderDef,
   createClaudeCodeClient,
+  __setClaudeCommandRunner,
 } from './index.js';
 
 class ControlledProviderChild extends EventEmitter {
@@ -40,6 +41,16 @@ afterEach(async () => {
 });
 
 describe('claude-code provider definition', () => {
+  it('projects the provider-neutral host workspace into client config', async () => {
+    __setClaudeCommandRunner(async () => ({ code: 0, stdout: '{"loggedIn":true}', stderr: '' }));
+    const resolved = await claudeCodeProviderDef.resolveCredentials!({
+      vault: { get: async () => null, set: async () => undefined },
+      providerConfig: { mode: 'native-tools' },
+      host: { cwd: '/session/workspace' },
+    });
+    expect(resolved).toMatchObject({ mode: 'native-tools', cwd: '/session/workspace' });
+  });
+
   it('registers the exact Claude Code catalog, default, and text-only capabilities', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');

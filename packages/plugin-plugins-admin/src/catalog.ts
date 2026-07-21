@@ -4,24 +4,10 @@
  * enable / disable / remove choices. Formerly `@moxxy/plugin-marketplace`;
  * folded here so plugin install + lifecycle live in one package.
  */
-export interface PluginCatalogEntry {
-  readonly id: string;
-  readonly label: string;
-  readonly description: string;
-  readonly packageName: string;
-  readonly installSpec: string;
-  readonly startCommand?: string;
-  readonly defaultPort?: number;
-  readonly kind?: 'ui' | 'runtime' | 'cli';
-  /**
-   * Registry contributions this package provides, so surfaces can offer
-   * "install on first use" at the point a missing capability is asked for
-   * (`/goal` without mode-goal, an uninstalled mode in the picker, a
-   * `set_default` naming it). Category = registry kind (`mode`, `provider`,
-   * …), name = the contribution's registered name.
-   */
-  readonly provides?: ReadonlyArray<{ readonly category: string; readonly name: string }>;
-}
+import { PROVIDER_PLUGIN_CATALOG } from './provider-catalog.generated.js';
+import type { PluginCatalogEntry } from './catalog-types.js';
+
+export type { PluginCatalogEntry } from './catalog-types.js';
 
 export interface PluginPickerOption {
   readonly value: string;
@@ -42,62 +28,7 @@ export type PluginCatalogStatus = 'not installed' | 'installed' | 'disabled';
 /** Built-in, curated list of installable plugins. Users can also install any
  *  npm package / GitHub spec / local path directly by name. */
 export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
-  // API-key providers — NOT bundled into the binary (the kernel is slim); they
-  // install on demand from npm. `moxxy init` is the guided path (it also collects
-  // the key into the vault); installing one here drops in the package + enables
-  // it, then add its key via `moxxy init` / `/vault`. installSpec is the bare
-  // package (latest published), matching init/provision.
-  {
-    id: 'provider-anthropic',
-    label: 'Anthropic (Claude)',
-    description: 'Anthropic Claude models. Needs an API key (moxxy init or /vault).',
-    packageName: '@moxxy/plugin-provider-anthropic',
-    installSpec: '@moxxy/plugin-provider-anthropic',
-    provides: [{ category: 'provider', name: 'anthropic' }],
-  },
-  {
-    id: 'provider-openai',
-    label: 'OpenAI (GPT)',
-    description: 'OpenAI GPT models. Needs an API key (moxxy init or /vault).',
-    packageName: '@moxxy/plugin-provider-openai',
-    installSpec: '@moxxy/plugin-provider-openai',
-    provides: [{ category: 'provider', name: 'openai' }],
-  },
-  {
-    id: 'provider-google',
-    label: 'Google (Gemini)',
-    description: 'Google Gemini models. Needs an API key (moxxy init or /vault).',
-    packageName: '@moxxy/plugin-provider-google',
-    installSpec: '@moxxy/plugin-provider-google',
-    provides: [{ category: 'provider', name: 'google' }],
-  },
-  {
-    id: 'provider-xai',
-    label: 'xAI (Grok)',
-    description: 'xAI Grok models. Needs an API key (moxxy init or /vault).',
-    packageName: '@moxxy/plugin-provider-xai',
-    installSpec: '@moxxy/plugin-provider-xai',
-    provides: [{ category: 'provider', name: 'xai' }],
-  },
-  {
-    id: 'provider-zai',
-    label: 'z.ai (GLM)',
-    description: 'z.ai GLM models (API + GLM Coding Plan). Needs an API key (moxxy init or /vault).',
-    packageName: '@moxxy/plugin-provider-zai',
-    installSpec: '@moxxy/plugin-provider-zai',
-    provides: [
-      { category: 'provider', name: 'zai' },
-      { category: 'provider', name: 'zai-plan' },
-    ],
-  },
-  {
-    id: 'provider-local',
-    label: 'Local (Ollama)',
-    description: 'Local models via an Ollama/OpenAI-compatible server. No API key needed.',
-    packageName: '@moxxy/plugin-provider-local',
-    installSpec: '@moxxy/plugin-provider-local',
-    provides: [{ category: 'provider', name: 'local' }],
-  },
+  ...PROVIDER_PLUGIN_CATALOG,
   // Modes + capability plugins — NOT bundled (the kernel is slim); they
   // install on demand. The `provides` mapping lets /goal, /mode and
   // set_default offer install-on-first-use at the point a missing capability

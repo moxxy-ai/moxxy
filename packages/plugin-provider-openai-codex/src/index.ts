@@ -1,13 +1,37 @@
-import { defineProvider, definePlugin } from '@moxxy/sdk';
+import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CodexProvider, type CodexProviderConfig } from './provider.js';
 import { codexModels } from './models.js';
-import { codexLogin, codexLogout, codexStatus } from './login.js';
+import {
+  codexLogin,
+  codexLogout,
+  codexStatus,
+  persistCodexTokens,
+  readStoredTokens,
+} from './login.js';
+import type { CodexTokens } from './types.js';
 import { PLUGIN_VERSION } from './codex/headers.js';
 
 export const openaiCodexProviderDef = defineProvider({
   name: 'openai-codex',
   models: [...codexModels],
   createClient: (config) => new CodexProvider(config as CodexProviderConfig),
+  async resolveCredentials({ vault, providerConfig }) {
+    const tokens = await readStoredTokens(vault).catch(() => null);
+    if (!tokens) {
+      throw new MoxxyError({
+        code: 'AUTH_NO_CREDENTIALS',
+        message: 'No ChatGPT OAuth credentials found in the vault.',
+        hint: 'Run `moxxy login openai-codex` to sign in with your ChatGPT Pro/Plus account.',
+        context: { provider: 'openai-codex' },
+      });
+    }
+    return {
+      ...providerConfig,
+      tokens,
+      onTokensRefreshed: (next: CodexTokens) => persistCodexTokens(vault, next),
+      reloadTokens: () => readStoredTokens(vault),
+    };
+  },
   // No validateKey: OAuth credentials are validated by the OAuth token
   // exchange itself, not by a synchronous key check.
   auth: {

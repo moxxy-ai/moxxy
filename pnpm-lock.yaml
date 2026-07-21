@@ -613,12 +613,6 @@ importers:
       '@moxxy/plugin-provider-admin':
         specifier: workspace:*
         version: link:../plugin-provider-admin
-      '@moxxy/plugin-provider-claude-code':
-        specifier: workspace:*
-        version: link:../plugin-provider-claude-code
-      '@moxxy/plugin-provider-openai-codex':
-        specifier: workspace:*
-        version: link:../plugin-provider-openai-codex
       '@moxxy/plugin-scheduler':
         specifier: workspace:*
         version: link:../plugin-scheduler
@@ -1999,6 +1993,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.19.18
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

@@ -7,15 +7,12 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
-import { checkClaudeCliAuth, resolveClaudeExecutable } from '@moxxy/plugin-provider-claude-code';
-import type { RequirementIssue } from '@moxxy/sdk';
-import type { RequirementCheck } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
 import { embedderSelection } from '../setup/resolve-plugins-tree.js';
 import type { RegistrationResult } from '../setup/register-plugins.js';
-import { canonicalKey } from '../provider-keys.js';
+import { resolveProviderCredentials } from '../provider-credentials.js';
 import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
 
@@ -27,9 +24,6 @@ export interface Check {
   readonly message: string;
 }
 
-const CODEX_TRANSCRIBER_NAME = 'openai-codex-transcribe';
-const CODEX_PROVIDER_NAME = 'openai-codex';
-const CODEX_AUTH_RUNTIME = 'auth:provider:openai-codex';
 
 const HELP = formatHelp({
   title: 'moxxy doctor',
@@ -94,22 +88,6 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
   }
 }
 
-export async function buildClaudeProviderDoctorCheck(config: MoxxyConfig): Promise<Check> {
-  const executable = resolveClaudeExecutable(
-    config.plugins?.provider?.items?.['claude-code']?.config ?? {},
-  );
-  const auth = await checkClaudeCliAuth(executable);
-  return {
-    id: 'provider:claude-code',
-    status: auth.state === 'signed-in'
-      ? 'ok'
-      : auth.state === 'missing' || auth.state === 'unsupported' || auth.state === 'error'
-        ? 'fail'
-        : 'warn',
-    message: auth.message,
-  };
-}
-
 interface DoctorChecksDeps {
   readonly session: Session;
   readonly config: MoxxyConfig;
@@ -155,9 +133,14 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   }
 
   // Providers
-  const primary = config.plugins?.provider?.default ?? 'anthropic';
+  const primary = config.plugins?.provider?.default;
   const fallbacks = config.plugins?.provider?.fallbacks ?? [];
-  const providerNames = Array.from(new Set([primary, ...fallbacks]));
+  const providerNames = Array.from(new Set([primary, ...fallbacks].filter(
+    (name): name is string => typeof name === 'string' && name.length > 0,
+  )));
+  if (providerNames.length === 0) {
+    checks.push({ id: 'providers', status: 'warn', message: 'no provider configured — run moxxy init' });
+  }
   for (const name of providerNames) {
     const def = session.providers.list().find((p) => p.name === name);
     if (!def) {
@@ -168,45 +151,27 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
       });
       continue;
     }
-    if (name === 'claude-code') {
-      checks.push(await buildClaudeProviderDoctorCheck(config));
+    const resolved = await tryCatch(() => resolveProviderCredentials(def, vault, { cwd: session.cwd }, {
+      interactive: false,
+      providerConfig: config.plugins?.provider?.items?.[name]?.config ?? {},
+    }));
+    if (!resolved.ok) {
+      checks.push({ id: `provider:${name}`, status: 'warn', message: resolved.error });
       continue;
     }
-    const canonical = canonicalKey(name);
-    let key: string | null = null;
-    try {
-      key = await vault.get(canonical);
-    } catch {
-      // vault unavailable already reported
-    }
-    if (!key) key = process.env[canonical] ?? null;
-    if (!key) {
-      checks.push({
-        id: `provider:${name}`,
-        status: 'warn',
-        message: `no key in vault or ${canonical} env — interactive prompt would fire`,
-      });
-      continue;
-    }
-    if (checkKeys && def.validateKey) {
-      const v = await tryCatch(() => def.validateKey!(key!));
-      if (!v.ok) {
-        checks.push({
-          id: `provider:${name}`,
-          status: 'fail',
-          message: `validateKey threw: ${v.error}`,
-        });
-      } else if (!v.value.ok) {
-        checks.push({
-          id: `provider:${name}`,
-          status: 'fail',
-          message: v.value.message,
-        });
+    if (checkKeys && def.validateKey && typeof resolved.value.apiKey === 'string') {
+      const validation = await tryCatch(() => def.validateKey!(resolved.value.apiKey as string));
+      let check: Check;
+      if (!validation.ok) {
+        check = { id: `provider:${name}`, status: 'fail', message: validation.error };
+      } else if (!validation.value.ok) {
+        check = { id: `provider:${name}`, status: 'fail', message: validation.value.message };
       } else {
-        checks.push({ id: `provider:${name}`, status: 'ok', message: 'key resolved + validated' });
+        check = { id: `provider:${name}`, status: 'ok', message: 'credentials ready + validated' };
       }
+      checks.push(check);
     } else {
-      checks.push({ id: `provider:${name}`, status: 'ok', message: 'key resolved' });
+      checks.push({ id: `provider:${name}`, status: 'ok', message: 'credentials ready' });
     }
   }
 
@@ -301,49 +266,29 @@ export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Chec
 }
 
 export function buildVoiceDoctorCheck(
-  session: Session,
-  captureReadiness: RequirementCheck = { ready: true, issues: [] },
+  session: Pick<Session, 'transcribers'>,
+  captureReadiness: import('@moxxy/sdk').RequirementCheck,
 ): Check {
-  const readiness = combineRequirementChecks(
-    session.requirements.check([
-      { kind: 'transcriber', name: CODEX_TRANSCRIBER_NAME },
-      { kind: 'provider', name: 'openai-codex', state: 'active' },
-      { kind: 'runtime', name: 'auth:provider:openai-codex', state: 'ready' },
-    ]),
-    captureReadiness,
-  );
-  const activeProvider = session.providers.getActiveName() ?? '(none)';
-  const activeTranscriber = session.transcribers.getActiveName();
-  const hasCodexTranscriber = session.transcribers.has(CODEX_TRANSCRIBER_NAME);
-
-  if (!readiness.ready) {
+  if (!captureReadiness.ready) {
+    const issue = captureReadiness.issues[0];
     return {
       id: 'voice',
       status: 'warn',
-      message: `unavailable — ${formatVoiceRequirementIssue(readiness.issues[0])}`,
+      message: issue?.hint ? issue.hint.replace(/`/g, '').replace(/\.$/, '') : issue?.message ?? 'audio capture unavailable',
     };
   }
-
-  if (activeTranscriber && activeTranscriber !== CODEX_TRANSCRIBER_NAME) {
+  const active = session.transcribers.getActiveName();
+  if (!active) {
+    const registered = session.transcribers.list().map((def) => def.name);
     return {
       id: 'voice',
       status: 'warn',
-      message: `unavailable — active transcriber is ${activeTranscriber}; expected ${CODEX_TRANSCRIBER_NAME}`,
+      message: registered.length > 0
+        ? `audio capture available; no active transcriber (installed: ${registered.join(', ')})`
+        : 'audio capture available; no transcriber installed',
     };
   }
-
-  return {
-    id: 'voice',
-    status: hasCodexTranscriber && activeProvider === CODEX_PROVIDER_NAME ? 'ok' : 'warn',
-    message:
-      hasCodexTranscriber && activeProvider === CODEX_PROVIDER_NAME
-        ? `ready — provider=${activeProvider} transcriber=${CODEX_TRANSCRIBER_NAME}`
-        : `unavailable — ${CODEX_TRANSCRIBER_NAME} is not registered`,
-  };
-}
-
-function combineRequirementChecks(a: RequirementCheck, b: RequirementCheck): RequirementCheck {
-  return { ready: a.ready && b.ready, issues: [...a.issues, ...b.issues] };
+  return { id: 'voice', status: 'ok', message: `ready — transcriber=${active}` };
 }
 
 export function buildPluginDoctorChecks(summary: RegistrationResult): Check[] {
@@ -366,28 +311,6 @@ export function buildPluginDoctorChecks(summary: RegistrationResult): Check[] {
     });
   }
   return checks;
-}
-
-function formatVoiceRequirementIssue(issue: RequirementIssue | undefined): string {
-  if (!issue) return 'unknown voice requirement is not ready';
-  if (issue.requirement.kind === 'provider' && issue.requirement.name === CODEX_PROVIDER_NAME) {
-    if (issue.code === 'missing') return `${CODEX_PROVIDER_NAME} is not registered`;
-    return `${CODEX_PROVIDER_NAME} is not active`;
-  }
-  if (issue.requirement.kind === 'runtime' && issue.requirement.name === CODEX_AUTH_RUNTIME) {
-    return 'run moxxy login openai-codex';
-  }
-  if (issue.requirement.kind === 'runtime' && issue.requirement.name === 'voice:capture:ffmpeg') {
-    return 'ffmpeg is required for voice input';
-  }
-  if (issue.requirement.kind === 'transcriber' && issue.requirement.name === CODEX_TRANSCRIBER_NAME) {
-    return `${CODEX_TRANSCRIBER_NAME} is not registered`;
-  }
-  return issue.hint ? stripBackticks(issue.hint).replace(/\.$/, '') : issue.message;
-}
-
-function stripBackticks(value: string): string {
-  return value.replace(/`/g, '');
 }
 
 function emit(checks: ReadonlyArray<Check>, asJson: boolean): number {
