@@ -11,8 +11,7 @@ export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
   models: claudeCodeModels,
   createClient: (config) => createClaudeCodeClient(config as ClaudeCodeProviderConfig),
-  // No validateKey: an OAuth bearer is validated by the request itself, and
-  // an interactive paste/sign-in already proves the token round-trips.
+  // No validateKey: readiness is reported by the installed Claude CLI.
   auth: {
     kind: 'oauth',
     serviceName: CLAUDE_CODE_SERVICE_NAME,
@@ -34,15 +33,17 @@ export {
   CLAUDE_CODE_PROVIDER_ID,
   CLAUDE_CODE_SERVICE_NAME,
   CLAUDE_CODE_SYSTEM,
-  CLAUDE_OAUTH_BETA,
-  CLAUDE_TOKEN_ENV_VARS,
+  CLAUDE_CODE_EXECUTABLE_ENV,
 } from './constants.js';
 export {
   claudeLogin,
   claudeLogout,
   claudeStatus,
-  ensureFreshClaudeTokens,
-  refreshClaudeAccessToken,
-  type FreshClaudeTokens,
+  checkClaudeCliAuth,
+  resolveClaudeExecutable,
+  type ClaudeCliAuthStatus,
+  type ClaudeCliAuthState,
+  type ClaudeCommandResult,
+  __setClaudeCommandRunner,
 } from './login.js';
 export { claudeCodeModels, createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';

@@ -7,9 +7,8 @@ import {
 } from '@moxxy/plugin-provider-openai-codex';
 import {
   CLAUDE_CODE_PROVIDER_ID,
-  CLAUDE_TOKEN_ENV_VARS,
-  ensureFreshClaudeTokens,
-  refreshClaudeAccessToken,
+  checkClaudeCliAuth,
+  resolveClaudeExecutable,
 } from '@moxxy/plugin-provider-claude-code';
 import { storedProviderApiKeyName } from '@moxxy/plugin-provider-admin';
 import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
@@ -17,10 +16,8 @@ import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
 /**
  * Provider-aware credential resolution. The existing API-key flow (vault →
  * env → prompt) is unchanged for all providers EXCEPT the subscription-OAuth
- * ones: `openai-codex` pulls a ChatGPT token bundle (under
- * `oauth/openai-codex/*`), and `claude-code` pulls a Claude bearer (vault
- * `oauth/claude-code/*` or a `CLAUDE_CODE_OAUTH_TOKEN` env var) — each
- * exposing the live token plus a refresh hook the provider uses on a 401.
+ * ones: `openai-codex` pulls a ChatGPT token bundle, while `claude-code`
+ * verifies the installed CLI and reuses its existing subscription sign-in.
  *
  * For runtime-registered providers (plugins.provider.items in the unified config) the stored
  * `envVar` override is honored: the lookup goes through the shared
@@ -56,31 +53,30 @@ export async function resolveProviderCredentials(
 }
 
 /**
- * The installed CLI is the primary authentication source, so activation must
- * also work with no moxxy credential at all. When moxxy has a token (from its
- * login flow or an env var), pass it to the provider; the provider supplies it
- * to the child through CLAUDE_CODE_OAUTH_TOKEN rather than command-line args.
+ * The installed CLI is the only authentication source. Activation probes its
+ * supported auth-status command and passes only executable/config options to
+ * the provider; legacy moxxy credentials are intentionally ignored.
  */
 async function resolveClaudeCode(
-  vault: VaultStore,
+  _vault: VaultStore,
   opts: ResolveOptions,
 ): Promise<Record<string, unknown>> {
   const config = { ...(opts.providerConfig ?? {}) };
-  const fresh = await ensureFreshClaudeTokens(vault);
-  if (fresh) {
-    return {
-      ...config,
-      oauthToken: fresh.accessToken,
-      ...(fresh.expiresAt !== undefined ? { oauthExpiresAt: fresh.expiresAt } : {}),
-      ...(fresh.canRefresh ? { oauthRefresh: () => refreshClaudeAccessToken(vault) } : {}),
-    };
+  const executable = resolveClaudeExecutable(config);
+  const status = await checkClaudeCliAuth(executable);
+  if (status.state !== 'signed-in') {
+    throw new MoxxyError({
+      code: status.state === 'signed-out' ? 'AUTH_NO_CREDENTIALS' : 'AUTH_INVALID',
+      message: status.message,
+      hint: status.state === 'signed-out'
+        ? 'Run `moxxy login claude-code` to sign in with your Claude subscription.'
+        : undefined,
+      context: { provider: CLAUDE_CODE_PROVIDER_ID, executable, state: status.state },
+    });
   }
-
-  for (const envVar of CLAUDE_TOKEN_ENV_VARS) {
-    const token = process.env[envVar];
-    if (token) return { ...config, oauthToken: token };
-  }
-  return config;
+  // Never read or forward legacy oauth/claude-code/* vault values. The child
+  // inherits the Claude CLI's own config/auth state.
+  return { ...config, executable };
 }
 
 async function resolveOAuthCodex(

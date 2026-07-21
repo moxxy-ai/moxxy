@@ -181,6 +181,8 @@ export interface ProviderVault {
  */
 export interface ProviderAuthContext {
   readonly vault: ProviderVault;
+  /** Effective per-provider configuration from `plugins.provider.items.<name>.config`. */
+  readonly providerConfig?: Readonly<Record<string, unknown>>;
   /**
    * True when there is no usable browser or interactive TTY. OAuth flows
    * should fall back to device-code (or equivalent) in this mode rather
@@ -265,6 +267,10 @@ export interface ProviderOAuthStatus {
   readonly expiresAt?: number;
   /** Vault key the credentials are stored under (informational). */
   readonly vaultKey?: string;
+  /** Optional provider-specific state for keyless/external authentication. */
+  readonly authState?: string;
+  /** Actionable status detail shown by CLI and desktop surfaces. */
+  readonly message?: string;
 }
 
 export interface ProviderDef {

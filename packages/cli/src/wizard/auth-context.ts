@@ -12,6 +12,8 @@ import { isCancel, password, text } from '@clack/prompts';
 
 export interface BuildAuthContextOptions {
   readonly headless: boolean;
+  /** Effective provider configuration, used by auth surfaces such as Claude CLI executable selection. */
+  readonly providerConfig?: Readonly<Record<string, unknown>>;
   /** Defaults to writing through `process.stdout`. Wizard hosts pass a clack-aware writer. */
   readonly write?: (chunk: string) => void;
   /**
@@ -46,6 +48,7 @@ export function buildProviderAuthContext(
         : clackPrompt;
   return {
     headless: opts.headless,
+    ...(opts.providerConfig ? { providerConfig: opts.providerConfig } : {}),
     write: opts.write ?? ((s) => process.stdout.write(s)),
     ...(prompt ? { prompt } : {}),
     vault: {

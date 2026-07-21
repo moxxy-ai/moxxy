@@ -25,10 +25,6 @@ export interface ClaudeCodeProviderConfig {
   readonly defaultModel?: string;
   /** Process test seam; production callers should leave this unset. */
   readonly spawn?: ClaudeSpawn;
-  /** Optional moxxy-managed bearer, supplied to the child through its environment. */
-  readonly oauthToken?: string;
-  readonly oauthExpiresAt?: number;
-  readonly oauthRefresh?: () => Promise<{ readonly token: string; readonly expiresAt?: number }>;
 }
 
 export class ClaudeCodeProvider implements LLMProvider {
@@ -37,17 +33,11 @@ export class ClaudeCodeProvider implements LLMProvider {
 
   private readonly executable: string;
   private readonly defaultModel: string;
-  private oauthToken?: string;
-  private oauthExpiresAt?: number;
-  private readonly oauthRefresh?: ClaudeCodeProviderConfig['oauthRefresh'];
   private readonly spawn?: ClaudeSpawn;
 
   constructor(config: ClaudeCodeProviderConfig = {}) {
     this.executable = config.executable ?? 'claude';
     this.defaultModel = config.defaultModel ?? DEFAULT_MODEL;
-    if (config.oauthToken) this.oauthToken = config.oauthToken;
-    if (config.oauthExpiresAt !== undefined) this.oauthExpiresAt = config.oauthExpiresAt;
-    if (config.oauthRefresh) this.oauthRefresh = config.oauthRefresh;
     if (config.spawn) this.spawn = config.spawn;
   }
 
@@ -67,12 +57,10 @@ export class ClaudeCodeProvider implements LLMProvider {
     const state = createProtocolState();
     let terminal = false;
     try {
-      await this.ensureFreshOauth();
       const lines = runClaudeProcess({
         executable: this.executable,
         model,
         prompt,
-        ...(this.oauthToken ? { oauthToken: this.oauthToken } : {}),
         ...(req.signal ? { signal: req.signal } : {}),
         ...(this.spawn ? { spawn: this.spawn } : {}),
       });
@@ -100,14 +88,6 @@ export class ClaudeCodeProvider implements LLMProvider {
     } catch (error) {
       yield nonRetryableError(error);
     }
-  }
-
-  private async ensureFreshOauth(): Promise<void> {
-    if (!this.oauthRefresh || this.oauthExpiresAt === undefined) return;
-    if (Date.now() + 60_000 < this.oauthExpiresAt) return;
-    const fresh = await this.oauthRefresh();
-    this.oauthToken = fresh.token;
-    this.oauthExpiresAt = fresh.expiresAt;
   }
 
   async countTokens(
