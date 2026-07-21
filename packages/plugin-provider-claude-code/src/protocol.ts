@@ -11,7 +11,6 @@ interface ProtocolState {
 
 export function serializeClaudePrompt(req: ProviderRequest): string {
   const system: string[] = [CLAUDE_CODE_SYSTEM];
-  if (req.system) system.push(req.system);
   const conversation: string[] = [];
 
   for (const message of req.messages) {
@@ -25,6 +24,9 @@ export function serializeClaudePrompt(req: ProviderRequest): string {
     if (message.role === 'system') system.push(text.join(''));
     else conversation.push(`<${message.role}>\n${text.join('')}\n</${message.role}>`);
   }
+  // ProviderRequest.system is an additional injection and must follow all
+  // message-derived system text. The Claude identity remains first.
+  if (req.system) system.push(req.system);
 
   return `<system>\n${system.join('\n\n')}\n</system>\n\n${conversation.join('\n\n')}`;
 }

@@ -1,14 +1,15 @@
 import { defineProvider, definePlugin } from '@moxxy/sdk';
-import { anthropicModels } from '@moxxy/plugin-provider-anthropic';
 import { CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
-import { createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';
+import {
+  claudeCodeModels,
+  createClaudeCodeClient,
+  type ClaudeCodeProviderConfig,
+} from './provider.js';
 import { claudeLogin, claudeLogout, claudeStatus } from './login.js';
 
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
-  // Same Claude models as the API-key `anthropic` provider — it's the same
-  // Messages API, only the credential differs.
-  models: [...anthropicModels],
+  models: claudeCodeModels,
   createClient: (config) => createClaudeCodeClient(config as ClaudeCodeProviderConfig),
   // No validateKey: an OAuth bearer is validated by the request itself, and
   // an interactive paste/sign-in already proves the token round-trips.
@@ -44,4 +45,4 @@ export {
   refreshClaudeAccessToken,
   type FreshClaudeTokens,
 } from './login.js';
-export { createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';
+export { claudeCodeModels, createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';

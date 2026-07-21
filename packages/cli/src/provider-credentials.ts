@@ -33,7 +33,7 @@ export async function resolveProviderCredentials(
   opts: ResolveOptions = {},
 ): Promise<Record<string, unknown>> {
   if (providerName === 'openai-codex') return resolveOAuthCodex(vault, opts);
-  if (providerName === CLAUDE_CODE_PROVIDER_ID) return resolveClaudeCode(vault);
+  if (providerName === CLAUDE_CODE_PROVIDER_ID) return resolveClaudeCode(vault, opts);
   // The `local` provider (Ollama / LM Studio / llama.cpp / vLLM) authenticates
   // against nothing, so it must activate without a key — never prompting, never
   // throwing AUTH_NO_CREDENTIALS. Supply a harmless placeholder key (the OpenAI
@@ -56,32 +56,31 @@ export async function resolveProviderCredentials(
 }
 
 /**
- * Claude subscription credentials. Prefer the vault bundle written by
- * `moxxy login claude-code` (refreshed proactively when near expiry); fall
- * back to a `claude setup-token` env var for CI / non-interactive use. The
- * `oauthRefresh` hook is wired only when a refresh_token is actually stored.
+ * The installed CLI is the primary authentication source, so activation must
+ * also work with no moxxy credential at all. When moxxy has a token (from its
+ * login flow or an env var), pass it to the provider; the provider supplies it
+ * to the child through CLAUDE_CODE_OAUTH_TOKEN rather than command-line args.
  */
-async function resolveClaudeCode(vault: VaultStore): Promise<Record<string, unknown>> {
+async function resolveClaudeCode(
+  vault: VaultStore,
+  opts: ResolveOptions,
+): Promise<Record<string, unknown>> {
+  const config = { ...(opts.providerConfig ?? {}) };
   const fresh = await ensureFreshClaudeTokens(vault);
   if (fresh) {
     return {
+      ...config,
       oauthToken: fresh.accessToken,
       ...(fresh.expiresAt !== undefined ? { oauthExpiresAt: fresh.expiresAt } : {}),
       ...(fresh.canRefresh ? { oauthRefresh: () => refreshClaudeAccessToken(vault) } : {}),
     };
   }
+
   for (const envVar of CLAUDE_TOKEN_ENV_VARS) {
     const token = process.env[envVar];
-    if (token) return { oauthToken: token };
+    if (token) return { ...config, oauthToken: token };
   }
-  throw new MoxxyError({
-    code: 'AUTH_NO_CREDENTIALS',
-    message: 'No Claude subscription credentials found.',
-    hint:
-      'Run `moxxy login claude-code` to sign in with your Claude Pro/Max account, ' +
-      'or set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`.',
-    context: { provider: CLAUDE_CODE_PROVIDER_ID },
-  });
+  return config;
 }
 
 async function resolveOAuthCodex(

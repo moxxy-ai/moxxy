@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,10 +12,20 @@ afterEach(async () => {
 });
 
 describe('claude-code provider definition', () => {
-  it('registers as an OAuth provider named claude-code with Claude models', () => {
+  it('registers text-only Claude model capabilities', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');
     expect(claudeCodeProviderDef.models.map((model) => model.id)).toContain('claude-sonnet-4-6');
+    for (const model of claudeCodeProviderDef.models) {
+      expect(model).toMatchObject({
+        supportsStreaming: true,
+        supportsTools: false,
+        supportsImages: false,
+        supportsDocuments: false,
+        supportsAudio: false,
+        supportsReasoning: false,
+      });
+    }
   });
 
   it('streams text through a fake Claude executable with structured non-interactive arguments', async () => {
@@ -48,6 +59,46 @@ describe('claude-code provider definition', () => {
     expect(input).toContain('<assistant>\nprior assistant');
     expect(input).toContain('<user>\nlatest user');
     expect(input).not.toContain('oauth-secret');
+  });
+
+  it('passes a moxxy-managed token to the child environment without exposing it in args', async () => {
+    let childEnv: NodeJS.ProcessEnv | undefined;
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    const executable = join(dir, 'claude');
+    const client = createClaudeCodeClient({
+      executable,
+      oauthToken: 'oauth-secret',
+      spawn: (file, args, options) => {
+        childEnv = options.env;
+        return spawn(file, [...args], { stdio: ['pipe', 'pipe', 'pipe'], env: options.env });
+      },
+    });
+
+    await collect(client.stream(textRequest()));
+    expect(childEnv?.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-secret');
+    expect(await readFile(join(dir, 'args.json'), 'utf8')).not.toContain('oauth-secret');
+    expect(await readFile(join(dir, 'input.txt'), 'utf8')).not.toContain('oauth-secret');
+  });
+
+  it('orders the identity, message-derived system text, and extra system text', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    const client = createClaudeCodeClient({ executable: join(dir, 'claude') });
+    const base = textRequest();
+    const request: ProviderRequest = {
+      ...base,
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: 'message system' }] },
+        ...base.messages,
+      ],
+    };
+    await collect(client.stream(request));
+    const input = await readFile(join(dir, 'input.txt'), 'utf8');
+    expect(input.indexOf("You are Claude Code")).toBeLessThan(input.indexOf('message system'));
+    expect(input.indexOf('message system')).toBeLessThan(input.indexOf('system instructions'));
   });
 
   it('turns malformed and unsupported records into non-retryable errors', async () => {
