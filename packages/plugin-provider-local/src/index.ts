@@ -147,11 +147,7 @@ export const localProviderDef = defineOpenAICompatProvider({
   validate: false,
   resolveApiKey: (cfg) => cfg.apiKey ?? process.env.LOCAL_API_KEY ?? LOCAL_PLACEHOLDER_KEY,
   resolveBaseURL: resolveLocalBaseURL,
-  auth: {
-    kind: 'apiKey',
-    envVar: 'LOCAL_API_KEY',
-    hint: 'optional — local servers need no key; set LOCAL_MODEL_BASE_URL for a non-Ollama endpoint',
-  },
+  auth: { kind: 'none' },
 });
 
 export const localPlugin = definePlugin({

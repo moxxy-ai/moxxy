@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-plugins-admin",
   "private": true,
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "Model-callable plugin admin: install_plugin shells out to npm into ~/.moxxy/plugins, then hot-reloads. Disable to lock the plugin set.",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,7 @@
     "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsx scripts/gen-catalog.mts && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist .turbo"
@@ -38,6 +38,7 @@
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "@types/node": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -1,5 +1,15 @@
 # @moxxy/sdk
 
+## 0.31.0
+
+### Minor Changes
+
+- 43926ab: Move provider credential resolution and onboarding metadata to provider-owned contracts and manifests. Unbundled configured providers are installed automatically on first use, while diagnostics now share activation credential semantics and verify both audio capture and transcription readiness.
+
+### Patch Changes
+
+- 8bb26b1: Stream Claude subscription turns through the installed Claude CLI instead of constructing the Anthropic API provider directly.
+
 ## 0.30.0
 
 ### Minor Changes

@@ -1,5 +1,18 @@
 # @moxxy/cli
 
+## 0.31.0
+
+### Patch Changes
+
+- 8bb26b1: Stream Claude subscription turns through the installed Claude CLI instead of constructing the Anthropic API provider directly.
+- 43926ab: Move provider credential resolution and onboarding metadata to provider-owned contracts and manifests. Unbundled configured providers are installed automatically on first use, while diagnostics now share activation credential semantics and verify both audio capture and transcription readiness.
+- f4ae185: Add an opt-in native-tools mode for Claude Code subscription tasks, including workspace, permission-mode, and allowed-tool forwarding without duplicate moxxy tool dispatch.
+- a85866c: Advertise Claude Code subscription models independently, persist the pinned default during provisioning, and make rejected model selections actionable.
+- bba28c1: Document and verify the installed Claude CLI subscription flow end to end, including opt-in live text/native-tool smoke coverage and clear desktop sign-in outcomes without handling subscription credentials.
+- Updated dependencies [8bb26b1]
+- Updated dependencies [43926ab]
+  - @moxxy/sdk@0.31.0
+
 ## 0.30.0
 
 ### Minor Changes

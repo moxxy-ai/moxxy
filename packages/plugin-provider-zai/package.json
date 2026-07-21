@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-zai",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "z.ai (Zhipu GLM) LLMProvider plugin for moxxy. Ships two providers: `zai` (pay-as-you-go, OpenAI-compatible endpoint) and `zai-coding-plan` (GLM Coding Plan, Anthropic-compatible endpoint).",
   "keywords": [
     "moxxy",
@@ -48,6 +48,23 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "provider"
+    },
+    "catalog": {
+      "label": "z.ai (GLM)",
+      "description": "z.ai GLM models (API + GLM Coding Plan). Needs an API key (moxxy init or /vault).",
+      "provides": [
+        {
+          "category": "provider",
+          "name": "zai"
+        },
+        {
+          "category": "provider",
+          "name": "zai-plan"
+        }
+      ],
+      "provider": {
+        "auth": "key"
+      }
     }
   },
   "dependencies": {

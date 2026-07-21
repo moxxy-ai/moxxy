@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-local",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "Local-model LLMProvider plugin for moxxy. Talks to any OpenAI-compatible local server (Ollama, LM Studio, llama.cpp, vLLM) — no API key required.",
   "keywords": [
     "moxxy",
@@ -47,6 +47,19 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "provider"
+    },
+    "catalog": {
+      "label": "Local (Ollama)",
+      "description": "Local models via an Ollama/OpenAI-compatible server. No API key needed.",
+      "provides": [
+        {
+          "category": "provider",
+          "name": "local"
+        }
+      ],
+      "provider": {
+        "auth": "none"
+      }
     }
   },
   "dependencies": {

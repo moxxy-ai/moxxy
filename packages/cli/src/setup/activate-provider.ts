@@ -3,7 +3,7 @@ import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
-import { providerDefault, providerSlot } from './resolve-plugins-tree.js';
+import { providerDefault, providerItem, providerSlot } from './resolve-plugins-tree.js';
 import type { BootStep } from './types.js';
 
 type Logger = {
@@ -51,6 +51,20 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   const candidates = [primaryProvider, ...fallbacks].filter(
     (c): c is string => typeof c === 'string' && c.length > 0,
   );
+  // The caller may overlay boot-time options onto the primary item's config.
+  // Every other path must still use that provider's own configured item rather
+  // than silently falling back to environment/default values.
+  const effectiveProviderConfig = (providerName: string): Record<string, unknown> => {
+    const item = providerItem(config, providerName);
+    const persisted = {
+      ...(item.config ?? {}),
+      ...(item.model ? { model: item.model } : {}),
+    };
+    const effective = providerName === primaryProvider
+      ? { ...persisted, ...providerConfig }
+      : persisted;
+    return effective;
+  };
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;
   let lastErr: unknown = null;
@@ -71,8 +85,10 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       // through fallbacks via prompts would be confusing.
       const interactive = i === 0 && !skipKeyPrompt && process.stdin.isTTY === true;
       try {
-        const resolved = await resolveProviderCredentials(candidate, vault, {
-          providerConfig: i === 0 ? providerConfig : {},
+        const def = session.providers.list().find((provider) => provider.name === candidate);
+        if (!def) throw new Error(`Provider "${candidate}" is not registered.`);
+        const resolved = await resolveProviderCredentials(def, vault, { cwd: session.cwd }, {
+          providerConfig: effectiveProviderConfig(candidate),
           interactive,
         });
         activated = { name: candidate, cfg: resolved };
@@ -124,7 +140,10 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   for (const p of session.providers.list()) {
     if (readyProviders.has(p.name)) continue;
     try {
-      await resolveProviderCredentials(p.name, vault, { interactive: false });
+      await resolveProviderCredentials(p, vault, { cwd: session.cwd }, {
+        interactive: false,
+        providerConfig: effectiveProviderConfig(p.name),
+      });
       readyProviders.add(p.name);
       session.requirements.setRuntime(`auth:provider:${p.name}`, 'ready');
     } catch {
@@ -137,10 +156,16 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
   // Expose a credential resolver so runtime provider switches (TUI
   // /model picker, preference re-apply below) can re-resolve credentials
   // before calling setActive — otherwise the new provider gets
-  // createClient({}) and OAuth-backed providers (openai-codex) throw
+  // createClient({}) and OAuth-backed providers throw
   // "no credentials" on the next turn.
-  const credentialResolver: CredentialResolver = async (providerName) =>
-    resolveProviderCredentials(providerName, vault, { interactive: false });
+  const credentialResolver: CredentialResolver = async (providerName) => {
+    const def = session.providers.list().find((provider) => provider.name === providerName);
+    if (!def) throw new Error(`Provider "${providerName}" is not registered.`);
+    return resolveProviderCredentials(def, vault, { cwd: session.cwd }, {
+      interactive: false,
+      providerConfig: effectiveProviderConfig(providerName),
+    });
+  };
   session.credentialResolver = credentialResolver;
 
   return { activated, credentialResolver };

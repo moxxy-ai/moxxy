@@ -1,17 +1,44 @@
-import { defineProvider, definePlugin } from '@moxxy/sdk';
-import { anthropicModels } from '@moxxy/plugin-provider-anthropic';
+import { defineProvider, definePlugin, MoxxyError } from '@moxxy/sdk';
 import { CLAUDE_CODE_PROVIDER_ID, CLAUDE_CODE_SERVICE_NAME } from './constants.js';
-import { createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';
-import { claudeLogin, claudeLogout, claudeStatus } from './login.js';
+import {
+  CLAUDE_CODE_DEFAULT_MODEL,
+  claudeCodeModels,
+  createClaudeCodeClient,
+  type ClaudeCodeProviderConfig,
+} from './provider.js';
+import {
+  claudeLogin,
+  claudeLogout,
+  claudeStatus,
+  checkClaudeCliAuth,
+  resolveClaudeExecutable,
+} from './login.js';
 
 export const claudeCodeProviderDef = defineProvider({
   name: CLAUDE_CODE_PROVIDER_ID,
-  // Same Claude models as the API-key `anthropic` provider — it's the same
-  // Messages API, only the credential differs.
-  models: [...anthropicModels],
-  createClient: (config) => createClaudeCodeClient(config as ClaudeCodeProviderConfig),
-  // No validateKey: an OAuth bearer is validated by the request itself, and
-  // an interactive paste/sign-in already proves the token round-trips.
+  models: claudeCodeModels,
+  createClient: (config) => createClaudeCodeClient({
+    ...(config as ClaudeCodeProviderConfig),
+    defaultModel:
+      typeof (config as { model?: unknown }).model === 'string'
+        ? (config as { model: string }).model
+        : (config as ClaudeCodeProviderConfig).defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL,
+  }),
+  async resolveCredentials({ providerConfig, host }) {
+    const config = { ...providerConfig, cwd: host.cwd };
+    const executable = resolveClaudeExecutable(config);
+    const status = await checkClaudeCliAuth(executable);
+    if (status.state !== 'signed-in') {
+      throw new MoxxyError({
+        code: status.state === 'signed-out' ? 'AUTH_NO_CREDENTIALS' : 'AUTH_INVALID',
+        message: status.message,
+        hint: status.state === 'signed-out' ? `Run \`moxxy login ${CLAUDE_CODE_PROVIDER_ID}\`.` : undefined,
+        context: { provider: CLAUDE_CODE_PROVIDER_ID, executable, state: status.state },
+      });
+    }
+    return { ...config, executable };
+  },
+  // No validateKey: readiness is reported by the installed Claude CLI.
   auth: {
     kind: 'oauth',
     serviceName: CLAUDE_CODE_SERVICE_NAME,
@@ -33,15 +60,22 @@ export {
   CLAUDE_CODE_PROVIDER_ID,
   CLAUDE_CODE_SERVICE_NAME,
   CLAUDE_CODE_SYSTEM,
-  CLAUDE_OAUTH_BETA,
-  CLAUDE_TOKEN_ENV_VARS,
+  CLAUDE_CODE_EXECUTABLE_ENV,
 } from './constants.js';
 export {
   claudeLogin,
   claudeLogout,
   claudeStatus,
-  ensureFreshClaudeTokens,
-  refreshClaudeAccessToken,
-  type FreshClaudeTokens,
+  checkClaudeCliAuth,
+  resolveClaudeExecutable,
+  type ClaudeCliAuthStatus,
+  type ClaudeCliAuthState,
+  type ClaudeCommandResult,
+  __setClaudeCommandRunner,
 } from './login.js';
-export { createClaudeCodeClient, type ClaudeCodeProviderConfig } from './provider.js';
+export {
+  CLAUDE_CODE_DEFAULT_MODEL,
+  claudeCodeModels,
+  createClaudeCodeClient,
+  type ClaudeCodeProviderConfig,
+} from './provider.js';

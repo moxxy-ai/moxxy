@@ -21,6 +21,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..', '..');
 const packagesDir = path.join(repoRoot, 'packages');
 const outFile = path.join(here, '..', 'src', 'setup', 'builtin-requirements.generated.ts');
+const cliPackage = JSON.parse(await fs.readFile(path.join(here, '..', 'package.json'), 'utf8')) as {
+  devDependencies?: Record<string, string>;
+};
+const bundledPackages = new Set(Object.keys(cliPackage.devDependencies ?? {}));
 
 interface Requirement {
   kind: string;
@@ -42,7 +46,7 @@ async function main(): Promise<void> {
       continue;
     }
     const reqs = pkg.moxxy?.requirements;
-    if (pkg.name && Array.isArray(reqs) && reqs.length > 0) {
+    if (pkg.name && bundledPackages.has(pkg.name) && Array.isArray(reqs) && reqs.length > 0) {
       manifest[pkg.name] = reqs;
     }
   }

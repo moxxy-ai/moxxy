@@ -116,6 +116,22 @@ export function OAuthSignIn({
     }
   };
 
+  const cancel = async (): Promise<void> => {
+    const id = loginIdRef.current;
+    if (!id) return;
+    // Clear first so a late child exit cannot replace the explicit cancellation
+    // outcome, and so unmount does not send the credential-free cancel twice.
+    loginIdRef.current = null;
+    setPrompt(null);
+    try {
+      await api().invoke('provider.login.cancel', { loginId: id });
+      setError('Sign-in cancelled.');
+    } catch (e) {
+      setError(toErrorMessage(e));
+    }
+    setPhase('error');
+  };
+
   // claude-code's first prompt offers "paste a token OR press Enter for the
   // browser"; surface both, browser primary. The flag keys off the question
   // text the CLI sends, so it stays true to the actual flow.
@@ -173,9 +189,12 @@ export function OAuthSignIn({
       )}
 
       {phase === 'running' && !prompt && (
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
-          Opening your browser — complete the sign-in there…
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <p style={{ margin: 0, flex: 1, fontSize: 13, color: 'var(--color-text-muted)' }}>
+            Opening your browser — complete the sign-in there…
+          </p>
+          <Button onClick={() => void cancel()}>Cancel sign-in</Button>
+        </div>
       )}
 
       {error && (

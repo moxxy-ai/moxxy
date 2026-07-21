@@ -5,6 +5,7 @@ import {
   type ProviderConnectIo,
   type ProviderSetupView,
 } from '@moxxy/sdk';
+import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import { installPluginPackagePinned, setPluginEnabled } from '@moxxy/plugin-plugins-admin';
 import { resolveProvider } from '../provision/provider-catalog.js';
@@ -16,6 +17,15 @@ import { cliVersion } from '../version.js';
 export interface BuildProviderSetupOptions {
   readonly session: Session;
   readonly vault: VaultStore;
+  /** Merged configuration used to construct the effective auth context for each provider. */
+  readonly config?: MoxxyConfig;
+}
+
+function providerAuthConfig(
+  config: MoxxyConfig | undefined,
+  providerId: string,
+): Readonly<Record<string, unknown>> {
+  return config?.plugins?.provider?.items?.[providerId]?.config ?? {};
 }
 
 /**
@@ -26,7 +36,7 @@ export interface BuildProviderSetupOptions {
  * provider activation in setup.ts; a RemoteSession never gets one.
  */
 export function buildProviderSetupView(opts: BuildProviderSetupOptions): ProviderSetupView {
-  const { session, vault } = opts;
+  const { session, vault, config } = opts;
 
   const registered = (providerId: string) =>
     session.providers.list().find((p) => p.name === providerId);
@@ -39,7 +49,7 @@ export function buildProviderSetupView(opts: BuildProviderSetupOptions): Provide
   return {
     authKind: (providerId) => {
       const def = registered(providerId);
-      if (def) return def.auth?.kind === 'oauth' ? 'oauth' : 'apiKey';
+      if (def) return def.auth?.kind === 'oauth' ? 'oauth' : def.auth?.kind === 'none' ? 'none' : 'apiKey';
       const entry = resolveProvider(providerId);
       if (!entry) return null;
       return entry.auth === 'oauth' ? 'oauth' : entry.auth === 'none' ? 'none' : 'apiKey';
@@ -91,9 +101,10 @@ export function buildProviderSetupView(opts: BuildProviderSetupOptions): Provide
       // browser choice) AND the provider declared `supportsHeadless`. Defaults to
       // the interactive browser flow.
       const headless = opts?.headless === true;
+      const effectiveProviderConfig = providerAuthConfig(config, providerId);
       const ctx = io
-        ? channelAuthContext(vault, io, headless)
-        : buildProviderAuthContext(vault, { headless });
+        ? channelAuthContext(vault, io, headless, effectiveProviderConfig)
+        : buildProviderAuthContext(vault, { headless, providerConfig: effectiveProviderConfig });
       const result = await def.auth.login(ctx);
       markReady(providerId);
       return result;
@@ -112,9 +123,11 @@ function channelAuthContext(
   vault: VaultStore,
   io: ProviderConnectIo,
   headless = false,
+  providerConfig: Readonly<Record<string, unknown>> = {},
 ): ProviderAuthContext {
   return {
     headless,
+    providerConfig,
     write: io.write,
     ...(io.prompt ? { prompt: io.prompt } : {}),
     vault: {

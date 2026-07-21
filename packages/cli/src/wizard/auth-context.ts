@@ -12,6 +12,8 @@ import { isCancel, password, text } from '@clack/prompts';
 
 export interface BuildAuthContextOptions {
   readonly headless: boolean;
+  /** Effective provider configuration, used by auth surfaces such as Claude CLI executable selection. */
+  readonly providerConfig?: Readonly<Record<string, unknown>>;
   /** Defaults to writing through `process.stdout`. Wizard hosts pass a clack-aware writer. */
   readonly write?: (chunk: string) => void;
   /**
@@ -19,7 +21,7 @@ export interface BuildAuthContextOptions {
    * prompts. `'stdin'` relays each prompt to the host as a NUL-bracketed marker
    * on stdout and reads the answer back as one stdin line — for a GUI host (the
    * desktop app) that drives `moxxy login` as a subprocess with no TTY and so
-   * can't render a clack prompt. The out-of-band paste flows (claude-code)
+   * can't render a clack prompt. The out-of-band paste flows
    * work identically; only the input transport differs.
    */
   readonly promptMode?: 'clack' | 'stdin';
@@ -46,6 +48,7 @@ export function buildProviderAuthContext(
         : clackPrompt;
   return {
     headless: opts.headless,
+    ...(opts.providerConfig ? { providerConfig: opts.providerConfig } : {}),
     write: opts.write ?? ((s) => process.stdout.write(s)),
     ...(prompt ? { prompt } : {}),
     vault: {

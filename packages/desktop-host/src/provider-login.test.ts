@@ -76,7 +76,7 @@ describe('provider-login relay', () => {
     expect((spawnArgs[2] as { stdio: unknown }).stdio).toEqual(['pipe', 'pipe', 'pipe']);
   });
 
-  it('relays plain stdout as output and markers as prompts', () => {
+  it('relays plain stdout as output and markers as masked prompts without credential echo', () => {
     startProviderLogin('idR', 'claude-code', fakeWindow);
     current.stdout.emit(
       'data',
@@ -88,6 +88,8 @@ describe('provider-login relay', () => {
       question: 'Paste:',
       mask: true,
     });
+    answerProviderLogin('idR', 'subscription-secret');
+    expect(events('provider.login.output').flatMap((event) => Object.values(event))).not.toContain('subscription-secret');
   });
 
   it('writes one stdin line per answer (stripping embedded newlines)', () => {
@@ -96,12 +98,22 @@ describe('provider-login relay', () => {
     expect(current.stdin.write).toHaveBeenCalledWith('token\n');
   });
 
-  it('emits done + onExit on a normal exit', () => {
+  it.each([
+    ['successful', 0],
+    ['failed', 7],
+  ])('emits done + onExit for a %s Claude CLI outcome', (_label, code) => {
     const onExit = vi.fn();
     startProviderLogin('id3', 'claude-code', fakeWindow, { onExit });
-    current.emit('exit', 0);
-    expect(events('provider.login.done')[0]).toEqual({ loginId: 'id3', code: 0 });
-    expect(onExit).toHaveBeenCalledWith(0);
+    current.emit('exit', code);
+    expect(events('provider.login.done')[0]).toEqual({ loginId: 'id3', code });
+    expect(onExit).toHaveBeenCalledWith(code);
+  });
+
+  it('relays missing-binary errors as diagnostics and a failed outcome', () => {
+    startProviderLogin('missing', 'claude-code', fakeWindow);
+    current.emit('error', Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' }));
+    expect(events('provider.login.output')[0]?.text).toMatch(/ENOENT/);
+    expect(events('provider.login.done')[0]).toEqual({ loginId: 'missing', code: -1 });
   });
 
   it('cancel kills the child and suppresses the done event', () => {

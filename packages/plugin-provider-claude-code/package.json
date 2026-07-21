@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-provider-claude-code",
-  "version": "0.30.0",
-  "description": "Claude subscription (Pro/Max) LLMProvider plugin for moxxy. Talks to the standard Anthropic Messages API using a Claude Code OAuth token from `claude setup-token` or an in-app sign-in.",
+  "version": "0.31.0",
+  "description": "Claude Pro/Max subscription provider for moxxy. Streams through the user's authenticated installed Claude CLI, with opt-in native-tool tasks and no Anthropic API key.",
   "keywords": [
     "moxxy",
     "agent",
@@ -48,6 +48,20 @@
     "plugin": {
       "entry": "./dist/index.js",
       "kind": "provider"
+    },
+    "catalog": {
+      "label": "Claude (Pro/Max sign-in)",
+      "description": "Claude models through an existing Claude Code subscription sign-in.",
+      "provides": [
+        {
+          "category": "provider",
+          "name": "claude-code"
+        }
+      ],
+      "provider": {
+        "auth": "oauth",
+        "defaultModel": "claude-sonnet-4-6"
+      }
     }
   },
   "dependencies": {
