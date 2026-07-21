@@ -1,36 +1,114 @@
-import { describe, expect, it } from 'vitest';
-import { CLAUDE_CODE_SYSTEM, CLAUDE_OAUTH_BETA } from './constants.js';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
 import { claudeCodeProviderDef, createClaudeCodeClient } from './index.js';
+
+const tempDirs: string[] = [];
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 describe('claude-code provider definition', () => {
   it('registers as an OAuth provider named claude-code with Claude models', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');
-    expect(claudeCodeProviderDef.models.length).toBeGreaterThan(0);
-    expect(claudeCodeProviderDef.models.map((m) => m.id)).toContain('claude-sonnet-4-6');
+    expect(claudeCodeProviderDef.models.map((model) => model.id)).toContain('claude-sonnet-4-6');
   });
 
-  it('builds an OAuth-mode client that reports the claude-code name', () => {
-    const client = createClaudeCodeClient({ oauthToken: 'tok' });
-    expect(client.name).toBe('claude-code');
-    const inner = (client as unknown as { client: { apiKey: unknown; authToken: unknown } }).client;
-    expect(inner.apiKey).toBeNull();
-    expect(inner.authToken).toBe('tok');
+  it('streams text through a fake Claude executable with structured non-interactive arguments', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'system', subtype: 'init' },
+      { type: 'stream_event', event: { type: 'message_start', message: {} } },
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello ' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'world' } } },
+      { type: 'stream_event', event: { type: 'content_block_stop' } },
+      { type: 'stream_event', event: { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } } },
+      { type: 'stream_event', event: { type: 'message_stop' } },
+      { type: 'result', subtype: 'success', is_error: false, result: 'Hello world', usage: { input_tokens: 8, output_tokens: 2 } },
+    ]);
+    const client = createClaudeCodeClient({ executable: join(dir, 'claude') });
+    const events = await collect(client.stream(textRequest()));
+
+    expect(events).toEqual([
+      { type: 'message_start', model: 'claude-sonnet-4-6' },
+      { type: 'text_delta', delta: 'Hello ' },
+      { type: 'text_delta', delta: 'world' },
+      { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 8, outputTokens: 2 } },
+    ]);
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args).toEqual(expect.arrayContaining([
+      '--print', '--verbose', '--output-format', 'stream-json', '--include-partial-messages', '--tools', '',
+    ]));
+    const input = await readFile(join(dir, 'input.txt'), 'utf8');
+    expect(input).toContain('system instructions');
+    expect(input).toContain('<user>\nprior user');
+    expect(input).toContain('<assistant>\nprior assistant');
+    expect(input).toContain('<user>\nlatest user');
+    expect(input).not.toContain('oauth-secret');
   });
 
-  it('forwards the OAuth beta headers and identity preamble to AnthropicProvider', () => {
-    // These two are load-bearing: a subscription token is rejected by the
-    // Messages API unless `anthropic-beta: oauth-2025-04-20` is sent and the
-    // system prompt leads with the exact CLAUDE_CODE_SYSTEM line. A silent
-    // drop/typo in the forwarding object compiles fine and only surfaces as a
-    // runtime 401/400 — pin the contract here.
-    const client = createClaudeCodeClient({ oauthToken: 'tok' });
-    const oauth = (
-      client as unknown as { oauth: { beta: ReadonlyArray<string>; systemPreamble?: string } }
-    ).oauth;
-    expect(oauth.beta).toEqual([...CLAUDE_OAUTH_BETA]);
-    expect(oauth.beta).toContain('oauth-2025-04-20');
-    expect(oauth.beta).toContain('claude-code-20250219');
-    expect(oauth.systemPreamble).toBe(CLAUDE_CODE_SYSTEM);
+  it('turns malformed and unsupported records into non-retryable errors', async () => {
+    for (const output of [['not json'], [JSON.stringify({ type: 'mystery' })]]) {
+      const dir = await makeFakeClaudeRaw(output);
+      const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
+      expect(events[0]?.type).toBe('message_start');
+      expect(events[1]).toMatchObject({ type: 'error', retryable: false });
+    }
+  });
+
+  it('estimates tokens deterministically without spawning Claude', async () => {
+    let spawned = false;
+    const client = createClaudeCodeClient({ spawn: () => { spawned = true; throw new Error('should not spawn'); } });
+    const request = textRequest();
+    const first = await client.countTokens(request);
+    expect(await client.countTokens(request)).toBe(first);
+    expect(first).toBeGreaterThan(0);
+    expect(spawned).toBe(false);
   });
 });
+
+function textRequest(): ProviderRequest {
+  return {
+    model: 'claude-sonnet-4-6',
+    system: 'system instructions',
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'prior user' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'prior assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'latest user' }] },
+    ],
+  };
+}
+
+async function makeFakeClaude(records: unknown[]): Promise<string> {
+  return makeFakeClaudeRaw(records.map((record) => JSON.stringify(record)));
+}
+
+async function makeFakeClaudeRaw(lines: string[]): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'moxxy-claude-test-'));
+  tempDirs.push(dir);
+  const executable = join(dir, 'claude');
+  const source = `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  fs.writeFileSync(path.join(__dirname, 'args.json'), JSON.stringify(process.argv.slice(2)));
+  fs.writeFileSync(path.join(__dirname, 'input.txt'), input);
+  for (const line of ${JSON.stringify(lines)}) console.log(line);
+});
+`;
+  await writeFile(executable, source, 'utf8');
+  await chmod(executable, 0o755);
+  return dir;
+}
+
+async function collect(stream: AsyncIterable<ProviderEvent>): Promise<ProviderEvent[]> {
+  const events: ProviderEvent[] = [];
+  for await (const event of stream) events.push(event);
+  return events;
+}
