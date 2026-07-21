@@ -44,9 +44,13 @@ export async function* runClaudeProcess(
     options.model,
   ];
   if (options.nativeTools) {
-    if (options.permissionMode) args.push('--permission-mode', options.permissionMode);
-    // An empty explicit allow-list means no tools, not unrestricted native tools.
-    args.push('--allowedTools', ...options.allowedTools);
+    // Tool availability and permission grants are separate Claude CLI controls.
+    // Restrict availability first so ambient settings cannot expose additional tools.
+    args.push('--tools', ...(options.allowedTools.length > 0 ? options.allowedTools : ['']));
+    args.push('--permission-mode', options.permissionMode ?? 'default');
+    // Non-empty configured tools may run without an interactive approval prompt.
+    // Do not emit a valueless variadic flag for the explicit no-tools case.
+    if (options.allowedTools.length > 0) args.push('--allowedTools', ...options.allowedTools);
   } else {
     // Keep the original subscription transport text-only unless native tools
     // were deliberately enabled in the provider item config.
