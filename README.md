@@ -49,12 +49,6 @@ Explore [features and channels](docs/features.md) for the complete capability ma
 ## Showcase
 
 <p align="center">
-  <a href="assets/moxxy-ai-video.mp4">
-    <img src="assets/moxxy-mascot.gif" alt="Moxxy agent mascot" width="180" />
-  </a>
-</p>
-
-<p align="center">
   <a href="assets/moxxy-ai-video.mp4"><strong>Watch the product overview</strong></a>
 </p>
 
