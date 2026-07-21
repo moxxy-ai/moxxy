@@ -394,6 +394,8 @@ or recorded-on-purpose decision.
 
 ## Providers & model catalogs
 
+- [note, provider-audit, 2026-07-06] Claude Code installed-CLI flow audited across setup, runner, desktop, and release gates. Live coverage now proves a subscription-backed streamed prompt plus an observable native-tool edit confined to a generated temporary git repository; desktop coverage pins missing-binary, cancelled, successful, and failed sign-in outcomes without credential echo. Remaining limitation is intentional: headless/services cannot reliably perform interactive Claude authentication and must reuse a same-OS-user login completed beforehand. Claude CLI—not moxxy's permission resolver—owns native-tool permission enforcement. `scripts/e2e-claude-cli-live.mjs`, `packages/desktop-host/src/provider-login.test.ts`, `apps/desktop/src/settings/shared/OAuthSignIn.test.tsx`.
+
 - [med] Codex reasoning isn't round-tripped (`toResponsesInput` drops the reasoning
   block); Anthropic multi-block thinking collapses to one round-trip block. Only
   Anthropic round-trips fully. `packages/plugin-provider-*/`.
