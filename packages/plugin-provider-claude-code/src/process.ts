@@ -62,12 +62,7 @@ export async function* runClaudeProcess(
     stdio: ['pipe', 'pipe', 'pipe'], env: childOptions.env, cwd: childOptions.cwd,
   }));
 
-  let child: ChildProcessWithoutNullStreams;
-  try {
-    child = spawnImpl(options.executable, args, { env, cwd: options.cwd });
-  } catch (error) {
-    throw error;
-  }
+  const child = spawnImpl(options.executable, args, { env, cwd: options.cwd });
 
   const queue: QueueItem[] = [];
   let wake: (() => void) | undefined;
