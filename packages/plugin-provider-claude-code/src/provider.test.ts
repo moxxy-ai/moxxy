@@ -77,6 +77,47 @@ describe('claude-code provider definition', () => {
     expect(input).not.toContain('oauth-secret');
   });
 
+  it('consumes streamed thinking blocks without exposing their deltas', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'stream_event', event: { type: 'message_start', message: {} } },
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'thinking', thinking: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'private chain of thought' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'signature_delta', signature: 'private-signature' } } },
+      { type: 'stream_event', event: { type: 'content_block_stop' } },
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Visible answer' } } },
+      { type: 'stream_event', event: { type: 'content_block_stop' } },
+      { type: 'result', subtype: 'success', is_error: false, result: 'Visible answer', usage: { input_tokens: 3, output_tokens: 2 } },
+    ]);
+    const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
+
+    expect(events).toEqual([
+      { type: 'message_start', model: 'claude-sonnet-4-6' },
+      { type: 'text_delta', delta: 'Visible answer' },
+      { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
+    ]);
+    expect(JSON.stringify(events)).not.toContain('private chain of thought');
+    expect(JSON.stringify(events)).not.toContain('private-signature');
+  });
+
+  it('accepts complete assistant records containing thinking blocks without exposing them', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'assistant', message: { content: [
+        { type: 'thinking', thinking: 'private chain of thought', signature: 'private-signature' },
+        { type: 'text', text: 'Visible answer' },
+      ] } },
+      { type: 'result', subtype: 'success', is_error: false, result: 'Visible answer', usage: { input_tokens: 3, output_tokens: 2 } },
+    ]);
+    const events = await collect(createClaudeCodeClient({ executable: join(dir, 'claude') }).stream(textRequest()));
+
+    expect(events).toEqual([
+      { type: 'message_start', model: 'claude-sonnet-4-6' },
+      { type: 'message_end', stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2 } },
+    ]);
+    expect(JSON.stringify(events)).not.toContain('private chain of thought');
+    expect(JSON.stringify(events)).not.toContain('private-signature');
+  });
+
   it('reconstructs two turns for each stateless CLI invocation without a session id', async () => {
     const dir = await makeFakeClaude([
       { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },

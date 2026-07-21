@@ -150,10 +150,11 @@ function parseMessageRecord(record: Record<string, unknown>): ProviderEvent[] {
     if (block.type === 'text' && typeof block.text !== 'string') {
       throw new Error('Claude CLI emitted malformed assistant text');
     }
-    // tool_use/tool_result are internal CLI bookkeeping. Claude has already
-    // executed them; translating these records to ProviderEvents would make the
-    // moxxy dispatcher execute the same operation a second time.
-    if (block.type !== 'text' && block.type !== 'tool_use' && block.type !== 'tool_result') {
+    // Thinking stays private, while tool_use/tool_result are internal CLI
+    // bookkeeping that Claude has already executed. Translating any of these
+    // records to ProviderEvents would either expose private reasoning or make
+    // the moxxy dispatcher execute the same operation a second time.
+    if (block.type !== 'text' && block.type !== 'thinking' && block.type !== 'tool_use' && block.type !== 'tool_result') {
       throw new Error('Claude CLI emitted unsupported assistant content');
     }
   }
@@ -173,7 +174,7 @@ function parseStreamEvent(raw: unknown, state: ProtocolState): ProviderEvent[] {
       if (!isRecord(raw.content_block) || typeof raw.content_block.type !== 'string') {
         throw new Error('Claude CLI emitted malformed content block');
       }
-      if (raw.content_block.type !== 'text' && raw.content_block.type !== 'tool_use' && raw.content_block.type !== 'tool_result') {
+      if (raw.content_block.type !== 'text' && raw.content_block.type !== 'thinking' && raw.content_block.type !== 'tool_use' && raw.content_block.type !== 'tool_result') {
         throw new Error('Claude CLI emitted unsupported content block');
       }
       state.blockType = raw.content_block.type;
