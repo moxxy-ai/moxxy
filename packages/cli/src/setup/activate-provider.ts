@@ -1,6 +1,7 @@
 import type { Session } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
+import { CLAUDE_CODE_PROVIDER_ID } from '@moxxy/plugin-provider-claude-code';
 import { MoxxyError, type CredentialResolver } from '@moxxy/sdk';
 import { resolveProviderCredentials } from '../provider-credentials.js';
 import { providerDefault, providerItem, providerSlot } from './resolve-plugins-tree.js';
@@ -60,9 +61,14 @@ export async function activateProvider(args: ActivateProviderArgs): Promise<Acti
       ...(item.config ?? {}),
       ...(item.model ? { model: item.model } : {}),
     };
-    return providerName === primaryProvider
+    const effective = providerName === primaryProvider
       ? { ...persisted, ...providerConfig }
       : persisted;
+    // Provider clients do not receive the Session object, so explicitly carry
+    // the runner workspace into Claude Code activation and runtime switching.
+    return providerName === CLAUDE_CODE_PROVIDER_ID
+      ? { ...effective, cwd: session.cwd }
+      : effective;
   };
 
   let activated: { name: string; cfg: Record<string, unknown> } | null = null;

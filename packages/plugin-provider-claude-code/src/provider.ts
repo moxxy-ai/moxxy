@@ -38,6 +38,14 @@ export interface ClaudeCodeProviderConfig {
   readonly executable?: string;
   /** Persisted provider-item model (`plugins.provider.items.claude-code.model`). */
   readonly model?: string;
+  /** Transport mode. Native tools are opt-in; omitted defaults to text-only. */
+  readonly mode?: 'text' | 'native-tools';
+  /** Claude CLI permission mode. Omitted uses the CLI's safe default. */
+  readonly permissionMode?: 'acceptEdits' | 'plan' | 'dontAsk' | 'bypassPermissions';
+  /** Optional allow-list of Claude native tool names. */
+  readonly allowedTools?: ReadonlyArray<string>;
+  /** Runner workspace. Supplied by CLI activation rather than user configuration. */
+  readonly cwd?: string;
   /** Optional default model override (kept for programmatic callers). */
   readonly defaultModel?: string;
   /** Process test seam; production callers should leave this unset. */
@@ -50,11 +58,19 @@ export class ClaudeCodeProvider implements LLMProvider {
 
   private readonly executable: string;
   private readonly defaultModel: string;
+  private readonly nativeTools: boolean;
+  private readonly permissionMode?: string;
+  private readonly allowedTools: ReadonlyArray<string>;
+  private readonly cwd: string;
   private readonly spawn?: ClaudeSpawn;
 
   constructor(config: ClaudeCodeProviderConfig = {}) {
     this.executable = config.executable ?? 'claude';
     this.defaultModel = config.defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL;
+    this.nativeTools = config.mode === 'native-tools';
+    if (config.permissionMode) this.permissionMode = config.permissionMode;
+    this.allowedTools = config.allowedTools ?? [];
+    this.cwd = config.cwd ?? process.cwd();
     if (config.spawn) this.spawn = config.spawn;
   }
 
@@ -79,6 +95,10 @@ export class ClaudeCodeProvider implements LLMProvider {
         executable: this.executable,
         model,
         prompt,
+        cwd: this.cwd,
+        nativeTools: this.nativeTools,
+        allowedTools: this.allowedTools,
+        ...(this.permissionMode ? { permissionMode: this.permissionMode } : {}),
         ...(req.signal ? { signal: req.signal } : {}),
         ...(this.spawn ? { spawn: this.spawn } : {}),
       });
@@ -88,7 +108,7 @@ export class ClaudeCodeProvider implements LLMProvider {
           if (next.value.exitCode !== 0 && !terminal) {
             yield {
               type: 'error',
-              message: modelSelectionError(
+              message: claudeCliError(
                 model,
                 next.value.stderr || `Claude CLI exited with code ${next.value.exitCode}`,
               ),
@@ -102,7 +122,7 @@ export class ClaudeCodeProvider implements LLMProvider {
           if (event.type === 'message_end') terminal = true;
           if (event.type === 'error') {
             terminal = true;
-            yield { ...event, message: modelSelectionError(model, event.message) };
+            yield { ...event, message: claudeCliError(model, event.message) };
           } else {
             yield event;
           }
@@ -153,7 +173,11 @@ function assertTextOnlyRequest(req: ProviderRequest): void {
   }
 }
 
-function modelSelectionError(model: string, detail: string): string {
+function claudeCliError(model: string, detail: string): string {
+  if (/permission|denied|not allowed/i.test(detail)) {
+    return `Claude Code permission denied: ${detail}. ` +
+      'Review plugins.provider.items.claude-code.config.permissionMode and allowedTools.';
+  }
   return `Claude Code rejected model "${model}": ${detail}. ` +
     `Select a supported model: ${claudeCodeModels.map((candidate) => candidate.id).join(', ')}.`;
 }

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -76,6 +76,58 @@ describe('claude-code provider definition', () => {
     expect(input).not.toContain('oauth-secret');
   });
 
+  it('runs native tools in the configured workspace without emitting dispatcher tool events', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'moxxy-claude-workspace-'));
+    tempDirs.push(workspace);
+    const dir = await makeFakeClaude([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'edit-1', name: 'Write', input: { file_path: 'done.txt' } }] } },
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'tool_use', id: 'edit-1', name: 'Write' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: '{}' } } },
+      { type: 'stream_event', event: { type: 'content_block_stop' } },
+      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'edit-1', content: 'ok' }] } },
+      { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'text', text: '' } } },
+      { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Edited.' } } },
+      { type: 'result', subtype: 'success', is_error: false, result: 'Edited.', usage: { input_tokens: 4, output_tokens: 1 } },
+    ], { path: 'done.txt', content: 'edited by native tool\n' });
+    const client = createClaudeCodeClient({
+      executable: join(dir, 'claude'),
+      mode: 'native-tools',
+      permissionMode: 'acceptEdits',
+      allowedTools: ['Read', 'Write'],
+      cwd: workspace,
+    });
+    const events = await collect(client.stream(textRequest()));
+
+    expect(events.filter((event) => event.type.startsWith('tool_use'))).toEqual([]);
+    expect(events.filter((event) => event.type === 'message_end')).toHaveLength(1);
+    expect(events).toContainEqual({ type: 'text_delta', delta: 'Edited.' });
+    expect(await readFile(join(dir, 'cwd.txt'), 'utf8')).toBe(await realpath(workspace));
+    expect(await readFile(join(workspace, 'done.txt'), 'utf8')).toBe('edited by native tool\n');
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args).toEqual(expect.arrayContaining([
+      '--tools', 'Read', 'Write', '--permission-mode', 'acceptEdits', '--allowedTools', 'Read', 'Write',
+    ]));
+    expect(args).not.toContain('bypassPermissions');
+    expect(args).not.toEqual(expect.arrayContaining(['--tools', '']));
+  });
+
+  it('leaves the safe permission default to Claude and uses a valid no-tools invocation for an empty native allow-list', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    await collect(createClaudeCodeClient({
+      executable: join(dir, 'claude'),
+      mode: 'native-tools',
+      allowedTools: [],
+    }).stream(textRequest()));
+
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args).toEqual(expect.arrayContaining(['--tools', '']));
+    expect(args).not.toContain('--permission-mode');
+    expect(args).not.toContain('--allowedTools');
+    expect(args).not.toContain('bypassPermissions');
+  });
+
   it.each(['claude-fable-5', 'claude-opus-4-8'])('passes the selected %s model as an exact structured argument', async (model) => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
@@ -126,6 +178,23 @@ describe('claude-code provider definition', () => {
     for (const model of supported) expect((rejected[1] as { message: string }).message).toContain(model);
   });
 
+  it('surfaces a permission denial as a clear non-retryable error', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'error_during_execution', is_error: true, result: 'Permission denied for Edit' },
+    ]);
+    const events = await collect(createClaudeCodeClient({
+      executable: join(dir, 'claude'),
+      mode: 'native-tools',
+      allowedTools: ['Read'],
+    }).stream(textRequest()));
+    expect(events[1]).toMatchObject({
+      type: 'error',
+      message: expect.stringMatching(/Claude Code permission denied.*Edit/i),
+      retryable: false,
+    });
+    expect(events.some((event) => event.type === 'message_end')).toBe(false);
+  });
+
   it('does not inject a moxxy-managed Claude token into the child environment', async () => {
     let childEnv: NodeJS.ProcessEnv | undefined;
     const prior = process.env.CLAUDE_CODE_OAUTH_TOKEN;
@@ -137,7 +206,7 @@ describe('claude-code provider definition', () => {
       executable: join(dir, 'claude'),
       spawn: (file, args, options) => {
         childEnv = options.env;
-        return spawn(file, [...args], { stdio: ['pipe', 'pipe', 'pipe'], env: options.env });
+        return spawn(file, [...args], { stdio: ['pipe', 'pipe', 'pipe'], env: options.env, cwd: options.cwd });
       },
     });
     try {
@@ -227,11 +296,17 @@ function textRequest(): ProviderRequest {
   };
 }
 
-async function makeFakeClaude(records: unknown[]): Promise<string> {
-  return makeFakeClaudeRaw(records.map((record) => JSON.stringify(record)));
+async function makeFakeClaude(
+  records: unknown[],
+  workspaceWrite?: { readonly path: string; readonly content: string },
+): Promise<string> {
+  return makeFakeClaudeRaw(records.map((record) => JSON.stringify(record)), workspaceWrite);
 }
 
-async function makeFakeClaudeRaw(lines: string[]): Promise<string> {
+async function makeFakeClaudeRaw(
+  lines: string[],
+  workspaceWrite?: { readonly path: string; readonly content: string },
+): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'moxxy-claude-test-'));
   tempDirs.push(dir);
   const executable = join(dir, 'claude');
@@ -242,8 +317,18 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
-  fs.writeFileSync(path.join(__dirname, 'args.json'), JSON.stringify(process.argv.slice(2)));
+  const args = process.argv.slice(2);
+  fs.writeFileSync(path.join(__dirname, 'args.json'), JSON.stringify(args));
   fs.writeFileSync(path.join(__dirname, 'input.txt'), input);
+  const permissionModeIndex = args.indexOf('--permission-mode');
+  if (permissionModeIndex >= 0 && !['acceptEdits', 'plan', 'dontAsk', 'bypassPermissions'].includes(args[permissionModeIndex + 1])) {
+    console.error('Invalid permission mode: ' + args[permissionModeIndex + 1]);
+    process.exitCode = 2;
+    return;
+  }
+  fs.writeFileSync(path.join(__dirname, 'cwd.txt'), process.cwd());
+  const workspaceWrite = ${JSON.stringify(workspaceWrite)};
+  if (workspaceWrite) fs.writeFileSync(path.join(process.cwd(), workspaceWrite.path), workspaceWrite.content);
   for (const line of ${JSON.stringify(lines)}) console.log(line);
 });
 `;

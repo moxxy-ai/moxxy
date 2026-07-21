@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 
 export interface ClaudeSpawnOptions {
   readonly env: NodeJS.ProcessEnv;
+  readonly cwd: string;
 }
 
 export type ClaudeSpawn = (
@@ -15,6 +16,10 @@ export interface ClaudeProcessOptions {
   readonly executable: string;
   readonly model: string;
   readonly prompt: string;
+  readonly cwd: string;
+  readonly nativeTools: boolean;
+  readonly permissionMode?: string;
+  readonly allowedTools: ReadonlyArray<string>;
   readonly signal?: AbortSignal;
   readonly spawn?: ClaudeSpawn;
 }
@@ -35,17 +40,32 @@ export async function* runClaudeProcess(
     '--output-format',
     'stream-json',
     '--include-partial-messages',
-    '--tools',
-    '',
     '--model',
     options.model,
   ];
+  if (options.nativeTools) {
+    // Tool availability and permission grants are separate Claude CLI controls.
+    // Restrict availability first so ambient settings cannot expose additional tools.
+    args.push('--tools', ...(options.allowedTools.length > 0 ? options.allowedTools : ['']));
+    // Do not invent a permission mode: Claude CLI versions disagree on the
+    // accepted values (notably, some reject `default`). With no explicit
+    // provider setting, omitting the flag selects the CLI's safe default.
+    if (options.permissionMode) args.push('--permission-mode', options.permissionMode);
+    // Non-empty configured tools may run without an interactive approval prompt.
+    // Do not emit a valueless variadic flag for the explicit no-tools case.
+    if (options.allowedTools.length > 0) args.push('--allowedTools', ...options.allowedTools);
+  } else {
+    // Keep the original subscription transport text-only unless native tools
+    // were deliberately enabled in the provider item config.
+    args.splice(args.length - 2, 0, '--tools', '');
+  }
   const env = { ...process.env };
   const spawnImpl = options.spawn ?? ((file, childArgs, childOptions) => spawn(file, [...childArgs], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: childOptions.env,
+    cwd: childOptions.cwd,
   }));
-  const child = spawnImpl(options.executable, args, { env });
+  const child = spawnImpl(options.executable, args, { env, cwd: options.cwd });
   const completion = waitForExit(child);
   let stderr = '';
   child.stdin.on('error', () => undefined);
