@@ -13,7 +13,7 @@ import {
   resolveCatalogPackageName,
   INSTALLABLE_PLUGIN_CATALOG,
 } from '@moxxy/plugin-plugins-admin';
-import { applyInitConfig, setPluginEnabled } from '@moxxy/config';
+import { applyInitConfig, setPluginEnabled, type MoxxyConfig } from '@moxxy/config';
 import { renderLogo } from '../logo.js';
 import { cancel, isCancel, note, password } from '@clack/prompts';
 import { colors } from '../colors.js';
@@ -43,7 +43,7 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
   // `passphrasePrompt` (TTY only) swaps the vault's bare readline prompt for
   // a @clack/prompts step, so the first-run passphrase reads as part of the
   // setup wizard rather than an unstyled prompt before it.
-  const { session, vault, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     ...(interactive ? { passphrasePrompt: promptVaultPassphrase } : {}),
@@ -59,7 +59,7 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
     if (!interactive) {
       return await runHeadlessInit(session, vault);
     }
-    return await runInteractiveInit(session, vault);
+    return await runInteractiveInit(session, vault, config);
   } finally {
     await closeSession(session, persistence);
   }
@@ -68,6 +68,7 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
 async function runInteractiveInit(
   session: import('@moxxy/core').Session,
   vault: import('@moxxy/plugin-vault').VaultStore,
+  config: MoxxyConfig,
 ): Promise<number> {
   // Logo first, so the whole flow reads as one screen: the (first-run only)
   // vault passphrase step and the wizard's `intro()` both render beneath it.
@@ -124,7 +125,7 @@ async function runInteractiveInit(
   // delegates install/key/OAuth to the same ProviderSetupView the TUI's
   // inline connect dialog drives (attached by setupSessionWithConfig; built
   // here as a fallback for boot paths that skipped it).
-  const providerSetup = session.providerSetup ?? buildProviderSetupView({ session, vault });
+  const providerSetup = session.providerSetup ?? buildProviderSetupView({ session, vault, config });
 
   const controller = {
     async saveApiKey(providerId: string, key: string): Promise<void> {

@@ -193,7 +193,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // In-session provider onboarding (install / key entry / OAuth) — backs the
   // TUI's inline connect dialog and shares its implementation with the init
   // wizard. Attached after activation so readyProviders exists to mark into.
-  session.providerSetup = buildProviderSetupView({ session, vault });
+  session.providerSetup = buildProviderSetupView({ session, vault, config });
 
   // Apply the manifest's per-category defaults (mode/compactor/cacheStrategy/
   // workflowExecutor/viewRenderer/tunnelProvider) in one table-driven pass. A

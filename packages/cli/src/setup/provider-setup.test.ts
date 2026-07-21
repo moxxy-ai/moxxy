@@ -11,6 +11,10 @@ vi.mock('@moxxy/plugin-plugins-admin', async (importOriginal) => {
 });
 
 import { installPluginPackagePinned } from '@moxxy/plugin-plugins-admin';
+import {
+  __setClaudeCommandRunner,
+  claudeCodeProviderDef,
+} from '@moxxy/plugin-provider-claude-code';
 import { buildProviderSetupView } from './provider-setup.js';
 
 interface FakeDef {
@@ -107,6 +111,29 @@ describe('buildProviderSetupView', () => {
     expect(result).toEqual({ accountId: 'acct' });
     expect(lines).toEqual(['hello']);
     expect(session.readyProviders.has('oauthy')).toBe(true);
+  });
+
+  it('loginOAuth passes configured executables intact through wizard and channel auth contexts', async () => {
+    const executable = '/Applications/Claude Code/bin/claude';
+    const seen: string[] = [];
+    __setClaudeCommandRunner(async (value) => {
+      seen.push(value);
+      return { code: 0, stdout: '{"loggedIn":true}', stderr: '' };
+    });
+    const session = fakeSession([claudeCodeProviderDef as unknown as FakeDef]);
+    const config = {
+      plugins: { provider: { items: { 'claude-code': { config: { executable } } } } },
+    };
+    const view = buildProviderSetupView({
+      session: session as never,
+      vault: fakeVault() as never,
+      config: config as never,
+    });
+
+    await view.loginOAuth('claude-code');
+    await view.loginOAuth('claude-code', { write: () => undefined });
+
+    expect(seen).toEqual([executable, executable]);
   });
 
   it('loginOAuth threads opts.headless into the auth context (no-browser flow)', async () => {
