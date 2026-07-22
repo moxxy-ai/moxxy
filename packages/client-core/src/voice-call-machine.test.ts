@@ -23,7 +23,12 @@ describe('voice call state machine', () => {
       { type: 'turn-settled' },
     ]);
 
-    expect(state).toEqual({ active: true, phase: 'listening', errorReason: null });
+    expect(state).toEqual({
+      active: true,
+      phase: 'listening',
+      errorReason: null,
+      microphoneMuted: false,
+    });
   });
 
   it('holds the turn while an approval is visible and resumes thinking afterwards', () => {
@@ -40,27 +45,53 @@ describe('voice call state machine', () => {
     expect(state.phase).toBe('thinking');
   });
 
-  it('can pause only the listening phase and resume without starting another turn', () => {
-    const paused = apply([
+  it('returns to working after a conversational cue finishes during a tool run', () => {
+    const state = apply([
       { type: 'open' },
       { type: 'ready' },
-      { type: 'pause' },
+      { type: 'transcribing' },
+      { type: 'transcript-ready' },
+      { type: 'tool-started' },
+      { type: 'synthesizing' },
+      { type: 'speaking' },
+      { type: 'speech-finished', resume: 'working' },
     ]);
-    expect(paused.phase).toBe('paused');
 
-    const resumed = reduceVoiceCall(paused, { type: 'resume' });
-    expect(resumed.phase).toBe('listening');
+    expect(state.phase).toBe('working');
+  });
 
-    const speaking = apply([
+  it('mutes and unmutes the microphone without starting another turn', () => {
+    const muted = apply([
+      { type: 'open' },
+      { type: 'ready' },
+      { type: 'mute-microphone' },
+    ]);
+    expect(muted).toMatchObject({ phase: 'paused', microphoneMuted: true });
+
+    const unmuted = reduceVoiceCall(muted, { type: 'unmute-microphone' });
+    expect(unmuted).toMatchObject({ phase: 'listening', microphoneMuted: false });
+  });
+
+  it('preserves mute intent while Moxxy speaks and after the turn settles', () => {
+    const mutedWhileSpeaking = apply([
       { type: 'open' },
       { type: 'ready' },
       { type: 'transcribing' },
       { type: 'transcript-ready' },
       { type: 'turn-started' },
       { type: 'speaking' },
-      { type: 'pause' },
+      { type: 'mute-microphone' },
     ]);
-    expect(speaking.phase).toBe('speaking');
+    expect(mutedWhileSpeaking).toMatchObject({
+      phase: 'speaking',
+      microphoneMuted: true,
+    });
+
+    const settled = reduceVoiceCall(mutedWhileSpeaking, { type: 'turn-settled' });
+    expect(settled).toMatchObject({ phase: 'paused', microphoneMuted: true });
+
+    const unmuted = reduceVoiceCall(settled, { type: 'unmute-microphone' });
+    expect(unmuted).toMatchObject({ phase: 'listening', microphoneMuted: false });
   });
 
   it('keeps an error visible until retry or close', () => {
@@ -72,6 +103,7 @@ describe('voice call state machine', () => {
       active: true,
       phase: 'error',
       errorReason: 'Local Piper is not active.',
+      microphoneMuted: false,
     });
 
     expect(reduceVoiceCall(failed, { type: 'retry' }).phase).toBe('checking');

@@ -10,6 +10,7 @@ const chatState = vi.hoisted(() => ({
 const voiceCallState = vi.hoisted(() => ({
   active: false,
   phase: 'idle' as const,
+  activity: null,
   errorReason: null as string | null,
   lastTranscript: null as string | null,
   inputAnalyser: null,

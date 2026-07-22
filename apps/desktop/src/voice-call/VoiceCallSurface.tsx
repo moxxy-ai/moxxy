@@ -1,5 +1,6 @@
-import type { VoiceCallPhase } from '@moxxy/client-core';
+import type { VoiceCallPhase, VoiceToolActivity } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
+import { VoiceActivityIndicator } from './VoiceActivityIndicator';
 import { VoiceOrb } from './VoiceOrb';
 import { VoiceTranscript } from './VoiceTranscript';
 import type { VoiceTranscriptLine } from './voice-transcript';
@@ -11,35 +12,51 @@ const STATUS: Record<VoiceCallPhase, { readonly title: string; readonly detail: 
   listening: { title: 'Listening', detail: 'Speak naturally. I will answer when you finish.' },
   transcribing: { title: 'Transcribing', detail: 'Turning your voice into text' },
   thinking: { title: 'Thinking', detail: 'Using the context from this conversation' },
+  working: { title: 'Working', detail: 'I will keep you updated while the task continues' },
   'waiting-for-input': { title: 'Needs your input', detail: 'Answer the request to continue' },
   synthesizing: { title: 'Preparing voice', detail: 'Local Piper is generating the next sentence' },
   speaking: { title: 'Speaking', detail: 'The microphone will return when the answer ends' },
-  paused: { title: 'Paused', detail: 'Resume when you are ready to continue' },
+  paused: { title: 'Microphone off', detail: 'Moxxy will not listen until you turn it back on' },
   error: { title: 'Voice mode stopped', detail: 'Resolve the issue and try again' },
 };
 
+const MUTED_SPEAKING_STATUS = {
+  title: STATUS.speaking.title,
+  detail: 'The microphone will stay off after this answer',
+} as const;
+
 export function VoiceCallSurface({
   phase,
+  activity,
+  microphoneMuted,
+  waitingSoundEnabled,
   errorReason,
   inputAnalyser,
   outputAnalyser,
   lines,
   onClose,
   onRetry,
-  onPause,
-  onResume,
+  onMuteMicrophone,
+  onUnmuteMicrophone,
+  onToggleWaitingSound,
 }: {
   readonly phase: VoiceCallPhase;
+  readonly activity: VoiceToolActivity | null;
+  readonly microphoneMuted: boolean;
+  readonly waitingSoundEnabled: boolean;
   readonly errorReason: string | null;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
   readonly lines: ReadonlyArray<VoiceTranscriptLine>;
   readonly onClose: () => void;
   readonly onRetry: () => void;
-  readonly onPause: () => void;
-  readonly onResume: () => void;
+  readonly onMuteMicrophone: () => void;
+  readonly onUnmuteMicrophone: () => void;
+  readonly onToggleWaitingSound: () => void;
 }): JSX.Element {
-  const status = STATUS[phase];
+  const status = phase === 'speaking' && microphoneMuted
+    ? MUTED_SPEAKING_STATUS
+    : STATUS[phase];
   return (
     <div className="voice-call-surface">
       <header className="voice-call-header">
@@ -63,11 +80,15 @@ export function VoiceCallSurface({
           <p>{status.detail}</p>
         </div>
 
-        <VoiceOrb
-          phase={phase}
-          inputAnalyser={inputAnalyser}
-          outputAnalyser={outputAnalyser}
-        />
+        <div className="voice-call-core">
+          <VoiceOrb
+            phase={phase}
+            microphoneMuted={microphoneMuted}
+            inputAnalyser={inputAnalyser}
+            outputAnalyser={outputAnalyser}
+          />
+          {activity && <VoiceActivityIndicator activity={activity} />}
+        </div>
 
         {phase === 'error' ? (
           <div className="voice-call-error" role="alert">
@@ -78,19 +99,31 @@ export function VoiceCallSurface({
             </button>
           </div>
         ) : (
-          <div className="voice-call-primary-control">
-            {phase === 'listening' && (
-              <button type="button" onClick={onPause} aria-label="Pause listening">
+          <div className="voice-call-primary-control" aria-label="Voice controls">
+            <button
+              type="button"
+              className={microphoneMuted ? 'is-muted' : undefined}
+              onClick={microphoneMuted ? onUnmuteMicrophone : onMuteMicrophone}
+              aria-label={microphoneMuted ? 'Unmute microphone' : 'Mute microphone'}
+              aria-pressed={microphoneMuted}
+            >
+              <span className={`voice-call-mic-icon${microphoneMuted ? ' is-muted' : ''}`}>
                 <Icon name="mic" size={17} />
-                <span>Pause listening</span>
-              </button>
-            )}
-            {phase === 'paused' && (
-              <button type="button" onClick={onResume} aria-label="Resume listening">
-                <Icon name="mic" size={17} />
-                <span>Resume listening</span>
-              </button>
-            )}
+              </span>
+              <span>{microphoneMuted ? 'Turn microphone on' : 'Mute microphone'}</span>
+            </button>
+            <button
+              type="button"
+              className={waitingSoundEnabled ? undefined : 'is-muted'}
+              onClick={onToggleWaitingSound}
+              aria-label={waitingSoundEnabled ? 'Turn waiting sound off' : 'Turn waiting sound on'}
+              aria-pressed={waitingSoundEnabled}
+            >
+              <span className={`voice-call-sound-icon${waitingSoundEnabled ? '' : ' is-muted'}`}>
+                <Icon name="speaker" size={17} />
+              </span>
+              <span>{waitingSoundEnabled ? 'Waiting sound on' : 'Waiting sound off'}</span>
+            </button>
           </div>
         )}
 

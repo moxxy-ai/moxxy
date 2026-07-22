@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { VoiceCallPhase } from '@moxxy/client-core';
 import { useReducedMotion } from '../shell/useReducedMotion';
+import { resolveVoiceOrbPalette } from './voice-orb-palette';
 
 interface LiveAnalyser {
   readonly fftSize: number;
@@ -18,7 +19,7 @@ function asAnalyser(value: unknown): LiveAnalyser | null {
 
 function phaseMotion(phase: VoiceCallPhase): number {
   if (phase === 'speaking') return 1;
-  if (phase === 'synthesizing' || phase === 'thinking') return 0.72;
+  if (phase === 'synthesizing' || phase === 'thinking' || phase === 'working') return 0.72;
   if (phase === 'transcribing') return 0.56;
   if (phase === 'listening') return 0.42;
   if (phase === 'checking') return 0.3;
@@ -36,10 +37,12 @@ function readLevel(analyser: LiveAnalyser | null, buffer: Float32Array): number 
 /** Decorative, audio-reactive energy core. Conversation logic lives in hooks. */
 export function VoiceOrb({
   phase,
+  microphoneMuted,
   inputAnalyser,
   outputAnalyser,
 }: {
   readonly phase: VoiceCallPhase;
+  readonly microphoneMuted: boolean;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
 }): JSX.Element {
@@ -55,6 +58,7 @@ export function VoiceOrb({
       phase === 'speaking' ? outputAnalyser : phase === 'listening' ? inputAnalyser : null,
     );
     const sampleBuffer = new Float32Array(Math.max(32, activeAnalyser?.fftSize ?? 256));
+    const palette = resolveVoiceOrbPalette(getComputedStyle(canvas), phase === 'error');
     let animationFrame = 0;
 
     const resize = (): void => {
@@ -81,9 +85,8 @@ export function VoiceOrb({
         ? 0.18
         : 0.18 + Math.sin(time * (1.5 + motion * 2.8)) * 0.045;
       const energy = Math.min(1, motion * 0.55 + audioLevel * 0.9 + pulse);
-      const isError = phase === 'error';
-      const primary = isError ? '239, 92, 92' : '245, 177, 72';
-      const hot = isError ? '252, 165, 165' : '255, 232, 166';
+      const primary = palette.primary;
+      const hot = palette.highlight;
 
       context.clearRect(0, 0, size, size);
       const haze = context.createRadialGradient(center, center, 0, center, center, size * 0.48);
@@ -162,7 +165,10 @@ export function VoiceOrb({
   }, [inputAnalyser, outputAnalyser, phase, reducedMotion]);
 
   return (
-    <div className={`voice-orb voice-orb--${phase}`} aria-hidden="true">
+    <div
+      className={`voice-orb voice-orb--${phase}${microphoneMuted ? ' voice-orb--microphone-muted' : ''}`}
+      aria-hidden="true"
+    >
       <canvas ref={canvasRef} className="voice-orb-canvas" />
     </div>
   );

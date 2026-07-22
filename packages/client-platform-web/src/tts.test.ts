@@ -22,6 +22,7 @@ class FakeAudio {
   static last: FakeAudio | undefined;
   src: string;
   paused = false;
+  loop = false;
   onended: (() => void) | null = null;
   onerror: (() => void) | null = null;
   constructor(src: string) {
@@ -76,6 +77,12 @@ async function loadPlay() {
   return mod.playAudioClip;
 }
 
+async function loadPlayUrl() {
+  vi.resetModules();
+  const mod = await import('./tts.js');
+  return mod.playAudioUrl;
+}
+
 describe('playAudioClip', () => {
   it('decodes a valid clip to a Blob object URL and revokes it exactly once on end (no leak)', async () => {
     const playAudioClip = await loadPlay();
@@ -115,6 +122,31 @@ describe('playAudioClip', () => {
     audio.onended?.();
     expect(revoked).toEqual([created[0]]);
     expect(onend).not.toHaveBeenCalled();
+  });
+
+  it('loops a waiting clip until its handle is stopped', async () => {
+    const playAudioClip = await loadPlay();
+    const handle = playAudioClip(
+      Buffer.from('waiting tone').toString('base64'),
+      'audio/wav',
+      { loop: true },
+    );
+
+    expect(FakeAudio.last?.loop).toBe(true);
+    handle.stop();
+    expect(FakeAudio.last?.paused).toBe(true);
+    expect(revoked).toEqual([created[0]]);
+  });
+
+  it('loops an application audio asset without creating an object URL', async () => {
+    const playAudioUrl = await loadPlayUrl();
+    const handle = playAudioUrl('/assets/voice-waiting-loop.wav', { loop: true });
+
+    expect(FakeAudio.last?.src).toBe('/assets/voice-waiting-loop.wav');
+    expect(FakeAudio.last?.loop).toBe(true);
+    expect(created).toEqual([]);
+    handle.stop();
+    expect(revoked).toEqual([]);
   });
 
   it('degrades to the data: fallback without throwing when base64 is malformed', async () => {

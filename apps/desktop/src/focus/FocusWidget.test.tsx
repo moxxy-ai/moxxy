@@ -20,10 +20,10 @@
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, cleanup, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { __setApiOverride } from '@moxxy/client-core';
+import { __setApiOverride, configurePlatform } from '@moxxy/client-core';
 import { askStore, chatStore } from '@moxxy/client-core';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { assertDefined } from '@moxxy/sdk';
+import { asTurnId, assertDefined } from '@moxxy/sdk';
 import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
 import { FocusWidget } from './FocusWidget';
 import { __resetThemeForTests } from '@/lib/useTheme';
@@ -39,6 +39,7 @@ interface FakeApiOptions {
   readonly hasTranscriber?: boolean;
   readonly theme?: ThemePreference;
   readonly focusMiniTextSize?: { readonly width: number; readonly height: number } | null;
+  readonly activeSynthesizer?: string | null;
 }
 
 interface FakeMedia {
@@ -80,6 +81,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const hasTranscriber = options.hasTranscriber ?? true;
   const theme = options.theme ?? 'system';
   const focusMiniTextSize = options.focusMiniTextSize ?? null;
+  const activeSynthesizer = options.activeSynthesizer ?? 'local-piper';
 
   __setApiOverride({
     invoke: ((channel: string, args: unknown) => {
@@ -135,6 +137,12 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       }
       if (channel === 'session.hasTranscriber') {
         return Promise.resolve(hasTranscriber);
+      }
+      if (channel === 'session.info') {
+        return Promise.resolve({ activeSynthesizer });
+      }
+      if (channel === 'session.synthesize') {
+        return Promise.resolve({ audioBase64: 'AA==', mimeType: 'audio/wav' });
       }
       if (channel === 'prefs.read') {
         return Promise.resolve({ theme, focusMiniTextSize });
@@ -205,6 +213,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  configurePlatform({});
   for (const ask of askStore.getAll()) askStore.resolve(ask.requestId);
   cleanup();
   __setApiOverride(null);
@@ -331,6 +340,218 @@ describe('FocusWidget stages', () => {
     expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /record voice/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /start voice mode/i })).toBeNull();
+    });
+  });
+
+  it('keeps a full voice conversation active while the focus widget is collapsed', async () => {
+    let captureStarts = 0;
+    const cancelCapture = vi.fn();
+    configurePlatform({
+      audioCapture: {
+        isSupported: () => true,
+        start: async () => {
+          captureStarts += 1;
+          return { stop: vi.fn(), cancel: cancelCapture };
+        },
+      },
+    });
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+
+    await screen.findByRole('button', { name: /end voice mode/i });
+    await waitFor(() => expect(captureStarts).toBe(1));
+    expect(screen.queryByRole('button', { name: /^record voice$/i })).toBeNull();
+    expect(screen.getByRole('button', { name: /mute microphone/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /turn waiting sound off/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^collapse$/i }));
+    expect(screen.getByRole('button', { name: /voice mode active.*click to expand/i })).toBeTruthy();
+    expect(cancelCapture).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /voice mode active.*click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /end voice mode/i }));
+    await waitFor(() => expect(cancelCapture).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: /start voice mode/i })).toBeTruthy();
+  });
+
+  it('exposes the full voice microphone and waiting-sound controls in focus mode', async () => {
+    let captureStarts = 0;
+    const cancelCapture = vi.fn();
+    const preferences = new Map<string, string>();
+    configurePlatform({
+      audioCapture: {
+        isSupported: () => true,
+        start: async () => {
+          captureStarts += 1;
+          return { stop: vi.fn(), cancel: cancelCapture };
+        },
+      },
+      kv: {
+        get length() { return preferences.size; },
+        key: (index) => [...preferences.keys()][index] ?? null,
+        getItem: (key) => preferences.get(key) ?? null,
+        setItem: (key, value) => preferences.set(key, value),
+        removeItem: (key) => preferences.delete(key),
+      },
+    });
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+    await waitFor(() => expect(captureStarts).toBe(1));
+
+    const muteButton = screen.getByRole('button', { name: /mute microphone/i });
+    expect(muteButton.querySelector('[data-voice-microphone-action="mute"]')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^record voice$/i })).toBeNull();
+
+    fireEvent.click(muteButton);
+    await waitFor(() => expect(cancelCapture).toHaveBeenCalledTimes(1));
+    const unmuteButton = screen.getByRole('button', { name: /unmute microphone/i });
+    expect(unmuteButton.querySelector('[data-voice-microphone-action="unmute"]')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /turn waiting sound off/i }));
+    expect(screen.getByRole('button', { name: /turn waiting sound on/i })).toBeTruthy();
+    expect(preferences.get('moxxy.voice.waiting-sound')).toBe('0');
+
+    fireEvent.click(screen.getByRole('button', { name: /unmute microphone/i }));
+    await waitFor(() => expect(captureStarts).toBe(2));
+  });
+
+  it('renders the existing Focus waveform from the full voice microphone analyser', async () => {
+    const canvasContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+    try {
+      const inputAnalyser = {
+        frequencyBinCount: 128,
+        getByteFrequencyData: (data: Uint8Array) => data.fill(72),
+      };
+      configurePlatform({
+        audioCapture: {
+          isSupported: () => true,
+          start: async (options) => {
+            options.onAnalyser?.(inputAnalyser);
+            return { stop: () => undefined, cancel: () => options.onAnalyser?.(null) };
+          },
+        },
+      });
+      installFakeApi();
+      render(<FocusWidget />);
+
+      fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+      fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+
+      const waveform = await screen.findByTestId('focus-audio-waveform');
+      expect(waveform.getAttribute('data-audio-source')).toBe('microphone');
+      expect(screen.queryByRole('button', { name: /^record voice$/i })).toBeNull();
+    } finally {
+      canvasContext.mockRestore();
+    }
+  });
+
+  it('switches the Focus waveform to Piper output while Moxxy speaks', async () => {
+    const canvasContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+    try {
+      const inputAnalyser = {
+        frequencyBinCount: 128,
+        getByteFrequencyData: (data: Uint8Array) => data.fill(32),
+      };
+      const outputAnalyser = {
+        frequencyBinCount: 128,
+        getByteFrequencyData: (data: Uint8Array) => data.fill(96),
+      };
+      configurePlatform({
+        audioCapture: {
+          isSupported: () => true,
+          start: async (options) => {
+            options.onAnalyser?.(inputAnalyser);
+            return { stop: () => undefined, cancel: () => options.onAnalyser?.(null) };
+          },
+        },
+        tts: {
+          isSupported: () => true,
+          speak: () => undefined,
+          cancel: () => undefined,
+          playClip: (_base64, _mimeType, options) => {
+            options?.onAnalyser?.(outputAnalyser);
+            return { stop: () => options?.onAnalyser?.(null) };
+          },
+        },
+      });
+      const spy = installFakeApi();
+      const outputTurnId = asTurnId('t-voice-output');
+      render(<FocusWidget />);
+
+      fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+      fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+      await screen.findByTestId('focus-audio-waveform');
+
+      act(() => {
+        spy.emit('runner.turn.started', { workspaceId: 'ws-test', turnId: outputTurnId });
+        spy.emit('runner.event', {
+          workspaceId: 'ws-test',
+          event: event(301, {
+            type: 'assistant_chunk',
+            turnId: outputTurnId,
+            delta: 'Hello from Moxxy.',
+          }),
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('focus-audio-waveform').getAttribute('data-audio-source'))
+          .toBe('assistant');
+      });
+    } finally {
+      canvasContext.mockRestore();
+    }
+  });
+
+  it('releases a one-shot recording before starting the full voice conversation', async () => {
+    const captureCancels: Array<ReturnType<typeof vi.fn>> = [];
+    configurePlatform({
+      audioCapture: {
+        isSupported: () => true,
+        start: async () => {
+          const cancel = vi.fn();
+          captureCancels.push(cancel);
+          return { stop: vi.fn(), cancel };
+        },
+      },
+    });
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /^record voice$/i }));
+    await waitFor(() => expect(captureCancels).toHaveLength(1));
+
+    fireEvent.click(screen.getByRole('button', { name: /start voice mode/i }));
+    await waitFor(() => {
+      expect(captureCancels[0]).toHaveBeenCalledTimes(1);
+      expect(captureCancels).toHaveLength(2);
+    });
+  });
+
+  it('shows retry and end controls when the shared voice preflight fails', async () => {
+    const spy = installFakeApi({ activeSynthesizer: 'elevenlabs' });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+
+    const retry = await screen.findByRole('button', { name: /retry voice mode/i });
+    expect(screen.getByRole('button', { name: /end voice mode/i })).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/local piper is not active/i);
+
+    fireEvent.click(retry);
+    await waitFor(() => {
+      expect(spy.invokes.filter((invoke) => invoke.channel === 'session.info')).toHaveLength(2);
     });
   });
 

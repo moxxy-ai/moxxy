@@ -24,6 +24,78 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, desktop/focus/voice, RESOLVED 2026-07-22] Focus Mode exposed only the
+  one-shot speech-to-text recorder, forcing users back into the full desktop
+  chat for a continuous half-duplex conversation. Both surfaces now share one
+  desktop Voice Mode adapter over the same headless call machine, VAD, Local
+  Piper queue, waiting sound, mute intent, tool feedback, and active ask state.
+  Focus adds compact start, end, retry, mute, and waiting-sound controls; the
+  live indicator remains visible when the widget is collapsed, and switching
+  from one-shot capture releases that recorder before the full call opens.
+  While the call is active, the one-shot STT affordance stays absent and the
+  mute action uses a distinct crossed-microphone treatment. The existing Focus
+  spectrum now follows the live microphone analyser while the user speaks and
+  the Piper output analyser while Moxxy answers, with output taking priority so
+  the half-duplex transition cannot display the wrong source.
+  Deterministic in-memory capture tests cover background persistence, resource
+  ownership, controls, bidirectional visualisation, and preflight failure
+  without changing STT or its IPC payload. `apps/desktop/src/focus/`,
+  `apps/desktop/src/voice-call/useDesktopVoiceCall.ts`.
+- [med, desktop/voice/speech-ux, RESOLVED 2026-07-22] The Markdown speech
+  normalizer forwarded visual Unicode glyphs and incomplete emphasis markers
+  into Piper, which pronounced emoji accessibility names and dangling stars.
+  The shared read-aloud/Voice Mode preparation path now removes complete emoji
+  sequences, flags, keycaps, dingbats, modifiers, joiners, and leftover stars
+  without changing the rendered chat message. Pure regressions cover Polish
+  prose, compound emoji, flags, keycaps, emoji-only replies, and both speech
+  surfaces. `packages/client-core/src/{speech,speech.test}.ts`.
+- [med, desktop/voice/turn-feedback, RESOLVED 2026-07-22] The initial
+  one-second TTS acknowledgement treated every turn as work, so even a greeting
+  produced an unnatural "Jasne, moment" before the real answer. It also started
+  narrating a tool immediately instead of reserving speech for genuinely long
+  operations. Ordinary response latency now uses the reviewed 1.6-second CC0
+  default UI SFX processing loop played from a packaged desktop asset and looped
+  without allocating repeated blobs. It begins while
+  transcription is in flight, keeps playing through the same turn, pauses before
+  spoken cues, stops when assistant speech wins the race, and can be disabled
+  through a persistent, accessible call control. The pinned source checksum and
+  license notice ship with the repository; there is no network or runtime
+  dependency. Spoken progress starts only after an actual tool remains
+  active for 10 seconds and is never mixed with the waiting phrase.
+  `packages/client-core/src/{voice-feedback-scheduler,useVoiceCall}.ts`,
+  `packages/client-platform-web/src/tts.ts`, `apps/desktop/src/voice-call/`.
+- [med, desktop/voice/speech-ux, RESOLVED 2026-07-22] Live Voice Mode reused
+  read-aloud's spoken `(code block)` placeholder, which switched Piper to the
+  English voice and announced implementation artifacts that added no value to
+  the conversation. Voice conversation playback now has a separate Markdown
+  policy that omits fenced, unfinished, and indented code while leaving the
+  transcript and explicit Read aloud behavior unchanged. The same pass replaces
+  unclear progress copy and exposes only the scheduler's safe activity category
+  to a theme-aware indicator beside the orb, without tool names or inputs.
+  `packages/client-core/src/{speech,speech-playback-queue,useStreamingVoiceMode,useVoiceCall}.ts`,
+  `apps/desktop/src/voice-call/`.
+- [high, desktop/voice/conversation, RESOLVED 2026-07-22] Voice Mode consumed
+  only assistant text chunks, so a direct tool call produced no audio until the
+  tool and the following model round finished — leaving long-running work silent
+  for minutes. A headless feedback scheduler now derives each turn's PL/EN
+  language from the initiating prompt, narrates only safe tool-action categories,
+  emits a bounded 10s → 30s → 90s heartbeat cadence only while a tool is active,
+  and cancels ephemeral cues when real assistant speech arrives. Spoken progress
+  clips share the ordered Piper queue, never enter chat history, and never
+  narrate model-controlled tool inputs; ordinary latency uses a separate local
+  looping processing pulse that never enters the Piper queue or conversation log.
+  `packages/client-core/src/{voice-feedback-scheduler,speech-playback-queue,useVoiceCall}.ts`.
+- [med, desktop/voice/ux, RESOLVED 2026-07-22] Voice Mode carried a separate
+  hard-coded amber, cream, and near-black palette instead of the desktop's
+  semantic theme tokens, and its pause control existed only while actively
+  listening. The call surface and audio-reactive orb now share Moxxy's pink
+  brand token across light and dark themes, with accessible focus, reduced
+  motion, and reduced transparency states. Microphone mute is now persistent
+  call intent owned by the headless state machine: it can be changed while
+  Moxxy is thinking or speaking, survives turn completion, and prevents the
+  recorder from restarting until the user explicitly unmutes it.
+  `apps/desktop/src/voice-call/`,
+  `packages/client-core/src/{voice-call-machine,useVoiceCall}.ts`.
 - [high, desktop/voice/language-routing, RESOLVED 2026-07-22] The streaming
   language detector inherited the previous Piper voice for every tied score,
   while its English marker set was too narrow for ordinary phrases and the

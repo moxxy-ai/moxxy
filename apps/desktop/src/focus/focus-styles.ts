@@ -70,6 +70,50 @@ export const style = {
     zIndex: 1,
     ...noDrag,
   },
+  voiceLiveIndicator: {
+    position: 'absolute',
+    right: 2,
+    bottom: 2,
+    width: 8,
+    height: 8,
+    boxSizing: 'border-box',
+    border: '2px solid var(--focus-panel-bg)',
+    borderRadius: 999,
+    background: 'var(--color-primary)',
+    boxShadow: '0 0 10px rgba(236, 72, 153, 0.7)',
+    pointerEvents: 'none',
+  },
+  visuallyHidden: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    padding: 0,
+    margin: -1,
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    whiteSpace: 'nowrap',
+    border: 0,
+  },
+  voiceMicrophoneActionIcon: {
+    width: 19,
+    height: 19,
+    position: 'relative',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceMicrophoneActionSlash: {
+    position: 'absolute',
+    left: 1,
+    top: 8.5,
+    width: 17,
+    height: 1.8,
+    borderRadius: 999,
+    background: 'currentColor',
+    boxShadow: '0 0 0 1px var(--focus-panel-bg)',
+    transform: 'rotate(-45deg)',
+    pointerEvents: 'none',
+  },
   replyPreviewBubble: {
     maxWidth: 342,
     minHeight: 64,
@@ -319,6 +363,15 @@ export const style = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  actionBtnActive: {
+    background: 'rgba(236, 72, 153, 0.14)',
+    color: 'var(--color-primary)',
+    borderRadius: 11,
+  },
+  actionBtnDisabled: {
+    opacity: 0.42,
+    cursor: 'not-allowed',
   },
 
   // ---- mini -----------------------------------------------------------
@@ -670,6 +723,32 @@ if (typeof document !== 'undefined') {
     @keyframes focus-thinking {
       0%, 100% { transform: translateY(0); opacity: 0.4; }
       50%      { transform: translateY(-3px); opacity: 1; }
+    }
+    .focus-voice-live {
+      animation: focus-voice-live 1.7s ease-in-out infinite;
+    }
+    .focus-voice-live[data-phase="speaking"] {
+      animation-duration: 0.72s;
+    }
+    .focus-voice-live[data-phase="paused"] {
+      animation: none;
+      background: var(--focus-dim) !important;
+      box-shadow: none !important;
+    }
+    .focus-voice-live[data-phase="error"] {
+      animation: none;
+      background: var(--color-red) !important;
+      box-shadow: 0 0 9px rgba(239, 68, 68, 0.65) !important;
+    }
+    @keyframes focus-voice-live {
+      0%, 100% { transform: scale(0.86); opacity: 0.62; }
+      50% { transform: scale(1); opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .focus-voice-live,
+      .focus-voice-live[data-phase="speaking"] {
+        animation: none;
+      }
     }
   `;
   if (!existing) document.head.appendChild(styleTag);

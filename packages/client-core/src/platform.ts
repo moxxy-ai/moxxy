@@ -59,6 +59,8 @@ export interface SpeakOptions {
   readonly onerror?: () => void;
   /** Live output analyser for an audio-reactive visualizer. */
   readonly onAnalyser?: (analyser: unknown | null) => void;
+  /** Repeat a non-speech clip until its handle is stopped. */
+  readonly loop?: boolean;
 }
 
 export interface AudioClipHandle {
@@ -75,6 +77,8 @@ export interface TextToSpeech {
   cancel(): void;
   /** Play a base64 audio clip from a runner-side synthesizer plugin. */
   playClip(base64: string, mimeType: string, opts?: SpeakOptions): AudioClipHandle;
+  /** Play an application-owned audio asset without copying it into JavaScript. */
+  readonly playUrl?: (url: string, opts?: SpeakOptions) => AudioClipHandle;
 }
 
 // ---- Key-value store (legacy localStorage migration only) -----------------

@@ -26,10 +26,16 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { api } from '@moxxy/client-core';
-import { ChatStoreBridge, useChat } from '@moxxy/client-core';
-import { useVoiceRecorder } from '@moxxy/client-core';
-import { ConnectionBridge, useActiveWorkspaceId } from '@moxxy/client-core';
+import {
+  api,
+  ChatStoreBridge,
+  ConnectionBridge,
+  useActiveWorkspaceId,
+  useChat,
+  useConnection,
+  useVoiceRecorder,
+  type VoiceCallPhase,
+} from '@moxxy/client-core';
 import { Inactive } from './Inactive';
 import { Active } from './Active';
 import { MiniText } from './MiniText';
@@ -41,15 +47,15 @@ import {
   FOCUS_MINI_TEXT_DEFAULT_SIZE,
   useFocusMiniTextSize,
 } from './useFocusMiniTextSize';
+import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
+import { deriveFocusAudioVisualization } from './focus-audio-visualization';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
-// Active width depends on whether the mic button is present. With
-// the mic visible there are 4 actions (mic, text, restore, close);
-// without it just 3, so we tighten the panel accordingly so it
-// doesn't look hollow on the right.
-const ACTIVE_WIDTH_WITH_MIC = 232;
+// Keep the compact bar fitted to its current action set. Full Voice Mode adds
+// mute and waiting-sound controls, while its error state swaps those for retry.
 const ACTIVE_WIDTH_WITHOUT_MIC = 196;
+const ACTIVE_ACTION_WIDTH = 36;
 const INACTIVE_PREVIEW_SIZE = { width: 430, height: 104 };
 const ACTIVE_PREVIEW_EXTRA_WIDTH = 378;
 const PREVIEW_HEIGHT = 104;
@@ -59,11 +65,27 @@ const ASK_HEIGHT = 216;
 
 const SIZE: Record<Stage, { width: number; height: number }> = {
   inactive: { width: 44, height: 44 },
-  active: { width: ACTIVE_WIDTH_WITH_MIC, height: 56 },
+  active: { width: ACTIVE_WIDTH_WITHOUT_MIC, height: 56 },
   // Taller default so a few lines of the latest message are readable
   // before the user even resizes; the panel scrolls + is drag-resizable.
   'mini-text': FOCUS_MINI_TEXT_DEFAULT_SIZE,
 };
+
+export function focusActiveWidth({
+  hasTranscriber,
+  voiceModeActive,
+  voiceModePhase,
+}: {
+  readonly hasTranscriber: boolean;
+  readonly voiceModeActive: boolean;
+  readonly voiceModePhase: VoiceCallPhase;
+}): number {
+  if (!voiceModeActive) {
+    return ACTIVE_WIDTH_WITHOUT_MIC + (hasTranscriber ? ACTIVE_ACTION_WIDTH * 2 : 0);
+  }
+  const voiceActionCount = voiceModePhase === 'error' ? 2 : 3;
+  return ACTIVE_WIDTH_WITHOUT_MIC + ACTIVE_ACTION_WIDTH * voiceActionCount;
+}
 
 // ---- Top-level wrapper ---------------------------------------------------
 
@@ -88,15 +110,29 @@ function Surface({
   // Lifted from Active so the resize IPC knows whether to tighten
   // the panel before painting (no flicker on first activation).
   const [hasTranscriber, setHasTranscriber] = useState<boolean | null>(null);
-  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+  const [analyser, setAnalyser] = useState<unknown | null>(null);
   const [horizontalAnchor, setHorizontalAnchor] = useState<FocusTileHorizontalAnchor>('right');
   const chat = useChat(workspaceId);
+  const connection = useConnection(workspaceId);
   const { preview, dismissPreview } = useInactiveReplyPreview({ stage, workspaceId });
   const ask = useFocusAsk(workspaceId);
   const askVisible = ask !== null;
   const chromePreview = askVisible ? null : preview;
   const previewVisible = chromePreview !== null;
-  const activeWidth = hasTranscriber === false ? ACTIVE_WIDTH_WITHOUT_MIC : ACTIVE_WIDTH_WITH_MIC;
+  const ready = workspaceId !== null
+    && connection.snapshot?.phase.phase === 'connected'
+    && !chat.loading;
+  const voiceCall = useDesktopVoiceCall({
+    workspaceId: workspaceId ?? '',
+    ready,
+    chat,
+    inputRequired: askVisible,
+  });
+  const activeWidth = focusActiveWidth({
+    hasTranscriber: hasTranscriber !== false,
+    voiceModeActive: voiceCall.active,
+    voiceModePhase: voiceCall.phase,
+  });
   const miniTextSize = useFocusMiniTextSize(stage === 'mini-text');
   const openPreview = (): void => {
     dismissPreview();
@@ -122,10 +158,19 @@ function Surface({
     onTranscript: (text) => {
       if (workspaceId) void chat.send(text);
     },
-    // The shared hook surfaces the analyser as an opaque value (it's DOM-free);
-    // on the web it's the real AnalyserNode the spectrum visualiser expects.
-    onAnalyser: (a) => setAnalyser((a as AnalyserNode | null) ?? null),
+    onAnalyser: setAnalyser,
   });
+  const audioVisualization = deriveFocusAudioVisualization({
+    voiceModeActive: voiceCall.active,
+    voiceInputAnalyser: voiceCall.inputAnalyser,
+    voiceOutputAnalyser: voiceCall.outputAnalyser,
+    oneShotRecording: voice.phase === 'recording',
+    oneShotAnalyser: analyser,
+  });
+  const openVoiceMode = (): void => {
+    if (voice.phase !== 'idle') voice.cancel();
+    voiceCall.open();
+  };
 
   // Stopping a recording (recording → transcribing) opens the mini-text
   // panel so the user watches the transcript + streaming answer there.
@@ -199,6 +244,8 @@ function Surface({
         horizontalAnchor={horizontalAnchor}
         dragging={tileGesture.dragging}
         gestureProps={tileGesture.gestureProps}
+        voiceModeActive={voiceCall.active}
+        voiceModePhase={voiceCall.phase}
         onPreviewActivate={openInactive}
       />
     );
@@ -212,8 +259,22 @@ function Surface({
         hasTranscriber={hasTranscriber === true}
         recording={voice.phase === 'recording'}
         transcribing={voice.phase === 'transcribing'}
-        analyser={analyser}
+        audioVisualization={audioVisualization}
+        voiceModeAvailable={voiceCall.active || (
+          hasTranscriber === true && ready
+        )}
+        voiceModeActive={voiceCall.active}
+        voiceModePhase={voiceCall.phase}
+        voiceModeErrorReason={voiceCall.errorReason}
+        voiceModeMuted={voiceCall.microphoneMuted}
+        waitingSoundEnabled={voiceCall.waitingSoundEnabled}
         onToggleMic={voice.toggle}
+        onStartVoiceMode={openVoiceMode}
+        onEndVoiceMode={voiceCall.close}
+        onRetryVoiceMode={voiceCall.retry}
+        onMuteVoiceMode={voiceCall.muteMicrophone}
+        onUnmuteVoiceMode={voiceCall.unmuteMicrophone}
+        onToggleWaitingSound={voiceCall.toggleWaitingSound}
         onCollapse={collapse}
         onText={() => setStage('mini-text')}
         onPreviewActivate={openPreview}
@@ -223,7 +284,9 @@ function Surface({
     <MiniText
       workspaceId={workspaceId}
       ask={ask}
-      transcribing={voice.phase === 'transcribing'}
+      transcribing={
+        voice.phase === 'transcribing' || voiceCall.phase === 'transcribing'
+      }
       onBack={() => setStage('active')}
     />
   );

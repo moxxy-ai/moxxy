@@ -1,11 +1,14 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
 } from 'react';
+import type { MoxxyEvent } from '@moxxy/sdk';
 import { toErrorMessage } from './errors.js';
+import { getPlatform, type AudioClipHandle } from './platform.js';
 import { api } from './transport.js';
 import {
   createVoiceCallState,
@@ -13,7 +16,16 @@ import {
   type VoiceCallPhase,
 } from './voice-call-machine.js';
 import { useStreamingVoiceMode } from './useStreamingVoiceMode.js';
+import {
+  VoiceFeedbackScheduler,
+  categorizeVoiceToolActivity,
+  type VoiceToolActivity,
+} from './voice-feedback-scheduler.js';
 import { useVoiceRecorder } from './useVoiceRecorder.js';
+
+export interface VoiceWaitingToneSource {
+  readonly audioUrl: string;
+}
 
 export interface VoiceCallChat {
   readonly sending: boolean;
@@ -27,20 +39,25 @@ export interface UseVoiceCallOptions {
   readonly ready: boolean;
   readonly chat: VoiceCallChat;
   readonly inputRequired: boolean;
+  readonly waitingTone?: VoiceWaitingToneSource;
 }
 
 export interface UseVoiceCall {
   readonly active: boolean;
   readonly phase: VoiceCallPhase;
+  readonly activity: VoiceToolActivity | null;
   readonly errorReason: string | null;
+  readonly microphoneMuted: boolean;
+  readonly waitingSoundEnabled: boolean;
   readonly lastTranscript: string | null;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
   readonly open: () => void;
   readonly close: () => void;
   readonly retry: () => void;
-  readonly pause: () => void;
-  readonly resume: () => void;
+  readonly muteMicrophone: () => void;
+  readonly unmuteMicrophone: () => void;
+  readonly toggleWaitingSound: () => void;
   /** Stop the current utterance and hand it to the existing transcriber. */
   readonly finishUtterance: () => void;
   /** Discard a no-speech capture and immediately arm a fresh one. */
@@ -48,6 +65,11 @@ export interface UseVoiceCall {
 }
 
 const LOCAL_PIPER = 'local-piper';
+const WAITING_SOUND_PREFERENCE = 'moxxy.voice.waiting-sound';
+
+function readWaitingSoundPreference(): boolean {
+  return getPlatform().kv?.getItem(WAITING_SOUND_PREFERENCE) !== '0';
+}
 
 /** Coordinates one half-duplex call over the current chat session. */
 export function useVoiceCall({
@@ -55,25 +77,77 @@ export function useVoiceCall({
   ready,
   chat,
   inputRequired,
+  waitingTone,
 }: UseVoiceCallOptions): UseVoiceCall {
   const [state, dispatch] = useReducer(reduceVoiceCall, undefined, createVoiceCallState);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [inputAnalyser, setInputAnalyser] = useState<unknown | null>(null);
   const [outputAnalyser, setOutputAnalyser] = useState<unknown | null>(null);
+  const [activity, setActivity] = useState<VoiceToolActivity | null>(null);
+  const [waitingSoundEnabled, setWaitingSoundEnabled] = useState(readWaitingSoundPreference);
   const [turnRequestPending, setTurnRequestPending] = useState(false);
   const generationRef = useRef(0);
   const turnCycleRef = useRef(false);
   const turnObservedRef = useRef(false);
   const completionTargetRef = useRef<number | null>(null);
+  const currentTurnIdRef = useRef<string | null>(null);
+  const activeToolActivitiesRef = useRef(new Map<string, VoiceToolActivity>());
+  const toolNamesByCallRef = useRef(new Map<string, string>());
+  const feedbackTurnActiveRef = useRef(false);
+  const waitingToneHandleRef = useRef<AudioClipHandle | null>(null);
+  const waitingToneGenerationRef = useRef(0);
+  const previousInputRequiredRef = useRef(false);
   const chatRef = useRef(chat);
   chatRef.current = chat;
 
+  const feedbackRef = useRef<VoiceFeedbackScheduler | null>(null);
   const speech = useStreamingVoiceMode(workspaceId, {
     requireSynthesizer: true,
     onAnalyser: setOutputAnalyser,
+    onAssistantSpeechQueued: () => feedbackRef.current?.assistantSpeechQueued(),
   });
+  const speechRef = useRef(speech);
+  speechRef.current = speech;
+  const stopWaitingTone = useCallback((): void => {
+    waitingToneGenerationRef.current += 1;
+    waitingToneHandleRef.current?.stop();
+    waitingToneHandleRef.current = null;
+  }, []);
+  const startWaitingTone = useCallback((): void => {
+    stopWaitingTone();
+    if (!waitingTone) return;
+    const player = getPlatform().tts;
+    if (!player?.playUrl) return;
+    const generation = waitingToneGenerationRef.current;
+    const clear = (): void => {
+      if (waitingToneGenerationRef.current === generation) waitingToneHandleRef.current = null;
+    };
+    try {
+      waitingToneHandleRef.current = player.playUrl(waitingTone.audioUrl, {
+        loop: true,
+        onend: clear,
+        onerror: clear,
+      });
+    } catch {
+      clear();
+    }
+  }, [stopWaitingTone, waitingTone]);
+  const feedback = useMemo(
+    () => new VoiceFeedbackScheduler({
+      emitCue: (cue) => speechRef.current.speakCue(cue.text, cue.language),
+      startWaitingTone,
+      stopWaitingTone,
+      cancelPendingCues: () => speechRef.current.cancelPendingCues(),
+    }),
+    [startWaitingTone, stopWaitingTone, workspaceId],
+  );
+  feedbackRef.current = feedback;
+  useEffect(() => {
+    feedback.setWaitingToneEnabled(waitingSoundEnabled);
+  }, [feedback, waitingSoundEnabled]);
   const completedTurnCountRef = useRef(speech.completedTurnCount);
   completedTurnCountRef.current = speech.completedTurnCount;
+  const previousSpeechPhaseRef = useRef(speech.phase);
 
   const onTranscript = useCallback((text: string): void => {
     // Set synchronously before React commits phase updates. Without this gate,
@@ -83,15 +157,22 @@ export function useVoiceCall({
     turnCycleRef.current = true;
     turnObservedRef.current = false;
     completionTargetRef.current = completedTurnCountRef.current + 1;
+    currentTurnIdRef.current = null;
+    activeToolActivitiesRef.current.clear();
+    setActivity(null);
+    feedback.attachTranscript(text);
+    feedbackTurnActiveRef.current = true;
     setLastTranscript(text);
     dispatch({ type: 'transcript-ready' });
     setTurnRequestPending(true);
     void chatRef.current.send(text)
       .catch((error: unknown) => {
+        feedback.endTurn();
+        feedbackTurnActiveRef.current = false;
         dispatch({ type: 'failed', reason: toErrorMessage(error) });
       })
       .finally(() => setTurnRequestPending(false));
-  }, []);
+  }, [feedback]);
 
   const voice = useVoiceRecorder({
     workspaceId,
@@ -103,13 +184,21 @@ export function useVoiceCall({
     generationRef.current += 1;
     voice.cancel();
     speech.disable();
+    feedback.close();
     setInputAnalyser(null);
     setOutputAnalyser(null);
     setTurnRequestPending(false);
     turnCycleRef.current = false;
     turnObservedRef.current = false;
     completionTargetRef.current = null;
-  }, [speech.disable, voice.cancel]);
+    currentTurnIdRef.current = null;
+    activeToolActivitiesRef.current.clear();
+    setActivity(null);
+    toolNamesByCallRef.current.clear();
+    feedbackTurnActiveRef.current = false;
+    previousInputRequiredRef.current = false;
+    previousSpeechPhaseRef.current = 'idle';
+  }, [feedback, speech.disable, voice.cancel]);
 
   const preflight = useCallback(async (generation: number): Promise<void> => {
     if (!ready) {
@@ -167,14 +256,27 @@ export function useVoiceCall({
     dispatch({ type: 'close' });
   }, [releaseResources]);
 
-  const pause = useCallback((): void => {
-    if (state.phase !== 'listening') return;
-    voice.cancel();
-    setInputAnalyser(null);
-    dispatch({ type: 'pause' });
-  }, [state.phase, voice.cancel]);
+  const muteMicrophone = useCallback((): void => {
+    if (!state.active || state.phase === 'error') return;
+    if (state.phase === 'listening') {
+      voice.cancel();
+      setInputAnalyser(null);
+    }
+    dispatch({ type: 'mute-microphone' });
+  }, [state.active, state.phase, voice.cancel]);
 
-  const resume = useCallback((): void => dispatch({ type: 'resume' }), []);
+  const unmuteMicrophone = useCallback((): void => {
+    if (!state.active || state.phase === 'error') return;
+    dispatch({ type: 'unmute-microphone' });
+  }, [state.active, state.phase]);
+  const toggleWaitingSound = useCallback((): void => {
+    setWaitingSoundEnabled((enabled) => {
+      const next = !enabled;
+      getPlatform().kv?.setItem(WAITING_SOUND_PREFERENCE, next ? '1' : '0');
+      feedback.setWaitingToneEnabled(next);
+      return next;
+    });
+  }, [feedback]);
   const finishUtterance = useCallback((): void => voice.stop(), [voice.stop]);
   const restartListening = useCallback((): void => {
     if (state.phase !== 'listening') return;
@@ -196,14 +298,20 @@ export function useVoiceCall({
   useEffect(() => {
     if (!state.active) return;
     if (voice.phase === 'transcribing') {
+      feedback.beginTranscription();
+      feedbackTurnActiveRef.current = true;
       dispatch({ type: 'transcribing' });
     } else if (voice.phase === 'error' && voice.errorReason) {
+      feedback.endTurn();
+      feedbackTurnActiveRef.current = false;
       dispatch({ type: 'failed', reason: voice.errorReason });
     }
-  }, [state.active, voice.errorReason, voice.phase]);
+  }, [feedback, state.active, voice.errorReason, voice.phase]);
 
   useEffect(() => {
     if (!state.active) return;
+    const previousPhase = previousSpeechPhaseRef.current;
+    feedback.setPlayback(speech.phase, speech.currentKind);
     if (speech.phase === 'synthesizing') {
       dispatch({ type: 'synthesizing' });
     } else if (speech.phase === 'speaking') {
@@ -213,18 +321,91 @@ export function useVoiceCall({
         type: 'failed',
         reason: speech.errorReason ?? 'Piper could not play this response.',
       });
+    } else if (
+      speech.phase === 'idle' &&
+      (previousPhase === 'synthesizing' || previousPhase === 'speaking') &&
+      turnCycleRef.current
+    ) {
+      const resume = inputRequired
+        ? 'waiting-for-input'
+        : activeToolActivitiesRef.current.size > 0
+          ? 'working'
+          : 'thinking';
+      dispatch({ type: 'speech-finished', resume });
     }
-  }, [speech.errorReason, speech.phase, state.active]);
+    previousSpeechPhaseRef.current = speech.phase;
+  }, [feedback, inputRequired, speech.currentKind, speech.errorReason, speech.phase, state.active]);
 
   useEffect(() => {
     if (!state.active) return;
-    if (inputRequired && state.phase !== 'waiting-for-input') {
+    if (inputRequired === previousInputRequiredRef.current) return;
+    previousInputRequiredRef.current = inputRequired;
+    if (inputRequired) {
       voice.cancel();
+      feedback.inputRequired();
       dispatch({ type: 'input-required' });
-    } else if (!inputRequired && state.phase === 'waiting-for-input') {
+    } else {
+      feedback.inputResolved();
       dispatch({ type: 'input-resolved' });
     }
-  }, [inputRequired, state.active, state.phase, voice.cancel]);
+  }, [feedback, inputRequired, state.active, voice.cancel]);
+
+  useEffect(() => {
+    if (!state.active) return;
+    const offStarted = api().subscribe('runner.turn.started', (payload) => {
+      if (payload.workspaceId !== workspaceId) return;
+      currentTurnIdRef.current = payload.turnId;
+    });
+    const offEvent = api().subscribe('runner.event', (payload) => {
+      if (payload.workspaceId !== workspaceId) return;
+      const event: MoxxyEvent = payload.event;
+      if (currentTurnIdRef.current !== null && event.turnId !== currentTurnIdRef.current) return;
+      if (event.type === 'user_prompt') {
+        currentTurnIdRef.current ??= event.turnId;
+        if (!feedbackTurnActiveRef.current) {
+          feedback.beginTurn(event.text);
+          feedbackTurnActiveRef.current = true;
+        }
+        return;
+      }
+      if (event.type === 'tool_call_approved') {
+        currentTurnIdRef.current ??= event.turnId;
+        const toolName = toolNamesByCallRef.current.get(event.callId) ?? 'unknown';
+        const nextActivity = categorizeVoiceToolActivity(toolName);
+        activeToolActivitiesRef.current.set(event.callId, nextActivity);
+        setActivity(nextActivity);
+        feedback.toolApproved(event.callId, toolName);
+        dispatch({ type: 'tool-started' });
+        return;
+      }
+      if (event.type === 'tool_call_requested') {
+        currentTurnIdRef.current ??= event.turnId;
+        toolNamesByCallRef.current.set(event.callId, event.name);
+        return;
+      }
+      if (event.type === 'tool_result') {
+        activeToolActivitiesRef.current.delete(event.callId);
+        setActivity([...activeToolActivitiesRef.current.values()].at(-1) ?? null);
+        feedback.toolResult(event.callId, event.ok);
+        toolNamesByCallRef.current.delete(event.callId);
+      }
+    });
+    const offComplete = api().subscribe('runner.turn.complete', (payload) => {
+      if (payload.workspaceId !== workspaceId) return;
+      if (currentTurnIdRef.current !== null && payload.turnId !== currentTurnIdRef.current) return;
+      feedback.endTurn();
+      feedbackTurnActiveRef.current = false;
+      currentTurnIdRef.current = null;
+      activeToolActivitiesRef.current.clear();
+      setActivity(null);
+      toolNamesByCallRef.current.clear();
+    });
+    return () => {
+      offStarted();
+      offEvent();
+      offComplete();
+    };
+  }, [feedback, state.active, workspaceId]);
 
   useEffect(() => {
     if (!state.active) return;
@@ -238,6 +419,7 @@ export function useVoiceCall({
     const turnBusy = turnRequestPending || chat.sending || chat.activeTurnId !== null;
     const waitingForTurn =
       state.phase === 'thinking' ||
+      state.phase === 'working' ||
       state.phase === 'synthesizing' ||
       state.phase === 'speaking';
     if (
@@ -291,20 +473,25 @@ export function useVoiceCall({
 
   useEffect(() => () => {
     generationRef.current += 1;
-  }, []);
+    feedback.close();
+  }, [feedback]);
 
   return {
     active: state.active,
     phase: state.phase,
+    activity,
     errorReason: state.errorReason,
+    microphoneMuted: state.microphoneMuted,
+    waitingSoundEnabled,
     lastTranscript,
     inputAnalyser,
     outputAnalyser,
     open,
     close,
     retry,
-    pause,
-    resume,
+    muteMicrophone,
+    unmuteMicrophone,
+    toggleWaitingSound,
     finishUtterance,
     restartListening,
   };

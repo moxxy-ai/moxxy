@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { Icon } from '@moxxy/desktop-ui';
 import { ASSET_LOGO, style } from './focus-styles';
 
 // ---- LogoMark ------------------------------------------------------------
@@ -73,6 +74,25 @@ export function Dot({ delay }: { readonly delay: number }): JSX.Element {
   );
 }
 
+// ---- VoiceMicrophoneActionIcon ------------------------------------------
+
+export function VoiceMicrophoneActionIcon({
+  action,
+}: {
+  readonly action: 'mute' | 'unmute';
+}): JSX.Element {
+  return (
+    <span
+      aria-hidden
+      data-voice-microphone-action={action}
+      style={style.voiceMicrophoneActionIcon}
+    >
+      <Icon name="mic" size={17} />
+      {action === 'mute' && <span style={style.voiceMicrophoneActionSlash} />}
+    </span>
+  );
+}
+
 // ---- ReplyPreviewButton --------------------------------------------------
 
 export function ReplyPreviewButton({
@@ -101,11 +121,19 @@ export function ActionButton({
   onClick,
   children,
   variant,
+  active = false,
+  disabled = false,
+  pressed,
+  title,
   ...rest
 }: {
   readonly onClick: () => void;
   readonly children: React.ReactNode;
   readonly variant?: 'danger';
+  readonly active?: boolean;
+  readonly disabled?: boolean;
+  readonly pressed?: boolean;
+  readonly title?: string;
   readonly 'aria-label': string;
 }): JSX.Element {
   const [hover, setHover] = useState(false);
@@ -120,10 +148,18 @@ export function ActionButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ ...style.actionBtn, ...(hoverStyle ?? {}) }}
+      style={{
+        ...style.actionBtn,
+        ...(active ? style.actionBtnActive : null),
+        ...(disabled ? style.actionBtnDisabled : null),
+        ...(hoverStyle ?? {}),
+      }}
       aria-label={rest['aria-label']}
+      aria-pressed={pressed}
+      title={title}
     >
       {children}
     </button>

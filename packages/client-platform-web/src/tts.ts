@@ -128,29 +128,13 @@ export function cancelSpeech(): void {
   synth()?.cancel();
 }
 
-/**
- * Play a base64-encoded audio clip (the output of a runner-side synthesizer
- * plugin, e.g. ElevenLabs) via an `<audio>` element. Returns a handle whose
- * `stop()` halts playback. `onend`/`onerror` mirror {@link SpeakOptions} so
- * callers treat local and remote TTS uniformly.
- */
-export function playAudioClip(base64: string, mimeType: string, opts: SpeakOptions = {}): AudioClipHandle {
-  // Decode to a Blob + object URL rather than embedding the (potentially
-  // multi-MB, unbounded from the runner) clip in a data: URL — the data: form
-  // keeps the JS string AND the URL string AND the decoded audio coexisting and
-  // can't be revoked, so peak memory is ~2x and release is non-deterministic.
-  let objectUrl: string | null = null;
-  try {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-  } catch {
-    objectUrl = null;
-  }
-  // Fall back to the data: URL if decode/Blob construction failed (malformed
-  // base64) so the error still surfaces via the element's onerror, not a throw.
-  const audio = new Audio(objectUrl ?? `data:${mimeType};base64,${base64}`);
+function playAudioSource(
+  sourceUrl: string,
+  opts: SpeakOptions,
+  releaseSource: () => void,
+): AudioClipHandle {
+  const audio = new Audio(sourceUrl);
+  audio.loop = opts.loop ?? false;
   let done = false;
   let audioContext: AudioContext | null = null;
   let source: MediaElementAudioSourceNode | null = null;
@@ -207,10 +191,7 @@ export function playAudioClip(base64: string, mimeType: string, opts: SpeakOptio
     if (done) return;
     done = true;
     releaseAudioGraph();
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-    }
+    releaseSource();
     cb?.();
   };
   audio.onended = () => finish(opts.onend);
@@ -229,6 +210,41 @@ export function playAudioClip(base64: string, mimeType: string, opts: SpeakOptio
   };
 }
 
+/**
+ * Play a base64-encoded audio clip (the output of a runner-side synthesizer
+ * plugin, e.g. ElevenLabs) via an `<audio>` element. Returns a handle whose
+ * `stop()` halts playback. `onend`/`onerror` mirror {@link SpeakOptions} so
+ * callers treat local and remote TTS uniformly.
+ */
+export function playAudioClip(base64: string, mimeType: string, opts: SpeakOptions = {}): AudioClipHandle {
+  // Decode to a Blob + object URL rather than embedding the (potentially
+  // multi-MB, unbounded from the runner) clip in a data: URL — the data: form
+  // keeps the JS string AND the URL string AND the decoded audio coexisting and
+  // can't be revoked, so peak memory is ~2x and release is non-deterministic.
+  let objectUrl: string | null = null;
+  try {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  } catch {
+    objectUrl = null;
+  }
+  // Fall back to the data: URL if decode/Blob construction failed (malformed
+  // base64) so the error still surfaces via the element's onerror, not a throw.
+  const sourceUrl = objectUrl ?? `data:${mimeType};base64,${base64}`;
+  return playAudioSource(sourceUrl, opts, () => {
+    if (!objectUrl) return;
+    URL.revokeObjectURL(objectUrl);
+    objectUrl = null;
+  });
+}
+
+/** Play a trusted application-owned audio asset without a Blob copy. */
+export function playAudioUrl(url: string, opts: SpeakOptions = {}): AudioClipHandle {
+  return playAudioSource(url, opts, () => undefined);
+}
+
 /** Whether this environment can speak at all (gates the affordance). */
 export function isSpeechSupported(): boolean {
   return synth() !== null;
@@ -240,4 +256,5 @@ export const webTts: TextToSpeech = {
   speak,
   cancel: cancelSpeech,
   playClip: playAudioClip,
+  playUrl: playAudioUrl,
 };

@@ -7,12 +7,16 @@ import { useVoiceCall, type VoiceCallChat } from './useVoiceCall.js';
 
 type PushHandler = (payload: never) => void;
 
-function createTransport() {
+const WAITING_TONE = {
+  audioUrl: '/assets/voice-waiting-loop.ogg',
+} as const;
+
+function createTransport(transcript: string | Promise<string> = 'Opowiedz mi o kawie') {
   const subscribers = new Map<string, Set<PushHandler>>();
   const invoke = vi.fn(async (channel: string) => {
     if (channel === 'session.hasTranscriber') return true;
     if (channel === 'session.info') return { activeSynthesizer: 'local-piper' };
-    if (channel === 'session.transcribe') return 'Opowiedz mi o kawie';
+    if (channel === 'session.transcribe') return transcript;
     if (channel === 'session.synthesize') {
       return { audioBase64: 'AQIDBA==', mimeType: 'audio/wav' };
     }
@@ -39,10 +43,35 @@ function createTransport() {
   };
 }
 
+function deferred<T>() {
+  let resolvePromise: ((value: T) => void) | undefined;
+  let rejectPromise: ((reason: unknown) => void) | undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  return {
+    promise,
+    resolve(value: T): void {
+      if (!resolvePromise) throw new Error('deferred promise is not initialized');
+      resolvePromise(value);
+    },
+    reject(reason: unknown): void {
+      if (!rejectPromise) throw new Error('deferred promise is not initialized');
+      rejectPromise(reason);
+    },
+  };
+}
+
 function createAudioPlatform() {
   const captures: AudioCaptureStartOptions[] = [];
   const cancels: Array<ReturnType<typeof vi.fn>> = [];
   const playback: SpeakOptions[] = [];
+  const waitingTonePlayback: Array<{
+    readonly options: SpeakOptions;
+    readonly stop: ReturnType<typeof vi.fn>;
+  }> = [];
+  const storage = new Map<string, string>();
   const systemSpeak = vi.fn();
   configurePlatform({
     audioCapture: {
@@ -63,9 +92,24 @@ function createAudioPlatform() {
         options.onAnalyser?.({ kind: 'piper-output' });
         return { stop: vi.fn() };
       }),
+      playUrl: vi.fn((url, options = {}) => {
+        if (url !== WAITING_TONE.audioUrl) throw new Error(`unexpected audio asset ${url}`);
+        const stop = vi.fn();
+        waitingTonePlayback.push({ options, stop });
+        return { stop };
+      }),
+    },
+    kv: {
+      get length() {
+        return storage.size;
+      },
+      key: (index) => [...storage.keys()][index] ?? null,
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+      removeItem: (key) => storage.delete(key),
     },
   });
-  return { captures, cancels, playback, systemSpeak };
+  return { captures, cancels, waitingTonePlayback, playback, storage, systemSpeak };
 }
 
 function chat(overrides: Partial<VoiceCallChat> = {}): VoiceCallChat {
@@ -84,6 +128,174 @@ afterEach(() => {
 });
 
 describe('useVoiceCall integration', () => {
+  it('starts the waiting tone while transcription is still in flight without restarting it', async () => {
+    const transcript = deferred<string>();
+    const transport = createTransport(transcript.promise);
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const send = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-transcribing',
+      ready: true,
+      chat: chat({ send }),
+      inputRequired: false,
+      waitingTone: WAITING_TONE,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+
+    await waitFor(() => expect(result.current.phase).toBe('transcribing'));
+    await waitFor(() => expect(audio.waitingTonePlayback).toHaveLength(1), { timeout: 1_000 });
+    expect(send).not.toHaveBeenCalled();
+
+    act(() => transcript.resolve('Cześć'));
+    await waitFor(() => expect(send).toHaveBeenCalledWith('Cześć'));
+    expect(audio.waitingTonePlayback).toHaveLength(1);
+    expect(audio.waitingTonePlayback[0]?.stop).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      transcript: 'Sprawdź proszę dokumentację projektu.',
+      language: 'pl',
+      cue: 'Sprawdzam potrzebne informacje.',
+    },
+    {
+      transcript: 'Please inspect the project documentation.',
+      language: 'en',
+      cue: 'I am checking the information now.',
+    },
+  ] as const)('keeps $language tool activity visual without speaking immediately', async ({
+    transcript,
+    language,
+    cue,
+  }) => {
+    const transport = createTransport(transcript);
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const send = vi.fn(async () => undefined);
+    let chatState = chat({ send });
+    const { result, rerender } = renderHook(
+      ({ currentChat }) => useVoiceCall({
+        workspaceId: `workspace-${language}`,
+        ready: true,
+        chat: currentChat,
+        inputRequired: false,
+      }),
+      { initialProps: { currentChat: chatState } },
+    );
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+    await waitFor(() => expect(send).toHaveBeenCalledWith(transcript));
+
+    chatState = chat({ send, sending: true, activeTurnId: `turn-${language}` });
+    rerender({ currentChat: chatState });
+    act(() => {
+      transport.emit('runner.turn.started', {
+        workspaceId: `workspace-${language}`,
+        turnId: `turn-${language}`,
+      });
+      transport.emit('runner.event', {
+        workspaceId: `workspace-${language}`,
+        event: {
+          type: 'tool_call_requested',
+          turnId: `turn-${language}`,
+          callId: `call-${language}`,
+          name: 'Read',
+          input: { path: '/private/path-that-must-not-be-spoken' },
+        },
+      });
+      transport.emit('runner.event', {
+        workspaceId: `workspace-${language}`,
+        event: {
+          type: 'tool_call_approved',
+          turnId: `turn-${language}`,
+          callId: `call-${language}`,
+        },
+      });
+    });
+
+    await waitFor(() => expect(result.current.phase).toBe('working'));
+    expect(result.current.activity).toBe('research');
+    expect(transport.invoke).not.toHaveBeenCalledWith('session.synthesize', expect.objectContaining({
+      text: cue,
+      language,
+    }));
+    expect(transport.invoke).not.toHaveBeenCalledWith('session.synthesize', expect.objectContaining({
+      text: expect.stringContaining('/private/path'),
+    }));
+
+    act(() => {
+      transport.emit('runner.event', {
+        workspaceId: `workspace-${language}`,
+        event: {
+          type: 'tool_result',
+          turnId: `turn-${language}`,
+          callId: `call-${language}`,
+          ok: true,
+          output: 'done',
+        },
+      });
+    });
+    await waitFor(() => expect(result.current.activity).toBeNull());
+  });
+
+  it('loops the local waiting tone and persists the user sound preference', async () => {
+    const transport = createTransport('Cześć');
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const send = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-greeting',
+      ready: true,
+      chat: chat({ send }),
+      inputRequired: false,
+      waitingTone: WAITING_TONE,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+
+    await waitFor(() => expect(send).toHaveBeenCalledWith('Cześć'));
+    await waitFor(() => expect(audio.waitingTonePlayback).toHaveLength(1), { timeout: 1_000 });
+    expect(audio.waitingTonePlayback[0]?.options.loop).toBe(true);
+    expect(result.current.waitingSoundEnabled).toBe(true);
+
+    act(() => result.current.toggleWaitingSound());
+    expect(result.current.waitingSoundEnabled).toBe(false);
+    expect(audio.waitingTonePlayback[0]?.stop).toHaveBeenCalledOnce();
+    expect([...audio.storage.values()]).toContain('0');
+
+    act(() => result.current.toggleWaitingSound());
+    expect(result.current.waitingSoundEnabled).toBe(true);
+    await waitFor(() => expect(audio.waitingTonePlayback).toHaveLength(2), { timeout: 1_000 });
+    expect([...audio.storage.values()]).toContain('1');
+    expect(transport.invoke).not.toHaveBeenCalledWith(
+      'session.synthesize',
+      expect.objectContaining({ text: expect.any(String) }),
+    );
+  });
+
   it('runs microphone, existing transcription, same-chat turn and Piper back to listening', async () => {
     const transport = createTransport();
     const audio = createAudioPlatform();
@@ -149,6 +361,70 @@ describe('useVoiceCall integration', () => {
     chatState = chat({ send });
     rerender({ currentChat: chatState });
 
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    await waitFor(() => expect(audio.captures).toHaveLength(2));
+  });
+
+  it('keeps the microphone muted after Moxxy finishes speaking until the user unmutes it', async () => {
+    const transport = createTransport();
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const send = vi.fn(async () => undefined);
+    let chatState = chat({ send });
+    const { result, rerender } = renderHook(
+      ({ currentChat }) => useVoiceCall({
+        workspaceId: 'workspace-muted',
+        ready: true,
+        chat: currentChat,
+        inputRequired: false,
+      }),
+      { initialProps: { currentChat: chatState } },
+    );
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+
+    chatState = chat({ send, sending: true, activeTurnId: 'turn-muted' });
+    rerender({ currentChat: chatState });
+    act(() => {
+      transport.emit('runner.turn.started', {
+        workspaceId: 'workspace-muted',
+        turnId: 'turn-muted',
+      });
+      transport.emit('runner.event', {
+        workspaceId: 'workspace-muted',
+        event: {
+          type: 'assistant_chunk',
+          turnId: 'turn-muted',
+          delta: 'Odpowiedź pozostaje słyszalna po wyciszeniu mikrofonu.',
+        },
+      });
+      transport.emit('runner.turn.complete', {
+        workspaceId: 'workspace-muted',
+        turnId: 'turn-muted',
+        error: null,
+      });
+    });
+    await waitFor(() => expect(result.current.phase).toBe('speaking'));
+
+    act(() => result.current.muteMicrophone());
+    expect(result.current).toMatchObject({ phase: 'speaking', microphoneMuted: true });
+
+    act(() => audio.playback[0]?.onend?.());
+    chatState = chat({ send });
+    rerender({ currentChat: chatState });
+
+    await waitFor(() => expect(result.current.phase).toBe('paused'));
+    expect(audio.captures).toHaveLength(1);
+
+    act(() => result.current.unmuteMicrophone());
     await waitFor(() => expect(result.current.phase).toBe('listening'));
     await waitFor(() => expect(audio.captures).toHaveLength(2));
   });

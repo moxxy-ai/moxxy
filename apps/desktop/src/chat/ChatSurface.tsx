@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useChat, useVoiceCall } from '@moxxy/client-core';
+import { useChat } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
@@ -17,7 +17,7 @@ import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
 import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
 import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
-import { useVoiceActivityDetection } from '../voice-call/useVoiceActivityDetection';
+import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -98,7 +98,7 @@ export function ChatSurface({
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
-  const voiceCall = useVoiceCall({
+  const voiceCall = useDesktopVoiceCall({
     workspaceId,
     ready,
     chat,
@@ -137,13 +137,6 @@ export function ChatSurface({
     [chat.events, chat.streamingText, voiceCall.lastTranscript],
   );
 
-  useVoiceActivityDetection({
-    analyser: voiceCall.inputAnalyser,
-    active: voiceCall.active && voiceCall.phase === 'listening',
-    onSpeechEnd: voiceCall.finishUtterance,
-    onNoSpeech: voiceCall.restartListening,
-  });
-
   const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
 
   if (voiceCall.active) {
@@ -151,14 +144,18 @@ export function ChatSurface({
       <main className="col-main col-main--flat">
         <VoiceCallSurface
           phase={voiceCall.phase}
+          activity={voiceCall.activity}
+          microphoneMuted={voiceCall.microphoneMuted}
+          waitingSoundEnabled={voiceCall.waitingSoundEnabled}
           errorReason={voiceCall.errorReason}
           inputAnalyser={voiceCall.inputAnalyser}
           outputAnalyser={voiceCall.outputAnalyser}
           lines={voiceLines}
           onClose={voiceCall.close}
           onRetry={voiceCall.retry}
-          onPause={voiceCall.pause}
-          onResume={voiceCall.resume}
+          onMuteMicrophone={voiceCall.muteMicrophone}
+          onUnmuteMicrophone={voiceCall.unmuteMicrophone}
+          onToggleWaitingSound={voiceCall.toggleWaitingSound}
         />
         {activeAsk && <AskSheet ask={activeAsk} />}
       </main>
