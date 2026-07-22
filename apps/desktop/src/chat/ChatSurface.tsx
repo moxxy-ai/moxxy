@@ -18,6 +18,7 @@ import { useImagePreview } from './image-preview/useImagePreview';
 import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
 import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
+import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -99,11 +100,13 @@ export function ChatSurface({
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
   const voiceCall = useDesktopVoiceCall({
+    surface: 'main',
     workspaceId,
     ready,
     chat,
     inputRequired: activeAsk !== null,
   });
+  const enterFocusMode = useFocusModeToggle();
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const imagePreview = useImagePreview();
@@ -152,6 +155,7 @@ export function ChatSurface({
           outputAnalyser={voiceCall.outputAnalyser}
           lines={voiceLines}
           onClose={voiceCall.close}
+          onEnterFocusMode={enterFocusMode}
           onRetry={voiceCall.retry}
           onMuteMicrophone={voiceCall.muteMicrophone}
           onUnmuteMicrophone={voiceCall.unmuteMicrophone}

@@ -10,6 +10,7 @@ describe('VoiceCallSurface', () => {
   it('renders the listening state, quiet transcript and call controls', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const onClose = vi.fn();
+    const onEnterFocusMode = vi.fn();
     const onMuteMicrophone = vi.fn();
     const { container } = render(
       <VoiceCallSurface
@@ -25,6 +26,7 @@ describe('VoiceCallSurface', () => {
           { role: 'assistant', text: 'Najpierw zmiel świeże ziarna.', streaming: false },
         ]}
         onClose={onClose}
+        onEnterFocusMode={onEnterFocusMode}
         onRetry={vi.fn()}
         onMuteMicrophone={onMuteMicrophone}
         onUnmuteMicrophone={vi.fn()}
@@ -40,6 +42,9 @@ describe('VoiceCallSurface', () => {
     fireEvent.click(muteButton);
     expect(onMuteMicrophone).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Open focus mode' }));
+    expect(onEnterFocusMode).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(container.textContent).not.toMatch(/[—–]/u);
   });
@@ -58,6 +63,7 @@ describe('VoiceCallSurface', () => {
         outputAnalyser={null}
         lines={[]}
         onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
         onRetry={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={onUnmuteMicrophone}
@@ -89,6 +95,7 @@ describe('VoiceCallSurface', () => {
         outputAnalyser={null}
         lines={[]}
         onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
         onRetry={onRetry}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={vi.fn()}
@@ -114,6 +121,7 @@ describe('VoiceCallSurface', () => {
         outputAnalyser={null}
         lines={[]}
         onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
         onRetry={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={vi.fn()}
@@ -141,6 +149,7 @@ describe('VoiceCallSurface', () => {
         outputAnalyser={null}
         lines={[]}
         onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
         onRetry={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={vi.fn()}

@@ -28,6 +28,7 @@ import type { AskRequest, ThemePreference } from '@moxxy/desktop-ipc-contract';
 import { FocusWidget } from './FocusWidget';
 import { __resetThemeForTests } from '@/lib/useTheme';
 import { style as focusStyle } from './focus-styles';
+import { DESKTOP_VOICE_CALL_CHANNEL } from '../voice-call/desktop-voice-call-bridge';
 
 interface IpcSpy {
   invokes: Array<{ channel: string; args: unknown }>;
@@ -378,6 +379,92 @@ describe('FocusWidget stages', () => {
     expect(screen.getByRole('button', { name: /start voice mode/i })).toBeTruthy();
   });
 
+  it('adopts an active main-window call without restarting it and routes controls back', async () => {
+    installFakeApi();
+    const canvasContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(null);
+    const owner = new BroadcastChannel(DESKTOP_VOICE_CALL_CHANNEL);
+    const received: unknown[] = [];
+    owner.addEventListener('message', (message: MessageEvent<unknown>) => {
+      received.push(message.data);
+    });
+
+    try {
+      render(<FocusWidget />);
+      await waitFor(() => {
+        expect(received).toContainEqual(expect.objectContaining({
+          type: 'snapshot-request',
+          source: 'focus',
+          workspaceId: 'ws-test',
+        }));
+      });
+
+      owner.postMessage({
+        type: 'snapshot',
+        source: 'main',
+        workspaceId: 'ws-test',
+        snapshot: {
+          active: true,
+          phase: 'listening',
+          activity: null,
+          errorReason: null,
+          microphoneMuted: false,
+          waitingSoundEnabled: true,
+        },
+      });
+      owner.postMessage({
+        type: 'spectrum',
+        source: 'main',
+        workspaceId: 'ws-test',
+        audioSource: 'microphone',
+        bins: new Uint8Array([8, 18, 32, 48]),
+      });
+
+      expect(await screen.findByRole('button', { name: /end voice mode/i })).toBeTruthy();
+      expect(screen.getByTestId('focus-audio-waveform')).toHaveAttribute(
+        'data-audio-source',
+        'microphone',
+      );
+      fireEvent.click(screen.getByRole('button', { name: /mute microphone/i }));
+      await waitFor(() => {
+        expect(received).toContainEqual(expect.objectContaining({
+          type: 'command',
+          source: 'focus',
+          workspaceId: 'ws-test',
+          command: 'mute-microphone',
+        }));
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: /^collapse$/i }));
+      expect(screen.getByRole('button', {
+        name: /voice mode active.*click to expand/i,
+      })).toBeTruthy();
+
+      owner.postMessage({
+        type: 'snapshot',
+        source: 'main',
+        workspaceId: 'ws-test',
+        snapshot: {
+          active: true,
+          phase: 'working',
+          activity: 'editing',
+          errorReason: null,
+          microphoneMuted: false,
+          waitingSoundEnabled: true,
+        },
+      });
+      await waitFor(() => {
+        expect(document.querySelector('.focus-voice-live')?.getAttribute('data-phase'))
+          .toBe('working');
+      });
+      expect(screen.queryByRole('button', { name: /end voice mode/i })).toBeNull();
+    } finally {
+      owner.close();
+      canvasContext.mockRestore();
+    }
+  });
+
   it('exposes the full voice microphone and waiting-sound controls in focus mode', async () => {
     let captureStarts = 0;
     const cancelCapture = vi.fn();
@@ -407,12 +494,14 @@ describe('FocusWidget stages', () => {
 
     const muteButton = screen.getByRole('button', { name: /mute microphone/i });
     expect(muteButton.querySelector('[data-voice-microphone-action="mute"]')).toBeTruthy();
+    expect(muteButton).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('button', { name: /^record voice$/i })).toBeNull();
 
     fireEvent.click(muteButton);
     await waitFor(() => expect(cancelCapture).toHaveBeenCalledTimes(1));
     const unmuteButton = screen.getByRole('button', { name: /unmute microphone/i });
     expect(unmuteButton.querySelector('[data-voice-microphone-action="unmute"]')).toBeTruthy();
+    expect(unmuteButton).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(screen.getByRole('button', { name: /turn waiting sound off/i }));
     expect(screen.getByRole('button', { name: /turn waiting sound on/i })).toBeTruthy();

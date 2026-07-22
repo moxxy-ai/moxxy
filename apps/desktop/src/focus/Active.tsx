@@ -143,8 +143,8 @@ export function Active({
             <ActionButton
               onClick={voiceModeMuted ? onUnmuteVoiceMode : onMuteVoiceMode}
               aria-label={voiceModeMuted ? 'Unmute microphone' : 'Mute microphone'}
-              active={voiceModeMuted}
-              pressed={voiceModeMuted}
+              active={!voiceModeMuted}
+              pressed={!voiceModeMuted}
             >
               <VoiceMicrophoneActionIcon
                 action={voiceModeMuted ? 'unmute' : 'mute'}

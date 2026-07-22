@@ -35,6 +35,7 @@ export function VoiceCallSurface({
   outputAnalyser,
   lines,
   onClose,
+  onEnterFocusMode,
   onRetry,
   onMuteMicrophone,
   onUnmuteMicrophone,
@@ -49,6 +50,7 @@ export function VoiceCallSurface({
   readonly outputAnalyser: unknown | null;
   readonly lines: ReadonlyArray<VoiceTranscriptLine>;
   readonly onClose: () => void;
+  readonly onEnterFocusMode: () => void;
   readonly onRetry: () => void;
   readonly onMuteMicrophone: () => void;
   readonly onUnmuteMicrophone: () => void;
@@ -60,10 +62,21 @@ export function VoiceCallSurface({
   return (
     <div className="voice-call-surface">
       <header className="voice-call-header">
-        <button type="button" className="voice-call-back" aria-label="Back to chat" onClick={onClose}>
-          <Icon name="chevron-right" size={17} />
-          <span>Back to chat</span>
-        </button>
+        <div className="voice-call-header-actions">
+          <button type="button" className="voice-call-back" aria-label="Back to chat" onClick={onClose}>
+            <Icon name="chevron-right" size={17} />
+            <span>Back to chat</span>
+          </button>
+          <button
+            type="button"
+            className="voice-call-focus"
+            aria-label="Open focus mode"
+            onClick={onEnterFocusMode}
+          >
+            <Icon name="focus" size={16} />
+            <span>Focus mode</span>
+          </button>
+        </div>
         <div className="voice-call-title">
           <span>Voice conversation</span>
           <small>Local Piper</small>

@@ -24,6 +24,12 @@ const voiceCallState = vi.hoisted(() => ({
   restartListening: vi.fn(),
 }));
 
+const focusModeToggle = vi.hoisted(() => vi.fn());
+
+vi.mock('./chat-surface/useFocusModeToggle', () => ({
+  useFocusModeToggle: () => focusModeToggle,
+}));
+
 vi.mock('./Composer', () => ({
   Composer: ({
     ready,
@@ -41,9 +47,16 @@ vi.mock('./Composer', () => ({
 }));
 
 vi.mock('../voice-call/VoiceCallSurface', () => ({
-  VoiceCallSurface: ({ onClose }: { readonly onClose: () => void }) => (
+  VoiceCallSurface: ({
+    onClose,
+    onEnterFocusMode,
+  }: {
+    readonly onClose: () => void;
+    readonly onEnterFocusMode: () => void;
+  }) => (
     <div data-testid="voice-call-surface-mock">
       <button type="button" onClick={onClose}>Back to chat</button>
+      <button type="button" onClick={onEnterFocusMode}>Focus mode</button>
     </div>
   ),
 }));
@@ -111,6 +124,7 @@ describe('ChatSurface session readiness', () => {
     voiceCallState.active = false;
     voiceCallState.open.mockClear();
     voiceCallState.close.mockClear();
+    focusModeToggle.mockClear();
   });
 
   it('uses the full loading state while the selected session runner is loading before transcript is available', () => {
@@ -206,6 +220,10 @@ describe('ChatSurface session readiness', () => {
 
     expect(screen.getByTestId('voice-call-surface-mock')).toBeInTheDocument();
     expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
+    expect(focusModeToggle).toHaveBeenCalledOnce();
+    expect(voiceCallState.close).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
     expect(voiceCallState.close).toHaveBeenCalledOnce();

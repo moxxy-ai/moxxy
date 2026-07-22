@@ -5,19 +5,28 @@ import {
 } from '@moxxy/client-core';
 import { useVoiceActivityDetection } from './useVoiceActivityDetection';
 import { VOICE_WAITING_TONE } from './voice-waiting-tone';
+import type { DesktopVoiceCallSurface } from './desktop-voice-call-bridge';
+import { useDesktopVoiceCallBridge } from './useDesktopVoiceCallBridge';
 
-export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'>;
+export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'> & {
+  readonly surface: DesktopVoiceCallSurface;
+};
 
 /** Desktop adapter shared by the full chat and the compact Focus surface. */
 export function useDesktopVoiceCall(options: UseDesktopVoiceCallOptions): UseVoiceCall {
-  const voiceCall = useVoiceCall({ ...options, waitingTone: VOICE_WAITING_TONE });
+  const { surface, ...callOptions } = options;
+  const localCall = useVoiceCall({ ...callOptions, waitingTone: VOICE_WAITING_TONE });
 
   useVoiceActivityDetection({
-    analyser: voiceCall.inputAnalyser,
-    active: voiceCall.active && voiceCall.phase === 'listening',
-    onSpeechEnd: voiceCall.finishUtterance,
-    onNoSpeech: voiceCall.restartListening,
+    analyser: localCall.inputAnalyser,
+    active: localCall.active && localCall.phase === 'listening',
+    onSpeechEnd: localCall.finishUtterance,
+    onNoSpeech: localCall.restartListening,
   });
 
-  return voiceCall;
+  return useDesktopVoiceCallBridge({
+    surface,
+    workspaceId: callOptions.workspaceId,
+    localCall,
+  });
 }

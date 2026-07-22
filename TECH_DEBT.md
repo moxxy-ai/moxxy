@@ -24,6 +24,29 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/focus/voice-handoff, RESOLVED 2026-07-22] Voice Mode state
+  lived independently in each renderer, so entering Focus Mode from an active
+  full-window call showed an idle widget and forced the user to end and restart
+  the conversation. The main renderer now retains ownership of the recorder,
+  transcriber, active turn, waiting tone, and Piper queue while a narrow
+  same-origin bridge mirrors only validated presentation state and bounded
+  spectrum frames into Focus Mode. Focus controls route back to that owner, so
+  mute, waiting sound, retry, and end-call actions keep operating on the same
+  conversation. The first inactive-to-active handoff expands the Focus controls
+  immediately, while a later explicit collapse remains respected. The microphone
+  control now highlights the listening state and removes that highlight when
+  muted, matching its crossed-microphone treatment. Initial Focus hydration uses
+  bounded snapshot retries until the main owner responds, so one lost startup
+  message cannot leave the widget in its local idle state. Every cross-realm
+  message is Zod-validated, workspace-scoped, and excludes transcript text, tool
+  data, and STT payloads. Regression tests exercise a real BroadcastChannel
+  handoff through React StrictMode's effect replay, dropped startup delivery,
+  automatic presentation activation, manual-collapse persistence, cross-realm
+  Uint8Array validation, control routing, and waveform continuity. Owned bridge
+  ports are recreated for every effect setup, so StrictMode cleanup cannot leave
+  the live main renderer subscribed through a closed BroadcastChannel.
+  `apps/desktop/src/voice-call/{desktop-voice-call-bridge,useDesktopVoiceCallBridge}.ts`,
+  `apps/desktop/src/{chat,focus}/`.
 - [med, desktop/focus/voice, RESOLVED 2026-07-22] Focus Mode exposed only the
   one-shot speech-to-text recorder, forcing users back into the full desktop
   chat for a continuous half-duplex conversation. Both surfaces now share one

@@ -123,11 +123,13 @@ function Surface({
     && connection.snapshot?.phase.phase === 'connected'
     && !chat.loading;
   const voiceCall = useDesktopVoiceCall({
+    surface: 'focus',
     workspaceId: workspaceId ?? '',
     ready,
     chat,
     inputRequired: askVisible,
   });
+  const previousVoiceModeActive = useRef(false);
   const activeWidth = focusActiveWidth({
     hasTranscriber: hasTranscriber !== false,
     voiceModeActive: voiceCall.active,
@@ -171,6 +173,12 @@ function Surface({
     if (voice.phase !== 'idle') voice.cancel();
     voiceCall.open();
   };
+
+  useEffect(() => {
+    const becameActive = !previousVoiceModeActive.current && voiceCall.active;
+    previousVoiceModeActive.current = voiceCall.active;
+    if (becameActive) setStage('active');
+  }, [voiceCall.active]);
 
   // Stopping a recording (recording → transcribing) opens the mini-text
   // panel so the user watches the transcript + streaming answer there.
