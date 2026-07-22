@@ -17,18 +17,20 @@ function installRecorder() {
   let options: AudioCaptureStartOptions | null = null;
   const stop = vi.fn();
   const cancel = vi.fn();
+  const markUtteranceStart = vi.fn();
   configurePlatform({
     audioCapture: {
       isSupported: () => true,
       start: async (next) => {
         options = next;
-        return { stop, cancel };
+        return { stop, cancel, markUtteranceStart };
       },
     },
   });
   return {
     stop,
     cancel,
+    markUtteranceStart,
     options: (): AudioCaptureStartOptions => {
       if (!options) throw new Error('recorder was not started');
       return options;
@@ -82,6 +84,39 @@ describe('useVoiceRecorder', () => {
     expect(recorder.stop).not.toHaveBeenCalled();
     expect(invoke).not.toHaveBeenCalled();
     expect(result.current.phase).toBe('idle');
+  });
+
+  it('forwards the confirmed utterance boundary to the platform capture', async () => {
+    const recorder = installRecorder();
+    const { result } = renderHook(() =>
+      useVoiceRecorder({ workspaceId: 'workspace-a', onTranscript: vi.fn() }),
+    );
+
+    await act(async () => result.current.start());
+    act(() => result.current.markUtteranceStart());
+
+    expect(recorder.markUtteranceStart).toHaveBeenCalledOnce();
+  });
+
+  it('starts at most one microphone capture while permission is pending', async () => {
+    let resolveStart: ((handle: AudioRecordingHandle) => void) | undefined;
+    const start = vi.fn(() => new Promise<AudioRecordingHandle>((resolve) => {
+      resolveStart = resolve;
+    }));
+    configurePlatform({ audioCapture: { isSupported: () => true, start } });
+    const { result } = renderHook(() => useVoiceRecorder({
+      workspaceId: 'workspace-a',
+      onTranscript: vi.fn(),
+    }));
+
+    act(() => {
+      result.current.start();
+      result.current.start();
+    });
+    expect(start).toHaveBeenCalledOnce();
+
+    await act(async () => resolveStart?.({ stop: vi.fn(), cancel: vi.fn() }));
+    expect(result.current.phase).toBe('recording');
   });
 
   it('discards an active capture on unmount instead of finalizing it', async () => {

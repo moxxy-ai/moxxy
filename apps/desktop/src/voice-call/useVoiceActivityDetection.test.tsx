@@ -48,6 +48,48 @@ describe('voice activity sampling', () => {
     expect(onNoSpeech).not.toHaveBeenCalled();
   });
 
+  it('announces confirmed speech so spoken output can be interrupted', () => {
+    vi.useFakeTimers();
+    const analyser = new LevelAnalyser();
+    const onSpeechStart = vi.fn();
+    renderHook(() => useVoiceActivityDetection({
+      analyser: analyser as unknown as AnalyserNode,
+      active: true,
+      onSpeechStart,
+      onSpeechEnd: vi.fn(),
+      onNoSpeech: vi.fn(),
+    }));
+
+    analyser.level = 0.09;
+    act(() => vi.advanceTimersByTime(280));
+
+    expect(onSpeechStart).toHaveBeenCalledOnce();
+  });
+
+  it('rejects residual Piper echo but accepts a stronger user voice', () => {
+    vi.useFakeTimers();
+    const microphone = new LevelAnalyser();
+    const piper = new LevelAnalyser();
+    const onSpeechStart = vi.fn();
+    renderHook(() => useVoiceActivityDetection({
+      analyser: microphone as unknown as AnalyserNode,
+      outputAnalyser: piper as unknown as AnalyserNode,
+      active: true,
+      onSpeechStart,
+      onSpeechEnd: vi.fn(),
+      onNoSpeech: vi.fn(),
+    }));
+
+    piper.level = 0.2;
+    microphone.level = 0.025;
+    act(() => vi.advanceTimersByTime(400));
+    expect(onSpeechStart).not.toHaveBeenCalled();
+
+    microphone.level = 0.09;
+    act(() => vi.advanceTimersByTime(280));
+    expect(onSpeechStart).toHaveBeenCalledOnce();
+  });
+
   it('rearms a silent capture instead of sending empty audio', () => {
     vi.useFakeTimers();
     const analyser = new LevelAnalyser();

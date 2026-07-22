@@ -94,6 +94,35 @@ describe('voice call state machine', () => {
     expect(unmuted).toMatchObject({ phase: 'listening', microphoneMuted: false });
   });
 
+  it('returns directly to listening when the user interrupts spoken output', () => {
+    const speaking = apply([
+      { type: 'open' },
+      { type: 'ready' },
+      { type: 'transcribing' },
+      { type: 'transcript-ready' },
+      { type: 'turn-started' },
+      { type: 'synthesizing' },
+      { type: 'speaking' },
+    ]);
+
+    expect(reduceVoiceCall(speaking, { type: 'barge-in' })).toMatchObject({
+      phase: 'listening',
+      microphoneMuted: false,
+    });
+  });
+
+  it('ignores barge-in while the microphone is muted', () => {
+    const muted = apply([
+      { type: 'open' },
+      { type: 'ready' },
+      { type: 'transcript-ready' },
+      { type: 'speaking' },
+      { type: 'mute-microphone' },
+    ]);
+
+    expect(reduceVoiceCall(muted, { type: 'barge-in' })).toEqual(muted);
+  });
+
   it('keeps an error visible until retry or close', () => {
     const failed = apply([
       { type: 'open' },

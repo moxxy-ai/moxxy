@@ -255,6 +255,7 @@ export function useDesktopVoiceCallBridge({
       toggleWaitingSound: () => sendCommand('toggle-waiting-sound'),
       finishUtterance: () => undefined,
       restartListening: () => undefined,
+      bargeIn: () => undefined,
     };
   }, [localCall, remoteActive, remoteAudioSource, remoteSnapshot, sendCommand]);
 }

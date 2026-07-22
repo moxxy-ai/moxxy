@@ -33,6 +33,9 @@ export interface AudioRecordingHandle {
   stop(): void;
   /** Release the microphone without producing a transcription payload. */
   cancel(): void;
+  /** Mark the beginning of an utterance detected during output playback. The
+   * platform may discard older monitor audio while retaining a short pre-roll. */
+  readonly markUtteranceStart?: (preRollMs?: number) => void;
 }
 
 export interface AudioCaptureStartOptions {

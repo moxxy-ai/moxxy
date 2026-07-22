@@ -22,6 +22,7 @@ const voiceCallState = vi.hoisted(() => ({
   resume: vi.fn(),
   finishUtterance: vi.fn(),
   restartListening: vi.fn(),
+  bargeIn: vi.fn(),
 }));
 
 const focusModeToggle = vi.hoisted(() => vi.fn());

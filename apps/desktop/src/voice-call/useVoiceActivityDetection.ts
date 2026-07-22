@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { VoiceActivityDetector } from '@moxxy/client-core';
 
 const SAMPLE_INTERVAL_MS = 40;
+const OUTPUT_LEAK_RATIO = 0.1;
 
 interface TimeDomainAnalyser {
   readonly fftSize: number;
@@ -26,28 +27,44 @@ export function calculateAnalyserRms(analyser: TimeDomainAnalyser): number {
   return Math.sqrt(sum / samples.length);
 }
 
+export function calculateEchoSafeRms(inputRms: number, outputRms: number): number {
+  return Math.max(0, inputRms - outputRms * OUTPUT_LEAK_RATIO);
+}
+
 export function useVoiceActivityDetection({
   analyser,
+  outputAnalyser,
   active,
+  onSpeechStart,
   onSpeechEnd,
   onNoSpeech,
 }: {
   readonly analyser: unknown | null;
+  readonly outputAnalyser?: unknown | null;
   readonly active: boolean;
+  readonly onSpeechStart?: () => void;
   readonly onSpeechEnd: () => void;
   readonly onNoSpeech: () => void;
 }): void {
+  const onSpeechStartRef = useRef(onSpeechStart);
   const onSpeechEndRef = useRef(onSpeechEnd);
   const onNoSpeechRef = useRef(onNoSpeech);
+  const outputAnalyserRef = useRef(outputAnalyser);
+  onSpeechStartRef.current = onSpeechStart;
   onSpeechEndRef.current = onSpeechEnd;
   onNoSpeechRef.current = onNoSpeech;
+  outputAnalyserRef.current = outputAnalyser;
 
   useEffect(() => {
     const liveAnalyser = asTimeDomainAnalyser(analyser);
     if (!active || !liveAnalyser) return;
     const detector = new VoiceActivityDetector();
     const timer = window.setInterval(() => {
-      const signal = detector.sample(calculateAnalyserRms(liveAnalyser), Date.now());
+      const liveOutput = asTimeDomainAnalyser(outputAnalyserRef.current);
+      const inputRms = calculateAnalyserRms(liveAnalyser);
+      const outputRms = liveOutput ? calculateAnalyserRms(liveOutput) : 0;
+      const signal = detector.sample(calculateEchoSafeRms(inputRms, outputRms), Date.now());
+      if (signal === 'speech-started') onSpeechStartRef.current?.();
       if (signal === 'speech-ended') onSpeechEndRef.current();
       if (signal === 'no-speech-timeout') onNoSpeechRef.current();
     }, SAMPLE_INTERVAL_MS);

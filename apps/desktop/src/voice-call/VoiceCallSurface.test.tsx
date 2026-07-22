@@ -81,6 +81,30 @@ describe('VoiceCallSurface', () => {
     expect(onUnmuteMicrophone).toHaveBeenCalledTimes(1);
   });
 
+  it('explains that an unmuted spoken answer can be interrupted', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(
+      <VoiceCallSurface
+        phase="speaking"
+        activity={null}
+        microphoneMuted={false}
+        waitingSoundEnabled
+        errorReason={null}
+        inputAnalyser={null}
+        outputAnalyser={null}
+        lines={[]}
+        onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
+        onRetry={vi.fn()}
+        onMuteMicrophone={vi.fn()}
+        onUnmuteMicrophone={vi.fn()}
+        onToggleWaitingSound={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Speak at any time to interrupt');
+  });
+
   it('offers retry for a visible Piper error', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const onRetry = vi.fn();

@@ -12,7 +12,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { webAudioCapture } from './audio-capture.js';
+import { trimPcm16Start, webAudioCapture } from './audio-capture.js';
 import type { AudioCaptureStartOptions } from '@moxxy/client-core';
 
 afterEach(() => {
@@ -73,6 +73,37 @@ const noopOpts: AudioCaptureStartOptions = {
 };
 
 describe('webAudioCapture.start', () => {
+  it('requests browser audio processing suitable for barge-in', async () => {
+    const getUserMedia = vi.fn(async () => fakeStream([vi.fn()]));
+    const rec = new FakeRecorder();
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+    vi.stubGlobal('window', {});
+    installRecorder(rec);
+
+    const handle = await webAudioCapture.start(noopOpts);
+
+    expect(getUserMedia).toHaveBeenCalledWith({
+      audio: {
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+      },
+    });
+    expect(handle.markUtteranceStart).toEqual(expect.any(Function));
+    handle.cancel();
+  });
+
+  it('trims complete PCM16 frames before the marked utterance', () => {
+    const pcm = new Uint8Array(24_000 * 2);
+    for (let index = 0; index < pcm.length; index += 1) pcm[index] = index % 251;
+
+    const trimmed = trimPcm16Start(pcm, 250);
+
+    expect(trimmed.byteLength).toBe(18_000 * 2);
+    expect(trimmed[0]).toBe(pcm[12_000]);
+    expect(trimmed[1]).toBe(pcm[12_001]);
+  });
+
   it('stops the mic tracks when the MediaRecorder constructor throws', async () => {
     const stop = vi.fn();
     const stream = fakeStream([stop, stop]);

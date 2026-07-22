@@ -29,6 +29,7 @@ export type VoiceCallEvent =
   | { readonly type: 'input-resolved' }
   | { readonly type: 'synthesizing' }
   | { readonly type: 'speaking' }
+  | { readonly type: 'barge-in' }
   | {
       readonly type: 'speech-finished';
       readonly resume: 'thinking' | 'working' | 'waiting-for-input';
@@ -81,6 +82,10 @@ export function reduceVoiceCall(
       return activeState('synthesizing', state.microphoneMuted);
     case 'speaking':
       return activeState('speaking', state.microphoneMuted);
+    case 'barge-in':
+      if (state.microphoneMuted) return state;
+      if (state.phase !== 'synthesizing' && state.phase !== 'speaking') return state;
+      return activeState('listening');
     case 'speech-finished':
       return activeState(event.resume, state.microphoneMuted);
     case 'turn-settled':

@@ -15,7 +15,7 @@ const STATUS: Record<VoiceCallPhase, { readonly title: string; readonly detail: 
   working: { title: 'Working', detail: 'I will keep you updated while the task continues' },
   'waiting-for-input': { title: 'Needs your input', detail: 'Answer the request to continue' },
   synthesizing: { title: 'Preparing voice', detail: 'Local Piper is generating the next sentence' },
-  speaking: { title: 'Speaking', detail: 'The microphone will return when the answer ends' },
+  speaking: { title: 'Speaking', detail: 'Speak at any time to interrupt' },
   paused: { title: 'Microphone off', detail: 'Moxxy will not listen until you turn it back on' },
   error: { title: 'Voice mode stopped', detail: 'Resolve the issue and try again' },
 };

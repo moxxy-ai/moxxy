@@ -24,6 +24,8 @@ export interface UseVoiceRecorder {
   readonly stop: () => void;
   /** Discard the current capture or in-flight transcription. */
   readonly cancel: () => void;
+  /** Keep only the detected utterance plus a short pre-roll from a monitor capture. */
+  readonly markUtteranceStart: () => void;
 }
 
 const ERROR_RESET_MS = 2500;
@@ -43,6 +45,7 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
   const [errorReason, setErrorReason] = useState<string | null>(null);
 
   const handleRef = useRef<AudioRecordingHandle | null>(null);
+  const startingGenerationRef = useRef<number | null>(null);
   const phaseRef = useRef<VoicePhase>('idle');
   const generationRef = useRef(0);
   // Guards async post-await state writes (transcription resolving AFTER the
@@ -130,8 +133,13 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     handleRef.current?.stop();
   }, []);
 
+  const markUtteranceStart = useCallback((): void => {
+    handleRef.current?.markUtteranceStart?.();
+  }, []);
+
   const cancel = useCallback((): void => {
     generationRef.current += 1;
+    startingGenerationRef.current = null;
     handleRef.current?.cancel();
     handleRef.current = null;
     if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
@@ -142,15 +150,22 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
   }, [setPhase]);
 
   const start = useCallback(async (): Promise<void> => {
-    if (phaseRef.current !== 'idle' || handleRef.current) return;
+    if (
+      phaseRef.current !== 'idle'
+      || handleRef.current
+      || startingGenerationRef.current !== null
+    ) return;
     const audio = getPlatform().audioCapture;
     if (!audio?.isSupported()) {
       fail('mic unavailable');
       return;
     }
+    let pendingGeneration: number | null = null;
     try {
       const generation = generationRef.current + 1;
+      pendingGeneration = generation;
       generationRef.current = generation;
+      startingGenerationRef.current = generation;
       const workspaceId = opts.workspaceId;
       const handle = await audio.start({
         onResult: (result) => {
@@ -171,6 +186,10 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
       setPhase('recording');
     } catch (e) {
       fail(e instanceof Error ? e.message : 'mic unavailable');
+    } finally {
+      if (startingGenerationRef.current === pendingGeneration) {
+        startingGenerationRef.current = null;
+      }
     }
   }, [fail, finalize, opts.workspaceId, setPhase]);
 
@@ -186,11 +205,20 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
+      startingGenerationRef.current = null;
       handleRef.current?.cancel();
       handleRef.current = null;
       if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
     };
   }, []);
 
-  return { phase, errorReason, toggle, start: () => void start(), stop, cancel };
+  return {
+    phase,
+    errorReason,
+    toggle,
+    start: () => void start(),
+    stop,
+    cancel,
+    markUtteranceStart,
+  };
 }

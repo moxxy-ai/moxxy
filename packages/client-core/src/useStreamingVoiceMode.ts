@@ -27,6 +27,8 @@ export interface UseStreamingVoiceMode {
   readonly speakCue: (text: string, language: SpeechLanguage) => void;
   readonly prewarmCue: (text: string, language: SpeechLanguage) => Promise<void>;
   readonly cancelPendingCues: () => void;
+  /** Stop current playback and suppress every later chunk from that turn. */
+  readonly interruptCurrentTurn: () => string | null;
 }
 
 export interface StreamingVoiceModeOptions {
@@ -59,6 +61,7 @@ export function useStreamingVoiceMode(
   const segmenterRef = useRef(new IncrementalSpeechSegmenter());
   const turnIdRef = useRef<string | null>(null);
   const receivedChunkRef = useRef(false);
+  const suppressedTurnIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!enabled) {
@@ -67,6 +70,7 @@ export function useStreamingVoiceMode(
       segmenterRef.current.reset();
       turnIdRef.current = null;
       receivedChunkRef.current = false;
+      suppressedTurnIdsRef.current.clear();
       return;
     }
 
@@ -85,6 +89,7 @@ export function useStreamingVoiceMode(
       if (payload.workspaceId !== workspaceId) return;
       const event: MoxxyEvent = payload.event;
       if (chatStore.isHidden(event.turnId)) return;
+      if (suppressedTurnIdsRef.current.has(event.turnId)) return;
       if (event.type === 'assistant_chunk') {
         if (turnIdRef.current === null) turnIdRef.current = event.turnId;
         if (event.turnId !== turnIdRef.current) return;
@@ -107,7 +112,16 @@ export function useStreamingVoiceMode(
       }
     });
     const offComplete = api().subscribe('runner.turn.complete', (payload) => {
-      if (payload.workspaceId !== workspaceId || payload.turnId !== turnIdRef.current) return;
+      if (payload.workspaceId !== workspaceId) return;
+      if (suppressedTurnIdsRef.current.delete(payload.turnId)) {
+        if (payload.turnId === turnIdRef.current) {
+          segmenterRef.current.reset();
+          turnIdRef.current = null;
+          receivedChunkRef.current = false;
+        }
+        return;
+      }
+      if (payload.turnId !== turnIdRef.current) return;
       enqueueAssistant(segmenterRef.current.flush());
       turnIdRef.current = null;
       receivedChunkRef.current = false;
@@ -124,6 +138,7 @@ export function useStreamingVoiceMode(
       segmenterRef.current.reset();
       turnIdRef.current = null;
       receivedChunkRef.current = false;
+      suppressedTurnIdsRef.current.clear();
     };
   }, [enabled, queue, workspaceId]);
 
@@ -139,6 +154,15 @@ export function useStreamingVoiceMode(
     [queue],
   );
   const cancelPendingCues = useCallback(() => queue.cancelPendingCues(), [queue]);
+  const interruptCurrentTurn = useCallback((): string | null => {
+    const turnId = turnIdRef.current;
+    if (turnId !== null) suppressedTurnIdsRef.current.add(turnId);
+    segmenterRef.current.reset();
+    turnIdRef.current = null;
+    receivedChunkRef.current = false;
+    queue.cancel();
+    return turnId;
+  }, [queue]);
   return {
     enabled,
     phase: snapshot.phase,
@@ -152,5 +176,6 @@ export function useStreamingVoiceMode(
     speakCue,
     prewarmCue,
     cancelPendingCues,
+    interruptCurrentTurn,
   };
 }

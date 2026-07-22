@@ -24,6 +24,23 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/voice/barge-in, RESOLVED 2026-07-22] Voice Mode released the
+  microphone while Piper was speaking, so interrupting an overly long answer
+  required manual controls and could not flow into the next turn. The desktop
+  now keeps an echo-cancelled, noise-suppressed monitoring capture during Piper
+  playback, compares microphone energy with the live output analyser, and uses
+  the existing VAD speech-start event to stop playback and abort only the active
+  turn. A bounded pre-roll keeps the opening phoneme while discarding audio
+  captured before the interruption; late chunks and completion from the aborted
+  turn are suppressed so they cannot speak over or complete the replacement
+  prompt. The main renderer remains the sole microphone owner when Focus Mode is
+  visible, and mute still disables monitoring. Deterministic integration tests
+  cover echo rejection, genuine speech, atomic queue/turn interruption, stale
+  event suppression, natural utterance completion, recorder-start races, and
+  unchanged PCM16 transcription output.
+  `packages/client-core/src/{useStreamingVoiceMode,useVoiceCall,useVoiceRecorder,voice-call-machine}.ts`,
+  `packages/client-platform-web/src/{audio-capture,pcm16}.ts`,
+  `apps/desktop/src/voice-call/`.
 - [high, desktop/focus/voice-handoff, RESOLVED 2026-07-22] Voice Mode state
   lived independently in each renderer, so entering Focus Mode from an active
   full-window call showed an idle widget and forced the user to end and restart

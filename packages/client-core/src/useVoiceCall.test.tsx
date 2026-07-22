@@ -66,7 +66,10 @@ function deferred<T>() {
 function createAudioPlatform() {
   const captures: AudioCaptureStartOptions[] = [];
   const cancels: Array<ReturnType<typeof vi.fn>> = [];
+  const captureStops: Array<ReturnType<typeof vi.fn>> = [];
+  const utteranceMarks: Array<ReturnType<typeof vi.fn>> = [];
   const playback: SpeakOptions[] = [];
+  const playbackStops: Array<ReturnType<typeof vi.fn>> = [];
   const waitingTonePlayback: Array<{
     readonly options: SpeakOptions;
     readonly stop: ReturnType<typeof vi.fn>;
@@ -79,8 +82,12 @@ function createAudioPlatform() {
       start: async (options) => {
         captures.push(options);
         const cancel = vi.fn();
+        const stop = vi.fn();
+        const markUtteranceStart = vi.fn();
         cancels.push(cancel);
-        return { stop: vi.fn(), cancel };
+        captureStops.push(stop);
+        utteranceMarks.push(markUtteranceStart);
+        return { stop, cancel, markUtteranceStart };
       },
     },
     tts: {
@@ -90,7 +97,9 @@ function createAudioPlatform() {
       playClip: vi.fn((_base64, _mimeType, options = {}) => {
         playback.push(options);
         options.onAnalyser?.({ kind: 'piper-output' });
-        return { stop: vi.fn() };
+        const stop = vi.fn();
+        playbackStops.push(stop);
+        return { stop };
       }),
       playUrl: vi.fn((url, options = {}) => {
         if (url !== WAITING_TONE.audioUrl) throw new Error(`unexpected audio asset ${url}`);
@@ -109,7 +118,17 @@ function createAudioPlatform() {
       removeItem: (key) => storage.delete(key),
     },
   });
-  return { captures, cancels, waitingTonePlayback, playback, storage, systemSpeak };
+  return {
+    captures,
+    cancels,
+    captureStops,
+    utteranceMarks,
+    waitingTonePlayback,
+    playback,
+    playbackStops,
+    storage,
+    systemSpeak,
+  };
 }
 
 function chat(overrides: Partial<VoiceCallChat> = {}): VoiceCallChat {
@@ -118,6 +137,7 @@ function chat(overrides: Partial<VoiceCallChat> = {}): VoiceCallChat {
     activeTurnId: null,
     error: null,
     send: vi.fn(async () => undefined),
+    abort: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -362,7 +382,158 @@ describe('useVoiceCall integration', () => {
     rerender({ currentChat: chatState });
 
     await waitFor(() => expect(result.current.phase).toBe('listening'));
+    await waitFor(() => expect(audio.captures).toHaveLength(3));
+    expect(audio.cancels[1]).toHaveBeenCalledOnce();
+  });
+
+  it('interrupts Piper with confirmed user speech and sends the continued utterance', async () => {
+    const transport = createTransport('Mam dodatkowe pytanie');
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const send = vi.fn(async () => undefined);
+    const abort = vi.fn(async () => undefined);
+    let chatState = chat({ send, abort });
+    const { result, rerender } = renderHook(
+      ({ currentChat }) => useVoiceCall({
+        workspaceId: 'workspace-barge-in',
+        ready: true,
+        chat: currentChat,
+        inputRequired: false,
+      }),
+      { initialProps: { currentChat: chatState } },
+    );
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+
+    chatState = chat({
+      send,
+      abort,
+      sending: true,
+      activeTurnId: 'turn-barge-in',
+    });
+    rerender({ currentChat: chatState });
+    act(() => {
+      transport.emit('runner.turn.started', {
+        workspaceId: 'workspace-barge-in',
+        turnId: 'turn-barge-in',
+      });
+      transport.emit('runner.event', {
+        workspaceId: 'workspace-barge-in',
+        event: {
+          type: 'assistant_chunk',
+          turnId: 'turn-barge-in',
+          delta: 'To jest odpowiedź, którą użytkownik przerwie.',
+        },
+      });
+    });
+    await waitFor(() => expect(result.current.phase).toBe('speaking'));
     await waitFor(() => expect(audio.captures).toHaveLength(2));
+    const synthesizedBeforeInterrupt = transport.invoke.mock.calls.filter(
+      ([channel]) => channel === 'session.synthesize',
+    ).length;
+
+    act(() => result.current.bargeIn());
+
+    expect(result.current.phase).toBe('listening');
+    expect(audio.utteranceMarks[1]).toHaveBeenCalledOnce();
+    expect(audio.playbackStops[0]).toHaveBeenCalledOnce();
+    expect(abort).toHaveBeenCalledOnce();
+
+    act(() => transport.emit('runner.event', {
+      workspaceId: 'workspace-barge-in',
+      event: {
+        type: 'assistant_chunk',
+        turnId: 'turn-barge-in',
+        delta: 'Tego późnego fragmentu nie wolno już powiedzieć.',
+      },
+    }));
+    await act(async () => Promise.resolve());
+    expect(transport.invoke.mock.calls.filter(
+      ([channel]) => channel === 'session.synthesize',
+    )).toHaveLength(synthesizedBeforeInterrupt);
+
+    act(() => transport.emit('runner.turn.complete', {
+      workspaceId: 'workspace-barge-in',
+      turnId: 'turn-barge-in',
+      error: null,
+    }));
+    expect(result.current.phase).toBe('listening');
+
+    act(() => audio.captures[1]?.onResult({
+      pcm16Base64: 'BQYHCA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.5,
+      sampleCount: 2,
+    }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send).toHaveBeenLastCalledWith('Mam dodatkowe pytanie');
+  });
+
+  it('discards the monitoring capture when spoken output finishes naturally', async () => {
+    const transport = createTransport();
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const send = vi.fn(async () => undefined);
+    let chatState = chat({ send });
+    const { result, rerender } = renderHook(
+      ({ currentChat }) => useVoiceCall({
+        workspaceId: 'workspace-natural-finish',
+        ready: true,
+        chat: currentChat,
+        inputRequired: false,
+      }),
+      { initialProps: { currentChat: chatState } },
+    );
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+
+    chatState = chat({ send, sending: true, activeTurnId: 'turn-natural' });
+    rerender({ currentChat: chatState });
+    act(() => {
+      transport.emit('runner.turn.started', {
+        workspaceId: 'workspace-natural-finish',
+        turnId: 'turn-natural',
+      });
+      transport.emit('runner.event', {
+        workspaceId: 'workspace-natural-finish',
+        event: {
+          type: 'assistant_chunk',
+          turnId: 'turn-natural',
+          delta: 'Ta odpowiedź kończy się naturalnie.',
+        },
+      });
+      transport.emit('runner.turn.complete', {
+        workspaceId: 'workspace-natural-finish',
+        turnId: 'turn-natural',
+        error: null,
+      });
+    });
+    await waitFor(() => expect(result.current.phase).toBe('speaking'));
+    await waitFor(() => expect(audio.captures).toHaveLength(2));
+
+    act(() => audio.playback[0]?.onend?.());
+    chatState = chat({ send });
+    rerender({ currentChat: chatState });
+
+    await waitFor(() => expect(audio.cancels[1]).toHaveBeenCalledOnce());
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    await waitFor(() => expect(audio.captures).toHaveLength(3));
   });
 
   it('keeps the microphone muted after Moxxy finishes speaking until the user unmutes it', async () => {
@@ -422,11 +593,12 @@ describe('useVoiceCall integration', () => {
     rerender({ currentChat: chatState });
 
     await waitFor(() => expect(result.current.phase).toBe('paused'));
-    expect(audio.captures).toHaveLength(1);
+    expect(audio.captures).toHaveLength(2);
+    expect(audio.cancels[1]).toHaveBeenCalledOnce();
 
     act(() => result.current.unmuteMicrophone());
     await waitFor(() => expect(result.current.phase).toBe('listening'));
-    await waitFor(() => expect(audio.captures).toHaveLength(2));
+    await waitFor(() => expect(audio.captures).toHaveLength(3));
   });
 
   it('refuses to start when Local Piper is not the active synthesizer', async () => {

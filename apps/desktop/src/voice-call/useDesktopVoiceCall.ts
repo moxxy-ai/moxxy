@@ -19,7 +19,15 @@ export function useDesktopVoiceCall(options: UseDesktopVoiceCallOptions): UseVoi
 
   useVoiceActivityDetection({
     analyser: localCall.inputAnalyser,
-    active: localCall.active && localCall.phase === 'listening',
+    outputAnalyser: localCall.outputAnalyser,
+    active: localCall.active
+      && !localCall.microphoneMuted
+      && (
+        localCall.phase === 'listening'
+        || localCall.phase === 'synthesizing'
+        || localCall.phase === 'speaking'
+      ),
+    onSpeechStart: localCall.bargeIn,
     onSpeechEnd: localCall.finishUtterance,
     onNoSpeech: localCall.restartListening,
   });

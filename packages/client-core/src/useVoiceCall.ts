@@ -32,6 +32,7 @@ export interface VoiceCallChat {
   readonly activeTurnId: string | null;
   readonly error: string | null;
   readonly send: (prompt: string) => Promise<void>;
+  readonly abort: () => Promise<void>;
 }
 
 export interface UseVoiceCallOptions {
@@ -62,6 +63,8 @@ export interface UseVoiceCall {
   readonly finishUtterance: () => void;
   /** Discard a no-speech capture and immediately arm a fresh one. */
   readonly restartListening: () => void;
+  /** Interrupt current spoken output while preserving the live user capture. */
+  readonly bargeIn: () => void;
 }
 
 const LOCAL_PIPER = 'local-piper';
@@ -97,6 +100,8 @@ export function useVoiceCall({
   const waitingToneHandleRef = useRef<AudioClipHandle | null>(null);
   const waitingToneGenerationRef = useRef(0);
   const previousInputRequiredRef = useRef(false);
+  const interruptedTurnIdsRef = useRef(new Set<string>());
+  const bargeInTransitionRef = useRef(false);
   const chatRef = useRef(chat);
   chatRef.current = chat;
 
@@ -198,6 +203,8 @@ export function useVoiceCall({
     feedbackTurnActiveRef.current = false;
     previousInputRequiredRef.current = false;
     previousSpeechPhaseRef.current = 'idle';
+    interruptedTurnIdsRef.current.clear();
+    bargeInTransitionRef.current = false;
   }, [feedback, speech.disable, voice.cancel]);
 
   const preflight = useCallback(async (generation: number): Promise<void> => {
@@ -258,12 +265,12 @@ export function useVoiceCall({
 
   const muteMicrophone = useCallback((): void => {
     if (!state.active || state.phase === 'error') return;
-    if (state.phase === 'listening') {
+    if (voice.phase === 'recording') {
       voice.cancel();
       setInputAnalyser(null);
     }
     dispatch({ type: 'mute-microphone' });
-  }, [state.active, state.phase, voice.cancel]);
+  }, [state.active, state.phase, voice.cancel, voice.phase]);
 
   const unmuteMicrophone = useCallback((): void => {
     if (!state.active || state.phase === 'error') return;
@@ -279,21 +286,58 @@ export function useVoiceCall({
   }, [feedback]);
   const finishUtterance = useCallback((): void => voice.stop(), [voice.stop]);
   const restartListening = useCallback((): void => {
-    if (state.phase !== 'listening') return;
+    if (
+      state.phase !== 'listening'
+      && state.phase !== 'synthesizing'
+      && state.phase !== 'speaking'
+    ) return;
     voice.cancel();
   }, [state.phase, voice.cancel]);
 
-  // Listening owns the microphone. Every other state keeps it released, which
-  // makes self-transcription of Piper structurally impossible.
+  const bargeIn = useCallback((): void => {
+    if (
+      !state.active
+      || state.microphoneMuted
+      || (state.phase !== 'synthesizing' && state.phase !== 'speaking')
+      || voice.phase !== 'recording'
+    ) return;
+
+    voice.markUtteranceStart();
+    bargeInTransitionRef.current = true;
+    const streamedTurnId = speechRef.current.interruptCurrentTurn();
+    const interruptedTurnId = streamedTurnId
+      ?? currentTurnIdRef.current
+      ?? chatRef.current.activeTurnId;
+    if (interruptedTurnId !== null) interruptedTurnIdsRef.current.add(interruptedTurnId);
+    feedback.endTurn();
+    feedbackTurnActiveRef.current = false;
+    turnCycleRef.current = false;
+    turnObservedRef.current = false;
+    completionTargetRef.current = null;
+    currentTurnIdRef.current = null;
+    activeToolActivitiesRef.current.clear();
+    toolNamesByCallRef.current.clear();
+    setActivity(null);
+    dispatch({ type: 'barge-in' });
+    void chatRef.current.abort();
+  }, [feedback, state.active, state.microphoneMuted, state.phase, voice]);
+
+  // Normal listening and interruptible Piper playback share one capture. The
+  // platform's AEC removes render echo; barge-in marks where retained audio
+  // starts so the earlier monitoring prefix never reaches the transcriber.
   useEffect(() => {
+    const capturePhase = state.phase === 'listening'
+      || state.phase === 'synthesizing'
+      || state.phase === 'speaking';
     if (
       !state.active ||
-      state.phase !== 'listening' ||
+      state.microphoneMuted ||
+      !capturePhase ||
       voice.phase !== 'idle' ||
-      turnCycleRef.current
+      (state.phase === 'listening' && turnCycleRef.current)
     ) return;
     voice.start();
-  }, [state.active, state.phase, voice.phase, voice.start]);
+  }, [state.active, state.microphoneMuted, state.phase, voice.phase, voice.start]);
 
   useEffect(() => {
     if (!state.active) return;
@@ -317,15 +361,23 @@ export function useVoiceCall({
     } else if (speech.phase === 'speaking') {
       dispatch({ type: 'speaking' });
     } else if (speech.phase === 'error') {
+      if (voice.phase === 'recording') voice.cancel();
       dispatch({
         type: 'failed',
         reason: speech.errorReason ?? 'Piper could not play this response.',
       });
     } else if (
-      speech.phase === 'idle' &&
-      (previousPhase === 'synthesizing' || previousPhase === 'speaking') &&
-      turnCycleRef.current
+      speech.phase === 'idle'
+      && (previousPhase === 'synthesizing' || previousPhase === 'speaking')
+      && bargeInTransitionRef.current
     ) {
+      bargeInTransitionRef.current = false;
+    } else if (
+      speech.phase === 'idle'
+      && (previousPhase === 'synthesizing' || previousPhase === 'speaking')
+      && turnCycleRef.current
+    ) {
+      if (voice.phase === 'recording') voice.cancel();
       const resume = inputRequired
         ? 'waiting-for-input'
         : activeToolActivitiesRef.current.size > 0
@@ -334,7 +386,16 @@ export function useVoiceCall({
       dispatch({ type: 'speech-finished', resume });
     }
     previousSpeechPhaseRef.current = speech.phase;
-  }, [feedback, inputRequired, speech.currentKind, speech.errorReason, speech.phase, state.active]);
+  }, [
+    feedback,
+    inputRequired,
+    speech.currentKind,
+    speech.errorReason,
+    speech.phase,
+    state.active,
+    voice.cancel,
+    voice.phase,
+  ]);
 
   useEffect(() => {
     if (!state.active) return;
@@ -354,11 +415,13 @@ export function useVoiceCall({
     if (!state.active) return;
     const offStarted = api().subscribe('runner.turn.started', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
+      if (interruptedTurnIdsRef.current.has(payload.turnId)) return;
       currentTurnIdRef.current = payload.turnId;
     });
     const offEvent = api().subscribe('runner.event', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
       const event: MoxxyEvent = payload.event;
+      if (interruptedTurnIdsRef.current.has(event.turnId)) return;
       if (currentTurnIdRef.current !== null && event.turnId !== currentTurnIdRef.current) return;
       if (event.type === 'user_prompt') {
         currentTurnIdRef.current ??= event.turnId;
@@ -392,6 +455,7 @@ export function useVoiceCall({
     });
     const offComplete = api().subscribe('runner.turn.complete', (payload) => {
       if (payload.workspaceId !== workspaceId) return;
+      if (interruptedTurnIdsRef.current.delete(payload.turnId)) return;
       if (currentTurnIdRef.current !== null && payload.turnId !== currentTurnIdRef.current) return;
       feedback.endTurn();
       feedbackTurnActiveRef.current = false;
@@ -494,5 +558,6 @@ export function useVoiceCall({
     toggleWaitingSound,
     finishUtterance,
     restartListening,
+    bargeIn,
   };
 }

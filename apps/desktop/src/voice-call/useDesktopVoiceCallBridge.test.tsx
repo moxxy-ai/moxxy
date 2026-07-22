@@ -47,6 +47,7 @@ function voiceCall(overrides: Partial<UseVoiceCall> = {}): UseVoiceCall {
     toggleWaitingSound: vi.fn(),
     finishUtterance: vi.fn(),
     restartListening: vi.fn(),
+    bargeIn: vi.fn(),
     ...overrides,
   };
 }

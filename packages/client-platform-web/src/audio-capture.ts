@@ -15,10 +15,24 @@ import {
   pcm16Peak,
   uint8ArrayToBase64,
   MOXXY_PCM16_24KHZ_MIME,
+  MOXXY_PCM16_SAMPLE_RATE,
   getAudioContextCtor,
 } from './pcm16.js';
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+const DEFAULT_UTTERANCE_PRE_ROLL_MS = 240;
+
+export function trimPcm16Start(bytes: Uint8Array, startMs: number): Uint8Array {
+  if (!Number.isFinite(startMs) || startMs <= 0 || bytes.byteLength === 0) return bytes;
+  const requestedFrames = Math.floor((startMs / 1_000) * MOXXY_PCM16_SAMPLE_RATE);
+  const availableFrames = Math.floor(bytes.byteLength / 2);
+  const startFrame = Math.min(requestedFrames, availableFrames);
+  return bytes.slice(startFrame * 2);
+}
+
+function monotonicNow(): number {
+  return typeof performance === 'undefined' ? Date.now() : performance.now();
+}
 
 function pickMimeType(): string | undefined {
   if (typeof MediaRecorder === 'undefined') return undefined;
@@ -35,9 +49,17 @@ export const webAudioCapture: AudioCapture = {
   },
 
   async start(opts: AudioCaptureStartOptions): Promise<AudioRecordingHandle> {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+      },
+    });
     let audioCtx: AudioContext | null = null;
     let released = false;
+    let captureStartedAt = 0;
+    let trimBeforeMs: number | null = null;
 
     // Stop the live mic tracks + tear down the audio context. Called from the
     // 'stop' handler AND from the synchronous-failure path below — if the
@@ -69,7 +91,8 @@ export const webAudioCapture: AudioCapture = {
           opts.onResult({ pcm16Base64: '', mimeType: MOXXY_PCM16_24KHZ_MIME, peak: 0, sampleCount: 0 });
           return;
         }
-        const pcm = await audioToPcm16(blob);
+        const decodedPcm = await audioToPcm16(blob);
+        const pcm = trimPcm16Start(decodedPcm, trimBeforeMs ?? 0);
         opts.onResult({
           pcm16Base64: pcm.length > 0 ? uint8ArrayToBase64(pcm) : '',
           mimeType: MOXXY_PCM16_24KHZ_MIME,
@@ -92,6 +115,7 @@ export const webAudioCapture: AudioCapture = {
     rec.addEventListener('stop', onStop);
 
     try {
+      captureStartedAt = monotonicNow();
       rec.start();
 
       // Optional spectrum analyser for the focus widget.
@@ -142,6 +166,11 @@ export const webAudioCapture: AudioCapture = {
         rec.removeEventListener('stop', onStop);
         stopRecorder();
         teardown();
+      },
+      markUtteranceStart(preRollMs = DEFAULT_UTTERANCE_PRE_ROLL_MS): void {
+        if (cancelled || trimBeforeMs !== null) return;
+        const safePreRoll = Number.isFinite(preRollMs) ? Math.max(0, preRollMs) : 0;
+        trimBeforeMs = Math.max(0, monotonicNow() - captureStartedAt - safePreRoll);
       },
     };
   },
