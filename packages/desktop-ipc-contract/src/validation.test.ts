@@ -42,12 +42,13 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
-  it('bounds synthesize text and accepts only bounded BCP-47 language hints', () => {
+  it('bounds synthesize text, language hints, and speaking rate', () => {
     expect(() =>
       validateIpcInput('session.synthesize', {
         workspaceId: 'workspace-1',
         text: 'Dzień dobry',
         language: 'pl-PL',
+        rate: 1.06,
       }),
     ).not.toThrow();
     expect(() =>
@@ -58,6 +59,15 @@ describe('IPC payload validation', () => {
     ).toThrow();
     expect(() =>
       validateIpcInput('session.synthesize', { text: 'Hello', language: '../en' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', rate: 0.49 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', rate: 2.01 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', rate: Number.NaN }),
     ).toThrow();
     expect(() =>
       validateIpcInput('session.synthesize', { text: 'Hello', language: 'en', sneaky: true }),

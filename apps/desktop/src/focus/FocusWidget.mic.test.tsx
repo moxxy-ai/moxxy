@@ -27,7 +27,7 @@ function installAudioCapture(probe: RecorderProbe): void {
         probe.starts += 1;
         // A handle whose stop() we can observe. We never fire onResult, so the
         // recorder stays in the 'recording' phase until someone calls stop().
-        return { stop: probe.stop };
+        return { stop: probe.stop, cancel: vi.fn() };
       },
     },
   };

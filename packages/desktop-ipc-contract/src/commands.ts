@@ -355,11 +355,13 @@ export interface IpcCommands {
   }) => Promise<string>;
   /** Synthesize text to speech via the runner's active synthesizer. Returns
    *  base64 audio + its MIME type, or null when no synthesizer is active.
-   *  `language` selects the matching local/remote voice when supported. */
+   *  `language` selects the matching local/remote voice when supported;
+   *  `rate` is a bounded speaking-rate multiplier. */
   'session.synthesize': (args: {
     workspaceId?: string;
     text: string;
     language?: string;
+    rate?: number;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */

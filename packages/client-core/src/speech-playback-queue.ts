@@ -1,6 +1,7 @@
 import { toErrorMessage } from './errors.js';
 import { getPlatform, type AudioClipHandle } from './platform.js';
 import { toSpeakableText } from './speech.js';
+import { planSpeechProsody, type SpeechProsody } from './speech-prosody.js';
 import { detectSpeechLanguage, type SpeechLanguage } from './streaming-speech.js';
 import { api } from './transport.js';
 
@@ -11,10 +12,19 @@ export interface SpeechPlaybackSnapshot {
   readonly errorReason: string | null;
 }
 
+export interface SpeechPlaybackQueueOptions {
+  /** Voice-call surfaces require a configured synthesizer and must never fall
+   *  back to the operating-system voice. */
+  readonly requireSynthesizer?: boolean;
+  /** Receives the analyser for the currently playing generated clip. */
+  readonly onAnalyser?: (analyser: unknown | null) => void;
+}
+
 interface PreparedClip {
   readonly ok: true;
   readonly text: string;
   readonly language: SpeechLanguage;
+  readonly prosody: SpeechProsody;
   readonly clip: { readonly audioBase64: string; readonly mimeType: string } | null;
 }
 
@@ -28,6 +38,7 @@ type PreparedResult = PreparedClip | FailedClip;
 interface QueuedSpeech {
   readonly text: string;
   readonly language: SpeechLanguage;
+  readonly prosody: SpeechProsody;
   prepared: Promise<PreparedResult> | null;
 }
 
@@ -60,9 +71,13 @@ export class SpeechPlaybackQueue {
   private preparing = false;
   private systemSpeaking = false;
   private activeClip: AudioClipHandle | null = null;
+  private pauseTimer: ReturnType<typeof setTimeout> | null = null;
   private previousLanguage: SpeechLanguage | undefined;
 
-  constructor(private readonly workspaceId?: string) {}
+  constructor(
+    private readonly workspaceId?: string,
+    private readonly options: SpeechPlaybackQueueOptions = {},
+  ) {}
 
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -75,9 +90,10 @@ export class SpeechPlaybackQueue {
     const text = toSpeakableText(markdown);
     if (!text) return;
     const selectedLanguage = language ?? detectSpeechLanguage(text, this.previousLanguage);
+    const prosody = planSpeechProsody(text);
     claimPlayback(this);
     this.previousLanguage = selectedLanguage;
-    this.items.push({ text, language: selectedLanguage, prepared: null });
+    this.items.push({ text, language: selectedLanguage, prosody, prepared: null });
     if (this.snapshot.phase === 'idle' || this.snapshot.phase === 'error') {
       this.setSnapshot('synthesizing', null);
     }
@@ -92,8 +108,10 @@ export class SpeechPlaybackQueue {
     this.preparing = false;
     this.systemSpeaking = false;
     this.previousLanguage = undefined;
+    this.clearPause();
     this.activeClip?.stop();
     this.activeClip = null;
+    this.options.onAnalyser?.(null);
     if (ownsPlayback) {
       getPlatform().tts?.cancel();
       releasePlayback(this);
@@ -102,7 +120,7 @@ export class SpeechPlaybackQueue {
   }
 
   private async pump(generation: number): Promise<void> {
-    if (this.preparing || this.systemSpeaking || this.activeClip) return;
+    if (this.preparing || this.systemSpeaking || this.activeClip || this.pauseTimer) return;
     const item = this.items.shift();
     if (!item) {
       this.setSnapshot('idle', null);
@@ -118,6 +136,10 @@ export class SpeechPlaybackQueue {
       this.fail(toErrorMessage(prepared.error));
       return;
     }
+    if (!prepared.clip && this.options.requireSynthesizer) {
+      this.fail('No speech synthesizer is active. Enable Local Piper and try again.');
+      return;
+    }
 
     const tts = getPlatform().tts;
     if (!tts?.isSupported()) {
@@ -129,7 +151,7 @@ export class SpeechPlaybackQueue {
       if (generation !== this.generation) return;
       this.activeClip = null;
       this.systemSpeaking = false;
-      void this.pump(generation);
+      this.pauseBeforeNext(prepared.prosody.pauseAfterMs, generation);
     };
     const failPlayback = (): void => {
       if (generation !== this.generation) return;
@@ -142,6 +164,7 @@ export class SpeechPlaybackQueue {
         const clip = tts.playClip(prepared.clip.audioBase64, prepared.clip.mimeType, {
           onend: finish,
           onerror: failPlayback,
+          ...(this.options.onAnalyser ? { onAnalyser: this.options.onAnalyser } : {}),
         });
         if (generation !== this.generation) {
           clip.stop();
@@ -173,12 +196,14 @@ export class SpeechPlaybackQueue {
           ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
           text: item.text,
           language: item.language,
+          rate: item.prosody.rate,
         }),
       )
       .then<PreparedResult>((clip) => ({
         ok: true,
         text: item.text,
         language: item.language,
+        prosody: item.prosody,
         clip,
       }))
       .catch<PreparedResult>((error: unknown) => ({ ok: false, error }));
@@ -191,13 +216,33 @@ export class SpeechPlaybackQueue {
     if (next) void this.prepare(next);
   }
 
+  private pauseBeforeNext(durationMs: number, generation: number): void {
+    if (durationMs <= 0) {
+      void this.pump(generation);
+      return;
+    }
+    this.pauseTimer = setTimeout(() => {
+      if (generation !== this.generation) return;
+      this.pauseTimer = null;
+      void this.pump(generation);
+    }, durationMs);
+  }
+
+  private clearPause(): void {
+    if (!this.pauseTimer) return;
+    clearTimeout(this.pauseTimer);
+    this.pauseTimer = null;
+  }
+
   private fail(reason: string): void {
     this.generation += 1;
     this.items.length = 0;
     this.preparing = false;
     this.systemSpeaking = false;
+    this.clearPause();
     this.activeClip?.stop();
     this.activeClip = null;
+    this.options.onAnalyser?.(null);
     getPlatform().tts?.cancel();
     releasePlayback(this);
     this.setSnapshot('error', reason);

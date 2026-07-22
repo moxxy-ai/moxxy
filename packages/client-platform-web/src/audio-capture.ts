@@ -37,15 +37,19 @@ export const webAudioCapture: AudioCapture = {
   async start(opts: AudioCaptureStartOptions): Promise<AudioRecordingHandle> {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     let audioCtx: AudioContext | null = null;
+    let released = false;
 
     // Stop the live mic tracks + tear down the audio context. Called from the
     // 'stop' handler AND from the synchronous-failure path below — if the
     // MediaRecorder ctor or analyser setup throws after getUserMedia resolved,
     // the stream would otherwise stay held (OS mic indicator stuck on).
     const teardown = (): void => {
+      if (released) return;
+      released = true;
       stream.getTracks().forEach((t) => t.stop());
-      audioCtx?.close().catch(() => undefined);
+      if (audioCtx) void audioCtx.close().catch(() => undefined);
       audioCtx = null;
+      opts.onAnalyser?.(null);
     };
 
     let rec: MediaRecorder;
@@ -82,7 +86,6 @@ export const webAudioCapture: AudioCapture = {
     };
     const onStop = (): void => {
       teardown();
-      opts.onAnalyser?.(null);
       void finalize();
     };
     rec.addEventListener('dataavailable', onData);
@@ -123,9 +126,22 @@ export const webAudioCapture: AudioCapture = {
       throw e;
     }
 
+    let cancelled = false;
+    const stopRecorder = (): void => {
+      if (rec.state === 'recording') rec.stop();
+    };
     return {
       stop(): void {
-        if (rec.state === 'recording') rec.stop();
+        if (cancelled) return;
+        stopRecorder();
+      },
+      cancel(): void {
+        if (cancelled) return;
+        cancelled = true;
+        rec.removeEventListener('dataavailable', onData);
+        rec.removeEventListener('stop', onStop);
+        stopRecorder();
+        teardown();
       },
     };
   },

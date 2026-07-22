@@ -14,7 +14,10 @@ export * from './step-flow.js';
 export * from './runner-retry.js';
 export * from './speech.js';
 export * from './streaming-speech.js';
+export * from './speech-prosody.js';
 export * from './speech-playback-queue.js';
+export * from './voice-activity.js';
+export * from './voice-call-machine.js';
 
 // Chat model + stores.
 export * from './chatModel.js';
@@ -44,6 +47,7 @@ export * from './useMobileGateway.js';
 export * from './useVoiceRecorder.js';
 export * from './useReadAloud.js';
 export * from './useStreamingVoiceMode.js';
+export * from './useVoiceCall.js';
 export * from './useActiveModeBadge.js';
 export * from './useSessionInfoBridge.js';
 export * from './useSessionInfoReady.js';

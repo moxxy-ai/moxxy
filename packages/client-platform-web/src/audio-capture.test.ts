@@ -8,6 +8,7 @@
  *    stopped, and crucially NO late onResult (the 'stop' the recorder later
  *    emits must not run finalize for a start() that already rejected).
  *  - normal stop → finalize fires onResult exactly once.
+ *  - cancel → releases every resource without producing a transcription blob.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -162,5 +163,40 @@ describe('webAudioCapture.start', () => {
     expect(onResult.mock.calls[0]?.[0]).toMatchObject({ pcm16Base64: '', sampleCount: 0, peak: 0 });
     // Mic released on stop.
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancel releases the microphone and analyser without finalizing audio', async () => {
+    const stop = vi.fn();
+    const close = vi.fn(async () => undefined);
+    const analyser = { fftSize: 0, smoothingTimeConstant: 0 };
+    const stream = fakeStream([stop]);
+    const rec = new FakeRecorder();
+    const onResult = vi.fn();
+    const onError = vi.fn();
+    const onAnalyser = vi.fn();
+
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: vi.fn(async () => stream) } });
+    vi.stubGlobal('window', {
+      AudioContext: vi.fn(() => ({
+        createAnalyser: () => analyser,
+        createMediaStreamSource: () => ({ connect: vi.fn() }),
+        close,
+      })),
+    });
+    installRecorder(rec);
+
+    const handle = await webAudioCapture.start({ onResult, onError, onAnalyser });
+    expect(onAnalyser).toHaveBeenCalledWith(analyser);
+
+    handle.cancel();
+    rec.dispatch('stop', {});
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(onAnalyser).toHaveBeenLastCalledWith(null);
+    expect(onResult).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 });

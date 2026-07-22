@@ -79,6 +79,9 @@ const speechLanguage = z
   .string()
   .max(35)
   .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/, 'must be a BCP-47 language tag');
+/** Piper's supported range. The conversational planner uses a much narrower
+ *  band, but every renderer/remote caller is still bounded at the IPC edge. */
+const speechRate = z.number().finite().min(0.5).max(2);
 /** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
  *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
 const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
@@ -210,6 +213,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       workspaceId: optionalWorkspace,
       text: z.string().max(MAX_SYNTHESIZE_TEXT),
       language: speechLanguage.optional(),
+      rate: speechRate.optional(),
     })
     .strict(),
   // Read-only snapshots and the abort RPC are reachable over the remote (WS)

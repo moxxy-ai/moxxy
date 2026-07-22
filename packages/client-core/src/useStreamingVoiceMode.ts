@@ -12,13 +12,36 @@ export interface UseStreamingVoiceMode {
   readonly enabled: boolean;
   readonly phase: SpeechPlaybackPhase;
   readonly errorReason: string | null;
+  /** Monotonic count of runner turns that reached completion while enabled. */
+  readonly completedTurnCount: number;
+  readonly completedTurnError: string | null;
   readonly toggle: () => void;
+  readonly enable: () => void;
+  readonly disable: () => void;
+}
+
+export interface StreamingVoiceModeOptions {
+  readonly requireSynthesizer?: boolean;
+  readonly onAnalyser?: (analyser: unknown | null) => void;
 }
 
 /** Speaks assistant deltas sentence-by-sentence while a desktop turn streams. */
-export function useStreamingVoiceMode(workspaceId: string): UseStreamingVoiceMode {
+export function useStreamingVoiceMode(
+  workspaceId: string,
+  options: StreamingVoiceModeOptions = {},
+): UseStreamingVoiceMode {
   const [enabled, setEnabled] = useState(false);
-  const queue = useMemo(() => new SpeechPlaybackQueue(workspaceId), [workspaceId]);
+  const [completedTurnCount, setCompletedTurnCount] = useState(0);
+  const [completedTurnError, setCompletedTurnError] = useState<string | null>(null);
+  const onAnalyserRef = useRef(options.onAnalyser);
+  onAnalyserRef.current = options.onAnalyser;
+  const queue = useMemo(
+    () => new SpeechPlaybackQueue(workspaceId, {
+      requireSynthesizer: options.requireSynthesizer,
+      onAnalyser: (analyser) => onAnalyserRef.current?.(analyser),
+    }),
+    [options.requireSynthesizer, workspaceId],
+  );
   const snapshot = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
   const segmenterRef = useRef(new IncrementalSpeechSegmenter());
   const turnIdRef = useRef<string | null>(null);
@@ -73,6 +96,8 @@ export function useStreamingVoiceMode(workspaceId: string): UseStreamingVoiceMod
       enqueue(segmenterRef.current.flush());
       turnIdRef.current = null;
       receivedChunkRef.current = false;
+      setCompletedTurnError(payload.error);
+      setCompletedTurnCount((count) => count + 1);
     });
 
     return () => {
@@ -87,10 +112,16 @@ export function useStreamingVoiceMode(workspaceId: string): UseStreamingVoiceMod
   }, [enabled, queue, workspaceId]);
 
   const toggle = useCallback(() => setEnabled((value) => !value), []);
+  const enable = useCallback(() => setEnabled(true), []);
+  const disable = useCallback(() => setEnabled(false), []);
   return {
     enabled,
     phase: snapshot.phase,
     errorReason: snapshot.errorReason,
+    completedTurnCount,
+    completedTurnError,
     toggle,
+    enable,
+    disable,
   };
 }

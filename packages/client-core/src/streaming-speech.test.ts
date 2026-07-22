@@ -15,6 +15,22 @@ describe('detectSpeechLanguage', () => {
     expect(detectSpeechLanguage('This component is ready and the tests are passing.')).toBe('en');
   });
 
+  it('switches from Polish to ordinary English prose without inheriting the Polish voice', () => {
+    expect(detectSpeechLanguage('Great, everything works correctly.', 'pl')).toBe('en');
+  });
+
+  it('treats the spoken code-block placeholder as English after Polish prose', () => {
+    expect(detectSpeechLanguage('(code block).', 'pl')).toBe('en');
+  });
+
+  it('does not keep Polish for an unresolved multi-word English fragment', () => {
+    expect(detectSpeechLanguage('Alpha beta gamma delta.', 'pl')).toBe('en');
+  });
+
+  it('still recognizes conversational Polish without diacritics after English', () => {
+    expect(detectSpeechLanguage('Dobra, wszystko dziala poprawnie.', 'en')).toBe('pl');
+  });
+
   it('does not switch a Polish sentence because of technical English identifiers', () => {
     expect(detectSpeechLanguage('Uruchom pnpm test i sprawdź komponent useEffect.')).toBe('pl');
   });

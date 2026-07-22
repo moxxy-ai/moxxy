@@ -12,6 +12,7 @@
 
 import { toSpeakableText } from '@moxxy/client-core';
 import type { TextToSpeech, SpeakOptions, AudioClipHandle } from '@moxxy/client-core';
+import { getAudioContextCtor } from './pcm16.js';
 
 export type { SpeakOptions, AudioClipHandle };
 
@@ -151,9 +152,61 @@ export function playAudioClip(base64: string, mimeType: string, opts: SpeakOptio
   // base64) so the error still surfaces via the element's onerror, not a throw.
   const audio = new Audio(objectUrl ?? `data:${mimeType};base64,${base64}`);
   let done = false;
+  let audioContext: AudioContext | null = null;
+  let source: MediaElementAudioSourceNode | null = null;
+  let analyser: AnalyserNode | null = null;
+  let analyserExposed = false;
+
+  if (opts.onAnalyser) {
+    const AudioContextCtor = getAudioContextCtor();
+    if (AudioContextCtor) {
+      try {
+        audioContext = new AudioContextCtor();
+        source = audioContext.createMediaElementSource(audio);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.72;
+        source.connect(analyser);
+        analyser.connect(audioContext.destination);
+        analyserExposed = true;
+        opts.onAnalyser(analyser);
+        void audioContext.resume().catch(() => undefined);
+      } catch {
+        // The visualizer is optional. If graph construction partially failed,
+        // route the media element straight to the destination when possible so
+        // a visualization problem cannot silence otherwise valid Piper audio.
+        try {
+          source?.disconnect();
+          if (audioContext && source) source.connect(audioContext.destination);
+          if (audioContext) void audioContext.resume().catch(() => undefined);
+        } catch {
+          if (audioContext) void audioContext.close().catch(() => undefined);
+          audioContext = null;
+          source = null;
+        }
+        analyser = null;
+      }
+    }
+  }
+
+  const releaseAudioGraph = (): void => {
+    if (analyserExposed) opts.onAnalyser?.(null);
+    analyserExposed = false;
+    try {
+      source?.disconnect();
+      analyser?.disconnect();
+    } catch {
+      /* graph already disconnected */
+    }
+    source = null;
+    analyser = null;
+    if (audioContext) void audioContext.close().catch(() => undefined);
+    audioContext = null;
+  };
   const finish = (cb?: () => void): void => {
     if (done) return;
     done = true;
+    releaseAudioGraph();
     if (objectUrl) {
       URL.revokeObjectURL(objectUrl);
       objectUrl = null;

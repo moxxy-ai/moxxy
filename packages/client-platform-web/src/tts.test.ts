@@ -160,4 +160,38 @@ describe('playAudioClip', () => {
     expect(onend).not.toHaveBeenCalled();
     expect(revoked).toEqual([created[0]]);
   });
+
+  it('exposes a Web Audio analyser during Piper playback and releases it on end', async () => {
+    const analyser = { connect: vi.fn(), disconnect: vi.fn() };
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    const close = vi.fn(async () => undefined);
+    const resume = vi.fn(async () => undefined);
+    const destination = { kind: 'destination' };
+    const AudioContext = vi.fn(() => ({
+      createMediaElementSource: vi.fn(() => source),
+      createAnalyser: vi.fn(() => analyser),
+      destination,
+      close,
+      resume,
+    }));
+    vi.stubGlobal('window', { AudioContext });
+    const playAudioClip = await loadPlay();
+    const onAnalyser = vi.fn();
+
+    playAudioClip(Buffer.from('pcm').toString('base64'), 'audio/wav', { onAnalyser });
+
+    expect(source.connect).toHaveBeenCalledWith(analyser);
+    expect(analyser.connect).toHaveBeenCalledWith(destination);
+    expect(onAnalyser).toHaveBeenCalledWith(analyser);
+
+    const audio = FakeAudio.last;
+    assertDefined(audio, 'an audio element was created');
+    audio.onended?.();
+    await Promise.resolve();
+
+    expect(onAnalyser).toHaveBeenLastCalledWith(null);
+    expect(source.disconnect).toHaveBeenCalledTimes(1);
+    expect(analyser.disconnect).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
 });

@@ -22,11 +22,15 @@ export interface UseVoiceRecorder {
   readonly toggle: () => void;
   readonly start: () => void;
   readonly stop: () => void;
+  /** Discard the current capture or in-flight transcription. */
+  readonly cancel: () => void;
 }
 
 const ERROR_RESET_MS = 2500;
 
 export interface VoiceRecorderOptions {
+  /** Session that owns the capture. Pinned when recording starts. */
+  readonly workspaceId?: string;
   /** Called with the recognised text after a successful transcription. */
   readonly onTranscript: (text: string) => void;
   /** Optional: receives the live analyser while recording (opaque — the web
@@ -40,6 +44,7 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
 
   const handleRef = useRef<AudioRecordingHandle | null>(null);
   const phaseRef = useRef<VoicePhase>('idle');
+  const generationRef = useRef(0);
   // Guards async post-await state writes (transcription resolving AFTER the
   // component unmounts) so we don't setState on a dead tree or fire the
   // consumer callback at a torn-down composer.
@@ -73,7 +78,12 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
   );
 
   const finalize = useCallback(
-    async (result: AudioCaptureResult): Promise<void> => {
+    async (
+      result: AudioCaptureResult,
+      generation: number,
+      workspaceId: string | undefined,
+    ): Promise<void> => {
+      if (generation !== generationRef.current) return;
       setPhase('transcribing');
       try {
         // Nothing captured (an instant tap, a muted mic) — don't round-trip
@@ -91,12 +101,13 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
           return;
         }
         const text = await api().invoke('session.transcribe', {
+          ...(workspaceId ? { workspaceId } : {}),
           audioBase64: result.pcm16Base64,
           mimeType: result.mimeType,
         });
         // The transcribe round-trip may resolve after unmount — don't deliver
         // the transcript to a torn-down composer or setState on a dead tree.
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || generation !== generationRef.current) return;
         const trimmed = text?.trim();
         if (trimmed) {
           onTranscriptRef.current(trimmed);
@@ -119,6 +130,17 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     handleRef.current?.stop();
   }, []);
 
+  const cancel = useCallback((): void => {
+    generationRef.current += 1;
+    handleRef.current?.cancel();
+    handleRef.current = null;
+    if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = undefined;
+    if (!mountedRef.current) return;
+    setErrorReason(null);
+    setPhase('idle');
+  }, [setPhase]);
+
   const start = useCallback(async (): Promise<void> => {
     if (phaseRef.current !== 'idle' || handleRef.current) return;
     const audio = getPlatform().audioCapture;
@@ -127,10 +149,13 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
       return;
     }
     try {
+      const generation = generationRef.current + 1;
+      generationRef.current = generation;
+      const workspaceId = opts.workspaceId;
       const handle = await audio.start({
         onResult: (result) => {
           handleRef.current = null;
-          void finalize(result);
+          void finalize(result, generation, workspaceId);
         },
         onError: (message) => {
           handleRef.current = null;
@@ -138,12 +163,16 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
         },
         ...(onAnalyserRef.current ? { onAnalyser: onAnalyserRef.current } : {}),
       });
+      if (!mountedRef.current || generation !== generationRef.current) {
+        handle.cancel();
+        return;
+      }
       handleRef.current = handle;
       setPhase('recording');
     } catch (e) {
       fail(e instanceof Error ? e.message : 'mic unavailable');
     }
-  }, [fail, finalize, setPhase]);
+  }, [fail, finalize, opts.workspaceId, setPhase]);
 
   const toggle = useCallback((): void => {
     if (phaseRef.current === 'recording') stop();
@@ -156,11 +185,12 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      handleRef.current?.stop();
+      generationRef.current += 1;
+      handleRef.current?.cancel();
       handleRef.current = null;
       if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
     };
   }, []);
 
-  return { phase, errorReason, toggle, start: () => void start(), stop };
+  return { phase, errorReason, toggle, start: () => void start(), stop, cancel };
 }

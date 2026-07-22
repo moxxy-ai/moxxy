@@ -31,6 +31,8 @@ export interface AudioCaptureResult {
 export interface AudioRecordingHandle {
   /** Stop recording; the capture then fires `onResult` (or `onError`). */
   stop(): void;
+  /** Release the microphone without producing a transcription payload. */
+  cancel(): void;
 }
 
 export interface AudioCaptureStartOptions {
@@ -55,6 +57,8 @@ export interface SpeakOptions {
   readonly language?: string;
   readonly onend?: () => void;
   readonly onerror?: () => void;
+  /** Live output analyser for an audio-reactive visualizer. */
+  readonly onAnalyser?: (analyser: unknown | null) => void;
 }
 
 export interface AudioClipHandle {

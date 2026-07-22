@@ -61,6 +61,25 @@ describe('resolveMoxxyCli', () => {
     expect(result).toEqual({ kind: 'direct', bin });
   });
 
+  it('prefers the freshly built monorepo CLI over a global PATH installation', () => {
+    const globalBin = path.join(tmp, 'moxxy');
+    writeFileSync(globalBin, '#!/bin/sh\necho global\n');
+    chmodSync(globalBin, 0o755);
+
+    const repoRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'dev-monorepo-')));
+    const cliDist = path.join(repoRoot, 'packages', 'cli', 'dist');
+    mkdirSync(cliDist, { recursive: true });
+    const localBin = path.join(cliDist, 'bin.js');
+    writeFileSync(localBin, '// freshly built local CLI');
+    const restoreCwd = process.cwd();
+    process.chdir(path.join(repoRoot, 'packages', 'cli'));
+    try {
+      expect(resolveMoxxyCli()).toEqual({ kind: 'node', entry: localBin });
+    } finally {
+      process.chdir(restoreCwd);
+    }
+  });
+
   it('walks the monorepo tree to packages/cli/dist/bin.js', () => {
     const repoRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'fakemonorepo-')));
     const cliDist = path.join(repoRoot, 'packages', 'cli', 'dist');

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useChat, useStreamingVoiceMode } from '@moxxy/client-core';
+import { useChat, useVoiceCall } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
@@ -15,6 +15,9 @@ import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
 import { deriveSuggestions } from './chat-surface/suggestions';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
+import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
+import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
+import { useVoiceActivityDetection } from '../voice-call/useVoiceActivityDetection';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -92,10 +95,15 @@ export function ChatSurface({
   disabledViewReason,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
-  const voiceMode = useStreamingVoiceMode(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
+  const voiceCall = useVoiceCall({
+    workspaceId,
+    ready,
+    chat,
+    inputRequired: activeAsk !== null,
+  });
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const imagePreview = useImagePreview();
@@ -120,8 +128,42 @@ export function ChatSurface({
     () => (showSuggestions ? deriveSuggestions(chat.events) : EMPTY_SUGGESTIONS),
     [showSuggestions, chat.events],
   );
+  const voiceLines = useMemo(
+    () => deriveVoiceTranscriptLines(
+      chat.events,
+      chat.streamingText,
+      voiceCall.lastTranscript,
+    ),
+    [chat.events, chat.streamingText, voiceCall.lastTranscript],
+  );
+
+  useVoiceActivityDetection({
+    analyser: voiceCall.inputAnalyser,
+    active: voiceCall.active && voiceCall.phase === 'listening',
+    onSpeechEnd: voiceCall.finishUtterance,
+    onNoSpeech: voiceCall.restartListening,
+  });
 
   const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
+
+  if (voiceCall.active) {
+    return (
+      <main className="col-main col-main--flat">
+        <VoiceCallSurface
+          phase={voiceCall.phase}
+          errorReason={voiceCall.errorReason}
+          inputAnalyser={voiceCall.inputAnalyser}
+          outputAnalyser={voiceCall.outputAnalyser}
+          lines={voiceLines}
+          onClose={voiceCall.close}
+          onRetry={voiceCall.retry}
+          onPause={voiceCall.pause}
+          onResume={voiceCall.resume}
+        />
+        {activeAsk && <AskSheet ask={activeAsk} />}
+      </main>
+    );
+  }
 
   if (showBlockingLoading) {
     return (
@@ -200,10 +242,7 @@ export function ChatSurface({
         compacting={chat.compacting}
         activeTurnId={chat.activeTurnId}
         workspaceId={workspaceId}
-        voiceModeEnabled={voiceMode.enabled}
-        voiceModePhase={voiceMode.phase}
-        voiceModeError={voiceMode.errorReason}
-        onToggleVoiceMode={voiceMode.toggle}
+        onOpenVoiceCall={voiceCall.open}
         onSend={(p, atts) => void chat.send(p, atts)}
         onAbort={() => void chat.abort()}
         onPreviewImage={imagePreview.open}

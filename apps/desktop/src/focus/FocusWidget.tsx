@@ -118,6 +118,7 @@ function Surface({
   // recording we switch to the mini-text stage (which unmounts Active),
   // and the in-flight transcription + send must keep running.
   const voice = useVoiceRecorder({
+    ...(workspaceId ? { workspaceId } : {}),
     onTranscript: (text) => {
       if (workspaceId) void chat.send(text);
     },

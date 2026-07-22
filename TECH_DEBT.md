@@ -24,6 +24,53 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/voice/language-routing, RESOLVED 2026-07-22] The streaming
+  language detector inherited the previous Piper voice for every tied score,
+  while its English marker set was too narrow for ordinary phrases and the
+  spoken code-block placeholder. A Polish sentence could therefore pin all
+  following English chunks to Gosia. The deterministic detector now covers
+  conversational PL/EN vocabulary and lightweight orthographic signals, keeps
+  voice inheritance only for genuinely ambiguous single-token fragments, and
+  has a queue-level regression for Polish-to-English switching. Verified end
+  to end with real cached Gosia → Amy → Gosia synthesis and valid WAV output.
+  `packages/client-core/src/{streaming-speech,speech-playback-queue}.test.ts`,
+  `packages/client-core/src/streaming-speech.ts`.
+- [med, desktop/voice/prosody, RESOLVED 2026-07-22] Streaming speech split
+  responses into natural chunks but synthesized every chunk at the same speed
+  and started the next clip immediately, discarding the SDK's existing `rate`
+  capability and producing a flat cadence. A deterministic, reusable prosody
+  planner now derives conservative rate and pause profiles from punctuation and
+  sentence length; the playback queue forwards rate through a finite/bounded
+  Zod-validated IPC field, preserves one-ahead prefetch, clears pending pauses
+  on cancel, and keeps Voice Mode half-duplex until the final pause completes.
+  `packages/client-core/src/{speech-prosody,speech-playback-queue}.ts`,
+  `packages/desktop-ipc-contract/src/{commands,validation}.ts`,
+  `packages/desktop-host/src/ipc/session.ts`.
+- [high, desktop/dev-runtime, RESOLVED 2026-07-22] Desktop dev resolved a global
+  `moxxy` binary from PATH before the freshly built monorepo CLI, so `pnpm build`
+  could succeed while the app silently ran stale runtime code. Resolution now
+  keeps an explicit `MOXXY_CLI_ENTRY` first, then prefers the local
+  `packages/cli/dist/bin.js`, and only falls back to PATH outside a built repo.
+  Packaged desktop remains pinned through its explicit bundled entry.
+  `packages/desktop-host/src/{cli-resolver,cli-resolver.test}.ts`.
+- [high, desktop/voice/config, RESOLVED 2026-07-22] The unified manifest exposed
+  `plugins.synthesizer.default`, and live category switching persisted it, but
+  session boot omitted the synthesizer from `applyPluginsTree`. Plugin discovery
+  order therefore silently overrode the user's choice (for example ElevenLabs
+  stayed active even when the config named `local-piper`). Session boot now
+  applies the registered synthesizer default, with a regression test covering
+  two installed TTS plugins and Local Piper selected second.
+  `packages/cli/src/setup/{apply-plugins-tree,apply-plugins-tree.test}.ts`.
+- [high, desktop/voice/privacy, RESOLVED 2026-07-22] Voice capture was not pinned
+  to the workspace that opened the microphone, and unmounting the composer called
+  `stop()`, which could finalize and transcribe into whichever workspace became
+  active next. Capture now snapshots `workspaceId`, exposes a true discard path,
+  rejects late microphone/transcription completions by generation, and releases
+  every track without producing an STT request. The new half-duplex Voice Mode
+  uses the same invariant across automatic listen, transcribe, Piper playback,
+  reconnect, pause, and close transitions.
+  `packages/client-core/src/{useVoiceRecorder,useVoiceCall}.ts`,
+  `packages/client-platform-web/src/audio-capture.ts`.
 - [high, desktop/voice, RESOLVED 2026-07-22] Desktop read-aloud swallowed every
   runner-side synthesis failure and silently switched to the Apple system voice;
   local Piper also returned native external ArrayBuffers that Electron's advanced

@@ -20,7 +20,6 @@ import { ModelContextControl } from './composer/ModelContextControl';
 import { CommandPalette } from './CommandPalette';
 import { ToolChip } from './composer/ToolChip';
 import { VoiceModeButton } from './composer/VoiceModeButton';
-import type { SpeechPlaybackPhase } from '@moxxy/client-core';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
@@ -45,10 +44,7 @@ interface ComposerProps {
   readonly compacting: boolean;
   readonly activeTurnId: string | null;
   readonly workspaceId: string;
-  readonly voiceModeEnabled: boolean;
-  readonly voiceModePhase: SpeechPlaybackPhase;
-  readonly voiceModeError: string | null;
-  readonly onToggleVoiceMode: () => void;
+  readonly onOpenVoiceCall: () => void;
   readonly onSend: (
     prompt: string,
     attachments?: ReadonlyArray<ComposerAttachment>,
@@ -80,10 +76,7 @@ export function Composer({
   compacting,
   activeTurnId,
   workspaceId,
-  voiceModeEnabled,
-  voiceModePhase,
-  voiceModeError,
-  onToggleVoiceMode,
+  onOpenVoiceCall,
   onSend,
   onAbort,
   onPreviewImage,
@@ -92,6 +85,7 @@ export function Composer({
   const [hasTranscriber, setHasTranscriber] = useState(false);
   const [noTranscriberMsg, setNoTranscriberMsg] = useState<string | null>(null);
   const voice = useVoiceRecorder({
+    workspaceId,
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -426,9 +420,8 @@ export function Composer({
           </span>
         </ToolChip>
         <VoiceModeButton
-          enabled={voiceModeEnabled}
-          phase={voiceModePhase}
-          onToggle={onToggleVoiceMode}
+          disabled={!ready || compacting || inFlight}
+          onOpen={onOpenVoiceCall}
         />
         <span style={{ flex: 1 }} />
         {agent.info && (
@@ -464,7 +457,7 @@ export function Composer({
           </button>
         )}
       </div>
-      {(voice.errorReason ?? noTranscriberMsg ?? attachError ?? voiceModeError) && (
+      {(voice.errorReason ?? noTranscriberMsg ?? attachError) && (
         <p
           role="status"
           style={{
@@ -474,7 +467,7 @@ export function Composer({
             color: 'var(--color-red)',
           }}
         >
-          {voice.errorReason ?? noTranscriberMsg ?? attachError ?? voiceModeError}
+          {voice.errorReason ?? noTranscriberMsg ?? attachError}
         </p>
       )}
       {actionsOpen && (
