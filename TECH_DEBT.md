@@ -24,6 +24,14 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [low, desktop/focus/avatar-memory, RESOLVED 2026-07-23] Reusing the five
+  1122×1402 Voice Mode frames in the always-on-top Focus renderer would have
+  decoded roughly 30 MB of character pixels for an 84×104 surface. Focus now
+  loads aligned 320×400 alpha-preserving derivatives through the same reusable
+  animation hook, while asset-contract tests pin their dimensions and alpha.
+  The full call screen keeps the untouched source frames. The pet state policy
+  is pure and tested, and its component remains presentation-only.
+  `apps/desktop/src/{focus,voice-call}/`.
 - [low, desktop/voice/avatar-assets, RESOLVED 2026-07-23] The owner-supplied
   Voice Mode persona depended on five identically aligned transparent frames,
   but an accidental resize, recompression, or alpha-channel change would have

@@ -22,4 +22,14 @@ describe('Moxxy voice avatar assets', () => {
     expect([4, 6]).toContain(bytes.readUInt8(25));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(expectedHash);
   });
+
+  it.each(FRAMES)('ships a memory-bounded $name frame for Focus Mode', ({ fileName }) => {
+    const filePath = resolve(process.cwd(), 'src/voice-call/assets/brick-girl/focus', fileName);
+    const bytes = readFileSync(filePath);
+
+    expect(bytes.subarray(1, 4).toString('ascii')).toBe('PNG');
+    expect(bytes.readUInt32BE(16)).toBe(320);
+    expect(bytes.readUInt32BE(20)).toBe(400);
+    expect([4, 6]).toContain(bytes.readUInt8(25));
+  });
 });

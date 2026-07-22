@@ -14,7 +14,6 @@ import { Icon } from '@moxxy/desktop-ui';
 import {
   ActionButton,
   Dot,
-  LogoMark,
   ReplyPreviewButton,
   VoiceMicrophoneActionIcon,
 } from './focus-primitives';
@@ -25,8 +24,8 @@ import { FocusAskCard } from './FocusAskCard';
 import type { FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import type { InactiveReplyPreview } from './useInactiveReplyPreview';
 import type { FocusAskPrompt } from './useFocusAsk';
-import { FocusVoiceLiveIndicator } from './FocusVoiceLiveIndicator';
 import type { FocusAudioVisualization } from './focus-audio-visualization';
+import { FocusPetAvatar } from './FocusPetAvatar';
 
 export function Active({
   preview,
@@ -44,6 +43,9 @@ export function Active({
   voiceModeMuted,
   waitingSoundEnabled,
   localPiperInstallRequired,
+  petPhase,
+  petInputAnalyser,
+  petOutputAnalyser,
   onToggleMic,
   onStartVoiceMode,
   onEndVoiceMode,
@@ -70,6 +72,9 @@ export function Active({
   readonly voiceModeMuted: boolean;
   readonly waitingSoundEnabled: boolean;
   readonly localPiperInstallRequired: boolean;
+  readonly petPhase: VoiceCallPhase;
+  readonly petInputAnalyser: unknown | null;
+  readonly petOutputAnalyser: unknown | null;
   readonly onToggleMic: () => void;
   readonly onStartVoiceMode: () => void;
   readonly onEndVoiceMode: () => void;
@@ -85,8 +90,8 @@ export function Active({
     <div
       style={{
         ...style.activeRoot,
-        ...(preview || ask ? style.activeRootWithPreview : null),
-        ...(preview || ask ? { width } : null),
+        ...style.activeRootWithPreview,
+        width,
       }}
     >
       {audioVisualization && (
@@ -95,15 +100,6 @@ export function Active({
           source={audioVisualization.source}
         />
       )}
-      <button
-        type="button"
-        onClick={onCollapse}
-        aria-label="Collapse"
-        style={style.activeBrand}
-      >
-        <LogoMark size={26} />
-        {voiceModeActive && <FocusVoiceLiveIndicator phase={voiceModePhase} />}
-      </button>
       <div style={style.activeDivider} aria-hidden />
       <div style={style.activeActions}>
         {hasTranscriber && !voiceModeActive && (
@@ -192,7 +188,27 @@ export function Active({
     </div>
   );
 
-  if (!preview && !ask) return bar;
+  const chrome = (
+    <div style={style.activeChrome}>
+      <button
+        type="button"
+        onClick={onCollapse}
+        aria-label="Collapse"
+        style={style.activePetButton}
+      >
+        <FocusPetAvatar
+          phase={petPhase}
+          microphoneMuted={voiceModeMuted}
+          voiceModeActive={voiceModeActive}
+          inputAnalyser={petInputAnalyser}
+          outputAnalyser={petOutputAnalyser}
+        />
+      </button>
+      {bar}
+    </div>
+  );
+
+  if (!preview && !ask) return chrome;
 
   return (
     <div
@@ -201,7 +217,7 @@ export function Active({
         flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
       }}
     >
-      {bar}
+      {chrome}
       {ask ? (
         <FocusAskCard prompt={ask} variant="toast" />
       ) : preview ? (

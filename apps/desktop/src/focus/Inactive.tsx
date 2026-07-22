@@ -1,16 +1,16 @@
 /**
- * Stage 1: inactive — a 44×44 logo-only square inside a tiny transparent
- * window gutter. Clicking it expands the widget to the active stage.
+ * Stage 1: inactive — the animated Moxxy pet inside a transparent window.
+ * Clicking it expands the widget to the active stage.
  */
 
-import { LogoMark, ReplyPreviewButton } from './focus-primitives';
+import { ReplyPreviewButton } from './focus-primitives';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
-import { FocusVoiceLiveIndicator } from './FocusVoiceLiveIndicator';
 import type { VoiceCallPhase } from '@moxxy/client-core';
 import type { FocusTileGestureProps, FocusTileHorizontalAnchor } from './useFocusTileGesture';
 import type { InactiveReplyPreview } from './useInactiveReplyPreview';
 import type { FocusAskPrompt } from './useFocusAsk';
+import { FocusPetAvatar } from './FocusPetAvatar';
 
 export function Inactive({
   preview,
@@ -20,6 +20,9 @@ export function Inactive({
   gestureProps,
   voiceModeActive,
   voiceModePhase,
+  voiceModeMuted,
+  inputAnalyser,
+  outputAnalyser,
   onPreviewActivate,
 }: {
   readonly preview: InactiveReplyPreview | null;
@@ -29,6 +32,9 @@ export function Inactive({
   readonly gestureProps: FocusTileGestureProps;
   readonly voiceModeActive: boolean;
   readonly voiceModePhase: VoiceCallPhase;
+  readonly voiceModeMuted: boolean;
+  readonly inputAnalyser: unknown | null;
+  readonly outputAnalyser: unknown | null;
   readonly onPreviewActivate: () => void;
 }): JSX.Element {
   const withSidecar = !!ask || !!preview;
@@ -51,8 +57,13 @@ export function Inactive({
           cursor: dragging ? 'grabbing' : 'grab',
         }}
       >
-        <LogoMark />
-        {voiceModeActive && <FocusVoiceLiveIndicator phase={voiceModePhase} />}
+        <FocusPetAvatar
+          phase={voiceModePhase}
+          microphoneMuted={voiceModeMuted}
+          voiceModeActive={voiceModeActive}
+          inputAnalyser={inputAnalyser}
+          outputAnalyser={outputAnalyser}
+        />
       </button>
       {ask ? (
         <FocusAskCard prompt={ask} variant="toast" />

@@ -2,42 +2,80 @@ import { useEffect, useRef, type RefObject } from 'react';
 import type { VoiceCallPhase } from '@moxxy/client-core';
 import { useReducedMotion } from '../shell/useReducedMotion';
 import {
+  normalizeVoiceAvatarFrequencyLevel,
   resolveVoiceAvatarFrame,
   smoothVoiceAvatarAmplitude,
   type VoiceAvatarFrame,
 } from './voice-avatar-animation';
 
-interface LiveAnalyser {
+interface TimeDomainAnalyser {
   readonly fftSize: number;
   getFloatTimeDomainData(target: Float32Array): void;
 }
 
-type AvatarFrames = Readonly<Record<VoiceAvatarFrame, HTMLImageElement>>;
-let framesPromise: Promise<AvatarFrames> | null = null;
+interface FrequencyAnalyser {
+  readonly frequencyBinCount: number;
+  getByteFrequencyData(target: Uint8Array): void;
+}
 
-const FRAME_URLS: Readonly<Record<VoiceAvatarFrame, string>> = Object.freeze({
-  idle: new URL('./assets/brick-girl/brick-girl-idle.png', import.meta.url).href,
-  medium: new URL('./assets/brick-girl/brick-girl-mouth-medium.png', import.meta.url).href,
-  wide: new URL('./assets/brick-girl/brick-girl-mouth-wide.png', import.meta.url).href,
-  round: new URL('./assets/brick-girl/brick-girl-mouth-o.png', import.meta.url).href,
-  blink: new URL('./assets/brick-girl/brick-girl-blink.png', import.meta.url).href,
+type LiveAnalyser =
+  | { readonly kind: 'time-domain'; readonly analyser: TimeDomainAnalyser }
+  | { readonly kind: 'frequency'; readonly analyser: FrequencyAnalyser };
+
+export type VoiceAvatarAssetSet = 'voice' | 'focus';
+type AvatarFrames = Readonly<Record<VoiceAvatarFrame, HTMLImageElement>>;
+const framePromises = new Map<VoiceAvatarAssetSet, Promise<AvatarFrames>>();
+
+const FRAME_URLS: Readonly<Record<VoiceAvatarAssetSet, Readonly<Record<VoiceAvatarFrame, string>>>> = Object.freeze({
+  voice: Object.freeze({
+    idle: new URL('./assets/brick-girl/brick-girl-idle.png', import.meta.url).href,
+    medium: new URL('./assets/brick-girl/brick-girl-mouth-medium.png', import.meta.url).href,
+    wide: new URL('./assets/brick-girl/brick-girl-mouth-wide.png', import.meta.url).href,
+    round: new URL('./assets/brick-girl/brick-girl-mouth-o.png', import.meta.url).href,
+    blink: new URL('./assets/brick-girl/brick-girl-blink.png', import.meta.url).href,
+  }),
+  focus: Object.freeze({
+    idle: new URL('./assets/brick-girl/focus/brick-girl-idle.png', import.meta.url).href,
+    medium: new URL('./assets/brick-girl/focus/brick-girl-mouth-medium.png', import.meta.url).href,
+    wide: new URL('./assets/brick-girl/focus/brick-girl-mouth-wide.png', import.meta.url).href,
+    round: new URL('./assets/brick-girl/focus/brick-girl-mouth-o.png', import.meta.url).href,
+    blink: new URL('./assets/brick-girl/focus/brick-girl-blink.png', import.meta.url).href,
+  }),
 });
 
 function asAnalyser(value: unknown): LiveAnalyser | null {
   if (!value || typeof value !== 'object') return null;
-  const candidate = value as Partial<LiveAnalyser>;
-  return typeof candidate.fftSize === 'number'
-    && typeof candidate.getFloatTimeDomainData === 'function'
-    ? candidate as LiveAnalyser
-    : null;
+  const timeDomain = value as Partial<TimeDomainAnalyser>;
+  if (
+    typeof timeDomain.fftSize === 'number'
+    && typeof timeDomain.getFloatTimeDomainData === 'function'
+  ) {
+    return { kind: 'time-domain', analyser: timeDomain as TimeDomainAnalyser };
+  }
+  const frequency = value as Partial<FrequencyAnalyser>;
+  if (
+    typeof frequency.frequencyBinCount === 'number'
+    && typeof frequency.getByteFrequencyData === 'function'
+  ) {
+    return { kind: 'frequency', analyser: frequency as FrequencyAnalyser };
+  }
+  return null;
 }
 
-function readLevel(analyser: LiveAnalyser | null, buffer: Float32Array): number {
+function readLevel(
+  analyser: LiveAnalyser | null,
+  timeBuffer: Float32Array,
+  frequencyBuffer: Uint8Array,
+): number {
   if (!analyser) return 0;
-  analyser.getFloatTimeDomainData(buffer);
+  if (analyser.kind === 'frequency') {
+    analyser.analyser.getByteFrequencyData(frequencyBuffer);
+    return normalizeVoiceAvatarFrequencyLevel(frequencyBuffer);
+  }
+  analyser.analyser.getFloatTimeDomainData(timeBuffer);
   let sumSquares = 0;
-  for (const sample of buffer) sumSquares += sample * sample;
-  return Math.min(1, Math.sqrt(sumSquares / buffer.length) * 6);
+  for (const sample of timeBuffer) sumSquares += sample * sample;
+  return Math.min(1, Math.sqrt(sumSquares / timeBuffer.length) * 6);
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -50,13 +88,14 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-async function loadFrames(): Promise<AvatarFrames> {
+async function loadFrames(assetSet: VoiceAvatarAssetSet): Promise<AvatarFrames> {
+  const urls = FRAME_URLS[assetSet];
   const [idle, medium, wide, round, blink] = await Promise.all([
-    loadImage(FRAME_URLS.idle),
-    loadImage(FRAME_URLS.medium),
-    loadImage(FRAME_URLS.wide),
-    loadImage(FRAME_URLS.round),
-    loadImage(FRAME_URLS.blink),
+    loadImage(urls.idle),
+    loadImage(urls.medium),
+    loadImage(urls.wide),
+    loadImage(urls.round),
+    loadImage(urls.blink),
   ]);
   const dimensions = new Set(
     [idle, medium, wide, round, blink]
@@ -68,9 +107,12 @@ async function loadFrames(): Promise<AvatarFrames> {
   return Object.freeze({ idle, medium, wide, round, blink });
 }
 
-function getFrames(): Promise<AvatarFrames> {
-  framesPromise ??= loadFrames();
-  return framesPromise;
+function getFrames(assetSet: VoiceAvatarAssetSet): Promise<AvatarFrames> {
+  const existing = framePromises.get(assetSet);
+  if (existing) return existing;
+  const promise = loadFrames(assetSet);
+  framePromises.set(assetSet, promise);
+  return promise;
 }
 
 function randomBlinkDelay(): number {
@@ -81,10 +123,12 @@ export function useVoiceAvatarAnimation({
   phase,
   inputAnalyser,
   outputAnalyser,
+  assetSet = 'voice',
 }: {
   readonly phase: VoiceCallPhase;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
+  readonly assetSet?: VoiceAvatarAssetSet;
 }): RefObject<HTMLCanvasElement> {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const reducedMotion = useReducedMotion();
@@ -102,12 +146,19 @@ export function useVoiceAvatarAnimation({
       : phase === 'listening'
         ? input
         : null;
-    const sampleBuffer = new Float32Array(Math.max(32, activeAnalyser?.fftSize ?? 256));
+    const timeSampleCount = activeAnalyser?.kind === 'time-domain'
+      ? activeAnalyser.analyser.fftSize
+      : 256;
+    const frequencySampleCount = activeAnalyser?.kind === 'frequency'
+      ? activeAnalyser.analyser.frequencyBinCount
+      : 64;
+    const timeBuffer = new Float32Array(Math.max(32, timeSampleCount));
+    const frequencyBuffer = new Uint8Array(Math.max(32, frequencySampleCount));
     let cancelled = false;
     let animationFrameId = 0;
     if (canvas.dataset.avatarState !== 'ready') canvas.dataset.avatarState = 'loading';
 
-    void getFrames().then((frames) => {
+    void getFrames(assetSet).then((frames) => {
       if (cancelled) return;
       const firstFrame = frames.idle;
       canvas.width = firstFrame.naturalWidth;
@@ -128,7 +179,7 @@ export function useVoiceAvatarAnimation({
         const elapsedSeconds = timestamp / 1_000;
         lastTimestamp = timestamp;
 
-        const liveAmplitude = readLevel(activeAnalyser, sampleBuffer);
+        const liveAmplitude = readLevel(activeAnalyser, timeBuffer, frequencyBuffer);
         const speaking = phase === 'speaking';
         const targetAmplitude = speaking || phase === 'listening' ? liveAmplitude : 0;
         smoothedAmplitude = smoothVoiceAvatarAmplitude(
@@ -188,7 +239,7 @@ export function useVoiceAvatarAnimation({
       cancelled = true;
       cancelAnimationFrame(animationFrameId);
     };
-  }, [inputAnalyser, outputAnalyser, phase, reducedMotion]);
+  }, [assetSet, inputAnalyser, outputAnalyser, phase, reducedMotion]);
 
   return canvasRef;
 }

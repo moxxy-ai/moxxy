@@ -3,7 +3,7 @@
  *
  * Stages:
  *
- *   inactive    44×44   logo tile. Click → ACTIVE.
+ *   inactive    84×104  animated Moxxy pet. Click → ACTIVE.
  *
  *   active     232×56   logo + voice + text + restore-main + close.
  *                       Mic button starts an in-place recording overlay
@@ -36,6 +36,10 @@ import {
   useVoiceRecorder,
   type VoiceCallPhase,
 } from '@moxxy/client-core';
+import {
+  FOCUS_PET_ACTIVE_EXTRA_WIDTH,
+  FOCUS_PET_LAYOUT,
+} from '@moxxy/desktop-ipc-contract';
 import { Inactive } from './Inactive';
 import { Active } from './Active';
 import { MiniText } from './MiniText';
@@ -49,23 +53,30 @@ import {
 } from './useFocusMiniTextSize';
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { deriveFocusAudioVisualization } from './focus-audio-visualization';
+import { resolveFocusPetPhase } from './focus-pet-state';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
 // Keep the compact bar fitted to its current action set. Full Voice Mode adds
 // mute and waiting-sound controls, while its error state swaps those for retry.
-const ACTIVE_WIDTH_WITHOUT_MIC = 196;
+const ACTIVE_WIDTH_WITHOUT_MIC = 160;
 const ACTIVE_ACTION_WIDTH = 36;
-const INACTIVE_PREVIEW_SIZE = { width: 430, height: 104 };
-const ACTIVE_PREVIEW_EXTRA_WIDTH = 378;
+const INACTIVE_PREVIEW_SIZE = { width: 462, height: FOCUS_PET_LAYOUT.collapsedHeight };
+const ACTIVE_PREVIEW_EXTRA_WIDTH = 378 + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
 const PREVIEW_HEIGHT = 104;
-const INACTIVE_ASK_SIZE = { width: 580, height: 216 };
-const ACTIVE_ASK_EXTRA_WIDTH = 500;
+const INACTIVE_ASK_SIZE = { width: 588, height: 216 };
+const ACTIVE_ASK_EXTRA_WIDTH = 500 + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
 const ASK_HEIGHT = 216;
 
 const SIZE: Record<Stage, { width: number; height: number }> = {
-  inactive: { width: 44, height: 44 },
-  active: { width: ACTIVE_WIDTH_WITHOUT_MIC, height: 56 },
+  inactive: {
+    width: FOCUS_PET_LAYOUT.collapsedWidth,
+    height: FOCUS_PET_LAYOUT.collapsedHeight,
+  },
+  active: {
+    width: ACTIVE_WIDTH_WITHOUT_MIC + FOCUS_PET_ACTIVE_EXTRA_WIDTH,
+    height: FOCUS_PET_LAYOUT.activeHeight,
+  },
   // Taller default so a few lines of the latest message are readable
   // before the user even resizes; the panel scrolls + is drag-resizable.
   'mini-text': FOCUS_MINI_TEXT_DEFAULT_SIZE,
@@ -182,6 +193,14 @@ function Surface({
     oneShotRecording: voice.phase === 'recording',
     oneShotAnalyser: analyser,
   });
+  const petPhase = resolveFocusPetPhase({
+    voiceModeActive: voiceCall.active,
+    voiceModePhase: voiceCall.phase,
+    recording: voice.phase === 'recording',
+    transcribing: voice.phase === 'transcribing',
+  });
+  const petInputAnalyser = voiceCall.active ? voiceCall.inputAnalyser : analyser;
+  const petOutputAnalyser = voiceCall.active ? voiceCall.outputAnalyser : null;
   const openVoiceMode = (): void => {
     if (voice.phase !== 'idle') voice.cancel();
     voiceCall.open();
@@ -229,7 +248,7 @@ function Surface({
   useEffect(() => {
     let { width, height } = SIZE[stage];
     if (stage === 'active') {
-      width = activeWidth;
+      width = activeWidth + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
     } else if (stage === 'mini-text') {
       width = miniTextSize.width;
       height = miniTextSize.height;
@@ -256,7 +275,7 @@ function Surface({
       .catch(() => undefined);
   }, [stage, activeWidth, previewVisible, askVisible, miniTextSize.width, miniTextSize.height]);
 
-  // Collapsing back to the inactive square hides the recording UI but the voice
+  // Collapsing back to the inactive pet hides the recording UI but the voice
   // recorder lives on the always-mounted Surface — so without explicitly
   // stopping it, the mic would keep capturing with NO visible indicator (a
   // privacy leak). Stop any in-flight recording before collapsing.
@@ -274,7 +293,10 @@ function Surface({
         dragging={tileGesture.dragging}
         gestureProps={tileGesture.gestureProps}
         voiceModeActive={voiceCall.active}
-        voiceModePhase={voiceCall.phase}
+        voiceModePhase={petPhase}
+        voiceModeMuted={voiceCall.microphoneMuted}
+        inputAnalyser={petInputAnalyser}
+        outputAnalyser={petOutputAnalyser}
         onPreviewActivate={openInactive}
       />
     );
@@ -296,6 +318,9 @@ function Surface({
         voiceModeMuted={voiceCall.microphoneMuted}
         waitingSoundEnabled={voiceCall.waitingSoundEnabled}
         localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+        petPhase={petPhase}
+        petInputAnalyser={petInputAnalyser}
+        petOutputAnalyser={petOutputAnalyser}
         onToggleMic={voice.toggle}
         onStartVoiceMode={openVoiceMode}
         onEndVoiceMode={voiceCall.close}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  normalizeVoiceAvatarFrequencyLevel,
   resolveVoiceAvatarFrame,
   smoothVoiceAvatarAmplitude,
 } from './voice-avatar-animation';
@@ -53,5 +54,13 @@ describe('smoothVoiceAvatarAmplitude', () => {
     expect(smoothVoiceAvatarAmplitude(0, 2, 1 / 60)).toBeGreaterThan(0);
     expect(smoothVoiceAvatarAmplitude(0, 2, 1 / 60)).toBeLessThanOrEqual(1);
     expect(smoothVoiceAvatarAmplitude(0.8, -1, 1 / 60)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('normalizeVoiceAvatarFrequencyLevel', () => {
+  it('turns the Focus renderer frequency spectrum into a bounded live level', () => {
+    expect(normalizeVoiceAvatarFrequencyLevel(new Uint8Array(64).fill(0))).toBe(0);
+    expect(normalizeVoiceAvatarFrequencyLevel(new Uint8Array(64).fill(72))).toBeGreaterThan(0.4);
+    expect(normalizeVoiceAvatarFrequencyLevel(new Uint8Array(64).fill(255))).toBe(1);
   });
 });

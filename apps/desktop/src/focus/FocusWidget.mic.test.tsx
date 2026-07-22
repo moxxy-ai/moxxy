@@ -1,7 +1,7 @@
 /**
  * Regression test for the mic-leak fix: the voice recorder lives on the
  * always-mounted Surface, so collapsing the active pill back to the inactive
- * square (which hides the recording UI) must STOP an in-flight recording — not
+ * pet (which hides the recording UI) must STOP an in-flight recording — not
  * leave the microphone capturing with no visible indicator (a privacy leak).
  */
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
@@ -51,16 +51,18 @@ function installFakeApi(): void {
 }
 
 beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   chatStore.clear('ws-mic');
 });
 
 afterEach(() => {
   __setApiOverride(null);
   configurePlatform({});
+  vi.restoreAllMocks();
 });
 
 describe('FocusWidget microphone leak guard', () => {
-  it('stops an in-flight recording when collapsing to the inactive square', async () => {
+  it('stops an in-flight recording when collapsing to the inactive pet', async () => {
     const probe: RecorderProbe = { stop: vi.fn(), starts: 0 };
     installAudioCapture(probe);
     installFakeApi();
@@ -76,7 +78,7 @@ describe('FocusWidget microphone leak guard', () => {
     // The recorder must have actually started before we assert the teardown.
     await waitFor(() => expect(probe.starts).toBe(1));
 
-    // Collapse back to the inactive square — the recording must be stopped.
+    // Collapse back to the inactive pet — the recording must be stopped.
     fireEvent.click(screen.getByRole('button', { name: /^collapse$/i }));
     expect(probe.stop).toHaveBeenCalledTimes(1);
 

@@ -11,6 +11,7 @@
  */
 
 import { BrowserWindow, screen } from 'electron';
+import { FOCUS_PET_LAYOUT } from '@moxxy/desktop-ipc-contract';
 import { lockDownNavigation } from './security';
 import {
   moveFocusBounds,
@@ -27,9 +28,7 @@ let focusWindow: BrowserWindow | null = null;
 let focusDragStart: FocusDragStart | null = null;
 let focusTileBounds: FocusBounds | null = null;
 
-const COLLAPSED_FOCUS_SIZE = 44;
-const COLLAPSED_FOCUS_RADIUS = 16;
-const COMPACT_FOCUS_MAX_HEIGHT = 56;
+const COMPACT_FOCUS_MAX_HEIGHT = FOCUS_PET_LAYOUT.collapsedHeight;
 const FOCUS_WINDOW_MAX_SIZE = 1600;
 const FOCUS_MINI_TEXT_MIN_WIDTH = 320;
 const FOCUS_MINI_TEXT_MIN_HEIGHT = 260;
@@ -57,59 +56,15 @@ export interface FocusWindowPlacement {
   readonly horizontalAnchor: FocusHorizontalAnchor;
 }
 
-interface FocusWindowShapeRect {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
-
 type ShapeableBrowserWindow = BrowserWindow & {
-  readonly setShape?: (rects: FocusWindowShapeRect[]) => void;
+  readonly setShape?: (rects: Array<{ x: number; y: number; width: number; height: number }>) => void;
   readonly invalidateShadow?: () => void;
 };
 
-export function roundedRectWindowShape(
-  width: number,
-  height: number,
-  radius: number,
-): FocusWindowShapeRect[] {
-  const clampedRadius = Math.max(0, Math.min(radius, Math.floor(Math.min(width, height) / 2)));
-  const rects: FocusWindowShapeRect[] = [];
-
-  for (let y = 0; y < height; y += 1) {
-    const inTopCorner = y < clampedRadius;
-    const inBottomCorner = y >= height - clampedRadius;
-    let inset = 0;
-
-    if (inTopCorner || inBottomCorner) {
-      const centerY = inTopCorner ? clampedRadius - 0.5 : height - clampedRadius - 0.5;
-      const dy = Math.abs(y + 0.5 - centerY);
-      inset = Math.ceil(clampedRadius - Math.sqrt(Math.max(0, clampedRadius ** 2 - dy ** 2)));
-    }
-
-    rects.push({
-      x: inset,
-      y,
-      width: Math.max(0, width - inset * 2),
-      height: 1,
-    });
-  }
-
-  return rects;
-}
-
-function applyFocusWindowShape(win: BrowserWindow, width: number, height: number, resizable: boolean): void {
+function clearFocusWindowShape(win: BrowserWindow): void {
   const shapeable = win as ShapeableBrowserWindow;
   if (typeof shapeable.setShape !== 'function') return;
-
-  if (resizable || width !== COLLAPSED_FOCUS_SIZE || height !== COLLAPSED_FOCUS_SIZE) {
-    shapeable.setShape([]);
-    shapeable.invalidateShadow?.();
-    return;
-  }
-
-  shapeable.setShape(roundedRectWindowShape(width, height, COLLAPSED_FOCUS_RADIUS));
+  shapeable.setShape([]);
   shapeable.invalidateShadow?.();
 }
 
@@ -133,8 +88,8 @@ function rememberCompactFocusTileBounds(bounds: FocusBounds, workArea: FocusWork
   focusTileBounds = resizeFocusBounds({
     current: bounds,
     nextSize: {
-      width: COLLAPSED_FOCUS_SIZE,
-      height: COLLAPSED_FOCUS_SIZE,
+      width: FOCUS_PET_LAYOUT.collapsedWidth,
+      height: FOCUS_PET_LAYOUT.collapsedHeight,
     },
     workArea,
   }).bounds;
@@ -209,7 +164,7 @@ export function resizeFocusWindow(
 
   // animate: false → snap, no overshoot.
   focusWindow.setBounds(placement.bounds, false);
-  applyFocusWindowShape(focusWindow, placement.bounds.width, placement.bounds.height, resizable);
+  clearFocusWindowShape(focusWindow);
   rememberCompactFocusTileBounds(placement.bounds, workArea);
   return { horizontalAnchor: placement.horizontalAnchor };
 }
@@ -272,13 +227,12 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   }
 
   const work = screen.getPrimaryDisplay().workArea;
-  // Start small — a 44×44 floating tile holding the logo. The native
-  // window is shaped to the same rounded rect so the white webContents
-  // background cannot show through the tile's anti-aliased corners.
+  // Start at the transparent Moxxy pet's exact footprint. The renderer paints
+  // only the character pixels; no native rounded shape clips her silhouette.
   // renderer's FocusWidget calls focus.resize when the user clicks
   // to expand to the menu (200×52) or the full panel (340×…).
-  const width = COLLAPSED_FOCUS_SIZE;
-  const height = COLLAPSED_FOCUS_SIZE;
+  const width = FOCUS_PET_LAYOUT.collapsedWidth;
+  const height = FOCUS_PET_LAYOUT.collapsedHeight;
   const margin = 24;
   const initialBounds = {
     x: work.x + work.width - width - margin,
@@ -314,7 +268,8 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: '#00000000',
-    // No OS shadow — the user asked for a flat square look.
+    // The renderer owns the character drop-shadow; a native rectangular shadow
+    // would reveal the transparent BrowserWindow bounds.
     hasShadow: false,
     webPreferences: {
       preload: opts.preloadPath,
@@ -328,7 +283,7 @@ export async function showFocusWindow(opts: CreateOpts): Promise<void> {
   lockDownNavigation(win, { keepWindowOpenHandler: false });
 
   applyFocusWindowWorkspaceVisibility(win);
-  applyFocusWindowShape(win, width, height, false);
+  clearFocusWindowShape(win);
 
   focusWindow = win;
   focusTileBounds =

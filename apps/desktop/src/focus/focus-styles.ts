@@ -36,7 +36,7 @@ export const style = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: PANEL_BG,
+    background: 'transparent',
     cursor: 'grab',
     contain: 'layout paint',
     ...noDrag,
@@ -48,11 +48,11 @@ export const style = {
     background: 'transparent',
   },
   inactiveButton: {
-    width: 44,
-    height: 44,
-    border: PANEL_BORDER,
-    background: PANEL_BG,
-    borderRadius: 16,
+    width: 84,
+    height: 104,
+    border: 'none',
+    background: 'transparent',
+    borderRadius: 0,
     boxSizing: 'border-box',
     padding: 0,
     margin: 0,
@@ -63,7 +63,7 @@ export const style = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: 'var(--focus-panel-shadow)',
+    boxShadow: 'none',
     // z-index keeps the click target on top of any future overlay
     // chrome we might add (busy-state ring, etc.).
     position: 'relative',
@@ -72,8 +72,8 @@ export const style = {
   },
   voiceLiveIndicator: {
     position: 'absolute',
-    right: 2,
-    bottom: 2,
+    right: 8,
+    bottom: 8,
     width: 8,
     height: 8,
     boxSizing: 'border-box',
@@ -82,6 +82,39 @@ export const style = {
     background: 'var(--color-primary)',
     boxShadow: '0 0 10px rgba(236, 72, 153, 0.7)',
     pointerEvents: 'none',
+  },
+  focusPet: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    display: 'grid',
+    placeItems: 'center',
+    isolation: 'isolate',
+    pointerEvents: 'none',
+  },
+  focusPetGlow: {
+    position: 'absolute',
+    inset: '23% 2% 3%',
+    zIndex: -1,
+    borderRadius: '50%',
+    background: 'radial-gradient(ellipse at 52% 58%, rgba(236, 72, 153, 0.3), transparent 68%)',
+    opacity: 0.48,
+    transform: 'scale(0.92)',
+    pointerEvents: 'none',
+  },
+  focusPetMotionLayer: {
+    width: '100%',
+    height: '100%',
+    display: 'grid',
+    placeItems: 'center',
+    transformOrigin: '50% 82%',
+  },
+  focusPetCanvas: {
+    width: '100%',
+    height: '100%',
+    display: 'block',
+    objectFit: 'contain',
+    imageRendering: 'pixelated',
   },
   visuallyHidden: {
     position: 'absolute',
@@ -298,16 +331,39 @@ export const style = {
     contain: 'layout paint',
     ...noDrag,
   },
+  activeChrome: {
+    height: 90,
+    display: 'flex',
+    alignItems: 'center',
+    flex: '0 0 auto',
+    position: 'relative',
+    ...noDrag,
+  },
+  activePetButton: {
+    width: 72,
+    height: 90,
+    padding: 0,
+    margin: '0 -18px 0 0',
+    border: 'none',
+    borderRadius: 0,
+    background: 'transparent',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    cursor: 'pointer',
+    position: 'relative',
+    zIndex: 2,
+    flex: '0 0 auto',
+    ...noDrag,
+  },
   activeRoot: {
-    width: '100%',
-    height: '100%',
+    height: 56,
     background: PANEL_BG,
     border: PANEL_BORDER,
     borderRadius: 28,
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
-    padding: '0 8px',
+    padding: '0 8px 0 22px',
     position: 'relative',
     overflow: 'hidden',
     // Whole panel is the drag region; the brand button + action
@@ -319,22 +375,6 @@ export const style = {
   activeRootWithPreview: {
     height: 56,
     flex: '0 0 auto',
-  },
-  activeBrand: {
-    width: 36,
-    height: 36,
-    padding: 0,
-    margin: 0,
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    position: 'relative',
-    zIndex: 1,
-    ...noDrag,
   },
   activeDivider: {
     width: 1,
@@ -740,6 +780,39 @@ if (typeof document !== 'undefined') {
       background: var(--color-red) !important;
       box-shadow: 0 0 9px rgba(239, 68, 68, 0.65) !important;
     }
+    .focus-pet-canvas {
+      opacity: 0;
+      filter: drop-shadow(0 8px 9px rgba(9, 10, 18, 0.32));
+      transition: opacity 160ms ease, filter 200ms ease;
+    }
+    .focus-pet-canvas[data-avatar-state="ready"] {
+      opacity: 1;
+    }
+    .focus-pet-glow {
+      transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
+    }
+    .focus-pet--speaking .focus-pet-glow {
+      opacity: 0.78 !important;
+      transform: scale(1.05) !important;
+      filter: saturate(1.16);
+    }
+    .focus-pet--thinking .focus-pet-glow,
+    .focus-pet--working .focus-pet-glow,
+    .focus-pet--synthesizing .focus-pet-glow {
+      opacity: 0.62 !important;
+      transform: scale(1.01) !important;
+    }
+    .focus-pet--waiting-for-input .focus-pet-glow {
+      opacity: 0.82 !important;
+      filter: hue-rotate(22deg) saturate(1.2);
+    }
+    .focus-pet--error .focus-pet-canvas {
+      filter: saturate(0.58) sepia(0.12) drop-shadow(0 7px 8px rgba(100, 20, 34, 0.32));
+    }
+    .focus-pet--microphone-muted:not(.focus-pet--speaking) .focus-pet-canvas {
+      filter: saturate(0.58) drop-shadow(0 8px 9px rgba(9, 10, 18, 0.28));
+      opacity: 0.76;
+    }
     @keyframes focus-voice-live {
       0%, 100% { transform: scale(0.86); opacity: 0.62; }
       50% { transform: scale(1); opacity: 1; }
@@ -748,6 +821,10 @@ if (typeof document !== 'undefined') {
       .focus-voice-live,
       .focus-voice-live[data-phase="speaking"] {
         animation: none;
+      }
+      .focus-pet-canvas,
+      .focus-pet-glow {
+        transition: none;
       }
     }
   `;

@@ -214,6 +214,7 @@ function installMatchMedia(initialMatches: boolean): FakeMedia {
 }
 
 beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   installMatchMedia(false);
   __resetThemeForTests();
   // Each test gets a fresh workspace chat so latest-line / sending
@@ -229,6 +230,7 @@ afterEach(() => {
   cleanup();
   __setApiOverride(null);
   __resetThemeForTests();
+  vi.restoreAllMocks();
 });
 
 const themeAttr = (): string | undefined => document.documentElement.dataset.theme;
@@ -250,14 +252,19 @@ function pasteImage(input: HTMLElement): void {
 }
 
 describe('FocusWidget stages', () => {
-  it('renders the inactive square with a visible activate button', () => {
+  it('renders the inactive Moxxy pet with a visible activate button', () => {
     installFakeApi();
     render(<FocusWidget />);
     const button = screen.getByRole('button', { name: /click to expand/i });
     expect(button).toBeTruthy();
+    expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'idle');
+    expect(screen.getByTestId('focus-pet-canvas')).toHaveAttribute(
+      'data-avatar-assets',
+      'focus',
+    );
   });
 
-  it('renders the inactive square without native button chrome', () => {
+  it('renders the inactive pet without native button chrome', () => {
     installFakeApi({ theme: 'dark' });
     render(<FocusWidget />);
 
@@ -270,7 +277,7 @@ describe('FocusWidget stages', () => {
     });
   });
 
-  it('keeps the collapsed window tight to the inactive square', async () => {
+  it('keeps the collapsed window tight to the Moxxy pet', async () => {
     const spy = installFakeApi({ theme: 'dark' });
     render(<FocusWidget />);
 
@@ -278,17 +285,17 @@ describe('FocusWidget stages', () => {
       const resize = spy.invokes.find(
         (i) =>
           i.channel === 'focus.resize' &&
-          (i.args as { width?: number; height?: number }).width === 44 &&
-          (i.args as { width?: number; height?: number }).height === 44,
+          (i.args as { width?: number; height?: number }).width === 84 &&
+          (i.args as { width?: number; height?: number }).height === 104,
       );
       expect(resize).toBeTruthy();
     });
 
     const button = screen.getByRole('button', { name: /click to expand/i });
-    expect(button.getAttribute('style')).toContain('width: 44px');
-    expect(button.getAttribute('style')).toContain('height: 44px');
+    expect(button.getAttribute('style')).toContain('width: 84px');
+    expect(button.getAttribute('style')).toContain('height: 104px');
     expect(focusStyle.inactiveRoot).toMatchObject({
-      background: 'var(--focus-panel-bg)',
+      background: 'transparent',
     });
   });
 
@@ -299,12 +306,14 @@ describe('FocusWidget stages', () => {
     expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /open main window/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /close focus mode/i })).toBeTruthy();
+    expect(screen.getByTestId('focus-pet')).toBeTruthy();
     await waitFor(() => {
       const resize = spy.invokes.find(
         (i) =>
           i.channel === 'focus.resize' &&
-          (i.args as { width: number }).width >= 200 &&
-          (i.args as { width: number }).width <= 280,
+          (i.args as { width: number; height: number }).width >= 280 &&
+          (i.args as { width: number; height: number }).width <= 360 &&
+          (i.args as { width: number; height: number }).height === 90,
       );
       expect(resize).toBeTruthy();
     });
@@ -438,6 +447,7 @@ describe('FocusWidget stages', () => {
         'data-audio-source',
         'microphone',
       );
+      expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'listening');
       fireEvent.click(screen.getByRole('button', { name: /mute microphone/i }));
       await waitFor(() => {
         expect(received).toContainEqual(expect.objectContaining({
@@ -609,6 +619,7 @@ describe('FocusWidget stages', () => {
       await waitFor(() => {
         expect(screen.getByTestId('focus-audio-waveform').getAttribute('data-audio-source'))
           .toBe('assistant');
+        expect(screen.getByTestId('focus-pet')).toHaveAttribute('data-phase', 'speaking');
       });
     } finally {
       canvasContext.mockRestore();
@@ -703,25 +714,25 @@ describe('FocusWidget stages', () => {
     expect(spy.invokes.some((i) => i.channel === 'focus.restoreMain')).toBe(true);
   });
 
-  it('dragging the inactive square tracks screen coordinates and does not expand it', async () => {
+  it('dragging the inactive pet tracks screen coordinates and does not expand it', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
 
-    const square = screen.getByRole('button', { name: /click to expand/i });
-    fireEvent.mouseDown(square, {
+    const pet = screen.getByRole('button', { name: /click to expand/i });
+    fireEvent.mouseDown(pet, {
       button: 0,
       clientX: 10,
       clientY: 10,
       screenX: 610,
       screenY: 410,
     });
-    fireEvent.mouseMove(square, {
+    fireEvent.mouseMove(pet, {
       clientX: 14,
       clientY: 13,
       screenX: 690,
       screenY: 470,
     });
-    fireEvent.mouseUp(square, {
+    fireEvent.mouseUp(pet, {
       clientX: 14,
       clientY: 13,
       screenX: 690,
@@ -1023,7 +1034,7 @@ describe('FocusWidget bidirectional sync', () => {
     });
   });
 
-  it('shows an inactive assistant preview bubble and opens mini-text when the square is clicked', async () => {
+  it('shows an inactive assistant preview bubble and opens mini-text when the pet is clicked', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
 
