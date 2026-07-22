@@ -42,6 +42,28 @@ describe('IPC payload validation', () => {
     ).toThrow();
   });
 
+  it('bounds synthesize text and accepts only bounded BCP-47 language hints', () => {
+    expect(() =>
+      validateIpcInput('session.synthesize', {
+        workspaceId: 'workspace-1',
+        text: 'Dzień dobry',
+        language: 'pl-PL',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', language: 'en' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'x'.repeat(100_001), language: 'pl' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', language: '../en' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', language: 'en', sneaky: true }),
+    ).toThrow();
+  });
+
   it('whitelists prefs.update fields (rejects unknown keys)', () => {
     expect(() => validateIpcInput('prefs.update', { onboardingComplete: true })).not.toThrow();
     expect(() => validateIpcInput('prefs.update', { version: 99 })).toThrow();

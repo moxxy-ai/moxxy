@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useChat } from '@moxxy/client-core';
+import { useChat, useStreamingVoiceMode } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
@@ -92,6 +92,7 @@ export function ChatSurface({
   disabledViewReason,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
+  const voiceMode = useStreamingVoiceMode(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
@@ -199,6 +200,10 @@ export function ChatSurface({
         compacting={chat.compacting}
         activeTurnId={chat.activeTurnId}
         workspaceId={workspaceId}
+        voiceModeEnabled={voiceMode.enabled}
+        voiceModePhase={voiceMode.phase}
+        voiceModeError={voiceMode.errorReason}
+        onToggleVoiceMode={voiceMode.toggle}
         onSend={(p, atts) => void chat.send(p, atts)}
         onAbort={() => void chat.abort()}
         onPreviewImage={imagePreview.open}

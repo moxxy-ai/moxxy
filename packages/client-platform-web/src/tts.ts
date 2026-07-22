@@ -63,19 +63,36 @@ function ensureVoicePriming(): void {
   s.addEventListener?.('voiceschanged', () => refreshVoices());
 }
 
-/** Pick the best available voice: a preferred name, else any local English
- *  voice, else any English voice, else the platform default. */
-export function pickVoice(): SpeechSynthesisVoice | null {
-  ensureVoicePriming();
-  const all = cachedVoices.length > 0 ? cachedVoices : refreshVoices();
-  if (all.length === 0) return null;
+interface VoiceCandidate {
+  readonly name: string;
+  readonly lang: string;
+  readonly localService: boolean;
+}
+
+/** Pure voice selection: matching local language first, natural-name ranking
+ *  within that language, then remote matching voice and platform default. */
+export function selectBestVoice<T extends VoiceCandidate>(
+  voices: ReadonlyArray<T>,
+  language = 'en',
+): T | null {
+  if (voices.length === 0) return null;
+  const base = language.toLocaleLowerCase().split('-')[0] ?? language.toLocaleLowerCase();
+  const matching = voices.filter((voice) => {
+    const lang = voice.lang.toLocaleLowerCase();
+    return lang === base || lang.startsWith(`${base}-`);
+  });
   for (const name of PREFERRED_VOICES) {
-    const match = all.find((v) => v.name === name || v.name.startsWith(name));
+    const match = matching.find((voice) => voice.name === name || voice.name.startsWith(name));
     if (match) return match;
   }
-  const enLocal = all.find((v) => v.lang?.startsWith('en') && v.localService);
-  if (enLocal) return enLocal;
-  return all.find((v) => v.lang?.startsWith('en')) ?? all[0] ?? null;
+  return matching.find((voice) => voice.localService) ?? matching[0] ?? voices[0] ?? null;
+}
+
+/** Pick the best available voice for the requested BCP-47 language. */
+export function pickVoice(language = 'en'): SpeechSynthesisVoice | null {
+  ensureVoicePriming();
+  const all = cachedVoices.length > 0 ? cachedVoices : refreshVoices();
+  return selectBestVoice(all, language);
 }
 
 /**
@@ -91,10 +108,12 @@ export function speak(markdown: string, opts: SpeakOptions = {}): void {
   }
   s.cancel();
   const utter = new SpeechSynthesisUtterance(toSpeakableText(markdown));
-  const voice = pickVoice();
+  const voice = pickVoice(opts.language);
   if (voice) {
     utter.voice = voice;
     utter.lang = voice.lang;
+  } else if (opts.language) {
+    utter.lang = opts.language;
   }
   utter.rate = 1.0;
   utter.pitch = 1.0;

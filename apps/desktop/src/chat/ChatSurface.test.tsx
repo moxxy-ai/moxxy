@@ -62,6 +62,12 @@ vi.mock('@moxxy/client-core', () => ({
     rename: vi.fn(),
   }),
   useActiveAsk: () => null,
+  useStreamingVoiceMode: () => ({
+    enabled: false,
+    phase: 'idle',
+    errorReason: null,
+    toggle: () => undefined,
+  }),
   deskForWorkspace: () => undefined,
 }));
 

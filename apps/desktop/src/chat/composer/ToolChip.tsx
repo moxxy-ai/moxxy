@@ -3,11 +3,13 @@ export function ToolChip({
   label,
   onClick,
   tone = 'idle',
+  pressed,
 }: {
   readonly children: React.ReactNode;
   readonly label: string;
   readonly onClick?: () => void;
   readonly tone?: 'idle' | 'recording' | 'busy' | 'armed';
+  readonly pressed?: boolean;
 }): JSX.Element {
   /** Hover effect is provided by the global .btn-chip class — adds
    *  a subtle bg + border darken on hover. */
@@ -24,6 +26,7 @@ export function ToolChip({
       type="button"
       className="btn-chip"
       aria-label={label}
+      aria-pressed={pressed}
       onClick={onClick}
       style={{
         padding: '6px 10px',

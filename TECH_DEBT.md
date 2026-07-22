@@ -24,6 +24,16 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/voice, RESOLVED 2026-07-22] Desktop read-aloud swallowed every
+  runner-side synthesis failure and silently switched to the Apple system voice;
+  local Piper also returned native external ArrayBuffers that Electron's advanced
+  IPC serializer rejects. Piper now requests and copies V8-owned samples, real
+  errors remain visible, language hints reach the runner, and desktop Voice Mode
+  streams sentence/clause chunks through a one-ahead playback queue with automatic
+  Polish/English routing. Verified with real Gosia/Amy models under Electron-as-Node.
+  `packages/plugin-tts-local/src/host-protocol.ts`,
+  `packages/client-core/src/{speech-playback-queue,useStreamingVoiceMode}.ts`,
+  `apps/desktop/src/chat/`.
 - [high, modes, RESOLVED 2026-07-05] Goal mode killed its own runs and never let
   go: the iteration cap (150), a 4M token budget, and a stuck-loop FATAL abort
   (whose near-repeat heuristic trips on a legitimate edit→build→test cycle) all

@@ -51,6 +51,8 @@ export interface AudioCapture {
 // ---- Text-to-speech (read-aloud) ------------------------------------------
 
 export interface SpeakOptions {
+  /** BCP-47 language hint used to pick a matching system voice. */
+  readonly language?: string;
   readonly onend?: () => void;
   readonly onerror?: () => void;
 }

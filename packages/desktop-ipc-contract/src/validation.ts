@@ -74,6 +74,11 @@ const optionalWorkspace = z.string().min(1).max(256).optional();
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
  *  can't OOM the main process with one transcribe call. */
 const MAX_AUDIO_BASE64 = 40_000_000;
+const MAX_SYNTHESIZE_TEXT = 100_000;
+const speechLanguage = z
+  .string()
+  .max(35)
+  .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/, 'must be a BCP-47 language tag');
 /** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
  *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
 const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
@@ -200,6 +205,13 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     audioBase64: base64,
     mimeType: z.string().max(128).optional(),
   }),
+  'session.synthesize': z
+    .object({
+      workspaceId: optionalWorkspace,
+      text: z.string().max(MAX_SYNTHESIZE_TEXT),
+      language: speechLanguage.optional(),
+    })
+    .strict(),
   // Read-only snapshots and the abort RPC are reachable over the remote (WS)
   // bridge — they carry free-form ids/workspaceId, so bound them like the
   // sibling validated commands so a hostile remote can't OOM/log-bloat the host

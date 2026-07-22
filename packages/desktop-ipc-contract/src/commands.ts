@@ -353,13 +353,13 @@ export interface IpcCommands {
     audioBase64: string;
     mimeType?: string;
   }) => Promise<string>;
-  /** Synthesize text to speech via the runner's active synthesizer (e.g. a
-   *  user-authored ElevenLabs plugin). Returns base64 audio + its MIME type,
-   *  or null when no synthesizer is active (the renderer then falls back to
-   *  the OS `speechSynthesis` voice). */
+  /** Synthesize text to speech via the runner's active synthesizer. Returns
+   *  base64 audio + its MIME type, or null when no synthesizer is active.
+   *  `language` selects the matching local/remote voice when supported. */
   'session.synthesize': (args: {
     workspaceId?: string;
     text: string;
+    language?: string;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */
