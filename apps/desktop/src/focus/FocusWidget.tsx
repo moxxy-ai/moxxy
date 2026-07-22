@@ -73,17 +73,24 @@ const SIZE: Record<Stage, { width: number; height: number }> = {
 
 export function focusActiveWidth({
   hasTranscriber,
+  voiceModeAvailable,
   voiceModeActive,
   voiceModePhase,
+  voiceModeRetryAvailable,
 }: {
   readonly hasTranscriber: boolean;
+  readonly voiceModeAvailable: boolean;
   readonly voiceModeActive: boolean;
   readonly voiceModePhase: VoiceCallPhase;
+  readonly voiceModeRetryAvailable: boolean;
 }): number {
   if (!voiceModeActive) {
-    return ACTIVE_WIDTH_WITHOUT_MIC + (hasTranscriber ? ACTIVE_ACTION_WIDTH * 2 : 0);
+    const actionCount = Number(hasTranscriber) + Number(voiceModeAvailable);
+    return ACTIVE_WIDTH_WITHOUT_MIC + ACTIVE_ACTION_WIDTH * actionCount;
   }
-  const voiceActionCount = voiceModePhase === 'error' ? 2 : 3;
+  const voiceActionCount = voiceModePhase === 'error'
+    ? 1 + Number(voiceModeRetryAvailable)
+    : 3;
   return ACTIVE_WIDTH_WITHOUT_MIC + ACTIVE_ACTION_WIDTH * voiceActionCount;
 }
 
@@ -110,6 +117,7 @@ function Surface({
   // Lifted from Active so the resize IPC knows whether to tighten
   // the panel before painting (no flicker on first activation).
   const [hasTranscriber, setHasTranscriber] = useState<boolean | null>(null);
+  const [localPiperInstalled, setLocalPiperInstalled] = useState<boolean | null>(null);
   const [analyser, setAnalyser] = useState<unknown | null>(null);
   const [horizontalAnchor, setHorizontalAnchor] = useState<FocusTileHorizontalAnchor>('right');
   const chat = useChat(workspaceId);
@@ -130,10 +138,15 @@ function Surface({
     inputRequired: askVisible,
   });
   const previousVoiceModeActive = useRef(false);
+  const voiceModeAvailable = voiceCall.active || (
+    localPiperInstalled === true && hasTranscriber === true && ready
+  );
   const activeWidth = focusActiveWidth({
     hasTranscriber: hasTranscriber !== false,
+    voiceModeAvailable,
     voiceModeActive: voiceCall.active,
     voiceModePhase: voiceCall.phase,
+    voiceModeRetryAvailable: !voiceCall.localPiperInstallRequired,
   });
   const miniTextSize = useFocusMiniTextSize(stage === 'mini-text');
   const openPreview = (): void => {
@@ -199,6 +212,14 @@ function Surface({
       })
       .catch(() => {
         if (!cancelled) setHasTranscriber(false);
+      });
+    void api()
+      .invoke('voice.isLocalPiperInstalled')
+      .then((installed) => {
+        if (!cancelled) setLocalPiperInstalled(Boolean(installed));
+      })
+      .catch(() => {
+        if (!cancelled) setLocalPiperInstalled(false);
       });
     return () => {
       cancelled = true;
@@ -268,14 +289,13 @@ function Surface({
         recording={voice.phase === 'recording'}
         transcribing={voice.phase === 'transcribing'}
         audioVisualization={audioVisualization}
-        voiceModeAvailable={voiceCall.active || (
-          hasTranscriber === true && ready
-        )}
+        voiceModeAvailable={voiceModeAvailable}
         voiceModeActive={voiceCall.active}
         voiceModePhase={voiceCall.phase}
         voiceModeErrorReason={voiceCall.errorReason}
         voiceModeMuted={voiceCall.microphoneMuted}
         waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+        localPiperInstallRequired={voiceCall.localPiperInstallRequired}
         onToggleMic={voice.toggle}
         onStartVoiceMode={openVoiceMode}
         onEndVoiceMode={voiceCall.close}

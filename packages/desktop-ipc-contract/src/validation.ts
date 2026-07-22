@@ -171,6 +171,11 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'app.relaunch': z.undefined(),
   'app.appBooted': z.undefined(),
   'app.updateDiagnostics': z.undefined(),
+  // Optional offline voice installation spawns the CLI and changes the active
+  // synthesizer. The host owns the exact package/name; renderer input is never
+  // accepted, preventing package-spec / CLI-argument injection.
+  'voice.isLocalPiperInstalled': z.undefined(),
+  'voice.installLocalPiper': z.undefined(),
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),

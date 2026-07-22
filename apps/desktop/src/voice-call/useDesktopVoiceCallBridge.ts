@@ -41,6 +41,8 @@ function snapshotFrom(call: UseVoiceCall): DesktopVoiceCallSnapshot {
     errorReason: call.errorReason?.slice(0, 500) ?? null,
     microphoneMuted: call.microphoneMuted,
     waitingSoundEnabled: call.waitingSoundEnabled,
+    localPiperInstallRequired: call.localPiperInstallRequired,
+    localPiperInstalling: call.localPiperInstalling,
   };
 }
 
@@ -51,6 +53,9 @@ function runOwnerCommand(call: UseVoiceCall, command: DesktopVoiceCallCommand): 
       return;
     case 'retry':
       call.retry();
+      return;
+    case 'install-local-piper':
+      call.installLocalPiper();
       return;
     case 'mute-microphone':
       call.muteMicrophone();
@@ -175,6 +180,8 @@ export function useDesktopVoiceCallBridge({
     localCall.activity,
     localCall.errorReason,
     localCall.microphoneMuted,
+    localCall.localPiperInstallRequired,
+    localCall.localPiperInstalling,
     localCall.phase,
     localCall.waitingSoundEnabled,
     publishSnapshot,
@@ -250,6 +257,7 @@ export function useDesktopVoiceCallBridge({
       outputAnalyser: remoteAudioSource === 'assistant' ? assistantSpectrum.current : null,
       close: () => sendCommand('close'),
       retry: () => sendCommand('retry'),
+      installLocalPiper: () => sendCommand('install-local-piper'),
       muteMicrophone: () => sendCommand('mute-microphone'),
       unmuteMicrophone: () => sendCommand('unmute-microphone'),
       toggleWaitingSound: () => sendCommand('toggle-waiting-sound'),

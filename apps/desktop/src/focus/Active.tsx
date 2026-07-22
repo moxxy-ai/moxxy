@@ -43,6 +43,7 @@ export function Active({
   voiceModeErrorReason,
   voiceModeMuted,
   waitingSoundEnabled,
+  localPiperInstallRequired,
   onToggleMic,
   onStartVoiceMode,
   onEndVoiceMode,
@@ -68,6 +69,7 @@ export function Active({
   readonly voiceModeErrorReason: string | null;
   readonly voiceModeMuted: boolean;
   readonly waitingSoundEnabled: boolean;
+  readonly localPiperInstallRequired: boolean;
   readonly onToggleMic: () => void;
   readonly onStartVoiceMode: () => void;
   readonly onEndVoiceMode: () => void;
@@ -128,7 +130,7 @@ export function Active({
             <Icon name="stop" size={16} />
           </ActionButton>
         )}
-        {voiceModeActive && voiceModePhase === 'error' && (
+        {voiceModeActive && voiceModePhase === 'error' && !localPiperInstallRequired && (
           <ActionButton
             onClick={onRetryVoiceMode}
             aria-label="Retry voice mode"
@@ -162,7 +164,7 @@ export function Active({
             </ActionButton>
           </>
         )}
-        {voiceModeActive && voiceModePhase === 'error' && (
+        {voiceModeActive && voiceModePhase === 'error' && !localPiperInstallRequired && (
           <span role="alert" style={style.visuallyHidden}>
             {voiceModeErrorReason ?? 'Voice mode could not continue'}
           </span>

@@ -12,11 +12,14 @@ export interface DesktopVoiceCallSnapshot {
   readonly errorReason: string | null;
   readonly microphoneMuted: boolean;
   readonly waitingSoundEnabled: boolean;
+  readonly localPiperInstallRequired: boolean;
+  readonly localPiperInstalling: boolean;
 }
 
 export type DesktopVoiceCallCommand =
   | 'close'
   | 'retry'
+  | 'install-local-piper'
   | 'mute-microphone'
   | 'unmute-microphone'
   | 'toggle-waiting-sound';
@@ -87,6 +90,8 @@ const snapshotSchema = z.object({
   errorReason: z.string().max(500).nullable(),
   microphoneMuted: z.boolean(),
   waitingSoundEnabled: z.boolean(),
+  localPiperInstallRequired: z.boolean(),
+  localPiperInstalling: z.boolean(),
 }).strict();
 function isUint8ArrayView(value: unknown): value is Uint8Array {
   return ArrayBuffer.isView(value)
@@ -108,6 +113,7 @@ const messageSchema = z.discriminatedUnion('type', [
     command: z.enum([
       'close',
       'retry',
+      'install-local-piper',
       'mute-microphone',
       'unmute-microphone',
       'toggle-waiting-sound',

@@ -1,8 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { validateIpcInput, ipcInputSchemas } from './validation.js';
 import { REMOTE_ALLOWED_COMMANDS } from './index.js';
+import type { IpcCommandName } from './index.js';
 
 describe('IPC payload validation', () => {
+  it('accepts no payload for the fixed Local Piper installer commands', () => {
+    expect(() => validateIpcInput(
+      'voice.isLocalPiperInstalled' as IpcCommandName,
+      undefined,
+    )).not.toThrow();
+    expect(() => validateIpcInput(
+      'voice.installLocalPiper' as IpcCommandName,
+      undefined,
+    )).not.toThrow();
+    expect(() => validateIpcInput(
+      'voice.installLocalPiper' as IpcCommandName,
+      { packageName: 'attacker-controlled-package' },
+    )).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();

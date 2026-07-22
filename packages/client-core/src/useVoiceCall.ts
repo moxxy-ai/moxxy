@@ -50,12 +50,15 @@ export interface UseVoiceCall {
   readonly errorReason: string | null;
   readonly microphoneMuted: boolean;
   readonly waitingSoundEnabled: boolean;
+  readonly localPiperInstallRequired: boolean;
+  readonly localPiperInstalling: boolean;
   readonly lastTranscript: string | null;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
   readonly open: () => void;
   readonly close: () => void;
   readonly retry: () => void;
+  readonly installLocalPiper: () => void;
   readonly muteMicrophone: () => void;
   readonly unmuteMicrophone: () => void;
   readonly toggleWaitingSound: () => void;
@@ -88,6 +91,8 @@ export function useVoiceCall({
   const [outputAnalyser, setOutputAnalyser] = useState<unknown | null>(null);
   const [activity, setActivity] = useState<VoiceToolActivity | null>(null);
   const [waitingSoundEnabled, setWaitingSoundEnabled] = useState(readWaitingSoundPreference);
+  const [localPiperInstallRequired, setLocalPiperInstallRequired] = useState(false);
+  const [localPiperInstalling, setLocalPiperInstalling] = useState(false);
   const [turnRequestPending, setTurnRequestPending] = useState(false);
   const generationRef = useRef(0);
   const turnCycleRef = useRef(false);
@@ -205,6 +210,8 @@ export function useVoiceCall({
     previousSpeechPhaseRef.current = 'idle';
     interruptedTurnIdsRef.current.clear();
     bargeInTransitionRef.current = false;
+    setLocalPiperInstallRequired(false);
+    setLocalPiperInstalling(false);
   }, [feedback, speech.disable, voice.cancel]);
 
   const preflight = useCallback(async (generation: number): Promise<void> => {
@@ -223,12 +230,18 @@ export function useVoiceCall({
         return;
       }
       if (!info || info.activeSynthesizer !== LOCAL_PIPER) {
+        const installed = await api().invoke('voice.isLocalPiperInstalled');
+        if (generation !== generationRef.current) return;
+        setLocalPiperInstallRequired(!installed);
         dispatch({
           type: 'failed',
-          reason: 'Local Piper is not active. Select local-piper as the synthesizer and try again.',
+          reason: installed
+            ? 'Local Piper is not active. Select local-piper as the synthesizer and try again.'
+            : 'Local Piper is not installed.',
         });
         return;
       }
+      setLocalPiperInstallRequired(false);
       speech.enable();
       const currentChat = chatRef.current;
       if (currentChat.sending || currentChat.activeTurnId !== null) {
@@ -257,6 +270,26 @@ export function useVoiceCall({
 
   const open = useCallback((): void => begin('open'), [begin]);
   const retry = useCallback((): void => begin('retry'), [begin]);
+  const installLocalPiper = useCallback((): void => {
+    if (!state.active || !localPiperInstallRequired || localPiperInstalling) return;
+    const generation = generationRef.current;
+    setLocalPiperInstalling(true);
+    void api().invoke('voice.installLocalPiper')
+      .then(() => {
+        if (generation !== generationRef.current) return;
+        setLocalPiperInstalling(false);
+        begin('retry');
+      })
+      .catch((error: unknown) => {
+        if (generation !== generationRef.current) return;
+        setLocalPiperInstalling(false);
+        setLocalPiperInstallRequired(true);
+        dispatch({
+          type: 'failed',
+          reason: `Local Piper installation failed: ${toErrorMessage(error)}`,
+        });
+      });
+  }, [begin, localPiperInstallRequired, localPiperInstalling, state.active]);
   const close = useCallback((): void => {
     releaseResources();
     setLastTranscript(null);
@@ -547,12 +580,15 @@ export function useVoiceCall({
     errorReason: state.errorReason,
     microphoneMuted: state.microphoneMuted,
     waitingSoundEnabled,
+    localPiperInstallRequired,
+    localPiperInstalling,
     lastTranscript,
     inputAnalyser,
     outputAnalyser,
     open,
     close,
     retry,
+    installLocalPiper,
     muteMicrophone,
     unmuteMicrophone,
     toggleWaitingSound,

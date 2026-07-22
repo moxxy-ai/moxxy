@@ -150,6 +150,8 @@ export function ChatSurface({
           activity={voiceCall.activity}
           microphoneMuted={voiceCall.microphoneMuted}
           waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+          localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+          localPiperInstalling={voiceCall.localPiperInstalling}
           errorReason={voiceCall.errorReason}
           inputAnalyser={voiceCall.inputAnalyser}
           outputAnalyser={voiceCall.outputAnalyser}
@@ -157,6 +159,7 @@ export function ChatSurface({
           onClose={voiceCall.close}
           onEnterFocusMode={enterFocusMode}
           onRetry={voiceCall.retry}
+          onInstallLocalPiper={voiceCall.installLocalPiper}
           onMuteMicrophone={voiceCall.muteMicrophone}
           onUnmuteMicrophone={voiceCall.unmuteMicrophone}
           onToggleWaitingSound={voiceCall.toggleWaitingSound}

@@ -297,6 +297,12 @@ export interface IpcCommands {
    *  transcriber plugin (e.g. local Whisper), OR stored Codex OAuth creds back
    *  the in-process fallback. UI uses this to enable/disable the mic button. */
   'session.hasTranscriber': () => Promise<boolean>;
+  /** True when the desktop's optional on-device Piper synthesizer package is
+   *  complete on disk. Host-only: remote clients must not inspect plugins. */
+  'voice.isLocalPiperInstalled': () => Promise<boolean>;
+  /** Install, enable and select the fixed first-party Local Piper package, then
+   *  restart desktop runners. Accepts no renderer-controlled package spec. */
+  'voice.installLocalPiper': () => Promise<void>;
   /** The globally-active collaboration (only one runs at a time), or inactive.
    *  Read from the single-flight lock file so it spans all workspaces' runners;
    *  the Collaborate tab uses it to disable Start while one is running. */

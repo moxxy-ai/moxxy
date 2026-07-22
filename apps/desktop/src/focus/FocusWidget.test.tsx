@@ -41,6 +41,7 @@ interface FakeApiOptions {
   readonly theme?: ThemePreference;
   readonly focusMiniTextSize?: { readonly width: number; readonly height: number } | null;
   readonly activeSynthesizer?: string | null;
+  readonly localPiperInstalled?: boolean;
 }
 
 interface FakeMedia {
@@ -82,7 +83,8 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const hasTranscriber = options.hasTranscriber ?? true;
   const theme = options.theme ?? 'system';
   const focusMiniTextSize = options.focusMiniTextSize ?? null;
-  const activeSynthesizer = options.activeSynthesizer ?? 'local-piper';
+  let activeSynthesizer = options.activeSynthesizer ?? 'local-piper';
+  let localPiperInstalled = options.localPiperInstalled ?? true;
 
   __setApiOverride({
     invoke: ((channel: string, args: unknown) => {
@@ -141,6 +143,14 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
       }
       if (channel === 'session.info') {
         return Promise.resolve({ activeSynthesizer });
+      }
+      if (channel === 'voice.isLocalPiperInstalled') {
+        return Promise.resolve(localPiperInstalled);
+      }
+      if (channel === 'voice.installLocalPiper') {
+        localPiperInstalled = true;
+        activeSynthesizer = 'local-piper';
+        return Promise.resolve(undefined);
       }
       if (channel === 'session.synthesize') {
         return Promise.resolve({ audioBase64: 'AA==', mimeType: 'audio/wav' });
@@ -411,6 +421,8 @@ describe('FocusWidget stages', () => {
           errorReason: null,
           microphoneMuted: false,
           waitingSoundEnabled: true,
+          localPiperInstallRequired: false,
+          localPiperInstalling: false,
         },
       });
       owner.postMessage({
@@ -452,6 +464,8 @@ describe('FocusWidget stages', () => {
           errorReason: null,
           microphoneMuted: false,
           waitingSoundEnabled: true,
+          localPiperInstallRequired: false,
+          localPiperInstalling: false,
         },
       });
       await waitFor(() => {
@@ -642,6 +656,24 @@ describe('FocusWidget stages', () => {
     await waitFor(() => {
       expect(spy.invokes.filter((invoke) => invoke.channel === 'session.info')).toHaveLength(2);
     });
+  });
+
+  it('hides Voice Mode entirely when Local Piper is not installed', async () => {
+    const spy = installFakeApi({
+      activeSynthesizer: 'elevenlabs',
+      localPiperInstalled: false,
+    });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    await screen.findByRole('button', { name: /^record voice$/i });
+    await waitFor(() => {
+      expect(spy.invokes.some((invoke) => (
+        invoke.channel === 'voice.isLocalPiperInstalled'
+      ))).toBe(true);
+    });
+    expect(screen.queryByRole('button', { name: /start voice mode/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /install local piper/i })).toBeNull();
   });
 
   it('mini-text → back returns to the active stage', () => {

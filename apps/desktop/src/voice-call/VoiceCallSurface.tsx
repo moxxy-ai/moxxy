@@ -30,6 +30,8 @@ export function VoiceCallSurface({
   activity,
   microphoneMuted,
   waitingSoundEnabled,
+  localPiperInstallRequired,
+  localPiperInstalling,
   errorReason,
   inputAnalyser,
   outputAnalyser,
@@ -37,6 +39,7 @@ export function VoiceCallSurface({
   onClose,
   onEnterFocusMode,
   onRetry,
+  onInstallLocalPiper,
   onMuteMicrophone,
   onUnmuteMicrophone,
   onToggleWaitingSound,
@@ -45,6 +48,8 @@ export function VoiceCallSurface({
   readonly activity: VoiceToolActivity | null;
   readonly microphoneMuted: boolean;
   readonly waitingSoundEnabled: boolean;
+  readonly localPiperInstallRequired: boolean;
+  readonly localPiperInstalling: boolean;
   readonly errorReason: string | null;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
@@ -52,13 +57,24 @@ export function VoiceCallSurface({
   readonly onClose: () => void;
   readonly onEnterFocusMode: () => void;
   readonly onRetry: () => void;
+  readonly onInstallLocalPiper: () => void;
   readonly onMuteMicrophone: () => void;
   readonly onUnmuteMicrophone: () => void;
   readonly onToggleWaitingSound: () => void;
 }): JSX.Element {
-  const status = phase === 'speaking' && microphoneMuted
-    ? MUTED_SPEAKING_STATUS
-    : STATUS[phase];
+  const status = localPiperInstallRequired
+    ? localPiperInstalling
+      ? {
+          title: 'Installing local voice',
+          detail: 'Downloading the offline voice package',
+        }
+      : {
+          title: 'Local voice required',
+          detail: 'Install Local Piper once to use Voice Mode',
+        }
+    : phase === 'speaking' && microphoneMuted
+      ? MUTED_SPEAKING_STATUS
+      : STATUS[phase];
   return (
     <div className="voice-call-surface">
       <header className="voice-call-header">
@@ -103,7 +119,32 @@ export function VoiceCallSurface({
           {activity && <VoiceActivityIndicator activity={activity} />}
         </div>
 
-        {phase === 'error' ? (
+        {phase === 'error' && localPiperInstallRequired ? (
+          <div className="voice-call-install" role="alert">
+            <span className="voice-call-install-icon" aria-hidden="true">
+              <Icon name="plug" size={18} />
+            </span>
+            <div className="voice-call-install-copy">
+              <strong>Local Piper</strong>
+              <p>
+                Voice Mode uses an offline voice that runs privately on this computer.
+                Install it once, then Moxxy will prepare Polish and English voices when needed.
+              </p>
+              {errorReason && errorReason !== 'Local Piper is not installed.' && (
+                <small>{errorReason}</small>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={onInstallLocalPiper}
+              disabled={localPiperInstalling}
+              aria-label={localPiperInstalling ? 'Installing Local Piper' : 'Install Local Piper'}
+            >
+              <Icon name={localPiperInstalling ? 'rotate' : 'plug'} size={16} />
+              <span>{localPiperInstalling ? 'Installing…' : 'Install Local Piper'}</span>
+            </button>
+          </div>
+        ) : phase === 'error' ? (
           <div className="voice-call-error" role="alert">
             <p>{errorReason ?? 'Voice mode could not continue.'}</p>
             <button type="button" onClick={onRetry} aria-label="Try again">

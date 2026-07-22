@@ -18,6 +18,8 @@ describe('VoiceCallSurface', () => {
         activity={null}
         microphoneMuted={false}
         waitingSoundEnabled
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
         errorReason={null}
         inputAnalyser={null}
         outputAnalyser={null}
@@ -28,6 +30,7 @@ describe('VoiceCallSurface', () => {
         onClose={onClose}
         onEnterFocusMode={onEnterFocusMode}
         onRetry={vi.fn()}
+        onInstallLocalPiper={vi.fn()}
         onMuteMicrophone={onMuteMicrophone}
         onUnmuteMicrophone={vi.fn()}
         onToggleWaitingSound={vi.fn()}
@@ -58,6 +61,8 @@ describe('VoiceCallSurface', () => {
         activity={null}
         microphoneMuted
         waitingSoundEnabled
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
         errorReason={null}
         inputAnalyser={null}
         outputAnalyser={null}
@@ -65,6 +70,7 @@ describe('VoiceCallSurface', () => {
         onClose={vi.fn()}
         onEnterFocusMode={vi.fn()}
         onRetry={vi.fn()}
+        onInstallLocalPiper={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={onUnmuteMicrophone}
         onToggleWaitingSound={vi.fn()}
@@ -89,6 +95,8 @@ describe('VoiceCallSurface', () => {
         activity={null}
         microphoneMuted={false}
         waitingSoundEnabled
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
         errorReason={null}
         inputAnalyser={null}
         outputAnalyser={null}
@@ -96,6 +104,7 @@ describe('VoiceCallSurface', () => {
         onClose={vi.fn()}
         onEnterFocusMode={vi.fn()}
         onRetry={vi.fn()}
+        onInstallLocalPiper={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={vi.fn()}
         onToggleWaitingSound={vi.fn()}
@@ -114,6 +123,8 @@ describe('VoiceCallSurface', () => {
         activity={null}
         microphoneMuted={false}
         waitingSoundEnabled
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
         errorReason="Local Piper is not active."
         inputAnalyser={null}
         outputAnalyser={null}
@@ -121,6 +132,7 @@ describe('VoiceCallSurface', () => {
         onClose={vi.fn()}
         onEnterFocusMode={vi.fn()}
         onRetry={onRetry}
+        onInstallLocalPiper={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={vi.fn()}
         onToggleWaitingSound={vi.fn()}
@@ -132,6 +144,66 @@ describe('VoiceCallSurface', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it('explains and installs Local Piper when the offline voice is missing', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const onInstallLocalPiper = vi.fn();
+    render(
+      <VoiceCallSurface
+        phase="error"
+        activity={null}
+        microphoneMuted={false}
+        waitingSoundEnabled
+        localPiperInstallRequired
+        localPiperInstalling={false}
+        errorReason="Local Piper is not installed."
+        inputAnalyser={null}
+        outputAnalyser={null}
+        lines={[]}
+        onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
+        onRetry={vi.fn()}
+        onInstallLocalPiper={onInstallLocalPiper}
+        onMuteMicrophone={vi.fn()}
+        onUnmuteMicrophone={vi.fn()}
+        onToggleWaitingSound={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Local voice required');
+    expect(screen.getByText(/runs privately on this computer/i)).toBeInTheDocument();
+    const install = screen.getByRole('button', { name: 'Install Local Piper' });
+    fireEvent.click(install);
+    expect(onInstallLocalPiper).toHaveBeenCalledOnce();
+  });
+
+  it('locks the Local Piper installer while the package is downloading', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(
+      <VoiceCallSurface
+        phase="error"
+        activity={null}
+        microphoneMuted={false}
+        waitingSoundEnabled
+        localPiperInstallRequired
+        localPiperInstalling
+        errorReason={null}
+        inputAnalyser={null}
+        outputAnalyser={null}
+        lines={[]}
+        onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
+        onRetry={vi.fn()}
+        onInstallLocalPiper={vi.fn()}
+        onMuteMicrophone={vi.fn()}
+        onUnmuteMicrophone={vi.fn()}
+        onToggleWaitingSound={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Installing Local Piper' })).toBeDisabled();
+    expect(screen.getByText(/Downloading the offline voice package/i)).toBeInTheDocument();
+  });
+
   it('renders an explicit working state between spoken updates', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     render(
@@ -140,6 +212,8 @@ describe('VoiceCallSurface', () => {
         activity="editing"
         microphoneMuted={false}
         waitingSoundEnabled
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
         errorReason={null}
         inputAnalyser={null}
         outputAnalyser={null}
@@ -147,6 +221,7 @@ describe('VoiceCallSurface', () => {
         onClose={vi.fn()}
         onEnterFocusMode={vi.fn()}
         onRetry={vi.fn()}
+        onInstallLocalPiper={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={vi.fn()}
         onToggleWaitingSound={vi.fn()}
@@ -168,6 +243,8 @@ describe('VoiceCallSurface', () => {
         activity={null}
         microphoneMuted={false}
         waitingSoundEnabled={false}
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
         errorReason={null}
         inputAnalyser={null}
         outputAnalyser={null}
@@ -175,6 +252,7 @@ describe('VoiceCallSurface', () => {
         onClose={vi.fn()}
         onEnterFocusMode={vi.fn()}
         onRetry={vi.fn()}
+        onInstallLocalPiper={vi.fn()}
         onMuteMicrophone={vi.fn()}
         onUnmuteMicrophone={vi.fn()}
         onToggleWaitingSound={onToggleWaitingSound}

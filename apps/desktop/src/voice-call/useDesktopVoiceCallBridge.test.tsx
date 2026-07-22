@@ -36,12 +36,15 @@ function voiceCall(overrides: Partial<UseVoiceCall> = {}): UseVoiceCall {
     errorReason: null,
     microphoneMuted: false,
     waitingSoundEnabled: true,
+    localPiperInstallRequired: false,
+    localPiperInstalling: false,
     lastTranscript: null,
     inputAnalyser: null,
     outputAnalyser: null,
     open: vi.fn(),
     close: vi.fn(),
     retry: vi.fn(),
+    installLocalPiper: vi.fn(),
     muteMicrophone: vi.fn(),
     unmuteMicrophone: vi.fn(),
     toggleWaitingSound: vi.fn(),
@@ -116,6 +119,38 @@ describe('useDesktopVoiceCallBridge', () => {
     act(() => result.current.focus.close());
     expect(ownerClose).toHaveBeenCalledOnce();
     expect(focusCall.close).not.toHaveBeenCalled();
+  });
+
+  it('routes Local Piper installation from Focus Mode to the call owner', async () => {
+    const bus = new InMemoryVoiceBridge();
+    const installLocalPiper = vi.fn();
+    const mainPort = bus.port();
+    const focusPort = bus.port();
+
+    const { result } = renderHook(() => {
+      const main = useDesktopVoiceCallBridge({
+        surface: 'main',
+        workspaceId: 'ws-piper',
+        localCall: voiceCall({
+          active: true,
+          phase: 'error',
+          localPiperInstallRequired: true,
+          installLocalPiper,
+        }),
+        port: mainPort,
+      });
+      const focus = useDesktopVoiceCallBridge({
+        surface: 'focus',
+        workspaceId: 'ws-piper',
+        localCall: voiceCall(),
+        port: focusPort,
+      });
+      return { main, focus };
+    });
+
+    await waitFor(() => expect(result.current.focus.localPiperInstallRequired).toBe(true));
+    act(() => result.current.focus.installLocalPiper());
+    expect(installLocalPiper).toHaveBeenCalledOnce();
   });
 
   it('mirrors bounded microphone spectrum data without moving audio ownership', async () => {
@@ -193,6 +228,8 @@ describe('useDesktopVoiceCallBridge', () => {
         errorReason: null,
         microphoneMuted: false,
         waitingSoundEnabled: true,
+        localPiperInstallRequired: false,
+        localPiperInstalling: false,
       },
     } satisfies DesktopVoiceCallBridgeMessage));
 
@@ -233,6 +270,8 @@ describe('useDesktopVoiceCallBridge', () => {
           errorReason: null,
           microphoneMuted: false,
           waitingSoundEnabled: true,
+          localPiperInstallRequired: false,
+          localPiperInstalling: false,
         },
       }));
       expect(result.current.active).toBe(true);

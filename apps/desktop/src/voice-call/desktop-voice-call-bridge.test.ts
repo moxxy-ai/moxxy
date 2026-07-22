@@ -18,6 +18,8 @@ describe('desktop voice-call bridge validation', () => {
         errorReason: null,
         microphoneMuted: false,
         waitingSoundEnabled: true,
+        localPiperInstallRequired: false,
+        localPiperInstalling: false,
       },
     })).not.toBeNull();
 
@@ -32,6 +34,8 @@ describe('desktop voice-call bridge validation', () => {
         errorReason: 'x'.repeat(501),
         microphoneMuted: false,
         waitingSoundEnabled: true,
+        localPiperInstallRequired: false,
+        localPiperInstalling: false,
       },
     })).toBeNull();
   });
@@ -51,6 +55,15 @@ describe('desktop voice-call bridge validation', () => {
       audioSource: 'microphone',
       bins: new Uint8Array(4_097),
     })).toBeNull();
+  });
+
+  it('accepts the fixed Local Piper install command', () => {
+    expect(parseDesktopVoiceCallMessage({
+      type: 'command',
+      source: 'focus',
+      workspaceId: 'ws-1',
+      command: 'install-local-piper',
+    })).not.toBeNull();
   });
 
   it('accepts Uint8Array spectrum frames cloned from another renderer realm', () => {

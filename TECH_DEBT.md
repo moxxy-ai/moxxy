@@ -24,6 +24,30 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [low, desktop/focus/voice-discovery, RESOLVED 2026-07-22] Focus Mode assumed
+  that an available transcriber also meant full Voice Mode was available, so it
+  rendered a start control before checking whether Local Piper existed and then
+  expanded into an installer/error flow. Focus now probes the local package
+  independently during hydration, keeps the control absent while availability
+  is unknown, false, or failed, and sizes the compact bar from the controls that
+  are actually visible. Installation remains on the full Voice Mode surface.
+  A renderer integration regression locks down the real preflight IPC and the
+  absence of both start and install controls. `apps/desktop/src/focus/`.
+- [med, desktop/voice/onboarding, RESOLVED 2026-07-22] Voice Mode treated a
+  missing Local Piper package exactly like an installed but inactive
+  synthesizer, leaving a first-time user with configuration advice but no way
+  to obtain the offline voice. The preflight now distinguishes a complete
+  first-party package from an inactive contribution, and the full call surface
+  exposes a one-click, single-flight installer. Focus instead stays hidden until
+  that package is present. The host-only IPC
+  accepts no input, pins the package and contribution names in the main
+  process, validates the installed manifest and compiled entry, remains denied
+  on the remote/mobile command surface, restarts every runner after success,
+  and automatically retries the same call. Real temporary-filesystem probes,
+  deterministic CLI-adapter tests, IPC trust-boundary tests, hook integration,
+  cross-window routing, and renderer tests cover the flow without changing STT.
+  `packages/{client-core,desktop-host,desktop-ipc-contract}/`,
+  `apps/desktop/src/{voice-call,focus}/`.
 - [high, desktop/voice/barge-in, RESOLVED 2026-07-22] Voice Mode released the
   microphone while Piper was speaking, so interrupting an overly long answer
   required manual controls and could not flow into the next turn. The desktop
