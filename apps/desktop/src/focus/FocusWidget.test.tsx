@@ -507,14 +507,14 @@ describe('FocusWidget stages', () => {
     await waitFor(() => expect(captureStarts).toBe(1));
 
     const muteButton = screen.getByRole('button', { name: /mute microphone/i });
-    expect(muteButton.querySelector('[data-voice-microphone-action="mute"]')).toBeTruthy();
+    expect(muteButton.querySelector('[data-voice-microphone-muted="false"]')).toBeTruthy();
     expect(muteButton).toHaveAttribute('aria-pressed', 'true');
     expect(screen.queryByRole('button', { name: /^record voice$/i })).toBeNull();
 
     fireEvent.click(muteButton);
     await waitFor(() => expect(cancelCapture).toHaveBeenCalledTimes(1));
     const unmuteButton = screen.getByRole('button', { name: /unmute microphone/i });
-    expect(unmuteButton.querySelector('[data-voice-microphone-action="unmute"]')).toBeTruthy();
+    expect(unmuteButton.querySelector('[data-voice-microphone-muted="true"]')).toBeTruthy();
     expect(unmuteButton).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(screen.getByRole('button', { name: /turn waiting sound off/i }));

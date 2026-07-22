@@ -77,18 +77,18 @@ export function Dot({ delay }: { readonly delay: number }): JSX.Element {
 // ---- VoiceMicrophoneActionIcon ------------------------------------------
 
 export function VoiceMicrophoneActionIcon({
-  action,
+  muted,
 }: {
-  readonly action: 'mute' | 'unmute';
+  readonly muted: boolean;
 }): JSX.Element {
   return (
     <span
       aria-hidden
-      data-voice-microphone-action={action}
+      data-voice-microphone-muted={muted}
       style={style.voiceMicrophoneActionIcon}
     >
       <Icon name="mic" size={17} />
-      {action === 'mute' && <span style={style.voiceMicrophoneActionSlash} />}
+      {muted && <span style={style.voiceMicrophoneActionSlash} />}
     </span>
   );
 }

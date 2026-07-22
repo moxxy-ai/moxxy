@@ -148,9 +148,7 @@ export function Active({
               active={!voiceModeMuted}
               pressed={!voiceModeMuted}
             >
-              <VoiceMicrophoneActionIcon
-                action={voiceModeMuted ? 'unmute' : 'mute'}
-              />
+              <VoiceMicrophoneActionIcon muted={voiceModeMuted} />
             </ActionButton>
             <ActionButton
               onClick={onToggleWaitingSound}
