@@ -286,38 +286,78 @@
 
 .voice-call-core {
   position: relative;
-  width: min(47vh, 46vw, 450px);
-  min-width: 190px;
-  aspect-ratio: 1;
+  height: min(48vh, 470px);
+  min-height: 230px;
+  max-width: min(48vw, 410px);
+  aspect-ratio: 1122 / 1402;
   display: grid;
   place-items: center;
 }
 
-.voice-orb {
+.voice-avatar {
+  position: relative;
   width: 100%;
-  min-width: 0;
-  aspect-ratio: 1;
+  height: 100%;
+  isolation: isolate;
   display: grid;
   place-items: center;
   transform: translateZ(0);
-  transition: filter 220ms ease, opacity 220ms ease;
+  transition:
+    filter 220ms ease,
+    opacity 220ms ease;
 }
 
-.voice-orb--microphone-muted:not(.voice-orb--speaking) {
+.voice-avatar::before {
+  content: '';
+  position: absolute;
+  inset: 13% -15% 3%;
+  z-index: -1;
+  border-radius: 48%;
+  pointer-events: none;
+  opacity: 0.48;
+  background: radial-gradient(
+    ellipse at 54% 55%,
+    color-mix(in srgb, var(--color-primary) 18%, transparent),
+    transparent 68%
+  );
+  transform: scale(0.96);
+  transition:
+    opacity 240ms ease,
+    transform 240ms ease;
+}
+
+.voice-avatar--speaking::before {
+  opacity: 0.72;
+  transform: scale(1.04);
+}
+
+.voice-avatar--error {
+  filter: saturate(0.6) sepia(0.12);
+}
+
+.voice-avatar--microphone-muted:not(.voice-avatar--speaking) {
   filter: saturate(0.58);
   opacity: 0.72;
 }
 
-.voice-orb-canvas {
+.voice-avatar-canvas {
   width: 100%;
   height: 100%;
   display: block;
+  object-fit: contain;
+  image-rendering: pixelated;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.voice-avatar-canvas[data-avatar-state='ready'] {
+  opacity: 1;
 }
 
 .voice-call-activity {
   position: absolute;
   top: 50%;
-  left: calc(100% - 22px);
+  left: calc(100% - 12px);
   width: clamp(188px, 18vw, 226px);
   transform: translateY(-50%);
   pointer-events: none;
@@ -558,7 +598,9 @@
   }
 
   .voice-call-core {
-    width: min(52vh, 78vw, 390px);
+    width: min(74vw, 330px);
+    height: auto;
+    min-height: 0;
   }
 
   .voice-call-activity {
@@ -643,7 +685,9 @@
   .voice-call-end,
   .voice-call-primary-control button,
   .voice-call-error button,
-  .voice-orb,
+  .voice-avatar,
+  .voice-avatar::before,
+  .voice-avatar-canvas,
   .voice-call-activity-panel,
   .voice-call-activity-flow span {
     transition: none;

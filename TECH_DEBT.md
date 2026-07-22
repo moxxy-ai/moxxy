@@ -24,6 +24,14 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [low, desktop/voice/avatar-assets, RESOLVED 2026-07-23] The owner-supplied
+  Voice Mode persona depended on five identically aligned transparent frames,
+  but an accidental resize, recompression, or alpha-channel change would have
+  silently produced visible mouth and blink jumps. A real asset-contract test
+  now pins every original SHA-256 checksum, dimension, PNG type, and alpha
+  channel. Frame selection and amplitude smoothing are pure and tested, while
+  image loading and analyser-driven animation live in a reusable hook behind a
+  presentation-only component. `apps/desktop/src/voice-call/`.
 - [low, desktop/focus/voice-discovery, RESOLVED 2026-07-22] Focus Mode assumed
   that an available transcriber also meant full Voice Mode was available, so it
   rendered a start control before checking whether Local Piper existed and then

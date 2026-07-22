@@ -40,6 +40,8 @@ describe('VoiceCallSurface', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Listening');
     expect(screen.getByText('Opowiedz mi o kawie')).toBeInTheDocument();
     expect(screen.getByText('Najpierw zmiel świeże ziarna.')).toBeInTheDocument();
+    expect(container.querySelector('.voice-avatar')).toBeInTheDocument();
+    expect(container.querySelector('.voice-orb')).not.toBeInTheDocument();
     const muteButton = screen.getByRole('button', { name: 'Mute microphone' });
     expect(muteButton).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(muteButton);

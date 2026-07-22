@@ -1,7 +1,7 @@
 import type { VoiceCallPhase, VoiceToolActivity } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
 import { VoiceActivityIndicator } from './VoiceActivityIndicator';
-import { VoiceOrb } from './VoiceOrb';
+import { VoiceAvatar } from './VoiceAvatar';
 import { VoiceTranscript } from './VoiceTranscript';
 import type { VoiceTranscriptLine } from './voice-transcript';
 import './voice-call.css';
@@ -110,7 +110,7 @@ export function VoiceCallSurface({
         </div>
 
         <div className="voice-call-core">
-          <VoiceOrb
+          <VoiceAvatar
             phase={phase}
             microphoneMuted={microphoneMuted}
             inputAnalyser={inputAnalyser}
