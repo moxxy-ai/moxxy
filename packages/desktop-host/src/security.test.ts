@@ -374,6 +374,9 @@ describe('CSP injection gate', () => {
       const cspHeader = headers?.['Content-Security-Policy'];
       const csp = cspHeader?.[0] ?? '';
       expect(csp).toContain("default-src 'self'");
+      // Piper playback uses an app-created Blob URL. Keep this permission
+      // media-only so Blob scripts, connections, and objects stay forbidden.
+      expect(csp).toContain("media-src 'self' blob:");
       // the live-key prod host folds in
       expect(csp).toContain('https://clerk.acme.com');
     }

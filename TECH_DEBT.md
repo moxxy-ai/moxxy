@@ -37,10 +37,15 @@ or recorded-on-purpose decision.
   visible, and mute still disables monitoring. Deterministic integration tests
   cover echo rejection, genuine speech, atomic queue/turn interruption, stale
   event suppression, natural utterance completion, recorder-start races, and
-  unchanged PCM16 transcription output.
+  unchanged PCM16 transcription output. Packaged verification also exposed
+  that the production CSP inherited `default-src 'self'` for media and blocked
+  Piper's renderer-created Blob URLs even though dev playback worked. A narrow
+  `media-src 'self' blob:` directive now permits only local synthesized media;
+  script, connection, object, and remote-media policies remain unchanged, with
+  a CSP regression test covering both file and loopback app origins.
   `packages/client-core/src/{useStreamingVoiceMode,useVoiceCall,useVoiceRecorder,voice-call-machine}.ts`,
   `packages/client-platform-web/src/{audio-capture,pcm16}.ts`,
-  `apps/desktop/src/voice-call/`.
+  `packages/desktop-host/src/security.ts`, `apps/desktop/src/voice-call/`.
 - [high, desktop/focus/voice-handoff, RESOLVED 2026-07-22] Voice Mode state
   lived independently in each renderer, so entering Focus Mode from an active
   full-window call showed an idle widget and forced the user to end and restart
