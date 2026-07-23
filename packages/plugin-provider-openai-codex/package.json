@@ -65,8 +65,9 @@
     }
   },
   "dependencies": {
-    "@moxxy/sdk": "workspace:*",
-    "@moxxy/plugin-oauth": "workspace:*"
+    "@moxxy/plugin-browser": "workspace:*",
+    "@moxxy/plugin-oauth": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

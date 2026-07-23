@@ -22,6 +22,7 @@ const textOnlyCapabilities = {
   supportsDocuments: false,
   supportsAudio: false,
   supportsReasoning: false,
+  hostedTools: ['web_search'],
 } as const;
 
 export const claudeCodeModels: ReadonlyArray<ModelDescriptor> = [
@@ -40,6 +41,8 @@ export interface ClaudeCodeProviderConfig {
   readonly model?: string;
   /** Transport mode. Native tools are opt-in; omitted defaults to text-only. */
   readonly mode?: 'text' | 'native-tools';
+  /** Enable Claude Code's native WebSearch in text mode. Defaults to true. */
+  readonly webSearch?: boolean;
   /** Claude CLI permission mode. Omitted uses the CLI's safe default. */
   readonly permissionMode?: 'acceptEdits' | 'plan' | 'dontAsk' | 'bypassPermissions';
   /** Optional allow-list of Claude native tool names. */
@@ -67,6 +70,7 @@ export class ClaudeCodeProvider implements LLMProvider {
   private readonly executable: string;
   private readonly defaultModel: string;
   private readonly nativeTools: boolean;
+  private readonly webSearch: boolean;
   private readonly permissionMode?: string;
   private readonly allowedTools: ReadonlyArray<string>;
   private readonly cwd: string;
@@ -80,6 +84,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     this.executable = config.executable ?? 'claude';
     this.defaultModel = config.defaultModel ?? CLAUDE_CODE_DEFAULT_MODEL;
     this.nativeTools = config.mode === 'native-tools';
+    this.webSearch = config.webSearch !== false;
     if (config.permissionMode) this.permissionMode = config.permissionMode;
     this.allowedTools = config.allowedTools ?? [];
     this.cwd = config.cwd ?? process.cwd();
@@ -114,6 +119,7 @@ export class ClaudeCodeProvider implements LLMProvider {
         prompt,
         cwd: this.cwd,
         nativeTools: this.nativeTools,
+        webSearch: this.webSearch,
         allowedTools: this.allowedTools,
         ...(this.permissionMode ? { permissionMode: this.permissionMode } : {}),
         ...(req.signal ? { signal: req.signal } : {}),

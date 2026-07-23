@@ -1,4 +1,4 @@
-import type { ToolDef } from './tool.js';
+import type { HostedTool, ToolDef } from './tool.js';
 
 export interface ProviderMessage {
   readonly role: 'system' | 'user' | 'assistant' | 'tool_result';
@@ -148,6 +148,13 @@ export interface ModelDescriptor {
    * for this model. When false, `ProviderRequest.reasoning` is ignored.
    */
   readonly supportsReasoning?: boolean;
+  /**
+   * Tools executed by the provider on behalf of this model (for example
+   * OpenAI Responses or Anthropic server tools). A matching client ToolDef
+   * may be replaced by the hosted implementation while retaining its handler
+   * as the fallback for other models/providers.
+   */
+  readonly hostedTools?: ReadonlyArray<HostedTool['type']>;
 }
 
 export interface LLMProvider {

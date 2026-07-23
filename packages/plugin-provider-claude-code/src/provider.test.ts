@@ -51,7 +51,7 @@ describe('claude-code provider definition', () => {
     expect(resolved).toMatchObject({ mode: 'native-tools', cwd: '/session/workspace' });
   });
 
-  it('registers the exact Claude Code catalog, default, and text-only capabilities', () => {
+  it('registers the exact Claude Code catalog and its native web-search capability', () => {
     expect(claudeCodeProviderDef.name).toBe('claude-code');
     expect(claudeCodeProviderDef.auth?.kind).toBe('oauth');
     expect(CLAUDE_CODE_DEFAULT_MODEL).toBe('claude-sonnet-4-6');
@@ -72,6 +72,7 @@ describe('claude-code provider definition', () => {
         supportsDocuments: false,
         supportsAudio: false,
         supportsReasoning: false,
+        hostedTools: ['web_search'],
       });
     }
   });
@@ -100,7 +101,8 @@ describe('claude-code provider definition', () => {
     ]);
     const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
     expect(args).toEqual(expect.arrayContaining([
-      '--print', '--verbose', '--output-format', 'stream-json', '--include-partial-messages', '--tools', '',
+      '--print', '--verbose', '--output-format', 'stream-json', '--include-partial-messages',
+      '--tools', 'WebSearch', '--allowedTools', 'WebSearch',
     ]));
     const input = await readFile(join(dir, 'input.txt'), 'utf8');
     expect(input).toContain('system instructions');
@@ -108,6 +110,21 @@ describe('claude-code provider definition', () => {
     expect(input).toContain('<assistant>\nprior assistant');
     expect(input).toContain('<user>\nlatest user');
     expect(input).not.toContain('oauth-secret');
+  });
+
+  it('can disable native WebSearch without enabling any other Claude tools', async () => {
+    const dir = await makeFakeClaude([
+      { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
+    ]);
+    await collect(createClaudeCodeClient({
+      executable: join(dir, 'claude'),
+      webSearch: false,
+    }).stream(textRequest()));
+
+    const args = JSON.parse(await readFile(join(dir, 'args.json'), 'utf8')) as string[];
+    expect(args).toEqual(expect.arrayContaining(['--tools', '']));
+    expect(args).not.toContain('WebSearch');
+    expect(args).not.toContain('--allowedTools');
   });
 
   it('consumes streamed thinking blocks without exposing their deltas', async () => {
