@@ -51,6 +51,34 @@ function makeStream() {
 }
 
 describe('useTurnRunner force-send drain (u79-1)', () => {
+  it('keeps the turn busy until the provider iterator reaches its terminal result', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const session = {
+      runTurn: () => (async function* () {
+        await gate;
+      })(),
+    } as unknown as Parameters<typeof useTurnRunner>[0]['session'];
+
+    const handle = mountFreshHook({
+      session,
+      resolveModel: () => 'claude-opus-4-8',
+      stream: makeStream(),
+    });
+    const turnPromise = handle.runTurnWith('research this', []);
+
+    expect(handle.busyRef.current).toBe(true);
+    expect(handle.turnControllerRef.current).not.toBeNull();
+
+    release();
+    await turnPromise;
+
+    expect(handle.busyRef.current).toBe(false);
+    expect(handle.turnControllerRef.current).toBeNull();
+  });
+
   it('runs a mid-turn force-sent message alone after the in-flight turn', async () => {
     const runs: string[] = [];
     // Controllable gate so we can force-send WHILE the first turn is in flight.

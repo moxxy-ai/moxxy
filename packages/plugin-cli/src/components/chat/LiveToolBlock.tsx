@@ -32,8 +32,13 @@ export const LiveToolBlock: React.FC<{
   block: LiveToolBlockData;
   /** Global Ctrl+O toggle. */
   expanded: boolean;
-}> = ({ block, expanded }) => {
-  const inFlight = !block.closed || block.calls.some((call) => call.outcome === null);
+  /** Compact child row beneath a skill activity header. */
+  nested?: boolean;
+}> = ({ block, expanded, nested = false }) => {
+  // An aggregate may remain open for another adjacent compact call after the
+  // latest result settles. Animate actual pending work, not that grouping
+  // window, otherwise a completed read/search keeps shimmering indefinitely.
+  const inFlight = block.calls.some((call) => call.outcome === null);
   const showDetails = expanded || inFlight;
   const summary = buildCompactSummary(block.calls, inFlight);
   const latest = block.calls[block.calls.length - 1];
@@ -47,8 +52,9 @@ export const LiveToolBlock: React.FC<{
   }, 0);
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={nested ? 0 : 1}>
       <Box>
+        {nested ? <Text dimColor>└ </Text> : null}
         <Text dimColor>{latest ? toolGlyph(latest.request.name) : Glyphs.pending} </Text>
         <ShimmerText text={summary} active={inFlight} />
         {!showDetails ? <Text dimColor>{'  ›'}</Text> : null}
@@ -69,7 +75,7 @@ export const LiveToolBlock: React.FC<{
       {showDetails ? (
         <Box flexDirection="column" marginLeft={2}>
           {block.calls.map((c) => (
-            <ToolCallBlock key={c.id} request={c.request} outcome={c.outcome} />
+            <ToolCallBlock key={c.id} request={c.request} outcome={c.outcome} nested />
           ))}
         </Box>
       ) : null}

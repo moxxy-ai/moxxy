@@ -150,6 +150,8 @@ export interface SkillScopeBlock {
   readonly id: string;
   readonly skillEvent: SkillInvokedEvent;
   children: Block[];
+  /** True only between the matching load_skill request and its result. */
+  loading: boolean;
   /**
    * A scope is "closed" once the turn ends (another user_prompt arrives
    * after it). Closed scopes collapse to a one-line summary by default;

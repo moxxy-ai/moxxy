@@ -351,6 +351,9 @@ export interface FoldState {
   // field). One map handles both kinds via structural typing.
   readonly callTargets: Map<string, CallTarget>;
   readonly suppressedCallIds: Set<string>;
+  /** load_skill calls hidden inside their resulting skill scope. The map lets
+   *  the matching result stop the scope header's loading animation. */
+  readonly suppressedSkillScopes: Map<string, SkillScopeBlock>;
   pendingLoadSkillCallId: string | null;
   openScope: SkillScopeBlock | null;
   // When an assistant_message lands mid-skill we close the current
@@ -381,6 +384,7 @@ export function createFoldState(compactByName: CompactToolMap = EMPTY_COMPACT_MA
     compactByName,
     callTargets: new Map<string, CallTarget>(),
     suppressedCallIds: new Set<string>(),
+    suppressedSkillScopes: new Map<string, SkillScopeBlock>(),
     pendingLoadSkillCallId: null,
     openScope: null,
     continuationSkillEvent: null,
@@ -418,6 +422,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
   const closeOpenScope = (): void => {
     closeOpenLive();
     if (s.openScope) {
+      s.openScope.loading = false;
       s.openScope.closed = true;
       s.openScope = null;
     }
@@ -475,6 +480,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     // skill scope). Clearing it at the turn boundary stops a later turn that
     // happens to reuse a callId from having its tool_result silently dropped.
     s.suppressedCallIds.clear();
+    s.suppressedSkillScopes.clear();
     s.subagentGroup.current = null;
     // Subagents run to completion within the turn that dispatched them, so the
     // lookup map is a within-turn concern like callTargets. Clearing it bounds
@@ -492,9 +498,10 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     // both "load_skill(name=foo)" AND "◆ skill: foo".
     closeOpenScope();
     s.continuationSkillEvent = null;
-    if (s.pendingLoadSkillCallId) {
-      s.suppressedCallIds.add(s.pendingLoadSkillCallId);
-      removeBlockByCallId(s.pendingLoadSkillCallId);
+    const loadCallId = s.pendingLoadSkillCallId;
+    if (loadCallId) {
+      s.suppressedCallIds.add(loadCallId);
+      removeBlockByCallId(loadCallId);
       s.pendingLoadSkillCallId = null;
     }
     s.subagentGroup.current = null;
@@ -503,8 +510,10 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
       id: e.id,
       skillEvent: e,
       children: [],
+      loading: loadCallId !== null,
       closed: false,
     };
+    if (loadCallId) s.suppressedSkillScopes.set(loadCallId, s.openScope);
     s.root.push(s.openScope);
     return;
   }
@@ -522,6 +531,7 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
         id: `${s.continuationSkillEvent.id}:cont:${e.id}`,
         skillEvent: s.continuationSkillEvent,
         children: [],
+        loading: false,
         closed: false,
       };
       s.root.push(s.openScope);
@@ -553,7 +563,12 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     return;
   }
   if (e.type === 'tool_result') {
-    if (s.suppressedCallIds.has(e.callId)) return;
+    if (s.suppressedCallIds.has(e.callId)) {
+      const scope = s.suppressedSkillScopes.get(e.callId);
+      if (scope) scope.loading = false;
+      s.suppressedSkillScopes.delete(e.callId);
+      return;
+    }
     const target = s.callTargets.get(e.callId);
     if (target) {
       target.outcome = e;
@@ -561,7 +576,12 @@ export function stepFold(s: FoldState, e: MoxxyEvent): void {
     }
   }
   if (e.type === 'tool_call_denied') {
-    if (s.suppressedCallIds.has(e.callId)) return;
+    if (s.suppressedCallIds.has(e.callId)) {
+      const scope = s.suppressedSkillScopes.get(e.callId);
+      if (scope) scope.loading = false;
+      s.suppressedSkillScopes.delete(e.callId);
+      return;
+    }
     const target = s.callTargets.get(e.callId);
     if (target) {
       target.outcome = { type: 'denied', reason: e.reason };
@@ -894,6 +914,7 @@ export function blocksEquivalent(a: Block, b: Block): boolean {
     return true;
   }
   if (a.kind === 'skill-scope' && b.kind === 'skill-scope') {
+    if (a.loading !== b.loading) return false;
     if (a.closed !== b.closed) return false;
     if (a.children.length !== b.children.length) return false;
     for (let i = 0; i < a.children.length; i += 1) {

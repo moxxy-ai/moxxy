@@ -308,9 +308,17 @@ describe('pairToolEvents — skill grouping', () => {
   });
 
   it('suppresses the load_skill tool call and collapses it into the scope', () => {
+    const loadingBlocks = pairToolEvents([
+      toolRequest('ls1', 'load_skill', { name: 'pdf' }),
+      skillInvoked('sk1', 'pdf'),
+    ]);
+    const loadingScope = asScope(loadingBlocks[0]);
+    expect(loadingScope.loading).toBe(true);
+
     const blocks = pairToolEvents([
       toolRequest('ls1', 'load_skill', { name: 'pdf' }),
       skillInvoked('sk1', 'pdf'),
+      toolResult('ls1', 'loaded'),
       toolRequest('c1', 'bash'),
       toolResult('c1'),
     ]);
@@ -318,6 +326,7 @@ describe('pairToolEvents — skill grouping', () => {
     // The load_skill tool-call must NOT appear as its own block.
     expect(blocks).toHaveLength(1);
     const scope = asScope(blocks[0]);
+    expect(scope.loading).toBe(false);
     expect(scope.children).toHaveLength(1);
     expect(asToolCall(scope.children[0]).request.name).toBe('bash');
 
@@ -328,6 +337,7 @@ describe('pairToolEvents — skill grouping', () => {
       toolResult('ls1', 'loaded'),
     ]);
     const scope2 = asScope(withResult[0]);
+    expect(scope2.loading).toBe(false);
     expect(scope2.children).toHaveLength(0);
   });
 
@@ -600,7 +610,7 @@ describe('blocksEquivalent', () => {
     expect(blocksEquivalent(a, b)).toBe(true);
   });
 
-  it('skill-scope: differs when closed flag or child count differs', () => {
+  it('skill-scope: differs when loading/closed state or child count differs', () => {
     const sk = skillInvoked('sk1', 'pdf');
     const c1 = toolRequest('c1', 'bash');
     const r1 = toolResult('c1');
@@ -610,6 +620,17 @@ describe('blocksEquivalent', () => {
     expect(openScope.closed).toBe(false);
     expect(closedScope.closed).toBe(true);
     expect(blocksEquivalent(openScope, closedScope)).toBe(false);
+
+    const loadingScope = asScope(pairToolEvents([
+      toolRequest('load-1', 'load_skill', { name: 'pdf' }),
+      sk,
+    ])[0]);
+    const loadedScope = asScope(pairToolEvents([
+      toolRequest('load-1', 'load_skill', { name: 'pdf' }),
+      sk,
+      toolResult('load-1'),
+    ])[0]);
+    expect(blocksEquivalent(loadingScope, loadedScope)).toBe(false);
 
     const oneChild = asScope(pairToolEvents([sk, c1, r1])[0]);
     const twoChildren = asScope(
