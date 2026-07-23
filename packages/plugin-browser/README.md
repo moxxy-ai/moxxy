@@ -6,7 +6,9 @@ Web access for moxxy in three tiers:
 - `web_fetch` safely reads a public HTTP(S) URL with SSRF checks, DNS pinning, redirect validation, byte limits, and abort handling.
 - `browser_session` drives a Playwright sidecar for interactive or JavaScript-heavy pages.
 
-Codex and the Anthropic API provider advertise hosted web search directly using their normal moxxy OAuth/API credentials. The `claude-code` provider uses the installed Claude CLI and enables only its native `WebSearch` tool in text mode by default. Install this plugin when a local fallback, direct page fetches, or an interactive browser is desired.
+Codex and the Anthropic API provider advertise hosted web search directly using their normal moxxy OAuth/API credentials. The `claude-code` provider uses the installed Claude CLI and enables only its native `WebSearch` tool in text mode by default. Those three provider packages install this plugin automatically, so the local adapter is ready when a provider participating in Moxxy tool calling needs it. Other providers can install it separately.
+
+The automatic install stays lightweight: Playwright is an optional peer with no install hook. Its package and browser engine are offered only when `browser_session` is used.
 
 ## Custom search adapter
 
