@@ -24,6 +24,21 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, tui/providers, RESOLVED 2026-07-23] Text-only models were still given
+  the lazy skill index, so Claude Code imitated `load_skill(...)` as assistant
+  text and ended the turn before doing the work. ReAct prompt composition now
+  advertises skills only to tool-capable models, letting Claude CLI keep its
+  native operation inside one busy turn. Tool/skill activity now tracks the
+  actual load/result state (rather than an open grouping scope), mutable fold
+  rows carry an explicit render revision, completed work loses its shimmer,
+  zero-count metadata is omitted, and nested Ink rows use compact branch guides.
+  `packages/sdk/src/mode/react-loop.ts`, `packages/chat-model/src/`,
+  `packages/plugin-cli/src/components/chat/`, `apps/desktop/src/chat/`.
+- [low, tui, RESOLVED 2026-07-23] Origin-bearing prompts now render in the TUI
+  as compact webhook/schedule/workflow/checkpoint activity markers, with the
+  full synthesized payload available through the existing Ctrl+O expansion,
+  instead of looking like a human-authored user prompt.
+  `packages/plugin-cli/src/components/chat/EventLine.tsx`.
 - [med, chat-ux, RESOLVED 2026-07-23] Desktop ignored the live registry's
   `ToolInfo.compact` metadata even though TUI already consumed it, so the same
   Read/Grep/Glob run became a compact activity trace in one surface and a stack
@@ -429,12 +444,6 @@ or recorded-on-purpose decision.
 
 ## Channels, relay & HTTP
 
-- [low] Origin-bearing `user_prompt` events (webhook/schedule/workflow triggers
-  and now the ReAct loop's checkpoint-gate injections, `origin.kind:
-  'checkpoint'`) render as a compact chip on desktop (`apps/desktop/…/
-  TriggerBlock.tsx`) but the TUI has no origin-aware rendering — trigger
-  payloads and mid-turn checkpoint feedback show as full user-style bubbles.
-  `packages/plugin-channel-tui`.
 - [low] Discord channel pairing is terminal-only: the DM code flow (bot DMs a
   one-time code → operator pastes it into `moxxy discord pair`) has no GUI
   completion path, so the desktop Channels panel can start the bot dedicated

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
+import { asSkillId, definePlugin, defineTool, type ProviderEvent } from '@moxxy/sdk';
 import { Session, autoAllowResolver, collectTurn, silentLogger } from '@moxxy/core';
 import { FakeProvider, textReply, toolUseReply, createFakeSession } from '@moxxy/testing';
 import { defaultModePlugin } from './index.js';
@@ -78,11 +78,30 @@ describe('defaultMode end-to-end', () => {
         handler: () => 'unused',
       }),
     );
+    session.skills.register({
+      id: asSkillId('web-research'),
+      path: '/test/web-research.md',
+      scope: 'project',
+      frontmatter: {
+        name: 'web-research',
+        description: 'Research current information on the web.',
+        triggers: ['latest news'],
+      },
+      body: 'Use web tools and cite sources.',
+    });
 
     const events = await collectTurn(session, 'answer without tools');
 
     expect(provider.received).toHaveLength(1);
     expect(provider.received[0]?.tools).toBeUndefined();
+    const systemText = provider.received[0]?.messages
+      .filter((message) => message.role === 'system')
+      .flatMap((message) => message.content)
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n') ?? '';
+    expect(systemText).not.toContain('Available skills');
+    expect(systemText).not.toContain('load_skill');
     const last = events.at(-1);
     expect(last).toMatchObject({ type: 'assistant_message', content: 'plain response' });
   });

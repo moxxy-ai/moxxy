@@ -41,13 +41,20 @@ const MemoBlock = memo(
   function MemoBlock({
     block,
     onPreviewImage,
+    foldVersion: _foldVersion,
   }: {
     readonly block: FoldedBlock;
     readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+    /** Mutable incremental-fold blocks need a scalar revision so memo sees
+     *  outcome/scope changes even when the object reference is stable. */
+    readonly foldVersion: number;
   }): JSX.Element | null {
     return <BlockView block={block} onPreviewImage={onPreviewImage} />;
   },
-  (a, b) => blocksEquivalent(a.block, b.block) && a.onPreviewImage === b.onPreviewImage,
+  (a, b) =>
+    a.foldVersion === b.foldVersion &&
+    blocksEquivalent(a.block, b.block) &&
+    a.onPreviewImage === b.onPreviewImage,
 );
 
 /** Row gutter — Virtuoso measures each item, so spacing rides on the row
@@ -88,10 +95,12 @@ function Row({
   node,
   workspaceId,
   onPreviewImage,
+  foldVersion,
 }: {
   readonly node: RenderNode;
   readonly workspaceId?: string;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+  readonly foldVersion: number;
 }): JSX.Element {
   return (
     <div style={ROW}>
@@ -100,7 +109,11 @@ function Row({
       ) : node.kind === 'tool-group' ? (
         <ToolGroupView tools={node.tools} />
       ) : (
-        <MemoBlock block={node.block} onPreviewImage={onPreviewImage} />
+        <MemoBlock
+          block={node.block}
+          onPreviewImage={onPreviewImage}
+          foldVersion={foldVersion}
+        />
       )}
     </div>
   );
@@ -151,6 +164,7 @@ export function Transcript({
     () => groupToolNodes(buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools)),
     [events, extensions, compactTools],
   );
+  const foldVersion = foldRef.current?.version ?? events.length;
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
 
@@ -230,7 +244,12 @@ export function Transcript({
         {...(hasOlder && onReachedTop ? { startReached: onReachedTop } : {})}
         computeItemKey={(_i, node) => keyOf(node)}
         itemContent={(_i, node) => (
-          <Row node={node} workspaceId={workspaceId} onPreviewImage={onPreviewImage} />
+          <Row
+            node={node}
+            workspaceId={workspaceId}
+            onPreviewImage={onPreviewImage}
+            foldVersion={foldVersion}
+          />
         )}
         components={{
           Footer: () => (

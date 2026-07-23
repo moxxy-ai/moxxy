@@ -71,7 +71,10 @@ export function useActivityDisclosure(running: boolean): readonly [boolean, () =
   const touched = useRef(false);
   const wasRunning = useRef(running);
   useEffect(() => {
-    if (wasRunning.current && !running && !touched.current) setOpen(false);
+    if (!touched.current) {
+      if (wasRunning.current && !running) setOpen(false);
+      if (!wasRunning.current && running) setOpen(true);
+    }
     wasRunning.current = running;
   }, [running]);
   return [
@@ -85,16 +88,24 @@ export function useActivityDisclosure(running: boolean): readonly [boolean, () =
 
 export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
   const tools = collectTools(scope.children);
-  const running = !scope.closed || tools.some((tool) => statusOf(tool.outcome) === 'running');
+  const runningTools = tools.some((tool) => statusOf(tool.outcome) === 'running');
+  const running = scope.loading || runningTools;
   const [open, toggle] = useActivityDisclosure(running);
   const errors = tools.filter((tool) => statusOf(tool.outcome) === 'error').length;
   const meta = errors > 0 ? `${errors} failed` : tools.length > 0 ? `${tools.length}` : undefined;
+  const label = scope.loading
+    ? `Loading skill ${scope.skillEvent.name}…`
+    : scope.closed
+      ? `Used skill ${scope.skillEvent.name}`
+      : tools.length > 0
+        ? `Using skill ${scope.skillEvent.name}`
+        : `Loaded skill ${scope.skillEvent.name}`;
 
   return (
     <div className="activity-block" data-testid="block-skill">
       <ActivityRow
         icon="spark"
-        label={`${running ? 'Using' : 'Used'} skill ${scope.skillEvent.name}${running ? '…' : ''}`}
+        label={label}
         meta={meta}
         active={running}
         open={open}

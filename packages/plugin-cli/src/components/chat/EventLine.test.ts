@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asEventId, asSessionId, asTurnId, type MoxxyEvent } from '@moxxy/sdk';
-import { collapseBlankLines, formatCompactionEvent } from './EventLine.js';
+import { collapseBlankLines, formatCompactionEvent, formatTriggerOrigin } from './EventLine.js';
 
 describe('formatCompactionEvent', () => {
   it('renders a compact, readable compaction summary', () => {
@@ -46,5 +46,14 @@ describe('collapseBlankLines', () => {
 
   it('leaves plain text unchanged', () => {
     expect(collapseBlankLines('hello world')).toBe('hello world');
+  });
+});
+
+describe('formatTriggerOrigin', () => {
+  it('uses compact origin-aware labels for machine and checkpoint prompts', () => {
+    expect(formatTriggerOrigin({ kind: 'webhook', name: 'github' })).toBe('Webhook received');
+    expect(formatTriggerOrigin({ kind: 'schedule', name: 'morning' })).toBe('Schedule fired');
+    expect(formatTriggerOrigin({ kind: 'workflow', name: 'release' })).toBe('Workflow ran');
+    expect(formatTriggerOrigin({ kind: 'checkpoint', name: 'verify' })).toBe('Checkpoint intervened');
   });
 });

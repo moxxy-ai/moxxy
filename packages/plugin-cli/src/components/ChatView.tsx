@@ -106,6 +106,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     settledRef.current = next;
   }
   const liveBlocks = blocks.slice(settledRef.current.length);
+  const renderVersion = foldRef.current?.version ?? events.length;
   return (
     <>
       <Static key={clearGenerationRef.current} items={settledRef.current}>
@@ -114,6 +115,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             key={block.id}
             block={block}
             expandToolOutputs={!!expandToolOutputs}
+            renderVersion={renderVersion}
           />
         )}
       </Static>
@@ -124,6 +126,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               key={b.id}
               block={b}
               expandToolOutputs={!!expandToolOutputs}
+              renderVersion={renderVersion}
             />
           ))}
           {streamingDelta && streamingDelta.trim() ? (
