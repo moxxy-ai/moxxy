@@ -67,9 +67,20 @@ export function Inactive({
           outputAnalyser={outputAnalyser}
         />
       </button>
-      {bubbleRestoreVisible && <FocusBubbleRestoreButton onClick={onShowBubble} />}
     </div>
   );
+
+  const chrome = bubbleRestoreVisible ? (
+    <div
+      style={{
+        ...style.focusPetRestoreRoot,
+        flexDirection: horizontalAnchor === 'right' ? 'row' : 'row-reverse',
+      }}
+    >
+      <FocusBubbleRestoreButton onClick={onShowBubble} />
+      {pet}
+    </div>
+  ) : pet;
 
   if (ask) {
     return (
@@ -80,7 +91,7 @@ export function Inactive({
           flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
         }}
       >
-        {pet}
+        {chrome}
         <FocusAskCard prompt={ask} variant="toast" />
       </div>
     );
@@ -99,14 +110,14 @@ export function Inactive({
           onActivate={onBubbleActivate}
           onHide={onHideBubble}
         />
-        {pet}
+        {chrome}
       </div>
     );
   }
 
   return (
     <div style={style.inactiveRoot}>
-      {pet}
+      {chrome}
     </div>
   );
 }

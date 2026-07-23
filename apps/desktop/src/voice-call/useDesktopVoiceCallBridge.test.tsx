@@ -121,6 +121,40 @@ describe('useDesktopVoiceCallBridge', () => {
     expect(focusCall.close).not.toHaveBeenCalled();
   });
 
+  it('opens Voice Mode in the main renderer when Focus initiates the call', async () => {
+    const bus = new InMemoryVoiceBridge();
+    const ownerOpen = vi.fn();
+    const focusLocalOpen = vi.fn();
+    const mainPort = bus.port();
+    const focusPort = bus.port();
+
+    const { result } = renderHook(() => {
+      const main = useDesktopVoiceCallBridge({
+        surface: 'main',
+        workspaceId: 'ws-focus-open',
+        localCall: voiceCall({ open: ownerOpen }),
+        port: mainPort,
+      });
+      const focus = useDesktopVoiceCallBridge({
+        surface: 'focus',
+        workspaceId: 'ws-focus-open',
+        localCall: voiceCall({ open: focusLocalOpen }),
+        port: focusPort,
+      });
+      return { main, focus };
+    });
+
+    await waitFor(() => expect(bus.messages).toContainEqual(expect.objectContaining({
+      type: 'snapshot',
+      source: 'main',
+      workspaceId: 'ws-focus-open',
+    })));
+    act(() => result.current.focus.open());
+
+    expect(ownerOpen).toHaveBeenCalledOnce();
+    expect(focusLocalOpen).not.toHaveBeenCalled();
+  });
+
   it('routes Local Piper installation from Focus Mode to the call owner', async () => {
     const bus = new InMemoryVoiceBridge();
     const installLocalPiper = vi.fn();

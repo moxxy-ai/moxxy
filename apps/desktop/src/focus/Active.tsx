@@ -110,7 +110,7 @@ export function Active({
         />
       )}
       <div style={style.activeDivider} aria-hidden />
-      <div style={style.activeActions}>
+      <div data-testid="focus-active-actions" style={style.activeActions}>
         {hasTranscriber && !voiceModeActive && (
           <ActionButton
             onClick={onToggleMic}
@@ -175,9 +175,14 @@ export function Active({
         <ActionButton onClick={onText} aria-label="Text">
           <PencilIcon />
         </ActionButton>
-        {/* Dismiss the floating bar (leaves the app where it was — does NOT
-            open the main window). Kept before the restore button so the LAST
-            icon is the "open main window" action. */}
+        {/* Reopen the full app before the final close action. */}
+        <ActionButton
+          onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}
+          aria-label="Open main window"
+        >
+          <WindowIcon />
+        </ActionButton>
+        {/* Last icon dismisses Focus Mode without opening the main window. */}
         <ActionButton
           onClick={() => void api().invoke('focus.close').catch(() => undefined)}
           aria-label="Close focus mode"
@@ -185,19 +190,11 @@ export function Active({
         >
           <XIcon />
         </ActionButton>
-        {/* Last icon: reopen the full app (restores + focuses the main window
-            and closes this bar). */}
-        <ActionButton
-          onClick={() => void api().invoke('focus.restoreMain').catch(() => undefined)}
-          aria-label="Open main window"
-        >
-          <WindowIcon />
-        </ActionButton>
       </div>
     </div>
   );
 
-  const chrome = (
+  const chromeRow = (
     <div style={style.activeChrome}>
       <div style={style.focusActiveDock}>
         <button
@@ -214,11 +211,19 @@ export function Active({
             outputAnalyser={petOutputAnalyser}
           />
         </button>
-        {bubbleRestoreVisible && <FocusBubbleRestoreButton onClick={onShowBubble} />}
       </div>
       {bar}
     </div>
   );
+
+  const chrome = bubbleRestoreVisible ? (
+    <div style={style.activeChromeWithRestore}>
+      <div data-testid="focus-active-restore-dock" style={style.focusActiveRestoreDock}>
+        <FocusBubbleRestoreButton onClick={onShowBubble} />
+      </div>
+      {chromeRow}
+    </div>
+  ) : chromeRow;
 
   if (!bubble && !ask) return chrome;
 

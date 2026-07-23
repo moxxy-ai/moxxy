@@ -1,5 +1,12 @@
-import { useCallback, useState } from 'react';
-import { useChat } from '@moxxy/client-core';
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
+import { chatStore, useChat, useQueuedTurns } from '@moxxy/client-core';
 import {
   useComposerAttachments,
   type ComposerAttachment,
@@ -9,6 +16,7 @@ import { useImagePreview } from '@/chat/image-preview/useImagePreview';
 import type { ImagePreviewItem } from '@/chat/image-preview/types';
 
 export interface FocusMiniTextComposer {
+  readonly inputRef: RefObject<HTMLTextAreaElement>;
   readonly draft: string;
   readonly setDraft: (value: string) => void;
   readonly attachments: ReadonlyArray<ComposerAttachment>;
@@ -18,19 +26,25 @@ export interface FocusMiniTextComposer {
   readonly removeAttachment: (path: string) => void;
   readonly canSubmit: boolean;
   readonly sending: boolean;
+  readonly queued: ReturnType<typeof useQueuedTurns>;
+  readonly removeQueued: (id: string) => void;
   readonly submit: () => void;
+  readonly onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly imagePreview: ReturnType<typeof useImagePreview>;
 }
 
+const MAX_TEXTAREA_HEIGHT = 112;
+
 export function useFocusMiniTextComposer({
   workspaceId,
-  focusInput,
 }: {
   readonly workspaceId: string | null;
-  readonly focusInput: () => void;
 }): FocusMiniTextComposer {
   const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const focusInput = useCallback(() => inputRef.current?.focus(), []);
   const chat = useChat(workspaceId);
+  const queued = useQueuedTurns(workspaceId);
   const {
     attachments,
     removeAttachment,
@@ -53,7 +67,26 @@ export function useFocusMiniTextComposer({
     clearAttachments();
   }, [attachments, canSubmit, chat, clearAttachments, trimmedDraft]);
 
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+  }, [draft]);
+
+  const onKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      submit();
+    }
+  }, [submit]);
+
+  const removeQueued = useCallback((id: string): void => {
+    if (workspaceId) chatStore.dropFromQueue(workspaceId, id);
+  }, [workspaceId]);
+
   return {
+    inputRef,
     draft,
     setDraft,
     attachments,
@@ -63,7 +96,10 @@ export function useFocusMiniTextComposer({
     removeAttachment,
     canSubmit,
     sending: chat.sending,
+    queued,
+    removeQueued,
     submit,
+    onKeyDown,
     imagePreview,
   };
 }

@@ -63,7 +63,17 @@ export function selectFocusTaskStatus({
 }: FocusTaskStatusInput): FocusTaskStatus | null {
   const phaseLabel = voiceModeActive ? PHASE_LABELS[voiceModePhase] : undefined;
   const turnActive = activeTurnId !== null || sending;
-  if (!turnActive && !phaseLabel) return null;
+  if (!turnActive) {
+    if (voiceModeActive && voiceModePhase === 'transcribing' && phaseLabel) {
+      return {
+        key: 'voice:transcribing',
+        title: 'Voice Mode',
+        text: phaseLabel,
+        busy: true,
+      };
+    }
+    return null;
+  }
 
   const prompt = promptForTurn(events, activeTurnId);
   return {

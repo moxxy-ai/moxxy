@@ -39,6 +39,7 @@ interface FakeApiOptions {
   readonly historyEvents?: ReadonlyArray<MoxxyEvent>;
   readonly hasTranscriber?: boolean;
   readonly theme?: ThemePreference;
+  readonly horizontalAnchor?: 'left' | 'right';
   readonly focusMiniTextSize?: { readonly width: number; readonly height: number } | null;
   readonly activeSynthesizer?: string | null;
   readonly localPiperInstalled?: boolean;
@@ -82,6 +83,7 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
   const historyEvents = options.historyEvents ?? [];
   const hasTranscriber = options.hasTranscriber ?? true;
   const theme = options.theme ?? 'system';
+  const horizontalAnchor = options.horizontalAnchor ?? 'right';
   const focusMiniTextSize = options.focusMiniTextSize ?? null;
   let activeSynthesizer = options.activeSynthesizer ?? 'local-piper';
   let localPiperInstalled = options.localPiperInstalled ?? true;
@@ -109,16 +111,16 @@ function installFakeApi(options: FakeApiOptions = {}): IpcSpy {
         return Promise.resolve({ events: historyEvents, prevCursor: null });
       }
       if (channel === 'focus.resize') {
-        return Promise.resolve({ horizontalAnchor: 'right' });
+        return Promise.resolve({ horizontalAnchor });
       }
       if (channel === 'focus.moveBy') {
-        return Promise.resolve({ horizontalAnchor: 'right' });
+        return Promise.resolve({ horizontalAnchor });
       }
       if (
         channel === 'focus.dragStart' ||
         channel === 'focus.dragMove'
       ) {
-        return Promise.resolve({ horizontalAnchor: 'right' });
+        return Promise.resolve({ horizontalAnchor });
       }
       if (channel === 'focus.dragEnd') {
         return Promise.resolve(undefined);
@@ -774,6 +776,15 @@ describe('FocusWidget theme', () => {
 
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
+      event: event(24, {
+        type: 'user_prompt',
+        source: 'user',
+        turnId: asTurnId('t-themed-preview'),
+        text: 'Show the theme-aware reply',
+      }),
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
       event: {
         id: 'e-themed-preview',
         seq: 25,
@@ -794,8 +805,13 @@ describe('FocusWidget theme', () => {
     expect(previewButton.getAttribute('style')).toContain(
       'color: var(--focus-preview-text)',
     );
+    expect(focusStyle.replyPreviewBubble).toMatchObject({
+      backdropFilter: 'none',
+      WebkitBackdropFilter: 'none',
+    });
+    expect(focusCss()).toContain('--focus-preview-shadow: none');
 
-    fireEvent.click(previewButton);
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
 
     const input = await screen.findByPlaceholderText(
       /ask moxxy|no active workspace/i,
@@ -815,11 +831,35 @@ describe('FocusWidget theme', () => {
 });
 
 describe('FocusWidget bidirectional sync', () => {
-  it('hydrates the active workspace history and shows the latest user/assistant block in mini-text', async () => {
+  it('shows only the latest user question, its attachment, and matching answer in mini-text', async () => {
     const spy = installFakeApi({
       historyEvents: [
-        event(1, { type: 'user_prompt', turnId: 't-history', source: 'user', text: 'cached user prompt' } as never),
+        event(1, {
+          type: 'user_prompt',
+          turnId: 't-old',
+          source: 'user',
+          text: 'older user prompt',
+        } as never),
         event(2, {
+          type: 'assistant_message',
+          turnId: 't-old',
+          source: 'model',
+          content: 'older assistant answer',
+          stopReason: 'end_turn',
+        } as never),
+        event(3, {
+          type: 'user_prompt',
+          turnId: 't-history',
+          source: 'user',
+          text: 'cached user prompt',
+          attachments: [{
+            kind: 'image',
+            name: 'question.png',
+            mediaType: 'image/png',
+            content: 'iVBORw0KGgo=',
+          }],
+        } as never),
+        event(4, {
           type: 'assistant_message',
           turnId: 't-history',
           source: 'model',
@@ -840,8 +880,49 @@ describe('FocusWidget bidirectional sync', () => {
       expect((load.args as { workspaceId: string }).workspaceId).toBe('ws-test');
     });
     await waitFor(() => {
+      expect(screen.getByText(/cached user prompt/i)).toBeTruthy();
       expect(screen.getByText(/cached assistant answer/i)).toBeTruthy();
+      expect(screen.getByRole('button', {
+        name: /preview attached image question\.png/i,
+      })).toBeTruthy();
     });
+    fireEvent.click(screen.getByRole('button', {
+      name: /preview attached image question\.png/i,
+    }));
+    expect(screen.getByRole('dialog', { name: /question\.png/i })).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByText(/older user prompt/i)).toBeNull();
+    expect(screen.queryByText(/older assistant answer/i)).toBeNull();
+    expect(screen.getByTestId('focus-transcript').getAttribute('style')).toContain(
+      'user-select: text',
+    );
+  });
+
+  it('does not present an intermediate tool-use message as the final mini-text answer', async () => {
+    installFakeApi({
+      historyEvents: [
+        event(1, {
+          type: 'user_prompt',
+          turnId: 't-tool',
+          source: 'user',
+          text: 'Run the requested operation',
+        } as never),
+        event(2, {
+          type: 'assistant_message',
+          turnId: 't-tool',
+          source: 'model',
+          content: 'internal tool preamble',
+          stopReason: 'tool_use',
+        } as never),
+      ],
+    });
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+
+    expect(await screen.findByText('Run the requested operation')).toBeTruthy();
+    expect(screen.queryByText('internal tool preamble')).toBeNull();
   });
 
   it('sending from mini-text invokes session.runTurn for the active workspace', async () => {
@@ -854,11 +935,12 @@ describe('FocusWidget bidirectional sync', () => {
     // Wait for ConnectionBridge to push the active workspace id
     // through, which un-disables the input.
     await waitFor(() => {
-      const input = screen.getByPlaceholderText(/ask moxxy|no active workspace/i) as HTMLInputElement;
+      const input = screen.getByPlaceholderText(/ask moxxy|no active workspace/i) as HTMLTextAreaElement;
       expect(input.disabled).toBe(false);
     });
 
-    const input = screen.getByPlaceholderText(/ask moxxy/i) as HTMLInputElement;
+    const input = screen.getByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+    expect(input.tagName).toBe('TEXTAREA');
     fireEvent.change(input, { target: { value: 'hello from focus' } });
     fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
 
@@ -871,6 +953,84 @@ describe('FocusWidget bidirectional sync', () => {
         'ws-test',
       );
     });
+  });
+
+  it('uses Shift+Enter for a newline and Enter to send the multiline prompt', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: 'first line' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(spy.invokes.some((invoke) => invoke.channel === 'session.runTurn')).toBe(false);
+
+    fireEvent.change(input, { target: { value: 'first line\nsecond line' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      const turnCall = spy.invokes.find((invoke) => invoke.channel === 'session.runTurn');
+      expect(turnCall).toBeTruthy();
+      assertDefined(turnCall, 'multiline session.runTurn invoke');
+      expect((turnCall.args as { prompt: string }).prompt).toBe('first line\nsecond line');
+    });
+  });
+
+  it('grows the mini-text textarea up to its bounded maximum height', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+
+    Object.defineProperty(input, 'scrollHeight', { configurable: true, value: 86 });
+    fireEvent.change(input, { target: { value: 'first\nsecond\nthird' } });
+    expect(input.style.height).toBe('86px');
+
+    Object.defineProperty(input, 'scrollHeight', { configurable: true, value: 180 });
+    fireEvent.change(input, { target: { value: 'first\nsecond\nthird\nfourth' } });
+    expect(input.style.height).toBe('112px');
+  });
+
+  it('does not send Enter while an IME composition is active', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: 'composed text' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    expect(spy.invokes.some((invoke) => invoke.channel === 'session.runTurn')).toBe(false);
+    expect(input.value).toBe('composed text');
+  });
+
+  it('shows a removable queue chip instead of starting a second concurrent turn', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
+    const input = await screen.findByPlaceholderText(/ask moxxy/i) as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: 'first prompt' } });
+    fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
+    await waitFor(() => expect(chatStore.getChat('ws-test').activeTurnId).toBe('t-1'));
+
+    fireEvent.change(input, { target: { value: 'queued prompt' } });
+    fireEvent.click(screen.getByRole('button', { name: /^send$/i }));
+
+    expect(spy.invokes.filter((invoke) => invoke.channel === 'session.runTurn')).toHaveLength(1);
+    expect(await screen.findByText('queued prompt')).toBeTruthy();
+    const remove = screen.getByRole('button', { name: /drop queued message/i });
+    fireEvent.click(remove);
+    expect(screen.queryByText('queued prompt')).toBeNull();
+    expect(chatStore.getQueue('ws-test')).toHaveLength(0);
   });
 
   it('pasting an image in mini-text stages a preview attachment and enables image-only send', async () => {
@@ -993,6 +1153,19 @@ describe('FocusWidget bidirectional sync', () => {
     // Simulate the runner streaming an assistant_chunk event — this
     // is what bindWindow's SessionDriver delivers to the focus
     // window when the main window sends a turn.
+    spy.emit('runner.turn.started', {
+      workspaceId: 'ws-test',
+      turnId: asTurnId('t-incoming'),
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: event(9, {
+        type: 'user_prompt',
+        source: 'user',
+        turnId: asTurnId('t-incoming'),
+        text: 'Question from the main window',
+      }),
+    });
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
       event: {
@@ -1006,6 +1179,10 @@ describe('FocusWidget bidirectional sync', () => {
       } as MoxxyEvent,
     });
 
+    expect(chatStore.getChat('ws-test')).toMatchObject({
+      activeTurnId: 't-incoming',
+      streamingText: 'response from the main window',
+    });
     await waitFor(() => {
       expect(screen.getByText(/response from the main window/i)).toBeTruthy();
     });
@@ -1019,18 +1196,36 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /^text$/i }));
 
     chatStore.dispatch('ws-test', {
+      type: 'send_started',
+      turnId: asTurnId('t-md'),
+    });
+    chatStore.dispatch('ws-test', {
+      type: 'event',
+      event: event(1, {
+        type: 'user_prompt',
+        source: 'user',
+        turnId: asTurnId('t-md'),
+        text: 'Fetch the newest page',
+      }),
+    });
+    chatStore.dispatch('ws-test', {
       type: 'event',
       event: {
         type: 'assistant_chunk',
         turnId: 't-md',
-        delta: 'Fetched the **newest** page',
+        delta: 'Fetched the **newest** page\n\n```ts\nconst answer = 42;\n```',
       } as never,
     });
 
+    expect(chatStore.getChat('ws-test')).toMatchObject({
+      activeTurnId: 't-md',
+      streamingText: 'Fetched the **newest** page\n\n```ts\nconst answer = 42;\n```',
+    });
     // The `**newest**` must render as a <strong>, not literal asterisks —
     // this is the fix for the mini-text showing raw markdown on one line.
     await waitFor(() => {
       expect(screen.getByText('newest').tagName).toBe('STRONG');
+      expect(screen.getByText('const answer = 42;').tagName).toBe('CODE');
     });
   });
 
@@ -1038,6 +1233,19 @@ describe('FocusWidget bidirectional sync', () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
 
+    spy.emit('runner.turn.started', {
+      workspaceId: 'ws-test',
+      turnId: asTurnId('t-preview'),
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: event(19, {
+        type: 'user_prompt',
+        source: 'user',
+        turnId: asTurnId('t-preview'),
+        text: 'Question while collapsed',
+      }),
+    });
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
       event: {
@@ -1064,10 +1272,23 @@ describe('FocusWidget bidirectional sync', () => {
     expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
   });
 
-  it('opens mini-text when the inactive preview text is clicked', async () => {
+  it('opens mini-text when the inactive reply bubble is clicked', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
 
+    spy.emit('runner.turn.started', {
+      workspaceId: 'ws-test',
+      turnId: asTurnId('t-preview-click'),
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: event(20, {
+        type: 'user_prompt',
+        source: 'user',
+        turnId: asTurnId('t-preview-click'),
+        text: 'Question behind the clickable reply',
+      }),
+    });
     spy.emit('runner.event', {
       workspaceId: 'ws-test',
       event: {
@@ -1076,9 +1297,24 @@ describe('FocusWidget bidirectional sync', () => {
         ts: 21,
         sessionId: 's-test',
         type: 'assistant_chunk',
-        turnId: 't-preview-click',
+        turnId: asTurnId('t-preview-click'),
         delta: 'clickable preview reply',
       } as MoxxyEvent,
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: event(22, {
+        type: 'assistant_message',
+        source: 'model',
+        turnId: asTurnId('t-preview-click'),
+        content: 'clickable preview reply',
+        stopReason: 'end_turn',
+      }),
+    });
+    spy.emit('runner.turn.complete', {
+      workspaceId: 'ws-test',
+      turnId: asTurnId('t-preview-click'),
+      error: null,
     });
 
     const previewButton = await screen.findByRole('button', {
@@ -1086,10 +1322,67 @@ describe('FocusWidget bidirectional sync', () => {
     });
     fireEvent.click(previewButton);
 
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
-    });
+    expect(await screen.findByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    expect(screen.getByText(/question behind the clickable reply/i)).toBeTruthy();
     expect(screen.getByText(/clickable preview reply/i)).toBeTruthy();
+  });
+
+  it('opens mini-text from a reply bubble while Voice Mode is active', async () => {
+    configurePlatform({
+      audioCapture: {
+        isSupported: () => true,
+        start: async () => ({ stop: vi.fn(), cancel: vi.fn() }),
+      },
+    });
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /start voice mode/i }));
+    await screen.findByRole('button', { name: /end voice mode/i });
+
+    spy.emit('runner.turn.started', {
+      workspaceId: 'ws-test',
+      turnId: asTurnId('t-voice-preview-click'),
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: event(22, {
+        type: 'user_prompt',
+        source: 'user',
+        turnId: asTurnId('t-voice-preview-click'),
+        text: 'Voice question behind the reply',
+      }),
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: event(23, {
+        type: 'assistant_chunk',
+        turnId: asTurnId('t-voice-preview-click'),
+        delta: 'Voice reply opens the mini chat',
+      }),
+    });
+    spy.emit('runner.event', {
+      workspaceId: 'ws-test',
+      event: event(24, {
+        type: 'assistant_message',
+        source: 'model',
+        turnId: asTurnId('t-voice-preview-click'),
+        content: 'Voice reply opens the mini chat',
+        stopReason: 'end_turn',
+      }),
+    });
+    spy.emit('runner.turn.complete', {
+      workspaceId: 'ws-test',
+      turnId: asTurnId('t-voice-preview-click'),
+      error: null,
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /open latest reply/i }));
+
+    expect(await screen.findByPlaceholderText(/ask moxxy|no active workspace/i)).toBeTruthy();
+    expect(screen.getByText(/voice question behind the reply/i)).toBeTruthy();
+    expect(screen.getByText(/voice reply opens the mini chat/i)).toBeTruthy();
   });
 
   it('shows assistant preview above the active controls', async () => {
@@ -1296,11 +1589,159 @@ describe('FocusWidget bidirectional sync', () => {
     fireEvent.click(screen.getByRole('button', { name: /hide task status/i }));
 
     expect(screen.queryByText('Keep this task running')).toBeNull();
-    expect(screen.getByRole('button', { name: /show task status/i })).toBeTruthy();
+    const restore = screen.getByRole('button', { name: /show task status/i });
+    expect(restore.getAttribute('style')).not.toContain('position: absolute');
+    expect(restore.parentElement?.style.flexDirection).toBe('row');
     expect(chatStore.getChat('ws-test').activeTurnId).toBe('turn-hide-task');
 
-    fireEvent.click(screen.getByRole('button', { name: /show task status/i }));
+    await waitFor(() => {
+      expect(spy.invokes.some((invoke) => (
+        invoke.channel === 'focus.resize'
+        && Number((invoke.args as { width?: number; height?: number }).width) > 84
+        && (invoke.args as { width?: number; height?: number }).height === 104
+      ))).toBe(true);
+    });
+
+    fireEvent.click(restore);
     expect(await screen.findByText('Keep this task running')).toBeTruthy();
+  });
+
+  it('keeps the inactive restore control inward when Focus is docked on the left', async () => {
+    const spy = installFakeApi({ horizontalAnchor: 'left' });
+    render(<FocusWidget />);
+
+    act(() => {
+      spy.emit('runner.turn.started', {
+        workspaceId: 'ws-test',
+        turnId: asTurnId('turn-left-restore'),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(35, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId: asTurnId('turn-left-restore'),
+          text: 'Keep restore control inward',
+        }),
+      });
+    });
+
+    await screen.findByText('Keep restore control inward');
+    fireEvent.click(screen.getByRole('button', { name: /hide task status/i }));
+
+    const restore = screen.getByRole('button', { name: /show task status/i });
+    await waitFor(() => expect(restore.parentElement?.style.flexDirection).toBe('row-reverse'));
+    expect(spy.invokes.some((invoke) => (
+      invoke.channel === 'focus.resize'
+      && (invoke.args as { width?: number; height?: number }).width === 120
+      && (invoke.args as { width?: number; height?: number }).height === 104
+    ))).toBe(true);
+  });
+
+  it('keeps the active restore arrow above Moxxy and outside the action bar', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    act(() => {
+      spy.emit('runner.turn.started', {
+        workspaceId: 'ws-test',
+        turnId: asTurnId('turn-active-restore'),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(36, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId: asTurnId('turn-active-restore'),
+          text: 'Keep the active restore control near Moxxy',
+        }),
+      });
+    });
+
+    await screen.findByText('Keep the active restore control near Moxxy');
+    fireEvent.click(screen.getByRole('button', { name: /hide task status/i }));
+
+    const restore = screen.getByRole('button', { name: /show task status/i });
+    const restoreDock = screen.getByTestId('focus-active-restore-dock');
+    const actions = screen.getByTestId('focus-active-actions');
+    expect(restoreDock).toContainElement(restore);
+    expect(actions).not.toContainElement(restore);
+    expect(restoreDock.getAttribute('style')).toContain('position: absolute');
+    expect(restoreDock.getAttribute('style')).toContain('top: 0');
+
+    await waitFor(() => {
+      expect(spy.invokes.some((invoke) => (
+        invoke.channel === 'focus.resize'
+        && (invoke.args as { height?: number }).height === 126
+      ))).toBe(true);
+    });
+  });
+
+  it('places the main-window action before the close action', async () => {
+    installFakeApi();
+    render(<FocusWidget />);
+
+    fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
+    const actions = screen.getByTestId('focus-active-actions');
+    const openMain = within(actions).getByRole('button', { name: /open main window/i });
+    const close = within(actions).getByRole('button', { name: /close focus mode/i });
+
+    expect(openMain.nextElementSibling).toBe(close);
+  });
+
+  it('lets the user dismiss a final reply with X without restoring the completed task', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    act(() => {
+      spy.emit('runner.turn.started', {
+        workspaceId: 'ws-test',
+        turnId: asTurnId('turn-final-reply'),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(40, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId: asTurnId('turn-final-reply'),
+          text: 'Finish this task',
+        }),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(41, {
+          type: 'assistant_chunk',
+          turnId: asTurnId('turn-final-reply'),
+          delta: 'The task is complete.',
+        }),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(42, {
+          type: 'assistant_message',
+          source: 'model',
+          turnId: asTurnId('turn-final-reply'),
+          content: 'The task is complete.',
+          stopReason: 'end_turn',
+        }),
+      });
+      spy.emit('runner.turn.complete', {
+        workspaceId: 'ws-test',
+        turnId: asTurnId('turn-final-reply'),
+        error: null,
+      });
+    });
+
+    expect(await screen.findByText('The task is complete.')).toBeTruthy();
+    const dismiss = screen.getByRole('button', { name: /dismiss latest reply/i });
+    expect(dismiss.getAttribute('style')).toContain('top: 10px');
+    expect(dismiss.getAttribute('style')).not.toContain('bottom:');
+    fireEvent.click(dismiss);
+
+    expect(screen.queryByText('The task is complete.')).toBeNull();
+    expect(screen.queryByText('Finish this task')).toBeNull();
+    expect(screen.queryByRole('button', { name: /show task status/i })).toBeNull();
   });
 
   it('keeps required user decisions visible while ordinary task bubbles are hidden', async () => {

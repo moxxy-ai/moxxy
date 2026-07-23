@@ -16,3 +16,12 @@ export const FOCUS_PET_BUBBLE_LAYOUT = Object.freeze({
   width: 366,
   height: 190,
 });
+
+export const FOCUS_PET_RESTORE_LAYOUT = Object.freeze({
+  width: FOCUS_PET_LAYOUT.collapsedWidth + 36,
+  height: FOCUS_PET_LAYOUT.collapsedHeight,
+});
+
+export const FOCUS_PET_ACTIVE_RESTORE_LAYOUT = Object.freeze({
+  height: FOCUS_PET_LAYOUT.activeHeight + 36,
+});

@@ -102,8 +102,10 @@ export type { PromptAttachment, RunTurnArgs, RunTurnResult } from './chat.js';
 // ---------- Focus window layout ------------------------------------------
 export {
   FOCUS_PET_LAYOUT,
+  FOCUS_PET_ACTIVE_RESTORE_LAYOUT,
   FOCUS_PET_ACTIVE_EXTRA_WIDTH,
   FOCUS_PET_BUBBLE_LAYOUT,
+  FOCUS_PET_RESTORE_LAYOUT,
   type FocusVerticalAnchor,
 } from './focus-layout.js';
 

@@ -66,6 +66,22 @@ describe('desktop voice-call bridge validation', () => {
     })).not.toBeNull();
   });
 
+  it('accepts only the fixed open command used by Focus Mode', () => {
+    expect(parseDesktopVoiceCallMessage({
+      type: 'command',
+      source: 'focus',
+      workspaceId: 'ws-1',
+      command: 'open',
+    })).not.toBeNull();
+
+    expect(parseDesktopVoiceCallMessage({
+      type: 'command',
+      source: 'focus',
+      workspaceId: 'ws-1',
+      command: 'open-with-transcript',
+    })).toBeNull();
+  });
+
   it('accepts Uint8Array spectrum frames cloned from another renderer realm', () => {
     const bins = runInNewContext('new Uint8Array([2, 4, 8])') as Uint8Array;
     expect(bins instanceof Uint8Array).toBe(false);

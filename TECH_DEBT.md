@@ -24,6 +24,28 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, desktop/focus/conversation, RESOLVED 2026-07-23] Focus Mode treated
+  intermediate `tool_use` messages as completed replies, let the stale task
+  status reappear after a final answer, and offered a text surface that omitted
+  the user's matching prompt, attachments, multiline input, selection-safe
+  scrolling, and queued turns. The reply selector now admits only committed
+  `end_turn` output, scopes visibility to one turn, expires after 15 seconds,
+  and supports explicit pin and dismiss actions. The mini transcript projects
+  exactly the latest user/assistant pair with existing Markdown and image
+  preview primitives, preserves text selection, exposes removable FIFO queue
+  entries, and uses an auto-growing IME-safe textarea. Restore geometry now has
+  dedicated inactive and active docks beside or above Moxxy instead of
+  overlapping the persona or consuming another action-bar slot. Completed
+  reply bubbles open the mini chat in both ordinary and Voice Mode states,
+  keep their dismiss action in the expected top-right corner, and avoid the
+  light-theme blur halo. Voice calls opened
+  from Focus are owned by the main renderer through the existing validated,
+  workspace-scoped bridge, so restoring the main window returns to the live
+  call without duplicating microphone, STT, or Piper ownership. Regression
+  coverage exercises final-reply timing, tool-use exclusion, attachments,
+  queue order, multiline input, geometry, and StrictMode-safe voice transfer.
+  `apps/desktop/src/{focus,voice-call}/`,
+  `packages/desktop-ipc-contract/src/`.
 - [low, desktop/focus/task-status, RESOLVED 2026-07-23] Focus Mode animated
   Moxxy while work was active but gave no compact indication of what the turn
   was doing, so users had to reopen the main chat to distinguish ongoing work

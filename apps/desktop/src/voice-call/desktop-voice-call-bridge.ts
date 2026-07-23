@@ -17,6 +17,7 @@ export interface DesktopVoiceCallSnapshot {
 }
 
 export type DesktopVoiceCallCommand =
+  | 'open'
   | 'close'
   | 'retry'
   | 'install-local-piper'
@@ -111,6 +112,7 @@ const messageSchema = z.discriminatedUnion('type', [
     source: z.literal('focus'),
     workspaceId: workspaceIdSchema,
     command: z.enum([
+      'open',
       'close',
       'retry',
       'install-local-piper',

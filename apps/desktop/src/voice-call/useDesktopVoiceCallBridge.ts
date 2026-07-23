@@ -48,6 +48,9 @@ function snapshotFrom(call: UseVoiceCall): DesktopVoiceCallSnapshot {
 
 function runOwnerCommand(call: UseVoiceCall, command: DesktopVoiceCallCommand): void {
   switch (command) {
+    case 'open':
+      call.open();
+      return;
     case 'close':
       call.close();
       return;
@@ -248,7 +251,14 @@ export function useDesktopVoiceCallBridge({
 
   const remoteActive = surface === 'focus' && remoteSnapshot?.active === true;
   return useMemo(() => {
-    if (!remoteActive || !remoteSnapshot) return localCall;
+    if (surface !== 'focus' || !remoteSnapshot) return localCall;
+    if (!remoteActive) {
+      return {
+        ...localCall,
+        ...remoteSnapshot,
+        open: () => sendCommand('open'),
+      };
+    }
     return {
       ...localCall,
       ...remoteSnapshot,
@@ -265,5 +275,5 @@ export function useDesktopVoiceCallBridge({
       restartListening: () => undefined,
       bargeIn: () => undefined,
     };
-  }, [localCall, remoteActive, remoteAudioSource, remoteSnapshot, sendCommand]);
+  }, [localCall, remoteActive, remoteAudioSource, remoteSnapshot, sendCommand, surface]);
 }

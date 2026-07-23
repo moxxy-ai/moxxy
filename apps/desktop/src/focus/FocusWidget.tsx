@@ -38,9 +38,11 @@ import {
   type VoiceCallPhase,
 } from '@moxxy/client-core';
 import {
+  FOCUS_PET_ACTIVE_RESTORE_LAYOUT,
   FOCUS_PET_ACTIVE_EXTRA_WIDTH,
   FOCUS_PET_BUBBLE_LAYOUT,
   FOCUS_PET_LAYOUT,
+  FOCUS_PET_RESTORE_LAYOUT,
 } from '@moxxy/desktop-ipc-contract';
 import { Inactive } from './Inactive';
 import { Active } from './Active';
@@ -135,7 +137,7 @@ function Surface({
   const [horizontalAnchor, setHorizontalAnchor] = useState<FocusTileHorizontalAnchor>('right');
   const chat = useChat(workspaceId);
   const connection = useConnection(workspaceId);
-  const { preview, dismissPreview } = useInactiveReplyPreview({ stage, workspaceId });
+  const { preview, dismissPreview, pinPreview } = useInactiveReplyPreview({ stage, workspaceId });
   const ask = useFocusAsk(workspaceId);
   const askVisible = ask !== null;
   const chromePreview = askVisible ? null : preview;
@@ -157,7 +159,12 @@ function Surface({
     voiceModePhase: voiceCall.phase,
     activity: voiceCall.activity,
   });
-  const bubbleVisibility = useFocusBubbleVisibility();
+  const bubbleKey = chromePreview
+    ? `reply:${chromePreview.key}`
+    : taskStatus
+      ? `task:${taskStatus.key}`
+      : null;
+  const bubbleVisibility = useFocusBubbleVisibility(bubbleKey);
   const bubbleAvailable = chromePreview !== null || taskStatus !== null;
   let bubble: FocusPetBubbleContent | null = null;
   if (!askVisible && !bubbleVisibility.hidden) {
@@ -183,31 +190,32 @@ function Surface({
   const voiceModeAvailable = voiceCall.active || (
     localPiperInstalled === true && hasTranscriber === true && ready
   );
-  const activeWidth = focusActiveWidth({
+  const baseActiveWidth = focusActiveWidth({
     hasTranscriber: hasTranscriber !== false,
     voiceModeAvailable,
     voiceModeActive: voiceCall.active,
     voiceModePhase: voiceCall.phase,
     voiceModeRetryAvailable: !voiceCall.localPiperInstallRequired,
   });
+  const activeWidth = baseActiveWidth;
   const miniTextSize = useFocusMiniTextSize(stage === 'mini-text');
-  const openPreview = (): void => {
-    dismissPreview();
-    setStage('mini-text');
-  };
   const openBubble = (): void => {
-    if (bubble?.kind === 'reply') {
-      openPreview();
-      return;
-    }
+    if (bubble?.kind === 'reply') pinPreview();
     setStage('mini-text');
   };
   const openInactive = (): void => {
     if (bubble?.kind === 'reply') {
-      openPreview();
+      setStage('mini-text');
       return;
     }
     setStage('active');
+  };
+  const hideBubble = (): void => {
+    if (bubble?.kind === 'reply') {
+      dismissPreview();
+      return;
+    }
+    bubbleVisibility.hide();
   };
   const tileGesture = useFocusTileGesture({
     onClick: openInactive,
@@ -287,6 +295,7 @@ function Surface({
     let { width, height } = SIZE[stage];
     if (stage === 'active') {
       width = activeWidth + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
+      if (bubbleRestoreVisible) height = FOCUS_PET_ACTIVE_RESTORE_LAYOUT.height;
     } else if (stage === 'mini-text') {
       width = miniTextSize.width;
       height = miniTextSize.height;
@@ -297,6 +306,9 @@ function Surface({
     } else if (stage === 'inactive' && bubbleVisible) {
       width = FOCUS_PET_BUBBLE_LAYOUT.width;
       height = FOCUS_PET_BUBBLE_LAYOUT.height;
+    } else if (stage === 'inactive' && bubbleRestoreVisible) {
+      width = FOCUS_PET_RESTORE_LAYOUT.width;
+      height = FOCUS_PET_RESTORE_LAYOUT.height;
     }
     if (stage === 'active' && askVisible) {
       width = Math.min(activeWidth + ACTIVE_ASK_EXTRA_WIDTH, 760);
@@ -322,7 +334,15 @@ function Surface({
         if (placement?.horizontalAnchor) setHorizontalAnchor(placement.horizontalAnchor);
       })
       .catch(() => undefined);
-  }, [stage, activeWidth, bubbleVisible, askVisible, miniTextSize.width, miniTextSize.height]);
+  }, [
+    stage,
+    activeWidth,
+    bubbleVisible,
+    bubbleRestoreVisible,
+    askVisible,
+    miniTextSize.width,
+    miniTextSize.height,
+  ]);
 
   // Collapsing back to the inactive pet hides the recording UI but the voice
   // recorder lives on the always-mounted Surface — so without explicitly
@@ -348,7 +368,7 @@ function Surface({
         outputAnalyser={petOutputAnalyser}
         bubbleRestoreVisible={bubbleRestoreVisible}
         onBubbleActivate={openBubble}
-        onHideBubble={bubbleVisibility.hide}
+        onHideBubble={hideBubble}
         onShowBubble={bubbleVisibility.show}
       />
     );
@@ -384,7 +404,7 @@ function Surface({
         onText={() => setStage('mini-text')}
         bubbleRestoreVisible={bubbleRestoreVisible}
         onBubbleActivate={openBubble}
-        onHideBubble={bubbleVisibility.hide}
+        onHideBubble={hideBubble}
         onShowBubble={bubbleVisibility.show}
       />
     );

@@ -10,6 +10,7 @@
 import {
   FOCUS_PET_LAYOUT,
   FOCUS_PET_BUBBLE_LAYOUT,
+  FOCUS_PET_RESTORE_LAYOUT,
 } from '@moxxy/desktop-ipc-contract';
 
 // ---- Drag regions --------------------------------------------------------
@@ -181,7 +182,8 @@ export const style = {
     appearance: 'none',
     margin: 0,
     cursor: 'pointer',
-    backdropFilter: 'blur(18px) saturate(1.2)',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
     ...noDrag,
   },
   focusPetBubbleRoot: {
@@ -253,7 +255,6 @@ export const style = {
   focusBubbleHideButton: {
     position: 'absolute',
     right: 12,
-    bottom: 6,
     width: 30,
     height: 24,
     padding: 0,
@@ -267,11 +268,28 @@ export const style = {
     cursor: 'pointer',
     ...noDrag,
   },
+  focusTaskHideButton: {
+    bottom: 6,
+  },
+  focusReplyHideButton: {
+    top: 10,
+  },
   focusPetDock: {
     width: FOCUS_PET_LAYOUT.collapsedWidth,
     height: FOCUS_PET_LAYOUT.collapsedHeight,
     position: 'relative',
     flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusPetRestoreRoot: {
+    width: FOCUS_PET_RESTORE_LAYOUT.width,
+    height: FOCUS_PET_RESTORE_LAYOUT.height,
+    boxSizing: 'border-box',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    background: 'transparent',
     ...noDrag,
   },
   focusActiveDock: {
@@ -283,13 +301,27 @@ export const style = {
     flex: '0 0 auto',
     ...noDrag,
   },
-  focusBubbleRestoreButton: {
+  activeChromeWithRestore: {
+    height: FOCUS_PET_LAYOUT.activeHeight + 36,
+    display: 'flex',
+    alignItems: 'flex-end',
+    position: 'relative',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusActiveRestoreDock: {
     position: 'absolute',
-    right: 2,
-    top: 1,
-    zIndex: 4,
-    width: 28,
-    height: 28,
+    top: 0,
+    left: 20,
+    width: 32,
+    height: 32,
+    zIndex: 3,
+    ...noDrag,
+  },
+  focusBubbleRestoreButton: {
+    width: 32,
+    height: 32,
+    flex: '0 0 32px',
     padding: 0,
     border: '1px solid var(--focus-preview-border)',
     borderRadius: 999,
@@ -597,6 +629,38 @@ export const style = {
     minHeight: 0,
     fontSize: 13,
     color: 'var(--focus-text)',
+    userSelect: 'text',
+    WebkitUserSelect: 'text',
+    ...noDrag,
+  },
+  focusLatestTurn: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 14,
+  },
+  focusAssistantReply: {
+    width: '100%',
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 5,
+    color: 'var(--focus-text)',
+  },
+  focusMessageLabel: {
+    color: 'var(--color-primary-strong)',
+    fontSize: 10.5,
+    fontWeight: 760,
+    letterSpacing: '0.035em',
+  },
+  focusQueuedTurns: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    maxHeight: 58,
+    overflowY: 'auto',
+    ...noDrag,
   },
   lineRow: {
     display: 'inline-flex',
@@ -703,25 +767,33 @@ export const style = {
   },
   composer: {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 6,
     ...noDrag,
   },
   input: {
     flex: 1,
-    height: 32,
-    padding: '0 10px',
+    minHeight: 34,
+    maxHeight: 112,
+    boxSizing: 'border-box',
+    padding: '7px 10px',
     fontSize: 13,
+    lineHeight: '18px',
     color: 'var(--focus-text)',
     background: 'var(--focus-input-bg)',
     border: '1px solid var(--focus-input-border)',
+    borderRadius: 10,
     outline: 'none',
     fontFamily: 'inherit',
+    resize: 'none',
+    overflowY: 'auto',
+    ...noDrag,
   },
   send: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     border: 'none',
+    borderRadius: 10,
     background: 'linear-gradient(135deg, #ec4899, #d946ef)',
     color: '#fff',
     cursor: 'pointer',
@@ -752,6 +824,9 @@ if (typeof document !== 'undefined') {
       --color-text-dim: #94a3b8;
       --color-primary: #ec4899;
       --color-primary-strong: #db2777;
+      --color-primary-soft: #fdf2f8;
+      --color-surface: #ffffff;
+      --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
       --color-red: #ef4444;
       --color-card-border: #e3e5f0;
       --color-card-border-strong: #cdd1e3;
@@ -771,7 +846,7 @@ if (typeof document !== 'undefined') {
       --focus-action-danger-bg: rgba(239, 68, 68, 0.12);
       --focus-preview-bg: rgba(255, 255, 255, 0.96);
       --focus-preview-border: rgba(203, 213, 225, 0.75);
-      --focus-preview-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+      --focus-preview-shadow: none;
       --focus-preview-text: #0f172a;
       --focus-composer-bg: #ffffff;
       --focus-input-bg: #f8fafc;
@@ -800,6 +875,9 @@ if (typeof document !== 'undefined') {
       --color-text-dim: #697091;
       --color-primary: #ec4899;
       --color-primary-strong: #db2777;
+      --color-primary-soft: #2b1622;
+      --color-surface: #1b1e2b;
+      --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
       --color-red: #ef4444;
       --color-card-border: #262a3c;
       --color-card-border-strong: #363c54;
@@ -846,6 +924,9 @@ if (typeof document !== 'undefined') {
         --color-text: #e8eaf6;
         --color-text-muted: #a4abc8;
         --color-text-dim: #697091;
+        --color-primary-soft: #2b1622;
+        --color-surface: #1b1e2b;
+        --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
         --color-card-border: #262a3c;
         --color-card-border-strong: #363c54;
         --color-code-bg: #262b40;
@@ -891,6 +972,10 @@ if (typeof document !== 'undefined') {
     @keyframes focus-thinking {
       0%, 100% { transform: translateY(0); opacity: 0.4; }
       50%      { transform: translateY(-3px); opacity: 1; }
+    }
+    @keyframes moxxy-thinking {
+      0%, 100% { transform: scale(0.72); opacity: 0.45; }
+      50% { transform: scale(1); opacity: 1; }
     }
     @keyframes focus-task-spin {
       to { transform: rotate(360deg); }

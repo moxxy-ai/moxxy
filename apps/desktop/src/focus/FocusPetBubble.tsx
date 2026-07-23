@@ -51,12 +51,17 @@ export function FocusPetBubble({
       <button
         type="button"
         className="focus-bubble-hide-button"
-        aria-label="Hide task status"
-        title="Hide task status"
+        aria-label={task ? 'Hide task status' : 'Dismiss latest reply'}
+        title={task ? 'Hide task status' : 'Dismiss latest reply'}
         onClick={onHide}
-        style={style.focusBubbleHideButton}
+        style={{
+          ...style.focusBubbleHideButton,
+          ...(task ? style.focusTaskHideButton : style.focusReplyHideButton),
+        }}
       >
-        <Icon name="chevron-right" size={15} style={{ transform: 'rotate(90deg)' }} />
+        {task
+          ? <Icon name="chevron-right" size={15} style={{ transform: 'rotate(90deg)' }} />
+          : <Icon name="x" size={14} />}
       </button>
     </div>
   );

@@ -80,4 +80,15 @@ describe('selectFocusTaskStatus', () => {
       activity: null,
     })).toBeNull();
   });
+
+  it('does not resurrect a completed prompt while Voice Mode is speaking', () => {
+    expect(selectFocusTaskStatus({
+      events: [prompt('turn-finished', 'Finished task', 1)],
+      activeTurnId: null,
+      sending: false,
+      voiceModeActive: true,
+      voiceModePhase: 'speaking',
+      activity: null,
+    })).toBeNull();
+  });
 });
