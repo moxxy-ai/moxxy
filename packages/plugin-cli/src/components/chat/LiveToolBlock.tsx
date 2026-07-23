@@ -1,7 +1,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Colors, Glyphs } from '../../theme.js';
-import { ToolCallBlock } from './ToolCallBlock.js';
+import { ToolCallBlock, toolGlyph } from './ToolCallBlock.js';
+import { ShimmerText } from './ShimmerText.js';
 import {
   buildCompactSummary,
   compactPreviewLine,
@@ -32,7 +33,8 @@ export const LiveToolBlock: React.FC<{
   /** Global Ctrl+O toggle. */
   expanded: boolean;
 }> = ({ block, expanded }) => {
-  const inFlight = !block.closed;
+  const inFlight = !block.closed || block.calls.some((call) => call.outcome === null);
+  const showDetails = expanded || inFlight;
   const summary = buildCompactSummary(block.calls, inFlight);
   const latest = block.calls[block.calls.length - 1];
   // Errors among the latest few calls get surfaced even when collapsed —
@@ -47,24 +49,24 @@ export const LiveToolBlock: React.FC<{
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box>
-        <Text dimColor>{Glyphs.filled} </Text>
-        <Text>{summary}</Text>
-        {!expanded ? <Text dimColor>{' (ctrl+o to expand)'}</Text> : null}
+        <Text dimColor>{latest ? toolGlyph(latest.request.name) : Glyphs.pending} </Text>
+        <ShimmerText text={summary} active={inFlight} />
+        {!showDetails ? <Text dimColor>{'  ›'}</Text> : null}
       </Box>
-      {errorCount > 0 && !expanded ? (
+      {errorCount > 0 && !showDetails ? (
         <Box marginLeft={2}>
           <Text color={Colors.danger}>
             {errorCount} {errorCount === 1 ? 'call' : 'calls'} failed — press ctrl+o for detail
           </Text>
         </Box>
       ) : null}
-      {!expanded && latest ? (
+      {!showDetails && latest ? (
         <Box marginLeft={2}>
           <Text dimColor>└ </Text>
           <Text dimColor>{compactPreviewLine(latest)}</Text>
         </Box>
       ) : null}
-      {expanded ? (
+      {showDetails ? (
         <Box flexDirection="column" marginLeft={2}>
           {block.calls.map((c) => (
             <ToolCallBlock key={c.id} request={c.request} outcome={c.outcome} />

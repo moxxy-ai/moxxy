@@ -1,5 +1,12 @@
 # @moxxy/reflector-default
 
+## 0.27.6
+
+### Patch Changes
+
+- Updated dependencies [3b0c14a]
+  - @moxxy/sdk@0.32.0
+
 ## 0.27.5
 
 ### Patch Changes

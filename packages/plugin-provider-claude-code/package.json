@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-provider-claude-code",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "description": "Claude Pro/Max subscription provider for moxxy. Streams through the user's authenticated installed Claude CLI, with opt-in native-tool tasks and no Anthropic API key.",
   "keywords": [
     "moxxy",
@@ -65,9 +65,10 @@
     }
   },
   "dependencies": {
-    "@moxxy/sdk": "workspace:*",
+    "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-oauth": "workspace:*",
-    "@moxxy/plugin-provider-anthropic": "workspace:*"
+    "@moxxy/plugin-provider-anthropic": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

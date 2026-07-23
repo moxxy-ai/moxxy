@@ -466,6 +466,25 @@ describe('resolveModelContext', () => {
       warn.mockRestore();
     }
   });
+
+  it('resolves a bracketed context variant from its base descriptor instead of models[0]', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ctx = makeCtx({
+        compactor: null,
+        model: 'claude-sonnet-4-6',
+        contextWindow: 1_000_000,
+        ctxModelId: 'claude-sonnet-4-6[1m]',
+      });
+      expect(resolveModelContext(ctx)).toEqual({
+        contextWindow: 1_000_000,
+        reserveForOutput: 0,
+      });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe('runElisionIfNeeded', () => {

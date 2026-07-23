@@ -24,6 +24,20 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, chat-ux, RESOLVED 2026-07-23] Desktop ignored the live registry's
+  `ToolInfo.compact` metadata even though TUI already consumed it, so the same
+  Read/Grep/Glob run became a compact activity trace in one surface and a stack
+  of generic tool cards in the other. Desktop now feeds the serializable
+  metadata from `session.info` into the shared incremental fold (including the
+  extension-sliced path); both surfaces render the resulting tool/skill work as
+  compact, expandable activity rows and animate only active labels with a
+  reduced-motion-safe shimmer. `packages/client-core/src/chatModel.ts`,
+  `packages/plugin-cli/src/components/chat/`, `apps/desktop/src/chat/`.
+- [med, providers, RESOLVED 2026-07-23] Bracketed model variants such as
+  `claude-sonnet-4-6[1m]` no longer miss the catalog and inherit an unrelated
+  `models[0]` context window: `resolveModelContext` now resolves the exact base
+  descriptor before its last-resort fallback, with regression coverage.
+  `packages/sdk/src/compactor-helpers.ts`.
 - [high, modes, RESOLVED 2026-07-05] Goal mode killed its own runs and never let
   go: the iteration cap (150), a 4M token budget, and a stuck-loop FATAL abort
   (whose near-repeat heuristic trips on a legitimate edit→build→test cycle) all
@@ -408,12 +422,10 @@ or recorded-on-purpose decision.
   retry (`react-loop.ts` `isContextOverflowError`). Fixed one instance (Codex
   gpt-5.5/gpt-5.4 1M→400k) but the failure mode is latent for any future catalog
   drift; consider calibrating the effective window from real provider `usage` /
-  observed overflow rather than the static descriptor. Related: `resolveModelContext`
-  (`packages/sdk/src/compactor-helpers.ts`) still falls back to `models[0]` on an
-  exact-id miss (an unlisted/variant id like a `[1m]` suffix resolves the wrong
-  window), but the fallback is no longer SILENT — it emits a one-shot `console.warn`
-  deduped per (provider, requested id, fallback id). Remaining: calibrate the
-  *effective* window from observed usage/overflow rather than the static descriptor.
+  observed overflow rather than the static descriptor. `resolveModelContext`
+  now recognizes terminal bracket variants such as `[1m]`; genuinely unknown
+  ids still fall back to `models[0]` with a one-shot warning. Remaining: calibrate
+  the *effective* window from observed usage/overflow rather than the static descriptor.
 
 ## Channels, relay & HTTP
 

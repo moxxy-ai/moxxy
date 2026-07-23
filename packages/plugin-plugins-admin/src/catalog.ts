@@ -110,8 +110,8 @@ export const INSTALLABLE_PLUGIN_CATALOG: ReadonlyArray<PluginCatalogEntry> = [
   },
   {
     id: 'browser',
-    label: 'Browser tools',
-    description: 'Playwright-driven browser_session tools (installs playwright on demand).',
+    label: 'Web & browser tools',
+    description: 'Local web_search fallback, web_fetch, and Playwright browser_session tools.',
     packageName: '@moxxy/plugin-browser',
     installSpec: '@moxxy/plugin-browser',
   },

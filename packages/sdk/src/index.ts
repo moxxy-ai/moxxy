@@ -96,6 +96,7 @@ export type {
 export type {
   ToolContext,
   ToolDef,
+  HostedTool,
   ToolCompactPresentation,
   BrokeredFs,
   BrokeredStat,
@@ -204,7 +205,17 @@ export type {
 // readRequestBody/bearerTokenMatches, channel-auth) are exported from the
 // './server' subpath, NOT the main barrel — they statically reach node:*
 // builtins and would break a browser/RN bundle. See ./server.ts.
-export { isRetryableError, toFriendlyError, zodToJsonSchema, estimateTextTokens, type StopReason } from './provider-utils.js';
+export {
+  isRetryableError,
+  toFriendlyError,
+  zodToJsonSchema,
+  estimateTextTokens,
+  type StopReason,
+} from './provider-utils.js';
+export {
+  resolveProviderTools,
+  type ResolvedProviderTools,
+} from './provider-tool-utils.js';
 export type { WriteFileAtomicOptions } from './fs-utils.js';
 export type { ChannelRunStatus } from './channel-status.js';
 export type { CrossProcessFireLock, CrossProcessFireLockOptions } from './cross-process-lock.js';

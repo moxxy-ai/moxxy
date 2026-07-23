@@ -132,7 +132,15 @@ export function resolveModelContext(
   ctx: ModeContext,
 ): { readonly contextWindow: number; readonly reserveForOutput: number } | null {
   const exact = ctx.provider.models.find((m) => m.id === ctx.model);
-  const descriptor = exact ?? ctx.provider.models[0];
+  // Provider/admin model ids may carry a bracketed context variant (for
+  // example `claude-sonnet-4-6[1m]`). Prefer the matching base descriptor over
+  // the unrelated models[0] fallback; only strip a terminal bracket suffix so
+  // genuinely distinct dated/vendor ids are never conflated accidentally.
+  const baseId = ctx.model.replace(/\[[^\]]+\]$/, '');
+  const variant = baseId !== ctx.model
+    ? ctx.provider.models.find((model) => model.id === baseId)
+    : undefined;
+  const descriptor = exact ?? variant ?? ctx.provider.models[0];
   const contextWindow = descriptor?.contextWindow;
   if (!contextWindow || contextWindow <= 0) return null;
   // Signal (once) when the exact-id lookup missed and we fell back to the first
@@ -141,7 +149,7 @@ export function resolveModelContext(
   // for the whole session may calibrate against the wrong window with no other
   // trace. Deduped on (provider, requested id, fallback id) because this runs
   // once per loop iteration — an undeduped warn would spam every turn.
-  if (!exact && descriptor) {
+  if (!exact && !variant && descriptor) {
     warnModelFallbackOnce(ctx.provider.name, ctx.model, descriptor.id, contextWindow);
   }
   return { contextWindow, reserveForOutput: descriptor?.maxOutputTokens ?? 0 };

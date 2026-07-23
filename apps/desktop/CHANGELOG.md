@@ -1,5 +1,29 @@
 # @moxxy/desktop
 
+## 0.30.0
+
+### Minor Changes
+
+- 80823f7: Redesign tool and skill activity as compact expandable traces with live shimmer feedback.
+
+### Patch Changes
+
+- Updated dependencies [3b0c14a]
+- Updated dependencies [80823f7]
+  - @moxxy/sdk@0.32.0
+  - @moxxy/cli@0.32.0
+  - @moxxy/chat-model@0.3.23
+  - @moxxy/client-core@0.13.12
+  - @moxxy/client-platform-web@0.1.51
+  - @moxxy/desktop-host@0.14.3
+  - @moxxy/desktop-ipc-contract@0.14.8
+  - @moxxy/ipc-server-ws@0.1.50
+  - @moxxy/plugin-channel-mobile@0.32.0
+  - @moxxy/plugin-stt-whisper-codex@0.32.0
+  - @moxxy/plugin-vault@0.32.0
+  - @moxxy/runner@0.2.37
+  - @moxxy/workflows-builder@0.1.34
+
 ## 0.29.3
 
 ### Patch Changes

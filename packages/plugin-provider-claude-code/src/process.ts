@@ -26,6 +26,8 @@ export interface ClaudeProcessOptions {
   readonly prompt: string;
   readonly cwd: string;
   readonly nativeTools: boolean;
+  /** Enable only Claude Code's native WebSearch when nativeTools is false. */
+  readonly webSearch?: boolean;
   readonly permissionMode?: string;
   readonly allowedTools: ReadonlyArray<string>;
   readonly signal?: AbortSignal;
@@ -209,6 +211,8 @@ function buildArgs(options: ClaudeProcessOptions): string[] {
     args.push('--tools', ...(options.allowedTools.length > 0 ? options.allowedTools : ['']));
     if (options.permissionMode) args.push('--permission-mode', options.permissionMode);
     if (options.allowedTools.length > 0) args.push('--allowedTools', ...options.allowedTools);
+  } else if (options.webSearch) {
+    args.splice(args.length - 2, 0, '--tools', 'WebSearch', '--allowedTools', 'WebSearch');
   } else {
     args.splice(args.length - 2, 0, '--tools', '');
   }

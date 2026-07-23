@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-browser",
-  "version": "0.31.0",
-  "description": "Browser capabilities for moxxy: web_fetch (zero-deps light tier) + browser_session (Playwright sidecar for JS-heavy / interactive pages).",
+  "version": "0.32.0",
+  "description": "Web capabilities for moxxy: pluggable web_search fallback, web_fetch, and a Playwright browser_session sidecar.",
   "keywords": [
     "moxxy",
     "agent",

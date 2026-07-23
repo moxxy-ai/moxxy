@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertDefined } from '@moxxy/sdk';
+import { assertDefined, defineTool, z } from '@moxxy/sdk';
 import { AnthropicProvider } from './provider.js';
 
 // A minimal fake Anthropic SDK client to drive the translator without HTTP.
@@ -17,6 +17,75 @@ function fakeAnthropic(stream: ReadonlyArray<unknown>): { messages: { stream: ()
 }
 
 describe('AnthropicProvider.stream', () => {
+  it('uses the Anthropic server web search tool and falls back to the client tool on a pre-stream 400', async () => {
+    const bodies: Array<{ tools?: Array<{ type?: string; name: string }> }> = [];
+    const fake = {
+      messages: {
+        stream: (body: { tools?: Array<{ type?: string; name: string }> }) => {
+          bodies.push(body);
+          if (bodies.length === 1) {
+            throw Object.assign(new Error('web_search is not enabled'), { status: 400 });
+          }
+          return (async function* () {
+            yield { type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } };
+            yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } };
+            yield { type: 'message_stop' };
+          })();
+        },
+        countTokens: async () => ({ input_tokens: 1 }),
+      },
+    };
+    const fallback = defineTool({
+      name: 'web_search',
+      description: 'fallback search',
+      inputSchema: z.object({ query: z.string() }),
+      hosted: { type: 'web_search' },
+      handler: () => [],
+    });
+    const provider = new AnthropicProvider({ client: fake as never });
+
+    const events = [];
+    for await (const event of provider.stream({
+      model: 'claude-sonnet-4-6',
+      messages: [],
+      tools: [fallback],
+    })) events.push(event);
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]?.tools).toEqual([{ type: 'web_search_20250305', name: 'web_search' }]);
+    expect(bodies[1]?.tools).toEqual([
+      expect.objectContaining({ name: 'web_search', input_schema: expect.any(Object) }),
+    ]);
+    expect(events.some((event) => event.type === 'error')).toBe(false);
+    expect(events.at(-1)).toMatchObject({ type: 'message_end', stopReason: 'end_turn' });
+  });
+
+  it('renders streamed web-search citations as safe markdown links', async () => {
+    const fake = fakeAnthropic([
+      { type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Current info' } },
+      {
+        type: 'content_block_delta',
+        delta: {
+          type: 'citations_delta',
+          citation: { title: 'Example [source]', url: 'https://example.com/fresh' },
+        },
+      },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } },
+      { type: 'message_stop' },
+    ]);
+    const provider = new AnthropicProvider({ client: fake as never });
+    const events = [];
+    for await (const event of provider.stream({ model: 'claude-sonnet-4-6', messages: [] })) {
+      events.push(event);
+    }
+    const text = events
+      .filter((event) => event.type === 'text_delta')
+      .map((event) => (event as { delta: string }).delta)
+      .join('');
+    expect(text).toBe('Current info [Example \\[source\\]](https://example.com/fresh)');
+  });
+
   it('translates content_block_delta text into text_delta events', async () => {
     const fake = fakeAnthropic([
       { type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 0 } } },

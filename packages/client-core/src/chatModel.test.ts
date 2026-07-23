@@ -18,7 +18,7 @@ import {
   type FoldedBlock,
   type RenderNode,
 } from './chatModel.js';
-import type { ToolCallBlockData } from '@moxxy/chat-model';
+import { IncrementalFold, type CompactToolMap, type ToolCallBlockData } from '@moxxy/chat-model';
 
 let n = 0;
 function evt(type: MoxxyEvent['type'], extra: Record<string, unknown>): MoxxyEvent {
@@ -350,6 +350,45 @@ describe('groupToolNodes', () => {
     const out = groupToolNodes([toolNode('bash'), toolNode('grep'), extNode(), toolNode('ls'), toolNode('cat')]);
     // group(2) + ext + group(2)
     expect(out.map((n) => n.kind)).toEqual(['tool-group', 'ext', 'tool-group']);
+  });
+});
+
+describe('buildRenderNodes compact metadata', () => {
+  const compact: CompactToolMap = new Map([
+    ['Read', { verb: 'Reading', noun: { one: 'file', other: 'files' }, previewKey: 'file_path' }],
+  ]);
+
+  it('folds compact tools into one live activity block on the incremental fast path', () => {
+    const events = [
+      toolReq('read-1', 'Read', { file_path: 'a.ts' }),
+      toolReq('read-2', 'Read', { file_path: 'b.ts' }),
+    ];
+    const nodes = buildRenderNodes(events, [], new IncrementalFold(compact), compact);
+    expect(nodes).toHaveLength(1);
+    const node = nodes[0];
+    assertDefined(node, 'compact fold yields one node');
+    expect(node.kind).toBe('block');
+    if (node.kind !== 'block') throw new Error('unreachable');
+    expect(node.block.kind).toBe('live-tools');
+    if (node.block.kind !== 'live-tools') throw new Error('unreachable');
+    expect(node.block.calls).toHaveLength(2);
+  });
+
+  it('preserves compact folding when an extension forces the sliced path', () => {
+    const events = [toolReq('read-3', 'Read', { file_path: 'c.ts' })];
+    const extension: Extension = {
+      kind: 'notice',
+      id: 'notice-before',
+      afterCount: 0,
+      tone: 'info',
+      text: 'note',
+    };
+    const nodes = buildRenderNodes(events, [extension], undefined, compact);
+    expect(nodes.map((node) => node.kind)).toEqual(['ext', 'block']);
+    const blockNode = nodes[1];
+    assertDefined(blockNode, 'compact block follows extension');
+    if (blockNode.kind !== 'block') throw new Error('unreachable');
+    expect(blockNode.block.kind).toBe('live-tools');
   });
 });
 
