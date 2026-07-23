@@ -1,5 +1,14 @@
 # @moxxy/workspace-registry
 
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies [3b0c14a]
+  - @moxxy/sdk@0.32.0
+  - @moxxy/core@0.32.0
+  - @moxxy/desktop-ipc-contract@0.14.8
+
 ## 0.2.19
 
 ### Patch Changes
