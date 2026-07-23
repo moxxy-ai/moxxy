@@ -74,6 +74,14 @@ const optionalWorkspace = z.string().min(1).max(256).optional();
 /** ~30 MB of base64 — generous for a voice clip, bounded so a renderer
  *  can't OOM the main process with one transcribe call. */
 const MAX_AUDIO_BASE64 = 40_000_000;
+const MAX_SYNTHESIZE_TEXT = 100_000;
+const speechLanguage = z
+  .string()
+  .max(35)
+  .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/, 'must be a BCP-47 language tag');
+/** Piper's supported range. The conversational planner uses a much narrower
+ *  band, but every renderer/remote caller is still bounded at the IPC edge. */
+const speechRate = z.number().finite().min(0.5).max(2);
 /** ~9 MB of payload per inline attachment (the mobile app caps picks at 8 MB
  *  raw; base64 inflates ×4/3). Bounded so a hostile client can't OOM the host. */
 const MAX_INLINE_ATTACHMENT_CONTENT = 12_000_000;
@@ -163,6 +171,12 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   'app.relaunch': z.undefined(),
   'app.appBooted': z.undefined(),
   'app.updateDiagnostics': z.undefined(),
+  // Optional offline voice installation spawns the CLI and changes the active
+  // synthesizer. The host owns the exact package/name; renderer input is never
+  // accepted, preventing package-spec / CLI-argument injection.
+  'voice.isLocalPiperInstalled': z.undefined(),
+  'voice.installLocalPiper': z.undefined(),
+  'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),
@@ -176,6 +190,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       width: focusSize,
       height: focusSize,
       resizable: z.boolean().optional(),
+      verticalAnchor: z.enum(['center', 'bottom']).optional(),
     })
     .strict(),
   'onboarding.openExternal': z.object({ url: httpUrl }),
@@ -200,6 +215,14 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     audioBase64: base64,
     mimeType: z.string().max(128).optional(),
   }),
+  'session.synthesize': z
+    .object({
+      workspaceId: optionalWorkspace,
+      text: z.string().max(MAX_SYNTHESIZE_TEXT),
+      language: speechLanguage.optional(),
+      rate: speechRate.optional(),
+    })
+    .strict(),
   // Read-only snapshots and the abort RPC are reachable over the remote (WS)
   // bridge — they carry free-form ids/workspaceId, so bound them like the
   // sibling validated commands so a hostile remote can't OOM/log-bloat the host

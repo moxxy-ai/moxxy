@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
+  copySamplesForIpc,
   createMessageHandler,
   type HostRequest,
   type SherpaModule,
   type SherpaOfflineTts,
 } from './host-protocol.js';
+
+describe('copySamplesForIpc', () => {
+  it('owns a fresh ArrayBuffer before samples cross Electron IPC', () => {
+    const nativeSamples = new Float32Array([0.25, -0.5, 1]);
+
+    const copied = copySamplesForIpc(nativeSamples);
+
+    expect(copied).not.toBe(nativeSamples);
+    expect(copied.buffer).not.toBe(nativeSamples.buffer);
+    expect(Array.from(copied)).toEqual([0.25, -0.5, 1]);
+  });
+});
 
 function req(over: Partial<HostRequest> = {}): HostRequest {
   return {

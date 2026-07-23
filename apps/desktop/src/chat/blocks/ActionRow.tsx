@@ -1,27 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  speak,
-  cancelSpeech,
-  isSpeechSupported,
-  playAudioClip,
-  type AudioClipHandle,
-} from '@moxxy/client-platform-web';
-import { api, toSpeakableText } from '@moxxy/client-core';
+import { useEffect, useRef, useState } from 'react';
+import { isSpeechSupported } from '@moxxy/client-platform-web';
+import { useReadAloud } from '@moxxy/client-core';
 import { Icon } from '@moxxy/desktop-ui';
 
 export function ActionRow({ text }: { readonly text: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
   const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const readAloud = useReadAloud(text);
   // Track the "Copied!" reset timer so it can be cleared on unmount — this
   // block lives in a virtualised list and is unmounted on scroll / workspace
   // switch, where a pending setTimeout would fire setState on a dead component.
   const copyTimer = useRef<number | undefined>(undefined);
-  // Handle for an in-flight runner-synthesized audio clip (ElevenLabs etc.), so
-  // we can stop it on toggle/unmount. `speakGen` invalidates a synthesize()
-  // round-trip that resolves after the user has already stopped/restarted.
-  const audioRef = useRef<AudioClipHandle | null>(null);
-  const speakGen = useRef(0);
 
   const onCopy = async (): Promise<void> => {
     try {
@@ -34,91 +23,54 @@ export function ActionRow({ text }: { readonly text: string }): JSX.Element {
     }
   };
 
-  // Stop whichever TTS path is playing (OS voice or a synthesized clip) and
-  // invalidate any synthesize() request still in flight. Stable (refs only) so
-  // the unmount effect can depend on it without re-running.
-  const stopSpeech = useCallback((): void => {
-    speakGen.current += 1;
-    cancelSpeech();
-    audioRef.current?.stop();
-    audioRef.current = null;
-  }, []);
-
-  const onSpeak = (): void => {
-    if (speaking) {
-      stopSpeech();
-      setSpeaking(false);
-      return;
-    }
-    const gen = (speakGen.current += 1);
-    setSpeaking(true);
-    const done = (): void => {
-      if (speakGen.current === gen) setSpeaking(false);
-    };
-    // Prefer the runner's active synthesizer (e.g. an ElevenLabs plugin); fall
-    // back to the OS voice when none is active or the call fails.
-    void (async () => {
-      try {
-        const clip = await api().invoke('session.synthesize', { text: toSpeakableText(text) });
-        if (speakGen.current !== gen) return; // stopped/restarted while fetching
-        if (clip) {
-          audioRef.current = playAudioClip(clip.audioBase64, clip.mimeType, {
-            onend: done,
-            onerror: done,
-          });
-          return;
-        }
-      } catch {
-        if (speakGen.current !== gen) return;
-      }
-      speak(text, { onend: done, onerror: done });
-    })();
-  };
-
-  // Stop any in-flight speech AND cancel the copy-reset timer if this block
-  // unmounts (workspace switch, clear, or scroll out of the virtualised window).
+  // Cancel the copy-reset timer if this virtualised block unmounts. Read-aloud
+  // teardown is owned by its reusable hook.
   useEffect(
     () => () => {
-      stopSpeech();
       if (copyTimer.current !== undefined) window.clearTimeout(copyTimer.current);
     },
-    [stopSpeech],
+    [],
   );
 
   return (
-    <div
-      style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 2, color: 'var(--color-text-dim)' }}
-    >
-      <ActBtn label={copied ? 'Copied!' : 'Copy'} active={copied} activeColor="var(--color-green)" onClick={() => void onCopy()}>
-        <Icon name={copied ? 'check' : 'copy'} size={15} />
-      </ActBtn>
-      {isSpeechSupported() && (
-        <ActBtn
-          label={speaking ? 'Stop' : 'Read aloud'}
-          active={speaking}
-          activeColor="var(--color-primary)"
-          onClick={onSpeak}
-        >
-          <Icon name={speaking ? 'stop' : 'speaker'} size={15} />
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 2, color: 'var(--color-text-dim)' }}>
+        <ActBtn label={copied ? 'Copied!' : 'Copy'} active={copied} activeColor="var(--color-green)" onClick={() => void onCopy()}>
+          <Icon name={copied ? 'check' : 'copy'} size={15} />
         </ActBtn>
+        {isSpeechSupported() && (
+          <ActBtn
+            label={readAloud.active ? 'Stop' : 'Read aloud'}
+            active={readAloud.active}
+            activeColor="var(--color-primary)"
+            onClick={readAloud.toggle}
+          >
+            <Icon name={readAloud.active ? 'stop' : 'speaker'} size={15} />
+          </ActBtn>
+        )}
+        <span aria-hidden style={{ width: 1, height: 14, background: 'var(--color-card-border)', margin: '0 5px' }} />
+        <ActBtn
+          label="Good response"
+          active={feedback === 'up'}
+          activeColor="var(--color-green)"
+          onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+        >
+          <Icon name="thumbs-up" size={15} />
+        </ActBtn>
+        <ActBtn
+          label="Bad response"
+          active={feedback === 'down'}
+          activeColor="var(--color-red)"
+          onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+        >
+          <Icon name="thumbs-down" size={15} />
+        </ActBtn>
+      </div>
+      {readAloud.errorReason && (
+        <p role="alert" style={{ margin: '4px 0 0', fontSize: 11, color: 'var(--color-red)' }}>
+          TTS failed: {readAloud.errorReason}
+        </p>
       )}
-      <span aria-hidden style={{ width: 1, height: 14, background: 'var(--color-card-border)', margin: '0 5px' }} />
-      <ActBtn
-        label="Good response"
-        active={feedback === 'up'}
-        activeColor="var(--color-green)"
-        onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
-      >
-        <Icon name="thumbs-up" size={15} />
-      </ActBtn>
-      <ActBtn
-        label="Bad response"
-        active={feedback === 'down'}
-        activeColor="var(--color-red)"
-        onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
-      >
-        <Icon name="thumbs-down" size={15} />
-      </ActBtn>
     </div>
   );
 }

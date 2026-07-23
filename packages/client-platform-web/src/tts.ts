@@ -12,6 +12,7 @@
 
 import { toSpeakableText } from '@moxxy/client-core';
 import type { TextToSpeech, SpeakOptions, AudioClipHandle } from '@moxxy/client-core';
+import { getAudioContextCtor } from './pcm16.js';
 
 export type { SpeakOptions, AudioClipHandle };
 
@@ -63,19 +64,36 @@ function ensureVoicePriming(): void {
   s.addEventListener?.('voiceschanged', () => refreshVoices());
 }
 
-/** Pick the best available voice: a preferred name, else any local English
- *  voice, else any English voice, else the platform default. */
-export function pickVoice(): SpeechSynthesisVoice | null {
-  ensureVoicePriming();
-  const all = cachedVoices.length > 0 ? cachedVoices : refreshVoices();
-  if (all.length === 0) return null;
+interface VoiceCandidate {
+  readonly name: string;
+  readonly lang: string;
+  readonly localService: boolean;
+}
+
+/** Pure voice selection: matching local language first, natural-name ranking
+ *  within that language, then remote matching voice and platform default. */
+export function selectBestVoice<T extends VoiceCandidate>(
+  voices: ReadonlyArray<T>,
+  language = 'en',
+): T | null {
+  if (voices.length === 0) return null;
+  const base = language.toLocaleLowerCase().split('-')[0] ?? language.toLocaleLowerCase();
+  const matching = voices.filter((voice) => {
+    const lang = voice.lang.toLocaleLowerCase();
+    return lang === base || lang.startsWith(`${base}-`);
+  });
   for (const name of PREFERRED_VOICES) {
-    const match = all.find((v) => v.name === name || v.name.startsWith(name));
+    const match = matching.find((voice) => voice.name === name || voice.name.startsWith(name));
     if (match) return match;
   }
-  const enLocal = all.find((v) => v.lang?.startsWith('en') && v.localService);
-  if (enLocal) return enLocal;
-  return all.find((v) => v.lang?.startsWith('en')) ?? all[0] ?? null;
+  return matching.find((voice) => voice.localService) ?? matching[0] ?? voices[0] ?? null;
+}
+
+/** Pick the best available voice for the requested BCP-47 language. */
+export function pickVoice(language = 'en'): SpeechSynthesisVoice | null {
+  ensureVoicePriming();
+  const all = cachedVoices.length > 0 ? cachedVoices : refreshVoices();
+  return selectBestVoice(all, language);
 }
 
 /**
@@ -91,10 +109,12 @@ export function speak(markdown: string, opts: SpeakOptions = {}): void {
   }
   s.cancel();
   const utter = new SpeechSynthesisUtterance(toSpeakableText(markdown));
-  const voice = pickVoice();
+  const voice = pickVoice(opts.language);
   if (voice) {
     utter.voice = voice;
     utter.lang = voice.lang;
+  } else if (opts.language) {
+    utter.lang = opts.language;
   }
   utter.rate = 1.0;
   utter.pitch = 1.0;
@@ -106,6 +126,88 @@ export function speak(markdown: string, opts: SpeakOptions = {}): void {
 /** Stop any in-flight speech. Safe to call when unsupported. */
 export function cancelSpeech(): void {
   synth()?.cancel();
+}
+
+function playAudioSource(
+  sourceUrl: string,
+  opts: SpeakOptions,
+  releaseSource: () => void,
+): AudioClipHandle {
+  const audio = new Audio(sourceUrl);
+  audio.loop = opts.loop ?? false;
+  let done = false;
+  let audioContext: AudioContext | null = null;
+  let source: MediaElementAudioSourceNode | null = null;
+  let analyser: AnalyserNode | null = null;
+  let analyserExposed = false;
+
+  if (opts.onAnalyser) {
+    const AudioContextCtor = getAudioContextCtor();
+    if (AudioContextCtor) {
+      try {
+        audioContext = new AudioContextCtor();
+        source = audioContext.createMediaElementSource(audio);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.72;
+        source.connect(analyser);
+        analyser.connect(audioContext.destination);
+        analyserExposed = true;
+        opts.onAnalyser(analyser);
+        void audioContext.resume().catch(() => undefined);
+      } catch {
+        // The visualizer is optional. If graph construction partially failed,
+        // route the media element straight to the destination when possible so
+        // a visualization problem cannot silence otherwise valid Piper audio.
+        try {
+          source?.disconnect();
+          if (audioContext && source) source.connect(audioContext.destination);
+          if (audioContext) void audioContext.resume().catch(() => undefined);
+        } catch {
+          if (audioContext) void audioContext.close().catch(() => undefined);
+          audioContext = null;
+          source = null;
+        }
+        analyser = null;
+      }
+    }
+  }
+
+  const releaseAudioGraph = (): void => {
+    if (analyserExposed) opts.onAnalyser?.(null);
+    analyserExposed = false;
+    try {
+      source?.disconnect();
+      analyser?.disconnect();
+    } catch {
+      /* graph already disconnected */
+    }
+    source = null;
+    analyser = null;
+    if (audioContext) void audioContext.close().catch(() => undefined);
+    audioContext = null;
+  };
+  const finish = (cb?: () => void): void => {
+    if (done) return;
+    done = true;
+    releaseAudioGraph();
+    releaseSource();
+    cb?.();
+  };
+  audio.onended = () => finish(opts.onend);
+  audio.onerror = () => finish(opts.onerror);
+  void audio.play().catch(() => finish(opts.onerror));
+  return {
+    stop: () => {
+      try {
+        audio.pause();
+        audio.src = '';
+      } catch {
+        /* already gone */
+      }
+      finish();
+    },
+  };
 }
 
 /**
@@ -130,31 +232,17 @@ export function playAudioClip(base64: string, mimeType: string, opts: SpeakOptio
   }
   // Fall back to the data: URL if decode/Blob construction failed (malformed
   // base64) so the error still surfaces via the element's onerror, not a throw.
-  const audio = new Audio(objectUrl ?? `data:${mimeType};base64,${base64}`);
-  let done = false;
-  const finish = (cb?: () => void): void => {
-    if (done) return;
-    done = true;
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-      objectUrl = null;
-    }
-    cb?.();
-  };
-  audio.onended = () => finish(opts.onend);
-  audio.onerror = () => finish(opts.onerror);
-  void audio.play().catch(() => finish(opts.onerror));
-  return {
-    stop: () => {
-      try {
-        audio.pause();
-        audio.src = '';
-      } catch {
-        /* already gone */
-      }
-      finish();
-    },
-  };
+  const sourceUrl = objectUrl ?? `data:${mimeType};base64,${base64}`;
+  return playAudioSource(sourceUrl, opts, () => {
+    if (!objectUrl) return;
+    URL.revokeObjectURL(objectUrl);
+    objectUrl = null;
+  });
+}
+
+/** Play a trusted application-owned audio asset without a Blob copy. */
+export function playAudioUrl(url: string, opts: SpeakOptions = {}): AudioClipHandle {
+  return playAudioSource(url, opts, () => undefined);
 }
 
 /** Whether this environment can speak at all (gates the affordance). */
@@ -168,4 +256,5 @@ export const webTts: TextToSpeech = {
   speak,
   cancel: cancelSpeech,
   playClip: playAudioClip,
+  playUrl: playAudioUrl,
 };

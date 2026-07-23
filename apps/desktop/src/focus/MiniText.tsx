@@ -9,19 +9,21 @@
  * idle preview lines) since nothing else consumes them.
  */
 
-import { useCallback, useEffect, useRef } from 'react';
 import { api } from '@moxxy/client-core';
 import { MarkdownBody } from '@/chat/MarkdownBody';
+import { UserBlock } from '@/chat/blocks/UserBlock';
+import { QueuedChip } from '@/chat/composer/QueuedChip';
 import { ImagePreviewModal } from '@/chat/image-preview/ImagePreviewModal';
+import type { ImagePreviewItem } from '@/chat/image-preview/types';
 import { Dot, LogoMark } from './focus-primitives';
 import { ChevronLeftIcon, SendIcon, WindowIcon } from './focus-icons';
-import { useLatestBlock } from './useLatestBlock';
-import type { LatestBlock } from './useLatestBlock';
+import { useLatestTurn, type LatestFocusTurn } from './useLatestTurn';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
 import type { FocusAskPrompt } from './useFocusAsk';
 import { FocusAttachmentStrip } from './FocusAttachmentStrip';
 import { useFocusMiniTextComposer } from './useFocusMiniTextComposer';
+import { useFocusTranscriptAutoScroll } from './useFocusTranscriptAutoScroll';
 
 export function MiniText({
   workspaceId,
@@ -36,31 +38,37 @@ export function MiniText({
    *  opening the panel on mic-stop shows progress, not a stale message. */
   readonly transcribing?: boolean;
 }): JSX.Element {
-  const latest = useLatestBlock(workspaceId);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const focusInput = useCallback(() => inputRef.current?.focus(), []);
-  const composer = useFocusMiniTextComposer({ workspaceId, focusInput });
-
-  // Keep the freshest text in view as the answer streams / transcript lands.
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [latest?.text, composer.sending, transcribing]);
+  const latest = useLatestTurn(workspaceId);
+  const composer = useFocusMiniTextComposer({ workspaceId });
+  const transcript = useFocusTranscriptAutoScroll([
+    latest?.key ?? 'empty',
+    composer.sending ? 'sending' : 'idle',
+    transcribing ? 'transcribing' : 'ready',
+  ].join(':'));
 
   // Show a "working" indicator while transcribing speech, or while a turn is
   // in flight but the assistant hasn't produced any text yet (otherwise the
   // user's own prompt would sit there with no sign of progress).
   const showThinking =
-    transcribing || (composer.sending && (!latest || latest.who === 'user'));
+    transcribing || (composer.sending && (!latest || !latest.assistantLive));
 
   return (
     <>
       <div style={style.panel}>
         <MiniHeader title="Text" onBack={onBack} />
-        <div ref={bodyRef} style={style.panelBody}>
+        <div
+          ref={transcript.bodyRef}
+          data-testid="focus-transcript"
+          onScroll={transcript.onScroll}
+          style={style.panelBody}
+        >
           {ask && <FocusAskCard prompt={ask} variant="panel" />}
-          {latest && <LatestMessage block={latest} />}
+          {latest && (
+            <LatestTurn
+              turn={latest}
+              onPreviewImage={composer.imagePreview.open}
+            />
+          )}
           {showThinking && (
             <ThinkingLine label={transcribing ? 'transcribing…' : 'working…'} />
           )}
@@ -82,6 +90,17 @@ export function MiniText({
               {composer.attachError}
             </div>
           )}
+          {composer.queued.length > 0 && (
+            <div aria-label="Queued messages" style={style.focusQueuedTurns}>
+              {composer.queued.map((queued) => (
+                <QueuedChip
+                  key={queued.id}
+                  text={queued.prompt}
+                  onRemove={() => composer.removeQueued(queued.id)}
+                />
+              ))}
+            </div>
+          )}
           <form
             style={style.composer}
             onSubmit={(e) => {
@@ -89,9 +108,10 @@ export function MiniText({
               composer.submit();
             }}
           >
-            <input
-              ref={inputRef}
+            <textarea
+              ref={composer.inputRef}
               autoFocus
+              rows={1}
               aria-label="Ask Moxxy"
               placeholder={
                 workspaceId
@@ -102,6 +122,7 @@ export function MiniText({
               }
               value={composer.draft}
               onChange={(e) => composer.setDraft(e.target.value)}
+              onKeyDown={composer.onKeyDown}
               onPaste={composer.onPaste}
               disabled={!workspaceId}
               style={style.input}
@@ -167,27 +188,27 @@ function ThinkingLine({ label }: { readonly label: string }): JSX.Element {
   );
 }
 
-/** Full latest message, markdown-rendered. A small "You" label tags the
- *  user's own turn; assistant turns render bare so they read like a reply. */
-function LatestMessage({ block }: { readonly block: LatestBlock }): JSX.Element {
+function LatestTurn({
+  turn,
+  onPreviewImage,
+}: {
+  readonly turn: LatestFocusTurn;
+  readonly onPreviewImage: (image: ImagePreviewItem) => void;
+}): JSX.Element {
   return (
-    <div style={{ width: '100%' }}>
-      {block.who === 'user' && (
-        <div
-          style={{
-            fontSize: 10.5,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            color: 'var(--focus-dim)',
-            marginBottom: 6,
-          }}
-        >
-          You
+    <section aria-label="Latest conversation" style={style.focusLatestTurn}>
+      <UserBlock
+        text={turn.userText}
+        attachments={turn.userAttachments}
+        onPreviewImage={onPreviewImage}
+      />
+      {turn.assistantText && (
+        <div style={style.focusAssistantReply}>
+          <span style={style.focusMessageLabel}>Moxxy</span>
+          <MarkdownBody text={turn.assistantText} />
         </div>
       )}
-      <MarkdownBody text={block.text} />
-    </div>
+    </section>
   );
 }
 

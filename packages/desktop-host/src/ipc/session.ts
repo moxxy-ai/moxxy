@@ -313,16 +313,23 @@ export function registerSessionHandlers(pool: RunnerPool): void {
     const result = await transcriber.transcribe(audio, opts);
     return result.text;
   });
-  handle('session.synthesize', async ({ workspaceId, text }) => {
+  handle('session.synthesize', async ({ workspaceId, text, language, rate }) => {
     // Text-to-speech routes through the RUNNER's active synthesizer (unlike
     // STT, which uses the in-process Codex transcriber): a user-authored TTS
     // plugin (e.g. ElevenLabs) lives in ~/.moxxy/plugins, loaded by the runner.
-    // Returns null when no synthesizer is active so the renderer falls back to
-    // the OS `speechSynthesis` voice.
+    // Returns null only when no synthesizer is active. A present-but-failing
+    // synthesizer surfaces its error; silently switching voices would hide a
+    // broken local Piper installation from the user.
     const session = resolveSupervisor(pool, workspaceId)?.remote();
     const synth = session?.synthesizers.tryGetActive();
     if (!synth) return null;
-    const result = await synth.synthesize(text);
+    const options = language || rate !== undefined
+      ? {
+          ...(language ? { language } : {}),
+          ...(rate !== undefined ? { rate } : {}),
+        }
+      : undefined;
+    const result = await synth.synthesize(text, options);
     return {
       audioBase64: Buffer.from(result.audio).toString('base64'),
       mimeType: result.mimeType,

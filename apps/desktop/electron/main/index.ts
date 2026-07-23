@@ -59,7 +59,11 @@ import {
   type LoopbackServer,
   type SelfSignedCert,
 } from '@moxxy/desktop-host';
-import type { DeepLinkPayload, MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
+import type {
+  DeepLinkPayload,
+  FocusVerticalAnchor,
+  MobileGatewayStatus,
+} from '@moxxy/desktop-ipc-contract';
 // Value imports of @moxxy/ipc-server-ws are lazy + guarded (see the bridge
 // block below): the bridge is opt-in, and a top-level static import would make
 // boot itself depend on the module resolving — the exact failure that bricked
@@ -85,6 +89,7 @@ import { makeCertVerifyProc, makeCertificateErrorHandler } from './loopback-tls.
 import { armBootProbe } from './boot-probe.js';
 import { installApplicationMenu } from './menus.js';
 import { registerAppAssetSchemePrivileged } from './app-scheme.js';
+import { RealtimeCaptureController } from './realtime-capture.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
 // shell PATH / system `node`). Point the CLI resolver at a self-contained,
@@ -126,6 +131,7 @@ const CLERK_PUBLISHABLE_KEY =
 
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
+const realtimeCapture = new RealtimeCaptureController();
 /** The optional WebSocket bridge server (remote/mobile clients). Closed on quit. */
 // Typed as the bridge server (not the bare TransportServer) so the host can
 // call `rotateWsBridgeToken(userData, wsServer)` to invalidate a leaked token.
@@ -203,6 +209,12 @@ async function createWindow(): Promise<void> {
       sandbox: true,
     },
   });
+  const captureTarget = mainWindow.webContents;
+  realtimeCapture.attach(captureTarget);
+  mainWindow.on('closed', () => {
+    realtimeCapture.reset();
+    realtimeCapture.detach(captureTarget);
+  });
 
   // Refuse top-frame navigation away from our own origin — EXCEPT to the
   // OAuth hosts. clerk-js's prebuilt sign-in buttons run the provider flow
@@ -262,6 +274,7 @@ async function createWindow(): Promise<void> {
   // Buffer deep-links until the renderer's bridge has drained, so none are
   // lost across a load / reload. Resets on every load start.
   mainWindow.webContents.on('did-start-loading', () => {
+    realtimeCapture.reset();
     deepLinks.markLoading();
   });
 
@@ -452,9 +465,19 @@ async function createWindow(): Promise<void> {
     'focus.resize',
     (
       _evt,
-      { width, height, resizable }: { width: number; height: number; resizable?: boolean },
+      {
+        width,
+        height,
+        resizable,
+        verticalAnchor,
+      }: {
+        width: number;
+        height: number;
+        resizable?: boolean;
+        verticalAnchor?: FocusVerticalAnchor;
+      },
     ) => {
-      return resizeFocusWindow(width, height, resizable);
+      return resizeFocusWindow(width, height, resizable, verticalAnchor);
     },
   );
   ipcMain.removeHandler('focus.moveBy');
@@ -772,6 +795,9 @@ app.whenReady().then(async () => {
     },
     // Bridge-control commands (host-only; refused over the WS transport).
     ...(mobileGateway ? { mobileGateway } : {}),
+    voice: {
+      setRealtimeCaptureActive: (active) => realtimeCapture.setActive(active),
+    },
   });
 
   // Events fan out to WS clients once the bus exists — independent of whether the

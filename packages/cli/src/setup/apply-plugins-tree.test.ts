@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Session, autoAllowResolver, silentLogger } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
-import type { ReflectorDef } from '@moxxy/sdk';
+import type { ReflectorDef, SynthesizerDef } from '@moxxy/sdk';
 import { defineMode } from '@moxxy/sdk';
 import { applyPluginsTree } from './apply-plugins-tree.js';
 
@@ -72,6 +72,31 @@ describe('applyPluginsTree — transient modes are refused as the boot default',
     const config = { plugins: { mode: { default: 'research' } } } as unknown as MoxxyConfig;
     applyPluginsTree(session, config, logger);
     expect(session.modes.getActiveName()).toBe('research');
+    expect(warns).toEqual([]);
+  });
+});
+
+describe('applyPluginsTree — synthesizer default', () => {
+  const synthesizer = (name: string): SynthesizerDef => ({
+    name,
+    create: () => ({
+      name,
+      synthesize: async () => ({ audio: new Uint8Array([1]), mimeType: 'audio/wav' }),
+    }),
+  });
+
+  it('activates the configured synthesizer instead of the first registered plugin', () => {
+    const session = makeSession();
+    session.synthesizers.register(synthesizer('elevenlabs'));
+    session.synthesizers.register(synthesizer('local-piper'));
+    const { logger, warns } = warnCollector();
+    const config = {
+      plugins: { synthesizer: { default: 'local-piper' } },
+    } as unknown as MoxxyConfig;
+
+    applyPluginsTree(session, config, logger);
+
+    expect(session.synthesizers.getActiveName()).toBe('local-piper');
     expect(warns).toEqual([]);
   });
 });

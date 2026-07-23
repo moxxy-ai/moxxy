@@ -45,6 +45,303 @@ or recorded-on-purpose decision.
   blank optional placeholders before enforcing the exactly-one-trigger invariant,
   with captured-payload regressions through the real schedule store.
   `packages/plugin-scheduler/src/tools.ts`.
+- [high, desktop/voice/focus-realtime, RESOLVED 2026-07-23] Focus Mode hid the
+  main renderer that intentionally remained the sole owner of microphone,
+  recorder, analyser, VAD, and transcription. Chromium's default background
+  throttling then coalesced the owner's 40 ms VAD timer, so an immediate phrase
+  after Desktop → Focus or mute → unmute could be ignored until a later repeat.
+  The desktop host now grants a strict local-only realtime-capture lease for
+  exactly the lifetime of an active main-renderer Voice Mode call and restores
+  normal throttling on close, reload, or window teardown. A suspended
+  `AudioContext` must reach `running` before tracks, recorder, analyser, and the
+  UI return to listening; generation guards prevent a late resume from
+  re-enabling a microphone the user muted again. Focus remains a remote control
+  and spectrum mirror, never a second audio owner. Regressions cover the IPC
+  boundary, host lease lifecycle, initial and repeated resume, resume failure,
+  rapid mute/unmute/mute, ten reuse cycles, and the Focus preparation status.
+  `apps/desktop/electron/main/`, `apps/desktop/src/{focus,voice-call}/`,
+  `packages/{client-core,client-platform-web,desktop-host,desktop-ipc-contract}/src/`.
+- [high, desktop/voice/utterance-endpointing, RESOLVED 2026-07-23] Voice Mode
+  used the same high RMS threshold to both start and retain speech, then ended
+  an utterance after only 900 ms below that threshold. Quiet syllables and
+  ordinary thinking pauses could therefore dispatch a visibly truncated prompt
+  even though the microphone and transcriber were healthy. Endpointing now uses
+  hysteresis: strong evidence is still required to begin speech, while a lower
+  noise-aware hold threshold preserves natural changes in volume. A turn closes
+  only after 1.5 seconds of actual silence. Deterministic regressions cover quiet
+  continuation, a resumed sentence after a natural pause, and a fresh detector
+  lifecycle across mute/unmute without changing the STT endpoint or payload.
+  `packages/client-core/src/voice-activity.ts`,
+  `apps/desktop/src/voice-call/useVoiceActivityDetection.ts`.
+- [high, desktop/voice/microphone-lifecycle, RESOLVED 2026-07-23] Voice Mode
+  implemented mute by destroying its `MediaStream`, recorder, analyser, and
+  audio context, then reported `listening` before the asynchronous replacement
+  capture was ready. Immediate speech after unmute could therefore lose its
+  opening, merge several sentences, or miss the utterance entirely. A second
+  race let a pending `getUserMedia` resolve after mute because acquisition was
+  still exposed as `idle`. Recorder acquisition is now tracked explicitly;
+  mute disables every stream track, discards the partial utterance, and pauses
+  without releasing the allocated microphone, while unmute starts a fresh
+  recorder on that same stream. Pending acquisition honours mute before it can
+  become active, stale failures remain generation-gated, and the call exposes
+  `arming` until capture is genuinely ready. Regressions cover active and
+  pending mute/unmute, single-stream reuse, muted-audio exclusion, stop/mute
+  ordering, Focus bridge validation, and the preparation UI.
+  `packages/client-core/src/{platform,useVoiceRecorder,useVoiceCall}.ts`,
+  `packages/client-platform-web/src/audio-capture.ts`,
+  `apps/desktop/src/voice-call/`.
+- [med, desktop/focus/conversation, RESOLVED 2026-07-23] Focus Mode treated
+  intermediate `tool_use` messages as completed replies, let the stale task
+  status reappear after a final answer, and offered a text surface that omitted
+  the user's matching prompt, attachments, multiline input, selection-safe
+  scrolling, and queued turns. The reply selector now admits only committed
+  `end_turn` output, scopes visibility to one turn, expires after 15 seconds,
+  and supports explicit pin and dismiss actions. The mini transcript projects
+  exactly the latest user/assistant pair with existing Markdown and image
+  preview primitives, preserves text selection, exposes removable FIFO queue
+  entries, and uses an auto-growing IME-safe textarea. Restore geometry now has
+  dedicated inactive and active docks beside or above Moxxy instead of
+  overlapping the persona or consuming another action-bar slot. Completed
+  reply bubbles open the mini chat in both ordinary and Voice Mode states,
+  keep their dismiss action in the expected top-right corner, and avoid the
+  light-theme blur halo. Voice calls opened
+  from Focus are owned by the main renderer through the existing validated,
+  workspace-scoped bridge, so restoring the main window returns to the live
+  call without duplicating microphone, STT, or Piper ownership. Regression
+  coverage exercises final-reply timing, tool-use exclusion, attachments,
+  queue order, multiline input, geometry, and StrictMode-safe voice transfer.
+  `apps/desktop/src/{focus,voice-call}/`,
+  `packages/desktop-ipc-contract/src/`.
+- [low, desktop/focus/task-status, RESOLVED 2026-07-23] Focus Mode animated
+  Moxxy while work was active but gave no compact indication of what the turn
+  was doing, so users had to reopen the main chat to distinguish ongoing work
+  from an idle pet. A pure selector now derives only the current user prompt or
+  a safe high-level activity label, and a presentation-only bubble can be
+  hidden and restored without touching the turn. Permission and input requests
+  remain mandatory sidecars, native resizing is schema-validated and
+  bottom-anchored, and integration tests cover visibility, restore behavior,
+  decision precedence, and geometry in both directions.
+  `apps/desktop/src/focus/`,
+  `packages/{desktop-host,desktop-ipc-contract}/src/`.
+- [low, desktop/focus/avatar-memory, RESOLVED 2026-07-23] Reusing the five
+  1122×1402 Voice Mode frames in the always-on-top Focus renderer would have
+  decoded roughly 30 MB of character pixels for an 84×104 surface. Focus now
+  loads aligned 320×400 alpha-preserving derivatives through the same reusable
+  animation hook, while asset-contract tests pin their dimensions and alpha.
+  The full call screen keeps the untouched source frames. The pet state policy
+  is pure and tested, and its component remains presentation-only.
+  `apps/desktop/src/{focus,voice-call}/`.
+- [low, desktop/voice/avatar-assets, RESOLVED 2026-07-23] The owner-supplied
+  Voice Mode persona depended on five identically aligned transparent frames,
+  but an accidental resize, recompression, or alpha-channel change would have
+  silently produced visible mouth and blink jumps. A real asset-contract test
+  now pins every original SHA-256 checksum, dimension, PNG type, and alpha
+  channel. Frame selection and amplitude smoothing are pure and tested, while
+  image loading and analyser-driven animation live in a reusable hook behind a
+  presentation-only component. `apps/desktop/src/voice-call/`.
+- [low, desktop/focus/voice-discovery, RESOLVED 2026-07-22] Focus Mode assumed
+  that an available transcriber also meant full Voice Mode was available, so it
+  rendered a start control before checking whether Local Piper existed and then
+  expanded into an installer/error flow. Focus now probes the local package
+  independently during hydration, keeps the control absent while availability
+  is unknown, false, or failed, and sizes the compact bar from the controls that
+  are actually visible. Installation remains on the full Voice Mode surface.
+  A renderer integration regression locks down the real preflight IPC and the
+  absence of both start and install controls. `apps/desktop/src/focus/`.
+- [med, desktop/voice/onboarding, RESOLVED 2026-07-22] Voice Mode treated a
+  missing Local Piper package exactly like an installed but inactive
+  synthesizer, leaving a first-time user with configuration advice but no way
+  to obtain the offline voice. The preflight now distinguishes a complete
+  first-party package from an inactive contribution, and the full call surface
+  exposes a one-click, single-flight installer. Focus instead stays hidden until
+  that package is present. The host-only IPC
+  accepts no input, pins the package and contribution names in the main
+  process, validates the installed manifest and compiled entry, remains denied
+  on the remote/mobile command surface, restarts every runner after success,
+  and automatically retries the same call. That post-install retry now tolerates
+  the bounded interval in which the replacement runner has not exposed its
+  local transcriber or selected synthesizer yet. Real temporary-filesystem probes,
+  deterministic CLI-adapter tests, IPC trust-boundary tests, hook integration,
+  cross-window routing, and renderer tests cover the flow without changing STT,
+  including a temporarily absent runner-side transcriber.
+  `packages/{client-core,desktop-host,desktop-ipc-contract}/`,
+  `apps/desktop/src/{voice-call,focus}/`.
+- [high, desktop/voice/barge-in, RESOLVED 2026-07-22] Voice Mode released the
+  microphone while Piper was speaking, so interrupting an overly long answer
+  required manual controls and could not flow into the next turn. The desktop
+  now keeps an echo-cancelled, noise-suppressed monitoring capture during Piper
+  playback, compares microphone energy with the live output analyser, and uses
+  the existing VAD speech-start event to stop playback and abort only the active
+  turn. A bounded pre-roll keeps the opening phoneme while discarding audio
+  captured before the interruption; late chunks and completion from the aborted
+  turn are suppressed so they cannot speak over or complete the replacement
+  prompt. The main renderer remains the sole microphone owner when Focus Mode is
+  visible, and mute still disables monitoring. Deterministic integration tests
+  cover echo rejection, genuine speech, atomic queue/turn interruption, stale
+  event suppression, natural utterance completion, recorder-start races, and
+  unchanged PCM16 transcription output. Packaged verification also exposed
+  that the production CSP inherited `default-src 'self'` for media and blocked
+  Piper's renderer-created Blob URLs even though dev playback worked. A narrow
+  `media-src 'self' blob:` directive now permits only local synthesized media;
+  script, connection, object, and remote-media policies remain unchanged, with
+  a CSP regression test covering both file and loopback app origins.
+  `packages/client-core/src/{useStreamingVoiceMode,useVoiceCall,useVoiceRecorder,voice-call-machine}.ts`,
+  `packages/client-platform-web/src/{audio-capture,pcm16}.ts`,
+  `packages/desktop-host/src/security.ts`, `apps/desktop/src/voice-call/`.
+- [high, desktop/focus/voice-handoff, RESOLVED 2026-07-22] Voice Mode state
+  lived independently in each renderer, so entering Focus Mode from an active
+  full-window call showed an idle widget and forced the user to end and restart
+  the conversation. The main renderer now retains ownership of the recorder,
+  transcriber, active turn, waiting tone, and Piper queue while a narrow
+  same-origin bridge mirrors only validated presentation state and bounded
+  spectrum frames into Focus Mode. Focus controls route back to that owner, so
+  mute, waiting sound, retry, and end-call actions keep operating on the same
+  conversation. The first inactive-to-active handoff expands the Focus controls
+  immediately, while a later explicit collapse remains respected. The microphone
+  control now highlights the listening state and removes that highlight when
+  muted, matching its crossed-microphone treatment. Initial Focus hydration uses
+  bounded snapshot retries until the main owner responds, so one lost startup
+  message cannot leave the widget in its local idle state. Every cross-realm
+  message is Zod-validated, workspace-scoped, and excludes transcript text, tool
+  data, and STT payloads. Regression tests exercise a real BroadcastChannel
+  handoff through React StrictMode's effect replay, dropped startup delivery,
+  automatic presentation activation, manual-collapse persistence, cross-realm
+  Uint8Array validation, control routing, and waveform continuity. Owned bridge
+  ports are recreated for every effect setup, so StrictMode cleanup cannot leave
+  the live main renderer subscribed through a closed BroadcastChannel.
+  `apps/desktop/src/voice-call/{desktop-voice-call-bridge,useDesktopVoiceCallBridge}.ts`,
+  `apps/desktop/src/{chat,focus}/`.
+- [med, desktop/focus/voice, RESOLVED 2026-07-22] Focus Mode exposed only the
+  one-shot speech-to-text recorder, forcing users back into the full desktop
+  chat for a continuous half-duplex conversation. Both surfaces now share one
+  desktop Voice Mode adapter over the same headless call machine, VAD, Local
+  Piper queue, waiting sound, mute intent, tool feedback, and active ask state.
+  Focus adds compact start, end, retry, mute, and waiting-sound controls; the
+  live indicator remains visible when the widget is collapsed, and switching
+  from one-shot capture releases that recorder before the full call opens.
+  While the call is active, the one-shot STT affordance stays absent and the
+  mute action uses a distinct crossed-microphone treatment. The existing Focus
+  spectrum now follows the live microphone analyser while the user speaks and
+  the Piper output analyser while Moxxy answers, with output taking priority so
+  the half-duplex transition cannot display the wrong source.
+  Deterministic in-memory capture tests cover background persistence, resource
+  ownership, controls, bidirectional visualisation, and preflight failure
+  without changing STT or its IPC payload. `apps/desktop/src/focus/`,
+  `apps/desktop/src/voice-call/useDesktopVoiceCall.ts`.
+- [med, desktop/voice/speech-ux, RESOLVED 2026-07-22] The Markdown speech
+  normalizer forwarded visual Unicode glyphs and incomplete emphasis markers
+  into Piper, which pronounced emoji accessibility names and dangling stars.
+  The shared read-aloud/Voice Mode preparation path now removes complete emoji
+  sequences, flags, keycaps, dingbats, modifiers, joiners, and leftover stars
+  without changing the rendered chat message. Pure regressions cover Polish
+  prose, compound emoji, flags, keycaps, emoji-only replies, and both speech
+  surfaces. `packages/client-core/src/{speech,speech.test}.ts`.
+- [med, desktop/voice/turn-feedback, RESOLVED 2026-07-22] The initial
+  one-second TTS acknowledgement treated every turn as work, so even a greeting
+  produced an unnatural "Jasne, moment" before the real answer. It also started
+  narrating a tool immediately instead of reserving speech for genuinely long
+  operations. Ordinary response latency now uses the reviewed 1.6-second CC0
+  default UI SFX processing loop played from a packaged desktop asset and looped
+  without allocating repeated blobs. It begins while
+  transcription is in flight, keeps playing through the same turn, pauses before
+  spoken cues, stops when assistant speech wins the race, and can be disabled
+  through a persistent, accessible call control. The pinned source checksum and
+  license notice ship with the repository; there is no network or runtime
+  dependency. Spoken progress starts only after an actual tool remains
+  active for 10 seconds and is never mixed with the waiting phrase.
+  `packages/client-core/src/{voice-feedback-scheduler,useVoiceCall}.ts`,
+  `packages/client-platform-web/src/tts.ts`, `apps/desktop/src/voice-call/`.
+- [med, desktop/voice/speech-ux, RESOLVED 2026-07-22] Live Voice Mode reused
+  read-aloud's spoken `(code block)` placeholder, which switched Piper to the
+  English voice and announced implementation artifacts that added no value to
+  the conversation. Voice conversation playback now has a separate Markdown
+  policy that omits fenced, unfinished, and indented code while leaving the
+  transcript and explicit Read aloud behavior unchanged. The same pass replaces
+  unclear progress copy and exposes only the scheduler's safe activity category
+  to a theme-aware indicator beside the orb, without tool names or inputs.
+  `packages/client-core/src/{speech,speech-playback-queue,useStreamingVoiceMode,useVoiceCall}.ts`,
+  `apps/desktop/src/voice-call/`.
+- [high, desktop/voice/conversation, RESOLVED 2026-07-22] Voice Mode consumed
+  only assistant text chunks, so a direct tool call produced no audio until the
+  tool and the following model round finished — leaving long-running work silent
+  for minutes. A headless feedback scheduler now derives each turn's PL/EN
+  language from the initiating prompt, narrates only safe tool-action categories,
+  emits a bounded 10s → 30s → 90s heartbeat cadence only while a tool is active,
+  and cancels ephemeral cues when real assistant speech arrives. Spoken progress
+  clips share the ordered Piper queue, never enter chat history, and never
+  narrate model-controlled tool inputs; ordinary latency uses a separate local
+  looping processing pulse that never enters the Piper queue or conversation log.
+  A dispatch failure reported by the real `useChat` store before any turn starts
+  now terminates the cycle visibly instead of leaving Voice Mode in `thinking`.
+  `packages/client-core/src/{voice-feedback-scheduler,speech-playback-queue,useVoiceCall}.ts`.
+- [med, desktop/voice/ux, RESOLVED 2026-07-22] Voice Mode carried a separate
+  hard-coded amber, cream, and near-black palette instead of the desktop's
+  semantic theme tokens, and its pause control existed only while actively
+  listening. The call surface and audio-reactive orb now share Moxxy's pink
+  brand token across light and dark themes, with accessible focus, reduced
+  motion, and reduced transparency states. Microphone mute is now persistent
+  call intent owned by the headless state machine: it can be changed while
+  Moxxy is thinking or speaking, survives turn completion, and prevents the
+  recorder from restarting until the user explicitly unmutes it.
+  `apps/desktop/src/voice-call/`,
+  `packages/client-core/src/{voice-call-machine,useVoiceCall}.ts`.
+- [high, desktop/voice/language-routing, RESOLVED 2026-07-22] The streaming
+  language detector inherited the previous Piper voice for every tied score,
+  while its English marker set was too narrow for ordinary phrases and the
+  spoken code-block placeholder. A Polish sentence could therefore pin all
+  following English chunks to Gosia. The deterministic detector now covers
+  conversational PL/EN vocabulary and lightweight orthographic signals, keeps
+  voice inheritance only for genuinely ambiguous single-token fragments, and
+  has a queue-level regression for Polish-to-English switching. Verified end
+  to end with real cached Gosia → Amy → Gosia synthesis and valid WAV output.
+  `packages/client-core/src/{streaming-speech,speech-playback-queue}.test.ts`,
+  `packages/client-core/src/streaming-speech.ts`.
+- [med, desktop/voice/prosody, RESOLVED 2026-07-22] Streaming speech split
+  responses into natural chunks but synthesized every chunk at the same speed
+  and started the next clip immediately, discarding the SDK's existing `rate`
+  capability and producing a flat cadence. A deterministic, reusable prosody
+  planner now derives conservative rate and pause profiles from punctuation and
+  sentence length; the playback queue forwards rate through a finite/bounded
+  Zod-validated IPC field, preserves one-ahead prefetch, clears pending pauses
+  on cancel, and keeps Voice Mode half-duplex until the final pause completes.
+  `packages/client-core/src/{speech-prosody,speech-playback-queue}.ts`,
+  `packages/desktop-ipc-contract/src/{commands,validation}.ts`,
+  `packages/desktop-host/src/ipc/session.ts`.
+- [high, desktop/dev-runtime, RESOLVED 2026-07-22] Desktop dev resolved a global
+  `moxxy` binary from PATH before the freshly built monorepo CLI, so `pnpm build`
+  could succeed while the app silently ran stale runtime code. Resolution now
+  keeps an explicit `MOXXY_CLI_ENTRY` first, then prefers the local
+  `packages/cli/dist/bin.js`, and only falls back to PATH outside a built repo.
+  Packaged desktop remains pinned through its explicit bundled entry.
+  `packages/desktop-host/src/{cli-resolver,cli-resolver.test}.ts`.
+- [high, desktop/voice/config, RESOLVED 2026-07-22] The unified manifest exposed
+  `plugins.synthesizer.default`, and live category switching persisted it, but
+  session boot omitted the synthesizer from `applyPluginsTree`. Plugin discovery
+  order therefore silently overrode the user's choice (for example ElevenLabs
+  stayed active even when the config named `local-piper`). Session boot now
+  applies the registered synthesizer default, with a regression test covering
+  two installed TTS plugins and Local Piper selected second.
+  `packages/cli/src/setup/{apply-plugins-tree,apply-plugins-tree.test}.ts`.
+- [high, desktop/voice/privacy, RESOLVED 2026-07-22] Voice capture was not pinned
+  to the workspace that opened the microphone, and unmounting the composer called
+  `stop()`, which could finalize and transcribe into whichever workspace became
+  active next. Capture now snapshots `workspaceId`, exposes a true discard path,
+  rejects late microphone/transcription completions by generation, and releases
+  every track without producing an STT request. The new half-duplex Voice Mode
+  uses the same invariant across automatic listen, transcribe, Piper playback,
+  reconnect, pause, and close transitions.
+  `packages/client-core/src/{useVoiceRecorder,useVoiceCall}.ts`,
+  `packages/client-platform-web/src/audio-capture.ts`.
+- [high, desktop/voice, RESOLVED 2026-07-22] Desktop read-aloud swallowed every
+  runner-side synthesis failure and silently switched to the Apple system voice;
+  local Piper also returned native external ArrayBuffers that Electron's advanced
+  IPC serializer rejects. Piper now requests and copies V8-owned samples, real
+  errors remain visible, language hints reach the runner, and desktop Voice Mode
+  streams sentence/clause chunks through a one-ahead playback queue with automatic
+  Polish/English routing. Verified with real Gosia/Amy models under Electron-as-Node.
+  `packages/plugin-tts-local/src/host-protocol.ts`,
+  `packages/client-core/src/{speech-playback-queue,useStreamingVoiceMode}.ts`,
+  `apps/desktop/src/chat/`.
 - [med, chat-ux, RESOLVED 2026-07-23] Desktop ignored the live registry's
   `ToolInfo.compact` metadata even though TUI already consumed it, so the same
   Read/Grep/Glob run became a compact activity trace in one surface and a stack

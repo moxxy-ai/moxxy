@@ -1,8 +1,39 @@
 import { describe, it, expect } from 'vitest';
 import { validateIpcInput, ipcInputSchemas } from './validation.js';
 import { REMOTE_ALLOWED_COMMANDS } from './index.js';
+import type { IpcCommandName } from './index.js';
 
 describe('IPC payload validation', () => {
+  it('accepts no payload for the fixed Local Piper installer commands', () => {
+    expect(() => validateIpcInput(
+      'voice.isLocalPiperInstalled' as IpcCommandName,
+      undefined,
+    )).not.toThrow();
+    expect(() => validateIpcInput(
+      'voice.installLocalPiper' as IpcCommandName,
+      undefined,
+    )).not.toThrow();
+    expect(() => validateIpcInput(
+      'voice.installLocalPiper' as IpcCommandName,
+      { packageName: 'attacker-controlled-package' },
+    )).toThrow();
+  });
+
+  it('requires a strict boolean for the local realtime voice-capture lease', () => {
+    expect(() => validateIpcInput(
+      'voice.setRealtimeCaptureActive' as IpcCommandName,
+      { active: true },
+    )).not.toThrow();
+    expect(() => validateIpcInput(
+      'voice.setRealtimeCaptureActive' as IpcCommandName,
+      { active: 'yes' },
+    )).toThrow();
+    expect(() => validateIpcInput(
+      'voice.setRealtimeCaptureActive' as IpcCommandName,
+      { active: true, workspaceId: 'smuggled' },
+    )).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();
@@ -39,6 +70,38 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('session.transcribe', { audioBase64: 'AAAA' })).not.toThrow();
     expect(() =>
       validateIpcInput('session.transcribe', { audioBase64: 'A'.repeat(40_000_001) }),
+    ).toThrow();
+  });
+
+  it('bounds synthesize text, language hints, and speaking rate', () => {
+    expect(() =>
+      validateIpcInput('session.synthesize', {
+        workspaceId: 'workspace-1',
+        text: 'Dzień dobry',
+        language: 'pl-PL',
+        rate: 1.06,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', language: 'en' }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'x'.repeat(100_001), language: 'pl' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', language: '../en' }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', rate: 0.49 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', rate: 2.01 }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', rate: Number.NaN }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('session.synthesize', { text: 'Hello', language: 'en', sneaky: true }),
     ).toThrow();
   });
 
@@ -187,7 +250,12 @@ describe('IPC payload validation', () => {
     ).not.toThrow();
     expect(() => validateIpcInput('focus.dragEnd', undefined)).not.toThrow();
     expect(() =>
-      validateIpcInput('focus.resize', { width: 320, height: 76, resizable: false }),
+      validateIpcInput('focus.resize', {
+        width: 320,
+        height: 176,
+        resizable: false,
+        verticalAnchor: 'bottom',
+      }),
     ).not.toThrow();
     expect(() =>
       validateIpcInput('focus.resize', { width: 1600, height: 1600, resizable: true }),
@@ -212,6 +280,11 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('focus.resize', { width: 39, height: 44 })).toThrow();
     expect(() => validateIpcInput('focus.resize', { width: 44, height: 1601 })).toThrow();
     expect(() => validateIpcInput('focus.resize', { width: Number.NaN, height: 44 })).toThrow();
+    expect(() => validateIpcInput('focus.resize', {
+      width: 320,
+      height: 176,
+      verticalAnchor: 'top',
+    })).toThrow();
   });
 
   it('allows mobileGatewayEnabled in prefs.update', () => {

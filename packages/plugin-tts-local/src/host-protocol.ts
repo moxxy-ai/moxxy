@@ -66,6 +66,7 @@ export interface SherpaOfflineTts {
     text: string;
     sid: number;
     speed: number;
+    enableExternalBuffer?: boolean;
   }): Promise<{ samples: Float32Array; sampleRate: number }>;
 }
 
@@ -110,16 +111,27 @@ export function createMessageHandler(loadSherpa: LoadSherpa): HostMessageHandler
     }
 
     try {
-      const out = await tts.generateAsync({ text: req.text, sid: req.sid, speed: req.speed });
-      const samples =
-        out.samples instanceof Float32Array
-          ? out.samples
-          : Float32Array.from(out.samples as ArrayLike<number>);
+      const out = await tts.generateAsync({
+        text: req.text,
+        sid: req.sid,
+        speed: req.speed,
+        // Electron-as-Node rejects native-addon external ArrayBuffers during
+        // advanced IPC serialization. Ask sherpa for an owned buffer up front;
+        // the explicit copy below is the compatibility backstop for older
+        // sherpa builds that ignore this option.
+        enableExternalBuffer: false,
+      });
+      const samples = copySamplesForIpc(out.samples);
       return { id: req.id, ok: true, sampleRate: out.sampleRate, samples };
     } catch (err) {
       return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'runtime' } };
     }
   };
+}
+
+/** Copy native-addon samples onto a V8-owned ArrayBuffer before Electron IPC. */
+export function copySamplesForIpc(samples: ArrayLike<number>): Float32Array {
+  return Float32Array.from(samples);
 }
 
 function errMsg(err: unknown): string {

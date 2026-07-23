@@ -1,55 +1,123 @@
 /**
- * Stage 1: inactive — a 44×44 logo-only square inside a tiny transparent
- * window gutter. Clicking it expands the widget to the active stage.
+ * Stage 1: inactive — the animated Moxxy pet inside a transparent window.
+ * Clicking it expands the widget to the active stage.
  */
 
-import { LogoMark, ReplyPreviewButton } from './focus-primitives';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
+import type { VoiceCallPhase } from '@moxxy/client-core';
 import type { FocusTileGestureProps, FocusTileHorizontalAnchor } from './useFocusTileGesture';
-import type { InactiveReplyPreview } from './useInactiveReplyPreview';
 import type { FocusAskPrompt } from './useFocusAsk';
+import { FocusPetAvatar } from './FocusPetAvatar';
+import {
+  FocusBubbleRestoreButton,
+  FocusPetBubble,
+  type FocusPetBubbleContent,
+} from './FocusPetBubble';
 
 export function Inactive({
-  preview,
+  bubble,
   ask,
   horizontalAnchor,
   dragging,
   gestureProps,
-  onPreviewActivate,
+  voiceModeActive,
+  voiceModePhase,
+  voiceModeMuted,
+  inputAnalyser,
+  outputAnalyser,
+  bubbleRestoreVisible,
+  onBubbleActivate,
+  onHideBubble,
+  onShowBubble,
 }: {
-  readonly preview: InactiveReplyPreview | null;
+  readonly bubble: FocusPetBubbleContent | null;
   readonly ask: FocusAskPrompt | null;
   readonly horizontalAnchor: FocusTileHorizontalAnchor;
   readonly dragging: boolean;
   readonly gestureProps: FocusTileGestureProps;
-  readonly onPreviewActivate: () => void;
+  readonly voiceModeActive: boolean;
+  readonly voiceModePhase: VoiceCallPhase;
+  readonly voiceModeMuted: boolean;
+  readonly inputAnalyser: unknown | null;
+  readonly outputAnalyser: unknown | null;
+  readonly bubbleRestoreVisible: boolean;
+  readonly onBubbleActivate: () => void;
+  readonly onHideBubble: () => void;
+  readonly onShowBubble: () => void;
 }): JSX.Element {
-  const withSidecar = !!ask || !!preview;
-  return (
-    <div
-      style={{
-        ...style.inactiveRoot,
-        ...(withSidecar ? style.inactiveRootWithPreview : null),
-        flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
-      }}
-    >
+  const pet = (
+    <div style={style.focusPetDock}>
       <button
         type="button"
         {...gestureProps}
-        aria-label="moxxy · click to expand"
+        aria-label={voiceModeActive
+          ? 'Moxxy voice mode active, click to expand'
+          : 'Moxxy, click to expand'}
         style={{
           ...style.inactiveButton,
           cursor: dragging ? 'grabbing' : 'grab',
         }}
       >
-        <LogoMark />
+        <FocusPetAvatar
+          phase={voiceModePhase}
+          microphoneMuted={voiceModeMuted}
+          voiceModeActive={voiceModeActive}
+          inputAnalyser={inputAnalyser}
+          outputAnalyser={outputAnalyser}
+        />
       </button>
-      {ask ? (
+    </div>
+  );
+
+  const chrome = bubbleRestoreVisible ? (
+    <div
+      style={{
+        ...style.focusPetRestoreRoot,
+        flexDirection: horizontalAnchor === 'right' ? 'row' : 'row-reverse',
+      }}
+    >
+      <FocusBubbleRestoreButton onClick={onShowBubble} />
+      {pet}
+    </div>
+  ) : pet;
+
+  if (ask) {
+    return (
+      <div
+        style={{
+          ...style.inactiveRoot,
+          ...style.inactiveRootWithPreview,
+          flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
+        }}
+      >
+        {chrome}
         <FocusAskCard prompt={ask} variant="toast" />
-      ) : preview ? (
-        <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
-      ) : null}
+      </div>
+    );
+  }
+
+  if (bubble) {
+    return (
+      <div
+        style={{
+          ...style.focusPetBubbleRoot,
+          alignItems: horizontalAnchor === 'right' ? 'flex-end' : 'flex-start',
+        }}
+      >
+        <FocusPetBubble
+          content={bubble}
+          onActivate={onBubbleActivate}
+          onHide={onHideBubble}
+        />
+        {chrome}
+      </div>
+    );
+  }
+
+  return (
+    <div style={style.inactiveRoot}>
+      {chrome}
     </div>
   );
 }

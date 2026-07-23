@@ -31,6 +31,16 @@ export interface AudioCaptureResult {
 export interface AudioRecordingHandle {
   /** Stop recording; the capture then fires `onResult` (or `onError`). */
   stop(): void;
+  /** Release the microphone without producing a transcription payload. */
+  cancel(): void;
+  /** Discard the current utterance while retaining the allocated microphone. */
+  readonly suspend?: () => void;
+  /** Start a fresh utterance on the retained microphone. Resolves only after
+   * the platform audio pipeline is ready to sample again. */
+  readonly resume?: () => void | Promise<void>;
+  /** Mark the beginning of an utterance detected during output playback. The
+   * platform may discard older monitor audio while retaining a short pre-roll. */
+  readonly markUtteranceStart?: (preRollMs?: number) => void;
 }
 
 export interface AudioCaptureStartOptions {
@@ -51,8 +61,14 @@ export interface AudioCapture {
 // ---- Text-to-speech (read-aloud) ------------------------------------------
 
 export interface SpeakOptions {
+  /** BCP-47 language hint used to pick a matching system voice. */
+  readonly language?: string;
   readonly onend?: () => void;
   readonly onerror?: () => void;
+  /** Live output analyser for an audio-reactive visualizer. */
+  readonly onAnalyser?: (analyser: unknown | null) => void;
+  /** Repeat a non-speech clip until its handle is stopped. */
+  readonly loop?: boolean;
 }
 
 export interface AudioClipHandle {
@@ -69,6 +85,8 @@ export interface TextToSpeech {
   cancel(): void;
   /** Play a base64 audio clip from a runner-side synthesizer plugin. */
   playClip(base64: string, mimeType: string, opts?: SpeakOptions): AudioClipHandle;
+  /** Play an application-owned audio asset without copying it into JavaScript. */
+  readonly playUrl?: (url: string, opts?: SpeakOptions) => AudioClipHandle;
 }
 
 // ---- Key-value store (legacy localStorage migration only) -----------------

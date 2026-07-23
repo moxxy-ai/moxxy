@@ -8,7 +8,7 @@ describe('focus-window', () => {
     vi.doUnmock('./security');
   });
 
-  it('starts the collapsed widget at visual tile size and shapes the native window', async () => {
+  it('starts the collapsed widget at the transparent Moxxy pet size', async () => {
     const createdOptions: Array<Record<string, unknown>> = [];
     const fakeWindow = {
       isDestroyed: () => false,
@@ -53,23 +53,15 @@ describe('focus-window', () => {
     });
 
     expect(createdOptions[0]).toMatchObject({
-      width: 44,
-      height: 44,
+      width: 84,
+      height: 104,
       maxWidth: 1600,
       maxHeight: 1600,
       show: false,
       type: process.platform === 'darwin' ? 'panel' : undefined,
     });
     expect(fakeWindow.setShape).toHaveBeenCalledOnce();
-    const shape = fakeWindow.setShape.mock.calls[0]?.[0] as Array<{
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }>;
-    expect(shape.length).toBe(44);
-    expect(shape[0]?.x).toBeGreaterThan(0);
-    expect(shape.some((rect) => rect.x === 0 && rect.width === 44)).toBe(true);
+    expect(fakeWindow.setShape).toHaveBeenCalledWith([]);
     expect(fakeWindow.invalidateShadow).toHaveBeenCalledOnce();
   });
 
@@ -87,7 +79,7 @@ describe('focus-window', () => {
       setVisibleOnAllWorkspaces: vi.fn(),
       setShape: vi.fn(),
       invalidateShadow: vi.fn(),
-      getBounds: vi.fn(() => ({ x: 932, y: 732, width: 44, height: 44 })),
+      getBounds: vi.fn(() => ({ x: 892, y: 672, width: 84, height: 104 })),
     };
 
     vi.doMock('electron', () => ({
@@ -148,7 +140,7 @@ describe('focus-window', () => {
       setVisibleOnAllWorkspaces: vi.fn(),
       setShape: vi.fn(),
       invalidateShadow: vi.fn(),
-      getBounds: vi.fn(() => ({ x: 932, y: 732, width: 44, height: 44 })),
+      getBounds: vi.fn(() => ({ x: 892, y: 672, width: 84, height: 104 })),
     };
 
     vi.doMock('electron', () => ({
@@ -210,7 +202,7 @@ describe('focus-window', () => {
       setVisibleOnAllWorkspaces: vi.fn(),
       setShape: vi.fn(),
       invalidateShadow: vi.fn(),
-      getBounds: vi.fn(() => ({ x: 932, y: 732, width: 44, height: 44 })),
+      getBounds: vi.fn(() => ({ x: 892, y: 672, width: 84, height: 104 })),
     };
 
     vi.doMock('electron', () => ({
@@ -246,7 +238,7 @@ describe('focus-window', () => {
   });
 
   it('uses the current active pill position as the restore point after native dragging', async () => {
-    let bounds = { x: 932, y: 732, width: 44, height: 44 };
+    let bounds = { x: 892, y: 672, width: 84, height: 104 };
     const fakeWindow = {
       isDestroyed: () => false,
       show: vi.fn(),

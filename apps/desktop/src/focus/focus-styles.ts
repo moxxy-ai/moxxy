@@ -7,6 +7,12 @@
  * the shared primitives pull the same `style` record.
  */
 
+import {
+  FOCUS_PET_LAYOUT,
+  FOCUS_PET_BUBBLE_LAYOUT,
+  FOCUS_PET_RESTORE_LAYOUT,
+} from '@moxxy/desktop-ipc-contract';
+
 // ---- Drag regions --------------------------------------------------------
 // The whole window background is the OS drag region; interactive
 // controls cut a no-drag hole over their own area.
@@ -36,7 +42,7 @@ export const style = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: PANEL_BG,
+    background: 'transparent',
     cursor: 'grab',
     contain: 'layout paint',
     ...noDrag,
@@ -48,11 +54,11 @@ export const style = {
     background: 'transparent',
   },
   inactiveButton: {
-    width: 44,
-    height: 44,
-    border: PANEL_BORDER,
-    background: PANEL_BG,
-    borderRadius: 16,
+    width: FOCUS_PET_LAYOUT.collapsedWidth,
+    height: FOCUS_PET_LAYOUT.collapsedHeight,
+    border: 'none',
+    background: 'transparent',
+    borderRadius: 0,
     boxSizing: 'border-box',
     padding: 0,
     margin: 0,
@@ -63,19 +69,100 @@ export const style = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: 'var(--focus-panel-shadow)',
+    boxShadow: 'none',
     // z-index keeps the click target on top of any future overlay
     // chrome we might add (busy-state ring, etc.).
     position: 'relative',
     zIndex: 1,
     ...noDrag,
   },
+  voiceLiveIndicator: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: 8,
+    height: 8,
+    boxSizing: 'border-box',
+    border: '2px solid var(--focus-panel-bg)',
+    borderRadius: 999,
+    background: 'var(--color-primary)',
+    boxShadow: '0 0 10px rgba(236, 72, 153, 0.7)',
+    pointerEvents: 'none',
+  },
+  focusPet: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    display: 'grid',
+    placeItems: 'center',
+    isolation: 'isolate',
+    pointerEvents: 'none',
+  },
+  focusPetGlow: {
+    position: 'absolute',
+    inset: '23% 2% 3%',
+    zIndex: -1,
+    borderRadius: '50%',
+    background: 'radial-gradient(ellipse at 52% 58%, rgba(236, 72, 153, 0.3), transparent 68%)',
+    opacity: 0.48,
+    transform: 'scale(0.92)',
+    pointerEvents: 'none',
+  },
+  focusPetMotionLayer: {
+    width: '100%',
+    height: '100%',
+    display: 'grid',
+    placeItems: 'center',
+    transformOrigin: '50% 82%',
+  },
+  focusPetCanvas: {
+    width: '100%',
+    height: '100%',
+    display: 'block',
+    objectFit: 'contain',
+    imageRendering: 'pixelated',
+  },
+  visuallyHidden: {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    padding: 0,
+    margin: -1,
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    whiteSpace: 'nowrap',
+    border: 0,
+  },
+  voiceMicrophoneActionIcon: {
+    width: 19,
+    height: 19,
+    position: 'relative',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceMicrophoneActionSlash: {
+    position: 'absolute',
+    left: 1,
+    top: 8.5,
+    width: 17,
+    height: 1.8,
+    borderRadius: 999,
+    background: 'currentColor',
+    boxShadow: '0 0 0 1px var(--focus-panel-bg)',
+    transform: 'rotate(-45deg)',
+    pointerEvents: 'none',
+  },
   replyPreviewBubble: {
+    width: '100%',
     maxWidth: 342,
     minHeight: 64,
     maxHeight: 84,
     boxSizing: 'border-box',
-    padding: '10px 14px',
+    paddingTop: 10,
+    paddingRight: 14,
+    paddingBottom: 10,
+    paddingLeft: 14,
     background: 'var(--focus-preview-bg)',
     border: '1px solid var(--focus-preview-border)',
     borderRadius: 22,
@@ -95,7 +182,157 @@ export const style = {
     appearance: 'none',
     margin: 0,
     cursor: 'pointer',
-    backdropFilter: 'blur(18px) saturate(1.2)',
+    backdropFilter: 'none',
+    WebkitBackdropFilter: 'none',
+    ...noDrag,
+  },
+  focusPetBubbleRoot: {
+    width: '100%',
+    height: '100%',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'flex-end',
+    gap: 6,
+    padding: '6px 12px 0',
+    background: 'transparent',
+    contain: 'layout paint',
+    ...noDrag,
+  },
+  focusPetBubbleFrame: {
+    width: FOCUS_PET_BUBBLE_LAYOUT.width - 24,
+    maxWidth: '100%',
+    minHeight: 68,
+    position: 'relative',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusTaskBubble: {
+    minHeight: 68,
+    maxHeight: 68,
+    paddingTop: 12,
+    paddingRight: 76,
+    paddingBottom: 12,
+    paddingLeft: 16,
+    overflowX: 'hidden',
+    overflowY: 'hidden',
+    cursor: 'pointer',
+  },
+  focusReplyBubble: {
+    paddingRight: 52,
+  },
+  focusPetBubbleLine: {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+  },
+  focusPetBubbleTitle: {
+    color: 'var(--focus-preview-text)',
+    fontWeight: 800,
+  },
+  focusPetBubbleSeparator: {
+    margin: '0 7px',
+    color: 'var(--focus-dim)',
+    fontWeight: 700,
+  },
+  focusTaskBubbleText: {
+    color: 'var(--focus-muted)',
+    fontWeight: 650,
+  },
+  focusTaskSpinner: {
+    position: 'absolute',
+    right: 18,
+    top: 16,
+    width: 22,
+    height: 22,
+    boxSizing: 'border-box',
+    border: '3px solid rgba(236, 72, 153, 0.22)',
+    borderTopColor: 'var(--color-primary)',
+    borderRadius: 999,
+    pointerEvents: 'none',
+  },
+  focusBubbleHideButton: {
+    position: 'absolute',
+    right: 12,
+    width: 30,
+    height: 24,
+    padding: 0,
+    border: 'none',
+    borderRadius: 10,
+    background: 'transparent',
+    color: 'var(--focus-muted)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    ...noDrag,
+  },
+  focusTaskHideButton: {
+    bottom: 6,
+  },
+  focusReplyHideButton: {
+    top: 10,
+  },
+  focusPetDock: {
+    width: FOCUS_PET_LAYOUT.collapsedWidth,
+    height: FOCUS_PET_LAYOUT.collapsedHeight,
+    position: 'relative',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusPetRestoreRoot: {
+    width: FOCUS_PET_RESTORE_LAYOUT.width,
+    height: FOCUS_PET_RESTORE_LAYOUT.height,
+    boxSizing: 'border-box',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    background: 'transparent',
+    ...noDrag,
+  },
+  focusActiveDock: {
+    width: FOCUS_PET_LAYOUT.activeAvatarWidth - FOCUS_PET_LAYOUT.activeOverlap,
+    height: FOCUS_PET_LAYOUT.activeHeight,
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  activeChromeWithRestore: {
+    height: FOCUS_PET_LAYOUT.activeHeight + 36,
+    display: 'flex',
+    alignItems: 'flex-end',
+    position: 'relative',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusActiveRestoreDock: {
+    position: 'absolute',
+    top: 0,
+    left: 20,
+    width: 32,
+    height: 32,
+    zIndex: 3,
+    ...noDrag,
+  },
+  focusBubbleRestoreButton: {
+    width: 32,
+    height: 32,
+    flex: '0 0 32px',
+    padding: 0,
+    border: '1px solid var(--focus-preview-border)',
+    borderRadius: 999,
+    background: 'var(--focus-preview-bg)',
+    boxShadow: '0 8px 18px rgba(0, 0, 0, 0.24)',
+    color: 'var(--focus-preview-text)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    backdropFilter: 'blur(14px)',
     ...noDrag,
   },
   focusAskCard: {
@@ -254,16 +491,39 @@ export const style = {
     contain: 'layout paint',
     ...noDrag,
   },
+  activeChrome: {
+    height: FOCUS_PET_LAYOUT.activeHeight,
+    display: 'flex',
+    alignItems: 'center',
+    flex: '0 0 auto',
+    position: 'relative',
+    ...noDrag,
+  },
+  activePetButton: {
+    width: FOCUS_PET_LAYOUT.activeAvatarWidth,
+    height: FOCUS_PET_LAYOUT.activeHeight,
+    padding: 0,
+    margin: 0,
+    border: 'none',
+    borderRadius: 0,
+    background: 'transparent',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    cursor: 'pointer',
+    position: 'relative',
+    zIndex: 2,
+    flex: '0 0 auto',
+    ...noDrag,
+  },
   activeRoot: {
-    width: '100%',
-    height: '100%',
+    height: 56,
     background: PANEL_BG,
     border: PANEL_BORDER,
     borderRadius: 28,
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
-    padding: '0 8px',
+    padding: '0 8px 0 22px',
     position: 'relative',
     overflow: 'hidden',
     // Whole panel is the drag region; the brand button + action
@@ -275,22 +535,6 @@ export const style = {
   activeRootWithPreview: {
     height: 56,
     flex: '0 0 auto',
-  },
-  activeBrand: {
-    width: 36,
-    height: 36,
-    padding: 0,
-    margin: 0,
-    background: 'transparent',
-    border: 'none',
-    cursor: 'pointer',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    position: 'relative',
-    zIndex: 1,
-    ...noDrag,
   },
   activeDivider: {
     width: 1,
@@ -319,6 +563,15 @@ export const style = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  actionBtnActive: {
+    background: 'rgba(236, 72, 153, 0.14)',
+    color: 'var(--color-primary)',
+    borderRadius: 11,
+  },
+  actionBtnDisabled: {
+    opacity: 0.42,
+    cursor: 'not-allowed',
   },
 
   // ---- mini -----------------------------------------------------------
@@ -376,6 +629,38 @@ export const style = {
     minHeight: 0,
     fontSize: 13,
     color: 'var(--focus-text)',
+    userSelect: 'text',
+    WebkitUserSelect: 'text',
+    ...noDrag,
+  },
+  focusLatestTurn: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 14,
+  },
+  focusAssistantReply: {
+    width: '100%',
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 5,
+    color: 'var(--focus-text)',
+  },
+  focusMessageLabel: {
+    color: 'var(--color-primary-strong)',
+    fontSize: 10.5,
+    fontWeight: 760,
+    letterSpacing: '0.035em',
+  },
+  focusQueuedTurns: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    maxHeight: 58,
+    overflowY: 'auto',
+    ...noDrag,
   },
   lineRow: {
     display: 'inline-flex',
@@ -482,25 +767,33 @@ export const style = {
   },
   composer: {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 6,
     ...noDrag,
   },
   input: {
     flex: 1,
-    height: 32,
-    padding: '0 10px',
+    minHeight: 34,
+    maxHeight: 112,
+    boxSizing: 'border-box',
+    padding: '7px 10px',
     fontSize: 13,
+    lineHeight: '18px',
     color: 'var(--focus-text)',
     background: 'var(--focus-input-bg)',
     border: '1px solid var(--focus-input-border)',
+    borderRadius: 10,
     outline: 'none',
     fontFamily: 'inherit',
+    resize: 'none',
+    overflowY: 'auto',
+    ...noDrag,
   },
   send: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     border: 'none',
+    borderRadius: 10,
     background: 'linear-gradient(135deg, #ec4899, #d946ef)',
     color: '#fff',
     cursor: 'pointer',
@@ -531,6 +824,9 @@ if (typeof document !== 'undefined') {
       --color-text-dim: #94a3b8;
       --color-primary: #ec4899;
       --color-primary-strong: #db2777;
+      --color-primary-soft: #fdf2f8;
+      --color-surface: #ffffff;
+      --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
       --color-red: #ef4444;
       --color-card-border: #e3e5f0;
       --color-card-border-strong: #cdd1e3;
@@ -550,7 +846,7 @@ if (typeof document !== 'undefined') {
       --focus-action-danger-bg: rgba(239, 68, 68, 0.12);
       --focus-preview-bg: rgba(255, 255, 255, 0.96);
       --focus-preview-border: rgba(203, 213, 225, 0.75);
-      --focus-preview-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+      --focus-preview-shadow: none;
       --focus-preview-text: #0f172a;
       --focus-composer-bg: #ffffff;
       --focus-input-bg: #f8fafc;
@@ -579,6 +875,9 @@ if (typeof document !== 'undefined') {
       --color-text-dim: #697091;
       --color-primary: #ec4899;
       --color-primary-strong: #db2777;
+      --color-primary-soft: #2b1622;
+      --color-surface: #1b1e2b;
+      --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
       --color-red: #ef4444;
       --color-card-border: #262a3c;
       --color-card-border-strong: #363c54;
@@ -625,6 +924,9 @@ if (typeof document !== 'undefined') {
         --color-text: #e8eaf6;
         --color-text-muted: #a4abc8;
         --color-text-dim: #697091;
+        --color-primary-soft: #2b1622;
+        --color-surface: #1b1e2b;
+        --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
         --color-card-border: #262a3c;
         --color-card-border-strong: #363c54;
         --color-code-bg: #262b40;
@@ -670,6 +972,95 @@ if (typeof document !== 'undefined') {
     @keyframes focus-thinking {
       0%, 100% { transform: translateY(0); opacity: 0.4; }
       50%      { transform: translateY(-3px); opacity: 1; }
+    }
+    @keyframes moxxy-thinking {
+      0%, 100% { transform: scale(0.72); opacity: 0.45; }
+      50% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes focus-task-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes focus-bubble-enter {
+      from { transform: translateY(5px) scale(0.985); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    .focus-pet-bubble {
+      animation: focus-bubble-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    .focus-task-spinner {
+      animation: focus-task-spin 920ms linear infinite;
+    }
+    .focus-bubble-hide-button:hover,
+    .focus-bubble-restore-button:hover {
+      background: var(--focus-action-hover-bg) !important;
+      color: var(--color-primary) !important;
+    }
+    .focus-voice-live {
+      animation: focus-voice-live 1.7s ease-in-out infinite;
+    }
+    .focus-voice-live[data-phase="speaking"] {
+      animation-duration: 0.72s;
+    }
+    .focus-voice-live[data-phase="paused"] {
+      animation: none;
+      background: var(--focus-dim) !important;
+      box-shadow: none !important;
+    }
+    .focus-voice-live[data-phase="error"] {
+      animation: none;
+      background: var(--color-red) !important;
+      box-shadow: 0 0 9px rgba(239, 68, 68, 0.65) !important;
+    }
+    .focus-pet-canvas {
+      opacity: 0;
+      filter: drop-shadow(0 8px 9px rgba(9, 10, 18, 0.32));
+      transition: opacity 160ms ease, filter 200ms ease;
+    }
+    .focus-pet-canvas[data-avatar-state="ready"] {
+      opacity: 1;
+    }
+    .focus-pet-glow {
+      transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease;
+    }
+    .focus-pet--speaking .focus-pet-glow {
+      opacity: 0.78 !important;
+      transform: scale(1.05) !important;
+      filter: saturate(1.16);
+    }
+    .focus-pet--thinking .focus-pet-glow,
+    .focus-pet--working .focus-pet-glow,
+    .focus-pet--synthesizing .focus-pet-glow {
+      opacity: 0.62 !important;
+      transform: scale(1.01) !important;
+    }
+    .focus-pet--waiting-for-input .focus-pet-glow {
+      opacity: 0.82 !important;
+      filter: hue-rotate(22deg) saturate(1.2);
+    }
+    .focus-pet--error .focus-pet-canvas {
+      filter: saturate(0.58) sepia(0.12) drop-shadow(0 7px 8px rgba(100, 20, 34, 0.32));
+    }
+    .focus-pet--microphone-muted:not(.focus-pet--speaking) .focus-pet-canvas {
+      filter: saturate(0.58) drop-shadow(0 8px 9px rgba(9, 10, 18, 0.28));
+      opacity: 0.76;
+    }
+    @keyframes focus-voice-live {
+      0%, 100% { transform: scale(0.86); opacity: 0.62; }
+      50% { transform: scale(1); opacity: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .focus-voice-live,
+      .focus-voice-live[data-phase="speaking"] {
+        animation: none;
+      }
+      .focus-pet-canvas,
+      .focus-pet-glow {
+        transition: none;
+      }
+      .focus-pet-bubble,
+      .focus-task-spinner {
+        animation: none;
+      }
     }
   `;
   if (!existing) document.head.appendChild(styleTag);

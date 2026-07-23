@@ -1,12 +1,13 @@
 /**
  * Cross-stage atoms shared by the focus widget: the brand LogoMark, the
- * reply preview bubble, the pulsing thinking Dot, and the hover-aware
- * ActionButton used in the active action row. Each is intentionally tiny
+ * pulsing thinking Dot and the hover-aware ActionButton used in the active
+ * action row. Each is intentionally tiny
  * and self-contained so the stage components can compose them without
  * re-declaring hover/fallback logic.
  */
 
 import { useState } from 'react';
+import { Icon } from '@moxxy/desktop-ui';
 import { ASSET_LOGO, style } from './focus-styles';
 
 // ---- LogoMark ------------------------------------------------------------
@@ -73,25 +74,22 @@ export function Dot({ delay }: { readonly delay: number }): JSX.Element {
   );
 }
 
-// ---- ReplyPreviewButton --------------------------------------------------
+// ---- VoiceMicrophoneActionIcon ------------------------------------------
 
-export function ReplyPreviewButton({
-  text,
-  onClick,
+export function VoiceMicrophoneActionIcon({
+  muted,
 }: {
-  readonly text: string;
-  readonly onClick: () => void;
+  readonly muted: boolean;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      style={style.replyPreviewBubble}
-      aria-label="Open latest reply"
-      aria-live="polite"
-      onClick={onClick}
+    <span
+      aria-hidden
+      data-voice-microphone-muted={muted}
+      style={style.voiceMicrophoneActionIcon}
     >
-      {text}
-    </button>
+      <Icon name="mic" size={17} />
+      {muted && <span style={style.voiceMicrophoneActionSlash} />}
+    </span>
   );
 }
 
@@ -101,11 +99,19 @@ export function ActionButton({
   onClick,
   children,
   variant,
+  active = false,
+  disabled = false,
+  pressed,
+  title,
   ...rest
 }: {
   readonly onClick: () => void;
   readonly children: React.ReactNode;
   readonly variant?: 'danger';
+  readonly active?: boolean;
+  readonly disabled?: boolean;
+  readonly pressed?: boolean;
+  readonly title?: string;
   readonly 'aria-label': string;
 }): JSX.Element {
   const [hover, setHover] = useState(false);
@@ -120,10 +126,18 @@ export function ActionButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ ...style.actionBtn, ...(hoverStyle ?? {}) }}
+      style={{
+        ...style.actionBtn,
+        ...(active ? style.actionBtnActive : null),
+        ...(disabled ? style.actionBtnDisabled : null),
+        ...(hoverStyle ?? {}),
+      }}
       aria-label={rest['aria-label']}
+      aria-pressed={pressed}
+      title={title}
     >
       {children}
     </button>

@@ -367,6 +367,48 @@ describe('session.transcribe / hasTranscriber fallback chain', () => {
   });
 });
 
+describe('session.synthesize prosody', () => {
+  it('forwards the validated language and rate to the runner synthesizer', async () => {
+    const synthesize = vi.fn(async () => ({
+      audio: new Uint8Array([82, 73, 70, 70]),
+      mimeType: 'audio/wav',
+    }));
+    const remote = {
+      synthesizers: {
+        tryGetActive: () => ({ name: 'local-piper', synthesize }),
+      },
+    };
+    const pool = {
+      activeWorkspaceId: () => 'ws-prosody',
+      get: (id: string) =>
+        id === 'ws-prosody'
+          ? ({ remote: () => remote } as unknown as RunnerSupervisor)
+          : null,
+    } as unknown as RunnerPool;
+    const { bus, handlers } = fakeBus();
+    setActiveBus(bus);
+    registerSessionHandlers(pool);
+
+    const handler = handlers.get('session.synthesize');
+    assertDefined(handler, 'session.synthesize handler');
+    await expect(
+      handler({
+        workspaceId: 'ws-prosody',
+        text: 'Świetnie!',
+        language: 'pl',
+        rate: 1.06,
+      }),
+    ).resolves.toEqual({
+      audioBase64: 'UklGRg==',
+      mimeType: 'audio/wav',
+    });
+    expect(synthesize).toHaveBeenCalledWith('Świetnie!', {
+      language: 'pl',
+      rate: 1.06,
+    });
+  });
+});
+
 describe('session.* attachment provenance', () => {
   const WS = 'ws1';
   const CWD = path.join(os.tmpdir(), 'session-ipc-cwd');

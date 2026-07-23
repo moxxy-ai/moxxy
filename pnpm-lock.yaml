@@ -181,6 +181,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.0
         version: 4.0.1
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@moxxy/client-transport-ws':
         specifier: workspace:*

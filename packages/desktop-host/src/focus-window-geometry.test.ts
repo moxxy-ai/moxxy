@@ -30,6 +30,32 @@ describe('focus-window geometry', () => {
     expect(result.bounds).toEqual({ x: 24, y: 696, width: 220, height: 52 });
   });
 
+  it('keeps the pet baseline fixed when a status bubble grows above it', () => {
+    const result = resizeFocusBounds({
+      current: { x: 892, y: 672, width: 84, height: 104 },
+      nextSize: { width: 366, height: 190 },
+      verticalAnchor: 'bottom',
+      workArea,
+    });
+
+    expect(result.horizontalAnchor).toBe('right');
+    expect(result.bounds).toEqual({ x: 610, y: 586, width: 366, height: 190 });
+    expect(result.bounds.y + result.bounds.height).toBe(776);
+  });
+
+  it('keeps the pet baseline fixed when a status bubble collapses', () => {
+    const result = resizeFocusBounds({
+      current: { x: 610, y: 586, width: 366, height: 190 },
+      nextSize: { width: 84, height: 104 },
+      verticalAnchor: 'bottom',
+      workArea,
+    });
+
+    expect(result.horizontalAnchor).toBe('right');
+    expect(result.bounds).toEqual({ x: 892, y: 672, width: 84, height: 104 });
+    expect(result.bounds.y + result.bounds.height).toBe(776);
+  });
+
   it('restores a remembered tile position when collapsing from a clamped top panel', () => {
     const tile = { x: 932, y: 24, width: 44, height: 44 };
     const expanded = resizeFocusBounds({
