@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { defineTool, z } from '@moxxy/sdk';
 import { extractSystemText, toResponsesBody, toResponsesInput } from './translate.js';
 
 describe('toResponsesInput', () => {
@@ -91,5 +92,22 @@ describe('toResponsesBody', () => {
     const body = toResponsesBody({ ...req, maxTokens: 999, temperature: 0.5 });
     expect(body).not.toHaveProperty('max_output_tokens');
     expect(body).not.toHaveProperty('temperature');
+  });
+
+  it('serializes hosted web search beside ordinary function tools', () => {
+    const read = defineTool({
+      name: 'Read',
+      description: 'read',
+      inputSchema: z.object({ path: z.string() }),
+      handler: () => '',
+    });
+    const body = toResponsesBody(
+      { ...req, tools: [read] },
+      { hostedTools: [{ type: 'web_search' }] },
+    );
+    expect(body.tools).toEqual([
+      expect.objectContaining({ type: 'function', name: 'Read' }),
+      { type: 'web_search' },
+    ]);
   });
 });

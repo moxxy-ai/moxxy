@@ -67,6 +67,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.40.0",
+    "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {

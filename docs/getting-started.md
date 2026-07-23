@@ -69,7 +69,9 @@ CLAUDE_CODE_EXECUTABLE=/absolute/path/to/claude moxxy doctor
 
 The default model is `claude-sonnet-4-6`. Select another model advertised by Moxxy with `--model` or the `plugins.provider.items.claude-code.model` setting.
 
-The provider is text-only by default. Native Claude tools are a separate opt-in setting, `config.mode: native-tools`, and should be paired with explicit `allowedTools` and, when needed, `permissionMode`. The Claude CLI owns and enforces native-tool permissions. Moxxy's `--allow-tools`, permission resolver, and isolators govern only Moxxy tools and do not override the Claude CLI.
+The provider uses a text transport and enables only Claude Code's native `WebSearch` by default. Set `config.webSearch: false` to disable it. Other native Claude tools are a separate opt-in setting, `config.mode: native-tools`, and should be paired with explicit `allowedTools` (include `WebSearch` there if desired) and, when needed, `permissionMode`. The Claude CLI owns and enforces native-tool permissions. Moxxy's `--allow-tools`, permission resolver, and isolators govern only Moxxy tools and do not override the Claude CLI.
+
+The Codex, Anthropic API, and Claude Code provider packages also install `@moxxy/plugin-browser` as a lightweight companion. It provides the local search adapter and `web_fetch`; Playwright remains optional and is downloaded only after an explicit interactive-browser install action. Because Claude Code is an opaque CLI text transport, its turns cannot dispatch the local Moxxy fallback when native `WebSearch` fails.
 
 Interactive desktop and TUI sessions can launch sign-in. Headless channels and OS services cannot reliably complete browser or TTY authentication. Sign in once as the same OS user before starting the service, make sure that user's `PATH` or `CLAUDE_CODE_EXECUTABLE` reaches `claude`, then restart the service. Claude continues to own its authentication files; Moxxy does not copy them into its vault.
 

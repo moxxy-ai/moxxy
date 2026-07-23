@@ -65,9 +65,10 @@
     }
   },
   "dependencies": {
-    "@moxxy/sdk": "workspace:*",
+    "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-oauth": "workspace:*",
-    "@moxxy/plugin-provider-anthropic": "workspace:*"
+    "@moxxy/plugin-provider-anthropic": "workspace:*",
+    "@moxxy/sdk": "workspace:*"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",

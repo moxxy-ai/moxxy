@@ -1,4 +1,10 @@
-import { zodToJsonSchema, type ProviderMessage, type ProviderRequest, type ToolDef } from '@moxxy/sdk';
+import {
+  zodToJsonSchema,
+  type HostedTool,
+  type ProviderMessage,
+  type ProviderRequest,
+  type ToolDef,
+} from '@moxxy/sdk';
 
 /**
  * Responses-API "input" item shape. We only emit the subset codex uses:
@@ -17,13 +23,15 @@ type ResponsesContent =
   | { type: 'input_image'; image_url: string }
   | { type: 'input_file'; filename?: string; file_data: string };
 
-interface ResponsesTool {
+interface ResponsesFunctionTool {
   type: 'function';
   name: string;
   description: string;
   parameters: unknown;
   strict?: boolean;
 }
+
+type ResponsesTool = ResponsesFunctionTool | { type: 'web_search' };
 
 export interface ResponsesBody {
   model: string;
@@ -142,7 +150,7 @@ export function toResponsesInput(messages: ReadonlyArray<ProviderMessage>): Resp
   return out;
 }
 
-export function toResponsesTools(tools: ReadonlyArray<ToolDef>): ResponsesTool[] {
+export function toResponsesTools(tools: ReadonlyArray<ToolDef>): ResponsesFunctionTool[] {
   return tools.map((t) => ({
     type: 'function' as const,
     name: t.name,
@@ -154,6 +162,7 @@ export function toResponsesTools(tools: ReadonlyArray<ToolDef>): ResponsesTool[]
 export interface BuildBodyOptions {
   readonly sessionHint?: string;
   readonly reasoningEffort?: 'low' | 'medium' | 'high';
+  readonly hostedTools?: ReadonlyArray<HostedTool>;
 }
 
 /**
@@ -216,7 +225,11 @@ export function toResponsesBody(req: ProviderRequest, opts: BuildBodyOptions = {
     reasoning: { effort: opts.reasoningEffort ?? 'medium', summary: 'auto' },
     include: ['reasoning.encrypted_content'],
   };
-  if (req.tools && req.tools.length > 0) body.tools = toResponsesTools(req.tools);
+  const tools: ResponsesTool[] = req.tools ? toResponsesTools(req.tools) : [];
+  for (const hosted of opts.hostedTools ?? []) {
+    if (hosted.type === 'web_search') tools.push({ type: 'web_search' });
+  }
+  if (tools.length > 0) body.tools = tools;
   if (opts.sessionHint) body.prompt_cache_key = opts.sessionHint;
   if (req.maxTokens !== undefined) noteMaxTokensUnsupported();
   if (req.temperature !== undefined) noteTemperatureUnsupported();
