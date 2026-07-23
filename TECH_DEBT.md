@@ -39,6 +39,12 @@ or recorded-on-purpose decision.
   full synthesized payload available through the existing Ctrl+O expansion,
   instead of looking like a human-authored user prompt.
   `packages/plugin-cli/src/components/chat/EventLine.tsx`.
+- [med, scheduler, RESOLVED 2026-07-23] `schedule_create` rejected otherwise valid
+  recurring and one-shot tool calls when a provider serialized omitted optional
+  fields as blank strings. Its local trust-boundary schema now normalizes only
+  blank optional placeholders before enforcing the exactly-one-trigger invariant,
+  with captured-payload regressions through the real schedule store.
+  `packages/plugin-scheduler/src/tools.ts`.
 - [med, chat-ux, RESOLVED 2026-07-23] Desktop ignored the live registry's
   `ToolInfo.compact` metadata even though TUI already consumed it, so the same
   Read/Grep/Glob run became a compact activity trace in one surface and a stack
