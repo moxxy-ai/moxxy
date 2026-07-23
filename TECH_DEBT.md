@@ -24,6 +24,15 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, chat-ux, RESOLVED 2026-07-23] Desktop ignored the live registry's
+  `ToolInfo.compact` metadata even though TUI already consumed it, so the same
+  Read/Grep/Glob run became a compact activity trace in one surface and a stack
+  of generic tool cards in the other. Desktop now feeds the serializable
+  metadata from `session.info` into the shared incremental fold (including the
+  extension-sliced path); both surfaces render the resulting tool/skill work as
+  compact, expandable activity rows and animate only active labels with a
+  reduced-motion-safe shimmer. `packages/client-core/src/chatModel.ts`,
+  `packages/plugin-cli/src/components/chat/`, `apps/desktop/src/chat/`.
 - [high, modes, RESOLVED 2026-07-05] Goal mode killed its own runs and never let
   go: the iteration cap (150), a 4M token budget, and a stuck-loop FATAL abort
   (whose near-repeat heuristic trips on a legitimate edit→build→test cycle) all

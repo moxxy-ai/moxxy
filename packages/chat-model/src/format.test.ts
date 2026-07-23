@@ -3,6 +3,7 @@ import {
   buildCompactSummary,
   compactPreviewLine,
   formatElapsed,
+  formatToolActivity,
   formatTokensK,
   summarizeArgs,
 } from './format.js';
@@ -117,13 +118,26 @@ describe('buildCompactSummary', () => {
       makeCall('Read', { verb: 'Reading', one: 'file', other: 'files' }, {}),
     ];
     // first verb keeps its casing; subsequent verbs are lowercased.
-    expect(buildCompactSummary(calls, false)).toBe('Reading 2 files, searching for 1 pattern');
+    expect(buildCompactSummary(calls, false)).toBe('Read 2 files, searched for 1 pattern');
   });
 
   it('appends an ellipsis only while in flight', () => {
     const calls = [makeCall('Read', { verb: 'Reading', one: 'file', other: 'files' }, {})];
     expect(buildCompactSummary(calls, true)).toBe('Reading 1 file…');
-    expect(buildCompactSummary(calls, false)).toBe('Reading 1 file');
+    expect(buildCompactSummary(calls, false)).toBe('Read 1 file');
+  });
+});
+
+describe('formatToolActivity', () => {
+  it('uses natural active and settled labels for common tools', () => {
+    expect(formatToolActivity('Read', { file_path: 'src/app.ts' }, true)).toBe('Reading src/app.ts');
+    expect(formatToolActivity('Read', { file_path: 'src/app.ts' }, false)).toBe('Read src/app.ts');
+    expect(formatToolActivity('Grep', { pattern: 'needle', cwd: 'src' }, false)).toBe('Searched for needle in src');
+    expect(formatToolActivity('Bash', { command: 'pnpm test' }, true)).toBe('Running pnpm test');
+  });
+
+  it('falls back to the tool name and compact argument summary', () => {
+    expect(formatToolActivity('custom_tool', { id: 42 }, false)).toBe('Ran custom_tool · id=42');
   });
 });
 

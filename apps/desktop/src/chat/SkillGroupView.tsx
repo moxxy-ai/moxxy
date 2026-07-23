@@ -1,24 +1,13 @@
-/**
- * Renders a chat-model `skill-scope` block — a skill activation plus the
- * tools it ran — as one collapsible group. Mirrors the assistant column
- * rhythm with a brand-pink spark avatar.
- *
- *   ┌── [spark] Skill · web-research · 9 ok                       ▾
- *   │     web_fetch { "url": "https://…" }
- *   │     ...
- *   └────
- */
-
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   isFileDiffResult,
-  oneLine,
-  summarizeArgs,
+  formatToolActivity,
   type Block as FoldedBlock,
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
-import { Icon } from '@moxxy/desktop-ui';
+import { Icon, type IconName } from '@moxxy/desktop-ui';
+import { ActivityRow } from './ActivityRow';
 import { FileDiffBlock } from './blocks/FileDiffBlock';
 import { preStyle, pretty } from './blocks/block-shared';
 
@@ -31,17 +20,24 @@ export interface ToolRowData {
   readonly outcome: ToolCallBlockData['outcome'];
 }
 
-/** Flatten a skill scope's children into tool rows — tool-calls plus the
- *  calls inside any live-tools aggregate. Non-tool children (rare; the
- *  fold keeps assistant text at root) are dropped from the row list. */
 function collectTools(children: ReadonlyArray<FoldedBlock>): ToolRowData[] {
   const out: ToolRowData[] = [];
-  for (const c of children) {
-    if (c.kind === 'tool-call') {
-      out.push({ id: c.id, name: c.request.name, input: c.request.input, outcome: c.outcome });
-    } else if (c.kind === 'live-tools') {
-      for (const call of c.calls) {
-        out.push({ id: call.id, name: call.request.name, input: call.request.input, outcome: call.outcome });
+  for (const child of children) {
+    if (child.kind === 'tool-call') {
+      out.push({
+        id: child.id,
+        name: child.request.name,
+        input: child.request.input,
+        outcome: child.outcome,
+      });
+    } else if (child.kind === 'live-tools') {
+      for (const call of child.calls) {
+        out.push({
+          id: call.id,
+          name: call.request.name,
+          input: call.request.input,
+          outcome: call.outcome,
+        });
       }
     }
   }
@@ -54,156 +50,95 @@ export function statusOf(outcome: ToolCallBlockData['outcome']): 'running' | 'ok
   return outcome.ok ? 'ok' : 'error';
 }
 
-export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const tools = collectTools(scope.children);
-  const counts = tools.reduce<Record<string, number>>((acc, t) => {
-    const s = statusOf(t.outcome);
-    acc[s] = (acc[s] ?? 0) + 1;
-    return acc;
-  }, {});
-  const subtitle = Object.entries(counts)
-    .map(([k, v]) => `${v} ${k}`)
-    .join(' · ');
-
-  return (
-    <div data-testid="block-skill" style={{ alignSelf: 'stretch', display: 'flex', gap: 12, maxWidth: '92%' }}>
-      <Avatar />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0', width: '100%', textAlign: 'left' }}
-        >
-          <span style={{ fontWeight: 600, fontSize: 13.5 }}>
-            Skill
-            <span style={{ color: 'var(--color-text-dim)', fontWeight: 500, marginLeft: 6 }}>
-              · {scope.skillEvent.name}
-            </span>
-          </span>
-          <span className="mono" style={{ fontSize: 11, color: 'var(--color-text-dim)' }}>
-            {subtitle}
-          </span>
-          <span style={{ flex: 1 }} />
-          <span
-            aria-hidden
-            style={{
-              color: 'var(--color-text-dim)',
-              transform: open ? 'rotate(90deg)' : 'none',
-              transition: 'transform 120ms ease',
-              display: 'inline-flex',
-            }}
-          >
-            <Icon name="chevron-right" size={14} />
-          </span>
-        </button>
-        {!open && (
-          <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-text-dim)', fontStyle: 'italic' }}>
-            {scope.skillEvent.reason.replace(/_/g, ' ')}
-          </div>
-        )}
-        {open && (
-          <ul role="list" style={{ listStyle: 'none', margin: '6px 0 0', padding: 0 }}>
-            {tools.map((t) => (
-              <ToolRow key={t.id} tool={t} />
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
+export function iconForTool(name: string): IconName {
+  const normalized = name.toLowerCase();
+  if (normalized === 'read') return 'file';
+  if (normalized === 'grep' || normalized.includes('search')) return 'search';
+  if (normalized === 'glob') return 'folder';
+  if (normalized === 'bash' || normalized === 'exec' || normalized.includes('command')) return 'terminal';
+  return 'wrench';
 }
 
-function Avatar(): JSX.Element {
+/** Human-readable line matching the activity-list treatment in the reference. */
+export function toolActivityLabel(tool: Pick<ToolRowData, 'name' | 'input' | 'outcome'>): string {
+  return formatToolActivity(tool.name, tool.input, statusOf(tool.outcome) === 'running');
+}
+
+/** Starts expanded while work is live, then quietly collapses when it settles
+ * unless the user has explicitly chosen a state. */
+export function useActivityDisclosure(running: boolean): readonly [boolean, () => void] {
+  const [open, setOpen] = useState(running);
+  const touched = useRef(false);
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    if (wasRunning.current && !running && !touched.current) setOpen(false);
+    wasRunning.current = running;
+  }, [running]);
+  return [
+    open,
+    () => {
+      touched.current = true;
+      setOpen((value) => !value);
+    },
+  ];
+}
+
+export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.Element {
+  const tools = collectTools(scope.children);
+  const running = !scope.closed || tools.some((tool) => statusOf(tool.outcome) === 'running');
+  const [open, toggle] = useActivityDisclosure(running);
+  const errors = tools.filter((tool) => statusOf(tool.outcome) === 'error').length;
+  const meta = errors > 0 ? `${errors} failed` : tools.length > 0 ? `${tools.length}` : undefined;
+
   return (
-    <span
-      aria-hidden
-      style={{
-        width: 34,
-        height: 34,
-        borderRadius: 10,
-        background: 'var(--color-primary-soft)',
-        color: 'var(--color-primary-strong)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-      }}
-    >
-      <Icon name="spark" size={18} />
-    </span>
+    <div className="activity-block" data-testid="block-skill">
+      <ActivityRow
+        icon="spark"
+        label={`${running ? 'Using' : 'Used'} skill ${scope.skillEvent.name}${running ? '…' : ''}`}
+        meta={meta}
+        active={running}
+        open={open}
+        onToggle={toggle}
+      />
+      {open ? (
+        <ul className="activity-list" role="list">
+          {tools.map((tool) => <ToolRow key={tool.id} tool={tool} />)}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
 export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const [open, setOpen] = useState(false);
-  // A settled Write/Edit inside a skill scope renders as a diff card.
   if (isFileDiffResult(tool.outcome)) {
     const display = (tool.outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) {
-      return (
-        <li style={{ listStyle: 'none', marginTop: 4 }}>
-          <FileDiffBlock display={display} />
-        </li>
-      );
+      return <li className="activity-list__diff"><FileDiffBlock display={display} /></li>;
     }
   }
+
   const status = statusOf(tool.outcome);
-  const accent =
-    status === 'error' ? 'var(--color-red)' : status === 'ok' ? 'var(--color-green)' : 'var(--color-primary)';
-  const tint = status === 'error' ? 'var(--color-red-soft)' : status === 'ok' ? 'var(--color-green-soft)' : 'var(--color-primary-soft)';
-  const summary = summarizeArgs(tool.input);
-  const output = tool.outcome && tool.outcome.type === 'tool_result' ? tool.outcome.output : undefined;
-  const error =
-    tool.outcome === null
-      ? undefined
-      : tool.outcome.type === 'denied'
-        ? tool.outcome.reason
-        : tool.outcome.error?.message;
+  const output = tool.outcome?.type === 'tool_result' ? tool.outcome.output : undefined;
+  const error = tool.outcome === null
+    ? undefined
+    : tool.outcome.type === 'denied'
+      ? tool.outcome.reason
+      : tool.outcome.error?.message;
   return (
-    <li
-      style={{
-        background: tint,
-        border: '1px solid var(--color-card-border)',
-        borderLeft: `3px solid ${accent}`,
-        borderRadius: 10,
-        padding: '8px 10px',
-        marginTop: 4,
-        fontSize: 12.5,
-        fontFamily: 'var(--font-mono)',
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        style={{ display: 'flex', width: '100%', alignItems: 'center', gap: 8, color: 'var(--color-text)', textAlign: 'left' }}
-      >
-        <span style={{ color: accent, fontWeight: 600 }}>[{status}]</span>
-        <span style={{ fontWeight: 600 }}>{tool.name}</span>
-        {summary && (
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              color: 'var(--color-text-dim)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {oneLine(summary)}
-          </span>
-        )}
+    <li className="activity-list__item" data-status={status}>
+      <button type="button" className="activity-detail-row" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+        <span className="activity-detail-row__icon" aria-hidden><Icon name={iconForTool(tool.name)} size={16} /></span>
+        <span className={`activity-detail-row__label${status === 'running' ? ' activity-shimmer' : ''}`}>{toolActivityLabel(tool)}</span>
+        {status === 'error' ? <span className="activity-detail-row__error">failed</span> : null}
       </button>
-      {open && (
-        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {open ? (
+        <div className="activity-detail-row__body">
           <pre style={preStyle}>{pretty(tool.input)}</pre>
-          {output !== undefined && <pre style={preStyle}>{pretty(output)}</pre>}
-          {error && <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{error}</pre>}
+          {output !== undefined ? <pre style={preStyle}>{pretty(output)}</pre> : null}
+          {error ? <pre style={{ ...preStyle, color: 'var(--color-red)' }}>{error}</pre> : null}
         </div>
-      )}
+      ) : null}
     </li>
   );
 }

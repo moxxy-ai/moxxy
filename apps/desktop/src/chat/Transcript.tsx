@@ -1,7 +1,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import type { MoxxyEvent } from '@moxxy/sdk';
-import { blocksEquivalent, IncrementalFold, type Block as FoldedBlock } from '@moxxy/chat-model';
+import {
+  blocksEquivalent,
+  IncrementalFold,
+  type Block as FoldedBlock,
+  type CompactToolMap,
+} from '@moxxy/chat-model';
 import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
 import { ToolGroupView } from './ToolGroupView';
@@ -26,6 +31,8 @@ interface TranscriptProps {
   /** Fired when the user scrolls to the top edge — load the older page. */
   readonly onReachedTop?: () => void;
   readonly onPreviewImage?: (image: ImagePreviewItem) => void;
+  /** Presentation metadata advertised by the live tool registry. */
+  readonly compactTools?: CompactToolMap;
 }
 
 /** Memoised per-block so a streaming chunk (which only changes
@@ -121,6 +128,7 @@ export function Transcript({
   hasOlder,
   onReachedTop,
   onPreviewImage,
+  compactTools,
 }: TranscriptProps): JSX.Element {
   // Fold only when committed events / extensions change — never on a
   // streaming tick (the events array reference is stable across chunks). The
@@ -131,12 +139,17 @@ export function Transcript({
   // chaining degrades gracefully to the (identical) un-cached slow path when
   // IncrementalFold is unavailable.
   const foldRef = useRef<IncrementalFold | null>(null);
-  if (foldRef.current === null && typeof IncrementalFold === 'function') {
-    foldRef.current = new IncrementalFold();
+  const compactRef = useRef<CompactToolMap | undefined>(undefined);
+  if (
+    typeof IncrementalFold === 'function' &&
+    (foldRef.current === null || compactRef.current !== compactTools)
+  ) {
+    foldRef.current = new IncrementalFold(compactTools);
+    compactRef.current = compactTools;
   }
   const nodes = useMemo(
-    () => groupToolNodes(buildRenderNodes(events, extensions, foldRef.current ?? undefined)),
-    [events, extensions],
+    () => groupToolNodes(buildRenderNodes(events, extensions, foldRef.current ?? undefined, compactTools)),
+    [events, extensions, compactTools],
   );
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);

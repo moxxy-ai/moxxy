@@ -49,6 +49,7 @@ vi.mock('@moxxy/client-core', () => ({
     hasOlder: false,
     loadOlder: vi.fn(),
   }),
+  useActionCatalog: () => ({ loaded: true, skills: [], tools: [] }),
   useDesks: () => ({
     desks: [],
     activeId: null,
