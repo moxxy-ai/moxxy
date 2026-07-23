@@ -39,6 +39,7 @@ import type {
 } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
 import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
+import type { FocusVerticalAnchor } from './focus-layout.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -632,6 +633,8 @@ export interface IpcCommands {
     width: number;
     height: number;
     resizable?: boolean;
+    /** Keep character chrome fixed while transient content grows above it. */
+    verticalAnchor?: FocusVerticalAnchor;
   }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
   /** Move the focus window by a renderer-measured pointer delta. This stays
    *  local-only because remote/mobile clients must not be able to move the

@@ -3,17 +3,20 @@
  * Clicking it expands the widget to the active stage.
  */
 
-import { ReplyPreviewButton } from './focus-primitives';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
 import type { VoiceCallPhase } from '@moxxy/client-core';
 import type { FocusTileGestureProps, FocusTileHorizontalAnchor } from './useFocusTileGesture';
-import type { InactiveReplyPreview } from './useInactiveReplyPreview';
 import type { FocusAskPrompt } from './useFocusAsk';
 import { FocusPetAvatar } from './FocusPetAvatar';
+import {
+  FocusBubbleRestoreButton,
+  FocusPetBubble,
+  type FocusPetBubbleContent,
+} from './FocusPetBubble';
 
 export function Inactive({
-  preview,
+  bubble,
   ask,
   horizontalAnchor,
   dragging,
@@ -23,9 +26,12 @@ export function Inactive({
   voiceModeMuted,
   inputAnalyser,
   outputAnalyser,
-  onPreviewActivate,
+  bubbleRestoreVisible,
+  onBubbleActivate,
+  onHideBubble,
+  onShowBubble,
 }: {
-  readonly preview: InactiveReplyPreview | null;
+  readonly bubble: FocusPetBubbleContent | null;
   readonly ask: FocusAskPrompt | null;
   readonly horizontalAnchor: FocusTileHorizontalAnchor;
   readonly dragging: boolean;
@@ -35,17 +41,13 @@ export function Inactive({
   readonly voiceModeMuted: boolean;
   readonly inputAnalyser: unknown | null;
   readonly outputAnalyser: unknown | null;
-  readonly onPreviewActivate: () => void;
+  readonly bubbleRestoreVisible: boolean;
+  readonly onBubbleActivate: () => void;
+  readonly onHideBubble: () => void;
+  readonly onShowBubble: () => void;
 }): JSX.Element {
-  const withSidecar = !!ask || !!preview;
-  return (
-    <div
-      style={{
-        ...style.inactiveRoot,
-        ...(withSidecar ? style.inactiveRootWithPreview : null),
-        flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
-      }}
-    >
+  const pet = (
+    <div style={style.focusPetDock}>
       <button
         type="button"
         {...gestureProps}
@@ -65,11 +67,46 @@ export function Inactive({
           outputAnalyser={outputAnalyser}
         />
       </button>
-      {ask ? (
+      {bubbleRestoreVisible && <FocusBubbleRestoreButton onClick={onShowBubble} />}
+    </div>
+  );
+
+  if (ask) {
+    return (
+      <div
+        style={{
+          ...style.inactiveRoot,
+          ...style.inactiveRootWithPreview,
+          flexDirection: horizontalAnchor === 'right' ? 'row-reverse' : 'row',
+        }}
+      >
+        {pet}
         <FocusAskCard prompt={ask} variant="toast" />
-      ) : preview ? (
-        <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
-      ) : null}
+      </div>
+    );
+  }
+
+  if (bubble) {
+    return (
+      <div
+        style={{
+          ...style.focusPetBubbleRoot,
+          alignItems: horizontalAnchor === 'right' ? 'flex-end' : 'flex-start',
+        }}
+      >
+        <FocusPetBubble
+          content={bubble}
+          onActivate={onBubbleActivate}
+          onHide={onHideBubble}
+        />
+        {pet}
+      </div>
+    );
+  }
+
+  return (
+    <div style={style.inactiveRoot}>
+      {pet}
     </div>
   );
 }

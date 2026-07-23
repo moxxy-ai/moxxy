@@ -100,7 +100,12 @@ export type { DeskSession, Desk, DesksOverview, SessionsOverview } from './desks
 export type { PromptAttachment, RunTurnArgs, RunTurnResult } from './chat.js';
 
 // ---------- Focus window layout ------------------------------------------
-export { FOCUS_PET_LAYOUT, FOCUS_PET_ACTIVE_EXTRA_WIDTH } from './focus-layout.js';
+export {
+  FOCUS_PET_LAYOUT,
+  FOCUS_PET_ACTIVE_EXTRA_WIDTH,
+  FOCUS_PET_BUBBLE_LAYOUT,
+  type FocusVerticalAnchor,
+} from './focus-layout.js';
 
 // ---------- App / dashboard self-update ------------------------------------
 export type {

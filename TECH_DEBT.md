@@ -24,6 +24,17 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [low, desktop/focus/task-status, RESOLVED 2026-07-23] Focus Mode animated
+  Moxxy while work was active but gave no compact indication of what the turn
+  was doing, so users had to reopen the main chat to distinguish ongoing work
+  from an idle pet. A pure selector now derives only the current user prompt or
+  a safe high-level activity label, and a presentation-only bubble can be
+  hidden and restored without touching the turn. Permission and input requests
+  remain mandatory sidecars, native resizing is schema-validated and
+  bottom-anchored, and integration tests cover visibility, restore behavior,
+  decision precedence, and geometry in both directions.
+  `apps/desktop/src/focus/`,
+  `packages/{desktop-host,desktop-ipc-contract}/src/`.
 - [low, desktop/focus/avatar-memory, RESOLVED 2026-07-23] Reusing the five
   1122×1402 Voice Mode frames in the always-on-top Focus renderer would have
   decoded roughly 30 MB of character pixels for an 84×104 surface. Focus now

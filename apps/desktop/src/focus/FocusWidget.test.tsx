@@ -1052,7 +1052,8 @@ describe('FocusWidget bidirectional sync', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/live reply while collapsed/i)).toBeTruthy();
+      expect(screen.getByRole('button', { name: /open latest reply/i }))
+        .toHaveTextContent(/live reply while collapsed/i);
     });
 
     fireEvent.click(screen.getByRole('button', { name: /click to expand/i }));
@@ -1091,7 +1092,7 @@ describe('FocusWidget bidirectional sync', () => {
     expect(screen.getByText(/clickable preview reply/i)).toBeTruthy();
   });
 
-  it('shows assistant preview beside the active controls', async () => {
+  it('shows assistant preview above the active controls', async () => {
     const spy = installFakeApi();
     render(<FocusWidget />);
 
@@ -1110,18 +1111,19 @@ describe('FocusWidget bidirectional sync', () => {
       } as MoxxyEvent,
     });
 
-    await screen.findByText(/reply while controls are open/i);
+    expect(await screen.findByRole('button', { name: /open latest reply/i }))
+      .toHaveTextContent(/reply while controls are open/i);
     expect(screen.getByRole('button', { name: /^text$/i })).toBeTruthy();
 
     await waitFor(() => {
       const previewResize = spy.invokes.find(
         (i) =>
           i.channel === 'focus.resize' &&
-          (i.args as { width: number; height: number }).width >= 600,
+          (i.args as { width: number; height: number }).height === 190,
       );
       expect(previewResize).toBeTruthy();
       assertDefined(previewResize, 'focus.resize preview invoke');
-      expect((previewResize.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+      expect(previewResize.args).toMatchObject({ verticalAnchor: 'bottom' });
     });
   });
 
@@ -1170,17 +1172,18 @@ describe('FocusWidget bidirectional sync', () => {
       } as MoxxyEvent,
     });
 
-    await screen.findByText(/tworzenie napisów/i);
+    expect(await screen.findByRole('button', { name: /open latest reply/i }))
+      .toHaveTextContent(/tworzenie napisów/i);
 
     await waitFor(() => {
       const previewResize = spy.invokes.find(
         (i) =>
           i.channel === 'focus.resize' &&
-          (i.args as { width: number; height: number }).width >= 400,
+          (i.args as { width: number; height: number }).height === 190,
       );
       expect(previewResize).toBeTruthy();
       assertDefined(previewResize, 'focus.resize preview invoke');
-      expect((previewResize.args as { height: number }).height).toBeGreaterThanOrEqual(100);
+      expect(previewResize.args).toMatchObject({ verticalAnchor: 'bottom' });
     });
   });
 
@@ -1202,7 +1205,8 @@ describe('FocusWidget bidirectional sync', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/first live chunk/i)).toBeTruthy();
+      expect(screen.getByRole('button', { name: /open latest reply/i }))
+        .toHaveTextContent(/first live chunk/i);
     });
 
     const resizeCountAfterFirstPreview = spy.invokes.filter(
@@ -1223,13 +1227,108 @@ describe('FocusWidget bidirectional sync', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/first live chunk and second live chunk/i)).toBeTruthy();
+      expect(screen.getByRole('button', { name: /open latest reply/i }))
+        .toHaveTextContent(/first live chunk and second live chunk/i);
     });
 
     const resizeCountAfterSecondPreview = spy.invokes.filter(
       (i) => i.channel === 'focus.resize',
     ).length;
     expect(resizeCountAfterSecondPreview).toBe(resizeCountAfterFirstPreview);
+  });
+
+  it('shows the active task above Moxxy and keeps the native window bottom-anchored', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    act(() => {
+      spy.emit('runner.turn.started', {
+        workspaceId: 'ws-test',
+        turnId: asTurnId('turn-focus-task'),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(30, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId: asTurnId('turn-focus-task'),
+          text: 'Dodaj dymek aktywnego zadania nad Moxxy',
+        }),
+      });
+    });
+
+    const status = await screen.findByRole('status', { name: /current task/i });
+    expect(status).toHaveTextContent('Moxxy');
+    expect(status).toHaveTextContent('Dodaj dymek aktywnego zadania nad Moxxy');
+
+    await waitFor(() => {
+      const resize = spy.invokes.find(
+        (invoke) => invoke.channel === 'focus.resize'
+          && (invoke.args as { height?: number }).height === 190,
+      );
+      expect(resize).toBeTruthy();
+      assertDefined(resize, 'focus.resize task bubble invoke');
+      expect(resize.args).toMatchObject({ verticalAnchor: 'bottom' });
+    });
+  });
+
+  it('lets the user hide and restore task bubbles without ending the turn', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    act(() => {
+      spy.emit('runner.turn.started', {
+        workspaceId: 'ws-test',
+        turnId: asTurnId('turn-hide-task'),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(31, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId: asTurnId('turn-hide-task'),
+          text: 'Keep this task running',
+        }),
+      });
+    });
+
+    await screen.findByText('Keep this task running');
+    fireEvent.click(screen.getByRole('button', { name: /hide task status/i }));
+
+    expect(screen.queryByText('Keep this task running')).toBeNull();
+    expect(screen.getByRole('button', { name: /show task status/i })).toBeTruthy();
+    expect(chatStore.getChat('ws-test').activeTurnId).toBe('turn-hide-task');
+
+    fireEvent.click(screen.getByRole('button', { name: /show task status/i }));
+    expect(await screen.findByText('Keep this task running')).toBeTruthy();
+  });
+
+  it('keeps required user decisions visible while ordinary task bubbles are hidden', async () => {
+    const spy = installFakeApi();
+    render(<FocusWidget />);
+
+    act(() => {
+      spy.emit('runner.turn.started', {
+        workspaceId: 'ws-test',
+        turnId: asTurnId('turn-hidden-task-ask'),
+      });
+      spy.emit('runner.event', {
+        workspaceId: 'ws-test',
+        event: event(32, {
+          type: 'user_prompt',
+          source: 'user',
+          turnId: asTurnId('turn-hidden-task-ask'),
+          text: 'Run the required command',
+        }),
+      });
+    });
+
+    await screen.findByText('Run the required command');
+    fireEvent.click(screen.getByRole('button', { name: /hide task status/i }));
+    act(() => spy.emit('ask.request', permissionAsk('ask-visible-over-hidden-task')));
+
+    expect(await screen.findByRole('group', { name: /permission required/i })).toBeTruthy();
+    expect(screen.getByText(/pnpm build/i)).toBeTruthy();
   });
 
   it('shows a pending permission as an inactive focus toast and answers from it', async () => {

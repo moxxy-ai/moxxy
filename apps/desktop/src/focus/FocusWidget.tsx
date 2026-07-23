@@ -21,8 +21,9 @@
  * Voice capture lives in this orchestrator (not in Active) so a recording
  * that's still transcribing survives the active → mini-text stage switch.
  *
- * The tile / action bar stay compact; transient preview copy is rendered as a
- * lightweight bubble beside them and never drives per-token window resizing.
+ * The tile / action bar stay compact; current-task and reply copy is rendered
+ * in a collapsible bubble above Moxxy. The native window stays bottom-anchored
+ * so showing the bubble never makes the character jump on screen.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -38,6 +39,7 @@ import {
 } from '@moxxy/client-core';
 import {
   FOCUS_PET_ACTIVE_EXTRA_WIDTH,
+  FOCUS_PET_BUBBLE_LAYOUT,
   FOCUS_PET_LAYOUT,
 } from '@moxxy/desktop-ipc-contract';
 import { Inactive } from './Inactive';
@@ -54,6 +56,9 @@ import {
 import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
 import { deriveFocusAudioVisualization } from './focus-audio-visualization';
 import { resolveFocusPetPhase } from './focus-pet-state';
+import { useFocusTaskStatus } from './focus-task-status';
+import { useFocusBubbleVisibility } from './useFocusBubbleVisibility';
+import type { FocusPetBubbleContent } from './FocusPetBubble';
 
 type Stage = 'inactive' | 'active' | 'mini-text';
 
@@ -61,9 +66,6 @@ type Stage = 'inactive' | 'active' | 'mini-text';
 // mute and waiting-sound controls, while its error state swaps those for retry.
 const ACTIVE_WIDTH_WITHOUT_MIC = 160;
 const ACTIVE_ACTION_WIDTH = 36;
-const INACTIVE_PREVIEW_SIZE = { width: 462, height: FOCUS_PET_LAYOUT.collapsedHeight };
-const ACTIVE_PREVIEW_EXTRA_WIDTH = 378 + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
-const PREVIEW_HEIGHT = 104;
 const INACTIVE_ASK_SIZE = { width: 588, height: 216 };
 const ACTIVE_ASK_EXTRA_WIDTH = 500 + FOCUS_PET_ACTIVE_EXTRA_WIDTH;
 const ASK_HEIGHT = 216;
@@ -137,7 +139,6 @@ function Surface({
   const ask = useFocusAsk(workspaceId);
   const askVisible = ask !== null;
   const chromePreview = askVisible ? null : preview;
-  const previewVisible = chromePreview !== null;
   const ready = workspaceId !== null
     && connection.snapshot?.phase.phase === 'connected'
     && !chat.loading;
@@ -148,6 +149,36 @@ function Surface({
     chat,
     inputRequired: askVisible,
   });
+  const taskStatus = useFocusTaskStatus({
+    events: chat.events,
+    activeTurnId: chat.activeTurnId,
+    sending: chat.sending,
+    voiceModeActive: voiceCall.active,
+    voiceModePhase: voiceCall.phase,
+    activity: voiceCall.activity,
+  });
+  const bubbleVisibility = useFocusBubbleVisibility();
+  const bubbleAvailable = chromePreview !== null || taskStatus !== null;
+  let bubble: FocusPetBubbleContent | null = null;
+  if (!askVisible && !bubbleVisibility.hidden) {
+    if (chromePreview) {
+      bubble = {
+        kind: 'reply',
+        title: voiceCall.active ? 'Voice Mode' : 'Moxxy',
+        text: chromePreview.text,
+        busy: false,
+      };
+    } else if (taskStatus) {
+      bubble = {
+        kind: 'task',
+        title: taskStatus.title,
+        text: taskStatus.text,
+        busy: taskStatus.busy,
+      };
+    }
+  }
+  const bubbleVisible = bubble !== null;
+  const bubbleRestoreVisible = !askVisible && bubbleVisibility.hidden && bubbleAvailable;
   const previousVoiceModeActive = useRef(false);
   const voiceModeAvailable = voiceCall.active || (
     localPiperInstalled === true && hasTranscriber === true && ready
@@ -164,8 +195,15 @@ function Surface({
     dismissPreview();
     setStage('mini-text');
   };
+  const openBubble = (): void => {
+    if (bubble?.kind === 'reply') {
+      openPreview();
+      return;
+    }
+    setStage('mini-text');
+  };
   const openInactive = (): void => {
-    if (chromePreview) {
+    if (bubble?.kind === 'reply') {
       openPreview();
       return;
     }
@@ -256,24 +294,35 @@ function Surface({
     if (stage === 'inactive' && askVisible) {
       width = INACTIVE_ASK_SIZE.width;
       height = INACTIVE_ASK_SIZE.height;
-    } else if (stage === 'inactive' && previewVisible) {
-      width = INACTIVE_PREVIEW_SIZE.width;
-      height = INACTIVE_PREVIEW_SIZE.height;
+    } else if (stage === 'inactive' && bubbleVisible) {
+      width = FOCUS_PET_BUBBLE_LAYOUT.width;
+      height = FOCUS_PET_BUBBLE_LAYOUT.height;
     }
     if (stage === 'active' && askVisible) {
       width = Math.min(activeWidth + ACTIVE_ASK_EXTRA_WIDTH, 760);
       height = ASK_HEIGHT;
-    } else if (stage === 'active' && previewVisible) {
-      width = activeWidth + ACTIVE_PREVIEW_EXTRA_WIDTH;
-      height = PREVIEW_HEIGHT;
+    } else if (stage === 'active' && bubbleVisible) {
+      width = Math.max(
+        activeWidth + FOCUS_PET_ACTIVE_EXTRA_WIDTH,
+        FOCUS_PET_BUBBLE_LAYOUT.width,
+      );
+      height = FOCUS_PET_BUBBLE_LAYOUT.height;
     }
+    const verticalAnchor = (stage === 'inactive' || stage === 'active') && !askVisible
+      ? 'bottom'
+      : 'center';
     void api()
-      .invoke('focus.resize', { width, height, resizable: stage === 'mini-text' })
+      .invoke('focus.resize', {
+        width,
+        height,
+        resizable: stage === 'mini-text',
+        verticalAnchor,
+      })
       .then((placement) => {
         if (placement?.horizontalAnchor) setHorizontalAnchor(placement.horizontalAnchor);
       })
       .catch(() => undefined);
-  }, [stage, activeWidth, previewVisible, askVisible, miniTextSize.width, miniTextSize.height]);
+  }, [stage, activeWidth, bubbleVisible, askVisible, miniTextSize.width, miniTextSize.height]);
 
   // Collapsing back to the inactive pet hides the recording UI but the voice
   // recorder lives on the always-mounted Surface — so without explicitly
@@ -287,7 +336,7 @@ function Surface({
   if (stage === 'inactive')
     return (
       <Inactive
-        preview={chromePreview}
+        bubble={bubble}
         ask={ask}
         horizontalAnchor={horizontalAnchor}
         dragging={tileGesture.dragging}
@@ -297,13 +346,16 @@ function Surface({
         voiceModeMuted={voiceCall.microphoneMuted}
         inputAnalyser={petInputAnalyser}
         outputAnalyser={petOutputAnalyser}
-        onPreviewActivate={openInactive}
+        bubbleRestoreVisible={bubbleRestoreVisible}
+        onBubbleActivate={openBubble}
+        onHideBubble={bubbleVisibility.hide}
+        onShowBubble={bubbleVisibility.show}
       />
     );
   if (stage === 'active')
     return (
       <Active
-        preview={chromePreview}
+        bubble={bubble}
         ask={ask}
         horizontalAnchor={horizontalAnchor}
         width={activeWidth}
@@ -330,7 +382,10 @@ function Surface({
         onToggleWaitingSound={voiceCall.toggleWaitingSound}
         onCollapse={collapse}
         onText={() => setStage('mini-text')}
-        onPreviewActivate={openPreview}
+        bubbleRestoreVisible={bubbleRestoreVisible}
+        onBubbleActivate={openBubble}
+        onHideBubble={bubbleVisibility.hide}
+        onShowBubble={bubbleVisibility.show}
       />
     );
   return (

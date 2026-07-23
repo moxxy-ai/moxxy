@@ -14,7 +14,6 @@ import { Icon } from '@moxxy/desktop-ui';
 import {
   ActionButton,
   Dot,
-  ReplyPreviewButton,
   VoiceMicrophoneActionIcon,
 } from './focus-primitives';
 import { MicIcon, PencilIcon, WindowIcon, XIcon } from './focus-icons';
@@ -22,13 +21,17 @@ import { SpectroBackground } from './SpectroBackground';
 import { style } from './focus-styles';
 import { FocusAskCard } from './FocusAskCard';
 import type { FocusTileHorizontalAnchor } from './useFocusTileGesture';
-import type { InactiveReplyPreview } from './useInactiveReplyPreview';
 import type { FocusAskPrompt } from './useFocusAsk';
 import type { FocusAudioVisualization } from './focus-audio-visualization';
 import { FocusPetAvatar } from './FocusPetAvatar';
+import {
+  FocusBubbleRestoreButton,
+  FocusPetBubble,
+  type FocusPetBubbleContent,
+} from './FocusPetBubble';
 
 export function Active({
-  preview,
+  bubble,
   ask,
   horizontalAnchor,
   width,
@@ -55,9 +58,12 @@ export function Active({
   onToggleWaitingSound,
   onCollapse,
   onText,
-  onPreviewActivate,
+  bubbleRestoreVisible,
+  onBubbleActivate,
+  onHideBubble,
+  onShowBubble,
 }: {
-  readonly preview: InactiveReplyPreview | null;
+  readonly bubble: FocusPetBubbleContent | null;
   readonly ask: FocusAskPrompt | null;
   readonly horizontalAnchor: FocusTileHorizontalAnchor;
   readonly width: number;
@@ -84,7 +90,10 @@ export function Active({
   readonly onToggleWaitingSound: () => void;
   readonly onCollapse: () => void;
   readonly onText: () => void;
-  readonly onPreviewActivate: () => void;
+  readonly bubbleRestoreVisible: boolean;
+  readonly onBubbleActivate: () => void;
+  readonly onHideBubble: () => void;
+  readonly onShowBubble: () => void;
 }): JSX.Element {
   const bar = (
     <div
@@ -190,25 +199,46 @@ export function Active({
 
   const chrome = (
     <div style={style.activeChrome}>
-      <button
-        type="button"
-        onClick={onCollapse}
-        aria-label="Collapse"
-        style={style.activePetButton}
-      >
-        <FocusPetAvatar
-          phase={petPhase}
-          microphoneMuted={voiceModeMuted}
-          voiceModeActive={voiceModeActive}
-          inputAnalyser={petInputAnalyser}
-          outputAnalyser={petOutputAnalyser}
-        />
-      </button>
+      <div style={style.focusActiveDock}>
+        <button
+          type="button"
+          onClick={onCollapse}
+          aria-label="Collapse"
+          style={style.activePetButton}
+        >
+          <FocusPetAvatar
+            phase={petPhase}
+            microphoneMuted={voiceModeMuted}
+            voiceModeActive={voiceModeActive}
+            inputAnalyser={petInputAnalyser}
+            outputAnalyser={petOutputAnalyser}
+          />
+        </button>
+        {bubbleRestoreVisible && <FocusBubbleRestoreButton onClick={onShowBubble} />}
+      </div>
       {bar}
     </div>
   );
 
-  if (!preview && !ask) return chrome;
+  if (!bubble && !ask) return chrome;
+
+  if (bubble && !ask) {
+    return (
+      <div
+        style={{
+          ...style.focusPetBubbleRoot,
+          alignItems: horizontalAnchor === 'right' ? 'flex-end' : 'flex-start',
+        }}
+      >
+        <FocusPetBubble
+          content={bubble}
+          onActivate={onBubbleActivate}
+          onHide={onHideBubble}
+        />
+        {chrome}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -218,11 +248,7 @@ export function Active({
       }}
     >
       {chrome}
-      {ask ? (
-        <FocusAskCard prompt={ask} variant="toast" />
-      ) : preview ? (
-        <ReplyPreviewButton text={preview.text} onClick={onPreviewActivate} />
-      ) : null}
+      {ask && <FocusAskCard prompt={ask} variant="toast" />}
     </div>
   );
 }

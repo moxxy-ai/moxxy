@@ -1,7 +1,7 @@
 /**
  * Cross-stage atoms shared by the focus widget: the brand LogoMark, the
- * reply preview bubble, the pulsing thinking Dot, and the hover-aware
- * ActionButton used in the active action row. Each is intentionally tiny
+ * pulsing thinking Dot and the hover-aware ActionButton used in the active
+ * action row. Each is intentionally tiny
  * and self-contained so the stage components can compose them without
  * re-declaring hover/fallback logic.
  */
@@ -90,28 +90,6 @@ export function VoiceMicrophoneActionIcon({
       <Icon name="mic" size={17} />
       {muted && <span style={style.voiceMicrophoneActionSlash} />}
     </span>
-  );
-}
-
-// ---- ReplyPreviewButton --------------------------------------------------
-
-export function ReplyPreviewButton({
-  text,
-  onClick,
-}: {
-  readonly text: string;
-  readonly onClick: () => void;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      style={style.replyPreviewBubble}
-      aria-label="Open latest reply"
-      aria-live="polite"
-      onClick={onClick}
-    >
-      {text}
-    </button>
   );
 }
 

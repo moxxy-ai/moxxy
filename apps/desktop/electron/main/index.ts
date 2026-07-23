@@ -59,7 +59,11 @@ import {
   type LoopbackServer,
   type SelfSignedCert,
 } from '@moxxy/desktop-host';
-import type { DeepLinkPayload, MobileGatewayStatus } from '@moxxy/desktop-ipc-contract';
+import type {
+  DeepLinkPayload,
+  FocusVerticalAnchor,
+  MobileGatewayStatus,
+} from '@moxxy/desktop-ipc-contract';
 // Value imports of @moxxy/ipc-server-ws are lazy + guarded (see the bridge
 // block below): the bridge is opt-in, and a top-level static import would make
 // boot itself depend on the module resolving — the exact failure that bricked
@@ -452,9 +456,19 @@ async function createWindow(): Promise<void> {
     'focus.resize',
     (
       _evt,
-      { width, height, resizable }: { width: number; height: number; resizable?: boolean },
+      {
+        width,
+        height,
+        resizable,
+        verticalAnchor,
+      }: {
+        width: number;
+        height: number;
+        resizable?: boolean;
+        verticalAnchor?: FocusVerticalAnchor;
+      },
     ) => {
-      return resizeFocusWindow(width, height, resizable);
+      return resizeFocusWindow(width, height, resizable, verticalAnchor);
     },
   );
   ipcMain.removeHandler('focus.moveBy');

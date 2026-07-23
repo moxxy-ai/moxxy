@@ -7,6 +7,11 @@
  * the shared primitives pull the same `style` record.
  */
 
+import {
+  FOCUS_PET_LAYOUT,
+  FOCUS_PET_BUBBLE_LAYOUT,
+} from '@moxxy/desktop-ipc-contract';
+
 // ---- Drag regions --------------------------------------------------------
 // The whole window background is the OS drag region; interactive
 // controls cut a no-drag hole over their own area.
@@ -48,8 +53,8 @@ export const style = {
     background: 'transparent',
   },
   inactiveButton: {
-    width: 84,
-    height: 104,
+    width: FOCUS_PET_LAYOUT.collapsedWidth,
+    height: FOCUS_PET_LAYOUT.collapsedHeight,
     border: 'none',
     background: 'transparent',
     borderRadius: 0,
@@ -148,11 +153,15 @@ export const style = {
     pointerEvents: 'none',
   },
   replyPreviewBubble: {
+    width: '100%',
     maxWidth: 342,
     minHeight: 64,
     maxHeight: 84,
     boxSizing: 'border-box',
-    padding: '10px 14px',
+    paddingTop: 10,
+    paddingRight: 14,
+    paddingBottom: 10,
+    paddingLeft: 14,
     background: 'var(--focus-preview-bg)',
     border: '1px solid var(--focus-preview-border)',
     borderRadius: 22,
@@ -173,6 +182,125 @@ export const style = {
     margin: 0,
     cursor: 'pointer',
     backdropFilter: 'blur(18px) saturate(1.2)',
+    ...noDrag,
+  },
+  focusPetBubbleRoot: {
+    width: '100%',
+    height: '100%',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'flex-end',
+    gap: 6,
+    padding: '6px 12px 0',
+    background: 'transparent',
+    contain: 'layout paint',
+    ...noDrag,
+  },
+  focusPetBubbleFrame: {
+    width: FOCUS_PET_BUBBLE_LAYOUT.width - 24,
+    maxWidth: '100%',
+    minHeight: 68,
+    position: 'relative',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusTaskBubble: {
+    minHeight: 68,
+    maxHeight: 68,
+    paddingTop: 12,
+    paddingRight: 76,
+    paddingBottom: 12,
+    paddingLeft: 16,
+    overflowX: 'hidden',
+    overflowY: 'hidden',
+    cursor: 'pointer',
+  },
+  focusReplyBubble: {
+    paddingRight: 52,
+  },
+  focusPetBubbleLine: {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 2,
+    overflow: 'hidden',
+  },
+  focusPetBubbleTitle: {
+    color: 'var(--focus-preview-text)',
+    fontWeight: 800,
+  },
+  focusPetBubbleSeparator: {
+    margin: '0 7px',
+    color: 'var(--focus-dim)',
+    fontWeight: 700,
+  },
+  focusTaskBubbleText: {
+    color: 'var(--focus-muted)',
+    fontWeight: 650,
+  },
+  focusTaskSpinner: {
+    position: 'absolute',
+    right: 18,
+    top: 16,
+    width: 22,
+    height: 22,
+    boxSizing: 'border-box',
+    border: '3px solid rgba(236, 72, 153, 0.22)',
+    borderTopColor: 'var(--color-primary)',
+    borderRadius: 999,
+    pointerEvents: 'none',
+  },
+  focusBubbleHideButton: {
+    position: 'absolute',
+    right: 12,
+    bottom: 6,
+    width: 30,
+    height: 24,
+    padding: 0,
+    border: 'none',
+    borderRadius: 10,
+    background: 'transparent',
+    color: 'var(--focus-muted)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    ...noDrag,
+  },
+  focusPetDock: {
+    width: FOCUS_PET_LAYOUT.collapsedWidth,
+    height: FOCUS_PET_LAYOUT.collapsedHeight,
+    position: 'relative',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusActiveDock: {
+    width: FOCUS_PET_LAYOUT.activeAvatarWidth - FOCUS_PET_LAYOUT.activeOverlap,
+    height: FOCUS_PET_LAYOUT.activeHeight,
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    flex: '0 0 auto',
+    ...noDrag,
+  },
+  focusBubbleRestoreButton: {
+    position: 'absolute',
+    right: 2,
+    top: 1,
+    zIndex: 4,
+    width: 28,
+    height: 28,
+    padding: 0,
+    border: '1px solid var(--focus-preview-border)',
+    borderRadius: 999,
+    background: 'var(--focus-preview-bg)',
+    boxShadow: '0 8px 18px rgba(0, 0, 0, 0.24)',
+    color: 'var(--focus-preview-text)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    backdropFilter: 'blur(14px)',
     ...noDrag,
   },
   focusAskCard: {
@@ -332,7 +460,7 @@ export const style = {
     ...noDrag,
   },
   activeChrome: {
-    height: 90,
+    height: FOCUS_PET_LAYOUT.activeHeight,
     display: 'flex',
     alignItems: 'center',
     flex: '0 0 auto',
@@ -340,10 +468,10 @@ export const style = {
     ...noDrag,
   },
   activePetButton: {
-    width: 72,
-    height: 90,
+    width: FOCUS_PET_LAYOUT.activeAvatarWidth,
+    height: FOCUS_PET_LAYOUT.activeHeight,
     padding: 0,
-    margin: '0 -18px 0 0',
+    margin: 0,
     border: 'none',
     borderRadius: 0,
     background: 'transparent',
@@ -764,6 +892,24 @@ if (typeof document !== 'undefined') {
       0%, 100% { transform: translateY(0); opacity: 0.4; }
       50%      { transform: translateY(-3px); opacity: 1; }
     }
+    @keyframes focus-task-spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes focus-bubble-enter {
+      from { transform: translateY(5px) scale(0.985); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+    .focus-pet-bubble {
+      animation: focus-bubble-enter 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    .focus-task-spinner {
+      animation: focus-task-spin 920ms linear infinite;
+    }
+    .focus-bubble-hide-button:hover,
+    .focus-bubble-restore-button:hover {
+      background: var(--focus-action-hover-bg) !important;
+      color: var(--color-primary) !important;
+    }
     .focus-voice-live {
       animation: focus-voice-live 1.7s ease-in-out infinite;
     }
@@ -825,6 +971,10 @@ if (typeof document !== 'undefined') {
       .focus-pet-canvas,
       .focus-pet-glow {
         transition: none;
+      }
+      .focus-pet-bubble,
+      .focus-task-spinner {
+        animation: none;
       }
     }
   `;

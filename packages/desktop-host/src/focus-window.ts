@@ -11,7 +11,10 @@
  */
 
 import { BrowserWindow, screen } from 'electron';
-import { FOCUS_PET_LAYOUT } from '@moxxy/desktop-ipc-contract';
+import {
+  FOCUS_PET_LAYOUT,
+  type FocusVerticalAnchor,
+} from '@moxxy/desktop-ipc-contract';
 import { lockDownNavigation } from './security';
 import {
   moveFocusBounds,
@@ -141,6 +144,7 @@ export function resizeFocusWindow(
   width: number,
   height: number,
   resizable = false,
+  verticalAnchor: FocusVerticalAnchor = 'center',
 ): FocusWindowPlacement | null {
   if (!focusWindow || focusWindow.isDestroyed()) return null;
   // Edge-resize grabs are only wanted for the mini-text panel; the small
@@ -159,6 +163,7 @@ export function resizeFocusWindow(
     current,
     nextSize: { width, height },
     restoreBounds,
+    verticalAnchor,
     workArea,
   });
 

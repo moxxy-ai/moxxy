@@ -235,7 +235,12 @@ describe('IPC payload validation', () => {
     ).not.toThrow();
     expect(() => validateIpcInput('focus.dragEnd', undefined)).not.toThrow();
     expect(() =>
-      validateIpcInput('focus.resize', { width: 320, height: 76, resizable: false }),
+      validateIpcInput('focus.resize', {
+        width: 320,
+        height: 176,
+        resizable: false,
+        verticalAnchor: 'bottom',
+      }),
     ).not.toThrow();
     expect(() =>
       validateIpcInput('focus.resize', { width: 1600, height: 1600, resizable: true }),
@@ -260,6 +265,11 @@ describe('IPC payload validation', () => {
     expect(() => validateIpcInput('focus.resize', { width: 39, height: 44 })).toThrow();
     expect(() => validateIpcInput('focus.resize', { width: 44, height: 1601 })).toThrow();
     expect(() => validateIpcInput('focus.resize', { width: Number.NaN, height: 44 })).toThrow();
+    expect(() => validateIpcInput('focus.resize', {
+      width: 320,
+      height: 176,
+      verticalAnchor: 'top',
+    })).toThrow();
   });
 
   it('allows mobileGatewayEnabled in prefs.update', () => {

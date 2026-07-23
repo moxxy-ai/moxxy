@@ -189,6 +189,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
       width: focusSize,
       height: focusSize,
       resizable: z.boolean().optional(),
+      verticalAnchor: z.enum(['center', 'bottom']).optional(),
     })
     .strict(),
   'onboarding.openExternal': z.object({ url: httpUrl }),

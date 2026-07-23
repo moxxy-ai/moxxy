@@ -10,3 +10,5 @@ When Local Piper is absent, the full desktop Voice Mode explains the one-time of
 Replace the abstract Voice Mode orb with the owner-supplied animated Moxxy persona. The character blinks while idle and maps the existing microphone and Piper analysers to restrained mouth shapes without adding another audio context or changing the speech pipeline. Original transparent frames are integrity-pinned and bundled with the packaged desktop app.
 
 Carry the same Moxxy persona into the transparent always-on-top Focus Mode surface: she replaces the collapsed square, remains attached to the compact controls, reflects listening/working/speaking/mute/error states, reacts to the existing cross-window spectrum without owning audio, and uses memory-bounded derived frames in the persistent secondary renderer.
+
+Show the current turn or latest reply in a compact, collapsible status bubble above the Focus Mode persona. Hiding the bubble never interrupts the turn, required permission decisions remain visible, and bottom-anchored native resizing keeps Moxxy fixed in place while the transient status appears or disappears.
