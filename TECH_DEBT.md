@@ -24,6 +24,51 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/voice/focus-realtime, RESOLVED 2026-07-23] Focus Mode hid the
+  main renderer that intentionally remained the sole owner of microphone,
+  recorder, analyser, VAD, and transcription. Chromium's default background
+  throttling then coalesced the owner's 40 ms VAD timer, so an immediate phrase
+  after Desktop → Focus or mute → unmute could be ignored until a later repeat.
+  The desktop host now grants a strict local-only realtime-capture lease for
+  exactly the lifetime of an active main-renderer Voice Mode call and restores
+  normal throttling on close, reload, or window teardown. A suspended
+  `AudioContext` must reach `running` before tracks, recorder, analyser, and the
+  UI return to listening; generation guards prevent a late resume from
+  re-enabling a microphone the user muted again. Focus remains a remote control
+  and spectrum mirror, never a second audio owner. Regressions cover the IPC
+  boundary, host lease lifecycle, initial and repeated resume, resume failure,
+  rapid mute/unmute/mute, ten reuse cycles, and the Focus preparation status.
+  `apps/desktop/electron/main/`, `apps/desktop/src/{focus,voice-call}/`,
+  `packages/{client-core,client-platform-web,desktop-host,desktop-ipc-contract}/src/`.
+- [high, desktop/voice/utterance-endpointing, RESOLVED 2026-07-23] Voice Mode
+  used the same high RMS threshold to both start and retain speech, then ended
+  an utterance after only 900 ms below that threshold. Quiet syllables and
+  ordinary thinking pauses could therefore dispatch a visibly truncated prompt
+  even though the microphone and transcriber were healthy. Endpointing now uses
+  hysteresis: strong evidence is still required to begin speech, while a lower
+  noise-aware hold threshold preserves natural changes in volume. A turn closes
+  only after 1.5 seconds of actual silence. Deterministic regressions cover quiet
+  continuation, a resumed sentence after a natural pause, and a fresh detector
+  lifecycle across mute/unmute without changing the STT endpoint or payload.
+  `packages/client-core/src/voice-activity.ts`,
+  `apps/desktop/src/voice-call/useVoiceActivityDetection.ts`.
+- [high, desktop/voice/microphone-lifecycle, RESOLVED 2026-07-23] Voice Mode
+  implemented mute by destroying its `MediaStream`, recorder, analyser, and
+  audio context, then reported `listening` before the asynchronous replacement
+  capture was ready. Immediate speech after unmute could therefore lose its
+  opening, merge several sentences, or miss the utterance entirely. A second
+  race let a pending `getUserMedia` resolve after mute because acquisition was
+  still exposed as `idle`. Recorder acquisition is now tracked explicitly;
+  mute disables every stream track, discards the partial utterance, and pauses
+  without releasing the allocated microphone, while unmute starts a fresh
+  recorder on that same stream. Pending acquisition honours mute before it can
+  become active, stale failures remain generation-gated, and the call exposes
+  `arming` until capture is genuinely ready. Regressions cover active and
+  pending mute/unmute, single-stream reuse, muted-audio exclusion, stop/mute
+  ordering, Focus bridge validation, and the preparation UI.
+  `packages/client-core/src/{platform,useVoiceRecorder,useVoiceCall}.ts`,
+  `packages/client-platform-web/src/audio-capture.ts`,
+  `apps/desktop/src/voice-call/`.
 - [med, desktop/focus/conversation, RESOLVED 2026-07-23] Focus Mode treated
   intermediate `tool_use` messages as completed replies, let the stale task
   status reappear after a final answer, and offered a text surface that omitted

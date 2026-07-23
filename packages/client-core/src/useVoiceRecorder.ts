@@ -8,20 +8,32 @@ import { getPlatform, type AudioCaptureResult, type AudioRecordingHandle } from 
  * to the draft) and the focus widget (sends it as a turn). It owns the *phase*
  * machine — idle → recording → transcribing → error — and the `session.transcribe`
  * round-trip, while the platform {@link AudioCapture} capability owns the actual
- * mic pipeline (getUserMedia → recorder → PCM16). With no capability registered,
- * the recorder degrades to a clean "mic unavailable" error.
+ * mic pipeline (getUserMedia → recorder → PCM16). A platform may suspend the
+ * current utterance while retaining the allocated stream for an immediate,
+ * privacy-safe resume. With no capability registered, the recorder degrades
+ * to a clean "mic unavailable" error.
  */
 
-export type VoicePhase = 'idle' | 'recording' | 'transcribing' | 'error';
+export type VoicePhase =
+  | 'idle'
+  | 'recording'
+  | 'paused'
+  | 'transcribing'
+  | 'error';
 
 export interface UseVoiceRecorder {
   readonly phase: VoicePhase;
+  readonly starting: boolean;
   /** Human-readable reason while `phase === 'error'`, else null. */
   readonly errorReason: string | null;
   /** Start if idle, stop if recording. */
   readonly toggle: () => void;
   readonly start: () => void;
   readonly stop: () => void;
+  /** Discard the current utterance without releasing an allocated mic stream. */
+  readonly suspend: () => void;
+  /** Resume with a fresh utterance on the retained mic stream. */
+  readonly resume: () => Promise<void>;
   /** Discard the current capture or in-flight transcription. */
   readonly cancel: () => void;
   /** Keep only the detected utterance plus a short pre-roll from a monitor capture. */
@@ -42,10 +54,15 @@ export interface VoiceRecorderOptions {
 
 export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
   const [phase, setPhaseState] = useState<VoicePhase>('idle');
+  const [starting, setStarting] = useState(false);
   const [errorReason, setErrorReason] = useState<string | null>(null);
 
   const handleRef = useRef<AudioRecordingHandle | null>(null);
   const startingGenerationRef = useRef<number | null>(null);
+  const resumeAttemptRef = useRef<number | null>(null);
+  const resumeSequenceRef = useRef(0);
+  const startRef = useRef<() => Promise<void>>(async () => undefined);
+  const suspendedRef = useRef(false);
   const phaseRef = useRef<VoicePhase>('idle');
   const generationRef = useRef(0);
   // Guards async post-await state writes (transcription resolving AFTER the
@@ -140,6 +157,10 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
   const cancel = useCallback((): void => {
     generationRef.current += 1;
     startingGenerationRef.current = null;
+    resumeSequenceRef.current += 1;
+    resumeAttemptRef.current = null;
+    setStarting(false);
+    suspendedRef.current = false;
     handleRef.current?.cancel();
     handleRef.current = null;
     if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
@@ -148,6 +169,74 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     setErrorReason(null);
     setPhase('idle');
   }, [setPhase]);
+
+  const suspend = useCallback((): void => {
+    if (phaseRef.current === 'transcribing' || phaseRef.current === 'error') return;
+    suspendedRef.current = true;
+    resumeSequenceRef.current += 1;
+    if (resumeAttemptRef.current !== null) {
+      resumeAttemptRef.current = null;
+      setStarting(false);
+    }
+    const handle = handleRef.current;
+    if (handle && (!handle.suspend || !handle.resume)) {
+      cancel();
+      return;
+    }
+    handle?.suspend?.();
+    if (handle || startingGenerationRef.current !== null) {
+      setPhase('paused');
+    }
+  }, [cancel, setPhase]);
+
+  const resume = useCallback(async (): Promise<void> => {
+    if (phaseRef.current === 'transcribing' || phaseRef.current === 'error') return;
+    suspendedRef.current = false;
+    const handle = handleRef.current;
+    if (handle) {
+      const captureGeneration = generationRef.current;
+      const attempt = resumeSequenceRef.current + 1;
+      resumeSequenceRef.current = attempt;
+      resumeAttemptRef.current = attempt;
+      setStarting(true);
+      try {
+        await handle.resume?.();
+        if (
+          !mountedRef.current
+          || suspendedRef.current
+          || handleRef.current !== handle
+          || resumeAttemptRef.current !== attempt
+          || resumeSequenceRef.current !== attempt
+          || generationRef.current !== captureGeneration
+        ) return;
+        setPhase('recording');
+      } catch (error) {
+        if (
+          mountedRef.current
+          && !suspendedRef.current
+          && resumeAttemptRef.current === attempt
+          && resumeSequenceRef.current === attempt
+          && generationRef.current === captureGeneration
+        ) {
+          handle.cancel();
+          handleRef.current = null;
+          fail(error instanceof Error ? error.message : 'could not resume audio capture');
+        }
+      } finally {
+        if (resumeAttemptRef.current === attempt) {
+          resumeAttemptRef.current = null;
+          if (mountedRef.current) setStarting(false);
+        }
+      }
+      return;
+    }
+    if (startingGenerationRef.current !== null) {
+      setPhase('idle');
+      return;
+    }
+    setPhase('idle');
+    await startRef.current();
+  }, [fail, setPhase]);
 
   const start = useCallback(async (): Promise<void> => {
     if (
@@ -167,13 +256,16 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
       generationRef.current = generation;
       startingGenerationRef.current = generation;
       const workspaceId = opts.workspaceId;
+      setStarting(true);
       const handle = await audio.start({
         onResult: (result) => {
           handleRef.current = null;
+          suspendedRef.current = false;
           void finalize(result, generation, workspaceId);
         },
         onError: (message) => {
           handleRef.current = null;
+          suspendedRef.current = false;
           fail(message);
         },
         ...(onAnalyserRef.current ? { onAnalyser: onAnalyserRef.current } : {}),
@@ -183,12 +275,25 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
         return;
       }
       handleRef.current = handle;
-      setPhase('recording');
+      if (suspendedRef.current) {
+        if (handle.suspend && handle.resume) {
+          handle.suspend();
+          setPhase('paused');
+        } else {
+          handle.cancel();
+          handleRef.current = null;
+          setPhase('idle');
+        }
+      } else {
+        setPhase('recording');
+      }
     } catch (e) {
+      if (pendingGeneration !== generationRef.current) return;
       fail(e instanceof Error ? e.message : 'mic unavailable');
     } finally {
       if (startingGenerationRef.current === pendingGeneration) {
         startingGenerationRef.current = null;
+        if (mountedRef.current) setStarting(false);
       }
     }
   }, [fail, finalize, opts.workspaceId, setPhase]);
@@ -197,6 +302,7 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
     if (phaseRef.current === 'recording') stop();
     else void start();
   }, [start, stop]);
+  startRef.current = start;
 
   // Tear down the mic + cancel the pending error-reset timer on unmount, and
   // mark unmounted so an in-flight transcription's post-await writes bail.
@@ -206,6 +312,8 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
       mountedRef.current = false;
       generationRef.current += 1;
       startingGenerationRef.current = null;
+      resumeSequenceRef.current += 1;
+      resumeAttemptRef.current = null;
       handleRef.current?.cancel();
       handleRef.current = null;
       if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
@@ -214,10 +322,13 @@ export function useVoiceRecorder(opts: VoiceRecorderOptions): UseVoiceRecorder {
 
   return {
     phase,
+    starting,
     errorReason,
     toggle,
     start: () => void start(),
     stop,
+    suspend,
+    resume,
     cancel,
     markUtteranceStart,
   };

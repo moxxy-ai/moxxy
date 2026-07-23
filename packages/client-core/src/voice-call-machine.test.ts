@@ -69,7 +69,11 @@ describe('voice call state machine', () => {
     expect(muted).toMatchObject({ phase: 'paused', microphoneMuted: true });
 
     const unmuted = reduceVoiceCall(muted, { type: 'unmute-microphone' });
-    expect(unmuted).toMatchObject({ phase: 'listening', microphoneMuted: false });
+    expect(unmuted).toMatchObject({ phase: 'arming', microphoneMuted: false });
+    expect(reduceVoiceCall(unmuted, { type: 'ready' })).toMatchObject({
+      phase: 'listening',
+      microphoneMuted: false,
+    });
   });
 
   it('preserves mute intent while Moxxy speaks and after the turn settles', () => {
@@ -91,7 +95,11 @@ describe('voice call state machine', () => {
     expect(settled).toMatchObject({ phase: 'paused', microphoneMuted: true });
 
     const unmuted = reduceVoiceCall(settled, { type: 'unmute-microphone' });
-    expect(unmuted).toMatchObject({ phase: 'listening', microphoneMuted: false });
+    expect(unmuted).toMatchObject({ phase: 'arming', microphoneMuted: false });
+    expect(reduceVoiceCall(unmuted, { type: 'ready' })).toMatchObject({
+      phase: 'listening',
+      microphoneMuted: false,
+    });
   });
 
   it('returns directly to listening when the user interrupts spoken output', () => {

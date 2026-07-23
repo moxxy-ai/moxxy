@@ -21,6 +21,25 @@ describe('VoiceActivityDetector', () => {
     expect(detector.sample(0.004, 910)).toBe('speech-ended');
   });
 
+  it('keeps a detailed utterance open through quiet words and a natural pause', () => {
+    const detector = new VoiceActivityDetector();
+
+    expect(detector.sample(0.08, 0)).toBe('none');
+    expect(detector.sample(0.08, 200)).toBe('speech-started');
+
+    // A quiet continuation is still speech, not the beginning of endpoint
+    // silence. This level remains safely above ordinary room noise.
+    expect(detector.sample(0.012, 600)).toBe('none');
+    expect(detector.sample(0.012, 1_300)).toBe('none');
+
+    // A thinking pause in a longer prompt must not dispatch a partial turn.
+    expect(detector.sample(0.003, 2_600)).toBe('none');
+    expect(detector.sample(0.07, 2_700)).toBe('none');
+
+    expect(detector.sample(0.003, 4_100)).toBe('none');
+    expect(detector.sample(0.003, 4_220)).toBe('speech-ended');
+  });
+
   it('does not mistake stable room noise for speech', () => {
     const detector = new VoiceActivityDetector(config);
 

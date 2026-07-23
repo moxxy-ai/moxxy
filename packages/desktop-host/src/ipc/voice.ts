@@ -8,20 +8,24 @@ import { handle } from './shared';
 export interface VoiceHandlerDependencies {
   readonly isInstalled: () => Promise<boolean>;
   readonly install: () => Promise<void>;
+  readonly setRealtimeCaptureActive: (active: boolean) => Promise<void> | void;
 }
 
 const installLocalPiper = createLocalPiperInstaller();
 
 export function registerVoiceHandlers(
   pool: RunnerPool,
-  dependencies: VoiceHandlerDependencies = {
-    isInstalled: () => isLocalPiperInstalled(),
-    install: installLocalPiper,
-  },
+  dependencies: Partial<VoiceHandlerDependencies> = {},
 ): void {
-  handle('voice.isLocalPiperInstalled', () => dependencies.isInstalled());
+  const isInstalled = dependencies.isInstalled ?? (() => isLocalPiperInstalled());
+  const install = dependencies.install ?? installLocalPiper;
+  const setRealtimeCaptureActive = dependencies.setRealtimeCaptureActive ?? (() => undefined);
+  handle('voice.isLocalPiperInstalled', () => isInstalled());
   handle('voice.installLocalPiper', async () => {
-    await dependencies.install();
+    await install();
     await Promise.all(pool.list().map(({ supervisor }) => supervisor.restart()));
+  });
+  handle('voice.setRealtimeCaptureActive', async ({ active }) => {
+    await setRealtimeCaptureActive(active);
   });
 }

@@ -7,6 +7,32 @@ afterEach(() => {
 });
 
 describe('VoiceCallSurface', () => {
+  it('shows microphone preparation until capture is actually ready', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(
+      <VoiceCallSurface
+        phase="arming"
+        activity={null}
+        microphoneMuted={false}
+        waitingSoundEnabled
+        localPiperInstallRequired={false}
+        localPiperInstalling={false}
+        errorReason={null}
+        inputAnalyser={null}
+        outputAnalyser={null}
+        lines={[]}
+        onClose={vi.fn()}
+        onEnterFocusMode={vi.fn()}
+        onRetry={vi.fn()}
+        onInstallLocalPiper={vi.fn()}
+        onMuteMicrophone={vi.fn()}
+        onUnmuteMicrophone={vi.fn()}
+        onToggleWaitingSound={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('Preparing microphone');
+  });
   it('renders the listening state, quiet transcript and call controls', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const onClose = vi.fn();

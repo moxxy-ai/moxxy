@@ -7,6 +7,7 @@ import { useVoiceActivityDetection } from './useVoiceActivityDetection';
 import { VOICE_WAITING_TONE } from './voice-waiting-tone';
 import type { DesktopVoiceCallSurface } from './desktop-voice-call-bridge';
 import { useDesktopVoiceCallBridge } from './useDesktopVoiceCallBridge';
+import { useRealtimeVoiceCaptureLease } from './useRealtimeVoiceCaptureLease';
 
 export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'> & {
   readonly surface: DesktopVoiceCallSurface;
@@ -16,6 +17,7 @@ export type UseDesktopVoiceCallOptions = Omit<UseVoiceCallOptions, 'waitingTone'
 export function useDesktopVoiceCall(options: UseDesktopVoiceCallOptions): UseVoiceCall {
   const { surface, ...callOptions } = options;
   const localCall = useVoiceCall({ ...callOptions, waitingTone: VOICE_WAITING_TONE });
+  useRealtimeVoiceCaptureLease(localCall.active, surface);
 
   useVoiceActivityDetection({
     analyser: localCall.inputAnalyser,

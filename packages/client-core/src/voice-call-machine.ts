@@ -1,6 +1,7 @@
 export type VoiceCallPhase =
   | 'idle'
   | 'checking'
+  | 'arming'
   | 'listening'
   | 'transcribing'
   | 'thinking'
@@ -91,9 +92,12 @@ export function reduceVoiceCall(
     case 'turn-settled':
       return activeState(state.microphoneMuted ? 'paused' : 'listening', state.microphoneMuted);
     case 'mute-microphone':
-      return activeState(state.phase === 'listening' ? 'paused' : state.phase, true);
+      return activeState(
+        state.phase === 'listening' || state.phase === 'arming' ? 'paused' : state.phase,
+        true,
+      );
     case 'unmute-microphone':
-      return activeState(state.phase === 'paused' ? 'listening' : state.phase, false);
+      return activeState(state.phase === 'paused' ? 'arming' : state.phase, false);
     case 'failed':
       return {
         active: true,

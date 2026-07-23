@@ -14,11 +14,14 @@ export interface VoiceActivityConfig {
 
 const DEFAULT_CONFIG: VoiceActivityConfig = Object.freeze({
   minSpeechMs: 160,
-  silenceMs: 900,
+  silenceMs: 1_500,
   noSpeechTimeoutMs: 30_000,
   maxSpeechMs: 90_000,
   absoluteThreshold: 0.018,
 });
+
+const SPEECH_HOLD_ABSOLUTE_RATIO = 0.55;
+const SPEECH_HOLD_NOISE_MULTIPLIER = 1.5;
 
 /**
  * Adaptive voice-activity detector fed with normalized RMS samples. It has no
@@ -51,11 +54,20 @@ export class VoiceActivityDetector {
     const level = Math.max(0, Math.min(1, rawLevel));
     if (this.captureStartedAt === null) this.captureStartedAt = nowMs;
 
-    const threshold = Math.max(
+    const onsetThreshold = Math.max(
       this.config.absoluteThreshold,
       this.noiseFloor * 3,
     );
-    const voiced = level >= threshold;
+    const holdThreshold = Math.max(
+      this.config.absoluteThreshold * SPEECH_HOLD_ABSOLUTE_RATIO,
+      this.noiseFloor * SPEECH_HOLD_NOISE_MULTIPLIER,
+    );
+    // Starting speech needs strong evidence so background noise cannot open a
+    // turn. Once speech is confirmed, a lower release threshold preserves
+    // quiet syllables and natural changes in speaking volume.
+    const voiced = level >= (
+      this.speechStartedAt === null ? onsetThreshold : holdThreshold
+    );
 
     if (this.speechStartedAt === null) {
       if (voiced) {

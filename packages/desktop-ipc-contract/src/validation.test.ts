@@ -19,6 +19,21 @@ describe('IPC payload validation', () => {
     )).toThrow();
   });
 
+  it('requires a strict boolean for the local realtime voice-capture lease', () => {
+    expect(() => validateIpcInput(
+      'voice.setRealtimeCaptureActive' as IpcCommandName,
+      { active: true },
+    )).not.toThrow();
+    expect(() => validateIpcInput(
+      'voice.setRealtimeCaptureActive' as IpcCommandName,
+      { active: 'yes' },
+    )).toThrow();
+    expect(() => validateIpcInput(
+      'voice.setRealtimeCaptureActive' as IpcCommandName,
+      { active: true, workspaceId: 'smuggled' },
+    )).toThrow();
+  });
+
   it('rejects non-http(s) openExternal URLs', () => {
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'https://ok.com' })).not.toThrow();
     expect(() => validateIpcInput('onboarding.openExternal', { url: 'file:///etc/passwd' })).toThrow();

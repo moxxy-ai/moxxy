@@ -29,6 +29,22 @@ describe('desktop voice-call bridge validation', () => {
       workspaceId: 'ws-1',
       snapshot: {
         active: true,
+        phase: 'arming',
+        activity: null,
+        errorReason: null,
+        microphoneMuted: false,
+        waitingSoundEnabled: true,
+        localPiperInstallRequired: false,
+        localPiperInstalling: false,
+      },
+    })).not.toBeNull();
+
+    expect(parseDesktopVoiceCallMessage({
+      type: 'snapshot',
+      source: 'main',
+      workspaceId: 'ws-1',
+      snapshot: {
+        active: true,
         phase: 'listening',
         activity: null,
         errorReason: 'x'.repeat(501),

@@ -39,6 +39,15 @@ function pickMimeType(): string | undefined {
   return MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
 }
 
+async function ensureAudioContextRunning(context: AudioContext): Promise<void> {
+  if (context.state === 'running') return;
+  await context.resume();
+  const stateAfterResume = (): AudioContextState => context.state;
+  if (stateAfterResume() !== 'running') {
+    throw new Error('microphone audio context did not resume');
+  }
+}
+
 export const webAudioCapture: AudioCapture = {
   isSupported(): boolean {
     return (
@@ -57,9 +66,27 @@ export const webAudioCapture: AudioCapture = {
       },
     });
     let audioCtx: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
     let released = false;
+    let suspended = false;
+    let cancelled = false;
+    let stopping = false;
+    let resumeGeneration = 0;
     let captureStartedAt = 0;
     let trimBeforeMs: number | null = null;
+
+    interface RecorderSession {
+      readonly recorder: MediaRecorder;
+      readonly chunks: Blob[];
+      readonly onData: (event: BlobEvent) => void;
+      readonly onStop: () => void;
+    }
+
+    let recorderSession: RecorderSession | null = null;
+
+    const setTracksEnabled = (enabled: boolean): void => {
+      for (const track of stream.getTracks()) track.enabled = enabled;
+    };
 
     // Stop the live mic tracks + tear down the audio context. Called from the
     // 'stop' handler AND from the synchronous-failure path below — if the
@@ -74,19 +101,9 @@ export const webAudioCapture: AudioCapture = {
       opts.onAnalyser?.(null);
     };
 
-    let rec: MediaRecorder;
-    try {
-      const mimeType = pickMimeType();
-      rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    } catch (e) {
-      teardown();
-      throw e;
-    }
-    const chunks: Blob[] = [];
-
-    const finalize = async (): Promise<void> => {
+    const finalize = async (recorder: MediaRecorder, chunks: ReadonlyArray<Blob>): Promise<void> => {
       try {
-        const blob = new Blob([...chunks], { type: rec.mimeType });
+        const blob = new Blob([...chunks], { type: recorder.mimeType });
         if (blob.size === 0) {
           opts.onResult({ pcm16Base64: '', mimeType: MOXXY_PCM16_24KHZ_MIME, peak: 0, sampleCount: 0 });
           return;
@@ -104,19 +121,60 @@ export const webAudioCapture: AudioCapture = {
       }
     };
 
-    const onData = (ev: BlobEvent): void => {
-      if (ev.data.size > 0) chunks.push(ev.data);
+    const detachRecorder = (session: RecorderSession): void => {
+      session.recorder.removeEventListener('dataavailable', session.onData);
+      session.recorder.removeEventListener('stop', session.onStop);
     };
-    const onStop = (): void => {
-      teardown();
-      void finalize();
+
+    const stopWithoutResult = (): void => {
+      const session = recorderSession;
+      recorderSession = null;
+      stopping = false;
+      if (!session) return;
+      detachRecorder(session);
+      if (session.recorder.state !== 'inactive') {
+        try {
+          session.recorder.stop();
+        } catch {
+          /* recorder already stopped */
+        }
+      }
     };
-    rec.addEventListener('dataavailable', onData);
-    rec.addEventListener('stop', onStop);
+
+    const startRecorder = (): void => {
+      const mimeType = pickMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const chunks: Blob[] = [];
+      const session: RecorderSession = {
+        recorder,
+        chunks,
+        onData: (event) => {
+          if (event.data.size > 0) chunks.push(event.data);
+        },
+        onStop: () => {
+          if (recorderSession === session) recorderSession = null;
+          detachRecorder(session);
+          teardown();
+          void finalize(recorder, chunks);
+        },
+      };
+      recorderSession = session;
+      stopping = false;
+      recorder.addEventListener('dataavailable', session.onData);
+      recorder.addEventListener('stop', session.onStop);
+      captureStartedAt = monotonicNow();
+      trimBeforeMs = null;
+      try {
+        recorder.start();
+      } catch (error) {
+        recorderSession = null;
+        detachRecorder(session);
+        throw error;
+      }
+    };
 
     try {
-      captureStartedAt = monotonicNow();
-      rec.start();
+      startRecorder();
 
       // Optional spectrum analyser for the focus widget.
       if (opts.onAnalyser) {
@@ -124,7 +182,13 @@ export const webAudioCapture: AudioCapture = {
         if (Ctor) {
           const ctx = new Ctor();
           audioCtx = ctx;
+          if (ctx.state !== 'running') {
+            setTracksEnabled(false);
+            await ensureAudioContextRunning(ctx);
+            setTracksEnabled(true);
+          }
           const an = ctx.createAnalyser();
+          analyser = an;
           an.fftSize = 256;
           an.smoothingTimeConstant = 0.7;
           ctx.createMediaStreamSource(stream).connect(an);
@@ -135,40 +199,60 @@ export const webAudioCapture: AudioCapture = {
       // Drop the lifecycle listeners FIRST so the 'stop' the recorder emits
       // below can't fire onStop → finalize → opts.onResult for a start() that
       // already rejected (the caller's await threw and moved to phase 'error').
-      rec.removeEventListener('dataavailable', onData);
-      rec.removeEventListener('stop', onStop);
-      // Stop the recorder too — otherwise it's left 'recording' with no handle
-      // returned (orphaned, unstoppable).
-      if (rec.state === 'recording') {
-        try {
-          rec.stop();
-        } catch {
-          /* already stopped */
-        }
-      }
+      stopWithoutResult();
       teardown();
       throw e;
     }
 
-    let cancelled = false;
-    const stopRecorder = (): void => {
-      if (rec.state === 'recording') rec.stop();
-    };
     return {
       stop(): void {
-        if (cancelled) return;
-        stopRecorder();
+        if (cancelled || suspended) return;
+        const session = recorderSession;
+        if (session && session.recorder.state !== 'inactive') {
+          stopping = true;
+          session.recorder.stop();
+        }
       },
       cancel(): void {
         if (cancelled) return;
         cancelled = true;
-        rec.removeEventListener('dataavailable', onData);
-        rec.removeEventListener('stop', onStop);
-        stopRecorder();
+        resumeGeneration += 1;
+        stopWithoutResult();
         teardown();
       },
+      suspend(): void {
+        if (cancelled) return;
+        resumeGeneration += 1;
+        if (suspended) {
+          setTracksEnabled(false);
+          return;
+        }
+        suspended = true;
+        setTracksEnabled(false);
+        if (!stopping) stopWithoutResult();
+        opts.onAnalyser?.(null);
+      },
+      async resume(): Promise<void> {
+        if (cancelled || !suspended) return;
+        const generation = resumeGeneration + 1;
+        resumeGeneration = generation;
+        try {
+          if (audioCtx) await ensureAudioContextRunning(audioCtx);
+          if (cancelled || !suspended || generation !== resumeGeneration) return;
+          setTracksEnabled(true);
+          if (!stopping) startRecorder();
+          suspended = false;
+          if (analyser) opts.onAnalyser?.(analyser);
+        } catch (error) {
+          if (generation !== resumeGeneration) return;
+          cancelled = true;
+          setTracksEnabled(false);
+          teardown();
+          throw error;
+        }
+      },
       markUtteranceStart(preRollMs = DEFAULT_UTTERANCE_PRE_ROLL_MS): void {
-        if (cancelled || trimBeforeMs !== null) return;
+        if (cancelled || suspended || trimBeforeMs !== null) return;
         const safePreRoll = Number.isFinite(preRollMs) ? Math.max(0, preRollMs) : 0;
         trimBeforeMs = Math.max(0, monotonicNow() - captureStartedAt - safePreRoll);
       },

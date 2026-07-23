@@ -28,6 +28,7 @@ const ACTIVITY_LABELS: Readonly<Record<VoiceToolActivity, string>> = Object.free
 });
 
 const PHASE_LABELS: Partial<Readonly<Record<VoiceCallPhase, string>>> = Object.freeze({
+  arming: 'Preparing microphone',
   transcribing: 'Transcribing your message',
   thinking: 'Preparing a response',
   working: 'Working on your request',
@@ -64,9 +65,13 @@ export function selectFocusTaskStatus({
   const phaseLabel = voiceModeActive ? PHASE_LABELS[voiceModePhase] : undefined;
   const turnActive = activeTurnId !== null || sending;
   if (!turnActive) {
-    if (voiceModeActive && voiceModePhase === 'transcribing' && phaseLabel) {
+    if (
+      voiceModeActive
+      && (voiceModePhase === 'arming' || voiceModePhase === 'transcribing')
+      && phaseLabel
+    ) {
       return {
-        key: 'voice:transcribing',
+        key: `voice:${voiceModePhase}`,
         title: 'Voice Mode',
         text: phaseLabel,
         busy: true,

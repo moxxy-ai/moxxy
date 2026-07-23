@@ -9,6 +9,7 @@ import './voice-call.css';
 const STATUS: Record<VoiceCallPhase, { readonly title: string; readonly detail: string }> = {
   idle: { title: 'Voice mode', detail: 'Ready to start' },
   checking: { title: 'Preparing', detail: 'Checking microphone and Local Piper' },
+  arming: { title: 'Preparing microphone', detail: 'The microphone will be ready in a moment' },
   listening: { title: 'Listening', detail: 'Speak naturally. I will answer when you finish.' },
   transcribing: { title: 'Transcribing', detail: 'Turning your voice into text' },
   thinking: { title: 'Thinking', detail: 'Using the context from this conversation' },

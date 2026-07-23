@@ -304,6 +304,9 @@ export interface IpcCommands {
   /** Install, enable and select the fixed first-party Local Piper package, then
    *  restart desktop runners. Accepts no renderer-controlled package spec. */
   'voice.installLocalPiper': () => Promise<void>;
+  /** Keep the local main renderer realtime while it owns an active Voice Mode
+   * capture. Local desktop IPC only; no audio or workspace data crosses here. */
+  'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
   /** The globally-active collaboration (only one runs at a time), or inactive.
    *  Read from the single-flight lock file so it spans all workspaces' runners;
    *  the Collaborate tab uses it to disable Start while one is running. */

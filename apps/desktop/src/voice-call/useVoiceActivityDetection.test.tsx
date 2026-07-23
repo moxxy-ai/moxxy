@@ -42,10 +42,47 @@ describe('voice activity sampling', () => {
     analyser.level = 0.09;
     act(() => vi.advanceTimersByTime(280));
     analyser.level = 0.003;
-    act(() => vi.advanceTimersByTime(1_000));
+    act(() => vi.advanceTimersByTime(1_600));
 
     expect(onSpeechEnd).toHaveBeenCalledTimes(1);
     expect(onNoSpeech).not.toHaveBeenCalled();
+  });
+
+  it('does not cut a post-unmute utterance at a natural speaking pause', () => {
+    vi.useFakeTimers();
+    const analyser = new LevelAnalyser();
+    const onSpeechEnd = vi.fn();
+    const hook = renderHook(
+      ({ active }: { readonly active: boolean }) => useVoiceActivityDetection({
+        analyser: active ? analyser as unknown as AnalyserNode : null,
+        active,
+        onSpeechEnd,
+        onNoSpeech: vi.fn(),
+      }),
+      { initialProps: { active: true } },
+    );
+
+    analyser.level = 0.09;
+    act(() => vi.advanceTimersByTime(280));
+    hook.rerender({ active: false });
+    analyser.level = 0.003;
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onSpeechEnd).not.toHaveBeenCalled();
+
+    hook.rerender({ active: true });
+
+    analyser.level = 0.09;
+    act(() => vi.advanceTimersByTime(280));
+    analyser.level = 0.003;
+    act(() => vi.advanceTimersByTime(1_200));
+    expect(onSpeechEnd).not.toHaveBeenCalled();
+
+    analyser.level = 0.06;
+    act(() => vi.advanceTimersByTime(240));
+    analyser.level = 0.003;
+    act(() => vi.advanceTimersByTime(1_600));
+
+    expect(onSpeechEnd).toHaveBeenCalledOnce();
   });
 
   it('announces confirmed speech so spoken output can be interrupted', () => {

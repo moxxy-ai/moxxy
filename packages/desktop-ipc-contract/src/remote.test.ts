@@ -59,6 +59,7 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'app.updateCli',
       'voice.isLocalPiperInstalled' as IpcCommandName,
       'voice.installLocalPiper' as IpcCommandName,
+      'voice.setRealtimeCaptureActive' as IpcCommandName,
       'session.previewAttachment',
       'focus.toggle' as IpcCommandName,
       'focus.dragStart' as IpcCommandName,

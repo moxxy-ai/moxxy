@@ -327,17 +327,15 @@ export function useVoiceCall({
 
   const muteMicrophone = useCallback((): void => {
     if (!state.active || state.phase === 'error') return;
-    if (voice.phase === 'recording') {
-      voice.cancel();
-      setInputAnalyser(null);
-    }
+    voice.suspend();
     dispatch({ type: 'mute-microphone' });
-  }, [state.active, state.phase, voice.cancel, voice.phase]);
+  }, [state.active, state.phase, voice.suspend]);
 
   const unmuteMicrophone = useCallback((): void => {
     if (!state.active || state.phase === 'error') return;
+    void voice.resume();
     dispatch({ type: 'unmute-microphone' });
-  }, [state.active, state.phase]);
+  }, [state.active, state.phase, voice.resume]);
   const toggleWaitingSound = useCallback((): void => {
     setWaitingSoundEnabled((enabled) => {
       const next = !enabled;
@@ -395,14 +393,24 @@ export function useVoiceCall({
       !state.active ||
       state.microphoneMuted ||
       !capturePhase ||
+      voice.starting ||
       voice.phase !== 'idle' ||
       (state.phase === 'listening' && turnCycleRef.current)
     ) return;
     voice.start();
-  }, [state.active, state.microphoneMuted, state.phase, voice.phase, voice.start]);
+  }, [state.active, state.microphoneMuted, state.phase, voice.phase, voice.start, voice.starting]);
 
   useEffect(() => {
     if (!state.active) return;
+    if (
+      state.phase === 'arming'
+      && !state.microphoneMuted
+      && !voice.starting
+      && voice.phase === 'recording'
+    ) {
+      dispatch({ type: 'ready' });
+      return;
+    }
     if (voice.phase === 'transcribing') {
       feedback.beginTranscription();
       feedbackTurnActiveRef.current = true;
@@ -412,7 +420,15 @@ export function useVoiceCall({
       feedbackTurnActiveRef.current = false;
       dispatch({ type: 'failed', reason: voice.errorReason });
     }
-  }, [feedback, state.active, voice.errorReason, voice.phase]);
+  }, [
+    feedback,
+    state.active,
+    state.microphoneMuted,
+    state.phase,
+    voice.errorReason,
+    voice.phase,
+    voice.starting,
+  ]);
 
   useEffect(() => {
     if (!state.active) return;
@@ -423,7 +439,7 @@ export function useVoiceCall({
     } else if (speech.phase === 'speaking') {
       dispatch({ type: 'speaking' });
     } else if (speech.phase === 'error') {
-      if (voice.phase === 'recording') voice.cancel();
+      voice.cancel();
       dispatch({
         type: 'failed',
         reason: speech.errorReason ?? 'Piper could not play this response.',
@@ -439,7 +455,8 @@ export function useVoiceCall({
       && (previousPhase === 'synthesizing' || previousPhase === 'speaking')
       && turnCycleRef.current
     ) {
-      if (voice.phase === 'recording') voice.cancel();
+      const retainMutedCapture = state.microphoneMuted && voice.phase === 'paused';
+      if (!retainMutedCapture) voice.cancel();
       const resume = inputRequired
         ? 'waiting-for-input'
         : activeToolActivitiesRef.current.size > 0
@@ -455,6 +472,7 @@ export function useVoiceCall({
     speech.errorReason,
     speech.phase,
     state.active,
+    state.microphoneMuted,
     voice.cancel,
     voice.phase,
   ]);
@@ -581,7 +599,7 @@ export function useVoiceCall({
       !turnBusy &&
       !inputRequired &&
       speech.phase === 'idle' &&
-      voice.phase === 'idle'
+      (voice.phase === 'idle' || (state.microphoneMuted && voice.phase === 'paused'))
     ) {
       const turnError = speech.completedTurnError ?? chat.error;
       if (turnError) {
@@ -602,6 +620,7 @@ export function useVoiceCall({
     speech.completedTurnCount,
     speech.completedTurnError,
     state.active,
+    state.microphoneMuted,
     state.phase,
     turnRequestPending,
     voice.phase,
@@ -629,7 +648,9 @@ export function useVoiceCall({
 
   return {
     active: state.active,
-    phase: state.phase,
+    phase: state.phase === 'listening' && voice.starting
+      ? 'arming'
+      : state.phase,
     activity,
     errorReason: state.errorReason,
     microphoneMuted: state.microphoneMuted,

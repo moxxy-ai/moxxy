@@ -176,6 +176,7 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
   // accepted, preventing package-spec / CLI-argument injection.
   'voice.isLocalPiperInstalled': z.undefined(),
   'voice.installLocalPiper': z.undefined(),
+  'voice.setRealtimeCaptureActive': z.object({ active: z.boolean() }).strict(),
   // Renderer-reported confirm failure — bound the message so a hostile renderer
   // can't bloat the on-disk boot-log.
   'app.bootHeartbeatFailed': z.object({ error: z.string().max(2048) }),

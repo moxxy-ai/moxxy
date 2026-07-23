@@ -64,9 +64,11 @@ function deferred<T>() {
   };
 }
 
-function createAudioPlatform() {
+function createAudioPlatform(startGate?: Promise<void>, resumeGate?: Promise<void>) {
   const captures: AudioCaptureStartOptions[] = [];
   const cancels: Array<ReturnType<typeof vi.fn>> = [];
+  const suspends: Array<ReturnType<typeof vi.fn>> = [];
+  const resumes: Array<ReturnType<typeof vi.fn>> = [];
   const captureStops: Array<ReturnType<typeof vi.fn>> = [];
   const utteranceMarks: Array<ReturnType<typeof vi.fn>> = [];
   const playback: SpeakOptions[] = [];
@@ -83,12 +85,19 @@ function createAudioPlatform() {
       start: async (options) => {
         captures.push(options);
         const cancel = vi.fn();
+        const suspend = vi.fn();
+        const resume = vi.fn(async () => {
+          await resumeGate;
+        });
         const stop = vi.fn();
         const markUtteranceStart = vi.fn();
         cancels.push(cancel);
+        suspends.push(suspend);
+        resumes.push(resume);
         captureStops.push(stop);
         utteranceMarks.push(markUtteranceStart);
-        return { stop, cancel, markUtteranceStart };
+        await startGate;
+        return { stop, cancel, suspend, resume, markUtteranceStart };
       },
     },
     tts: {
@@ -122,6 +131,8 @@ function createAudioPlatform() {
   return {
     captures,
     cancels,
+    suspends,
+    resumes,
     captureStops,
     utteranceMarks,
     waitingTonePlayback,
@@ -595,11 +606,153 @@ describe('useVoiceCall integration', () => {
 
     await waitFor(() => expect(result.current.phase).toBe('paused'));
     expect(audio.captures).toHaveLength(2);
-    expect(audio.cancels[1]).toHaveBeenCalledOnce();
+    expect(audio.suspends[1]).toHaveBeenCalledOnce();
+    expect(audio.cancels[1]).not.toHaveBeenCalled();
 
     act(() => result.current.unmuteMicrophone());
     await waitFor(() => expect(result.current.phase).toBe('listening'));
-    await waitFor(() => expect(audio.captures).toHaveLength(3));
+    expect(audio.resumes[1]).toHaveBeenCalledOnce();
+    expect(audio.captures).toHaveLength(2);
+  });
+
+  it('mutes and unmutes an active listening capture without reacquiring the microphone', async () => {
+    const transport = createTransport();
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-muted-listening',
+      ready: true,
+      chat: chat(),
+      inputRequired: false,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+
+    act(() => result.current.muteMicrophone());
+    expect(result.current).toMatchObject({ phase: 'paused', microphoneMuted: true });
+    expect(audio.suspends[0]).toHaveBeenCalledOnce();
+    expect(audio.cancels[0]).not.toHaveBeenCalled();
+
+    act(() => result.current.unmuteMicrophone());
+    await waitFor(() => expect(result.current).toMatchObject({
+      phase: 'listening',
+      microphoneMuted: false,
+    }));
+    expect(audio.resumes[0]).toHaveBeenCalledOnce();
+    expect(audio.captures).toHaveLength(1);
+  });
+
+  it('shows microphone preparation until asynchronous unmute is actually ready', async () => {
+    const resumeGate = deferred<void>();
+    const transport = createTransport();
+    const audio = createAudioPlatform(undefined, resumeGate.promise);
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-resume-arming',
+      ready: true,
+      chat: chat(),
+      inputRequired: false,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    act(() => result.current.muteMicrophone());
+    act(() => result.current.unmuteMicrophone());
+
+    expect(result.current).toMatchObject({ phase: 'arming', microphoneMuted: false });
+
+    await act(async () => resumeGate.resolve());
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    expect(audio.captures).toHaveLength(1);
+  });
+
+  it('does not return to listening when mute supersedes a pending unmute', async () => {
+    const resumeGate = deferred<void>();
+    const transport = createTransport();
+    const audio = createAudioPlatform(undefined, resumeGate.promise);
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-resume-race',
+      ready: true,
+      chat: chat(),
+      inputRequired: false,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    act(() => result.current.muteMicrophone());
+    act(() => result.current.unmuteMicrophone());
+    expect(result.current.phase).toBe('arming');
+    act(() => result.current.muteMicrophone());
+
+    await act(async () => resumeGate.resolve());
+
+    expect(result.current).toMatchObject({ phase: 'paused', microphoneMuted: true });
+    expect(audio.captures).toHaveLength(1);
+  });
+
+  it('survives repeated mute and unmute cycles on one microphone stream', async () => {
+    const transport = createTransport();
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-repeated-resume',
+      ready: true,
+      chat: chat(),
+      inputRequired: false,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+
+    for (let index = 0; index < 10; index += 1) {
+      act(() => result.current.muteMicrophone());
+      expect(result.current).toMatchObject({ phase: 'paused', microphoneMuted: true });
+      act(() => result.current.unmuteMicrophone());
+      await waitFor(() => expect(result.current).toMatchObject({
+        phase: 'listening',
+        microphoneMuted: false,
+      }));
+    }
+
+    expect(audio.captures).toHaveLength(1);
+    expect(audio.suspends[0]).toHaveBeenCalledTimes(10);
+    expect(audio.resumes[0]).toHaveBeenCalledTimes(10);
+  });
+
+  it('keeps a pending microphone start paused until unmute without starting a second capture', async () => {
+    const transport = createTransport();
+    const startGate = deferred<void>();
+    const audio = createAudioPlatform(startGate.promise);
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-muted-starting',
+      ready: true,
+      chat: chat(),
+      inputRequired: false,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    await waitFor(() => expect(result.current.phase).toBe('arming'));
+
+    act(() => result.current.muteMicrophone());
+    expect(result.current).toMatchObject({ phase: 'paused', microphoneMuted: true });
+
+    await act(async () => startGate.resolve());
+    expect(audio.suspends[0]).toHaveBeenCalledOnce();
+    expect(audio.captures).toHaveLength(1);
+    expect(result.current.phase).toBe('paused');
+
+    act(() => result.current.unmuteMicrophone());
+    expect(audio.resumes[0]).toHaveBeenCalledOnce();
+    expect(audio.captures).toHaveLength(1);
+    await waitFor(() => expect(result.current).toMatchObject({
+      phase: 'listening',
+      microphoneMuted: false,
+    }));
   });
 
   it('refuses to start when Local Piper is not the active synthesizer', async () => {

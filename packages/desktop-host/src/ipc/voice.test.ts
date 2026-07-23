@@ -14,6 +14,7 @@ type Handler = (...args: unknown[]) => Promise<unknown>;
 function register(options: {
   readonly installed: boolean;
   readonly install?: () => Promise<void>;
+  readonly setRealtimeCaptureActive?: (active: boolean) => Promise<void>;
 }) {
   const handlers = new Map<string, Handler>();
   const bus = {
@@ -31,6 +32,7 @@ function register(options: {
   registerVoiceHandlers(pool, {
     isInstalled: async () => options.installed,
     install,
+    setRealtimeCaptureActive: options.setRealtimeCaptureActive ?? (async () => undefined),
   });
   return { handlers, install, restart };
 }
@@ -54,5 +56,18 @@ describe('registerVoiceHandlers', () => {
 
     await expect(handlers.get('voice.installLocalPiper')?.()).rejects.toBe(failure);
     expect(restart).not.toHaveBeenCalled();
+  });
+
+  it('forwards the bounded realtime-capture lease without touching audio data', async () => {
+    const setRealtimeCaptureActive = vi.fn(async () => undefined);
+    const { handlers } = register({ installed: true, setRealtimeCaptureActive });
+
+    await expect(handlers.get('voice.setRealtimeCaptureActive')?.({ active: true }))
+      .resolves.toBeUndefined();
+    await expect(handlers.get('voice.setRealtimeCaptureActive')?.({ active: false }))
+      .resolves.toBeUndefined();
+
+    expect(setRealtimeCaptureActive).toHaveBeenNthCalledWith(1, true);
+    expect(setRealtimeCaptureActive).toHaveBeenNthCalledWith(2, false);
   });
 });

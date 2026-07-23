@@ -66,6 +66,7 @@ const workspaceIdSchema = z.string().min(1).max(256);
 const phaseSchema = z.enum([
   'idle',
   'checking',
+  'arming',
   'listening',
   'transcribing',
   'thinking',

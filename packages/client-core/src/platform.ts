@@ -33,6 +33,11 @@ export interface AudioRecordingHandle {
   stop(): void;
   /** Release the microphone without producing a transcription payload. */
   cancel(): void;
+  /** Discard the current utterance while retaining the allocated microphone. */
+  readonly suspend?: () => void;
+  /** Start a fresh utterance on the retained microphone. Resolves only after
+   * the platform audio pipeline is ready to sample again. */
+  readonly resume?: () => void | Promise<void>;
   /** Mark the beginning of an utterance detected during output playback. The
    * platform may discard older monitor audio while retaining a short pre-roll. */
   readonly markUtteranceStart?: (preRollMs?: number) => void;

@@ -70,6 +70,21 @@ describe('selectFocusTaskStatus', () => {
     });
   });
 
+  it('shows microphone preparation while Focus waits for the hidden audio owner', () => {
+    expect(selectFocusTaskStatus({
+      events: [],
+      activeTurnId: null,
+      sending: false,
+      voiceModeActive: true,
+      voiceModePhase: 'arming',
+      activity: null,
+    })).toMatchObject({
+      key: 'voice:arming',
+      title: 'Voice Mode',
+      text: 'Preparing microphone',
+    });
+  });
+
   it('stays absent when neither a turn nor a voice task is active', () => {
     expect(selectFocusTaskStatus({
       events: [prompt('turn-finished', 'Finished task', 1)],
