@@ -149,6 +149,7 @@ import type {
 
 - `zodToJsonSchema` converts a zod schema to JSON Schema for provider tool calls.
 - `isRetryableError` and `toFriendlyError` classify provider errors uniformly.
+- `resolveProviderTools` enables capabilities from `ModelDescriptor.hostedTools` and removes only matching client fallbacks marked with `ToolDef.hosted`.
 - `estimateContextTokens` and `runCompactionIfNeeded` are scaffolding for custom compactors.
 - `CachedEmbeddingProvider` wraps any `EmbeddingProvider` with on-disk caching.
 - `dispatchToolCall` invokes a tool through the full gating, permission, and isolation pipeline.
@@ -209,7 +210,13 @@ class MyLlmClient implements LLMProvider {
 }
 
 const MODELS = [
-  { id: 'flagship', contextWindow: 200_000, supportsTools: true, supportsStreaming: true },
+  {
+    id: 'flagship',
+    contextWindow: 200_000,
+    supportsTools: true,
+    supportsStreaming: true,
+    hostedTools: ['web_search'],
+  },
 ];
 
 export default definePlugin({

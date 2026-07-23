@@ -22,6 +22,7 @@ import {
   newBlockId,
   pairToolEvents,
   type Block as FoldedBlock,
+  type CompactToolMap,
   type IncrementalFold,
   type ToolCallBlockData,
 } from '@moxxy/chat-model';
@@ -370,6 +371,10 @@ export function buildRenderNodes(
    * slash-command results) are rare, so the fast path covers the common case.
    */
   fold?: IncrementalFold,
+  /** Compact tool metadata from the live session. Desktop/remote clients get
+   *  this through `session.info`; passing it here keeps their fold identical
+   *  to the TUI's registry-backed fold, including grouped Read/Grep/Glob runs. */
+  compactByName?: CompactToolMap,
 ): RenderNode[] {
   // Fast path: no extension cards → one contiguous fold over all events. Reuse
   // the caller's IncrementalFold so a freshly-committed event re-folds only the
@@ -384,7 +389,7 @@ export function buildRenderNodes(
   let cursor = 0;
   const foldSlice = (slice: ReadonlyArray<MoxxyEvent>): void => {
     if (slice.length === 0) return;
-    for (const block of pairToolEvents(slice)) out.push({ kind: 'block', block });
+    for (const block of pairToolEvents(slice, compactByName)) out.push({ kind: 'block', block });
   };
   for (const ext of sorted) {
     const at = Math.min(Math.max(ext.afterCount, 0), events.length);

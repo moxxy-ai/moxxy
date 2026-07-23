@@ -2045,6 +2045,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.40.0
         version: 0.40.1(encoding@0.1.13)
+      '@moxxy/plugin-browser':
+        specifier: workspace:*
+        version: link:../plugin-browser
       '@moxxy/sdk':
         specifier: workspace:*
         version: link:../sdk
@@ -2076,6 +2079,9 @@ importers:
 
   packages/plugin-provider-claude-code:
     dependencies:
+      '@moxxy/plugin-browser':
+        specifier: workspace:*
+        version: link:../plugin-browser
       '@moxxy/plugin-oauth':
         specifier: workspace:*
         version: link:../plugin-oauth
@@ -2191,6 +2197,9 @@ importers:
 
   packages/plugin-provider-openai-codex:
     dependencies:
+      '@moxxy/plugin-browser':
+        specifier: workspace:*
+        version: link:../plugin-browser
       '@moxxy/plugin-oauth':
         specifier: workspace:*
         version: link:../plugin-oauth

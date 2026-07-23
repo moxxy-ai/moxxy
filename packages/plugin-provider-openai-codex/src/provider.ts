@@ -4,7 +4,7 @@ import type {
   ProviderEvent,
   ProviderRequest,
 } from '@moxxy/sdk';
-import { classifyHttpStatus, estimateTextTokens } from '@moxxy/sdk';
+import { classifyHttpStatus, estimateTextTokens, resolveProviderTools } from '@moxxy/sdk';
 import { isAuthRejection, withCredentialLock } from '@moxxy/plugin-oauth';
 import { CODEX_RESPONSES_URL, refreshTokens } from './oauth.js';
 import { codexModels, DEFAULT_CODEX_MODEL } from './models.js';
@@ -138,16 +138,28 @@ export class CodexProvider implements LLMProvider {
     const emitReasoning = req.reasoning != null && req.reasoning !== false;
     const reqEffort = typeof req.reasoning === 'object' ? req.reasoning.effort : undefined;
     const reasoningEffort = reqEffort ?? this.reasoningEffort;
+    const resolvedTools = resolveProviderTools(req.tools, this.models, model);
+    const nativeRequest = { ...req, model, tools: resolvedTools.tools };
     // Pass the session id as the Responses prefix-cache key so repeated turns
     // in a session reuse the cached prefix (cheaper + faster). Codex DOES
     // support this even though the Chat-Completions providers ignore cacheHints.
     const body = toResponsesBody(
-      { ...req, model },
+      nativeRequest,
       {
         sessionHint: sessionId,
         ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(resolvedTools.hostedTools.length > 0 ? { hostedTools: resolvedTools.hostedTools } : {}),
       },
     );
+    const fallbackBody = resolvedTools.hostedTools.length > 0
+      ? toResponsesBody(
+          { ...req, model },
+          {
+            sessionHint: sessionId,
+            ...(reasoningEffort ? { reasoningEffort } : {}),
+          },
+        )
+      : null;
 
     // Internal idle watchdog: aborts the request if the backend stalls (accepts
     // the POST but never sends headers/body, or goes silent mid-stream) so the
@@ -209,10 +221,25 @@ export class CodexProvider implements LLMProvider {
         }
       }
 
+      let errorText: string | undefined;
+      if (!response.ok && fallbackBody) {
+        errorText = await readCappedText(response, MAX_ERROR_BODY_CHARS);
+        if (isHostedWebSearchRejection(response.status, errorText)) {
+          try {
+            armIdle();
+            response = await this.postCodex(fallbackBody, sessionId, signal);
+            errorText = undefined;
+          } catch (err) {
+            yield toErrorEvent(err);
+            return;
+          }
+        }
+      }
+
       if (!response.ok || !response.body) {
         // Cap the buffered error body: a hostile/broken backend could otherwise
         // stream a huge body that we'd hold in full and then put into a string.
-        const text = await readCappedText(response, MAX_ERROR_BODY_CHARS);
+        const text = errorText ?? await readCappedText(response, MAX_ERROR_BODY_CHARS);
         // Derive the retryable verdict from the SDK's status classifier so it
         // stays consistent with the rest of moxxy (429 + 5xx are retryable).
         const classified = classifyHttpStatus(response.status);
@@ -325,6 +352,12 @@ export class CodexProvider implements LLMProvider {
       }
     });
   }
+}
+
+function isHostedWebSearchRejection(status: number, body: string): boolean {
+  if (status !== 400) return false;
+  const normalized = body.toLowerCase();
+  return normalized.includes('web_search') || normalized.includes('web search');
 }
 
 function withAccountId(tokens: CodexTokens, accountId: string | undefined): CodexTokens {

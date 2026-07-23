@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useChat } from '@moxxy/client-core';
+import { useActionCatalog, useChat } from '@moxxy/client-core';
 import { deskForWorkspace, useDesks } from '@moxxy/client-core';
 import type { ConnectionPhase } from '@moxxy/desktop-ipc-contract';
 import { Transcript } from './Transcript';
@@ -96,6 +96,7 @@ export function ChatSurface({
   disabledViewReason,
 }: ChatSurfaceProps): JSX.Element {
   const chat = useChat(workspaceId);
+  const actionCatalog = useActionCatalog(workspaceId);
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
@@ -121,6 +122,16 @@ export function ChatSurface({
     if (!searchQuery) return chat.events;
     return filterEventsBySearch(chat.events, searchIndex, searchQuery);
   }, [chat.events, searchQuery, searchIndex]);
+  const compactTools = useMemo(() => {
+    const compact = new Map<
+      string,
+      NonNullable<(typeof actionCatalog.tools)[number]['compact']>
+    >();
+    for (const tool of actionCatalog.tools) {
+      if (tool.compact) compact.set(tool.name, tool.compact);
+    }
+    return compact;
+  }, [actionCatalog]);
 
   // Suggested-action chips are only shown when the composer is idle and the
   // transcript is non-empty. Compute them only then, and memoize on the event
@@ -233,6 +244,7 @@ export function ChatSurface({
             hasOlder={!searchQuery && chat.hasOlder}
             onReachedTop={chat.loadOlder}
             onPreviewImage={imagePreview.open}
+            compactTools={compactTools}
           />
         )}
       </div>
