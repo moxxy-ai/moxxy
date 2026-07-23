@@ -92,9 +92,12 @@ or recorded-on-purpose decision.
   accepts no input, pins the package and contribution names in the main
   process, validates the installed manifest and compiled entry, remains denied
   on the remote/mobile command surface, restarts every runner after success,
-  and automatically retries the same call. Real temporary-filesystem probes,
+  and automatically retries the same call. That post-install retry now tolerates
+  the bounded interval in which the replacement runner has not exposed its
+  local transcriber or selected synthesizer yet. Real temporary-filesystem probes,
   deterministic CLI-adapter tests, IPC trust-boundary tests, hook integration,
-  cross-window routing, and renderer tests cover the flow without changing STT.
+  cross-window routing, and renderer tests cover the flow without changing STT,
+  including a temporarily absent runner-side transcriber.
   `packages/{client-core,desktop-host,desktop-ipc-contract}/`,
   `apps/desktop/src/{voice-call,focus}/`.
 - [high, desktop/voice/barge-in, RESOLVED 2026-07-22] Voice Mode released the
@@ -202,6 +205,8 @@ or recorded-on-purpose decision.
   clips share the ordered Piper queue, never enter chat history, and never
   narrate model-controlled tool inputs; ordinary latency uses a separate local
   looping processing pulse that never enters the Piper queue or conversation log.
+  A dispatch failure reported by the real `useChat` store before any turn starts
+  now terminates the cycle visibly instead of leaving Voice Mode in `thinking`.
   `packages/client-core/src/{voice-feedback-scheduler,speech-playback-queue,useVoiceCall}.ts`.
 - [med, desktop/voice/ux, RESOLVED 2026-07-22] Voice Mode carried a separate
   hard-coded amber, cream, and near-black palette instead of the desktop's

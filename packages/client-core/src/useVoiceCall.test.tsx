@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { MoxxyApi } from '@moxxy/desktop-ipc-contract';
 import { configurePlatform, type AudioCaptureStartOptions, type SpeakOptions } from './platform.js';
 import { __setApiOverride } from './transport.js';
+import { useChat } from './useChat.js';
 import { useVoiceCall, type VoiceCallChat } from './useVoiceCall.js';
 
 type PushHandler = (payload: never) => void;
@@ -670,6 +671,45 @@ describe('useVoiceCall integration', () => {
     await waitFor(() => expect(audio.captures).toHaveLength(1));
   });
 
+  it('retries the transcriber probe while the runner reconnects after Piper installation', async () => {
+    let installed = false;
+    let postInstallTranscriberProbes = 0;
+    const transport = createTransport();
+    transport.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'session.hasTranscriber') {
+        if (!installed) return true;
+        postInstallTranscriberProbes += 1;
+        return postInstallTranscriberProbes >= 2;
+      }
+      if (channel === 'session.info') {
+        return { activeSynthesizer: installed ? 'local-piper' : 'elevenlabs' };
+      }
+      if (channel === 'voice.isLocalPiperInstalled') return installed;
+      if (channel === 'voice.installLocalPiper') {
+        installed = true;
+        return undefined;
+      }
+      throw new Error(`unexpected ${channel}`);
+    });
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => useVoiceCall({
+      workspaceId: 'workspace-reconnecting-after-piper',
+      ready: true,
+      chat: chat(),
+      inputRequired: false,
+    }));
+
+    act(() => result.current.open());
+    await waitFor(() => expect(result.current.localPiperInstallRequired).toBe(true));
+    act(() => result.current.installLocalPiper());
+
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    expect(postInstallTranscriberProbes).toBe(2);
+    expect(result.current.localPiperInstallRequired).toBe(false);
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+  });
+
   it('keeps the Local Piper installer available after an installation failure', async () => {
     const transport = createTransport();
     transport.invoke.mockImplementation(async (channel: string) => {
@@ -831,6 +871,44 @@ describe('useVoiceCall integration', () => {
 
     await waitFor(() => expect(result.current.phase).toBe('error'));
     expect(result.current.errorReason).toBe('Provider connection failed');
+    expect(audio.captures).toHaveLength(1);
+  });
+
+  it('surfaces a dispatch failure reported by the real useChat contract', async () => {
+    const workspaceId = 'workspace-real-chat-send-failure';
+    const transport = createTransport('Wywołaj błędny turn');
+    transport.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'session.hasTranscriber') return true;
+      if (channel === 'session.info') return { activeSynthesizer: 'local-piper' };
+      if (channel === 'session.transcribe') return 'Wywołaj błędny turn';
+      if (channel === 'session.runTurn') throw new Error('Runner dispatch failed');
+      throw new Error(`unexpected ${channel}`);
+    });
+    const audio = createAudioPlatform();
+    __setApiOverride(transport.api);
+    const { result } = renderHook(() => {
+      const currentChat = useChat(workspaceId);
+      const call = useVoiceCall({
+        workspaceId,
+        ready: true,
+        chat: currentChat,
+        inputRequired: false,
+      });
+      return { call, currentChat };
+    });
+
+    act(() => result.current.call.open());
+    await waitFor(() => expect(audio.captures).toHaveLength(1));
+    act(() => audio.captures[0]?.onResult({
+      pcm16Base64: 'AQIDBA==',
+      mimeType: 'audio/x-moxxy-pcm16-24khz',
+      peak: 0.4,
+      sampleCount: 2,
+    }));
+
+    await waitFor(() => expect(result.current.currentChat.error).toBe('Runner dispatch failed'));
+    await waitFor(() => expect(result.current.call.phase).toBe('error'));
+    expect(result.current.call.errorReason).toBe('Runner dispatch failed');
     expect(audio.captures).toHaveLength(1);
   });
 });

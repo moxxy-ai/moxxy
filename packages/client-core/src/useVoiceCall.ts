@@ -72,6 +72,27 @@ export interface UseVoiceCall {
 
 const LOCAL_PIPER = 'local-piper';
 const WAITING_SOUND_PREFERENCE = 'moxxy.voice.waiting-sound';
+const POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 1_500, 2_000, 2_500] as const;
+
+interface VoicePreflightStatus {
+  readonly hasTranscriber: boolean;
+  readonly activeSynthesizer: string | null;
+}
+
+async function readVoicePreflightStatus(workspaceId: string): Promise<VoicePreflightStatus> {
+  const [hasTranscriber, info] = await Promise.all([
+    api().invoke('session.hasTranscriber'),
+    api().invoke('session.info', { workspaceId }),
+  ]);
+  return {
+    hasTranscriber,
+    activeSynthesizer: info ? info.activeSynthesizer : null,
+  };
+}
+
+function waitForPreflightRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 
 function readWaitingSoundPreference(): boolean {
   return getPlatform().kv?.getItem(WAITING_SOUND_PREFERENCE) !== '0';
@@ -214,22 +235,30 @@ export function useVoiceCall({
     setLocalPiperInstalling(false);
   }, [feedback, speech.disable, voice.cancel]);
 
-  const preflight = useCallback(async (generation: number): Promise<void> => {
+  const preflight = useCallback(async (
+    generation: number,
+    retryRunnerRestart: boolean,
+  ): Promise<void> => {
     if (!ready) {
       dispatch({ type: 'failed', reason: 'This session is still connecting.' });
       return;
     }
     try {
-      const [hasTranscriber, info] = await Promise.all([
-        api().invoke('session.hasTranscriber'),
-        api().invoke('session.info', { workspaceId }),
-      ]);
+      let status = await readVoicePreflightStatus(workspaceId);
+      if (retryRunnerRestart) {
+        for (const delayMs of POST_INSTALL_PREFLIGHT_RETRY_DELAYS_MS) {
+          if (status.hasTranscriber && status.activeSynthesizer === LOCAL_PIPER) break;
+          await waitForPreflightRetry(delayMs);
+          if (generation !== generationRef.current) return;
+          status = await readVoicePreflightStatus(workspaceId);
+        }
+      }
       if (generation !== generationRef.current) return;
-      if (!hasTranscriber) {
+      if (!status.hasTranscriber) {
         dispatch({ type: 'failed', reason: 'Voice transcription is unavailable.' });
         return;
       }
-      if (!info || info.activeSynthesizer !== LOCAL_PIPER) {
+      if (status.activeSynthesizer !== LOCAL_PIPER) {
         const installed = await api().invoke('voice.isLocalPiperInstalled');
         if (generation !== generationRef.current) return;
         setLocalPiperInstallRequired(!installed);
@@ -260,12 +289,12 @@ export function useVoiceCall({
     }
   }, [ready, speech.enable, workspaceId]);
 
-  const begin = useCallback((kind: 'open' | 'retry'): void => {
+  const begin = useCallback((kind: 'open' | 'retry', retryRunnerRestart = false): void => {
     releaseResources();
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     dispatch({ type: kind });
-    void preflight(generation);
+    void preflight(generation, retryRunnerRestart);
   }, [preflight, releaseResources]);
 
   const open = useCallback((): void => begin('open'), [begin]);
@@ -278,7 +307,7 @@ export function useVoiceCall({
       .then(() => {
         if (generation !== generationRef.current) return;
         setLocalPiperInstalling(false);
-        begin('retry');
+        begin('retry', true);
       })
       .catch((error: unknown) => {
         if (generation !== generationRef.current) return;
@@ -510,6 +539,31 @@ export function useVoiceCall({
       turnObservedRef.current = true;
     }
   }, [chat.activeTurnId, chat.sending, state.active]);
+
+  useEffect(() => {
+    if (
+      !state.active
+      || !turnCycleRef.current
+      || turnObservedRef.current
+      || turnRequestPending
+      || chat.sending
+      || chat.activeTurnId !== null
+      || !chat.error
+    ) return;
+    feedback.endTurn();
+    feedbackTurnActiveRef.current = false;
+    turnCycleRef.current = false;
+    completionTargetRef.current = null;
+    currentTurnIdRef.current = null;
+    dispatch({ type: 'failed', reason: chat.error });
+  }, [
+    chat.activeTurnId,
+    chat.error,
+    chat.sending,
+    feedback,
+    state.active,
+    turnRequestPending,
+  ]);
 
   useEffect(() => {
     if (!state.active) return;
