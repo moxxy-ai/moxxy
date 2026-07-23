@@ -24,6 +24,12 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, scheduler, RESOLVED 2026-07-23] `schedule_create` rejected otherwise valid
+  recurring and one-shot tool calls when a provider serialized omitted optional
+  fields as blank strings. Its local trust-boundary schema now normalizes only
+  blank optional placeholders before enforcing the exactly-one-trigger invariant,
+  with captured-payload regressions through the real schedule store.
+  `packages/plugin-scheduler/src/tools.ts`.
 - [high, desktop/voice/focus-realtime, RESOLVED 2026-07-23] Focus Mode hid the
   main renderer that intentionally remained the sole owner of microphone,
   recorder, analyser, VAD, and transcription. Chromium's default background

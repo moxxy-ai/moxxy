@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.32.0
+
+### Minor Changes
+
+- 3b0c14a: Add provider-hosted web search capabilities with automatic Codex/Claude execution and an automatically installed, pluggable local browser fallback.
+
 ## 0.31.0
 
 ### Minor Changes
