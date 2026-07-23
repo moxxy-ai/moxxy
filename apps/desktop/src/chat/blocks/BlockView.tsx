@@ -6,6 +6,7 @@ import { SubagentView } from './SubagentView';
 import { SubagentGroupView } from './SubagentGroupView';
 import { CollaborationCard } from './CollaborationCard';
 import type { ImagePreviewItem } from '../image-preview/types';
+import { LiveToolGroupView } from '../ToolGroupView';
 
 /**
  * One transcript block, rendered from the shared @moxxy/chat-model fold.
@@ -47,7 +48,7 @@ export function BlockView({
     case 'subagent-group':
       return <SubagentGroupView block={block} />;
     case 'live-tools':
-      return <LiveToolsBlock block={block} />;
+      return <LiveToolGroupView block={block} />;
     case 'collab':
       return <CollaborationCard block={block} />;
     default: {
@@ -57,25 +58,4 @@ export function BlockView({
       return null;
     }
   }
-}
-
-/** A live-tools aggregate renders each in-flight call as its own tool
- *  row — the fold keeps them grouped while the turn is still streaming. */
-function LiveToolsBlock({
-  block,
-}: {
-  readonly block: Extract<FoldedBlock, { kind: 'live-tools' }>;
-}): JSX.Element {
-  return (
-    <>
-      {block.calls.map((c) => (
-        <ToolBlock
-          key={c.id}
-          name={c.request.name}
-          input={c.request.input}
-          outcome={c.outcome}
-        />
-      ))}
-    </>
-  );
 }

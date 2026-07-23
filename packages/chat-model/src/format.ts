@@ -73,6 +73,30 @@ function formatValue(v: unknown): string {
   }
 }
 
+function stringField(input: unknown, key: string): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim() ? oneLine(value) : null;
+}
+
+/** Natural-language activity line shared by terminal and graphical channels. */
+export function formatToolActivity(name: string, input: unknown, running: boolean): string {
+  const normalized = name.toLowerCase();
+  if (normalized === 'read') return `${running ? 'Reading' : 'Read'} ${stringField(input, 'file_path') ?? 'file'}`;
+  if (normalized === 'grep') {
+    const pattern = stringField(input, 'pattern') ?? 'pattern';
+    const cwd = stringField(input, 'cwd');
+    return `${running ? 'Searching for' : 'Searched for'} ${pattern}${cwd ? ` in ${cwd}` : ''}`;
+  }
+  if (normalized === 'glob') return `${running ? 'Listing' : 'Listed'} ${stringField(input, 'pattern') ?? 'files'}`;
+  if (normalized === 'bash') return `${running ? 'Running' : 'Ran'} ${stringField(input, 'command') ?? 'command'}`;
+  if (normalized.includes('search')) {
+    return `${running ? 'Searching for' : 'Searched for'} ${stringField(input, 'query') ?? summarizeArgs(input)}`;
+  }
+  const summary = summarizeArgs(input);
+  return `${running ? 'Running' : 'Ran'} ${name}${summary ? ` · ${summary}` : ''}`;
+}
+
 /**
  * Color the `◆` indicator by where the call came from so a glance
  * across the scrollback shows which subsystem is active — MCP tools
@@ -101,7 +125,7 @@ import type { LiveToolCall } from './types.js';
  *
  * Tools with the same name share one phrase; counts plural-aware. The
  * trailing ellipsis is appended only while the block is still open (in
- * flight) — closed blocks read past-tense-ish without it.
+ * flight); known built-in verbs switch to past tense once it settles.
  */
 export function buildCompactSummary(
   calls: ReadonlyArray<LiveToolCall>,
@@ -127,13 +151,29 @@ export function buildCompactSummary(
   const phrases: string[] = [];
   let first = true;
   for (const g of groups.values()) {
-    const verb = first ? g.verb : g.verb.toLowerCase();
+    const stateVerb = inFlight ? g.verb : completedCompactVerb(g.verb);
+    const verb = first ? stateVerb : stateVerb.toLowerCase();
     const noun = g.count === 1 ? g.one : g.other;
     phrases.push(`${verb} ${g.count} ${noun}`);
     first = false;
   }
   const joined = phrases.join(', ');
   return inFlight ? `${joined}…` : joined;
+}
+
+/** Built-in compact verbs are gerunds; settled history reads more naturally in
+ * the past tense. Unknown/plugin-provided phrases are kept verbatim. */
+function completedCompactVerb(verb: string): string {
+  const known: Readonly<Record<string, string>> = {
+    Reading: 'Read',
+    'Searching for': 'Searched for',
+    'Searching the web for': 'Searched the web for',
+    Listing: 'Listed',
+    Waiting: 'Waited',
+    Writing: 'Wrote',
+    Editing: 'Edited',
+  };
+  return known[verb] ?? verb;
 }
 
 /**

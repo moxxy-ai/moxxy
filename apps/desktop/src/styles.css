@@ -363,6 +363,120 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   100% { background-position: -200% 0; }
 }
 
+/* Tool/skill activity is intentionally transcript-like rather than card-like:
+ * one quiet icon + one sentence, with details indented beneath it. */
+.activity-block {
+  align-self: stretch;
+  width: min(92%, 920px);
+  color: var(--color-text-muted);
+}
+
+.activity-row,
+.activity-detail-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+  text-align: left;
+}
+
+.activity-row {
+  gap: 9px;
+  min-height: 28px;
+  padding: 2px 0;
+  font-size: 13.5px;
+}
+
+.activity-row__icon,
+.activity-detail-row__icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-dim);
+}
+
+.activity-row__label,
+.activity-detail-row__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-row__label { font-weight: 520; }
+.activity-row__meta {
+  flex: 0 0 auto;
+  color: var(--color-text-dim);
+  font: 11px var(--font-mono);
+}
+.activity-row__chevron {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--color-text-dim);
+  transition: transform 120ms ease;
+}
+.activity-row:hover,
+.activity-detail-row:hover { color: var(--color-text); }
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 4px 0 0 27px;
+  padding: 0;
+  list-style: none;
+}
+.activity-list__item,
+.activity-list__diff { min-width: 0; list-style: none; }
+.activity-detail-row {
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 0;
+  font-size: 12.5px;
+}
+.activity-detail-row__label { color: var(--color-text-dim); }
+.activity-detail-row:hover .activity-detail-row__label { color: var(--color-text-muted); }
+.activity-detail-row__error {
+  flex: 0 0 auto;
+  color: var(--color-red);
+  font: 11px var(--font-mono);
+}
+.activity-detail-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 5px 0 8px 24px;
+}
+.activity-detail-row__body--root { margin-left: 27px; }
+.activity-preview {
+  overflow: hidden;
+  margin: 1px 0 0 27px;
+  color: var(--color-text-dim);
+  font: 11.5px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A moving luminance band reads as active work while keeping the row's muted
+ * palette. `prefers-reduced-motion` below collapses it to a static color. */
+.activity-shimmer {
+  color: transparent;
+  background: linear-gradient(
+    100deg,
+    var(--color-text-dim) 20%,
+    var(--color-text) 42%,
+    var(--color-text) 52%,
+    var(--color-text-dim) 74%
+  );
+  background-size: 240% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: moxxy-shimmer 1.8s linear infinite;
+}
+
 @keyframes moxxy-spin {
   to { transform: rotate(360deg); }
 }
@@ -533,6 +647,11 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .activity-shimmer {
+    color: var(--color-text-muted);
+    background: none;
+    -webkit-text-fill-color: currentColor;
   }
 }
 
