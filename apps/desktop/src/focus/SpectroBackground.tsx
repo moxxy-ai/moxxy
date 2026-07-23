@@ -10,13 +10,19 @@
  */
 
 import { useEffect, useRef } from 'react';
+import type {
+  AudioSpectrumAnalyser,
+  FocusAudioSource,
+} from './focus-audio-visualization';
 
 const SPECTRO_BARS = 64;
 
 export function SpectroBackground({
   analyser,
+  source,
 }: {
-  readonly analyser: AnalyserNode;
+  readonly analyser: AudioSpectrumAnalyser;
+  readonly source: FocusAudioSource;
 }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const ampsRef = useRef<number[]>(new Array(SPECTRO_BARS).fill(0));
@@ -41,18 +47,18 @@ export function SpectroBackground({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     sizeCanvas();
-    const ro = new ResizeObserver(sizeCanvas);
-    ro.observe(canvas);
+    const reduceMotion = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const draw = (): void => {
       // Pause the per-frame analyser read + canvas paint while the widget is
       // backgrounded — rAF is already throttled when hidden, but skipping the
       // work entirely avoids wasted EMA/paint on every tick the OS still grants.
-      if (document.hidden) {
+      if (document.hidden && !reduceMotion) {
         raf = requestAnimationFrame(draw);
         return;
       }
-      raf = requestAnimationFrame(draw);
+      if (!reduceMotion) raf = requestAnimationFrame(draw);
       analyser.getByteFrequencyData(data);
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
@@ -113,6 +119,11 @@ export function SpectroBackground({
       ctx.shadowBlur = 0;
     };
     draw();
+    const ro = new ResizeObserver(() => {
+      sizeCanvas();
+      if (reduceMotion) draw();
+    });
+    ro.observe(canvas);
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -123,6 +134,8 @@ export function SpectroBackground({
     <canvas
       ref={canvasRef}
       aria-hidden
+      data-testid="focus-audio-waveform"
+      data-audio-source={source}
       style={{
         position: 'absolute',
         inset: 0,

@@ -56,6 +56,7 @@ import { registerVaultHandlers } from './ipc/vault';
 import { registerChatHandlers } from './ipc/chat';
 import { registerMobileGatewayHandlers, type MobileGatewayController } from './ipc/mobile-gateway';
 import { registerChannelsHandlers } from './ipc/channels';
+import { registerVoiceHandlers, type VoiceHandlerDependencies } from './ipc/voice';
 
 export function registerIpcHandlers(
   buses: ReadonlyArray<CommandBus>,
@@ -66,6 +67,7 @@ export function registerIpcHandlers(
     /** Bridge-lifecycle surface for the mobile-gateway commands; the Electron
      *  main injects it. Omitted ⇒ the commands report `not-supported`. */
     readonly mobileGateway?: MobileGatewayController;
+    readonly voice?: Pick<VoiceHandlerDependencies, 'setRealtimeCaptureActive'>;
   } = {},
 ): void {
   // Register the SAME handler bodies onto every transport. `setActiveBus`
@@ -100,6 +102,7 @@ export function registerIpcHandlers(
     registerChatHandlers(pool);
     registerMobileGatewayHandlers(opts.mobileGateway ?? null);
     registerChannelsHandlers();
+    registerVoiceHandlers(pool, opts.voice);
   }
 }
 

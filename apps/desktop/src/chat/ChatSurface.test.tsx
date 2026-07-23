@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ChatSurface } from './ChatSurface';
 
 const chatState = vi.hoisted(() => ({
@@ -7,11 +7,57 @@ const chatState = vi.hoisted(() => ({
   events: [] as Array<{ type: string; text?: string; content?: string }>,
 }));
 
+const voiceCallState = vi.hoisted(() => ({
+  active: false,
+  phase: 'idle' as const,
+  activity: null,
+  errorReason: null as string | null,
+  lastTranscript: null as string | null,
+  inputAnalyser: null,
+  outputAnalyser: null,
+  open: vi.fn(),
+  close: vi.fn(),
+  retry: vi.fn(),
+  pause: vi.fn(),
+  resume: vi.fn(),
+  finishUtterance: vi.fn(),
+  restartListening: vi.fn(),
+  bargeIn: vi.fn(),
+}));
+
+const focusModeToggle = vi.hoisted(() => vi.fn());
+
+vi.mock('./chat-surface/useFocusModeToggle', () => ({
+  useFocusModeToggle: () => focusModeToggle,
+}));
+
 vi.mock('./Composer', () => ({
-  Composer: ({ ready }: { readonly ready: boolean }) => (
+  Composer: ({
+    ready,
+    onOpenVoiceCall,
+  }: {
+    readonly ready: boolean;
+    readonly onOpenVoiceCall: () => void;
+  }) => (
     <div data-testid="composer-mock" data-ready={String(ready)}>
       <span>Model: fake</span>
       <span>Attach</span>
+      <button type="button" onClick={onOpenVoiceCall}>Voice mode</button>
+    </div>
+  ),
+}));
+
+vi.mock('../voice-call/VoiceCallSurface', () => ({
+  VoiceCallSurface: ({
+    onClose,
+    onEnterFocusMode,
+  }: {
+    readonly onClose: () => void;
+    readonly onEnterFocusMode: () => void;
+  }) => (
+    <div data-testid="voice-call-surface-mock">
+      <button type="button" onClick={onClose}>Back to chat</button>
+      <button type="button" onClick={onEnterFocusMode}>Focus mode</button>
     </div>
   ),
 }));
@@ -63,6 +109,7 @@ vi.mock('@moxxy/client-core', () => ({
     rename: vi.fn(),
   }),
   useActiveAsk: () => null,
+  useVoiceCall: () => voiceCallState,
   deskForWorkspace: () => undefined,
 }));
 
@@ -76,6 +123,10 @@ describe('ChatSurface session readiness', () => {
   beforeEach(() => {
     chatState.loading = false;
     chatState.events = [];
+    voiceCallState.active = false;
+    voiceCallState.open.mockClear();
+    voiceCallState.close.mockClear();
+    focusModeToggle.mockClear();
   });
 
   it('uses the full loading state while the selected session runner is loading before transcript is available', () => {
@@ -144,5 +195,39 @@ describe('ChatSurface session readiness', () => {
       'cached answer from a huge session',
     );
     expect(screen.getByTestId('composer-mock')).toHaveAttribute('data-ready', 'false');
+  });
+
+  it('opens voice mode from the composer and replaces chat chrome until the call closes', () => {
+    const props = {
+      phase: {
+        phase: 'connected',
+        socket: '/tmp/voice-session.sock',
+        sessionId: 'voice-session',
+        activeProvider: 'openai-codex',
+        activeMode: 'default',
+      } as const,
+      workspaceId: 'voice-session',
+      sessionLoading: false,
+      railPane: null,
+      onPickPane: vi.fn(),
+      onView: vi.fn(),
+    };
+    const view = render(<ChatSurface {...props} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Voice mode' }));
+    expect(voiceCallState.open).toHaveBeenCalledOnce();
+
+    voiceCallState.active = true;
+    view.rerender(<ChatSurface {...props} />);
+
+    expect(screen.getByTestId('voice-call-surface-mock')).toBeInTheDocument();
+    expect(screen.queryByTestId('composer-mock')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Focus mode' }));
+    expect(focusModeToggle).toHaveBeenCalledOnce();
+    expect(voiceCallState.close).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+    expect(voiceCallState.close).toHaveBeenCalledOnce();
   });
 });

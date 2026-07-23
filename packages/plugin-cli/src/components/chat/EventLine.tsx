@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
-import type { MoxxyEvent } from '@moxxy/sdk';
+import type { MoxxyEvent, TriggerOrigin } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
 import { truncate } from '@moxxy/chat-model';
 import { AssistantBlock } from './AssistantBlock.js';
@@ -11,6 +11,22 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
 }) => {
   switch (event.type) {
     case 'user_prompt':
+      if (event.origin) {
+        return (
+          <Box flexDirection="column" marginTop={1}>
+            <Box>
+              <Text dimColor>{`${Glyphs.filled} ${formatTriggerOrigin(event.origin)} · `}</Text>
+              <Text>{event.origin.name}</Text>
+              {!expandToolOutputs ? <Text dimColor>{'  ›'}</Text> : null}
+            </Box>
+            {expandToolOutputs ? (
+              <Box marginLeft={2}>
+                <Text dimColor>{event.text}</Text>
+              </Box>
+            ) : null}
+          </Box>
+        );
+      }
       // System-injected context notes (e.g. the /vault reference) aren't user
       // input — render them as a compact dim note rather than the bold pinned
       // bar, so they don't dominate the transcript.
@@ -126,6 +142,17 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       return null;
   }
 };
+
+const TRIGGER_VERBS: Record<TriggerOrigin['kind'], string> = {
+  webhook: 'Webhook received',
+  schedule: 'Schedule fired',
+  workflow: 'Workflow ran',
+  checkpoint: 'Checkpoint intervened',
+};
+
+export function formatTriggerOrigin(origin: TriggerOrigin): string {
+  return TRIGGER_VERBS[origin.kind];
+}
 
 /**
  * Display-only newline normalization for the user-prompt echo bar.

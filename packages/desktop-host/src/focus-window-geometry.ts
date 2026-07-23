@@ -1,3 +1,5 @@
+import type { FocusVerticalAnchor } from '@moxxy/desktop-ipc-contract';
+
 export type FocusHorizontalAnchor = 'left' | 'right';
 
 export interface FocusBounds {
@@ -56,11 +58,13 @@ export function resizeFocusBounds({
   current,
   nextSize,
   restoreBounds,
+  verticalAnchor = 'center',
   workArea,
 }: {
   readonly current: FocusBounds;
   readonly nextSize: Pick<FocusBounds, 'width' | 'height'>;
   readonly restoreBounds?: FocusBounds | null;
+  readonly verticalAnchor?: FocusVerticalAnchor;
   readonly workArea: FocusWorkArea;
 }): FocusPlacement {
   const resizeSource = restoreBounds ?? current;
@@ -69,7 +73,9 @@ export function resizeFocusBounds({
     horizontalAnchor === 'right'
       ? resizeSource.x + resizeSource.width - nextSize.width
       : resizeSource.x;
-  const nextY = resizeSource.y + (resizeSource.height - nextSize.height) / 2;
+  const nextY = verticalAnchor === 'bottom'
+    ? resizeSource.y + resizeSource.height - nextSize.height
+    : resizeSource.y + (resizeSource.height - nextSize.height) / 2;
   const bounds = clampBounds(
     { x: nextX, y: nextY, width: nextSize.width, height: nextSize.height },
     workArea,

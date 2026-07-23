@@ -227,7 +227,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   session.providerSetup = buildProviderSetupView({ session, vault, config });
 
   // Apply the manifest's per-category defaults (mode/compactor/cacheStrategy/
-  // workflowExecutor/viewRenderer/tunnelProvider) in one table-driven pass. A
+  // workflowExecutor/synthesizer/viewRenderer/tunnelProvider) in one table-driven pass. A
   // default naming an uninstalled plugin warns and keeps the protected floor —
   // never throws at boot. provider/embedder/isolator are applied by their
   // bespoke callers above/below.

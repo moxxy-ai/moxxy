@@ -1,5 +1,11 @@
 # @moxxy/sdk
 
+## 0.33.0
+
+### Patch Changes
+
+- b241085: Keep text-only Claude turns honest and render clear, settled tool and skill activity in the TUI.
+
 ## 0.32.0
 
 ### Minor Changes

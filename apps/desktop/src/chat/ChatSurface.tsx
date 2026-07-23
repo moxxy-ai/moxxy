@@ -15,6 +15,10 @@ import { RenameWorkspaceModal } from './chat-surface/RenameWorkspaceModal';
 import { deriveSuggestions } from './chat-surface/suggestions';
 import { ImagePreviewModal } from './image-preview/ImagePreviewModal';
 import { useImagePreview } from './image-preview/useImagePreview';
+import { VoiceCallSurface } from '../voice-call/VoiceCallSurface';
+import { deriveVoiceTranscriptLines } from '../voice-call/voice-transcript';
+import { useDesktopVoiceCall } from '../voice-call/useDesktopVoiceCall';
+import { useFocusModeToggle } from './chat-surface/useFocusModeToggle';
 
 interface ChatSurfaceProps {
   readonly phase: ConnectionPhase;
@@ -96,6 +100,14 @@ export function ChatSurface({
   const desks = useDesks();
   const activeAsk = useActiveAsk(workspaceId);
   const ready = phase.phase === 'connected' && !sessionLoading && !chat.loading;
+  const voiceCall = useDesktopVoiceCall({
+    surface: 'main',
+    workspaceId,
+    ready,
+    chat,
+    inputRequired: activeAsk !== null,
+  });
+  const enterFocusMode = useFocusModeToggle();
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [renameOpen, setRenameOpen] = useState(false);
   const imagePreview = useImagePreview();
@@ -130,8 +142,43 @@ export function ChatSurface({
     () => (showSuggestions ? deriveSuggestions(chat.events) : EMPTY_SUGGESTIONS),
     [showSuggestions, chat.events],
   );
+  const voiceLines = useMemo(
+    () => deriveVoiceTranscriptLines(
+      chat.events,
+      chat.streamingText,
+      voiceCall.lastTranscript,
+    ),
+    [chat.events, chat.streamingText, voiceCall.lastTranscript],
+  );
 
   const showBlockingLoading = (sessionLoading || chat.loading) && chat.isEmpty;
+
+  if (voiceCall.active) {
+    return (
+      <main className="col-main col-main--flat">
+        <VoiceCallSurface
+          phase={voiceCall.phase}
+          activity={voiceCall.activity}
+          microphoneMuted={voiceCall.microphoneMuted}
+          waitingSoundEnabled={voiceCall.waitingSoundEnabled}
+          localPiperInstallRequired={voiceCall.localPiperInstallRequired}
+          localPiperInstalling={voiceCall.localPiperInstalling}
+          errorReason={voiceCall.errorReason}
+          inputAnalyser={voiceCall.inputAnalyser}
+          outputAnalyser={voiceCall.outputAnalyser}
+          lines={voiceLines}
+          onClose={voiceCall.close}
+          onEnterFocusMode={enterFocusMode}
+          onRetry={voiceCall.retry}
+          onInstallLocalPiper={voiceCall.installLocalPiper}
+          onMuteMicrophone={voiceCall.muteMicrophone}
+          onUnmuteMicrophone={voiceCall.unmuteMicrophone}
+          onToggleWaitingSound={voiceCall.toggleWaitingSound}
+        />
+        {activeAsk && <AskSheet ask={activeAsk} />}
+      </main>
+    );
+  }
 
   if (showBlockingLoading) {
     return (
@@ -211,6 +258,7 @@ export function ChatSurface({
         compacting={chat.compacting}
         activeTurnId={chat.activeTurnId}
         workspaceId={workspaceId}
+        onOpenVoiceCall={voiceCall.open}
         onSend={(p, atts) => void chat.send(p, atts)}
         onAbort={() => void chat.abort()}
         onPreviewImage={imagePreview.open}

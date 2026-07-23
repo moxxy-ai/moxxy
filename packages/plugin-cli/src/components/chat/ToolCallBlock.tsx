@@ -15,7 +15,9 @@ export const ToolCallBlock: React.FC<{
   outcome: ToolResultEvent | { type: 'denied'; reason: string } | null;
   /** Global Ctrl+O toggle — expands result previews and full file diffs. */
   expanded?: boolean;
-}> = ({ request, outcome, expanded = false }) => {
+  /** Compact child row beneath a skill/live activity header. */
+  nested?: boolean;
+}> = ({ request, outcome, expanded = false, nested = false }) => {
   // A settled Write/Edit result renders as a full diff card (its own header,
   // summary, and changed slices) instead of the generic outcome line.
   if (isFileDiffResult(outcome)) {
@@ -34,17 +36,21 @@ export const ToolCallBlock: React.FC<{
           : 'err';
   const detail = truncate(formatToolActivity(request.name, request.input, status === 'pending'), NAME_DISPLAY_MAX + 70);
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={nested ? 0 : 1}>
       <Box>
-        <Text color={status === 'err' ? Colors.danger : undefined} dimColor={status !== 'err'}>
-          {status === 'err' ? '✗' : toolGlyph(request.name)}{' '}
+        {nested ? <Text dimColor>└ </Text> : null}
+        <Text
+          color={status === 'err' ? Colors.danger : status === 'ok' ? Colors.active : undefined}
+          dimColor={status === 'pending'}
+        >
+          {status === 'err' ? '✗' : status === 'ok' ? '✓' : toolGlyph(request.name)}{' '}
         </Text>
         <ShimmerText text={detail} active={status === 'pending'} />
         {status === 'err' ? <Text color={Colors.danger}> failed</Text> : null}
       </Box>
       {outcome && (expanded || status === 'err') ? (
-        <Box>
-          <Text dimColor>  └ </Text>
+        <Box marginLeft={nested ? 2 : 0}>
+          <Text dimColor>{nested ? '  ' : '  └ '}</Text>
           <OutcomeText outcome={outcome} />
         </Box>
       ) : null}

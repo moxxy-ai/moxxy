@@ -39,6 +39,7 @@ import type {
 } from './app-update.js';
 import type { DeepLinkPayload } from './deep-link.js';
 import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
+import type { FocusVerticalAnchor } from './focus-layout.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -297,6 +298,15 @@ export interface IpcCommands {
    *  transcriber plugin (e.g. local Whisper), OR stored Codex OAuth creds back
    *  the in-process fallback. UI uses this to enable/disable the mic button. */
   'session.hasTranscriber': () => Promise<boolean>;
+  /** True when the desktop's optional on-device Piper synthesizer package is
+   *  complete on disk. Host-only: remote clients must not inspect plugins. */
+  'voice.isLocalPiperInstalled': () => Promise<boolean>;
+  /** Install, enable and select the fixed first-party Local Piper package, then
+   *  restart desktop runners. Accepts no renderer-controlled package spec. */
+  'voice.installLocalPiper': () => Promise<void>;
+  /** Keep the local main renderer realtime while it owns an active Voice Mode
+   * capture. Local desktop IPC only; no audio or workspace data crosses here. */
+  'voice.setRealtimeCaptureActive': (args: { active: boolean }) => Promise<void>;
   /** The globally-active collaboration (only one runs at a time), or inactive.
    *  Read from the single-flight lock file so it spans all workspaces' runners;
    *  the Collaborate tab uses it to disable Start while one is running. */
@@ -353,13 +363,15 @@ export interface IpcCommands {
     audioBase64: string;
     mimeType?: string;
   }) => Promise<string>;
-  /** Synthesize text to speech via the runner's active synthesizer (e.g. a
-   *  user-authored ElevenLabs plugin). Returns base64 audio + its MIME type,
-   *  or null when no synthesizer is active (the renderer then falls back to
-   *  the OS `speechSynthesis` voice). */
+  /** Synthesize text to speech via the runner's active synthesizer. Returns
+   *  base64 audio + its MIME type, or null when no synthesizer is active.
+   *  `language` selects the matching local/remote voice when supported;
+   *  `rate` is a bounded speaking-rate multiplier. */
   'session.synthesize': (args: {
     workspaceId?: string;
     text: string;
+    language?: string;
+    rate?: number;
   }) => Promise<{ audioBase64: string; mimeType: string } | null>;
   /** Open a native file picker and return the absolute path the user
    *  chose. Null when cancelled. */
@@ -624,6 +636,8 @@ export interface IpcCommands {
     width: number;
     height: number;
     resizable?: boolean;
+    /** Keep character chrome fixed while transient content grows above it. */
+    verticalAnchor?: FocusVerticalAnchor;
   }) => Promise<{ horizontalAnchor: 'left' | 'right' } | null>;
   /** Move the focus window by a renderer-measured pointer delta. This stays
    *  local-only because remote/mobile clients must not be able to move the

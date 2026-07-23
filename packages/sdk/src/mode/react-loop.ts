@@ -260,7 +260,16 @@ export async function* runReactLoop(
       return;
     }
 
-    const systemPrompt = buildSystemPromptWithSkills(ctx.systemPrompt, ctx.skills.list());
+    // A text-only provider cannot call `load_skill`. Advertising the lazy skill
+    // index anyway makes agent-shaped transports (notably Claude Code CLI)
+    // imitate the unavailable call as plain assistant text and then end the
+    // turn. Keep the base prompt, but only advertise lazy skills when the
+    // selected model can actually execute the loader. Unknown/dynamic model ids
+    // retain the historical tool-capable behavior, matching collect-stream's
+    // conservative capability fallback.
+    const descriptor = ctx.provider.models.find((candidate) => candidate.id === ctx.model);
+    const availableSkills = descriptor?.supportsTools === false ? [] : ctx.skills.list();
+    const systemPrompt = buildSystemPromptWithSkills(ctx.systemPrompt, availableSkills);
     const { messages, stablePrefixIndex } = projectMessages(ctx, {
       ...(systemPrompt ? { systemPrompt } : {}),
       ...(volatileText ? { trailingUserText: volatileText } : {}),

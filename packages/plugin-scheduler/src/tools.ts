@@ -13,25 +13,44 @@ import type { ScheduleEntry, ScheduleStore } from './store.js';
  */
 const SCHEDULES_STORE_GLOB = '~/.moxxy/schedules.json*';
 
-const cronOrTimestamp = z
+const blankStringToUndefined = (value: unknown): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+const optionalText = z.preprocess(blankStringToUndefined, z.string().min(1).optional());
+const optionalRunAt = z.preprocess(
+  blankStringToUndefined,
+  z
+    .union([
+      z.number().int(),
+      z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
+        message: 'runAt must be an ISO timestamp or epoch-ms',
+      }),
+    ])
+    .optional(),
+);
+
+const scheduleCreateInputSchema = z
   .object({
-    cron: z.string().optional(),
-    runAt: z
-      .union([
-        z.number().int(),
-        z.string().refine((s) => !Number.isNaN(Date.parse(s)), {
-          message: 'runAt must be an ISO timestamp or epoch-ms',
-        }),
-      ])
-      .optional(),
-    timeZone: z.string().optional(),
+    name: z
+      .string()
+      .min(1)
+      .max(120)
+      .regex(/^[a-z0-9][a-z0-9-]*$/i, 'name must be slug-like (letters, digits, hyphens)'),
+    prompt: z.string().min(1),
+    channel: optionalText,
+    model: optionalText,
+    targetSessionId: optionalText.describe(
+      'Session id to fire this schedule in (where its run executes + displays). ' +
+        'Defaults to the session that created the schedule.',
+    ),
+    cron: optionalText,
+    runAt: optionalRunAt,
+    timeZone: optionalText,
   })
-  .refine((v) => !!v.cron || v.runAt !== undefined, {
+  .refine((value) => value.cron !== undefined || value.runAt !== undefined, {
     message: 'provide either `cron` or `runAt`',
   })
-  // Documented contract: exactly one of cron/runAt. Supplying both is
-  // rejected (otherwise the runAt is silently ignored in favor of the cron).
-  .refine((v) => !(v.cron && v.runAt !== undefined), {
+  .refine((value) => !(value.cron !== undefined && value.runAt !== undefined), {
     message: 'provide either `cron` or `runAt`, not both',
   });
 
@@ -97,32 +116,15 @@ export function buildSchedulerTools(deps: SchedulerToolDeps): ReadonlyArray<Tool
     defineTool({
       name: 'schedule_create',
       description:
-        'Create a scheduled prompt that fires on a cron (recurring) or a single timestamp ' +
-        '(one-shot). The prompt runs in an isolated session at fire time; the final ' +
+        'Create a scheduled prompt with exactly one trigger. For a recurring schedule, ' +
+        'set `cron` and omit `runAt` entirely. For a one-shot schedule, set `runAt` and ' +
+        'omit `cron` entirely. Never send an empty placeholder for the unused trigger. ' +
+        'The prompt runs in an isolated session at fire time; the final ' +
         "assistant message is appended to the user's inbox. Cron uses 5-field POSIX " +
         "syntax in the user's local timezone (override via `timeZone`). For Telegram or " +
         'other delivery, write the prompt to call the right send tool itself (e.g. ' +
         '"...then call telegram_send_message with the summary").',
-      inputSchema: z
-        .object({
-          name: z
-            .string()
-            .min(1)
-            .max(120)
-            .regex(/^[a-z0-9][a-z0-9-]*$/i, 'name must be slug-like (letters, digits, hyphens)'),
-          prompt: z.string().min(1),
-          channel: z.string().optional(),
-          model: z.string().optional(),
-          targetSessionId: z
-            .string()
-            .min(1)
-            .optional()
-            .describe(
-              'Session id to fire this schedule in (where its run executes + displays). ' +
-                'Defaults to the session that created the schedule.',
-            ),
-        })
-        .and(cronOrTimestamp),
+      inputSchema: scheduleCreateInputSchema,
       permission: { action: 'prompt' },
       isolation: {
         capabilities: {

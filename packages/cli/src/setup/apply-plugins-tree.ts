@@ -84,7 +84,7 @@ interface KindBinding {
  *  - `provider`  — credential fallback walk (`activateProvider`)
  *  - `embedder`  — rich options + lazy bundled-def registration (`selectEmbedder`)
  *  - `isolator`  — consumed as the security plugin's default, not a setActive
- *  - `transcriber`/`synthesizer` — nullable backends, plugin-managed
+ *  - `transcriber` — nullable backend, plugin-managed
  *  - `channel`   — no single active to apply at boot
  */
 const ACTIVE_DEF_KINDS: ReadonlyArray<KindBinding> = [
@@ -92,6 +92,7 @@ const ACTIVE_DEF_KINDS: ReadonlyArray<KindBinding> = [
   { key: 'compactor', registry: (s) => s.compactors },
   { key: 'cacheStrategy', registry: (s) => s.cacheStrategies },
   { key: 'workflowExecutor', registry: (s) => s.workflowExecutors },
+  { key: 'synthesizer', registry: (s) => s.synthesizers },
   { key: 'viewRenderer', registry: (s) => s.viewRenderers },
   { key: 'tunnelProvider', registry: (s) => s.tunnelProviders },
   { key: 'eventStore', registry: (s) => s.eventStores },

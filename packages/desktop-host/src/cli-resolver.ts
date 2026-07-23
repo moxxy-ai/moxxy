@@ -4,10 +4,10 @@
  * Strategy, in order:
  *   1. `MOXXY_CLI_ENTRY` env var pointing at a bin.js — invoked as
  *      `node <path>`.
- *   2. `moxxy` on PATH — typically the npm-installed global. The npm
+ *   2. Monorepo dev tree (`packages/cli/dist/bin.js`) — invoked as
+ *      `node <path>`. A local build must win over an older global install.
+ *   3. `moxxy` on PATH — typically the npm-installed global. The npm
  *      shim is a Node shebang that resolves its own deps.
- *   3. Monorepo dev tree (`packages/cli/dist/bin.js`) — invoked as
- *      `node <path>`.
  *
  * macOS Finder launches strip PATH of nvm/homebrew dirs. The
  * supervisor opts into [`augmentedPaths()`] when running for real;
@@ -57,11 +57,11 @@ export function resolveMoxxyCli(opts: ResolveOptions = {}): CliInvocation | null
     return { kind: 'node', entry: envEntry };
   }
 
-  const onPath = findExecutable('moxxy', opts.extraPaths ?? []);
-  if (onPath) return { kind: 'direct', bin: onPath };
-
   const monorepo = walkUpForMonorepoCli();
   if (monorepo) return { kind: 'node', entry: monorepo };
+
+  const onPath = findExecutable('moxxy', opts.extraPaths ?? []);
+  if (onPath) return { kind: 'direct', bin: onPath };
 
   return null;
 }

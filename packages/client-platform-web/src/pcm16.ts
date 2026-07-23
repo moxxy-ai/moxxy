@@ -12,7 +12,7 @@
  *  source of truth) via a browser-safe entry that never pulls node built-ins. */
 export { MOXXY_PCM16_24KHZ_MIME } from '@moxxy/sdk/transcriber';
 
-const TARGET_SAMPLE_RATE = 24_000;
+export const MOXXY_PCM16_SAMPLE_RATE = 24_000;
 
 /**
  * Resolve the AudioContext constructor, falling back to the vendor-prefixed
@@ -43,12 +43,12 @@ export async function audioToPcm16(blob: Blob): Promise<Uint8Array> {
   }
 
   // Resample to 24 kHz mono via OfflineAudioContext.
-  const targetLength = Math.ceil(decoded.duration * TARGET_SAMPLE_RATE);
+  const targetLength = Math.ceil(decoded.duration * MOXXY_PCM16_SAMPLE_RATE);
   // A decodable-but-empty clip (sub-sample blip / truncated container) yields a
   // 0-frame target; OfflineAudioContext(1, 0, …) throws RangeError. The capture
   // path maps an empty PCM result to a clean "no speech" message, so bail early.
   if (targetLength <= 0 || decoded.length === 0) return new Uint8Array(0);
-  const offline = new OfflineAudioContext(1, targetLength, TARGET_SAMPLE_RATE);
+  const offline = new OfflineAudioContext(1, targetLength, MOXXY_PCM16_SAMPLE_RATE);
   const src = offline.createBufferSource();
   src.buffer = decoded;
   src.connect(offline.destination);

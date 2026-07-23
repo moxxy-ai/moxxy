@@ -1,5 +1,18 @@
 # @moxxy/cli
 
+## 0.33.0
+
+### Minor Changes
+
+- b7d2f10: Add a desktop-only Voice Mode with bilingual streaming Local Piper playback, pause-safe voice activity detection, barge-in, resilient offline-voice onboarding, uninterrupted call handoff between chat and Focus Mode, and privacy-safe microphone mute/resume that keeps the hidden audio owner realtime without reacquiring the active stream. Refresh Focus Mode with the animated Moxxy persona, current-task and timed-reply bubbles, and a compact latest-turn mini chat with attachments, Markdown, multiline input, and visible queued turns.
+
+### Patch Changes
+
+- 651449e: Allow scheduler tool calls to omit optional values with blank provider placeholders.
+- b241085: Keep text-only Claude turns honest and render clear, settled tool and skill activity in the TUI.
+- Updated dependencies [b241085]
+  - @moxxy/sdk@0.33.0
+
 ## 0.32.0
 
 ### Minor Changes

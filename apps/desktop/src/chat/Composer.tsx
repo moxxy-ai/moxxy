@@ -19,6 +19,7 @@ import { ModeBanner } from './composer/ModeBanner';
 import { ModelContextControl } from './composer/ModelContextControl';
 import { CommandPalette } from './CommandPalette';
 import { ToolChip } from './composer/ToolChip';
+import { VoiceModeButton } from './composer/VoiceModeButton';
 import { OverflowMenu, type OverflowMenuItem } from './composer/OverflowMenu';
 import { GoalModal } from './composer/GoalModal';
 import { QueuedChip } from './composer/QueuedChip';
@@ -43,6 +44,7 @@ interface ComposerProps {
   readonly compacting: boolean;
   readonly activeTurnId: string | null;
   readonly workspaceId: string;
+  readonly onOpenVoiceCall: () => void;
   readonly onSend: (
     prompt: string,
     attachments?: ReadonlyArray<ComposerAttachment>,
@@ -74,6 +76,7 @@ export function Composer({
   compacting,
   activeTurnId,
   workspaceId,
+  onOpenVoiceCall,
   onSend,
   onAbort,
   onPreviewImage,
@@ -82,6 +85,7 @@ export function Composer({
   const [hasTranscriber, setHasTranscriber] = useState(false);
   const [noTranscriberMsg, setNoTranscriberMsg] = useState<string | null>(null);
   const voice = useVoiceRecorder({
+    workspaceId,
     onTranscript: (t) => setDraft((d) => (d ? `${d.trimEnd()} ${t}` : t)),
   });
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -415,6 +419,10 @@ export function Composer({
                 : 'Voice'}
           </span>
         </ToolChip>
+        <VoiceModeButton
+          disabled={!ready || compacting || inFlight}
+          onOpen={onOpenVoiceCall}
+        />
         <span style={{ flex: 1 }} />
         {agent.info && (
           <ModelContextControl

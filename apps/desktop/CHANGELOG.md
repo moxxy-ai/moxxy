@@ -1,5 +1,30 @@
 # @moxxy/desktop
 
+## 0.31.0
+
+### Minor Changes
+
+- b7d2f10: Add a desktop-only Voice Mode with bilingual streaming Local Piper playback, pause-safe voice activity detection, barge-in, resilient offline-voice onboarding, uninterrupted call handoff between chat and Focus Mode, and privacy-safe microphone mute/resume that keeps the hidden audio owner realtime without reacquiring the active stream. Refresh Focus Mode with the animated Moxxy persona, current-task and timed-reply bubbles, and a compact latest-turn mini chat with attachments, Markdown, multiline input, and visible queued turns.
+
+### Patch Changes
+
+- Updated dependencies [b7d2f10]
+- Updated dependencies [651449e]
+- Updated dependencies [b241085]
+  - @moxxy/cli@0.33.0
+  - @moxxy/sdk@0.33.0
+  - @moxxy/chat-model@0.3.24
+  - @moxxy/client-core@0.13.13
+  - @moxxy/client-platform-web@0.1.52
+  - @moxxy/desktop-host@0.14.4
+  - @moxxy/desktop-ipc-contract@0.14.9
+  - @moxxy/ipc-server-ws@0.1.51
+  - @moxxy/plugin-channel-mobile@0.33.0
+  - @moxxy/plugin-stt-whisper-codex@0.33.0
+  - @moxxy/plugin-vault@0.33.0
+  - @moxxy/runner@0.2.38
+  - @moxxy/workflows-builder@0.1.35
+
 ## 0.30.0
 
 ### Minor Changes

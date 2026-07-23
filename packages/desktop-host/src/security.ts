@@ -368,6 +368,9 @@ export function clerkCspHostSources(publishableKey?: string | null): string[] {
  * NO network host (see {@link ../apps/assets-protocol.ts}) — so it enables zero
  * network egress and the anonymizer's offline guarantee at use time still holds.
  * It is deliberately NOT a real http(s) host: `connect-src` is not widened.
+ * Voice playback uses short, renderer-created Blob URLs for synthesized audio.
+ * `media-src` therefore permits only the app origin and `blob:`; the allowance
+ * does not extend to scripts, workers, connections, objects, or remote media.
  */
 function buildCspDirectives(extraClerkHosts: readonly string[]): string {
   const extra = extraClerkHosts.length ? ` ${extraClerkHosts.join(' ')}` : '';
@@ -377,6 +380,7 @@ function buildCspDirectives(extraClerkHosts: readonly string[]): string {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     `img-src 'self' data: blob: https://img.clerk.com https://*.clerk.com${extra}`,
     "font-src 'self' data: https://fonts.gstatic.com",
+    "media-src 'self' blob:",
     // challenges.cloudflare.com: Clerk's bot-protection (Turnstile) runs on
     // sign-up — Clerk's documented CSP needs it in connect-src too, not just
     // script/frame-src, or the captcha can fail and sign-up dead-ends.
