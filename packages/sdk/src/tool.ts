@@ -6,6 +6,16 @@ import type { SubagentSpawner } from './subagent.js';
 import type { ToolIsolationSpec } from './isolation.js';
 
 /**
+ * A tool the active model provider can execute on its own infrastructure.
+ *
+ * A ToolDef carrying this marker remains a normal client-side tool and is a
+ * fully functional fallback. When the active ModelDescriptor advertises the
+ * same hosted capability, providers omit the duplicate client definition and
+ * use their hosted equivalent. On other models the handler stays available.
+ */
+export type HostedTool = { readonly type: 'web_search' };
+
+/**
  * Capability-mediated filesystem operations injected by isolators that
  * support brokering. Handlers can opt in by checking `ctx.fs` at runtime
  * and using these instead of `node:fs`; the broker validates each call
@@ -175,6 +185,8 @@ export interface ToolDef {
    */
   readonly inputJsonSchema?: unknown;
   readonly outputSchema?: z.ZodTypeAny;
+  /** Optional provider-hosted equivalent. This handler remains the fallback. */
+  readonly hosted?: HostedTool;
   readonly permission?: PermissionRule;
   readonly handler: (input: unknown, ctx: ToolContext) => Promise<unknown> | unknown;
   /** Opt-in presentation hint. See `ToolCompactPresentation`. */

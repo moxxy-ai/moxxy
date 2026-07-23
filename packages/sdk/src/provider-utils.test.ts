@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { zodToJsonSchema } from './provider-utils.js';
+import { resolveProviderTools } from './provider-tool-utils.js';
+import { defineTool } from './define.js';
 
 /**
  * Regression coverage for the codex `/responses` 400 we hit when a tool's
@@ -90,5 +92,63 @@ describe('zodToJsonSchema', () => {
     expect(() => zodToJsonSchema(schema)).not.toThrow();
     const out = zodToJsonSchema(schema);
     expect(out).toBeDefined();
+  });
+});
+
+describe('resolveProviderTools', () => {
+  const webSearch = defineTool({
+    name: 'web_search',
+    description: 'fallback',
+    inputSchema: z.object({ query: z.string() }),
+    hosted: { type: 'web_search' },
+    handler: () => [],
+  });
+  const read = defineTool({
+    name: 'Read',
+    description: 'read',
+    inputSchema: z.object({ path: z.string() }),
+    handler: () => '',
+  });
+
+  it('replaces a marked fallback only when the exact model advertises the hosted tool', () => {
+    const resolved = resolveProviderTools(
+      [read, webSearch],
+      [
+        {
+          id: 'native-model',
+          contextWindow: 100,
+          supportsTools: true,
+          supportsStreaming: true,
+          hostedTools: ['web_search'],
+        },
+      ],
+      'native-model',
+    );
+    expect(resolved.tools.map((tool) => tool.name)).toEqual(['Read']);
+    expect(resolved.hostedTools).toEqual([{ type: 'web_search' }]);
+  });
+
+  it('enables a model capability even when no client fallback plugin is installed', () => {
+    const resolved = resolveProviderTools(
+      undefined,
+      [{
+        id: 'native-model',
+        contextWindow: 100,
+        supportsTools: true,
+        supportsStreaming: true,
+        hostedTools: ['web_search'],
+      }],
+      'native-model',
+    );
+    expect(resolved.tools).toEqual([]);
+    expect(resolved.hostedTools).toEqual([{ type: 'web_search' }]);
+  });
+
+  it('keeps the local fallback for unsupported and unknown models', () => {
+    const models = [
+      { id: 'plain-model', contextWindow: 100, supportsTools: true, supportsStreaming: true },
+    ];
+    expect(resolveProviderTools([webSearch], models, 'plain-model').tools).toEqual([webSearch]);
+    expect(resolveProviderTools([webSearch], models, 'catalog-drift').tools).toEqual([webSearch]);
   });
 });

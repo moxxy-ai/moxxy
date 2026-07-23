@@ -6,7 +6,7 @@ import { CodexProvider } from './provider.js';
 import { CODEX_RESPONSES_URL } from './oauth.js';
 import type { CodexTokens } from './types.js';
 import type { ProviderEvent, ProviderRequest } from '@moxxy/sdk';
-import { assertDefined } from '@moxxy/sdk';
+import { assertDefined, defineTool, z } from '@moxxy/sdk';
 
 // The refresh path takes a cross-process lockfile under `<moxxy home>/locks`;
 // point MOXXY_HOME at a temp dir so tests never touch the real ~/.moxxy.
@@ -57,6 +57,38 @@ function baseRequest(over: Partial<ProviderRequest> = {}): ProviderRequest {
 }
 
 describe('CodexProvider.stream', () => {
+  it('uses hosted web search first and retries with the client fallback when the backend rejects it', async () => {
+    const bodies: Array<{ tools?: Array<{ type: string; name?: string }> }> = [];
+    const fakeFetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as { tools?: Array<{ type: string; name?: string }> });
+      if (bodies.length === 1) {
+        return new Response('{"error":"web_search is not enabled"}', { status: 400 });
+      }
+      return new Response(sseStream(['data: {"type":"response.completed"}\n\n']), { status: 200 });
+    });
+    const fallback = defineTool({
+      name: 'web_search',
+      description: 'fallback search',
+      inputSchema: z.object({ query: z.string() }),
+      hosted: { type: 'web_search' },
+      handler: () => [],
+    });
+    const provider = new CodexProvider({
+      tokens: makeTokens(),
+      fetch: fakeFetch as unknown as typeof fetch,
+    });
+
+    const events = await collect(provider.stream(baseRequest({ tools: [fallback] })));
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]?.tools).toEqual([{ type: 'web_search' }]);
+    expect(bodies[1]?.tools).toEqual([
+      expect.objectContaining({ type: 'function', name: 'web_search' }),
+    ]);
+    expect(events.some((event) => event.type === 'error')).toBe(false);
+    expect(events.at(-1)).toMatchObject({ type: 'message_end', stopReason: 'end_turn' });
+  });
+
   it('sends Bearer auth, ChatGPT-Account-Id, originator and User-Agent headers', async () => {
     const captured: { url?: string; init?: RequestInit } = {};
     const fakeFetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {

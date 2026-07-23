@@ -44,6 +44,8 @@ The framework is developed by the agent it runs, backed by strict CI, adversaria
 | **Provider freedom** | Use built-in providers, subscription-backed CLIs, or register any compatible provider without rewriting the agent loop. |
 | **Type-safe extension** | The zero-runtime-dependency `@moxxy/sdk` gives plugin authors a small, typed public contract with full IDE support. |
 
+Capable Codex and Claude models use provider-hosted web search first. `@moxxy/plugin-browser` supplies a pluggable local fallback for models and accounts without that capability.
+
 Explore [features and channels](docs/features.md) for the complete capability map.
 
 ## Showcase

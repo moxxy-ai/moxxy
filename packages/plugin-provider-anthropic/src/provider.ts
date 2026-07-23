@@ -7,6 +7,7 @@ import type {
   StopReason,
   TokenUsage,
 } from '@moxxy/sdk';
+import { resolveProviderTools } from '@moxxy/sdk';
 
 type MessageStreamParams = Anthropic.Messages.MessageStreamParams;
 type MessageCountTokensParams = Anthropic.Messages.MessageCountTokensParams;
@@ -74,12 +75,12 @@ export interface AnthropicProviderConfig {
 // {type:'adaptive', display:'summarized'}`) — fable-5/opus-4-8/4-7/4-6 and sonnet-4-6
 // do; haiku-4-5 does not (effort/adaptive-thinking error there), so it stays off.
 export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
-  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true },
-  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true },
+  { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, hostedTools: ['web_search'] },
 ];
 
 export class AnthropicProvider implements LLMProvider {
@@ -224,16 +225,20 @@ export class AnthropicProvider implements LLMProvider {
     }
 
     const { system, messages } = toAnthropicMessages(req.messages, { cacheMessageIndices });
-    const tools =
-      req.tools && req.tools.length > 0
-        ? toAnthropicTools(req.tools, { cacheLast: cacheTools })
-        : undefined;
+    const model = req.model || this.defaultModel;
+    const resolvedTools = resolveProviderTools(req.tools, this.models, model);
+    const tools = toAnthropicTools(resolvedTools.tools, { cacheLast: cacheTools });
+    const hostedTools = resolvedTools.hostedTools.map((tool) => {
+      if (tool.type === 'web_search') {
+        return { type: 'web_search_20250305' as const, name: 'web_search' as const };
+      }
+      return tool;
+    });
+    const requestTools = [...tools, ...hostedTools];
     // OAuth mode prepends the Claude Code identity preamble as the first
     // system block; apiKey mode keeps the prior string/cache-block behaviour.
     // req.system (hook-injected extra system text) is appended last.
     const systemParam = this.buildSystemParam(system, cacheSystem, req.system);
-    const model = req.model || this.defaultModel;
-
     // In OAuth mode refresh the bearer proactively when it's near expiry, so
     // we don't fire a request on a token we already knew was about to die.
     // Done BEFORE emitting message_start so a turn that never reaches the API
@@ -272,7 +277,7 @@ export class AnthropicProvider implements LLMProvider {
       max_tokens: maxTokens,
       system: systemParam as MessageStreamParams['system'],
       messages: messages as MessageStreamParams['messages'],
-      tools: tools as MessageStreamParams['tools'],
+      tools: requestTools as MessageStreamParams['tools'],
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
     };
 
@@ -292,6 +297,15 @@ export class AnthropicProvider implements LLMProvider {
       if (effort) body.output_config = { effort };
     }
 
+    const fallbackRequestBody: MessageStreamParams | null = hostedTools.length > 0
+      ? {
+          ...requestBody,
+          tools: req.tools && req.tools.length > 0
+            ? toAnthropicTools(req.tools, { cacheLast: cacheTools }) as MessageStreamParams['tools']
+            : undefined,
+        }
+      : null;
+
     // A genuine auth 401 arrives before any SSE body, so in OAuth mode we can
     // force a single refresh and replay the request. But `isUnauthorized()`
     // also matches a 401 surfaced MID-stream (token revoked during a long
@@ -310,6 +324,15 @@ export class AnthropicProvider implements LLMProvider {
           return;
         } catch (retryErr) {
           yield { type: 'error', ...toFriendlyError(retryErr, { provider: this.name }) };
+          return;
+        }
+      }
+      if (fallbackRequestBody && !progress.produced && isHostedWebSearchRejection(err)) {
+        try {
+          yield* this.streamOnce(fallbackRequestBody, req.signal);
+          return;
+        } catch (fallbackErr) {
+          yield { type: 'error', ...toFriendlyError(fallbackErr, { provider: this.name }) };
           return;
         }
       }
@@ -351,6 +374,7 @@ export class AnthropicProvider implements LLMProvider {
     // accumulates and flushes as a reasoning_signature at content_block_stop.
     const thinkingBlockIndices = new Set<number>();
     let pendingThinkingSig = '';
+    const emittedCitationUrls = new Set<string>();
     let stopReason: StopReason = 'end_turn';
     // Type as the SDK's `TokenUsage` (which carries the optional cache fields)
     // so cacheReadTokens/cacheCreationTokens are first-class on the accumulator
@@ -414,6 +438,14 @@ export class AnthropicProvider implements LLMProvider {
             if (!delta) break;
             if (delta.type === 'text_delta' && typeof delta.text === 'string') {
               yield { type: 'text_delta', delta: delta.text };
+            } else if (delta.type === 'citations_delta') {
+              const citation = delta.citation;
+              const url = citation?.url;
+              if (isPublicCitationUrl(url) && !emittedCitationUrls.has(url)) {
+                emittedCitationUrls.add(url);
+                const title = citation?.title?.trim() || 'source';
+                yield { type: 'text_delta', delta: ` [${escapeMarkdownLabel(title)}](${url})` };
+              }
             } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
               yield { type: 'reasoning_delta', delta: delta.thinking };
             } else if (delta.type === 'signature_delta' && typeof delta.signature === 'string') {
@@ -628,13 +660,14 @@ interface AnthropicStreamEvent {
   };
   index?: number;
   delta?: {
-    type?: 'text_delta' | 'input_json_delta' | 'thinking_delta' | 'signature_delta';
+    type?: 'text_delta' | 'input_json_delta' | 'thinking_delta' | 'signature_delta' | 'citations_delta';
     text?: string;
     partial_json?: string;
     /** thinking_delta payload (the summarized reasoning text). */
     thinking?: string;
     /** signature_delta payload (the thinking-block signature for round-trip). */
     signature?: string;
+    citation?: { url?: string; title?: string };
     stop_reason?: string;
   };
   usage?: {
@@ -707,4 +740,30 @@ function isUnauthorized(err: unknown): boolean {
   return typeof (err as { status?: unknown } | null | undefined)?.status === 'number'
     ? (err as { status: number }).status === 401
     : false;
+}
+
+function isHostedWebSearchRejection(err: unknown): boolean {
+  const candidate = err as { status?: unknown; message?: unknown; error?: { message?: unknown } } | null;
+  if (candidate?.status !== 400) return false;
+  const message = typeof candidate.message === 'string'
+    ? candidate.message
+    : typeof candidate.error?.message === 'string'
+      ? candidate.error.message
+      : '';
+  const normalized = message.toLowerCase();
+  return normalized.includes('web_search') || normalized.includes('web search');
+}
+
+function isPublicCitationUrl(value: string | undefined): value is string {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function escapeMarkdownLabel(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]');
 }
