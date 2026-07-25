@@ -30,6 +30,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./ssrf-guard": {
+      "types": "./dist/ssrf-guard.d.ts",
+      "import": "./dist/ssrf-guard.js"
     }
   },
   "bin": {

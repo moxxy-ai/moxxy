@@ -168,13 +168,14 @@ function ortWasmDropOrphan(): Plugin {
  * externalized workspace import would `MODULE_NOT_FOUND` in the packaged
  * app. Excluding them from `externalizeDepsPlugin` inlines them.
  */
-const BUNDLED_WORKSPACE_DEPS = [
+export const BUNDLED_WORKSPACE_DEPS = [
   '@moxxy/runner',
   '@moxxy/sdk',
   '@moxxy/plugin-vault',
   '@moxxy/plugin-stt-whisper-codex',
   '@moxxy/desktop-ipc-contract',
   '@moxxy/desktop-host',
+  '@moxxy/plugin-browser',
   '@moxxy/ipc-server-ws',
   // The main imports the mobile-channel's pure pairing-URL helpers
   // (`@moxxy/plugin-channel-mobile/pairing`, only `node:os`) to build the QR /

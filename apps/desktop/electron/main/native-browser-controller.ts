@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import {
+  Menu,
   WebContentsView,
   type BrowserWindow,
+  type ContextMenuParams,
+  type MenuItemConstructorOptions,
   type NativeImage,
   type Session,
 } from 'electron';
@@ -13,7 +16,7 @@ import {
   projectNativeBrowserBounds,
   type NativeBrowserController,
   type NativeBrowserAgentAction,
-} from '@moxxy/desktop-host';
+} from '@moxxy/desktop-host/native-browser';
 import type {
   NativeBrowserAvailability,
   NativeBrowserCapture,
@@ -22,7 +25,7 @@ import type {
   NativeBrowserTabSnapshot,
   NativeBrowserViewport,
 } from '@moxxy/desktop-ipc-contract';
-import { assertPublicUrl } from '@moxxy/plugin-browser';
+import { assertPublicUrl } from '@moxxy/plugin-browser/ssrf-guard';
 
 const BROWSER_PARTITION = 'persist:moxxy-browser-v1';
 const BLANK_URL = 'about:blank';
@@ -50,6 +53,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   private readonly state = new NativeBrowserState(randomUUID);
   private readonly store: NativeBrowserStateStore;
   private readonly views = new Map<string, WebContentsView>();
+  private readonly activeAgentOperations = new WeakMap<WebContentsView, number>();
   private readonly bounds = new Map<string, NativeBrowserRect>();
   private backend: NativeBrowserAvailability = { backend: 'playwright', available: true };
   private visibleWorkspaceId: string | null = null;
@@ -419,14 +423,16 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         },
       });
     const contents = view.webContents;
-    // A hidden browser pane is still an active workspace capability: pages may
-    // finish navigation, timers, uploads, and agent-driven work while the user
-    // reads chat. Keep Chromium from freezing that shared page when detached.
-    contents.setBackgroundThrottling(false);
+    // Detached tabs remain alive, but Chromium may throttle them until the tab
+    // is visible or an agent operation explicitly leases it below.
+    contents.setBackgroundThrottling(true);
     contents.setZoomFactor(tab.zoom);
     contents.setWindowOpenHandler(({ url }) => {
       if (isHttpUrl(url)) void this.openPopup(workspaceId, url);
       return { action: 'deny' };
+    });
+    contents.on('context-menu', (_event, params) => {
+      this.showContextMenu(workspaceId, tab.id, view, params);
     });
     contents.on('will-navigate', (event, url) => {
       if (!isAllowedDocumentUrl(url)) event.preventDefault();
@@ -474,6 +480,49 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     }
   }
 
+  private showContextMenu(
+    workspaceId: string,
+    tabId: string,
+    view: WebContentsView,
+    params: ContextMenuParams,
+  ): void {
+    if (view.webContents.isDestroyed()) return;
+    const template: MenuItemConstructorOptions[] = [];
+    if (params.isEditable) {
+      template.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' });
+    } else if (params.selectionText) {
+      template.push({ role: 'copy' });
+    }
+    if (params.linkURL && isHttpUrl(params.linkURL)) {
+      if (template.length > 0) template.push({ type: 'separator' });
+      template.push({
+        label: 'Open Link in New Tab',
+        click: () => void this.openPopup(workspaceId, params.linkURL),
+      });
+    }
+    if (template.length > 0) template.push({ type: 'separator' });
+    template.push(
+      {
+        label: 'Back',
+        enabled: view.webContents.navigationHistory.canGoBack(),
+        click: () => void this.back({ workspaceId, tabId }),
+      },
+      {
+        label: 'Forward',
+        enabled: view.webContents.navigationHistory.canGoForward(),
+        click: () => void this.forward({ workspaceId, tabId }),
+      },
+      { label: 'Reload', click: () => void this.reload({ workspaceId, tabId }) },
+      { type: 'separator' },
+      { role: 'selectAll' },
+    );
+
+    const menu = Menu.buildFromTemplate(template);
+    const window = this.options.getMainWindow();
+    if (window && !window.isDestroyed()) menu.popup({ window });
+    else menu.popup();
+  }
+
   private captureTarget(workspaceId: string, tabId?: string): NativeBrowserTabSnapshot {
     this.requireNative();
     this.state.ensureWorkspace(workspaceId);
@@ -505,6 +554,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     }
     view.setBounds(bounds);
     view.setVisible(true);
+    view.webContents.setBackgroundThrottling(false);
   }
 
   private detachAttachedView(): void {
@@ -515,6 +565,9 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     const view = this.views.get(key);
     if (!view) return;
     view.setVisible(false);
+    if ((this.activeAgentOperations.get(view) ?? 0) === 0 && !view.webContents.isDestroyed()) {
+      view.webContents.setBackgroundThrottling(true);
+    }
     const window = this.options.getMainWindow();
     if (!window || window.isDestroyed()) return;
     window.contentView.removeChildView(view);
@@ -562,7 +615,24 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
 
   private async withAgentOperation<T>(view: WebContentsView, operation: () => Promise<T>): Promise<T> {
     if (view.webContents.isDestroyed()) throw new Error('native browser tab is closed');
-    return operation();
+    const active = (this.activeAgentOperations.get(view) ?? 0) + 1;
+    this.activeAgentOperations.set(view, active);
+    view.webContents.setBackgroundThrottling(false);
+    try {
+      return await operation();
+    } finally {
+      const remaining = Math.max(0, (this.activeAgentOperations.get(view) ?? 1) - 1);
+      if (remaining === 0) this.activeAgentOperations.delete(view);
+      else this.activeAgentOperations.set(view, remaining);
+      if (remaining === 0 && !this.isAttached(view) && !view.webContents.isDestroyed()) {
+        view.webContents.setBackgroundThrottling(true);
+      }
+    }
+  }
+
+  private isAttached(view: WebContentsView): boolean {
+    const key = this.attachedKey;
+    return Boolean(key && this.views.get(key) === view);
   }
 
   private executeScript(view: WebContentsView, script: string): Promise<unknown> {

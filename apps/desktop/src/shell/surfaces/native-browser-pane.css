@@ -275,6 +275,40 @@
   font-size: 12px;
 }
 
+.native-browser__backend-error {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  background: var(--color-surface);
+  color: var(--color-text-dim);
+  text-align: center;
+}
+
+.native-browser__backend-error strong {
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.native-browser__backend-error span {
+  max-width: 420px;
+  font-size: 12px;
+}
+
+.native-browser__backend-error button {
+  margin-top: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-card-border);
+  border-radius: 7px;
+  background: var(--color-input-soft);
+  color: var(--color-text);
+  font: inherit;
+}
+
 .native-browser__spinner {
   display: inline-block;
   box-sizing: border-box;

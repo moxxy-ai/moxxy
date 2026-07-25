@@ -256,16 +256,24 @@ export function useNativeBrowser(workspaceId: string): NativeBrowserViewModel {
   const startCapture = useCallback((): void => {
     const tab = activeTab;
     if (!tab || capturePendingRef.current || captureImage) return;
+    const generation = generationRef.current;
     capturePendingRef.current = true;
     setError(null);
     void api()
       .invoke('nativeBrowser.beginCapture', { workspaceId, tabId: tab.id })
       .then((capture) => {
+        if (generation !== generationRef.current) {
+          return api()
+            .invoke('nativeBrowser.endCapture', { workspaceId, tabId: tab.id })
+            .then(() => undefined);
+        }
         captureTabIdRef.current = tab.id;
         setCaptureImage(`data:${capture.mediaType};base64,${capture.base64}`);
         setDrag(null);
       })
-      .catch(showError)
+      .catch((reason: unknown) => {
+        if (generation === generationRef.current) showError(reason);
+      })
       .finally(() => {
         capturePendingRef.current = false;
       });
@@ -409,7 +417,21 @@ export function useNativeBrowser(workspaceId: string): NativeBrowserViewModel {
 function normalizeAddress(raw: string): string | null {
   const value = raw.trim();
   if (!value) return null;
-  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (looksLikeHost(value)) return `https://${value}`;
+  const query = new URLSearchParams({ q: value });
+  return `https://www.google.com/search?${query.toString()}`;
+}
+
+function looksLikeHost(value: string): boolean {
+  const authority = value.split('/')[0] ?? '';
+  const host = authority.replace(/:\d+$/, '');
+  return (
+    host === 'localhost' ||
+    /^\[[0-9a-f:]+\]$/i.test(host) ||
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) ||
+    /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(host)
+  );
 }
 
 function clampZoom(value: number): number {

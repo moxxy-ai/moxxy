@@ -7,19 +7,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NativeBrowserBridge, nativeBrowserBridgeSocket } from '@moxxy/desktop-host';
 import { createNativeBrowserBridgeClient } from '@moxxy/plugin-browser';
 
-vi.mock('electron', () => ({ WebContentsView: class {} }));
+const electronMocks = vi.hoisted(() => ({
+  popup: vi.fn(),
+  templates: [] as Array<Array<Record<string, unknown>>>,
+}));
+
+vi.mock('electron', () => ({
+  WebContentsView: class {},
+  Menu: {
+    buildFromTemplate: (template: Array<Record<string, unknown>>) => {
+      electronMocks.templates.push(template);
+      return { popup: electronMocks.popup };
+    },
+  },
+}));
 
 import { ElectronNativeBrowserController } from './native-browser-controller.js';
 
 describe('ElectronNativeBrowserController agent operations', () => {
   let views: FakeView[];
+  let requestGuards: RequestGuard[];
 
   beforeEach(() => {
     views = [];
+    requestGuards = [];
+    electronMocks.popup.mockClear();
+    electronMocks.templates.length = 0;
   });
 
   it('runs agent actions on the same native tab the user opened', async () => {
-    const controller = await createController(views);
+    const controller = await createController(views, requestGuards);
     const snapshot = await controller.open({ workspaceId: 'ws-1' });
     const activeTabId = snapshot.activeTabId;
     const view = views[0];
@@ -34,7 +51,7 @@ describe('ElectronNativeBrowserController agent operations', () => {
     expect(result).toBe('the visible page');
     expect(view?.webContents.executedScripts).toHaveLength(1);
     expect(view?.webContents.executedScripts[0]).toContain('main');
-    expect((await controller.executeAgentAction('ws-1', { kind: 'tabs' }))).toMatchObject({
+    expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject({
       activeTabId,
     });
     await controller.destroy();
@@ -64,18 +81,23 @@ describe('ElectronNativeBrowserController agent operations', () => {
     await controller.destroy();
   });
 
-  it('keeps hidden tabs alive and available to the agent', async () => {
+  it('throttles a hidden tab except while an agent operation is active', async () => {
     const controller = await createController(views);
     await controller.open({ workspaceId: 'ws-1' });
     const view = views[0];
-    view?.webContents.setScriptResult('html', '<html><body>background</body></html>');
+    const deferred = createDeferred<unknown>();
+    view?.webContents.setDeferredScript(deferred.promise);
     await controller.setVisible({ workspaceId: 'ws-1', visible: false });
 
-    const html = await controller.executeAgentAction('ws-1', { kind: 'html' });
+    expect(view?.webContents.backgroundThrottling).toBe(true);
 
-    expect(html).toBe('<html><body>background</body></html>');
-    expect(view?.webContents.closed).toBe(false);
+    const html = controller.executeAgentAction('ws-1', { kind: 'html' });
     expect(view?.webContents.backgroundThrottling).toBe(false);
+    deferred.resolve('<html><body>background</body></html>');
+
+    await expect(html).resolves.toBe('<html><body>background</body></html>');
+    expect(view?.webContents.closed).toBe(false);
+    expect(view?.webContents.backgroundThrottling).toBe(true);
     await controller.destroy();
   });
 
@@ -104,15 +126,91 @@ describe('ElectronNativeBrowserController agent operations', () => {
       await controller.destroy();
     }
   });
+
+  it('shows a native context menu for page selection and editing', async () => {
+    const controller = await createController(views, requestGuards);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+
+    view?.webContents.emit(
+      'context-menu',
+      {},
+      {
+        isEditable: true,
+        selectionText: 'selected text',
+        linkURL: '',
+      },
+    );
+
+    expect(electronMocks.templates).toHaveLength(1);
+    expect(electronMocks.templates[0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'cut' }),
+        expect.objectContaining({ role: 'copy' }),
+        expect.objectContaining({ role: 'paste' }),
+      ]),
+    );
+    expect(electronMocks.popup).toHaveBeenCalledOnce();
+    await controller.destroy();
+  });
+
+  it('opens a public HTTP popup as a Moxxy tab and blocks dangerous protocols', async () => {
+    const controller = await createController(views, requestGuards);
+    const initial = await controller.open({ workspaceId: 'ws-1' });
+    const first = views[0];
+
+    expect(first?.webContents.openPopup('https://93.184.216.34/popup')).toEqual({ action: 'deny' });
+    await vi.waitFor(() => expect(views).toHaveLength(2));
+    expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject({
+      tabs: expect.arrayContaining([
+        expect.objectContaining({ url: 'https://93.184.216.34/popup' }),
+      ]),
+    });
+
+    expect(first?.webContents.openPopup('javascript:alert(1)')).toEqual({
+      action: 'deny',
+    });
+    await Promise.resolve();
+    expect(views).toHaveLength(2);
+    expect(initial.tabs).toHaveLength(1);
+    await controller.destroy();
+  });
+
+  it('blocks private main-frame redirects and iframes at the shared session boundary', async () => {
+    const controller = await createController(views, requestGuards);
+    expect(requestGuards).toHaveLength(1);
+    const guard = requestGuards[0];
+    expect(guard).toBeDefined();
+    const redirect = vi.fn();
+    guard?.({ url: 'http://127.0.0.1/redirect-target' }, redirect);
+    await vi.waitFor(() => expect(redirect).toHaveBeenCalledWith({ cancel: true }));
+
+    const iframe = vi.fn();
+    guard?.({ url: 'http://[::1]/iframe-content' }, iframe);
+    await vi.waitFor(() => expect(iframe).toHaveBeenCalledWith({ cancel: true }));
+    await controller.destroy();
+  });
 });
 
-async function createController(views: FakeView[]): Promise<ElectronNativeBrowserController> {
+type RequestGuard = (
+  details: { readonly url: string },
+  callback: (result: { readonly cancel: boolean }) => void,
+) => void;
+
+async function createController(
+  views: FakeView[],
+  requestGuards: RequestGuard[] = [],
+): Promise<ElectronNativeBrowserController> {
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'native-controller-'));
   const controller = new ElectronNativeBrowserController({
     browserSession: {
       setPermissionCheckHandler: vi.fn(),
       setPermissionRequestHandler: vi.fn(),
-      webRequest: { onBeforeRequest: vi.fn() },
+      webRequest: {
+        onBeforeRequest: vi.fn((_filter: unknown, guard: RequestGuard) => {
+          requestGuards.push(guard);
+        }),
+      },
     } as never,
     userDataDir,
     getMainWindow: () => null,
@@ -156,6 +254,7 @@ class FakeWebContents extends EventEmitter {
   private url = 'about:blank';
   private scriptResult: unknown;
   private deferredScript: Promise<unknown> | null = null;
+  private popupHandler: ((details: { url: string }) => { action: 'deny' }) | null = null;
 
   setScriptResult(_kind: string, value: unknown): void {
     this.scriptResult = value;
@@ -183,7 +282,13 @@ class FakeWebContents extends EventEmitter {
   setBackgroundThrottling(enabled: boolean): void {
     this.backgroundThrottling = enabled;
   }
-  setWindowOpenHandler(_handler: unknown): void {}
+  setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): void {
+    this.popupHandler = handler;
+  }
+  openPopup(url: string): { action: 'deny' } {
+    if (!this.popupHandler) throw new Error('popup handler is not installed');
+    return this.popupHandler({ url });
+  }
   setZoomFactor(value: number): void {
     this.zoom = value;
   }

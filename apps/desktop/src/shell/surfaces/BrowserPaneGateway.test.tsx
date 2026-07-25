@@ -48,7 +48,10 @@ describe('BrowserPaneGateway', () => {
       if (channel === 'nativeBrowser.closeTab') return snapshot;
       return undefined;
     });
-    __setApiOverride({ invoke, subscribe: vi.fn(() => () => undefined) } as never);
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
 
     render(<BrowserPaneGateway workspaceId="ws-1" />);
 
@@ -77,7 +80,11 @@ describe('BrowserPaneGateway', () => {
   it('uses the existing Playwright pane when native startup selected the legacy backend', async () => {
     const invoke = vi.fn(async (channel: string) => {
       if (channel === 'nativeBrowser.status') {
-        return { backend: 'playwright', available: true, reason: 'rollback selected' };
+        return {
+          backend: 'playwright',
+          available: true,
+          reason: 'rollback selected',
+        };
       }
       if (channel === 'surface.open') {
         return {
@@ -92,7 +99,10 @@ describe('BrowserPaneGateway', () => {
       }
       return undefined;
     });
-    __setApiOverride({ invoke, subscribe: vi.fn(() => () => undefined) } as never);
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
 
     render(<BrowserPaneGateway workspaceId="ws-1" />);
 
@@ -103,4 +113,101 @@ describe('BrowserPaneGateway', () => {
     });
     expect(invoke).not.toHaveBeenCalledWith('nativeBrowser.open', expect.anything());
   });
+
+  it('treats address-bar text as a search instead of an invalid hostname', async () => {
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'nativeBrowser.open') return snapshot;
+      return undefined;
+    });
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
+    render(<BrowserPaneGateway workspaceId="ws-1" />);
+    const address = await screen.findByRole('textbox', { name: 'Address' });
+
+    fireEvent.change(address, {
+      target: { value: 'native browser performance' },
+    });
+    fireEvent.submit(address.closest('form') as HTMLFormElement);
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('nativeBrowser.navigate', {
+        workspaceId: 'ws-1',
+        tabId: 'tab-1',
+        url: 'https://www.google.com/search?q=native+browser+performance',
+      }),
+    );
+  });
+
+  it('does not silently switch to Playwright when the backend status probe fails', async () => {
+    let statusAttempts = 0;
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'nativeBrowser.status') {
+        statusAttempts += 1;
+        if (statusAttempts === 1) throw new Error('IPC temporarily unavailable');
+        return { backend: 'native', available: true };
+      }
+      if (channel === 'nativeBrowser.open') return snapshot;
+      return undefined;
+    });
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
+
+    render(<BrowserPaneGateway workspaceId="ws-1" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('IPC temporarily unavailable');
+    expect(invoke).not.toHaveBeenCalledWith('surface.open', expect.anything());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    expect(await screen.findByRole('tab', { name: /Moxxy/i })).toBeTruthy();
+    expect(invoke).toHaveBeenCalledWith('nativeBrowser.open', {
+      workspaceId: 'ws-1',
+    });
+    expect(invoke).not.toHaveBeenCalledWith('surface.open', expect.anything());
+  });
+
+  it('releases a capture that finishes after the pane changes workspace', async () => {
+    const capture = deferred<{ mediaType: 'image/png'; base64: string }>();
+    const invoke = vi.fn(async (channel: string, args?: unknown) => {
+      if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'nativeBrowser.open') {
+        const workspaceId = (args as { workspaceId: string }).workspaceId;
+        return { ...snapshot, workspaceId };
+      }
+      if (channel === 'nativeBrowser.beginCapture') return capture.promise;
+      return undefined;
+    });
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
+    const rendered = render(<BrowserPaneGateway workspaceId="ws-1" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Capture region' }));
+    rendered.rerender(<BrowserPaneGateway workspaceId="ws-2" />);
+    capture.resolve({ mediaType: 'image/png', base64: 'AAAA' });
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('nativeBrowser.endCapture', {
+        workspaceId: 'ws-1',
+        tabId: 'tab-1',
+      }),
+    );
+  });
 });
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+} {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}

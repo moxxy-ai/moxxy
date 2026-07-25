@@ -83,4 +83,14 @@ describe('NativeBrowserState', () => {
       ],
     });
   });
+
+  it('caps a workspace at the persisted tab limit instead of creating unsavable state', () => {
+    const state = new NativeBrowserState(ids());
+    state.ensureWorkspace('ws-1');
+    for (let index = 1; index < 64; index += 1) state.newTab('ws-1');
+
+    expect(state.snapshot('ws-1').tabs).toHaveLength(64);
+    expect(() => state.newTab('ws-1')).toThrow('maximum of 64');
+    expect(state.snapshot('ws-1').tabs).toHaveLength(64);
+  });
 });

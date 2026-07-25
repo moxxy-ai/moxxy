@@ -32,6 +32,7 @@ interface MutableWorkspace {
 }
 
 const BLANK_URL = 'about:blank';
+const MAX_TABS_PER_WORKSPACE = 64;
 
 export class NativeBrowserState {
   private readonly workspaces = new Map<string, MutableWorkspace>();
@@ -65,6 +66,9 @@ export class NativeBrowserState {
   newTab(workspaceId: string, url = BLANK_URL): NativeBrowserTabSnapshot {
     this.ensureWorkspace(workspaceId);
     const workspace = this.mustWorkspace(workspaceId);
+    if (workspace.tabs.length >= MAX_TABS_PER_WORKSPACE) {
+      throw new Error(`native browser supports a maximum of ${MAX_TABS_PER_WORKSPACE} tabs per workspace`);
+    }
     const tab = this.createTab(url);
     workspace.tabs.push(tab);
     workspace.activeTabId = tab.id;

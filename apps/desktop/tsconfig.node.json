@@ -9,6 +9,6 @@
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["electron/**/*", "electron.vite.config.ts"],
+  "include": ["electron/**/*", "electron.vite.config.ts", "scripts/native-browser-electron-smoke.ts"],
   "exclude": ["dist", "dist-electron", "node_modules", "release"]
 }
