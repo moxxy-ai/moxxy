@@ -19,8 +19,11 @@ export {
   browserSidecarCall,
   closeBrowserSidecar,
   type BrowserSessionDeps,
+  type BrowserSessionAction,
+  type NativeBrowserBridgeClient,
   type SidecarStream,
 } from './browser-session.js';
+export { createNativeBrowserBridgeClient } from './native-browser-client.js';
 export { buildBrowserSurface } from './browser-surface.js';
 export {
   assertPublicUrl,

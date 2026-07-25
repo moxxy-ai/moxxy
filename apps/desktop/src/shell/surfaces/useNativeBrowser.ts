@@ -182,17 +182,6 @@ export function useNativeBrowser(workspaceId: string): NativeBrowserViewModel {
     };
   }, [showError, workspaceId]);
 
-  useEffect(() => {
-    if (!captureImage) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      void finishCapture();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  });
-
   const invokeTarget = useCallback(
     async (
       command: 'nativeBrowser.back' | 'nativeBrowser.forward' | 'nativeBrowser.reload',
@@ -313,6 +302,17 @@ export function useNativeBrowser(workspaceId: string): NativeBrowserViewModel {
     },
     [showError, showNotice, workspaceId],
   );
+
+  useEffect(() => {
+    if (!captureImage) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      void finishCapture();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [captureImage, finishCapture]);
 
   const relativePosition = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>): { x: number; y: number } | null => {

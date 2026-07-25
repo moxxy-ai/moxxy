@@ -3,6 +3,8 @@
  * one-to-one with the wire-format methods documented in `sidecar.ts`.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import { assertPublicUrl } from '../ssrf-guard.js';
 import { importPlaywright, launchWithAutoInstall } from './install.js';
 import {
@@ -11,6 +13,7 @@ import {
   SidecarError,
   type BrowserKind,
   type PlaywrightHandle,
+  type PageHandle,
   type Reply,
   type Req,
 } from './types.js';
@@ -27,6 +30,13 @@ const SCREENSHOT_TIMEOUT_MS = 30_000;
  *  max texture/screenshot size — bounds allocation from a malformed surface
  *  message (e.g. width:1e9). */
 const MAX_DIMENSION = 16_384;
+
+interface PlaywrightTabRegistry {
+  activeTabId: string;
+  readonly pages: Map<string, PageHandle>;
+}
+
+const tabRegistries = new WeakMap<SidecarState, PlaywrightTabRegistry>();
 
 export interface SidecarState {
   handle: PlaywrightHandle | null;
@@ -62,6 +72,46 @@ export async function teardown(state: SidecarState): Promise<void> {
     /* ignore */
   }
   state.handle = null;
+  tabRegistries.delete(state);
+}
+
+async function tabRegistry(state: SidecarState): Promise<{
+  handle: PlaywrightHandle;
+  registry: PlaywrightTabRegistry;
+}> {
+  const handle = await ensurePlaywright(state, {});
+  let registry = tabRegistries.get(state);
+  if (!registry) {
+    const id = randomUUID();
+    registry = { activeTabId: id, pages: new Map([[id, handle.page]]) };
+    tabRegistries.set(state, registry);
+  }
+  return { handle, registry };
+}
+
+async function resolvePage(
+  state: SidecarState,
+  requestedTabId?: string,
+): Promise<{ handle: PlaywrightHandle; registry: PlaywrightTabRegistry; tabId: string; page: PageHandle }> {
+  const { handle, registry } = await tabRegistry(state);
+  const tabId = requestedTabId ?? registry.activeTabId;
+  const page = registry.pages.get(tabId);
+  if (!page) throw badParams(`unknown browser tab: ${tabId}`);
+  return { handle, registry, tabId, page };
+}
+
+async function tabSnapshot(registry: PlaywrightTabRegistry): Promise<{
+  activeTabId: string;
+  tabs: Array<{ id: string; title: string; url: string }>;
+}> {
+  const tabs = await Promise.all(
+    Array.from(registry.pages, async ([id, page]) => ({
+      id,
+      title: page.title ? await page.title().catch(() => '') : '',
+      url: page.url(),
+    })),
+  );
+  return { activeTabId: registry.activeTabId, tabs };
 }
 
 export async function dispatch(state: SidecarState, req: Req): Promise<Reply> {
@@ -84,10 +134,11 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       return { id: req.id, ok: true, result: { ready: true } };
     }
     case 'goto': {
-      const { url, waitUntil, timeoutMs } = (req.params ?? {}) as {
+      const { url, waitUntil, timeoutMs, tabId } = (req.params ?? {}) as {
         url: string;
         waitUntil?: 'load' | 'domcontentloaded' | 'networkidle';
         timeoutMs?: number;
+        tabId?: string;
       };
       if (!url) throw badParams('url is required');
       // Defence-in-depth: the parent already runs the full SSRF guard before
@@ -104,71 +155,73 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       } catch (err) {
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }
-      const h = await ensurePlaywright(state, {});
+      const target = await resolvePage(state, tabId);
       try {
-        await h.page.goto(url, { waitUntil: waitUntil ?? 'domcontentloaded', timeout: timeoutMs ?? 30_000 });
+        await target.page.goto(url, { waitUntil: waitUntil ?? 'domcontentloaded', timeout: timeoutMs ?? 30_000 });
       } catch (err) {
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }
-      return { id: req.id, ok: true, result: { url: h.page.url() } };
+      return { id: req.id, ok: true, result: { url: target.page.url(), tabId: target.tabId } };
     }
     case 'click': {
-      const h = await ensurePlaywright(state, {});
-      const { selector, timeoutMs } = (req.params ?? {}) as { selector: string; timeoutMs?: number };
+      const { selector, timeoutMs, tabId } = (req.params ?? {}) as { selector: string; timeoutMs?: number; tabId?: string };
       if (!selector) throw badParams('selector is required');
-      await h.page.click(selector, { timeout: timeoutMs ?? 10_000 });
+      const target = await resolvePage(state, tabId);
+      await target.page.click(selector, { timeout: timeoutMs ?? 10_000 });
       return { id: req.id, ok: true };
     }
     case 'fill': {
-      const h = await ensurePlaywright(state, {});
-      const { selector, value, timeoutMs } = (req.params ?? {}) as {
+      const { selector, value, timeoutMs, tabId } = (req.params ?? {}) as {
         selector: string;
         value: string;
         timeoutMs?: number;
+        tabId?: string;
       };
       if (!selector) throw badParams('selector is required');
-      await h.page.fill(selector, value ?? '', { timeout: timeoutMs ?? 10_000 });
+      const target = await resolvePage(state, tabId);
+      await target.page.fill(selector, value ?? '', { timeout: timeoutMs ?? 10_000 });
       return { id: req.id, ok: true };
     }
     case 'text': {
-      const h = await ensurePlaywright(state, {});
-      const { selector } = (req.params ?? {}) as { selector?: string };
+      const { selector, tabId } = (req.params ?? {}) as { selector?: string; tabId?: string };
+      const target = await resolvePage(state, tabId);
       if (selector) {
-        const text = await h.page.textContent(selector);
+        const text = await target.page.textContent(selector);
         return { id: req.id, ok: true, result: text ?? '' };
       }
       // Whole-document text via evaluate
-      const text = (await h.page.evaluate('document.body ? document.body.innerText : ""')) as string;
+      const text = (await target.page.evaluate('document.body ? document.body.innerText : ""')) as string;
       return { id: req.id, ok: true, result: text };
     }
     case 'html': {
-      const h = await ensurePlaywright(state, {});
-      const html = await h.page.content();
+      const { tabId } = (req.params ?? {}) as { tabId?: string };
+      const target = await resolvePage(state, tabId);
+      const html = await target.page.content();
       return { id: req.id, ok: true, result: html };
     }
     case 'screenshot': {
-      const h = await ensurePlaywright(state, {});
-      const { fullPage } = (req.params ?? {}) as { fullPage?: boolean };
-      const buf = await h.page.screenshot({ fullPage: fullPage ?? false, timeout: SCREENSHOT_TIMEOUT_MS });
+      const { fullPage, tabId } = (req.params ?? {}) as { fullPage?: boolean; tabId?: string };
+      const target = await resolvePage(state, tabId);
+      const buf = await target.page.screenshot({ fullPage: fullPage ?? false, timeout: SCREENSHOT_TIMEOUT_MS });
       return { id: req.id, ok: true, result: { mediaType: 'image/png', base64: buf.toString('base64') } };
     }
     case 'frame': {
       // Combined live-view frame for the browser SURFACE: a JPEG screenshot
       // plus the current url + viewport size, so the renderer can map clicks
       // back onto the page. One round-trip per frame.
-      const h = await ensurePlaywright(state, {});
+      const { page } = await resolvePage(state);
       // quality 70 (was 55) + the context's deviceScaleFactor:2 = legible text in
       // the live view. Reports the CSS viewport size (the image is 2× that) so the
       // renderer keeps mapping clicks in CSS coords.
-      const buf = await h.page.screenshot({ type: 'jpeg', quality: 70, timeout: SCREENSHOT_TIMEOUT_MS });
-      const vp = h.page.viewportSize() ?? { width: 1280, height: 720 };
+      const buf = await page.screenshot({ type: 'jpeg', quality: 70, timeout: SCREENSHOT_TIMEOUT_MS });
+      const vp = page.viewportSize() ?? { width: 1280, height: 720 };
       return {
         id: req.id,
         ok: true,
         result: {
           mediaType: 'image/jpeg',
           base64: buf.toString('base64'),
-          url: h.page.url(),
+          url: page.url(),
           width: vp.width,
           height: vp.height,
         },
@@ -180,17 +233,17 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // a malformed surface message (missing/NaN coords) surfaces a clean
       // `badParams` instead of an opaque Playwright throw from click(undefined).
       if (!Number.isFinite(x) || !Number.isFinite(y)) throw badParams('x and y must be finite numbers');
-      const h = await ensurePlaywright(state, {});
-      await h.page.mouse.click(x, y, { clickCount: Math.min(3, Math.max(1, count ?? 1)) });
-      return { id: req.id, ok: true, result: { url: h.page.url() } };
+      const { page } = await resolvePage(state);
+      await page.mouse.click(x, y, { clickCount: Math.min(3, Math.max(1, count ?? 1)) });
+      return { id: req.id, ok: true, result: { url: page.url() } };
     }
     case 'mousemove': {
       // Hover: drives the page's pointer so :hover styles / tooltips render in
       // the polled frame. Cheap; the surface throttles how often it sends these.
       const { x, y } = (req.params ?? {}) as { x: number; y: number };
       if (!Number.isFinite(x) || !Number.isFinite(y)) throw badParams('x and y must be finite numbers');
-      const h = await ensurePlaywright(state, {});
-      await h.page.mouse.move(x, y);
+      const { page } = await resolvePage(state);
+      await page.mouse.move(x, y);
       return { id: req.id, ok: true };
     }
     case 'setviewport': {
@@ -205,37 +258,37 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
         throw badParams(`width and height must be <= ${MAX_DIMENSION}`);
       }
-      const h = await ensurePlaywright(state, {});
-      await h.page.setViewportSize({ width: Math.round(width), height: Math.round(height) });
+      const { page } = await resolvePage(state);
+      await page.setViewportSize({ width: Math.round(width), height: Math.round(height) });
       return { id: req.id, ok: true };
     }
     case 'back':
     case 'forward':
     case 'reload': {
-      const h = await ensurePlaywright(state, {});
+      const { page } = await resolvePage(state);
       try {
-        if (req.method === 'back') await h.page.goBack();
-        else if (req.method === 'forward') await h.page.goForward();
-        else await h.page.reload();
+        if (req.method === 'back') await page.goBack();
+        else if (req.method === 'forward') await page.goForward();
+        else await page.reload();
       } catch (err) {
         // No history to go to is not an error worth failing the surface over.
         return { id: req.id, ok: false, error: { message: errMsg(err), kind: 'navigation' } };
       }
-      return { id: req.id, ok: true, result: { url: h.page.url() } };
+      return { id: req.id, ok: true, result: { url: page.url() } };
     }
     case 'key': {
-      const h = await ensurePlaywright(state, {});
       const { key } = (req.params ?? {}) as { key: string };
       if (!key) throw badParams('key is required');
+      const { page } = await resolvePage(state);
       // A single printable char is typed (inserts it); a named key is pressed.
-      if (key.length === 1) await h.page.keyboard.type(key);
-      else await h.page.keyboard.press(key);
+      if (key.length === 1) await page.keyboard.type(key);
+      else await page.keyboard.press(key);
       return { id: req.id, ok: true };
     }
     case 'scroll': {
-      const h = await ensurePlaywright(state, {});
+      const { page } = await resolvePage(state);
       const { dy } = (req.params ?? {}) as { dy: number };
-      await h.page.mouse.wheel(0, dy ?? 0);
+      await page.mouse.wheel(0, dy ?? 0);
       return { id: req.id, ok: true };
     }
     case 'zoom': {
@@ -243,8 +296,8 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // way to scale a screenshot-streamed page; clamped to a sane range.
       const { factor } = (req.params ?? {}) as { factor: number };
       const f = Number.isFinite(factor) ? Math.min(5, Math.max(0.25, factor)) : 1;
-      const h = await ensurePlaywright(state, {});
-      await h.page.evaluate(`document.documentElement.style.zoom=String(${f})`);
+      const { page } = await resolvePage(state);
+      await page.evaluate(`document.documentElement.style.zoom=String(${f})`);
       return { id: req.id, ok: true };
     }
     case 'capture': {
@@ -265,8 +318,8 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
         throw badParams(`clip width and height must be <= ${MAX_DIMENSION}`);
       }
-      const h = await ensurePlaywright(state, {});
-      const buf = await h.page.screenshot({ type: 'png', clip: { x, y, width, height }, timeout: SCREENSHOT_TIMEOUT_MS });
+      const { page } = await resolvePage(state);
+      const buf = await page.screenshot({ type: 'png', clip: { x, y, width, height }, timeout: SCREENSHOT_TIMEOUT_MS });
       return { id: req.id, ok: true, result: { mediaType: 'image/png', base64: buf.toString('base64') } };
     }
     case 'pick': {
@@ -275,7 +328,7 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // text snippet; the agent's browser_session tool can act on the selector.
       const { x, y } = (req.params ?? {}) as { x: number; y: number };
       if (!Number.isFinite(x) || !Number.isFinite(y)) throw badParams('x and y must be finite numbers');
-      const h = await ensurePlaywright(state, {});
+      const { page } = await resolvePage(state);
       const expr =
         `(() => { const x=${x}, y=${y}; const el=document.elementFromPoint(x,y);` +
         ` if(!el) return null;` +
@@ -286,19 +339,72 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
         ` if(same.length>1) s+=':nth-of-type('+(same.indexOf(n)+1)+')'; } p.unshift(s); n=n.parentElement; }` +
         ` return p.join(' > '); };` +
         ` return { selector: sel(el), tag: el.tagName.toLowerCase(), text: (el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,140) }; })()`;
-      const info = await h.page.evaluate(expr);
+      const info = await page.evaluate(expr);
       return { id: req.id, ok: true, result: info };
     }
     case 'eval': {
-      const h = await ensurePlaywright(state, {});
-      const { expression } = (req.params ?? {}) as { expression: string };
+      const { expression, tabId } = (req.params ?? {}) as { expression: string; tabId?: string };
       if (!expression) throw badParams('expression is required');
-      const value = await h.page.evaluate(expression);
+      const target = await resolvePage(state, tabId);
+      const value = await target.page.evaluate(expression);
       return { id: req.id, ok: true, result: value };
     }
     case 'url': {
-      const h = await ensurePlaywright(state, {});
-      return { id: req.id, ok: true, result: h.page.url() };
+      const { tabId } = (req.params ?? {}) as { tabId?: string };
+      const target = await resolvePage(state, tabId);
+      return { id: req.id, ok: true, result: target.page.url() };
+    }
+    case 'tabs': {
+      const { registry } = await tabRegistry(state);
+      return { id: req.id, ok: true, result: await tabSnapshot(registry) };
+    }
+    case 'new_tab': {
+      const { url } = (req.params ?? {}) as { url?: string };
+      if (url) {
+        try {
+          await assertPublicUrl(url, 'new_tab', { failClosed: true });
+        } catch (error) {
+          return { id: req.id, ok: false, error: { message: errMsg(error), kind: 'navigation' } };
+        }
+      }
+      const { handle, registry } = await tabRegistry(state);
+      const page = (await handle.context.newPage()) as PageHandle;
+      const tabId = randomUUID();
+      registry.pages.set(tabId, page);
+      registry.activeTabId = tabId;
+      if (url) {
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+        } catch (error) {
+          return { id: req.id, ok: false, error: { message: errMsg(error), kind: 'navigation' } };
+        }
+      }
+      return { id: req.id, ok: true, result: await tabSnapshot(registry) };
+    }
+    case 'select_tab': {
+      const { tabId } = (req.params ?? {}) as { tabId?: string };
+      if (!tabId) throw badParams('tabId is required');
+      const { registry } = await resolvePage(state, tabId);
+      registry.activeTabId = tabId;
+      return { id: req.id, ok: true, result: await tabSnapshot(registry) };
+    }
+    case 'close_tab': {
+      const { tabId } = (req.params ?? {}) as { tabId?: string };
+      if (!tabId) throw badParams('tabId is required');
+      const { handle, registry, page } = await resolvePage(state, tabId);
+      await page.close();
+      registry.pages.delete(tabId);
+      if (registry.pages.size === 0) {
+        const replacementId = randomUUID();
+        const replacement = (await handle.context.newPage()) as PageHandle;
+        registry.pages.set(replacementId, replacement);
+        registry.activeTabId = replacementId;
+      } else if (registry.activeTabId === tabId) {
+        const next = registry.pages.keys().next();
+        if (next.done) throw new Error('browser tab registry lost its remaining tab');
+        registry.activeTabId = next.value;
+      }
+      return { id: req.id, ok: true, result: await tabSnapshot(registry) };
     }
     case 'close': {
       await teardown(state);

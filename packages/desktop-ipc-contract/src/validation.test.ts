@@ -32,6 +32,11 @@ describe('IPC payload validation', () => {
         injected: true,
       }),
     ).toThrow();
+    expect(() =>
+      validateIpcInput('nativeBrowser.open' as IpcCommandName, {
+        workspaceId: '../../other-workspace',
+      }),
+    ).toThrow();
   });
   it('accepts no payload for the fixed Local Piper installer commands', () => {
     expect(() => validateIpcInput(

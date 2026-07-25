@@ -5,6 +5,7 @@ import type {
   NativeBrowserSnapshot,
   NativeBrowserViewport,
 } from '@moxxy/desktop-ipc-contract';
+import type { NativeBrowserAgentAction } from './native-browser-bridge.js';
 
 /** Electron-only browser boundary. The implementation lives in the desktop
  * app, while the host owns the typed IPC registration without importing an
@@ -32,4 +33,5 @@ export interface NativeBrowserController {
     tabId?: string;
     rect?: NativeBrowserRect;
   }): Promise<NativeBrowserCapture | null>;
+  executeAgentAction(workspaceId: string, action: NativeBrowserAgentAction): Promise<unknown>;
 }

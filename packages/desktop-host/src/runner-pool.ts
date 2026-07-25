@@ -29,6 +29,12 @@ interface Entry {
   readonly supervisor: RunnerSupervisor;
 }
 
+export interface RunnerPoolOptions {
+  readonly environmentForWorkspace?: (
+    workspaceId: string,
+  ) => Readonly<Record<string, string>> | undefined;
+}
+
 export class RunnerPool extends EventEmitter {
   private entries = new Map<string, Entry>();
   /** In-flight creations, keyed by id, so two concurrent getOrCreate(id) calls
@@ -36,6 +42,10 @@ export class RunnerPool extends EventEmitter {
    *  a supervisor and race two writes of the session log). */
   private pending = new Map<string, Promise<RunnerSupervisor>>();
   private activeId: string | null = null;
+
+  constructor(private readonly options: RunnerPoolOptions = {}) {
+    super();
+  }
 
   /**
    * Return (creating if needed) the supervisor bound to the given
@@ -73,7 +83,11 @@ export class RunnerPool extends EventEmitter {
     // workspace resumes its own conversation + model context across app
     // restarts (the runner persists to ~/.moxxy/sessions/<id>.jsonl and
     // resumes it next launch) instead of booting an empty session every time.
-    const supervisor = new RunnerSupervisor(socketPath, id);
+    const additionalEnvironment = this.options.environmentForWorkspace?.(id);
+    const supervisor = new RunnerSupervisor(socketPath, id, {
+      ...(additionalEnvironment ? { additionalEnvironment } : {}),
+      requireOwnedRunner: additionalEnvironment !== undefined,
+    });
     if (cwd) await supervisor.setCwd(cwd);
     this.entries.set(id, { id, supervisor });
     // Forward every supervisor's change event upward, tagged with the

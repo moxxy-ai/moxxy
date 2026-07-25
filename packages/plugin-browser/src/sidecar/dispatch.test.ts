@@ -115,7 +115,7 @@ describe('sidecar dispatch goto SSRF guard', () => {
     const state: SidecarState = { handle, pendingInstallNotice: null };
     const reply = (await dispatch(state, gotoReq('https://example.com/'))) as Ok;
     expect(reply.ok).toBe(true);
-    expect(reply.result).toEqual({ url: 'https://example.com/' });
+    expect(reply.result).toMatchObject({ url: 'https://example.com/' });
     expect(gotos).toEqual(['https://example.com/']);
   });
 });
@@ -268,6 +268,67 @@ describe('sidecar dispatch protocol methods (against a pre-seeded handle)', () =
     const state: SidecarState = { handle, pendingInstallNotice: null };
     const reply = (await dispatch(state, req('url'))) as Ok;
     expect(reply.result).toBe('about:blank');
+  });
+
+  it('creates, selects, lists, and closes Playwright fallback tabs', async () => {
+    const first = makeFakeHandle();
+    const second = makeFakeHandle();
+    second.handle.page.goto('https://second.example/');
+    first.handle.context.newPage = async () => second.handle.page;
+    const state: SidecarState = { handle: first.handle, pendingInstallNotice: null };
+
+    const initial = (await dispatch(state, req('tabs'))) as Ok;
+    const firstId = (initial.result as { activeTabId: string }).activeTabId;
+    const created = (await dispatch(state, req('new_tab'))) as Ok;
+    const createdState = created.result as {
+      activeTabId: string;
+      tabs: Array<{ id: string; url: string }>;
+    };
+    const secondId = createdState.activeTabId;
+    expect(createdState.tabs).toHaveLength(2);
+    expect(secondId).not.toBe(firstId);
+
+    await dispatch(state, req('select_tab', { tabId: firstId }));
+    expect(((await dispatch(state, req('url'))) as Ok).result).toBe('about:blank');
+    await dispatch(state, req('close_tab', { tabId: firstId }));
+    const remaining = ((await dispatch(state, req('tabs'))) as Ok).result as {
+      activeTabId: string;
+      tabs: Array<{ id: string; url: string }>;
+    };
+    expect(remaining.activeTabId).toBe(secondId);
+    expect(remaining.tabs.map((tab) => tab.url)).toEqual(['https://second.example/']);
+  });
+
+  it('targets an explicit fallback tab without changing the active tab', async () => {
+    setSsrfDnsResolver(async () => ['93.184.216.34']);
+    const first = makeFakeHandle();
+    const second = makeFakeHandle();
+    first.handle.context.newPage = async () => second.handle.page;
+    const state: SidecarState = { handle: first.handle, pendingInstallNotice: null };
+    const initial = (await dispatch(state, req('tabs'))) as Ok;
+    const firstId = (initial.result as { activeTabId: string }).activeTabId;
+    await dispatch(state, req('new_tab'));
+
+    await dispatch(state, req('goto', { url: 'https://first.example/', tabId: firstId }));
+
+    expect(first.gotos).toEqual(['https://first.example/']);
+    expect(second.gotos).toEqual([]);
+    expect(((await dispatch(state, req('url'))) as Ok).result).toBe('about:blank');
+    setSsrfDnsResolver(null);
+  });
+
+  it('keeps a blank fallback tab when the last tab is closed', async () => {
+    const first = makeFakeHandle();
+    const replacement = makeFakeHandle();
+    first.handle.context.newPage = async () => replacement.handle.page;
+    const state: SidecarState = { handle: first.handle, pendingInstallNotice: null };
+    const initial = (await dispatch(state, req('tabs'))) as Ok;
+    const firstId = (initial.result as { activeTabId: string }).activeTabId;
+
+    const closed = (await dispatch(state, req('close_tab', { tabId: firstId }))) as Ok;
+    const snapshot = closed.result as { tabs: Array<{ url: string }> };
+    expect(snapshot.tabs).toHaveLength(1);
+    expect(snapshot.tabs[0]?.url).toBe('about:blank');
   });
 
   it('close tears down the handle and is idempotent', async () => {

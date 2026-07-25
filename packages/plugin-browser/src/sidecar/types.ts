@@ -45,6 +45,7 @@ export interface PageHandle {
   screenshot(opts?: unknown): Promise<Buffer>;
   evaluate(fn: string): Promise<unknown>;
   url(): string;
+  title?(): Promise<string>;
   close(): Promise<void>;
   // Coordinate-based input + viewport control for the live browser surface
   // (loosely typed — the real Playwright Page provides all of these).

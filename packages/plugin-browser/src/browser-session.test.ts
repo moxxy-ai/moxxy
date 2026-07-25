@@ -7,6 +7,7 @@ import {
   buildBrowserSessionTool,
   closeBrowserSidecar,
   resolveBrowserInstallRoot,
+  type NativeBrowserBridgeClient,
   type SidecarStream,
 } from './browser-session.js';
 import { setSsrfDnsResolver } from './ssrf-guard.js';
@@ -136,6 +137,71 @@ describe('browser_session tool (sidecar protocol)', () => {
     assertDefined(first, 'sidecar received the eval request');
     expect((first.params as { expression: string }).expression).toBe('1 + 41');
     await closeBrowserSidecar();
+  });
+});
+
+describe('browser_session tool (native desktop bridge)', () => {
+  it('locks onto the native backend at tool construction and never spawns Playwright', async () => {
+    const calls: Array<{ action: Record<string, unknown>; signal?: AbortSignal }> = [];
+    const nativeBridge: NativeBrowserBridgeClient = {
+      call: async (action, signal) => {
+        calls.push({ action, signal });
+        return action.kind === 'tabs' ? { activeTabId: 'tab-2', tabs: [] } : 'native text';
+      },
+    };
+    const spawnFn = vi.fn(() => {
+      throw new Error('Playwright must not start in native desktop mode');
+    });
+    const tool = buildBrowserSessionTool({ nativeBridge, spawnFn });
+    const ctx = baseCtx();
+
+    const tabs = await tool.handler({ action: { kind: 'tabs' } }, ctx);
+    const text = await tool.handler(
+      { action: { kind: 'text', selector: 'main', tabId: 'tab-2' } },
+      ctx,
+    );
+
+    expect(tabs).toEqual({ activeTabId: 'tab-2', tabs: [] });
+    expect(text).toBe('native text');
+    expect(calls.map(({ action }) => action)).toEqual([
+      { kind: 'tabs' },
+      { kind: 'text', selector: 'main', tabId: 'tab-2' },
+    ]);
+    expect(calls.every(({ signal }) => signal === ctx.signal)).toBe(true);
+    expect(spawnFn).not.toHaveBeenCalled();
+  });
+
+  it('accepts additive tab actions, optional operation targets, and requires ids for tab mutations', () => {
+    const tool = buildBrowserSessionTool({ nativeBridge: null });
+
+    expect(tool.inputSchema.parse({ action: { kind: 'new_tab', url: 'https://example.com' } })).toEqual({
+      action: { kind: 'new_tab', url: 'https://example.com' },
+    });
+    expect(tool.inputSchema.parse({ action: { kind: 'select_tab', tabId: 'tab-2' } })).toEqual({
+      action: { kind: 'select_tab', tabId: 'tab-2' },
+    });
+    expect(() => tool.inputSchema.parse({ action: { kind: 'close_tab' } })).toThrow();
+    expect(() => tool.inputSchema.parse({ action: { kind: 'select_tab' } })).toThrow();
+    expect(tool.inputSchema.parse({ action: { kind: 'screenshot', tabId: 'tab-1' } })).toEqual({
+      action: { kind: 'screenshot', tabId: 'tab-1' },
+    });
+  });
+
+  it('does not silently fall back to Playwright after a native bridge failure', async () => {
+    const nativeBridge: NativeBrowserBridgeClient = {
+      call: async () => {
+        throw new Error('native bridge disconnected');
+      },
+    };
+    const spawnFn = vi.fn(() => {
+      throw new Error('must not fall back');
+    });
+    const tool = buildBrowserSessionTool({ nativeBridge, spawnFn });
+
+    await expect(tool.handler({ action: { kind: 'url' } }, baseCtx())).rejects.toThrow(
+      /native bridge disconnected/,
+    );
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 });
 

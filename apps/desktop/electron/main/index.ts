@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   RunnerPool,
+  NativeBrowserBridge,
+  nativeBrowserBridgeSocket,
   UNBOUND_ID,
   bindWindow,
   registerIpcHandlers,
@@ -134,6 +136,7 @@ const CLERK_PUBLISHABLE_KEY =
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
 let nativeBrowser: ElectronNativeBrowserController | null = null;
+let nativeBrowserBridge: NativeBrowserBridge | null = null;
 const realtimeCapture = new RealtimeCaptureController();
 /** The optional WebSocket bridge server (remote/mobile clients). Closed on quit. */
 // Typed as the bridge server (not the bare TransportServer) so the host can
@@ -705,7 +708,48 @@ app.whenReady().then(async () => {
     console.warn('[moxxy] sweep:', err);
   }
 
-  pool = new RunnerPool();
+  // Backend selection is frozen before the first runner starts. The native
+  // pane and the agent receive one shared WebContentsView only when the
+  // authenticated local bridge is ready; otherwise both stay on Playwright
+  // for the entire app lifetime (never a split or mid-session fallback).
+  const userData = app.getPath('userData');
+  nativeBrowser = new ElectronNativeBrowserController({
+    browserSession: session.fromPartition('persist:moxxy-browser-v1'),
+    userDataDir: userData,
+    getMainWindow: () => mainWindow,
+    onChanged: (workspaceId, snapshot) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      sendEvent(mainWindow, 'nativeBrowser.changed', { workspaceId, snapshot });
+    },
+    backendOverride: process.env.MOXXY_BROWSER_BACKEND,
+  });
+  await nativeBrowser.start();
+  const browserAvailability = await nativeBrowser.status();
+  if (browserAvailability.backend === 'native' && browserAvailability.available) {
+    const controller = nativeBrowser;
+    const bridge = new NativeBrowserBridge({
+      socketPath: nativeBrowserBridgeSocket(userData),
+      execute: (workspaceId, action) => controller.executeAgentAction(workspaceId, action),
+    });
+    try {
+      await bridge.start();
+      nativeBrowserBridge = bridge;
+    } catch (error) {
+      const reason = `native browser bridge unavailable: ${errorMessage(error)}`;
+      console.warn(`[moxxy] ${reason}; using Playwright for this launch`);
+      nativeBrowser.disableNative(reason);
+      await bridge.stop().catch(() => undefined);
+    }
+  }
+
+  pool = new RunnerPool({
+    environmentForWorkspace: nativeBrowserBridge
+      ? (workspaceId) => {
+          const environment = nativeBrowserBridge?.runnerEnvironment(workspaceId);
+          return environment ? { ...environment } : undefined;
+        }
+      : undefined,
+  });
   // No boot-time import step: each runner writes its session's single metadata
   // file directly, and the registry derives the workspace list from those files.
   const desks = new DeskStore();
@@ -739,18 +783,6 @@ app.whenReady().then(async () => {
   // shell-updater pattern): a module that fails to load degrades to "gateway
   // unavailable", never takes down the app.
   const electronBus = new ElectronCommandBus();
-  const userData = app.getPath('userData');
-  nativeBrowser = new ElectronNativeBrowserController({
-    browserSession: session.fromPartition('persist:moxxy-browser-v1'),
-    userDataDir: userData,
-    getMainWindow: () => mainWindow,
-    onChanged: (workspaceId, snapshot) => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      sendEvent(mainWindow, 'nativeBrowser.changed', { workspaceId, snapshot });
-    },
-    backendOverride: process.env.MOXXY_BROWSER_BACKEND,
-  });
-  await nativeBrowser.start();
   const wsConfig = resolveWsBridgeConfig(userData); // non-null only when MOXXY_WS_BRIDGE=1
   let wsBridge: typeof import('@moxxy/ipc-server-ws') | null = null;
   try {
@@ -925,6 +957,7 @@ async function shutdown(): Promise<void> {
     // (remote clients + relay tunnel). allSettled never rejects, so one failing
     // doesn't skip the others.
     Promise.allSettled([
+      nativeBrowserBridge?.stop() ?? Promise.resolve(),
       nativeBrowser?.destroy() ?? Promise.resolve(),
       pool?.stopAll() ?? Promise.resolve(),
       loopback?.close() ?? Promise.resolve(),
@@ -934,4 +967,9 @@ async function shutdown(): Promise<void> {
     new Promise<void>((resolve) => setTimeout(resolve, 3000)),
   ]);
   wsServer = null;
+  nativeBrowserBridge = null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

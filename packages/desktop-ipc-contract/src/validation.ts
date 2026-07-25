@@ -141,7 +141,12 @@ const workflowName = z
 
 const scheduleId = z.string().min(1).max(256);
 const webhookId = z.string().min(1).max(256);
-const nativeBrowserWorkspaceId = z.string().min(1).max(256);
+const nativeBrowserWorkspaceId = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(/^[A-Za-z0-9_.-]+$/, 'invalid native browser workspace id')
+  .refine((value) => value !== '.' && value !== '..', 'unsafe native browser workspace id');
 const nativeBrowserTabId = z
   .string()
   .min(1)

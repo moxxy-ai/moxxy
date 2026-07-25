@@ -4,6 +4,11 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MoxxyError, assertDefined, defineTool, z } from '@moxxy/sdk';
 import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
+import { browserSessionActionSchema, type BrowserSessionAction } from './browser-action.js';
+import {
+  createNativeBrowserBridgeClient,
+  type NativeBrowserBridgeClient,
+} from './native-browser-client.js';
 
 /**
  * Heavy-tier browser: spawns the Playwright sidecar over stdio JSON-RPC and
@@ -17,48 +22,12 @@ import { assertPublicUrl, SsrfBlockedError } from './ssrf-guard.js';
  * returns a clear error if it's not installed.
  */
 
-type Action =
-  | { kind: 'goto'; url: string; waitUntil?: 'load' | 'domcontentloaded' | 'networkidle'; timeoutMs?: number }
-  | { kind: 'click'; selector: string; timeoutMs?: number }
-  | { kind: 'fill'; selector: string; value: string; timeoutMs?: number }
-  | { kind: 'text'; selector?: string }
-  | { kind: 'html' }
-  | { kind: 'screenshot'; fullPage?: boolean }
-  | { kind: 'eval'; expression: string }
-  | { kind: 'url' };
-
-const actionSchema: z.ZodType<Action> = z.union([
-  z.object({
-    kind: z.literal('goto'),
-    // `z.string().url()` accepts file:// and javascript: URLs, which would be
-    // forwarded verbatim to Playwright `page.goto`. This refine is only a fast
-    // schema-level scheme check; the full SSRF guard (loopback/private/
-    // link-local/metadata IPs, DNS resolution — same `assertPublicUrl` as
-    // web_fetch) runs in the handler before the RPC AND again inside the
-    // sidecar's goto dispatch.
-    url: z.string().url().refine((u) => /^https?:\/\//i.test(u), 'only http(s) URLs allowed'),
-    waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
-    timeoutMs: z.number().int().positive().max(120_000).optional(),
-  }),
-  z.object({
-    kind: z.literal('click'),
-    selector: z.string().min(1),
-    timeoutMs: z.number().int().positive().max(60_000).optional(),
-  }),
-  z.object({
-    kind: z.literal('fill'),
-    selector: z.string().min(1),
-    value: z.string(),
-    timeoutMs: z.number().int().positive().max(60_000).optional(),
-  }),
-  z.object({ kind: z.literal('text'), selector: z.string().optional() }),
-  z.object({ kind: z.literal('html') }),
-  z.object({ kind: z.literal('screenshot'), fullPage: z.boolean().optional() }),
-  z.object({ kind: z.literal('eval'), expression: z.string().min(1) }),
-  z.object({ kind: z.literal('url') }),
-]);
+export type { BrowserSessionAction, NativeBrowserBridgeClient };
 
 export interface BrowserSessionDeps {
+  /** Explicit native bridge selection. Undefined resolves once from the
+   * runner environment; null pins the legacy Playwright backend. */
+  readonly nativeBridge?: NativeBrowserBridgeClient | null;
   /**
    * Override the sidecar script path. Default: resolved next to this file
    * (i.e., the `dist/sidecar.js` shipped in the same package).
@@ -449,15 +418,17 @@ function defaultSpawn(scriptPath: string): SidecarStream {
 }
 
 export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
+  const nativeBridge =
+    deps?.nativeBridge === undefined ? createNativeBrowserBridgeClient() : deps.nativeBridge;
   return defineTool({
     name: 'browser_session',
     description:
-      'Drive a real browser (Playwright). Use for pages that need JS execution, clicks, form fills, or screenshots. For simple GETs prefer web_fetch (no extra deps). Calls within a session share one page. ' +
+      'Drive the real browser attached to this session. In Moxxy Desktop this is the same native Chromium tab the user sees; CLI uses the Playwright fallback. Use for pages that need JS execution, clicks, form fills, screenshots, or tab management. For simple GETs prefer web_fetch. ' +
       'Navigation is restricted to public http(s) origins: goto URLs and top-level/iframe navigations (including redirects) to loopback, private (RFC-1918), link-local/metadata, or CGNAT addresses are blocked. ' +
       'The `eval` action runs ARBITRARY JavaScript in the loaded page context (full DOM/cookie/localStorage access, can drive same-origin requests) — set MOXXY_BROWSER_DISABLE_EVAL=1 to disable in-page scripting while keeping navigation/click/fill. ' +
       'Residual risk: by default subresource requests (img/fetch/script) issued by a loaded page are NOT filtered, so a hostile page can still send blind requests at internal services; set MOXXY_BROWSER_FILTER_SUBRESOURCES=1 to filter those too.',
     inputSchema: z.object({
-      action: actionSchema,
+      action: browserSessionActionSchema,
     }),
     permission: { action: 'prompt' },
     // Honest capability surface: browser_session spawns the Playwright sidecar
@@ -480,6 +451,8 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
       },
     },
     async handler({ action }, ctx) {
+      await guardBrowserAction(action);
+      if (nativeBridge) return nativeBridge.call(action, ctx.signal);
       const sidecar = getSidecar(deps);
       // Surface install-progress lines (and any other sidecar status writes)
       // through this call's logger — visible in verbose mode and the event log
@@ -498,54 +471,72 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
             // (loopback/private/link-local/metadata blocked, hostname resolved).
             // The sidecar re-checks in its goto dispatch (defence in depth, it
             // is a separate process) and intercepts in-page navigations.
-            try {
-              // fail-closed on the browser path: Chromium resolves names itself,
-              // so an unresolvable-here name must not be handed to the sidecar.
-              await assertPublicUrl(action.url, 'browser_session', { failClosed: true });
-            } catch (err) {
-              if (err instanceof SsrfBlockedError) {
-                throw new MoxxyError({ code: 'INTERNAL', message: err.message });
-              }
-              throw err;
-            }
             return await call('goto', {
               url: action.url,
               waitUntil: action.waitUntil,
               timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
             });
           case 'click':
-            return await call('click', { selector: action.selector, timeoutMs: action.timeoutMs });
+            return await call('click', {
+              selector: action.selector,
+              timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
+            });
           case 'fill':
             return await call('fill', {
               selector: action.selector,
               value: action.value,
               timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
             });
           case 'text':
-            return await call('text', { selector: action.selector });
+            return await call('text', { selector: action.selector, tabId: action.tabId });
           case 'html':
-            return await call('html');
+            return await call('html', { tabId: action.tabId });
           case 'screenshot':
-            return await call('screenshot', { fullPage: action.fullPage });
+            return await call('screenshot', { fullPage: action.fullPage, tabId: action.tabId });
           case 'eval':
             // Deployment opt-out: in-page scripting can exfiltrate the loaded
             // site's DOM/cookies/storage, so allow disabling it while keeping
             // navigation/click/fill.
-            if (process.env.MOXXY_BROWSER_DISABLE_EVAL === '1') {
-              throw new MoxxyError({
-                code: 'INTERNAL',
-                message: 'browser_session eval is disabled (MOXXY_BROWSER_DISABLE_EVAL=1)',
-              });
-            }
-            return await call('eval', { expression: action.expression });
+            return await call('eval', { expression: action.expression, tabId: action.tabId });
           case 'url':
-            return await call('url');
+            return await call('url', { tabId: action.tabId });
+          case 'tabs':
+            return await call('tabs');
+          case 'new_tab':
+            return await call('new_tab', { url: action.url });
+          case 'select_tab':
+            return await call('select_tab', { tabId: action.tabId });
+          case 'close_tab':
+            return await call('close_tab', { tabId: action.tabId });
         }
       } finally {
         offStderr();
       }
     },
   });
+}
+
+async function guardBrowserAction(action: BrowserSessionAction): Promise<void> {
+  if (action.kind === 'eval' && process.env.MOXXY_BROWSER_DISABLE_EVAL === '1') {
+    throw new MoxxyError({
+      code: 'INTERNAL',
+      message: 'browser_session eval is disabled (MOXXY_BROWSER_DISABLE_EVAL=1)',
+    });
+  }
+  const url =
+    action.kind === 'goto' || (action.kind === 'new_tab' && action.url) ? action.url : null;
+  if (!url) return;
+  try {
+    await assertPublicUrl(url, 'browser_session', { failClosed: true });
+  } catch (error) {
+    if (error instanceof SsrfBlockedError) {
+      throw new MoxxyError({ code: 'INTERNAL', message: error.message });
+    }
+    throw error;
+  }
 }
 
 /**

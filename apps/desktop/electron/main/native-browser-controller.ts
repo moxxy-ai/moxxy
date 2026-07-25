@@ -12,6 +12,7 @@ import {
   NativeBrowserStateStore,
   projectNativeBrowserBounds,
   type NativeBrowserController,
+  type NativeBrowserAgentAction,
 } from '@moxxy/desktop-host';
 import type {
   NativeBrowserAvailability,
@@ -32,6 +33,7 @@ interface NativeBrowserControllerOptions {
   readonly getMainWindow: () => BrowserWindow | null;
   readonly onChanged: (workspaceId: string, snapshot: NativeBrowserSnapshot) => void;
   readonly backendOverride?: string;
+  readonly createView?: () => WebContentsView;
 }
 
 interface CaptureState {
@@ -89,6 +91,16 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
 
   status(): Promise<NativeBrowserAvailability> {
     return Promise.resolve({ ...this.backend });
+  }
+
+  /** Startup-only fallback. The main process calls this before any runner or
+   * pane is opened when the local bridge cannot bind, keeping panel and agent
+   * on one complete Playwright backend instead of splitting them. */
+  disableNative(reason: string): void {
+    if (this.views.size > 0 || this.visibleWorkspaceId) {
+      throw new Error('native browser backend cannot change after use');
+    }
+    this.backend = { backend: 'playwright', available: true, reason };
   }
 
   async open(args: { workspaceId: string }): Promise<NativeBrowserSnapshot> {
@@ -273,6 +285,95 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     return encodeCapture(capture.image.crop(crop));
   }
 
+  async executeAgentAction(
+    workspaceId: string,
+    action: NativeBrowserAgentAction,
+  ): Promise<unknown> {
+    this.requireNative();
+    switch (action.kind) {
+      case 'tabs':
+        this.state.ensureWorkspace(workspaceId);
+        return this.state.snapshot(workspaceId);
+      case 'new_tab':
+        return this.newTab({ workspaceId, ...(action.url ? { url: action.url } : {}) });
+      case 'select_tab': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        return this.selectTab({ workspaceId, tabId: target.id });
+      }
+      case 'close_tab': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        return this.closeTab({ workspaceId, tabId: target.id });
+      }
+      case 'goto': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        await assertPublicUrl(action.url, 'native_browser_agent', { failClosed: true });
+        const view = this.mustView(workspaceId, target);
+        this.state.updateTab(workspaceId, target.id, { url: action.url, loading: true });
+        this.publish(workspaceId);
+        await this.withAgentOperation(view, () =>
+          withTimeout(
+            view.webContents.loadURL(action.url),
+            action.timeoutMs ?? 30_000,
+            'native browser navigation',
+          ),
+        );
+        return { url: view.webContents.getURL() || action.url, tabId: target.id };
+      }
+      case 'click': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        await this.executeScript(
+          view,
+          elementActionScript(action.selector, action.timeoutMs ?? 10_000, 'click'),
+        );
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'fill': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        await this.executeScript(
+          view,
+          fillActionScript(action.selector, action.value, action.timeoutMs ?? 10_000),
+        );
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'text': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const script = action.selector
+          ? elementActionScript(action.selector, 10_000, 'text')
+          : 'document.body ? document.body.innerText : ""';
+        return this.executeScript(view, script);
+      }
+      case 'html': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        return this.executeScript(
+          view,
+          'document.documentElement ? document.documentElement.outerHTML : ""',
+        );
+      }
+      case 'screenshot': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const image = await this.withAgentOperation(view, () => view.webContents.capturePage());
+        return { ...encodeCapture(image), tabId: target.id };
+      }
+      case 'eval': {
+        if (process.env.MOXXY_BROWSER_DISABLE_EVAL === '1') {
+          throw new Error('browser_session eval is disabled (MOXXY_BROWSER_DISABLE_EVAL=1)');
+        }
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        return this.executeScript(view, action.expression);
+      }
+      case 'url': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        return this.mustView(workspaceId, target).webContents.getURL() || BLANK_URL;
+      }
+    }
+  }
+
   async destroy(): Promise<void> {
     this.detachAttachedView();
     await this.persist().catch(() => undefined);
@@ -306,17 +407,22 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     const existing = this.views.get(key);
     if (existing && !existing.webContents.isDestroyed()) return existing;
 
-    const view = new WebContentsView({
-      webPreferences: {
-        partition: BROWSER_PARTITION,
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        webSecurity: true,
-      },
-    });
+    const view =
+      this.options.createView?.() ??
+      new WebContentsView({
+        webPreferences: {
+          partition: BROWSER_PARTITION,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          webSecurity: true,
+        },
+      });
     const contents = view.webContents;
-    contents.setBackgroundThrottling(true);
+    // A hidden browser pane is still an active workspace capability: pages may
+    // finish navigation, timers, uploads, and agent-driven work while the user
+    // reads chat. Keep Chromium from freezing that shared page when detached.
+    contents.setBackgroundThrottling(false);
     contents.setZoomFactor(tab.zoom);
     contents.setWindowOpenHandler(({ url }) => {
       if (isHttpUrl(url)) void this.openPopup(workspaceId, url);
@@ -455,12 +561,12 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   }
 
   private async withAgentOperation<T>(view: WebContentsView, operation: () => Promise<T>): Promise<T> {
-    view.webContents.setBackgroundThrottling(false);
-    try {
-      return await operation();
-    } finally {
-      view.webContents.setBackgroundThrottling(true);
-    }
+    if (view.webContents.isDestroyed()) throw new Error('native browser tab is closed');
+    return operation();
+  }
+
+  private executeScript(view: WebContentsView, script: string): Promise<unknown> {
+    return this.withAgentOperation(view, () => view.webContents.executeJavaScript(script, true));
   }
 
   private requireNative(): void {
@@ -504,4 +610,90 @@ function cleanTitle(title: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function elementActionScript(
+  selector: string,
+  timeoutMs: number,
+  action: 'click' | 'text',
+): string {
+  const selectorJson = JSON.stringify(selector);
+  const actionScript =
+    action === 'click'
+      ? 'element.scrollIntoView({ block: "center", inline: "center" }); element.click(); return undefined;'
+      : 'return element.textContent || "";';
+  return `(() => new Promise((resolve, reject) => {
+    const selector = ${selectorJson};
+    const deadline = Date.now() + ${timeoutMs};
+    const find = () => {
+      const element = document.querySelector(selector);
+      if (element instanceof HTMLElement) {
+        try { resolve((() => { ${actionScript} })()); } catch (error) { reject(error); }
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(new Error('Timed out waiting for selector: ' + selector));
+        return;
+      }
+      setTimeout(find, 50);
+    };
+    find();
+  }))()`;
+}
+
+function fillActionScript(selector: string, value: string, timeoutMs: number): string {
+  const selectorJson = JSON.stringify(selector);
+  const valueJson = JSON.stringify(value);
+  return `(() => new Promise((resolve, reject) => {
+    const selector = ${selectorJson};
+    const value = ${valueJson};
+    const deadline = Date.now() + ${timeoutMs};
+    const find = () => {
+      const element = document.querySelector(selector);
+      if (element instanceof HTMLElement) {
+        try {
+          element.focus();
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+            const prototype = element instanceof HTMLTextAreaElement
+              ? HTMLTextAreaElement.prototype
+              : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+            if (setter) setter.call(element, value);
+            else element.value = value;
+          } else if (element.isContentEditable) {
+            element.textContent = value;
+          } else {
+            throw new Error('Target is not fillable: ' + selector);
+          }
+          element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          resolve(undefined);
+        } catch (error) { reject(error); }
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(new Error('Timed out waiting for selector: ' + selector));
+        return;
+      }
+      setTimeout(find, 50);
+    };
+    find();
+  }))()`;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer.unref?.();
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }

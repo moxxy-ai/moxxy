@@ -49,6 +49,14 @@ const SOCKET_POLL_MAX_MS = 500;
 const RECONNECT_BACKOFF_MS = 2_000;
 const LOG_RING_SIZE = 200;
 
+export interface RunnerSupervisorOptions {
+  readonly additionalEnvironment?: Readonly<Record<string, string>>;
+  /** Capability-bearing runners must be spawned by this desktop process. An
+   * already-running external daemon cannot be assumed to carry the same
+   * per-workspace credentials. */
+  readonly requireOwnedRunner?: boolean;
+}
+
 export class RunnerSupervisor extends EventEmitter {
   private currentPhase: ConnectionPhase = { phase: 'idle' };
   private cliPath: string | null = null;
@@ -90,6 +98,7 @@ export class RunnerSupervisor extends EventEmitter {
      * behavior, and what a bare supervisor uses).
      */
     private readonly sessionId?: string,
+    private readonly options: RunnerSupervisorOptions = {},
   ) {
     super();
   }
@@ -315,16 +324,18 @@ export class RunnerSupervisor extends EventEmitter {
     // the workspace directory — adopting whatever serve is already on
     // the socket would inherit the wrong cwd and silently leak file
     // writes outside the workspace.
-    const adopt = this.cwd === null ? await this.probeSocket() : false;
+    const adopt = shouldAdoptExistingRunner(this.cwd, this.options.requireOwnedRunner === true)
+      ? await this.probeSocket()
+      : false;
 
     if (!adopt) {
       // Kill the foreign serve if one is on the socket so we can take
       // over. Without this the bind below would race with the
       // existing listener.
-      if (this.cwd !== null && (await this.probeSocket())) {
+      if ((this.cwd !== null || this.options.requireOwnedRunner === true) && (await this.probeSocket())) {
         this.pushLog(
           'stderr',
-          'workspace bound — refusing to adopt foreign serve; replacing it',
+          'workspace capabilities require an owned runner — replacing foreign serve',
         );
       }
       this.ensureSocketDir();
@@ -480,25 +491,11 @@ export class RunnerSupervisor extends EventEmitter {
 
   private spawnServe(cli: CliInvocation): ChildProcess {
     const proc = spawnCli(cli, ['serve'], {
-      env: {
-        MOXXY_RUNNER_SOCKET: this.socketPath,
-        // Desktop owns the UI; we don't need the co-attached web
-        // surface, and binding its fixed port (4040) breaks the moment
-        // a second workspace runner spawns.
-        MOXXY_NO_WEB_SURFACE: '1',
-        // Hide the Tier-2 self_update_core_* tools: patching @moxxy/core
-        // (git clone + build + dist overlay + restart) can't work inside a
-        // read-only packaged .app. Tier-1 (author/swap plugins + skills under
-        // ~/.moxxy) stays fully available — that's how the desktop "patches"
-        // itself.
-        MOXXY_NO_CORE_UPDATE: '1',
-        // Stamp the session's single metadata file with its originating channel
-        // so the workspace list (derived from those files on every surface) keeps
-        // showing this desktop session even before it has a first prompt.
-        MOXXY_SESSION_SOURCE: 'desktop',
-        // Resume this workspace's conversation across restarts (see ctor).
-        ...(this.sessionId ? { MOXXY_SESSION_ID: this.sessionId } : {}),
-      },
+      env: buildRunnerEnvironment(
+        this.socketPath,
+        this.sessionId,
+        this.options.additionalEnvironment,
+      ),
       ...(this.cwd ? { cwd: this.cwd } : {}),
     });
     proc.stdout?.on('data', (chunk) => this.consumeLog('stdout', chunk));
@@ -639,6 +636,31 @@ export class RunnerSupervisor extends EventEmitter {
       this.logRing.splice(0, this.logRing.length - LOG_RING_SIZE);
     }
   }
+}
+
+export function shouldAdoptExistingRunner(
+  cwd: string | null,
+  requireOwnedRunner: boolean,
+): boolean {
+  return cwd === null && !requireOwnedRunner;
+}
+
+/** Capability environment comes first; fixed desktop invariants intentionally
+ * win on key collision so an injected service cannot redirect the runner
+ * socket, enable the web surface, or switch session identity. */
+export function buildRunnerEnvironment(
+  socketPath: string,
+  sessionId?: string,
+  additionalEnvironment: Readonly<Record<string, string>> = {},
+): Record<string, string> {
+  return {
+    ...additionalEnvironment,
+    MOXXY_RUNNER_SOCKET: socketPath,
+    MOXXY_NO_WEB_SURFACE: '1',
+    MOXXY_NO_CORE_UPDATE: '1',
+    MOXXY_SESSION_SOURCE: 'desktop',
+    ...(sessionId ? { MOXXY_SESSION_ID: sessionId } : {}),
+  };
 }
 
 function displayPath(cli: CliInvocation): string {

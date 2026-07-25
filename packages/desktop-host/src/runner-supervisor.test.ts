@@ -21,7 +21,11 @@ vi.mock('@moxxy/runner', async (importActual) => {
   };
 });
 
-import { RunnerSupervisor } from './runner-supervisor';
+import {
+  buildRunnerEnvironment,
+  RunnerSupervisor,
+  shouldAdoptExistingRunner,
+} from './runner-supervisor';
 
 let tmp: string;
 const originalEnv = { ...process.env };
@@ -49,6 +53,32 @@ afterEach(() => {
 }, 0);
 
 describe('RunnerSupervisor', () => {
+  it('injects the native-browser bridge environment without allowing it to replace runner invariants', () => {
+    expect(
+      buildRunnerEnvironment('/tmp/real.sock', 'workspace-a', {
+        MOXXY_BROWSER_BACKEND: 'native',
+        MOXXY_NATIVE_BROWSER_SOCKET: '/tmp/browser.sock',
+        MOXXY_NATIVE_BROWSER_TOKEN: 'secret-token',
+        MOXXY_NATIVE_BROWSER_WORKSPACE_ID: 'workspace-a',
+        MOXXY_RUNNER_SOCKET: '/tmp/attacker.sock',
+      }),
+    ).toMatchObject({
+      MOXXY_BROWSER_BACKEND: 'native',
+      MOXXY_NATIVE_BROWSER_SOCKET: '/tmp/browser.sock',
+      MOXXY_NATIVE_BROWSER_TOKEN: 'secret-token',
+      MOXXY_NATIVE_BROWSER_WORKSPACE_ID: 'workspace-a',
+      MOXXY_RUNNER_SOCKET: '/tmp/real.sock',
+      MOXXY_SESSION_ID: 'workspace-a',
+      MOXXY_NO_WEB_SURFACE: '1',
+    });
+  });
+
+  it('never adopts an external runner when startup capabilities require an owned process', () => {
+    expect(shouldAdoptExistingRunner(null, false)).toBe(true);
+    expect(shouldAdoptExistingRunner(null, true)).toBe(false);
+    expect(shouldAdoptExistingRunner('/workspace', false)).toBe(false);
+  });
+
   it('starts in the idle phase', () => {
     const sup = new RunnerSupervisor(path.join(tmp, 'serve.sock'));
     expect(sup.snapshot().phase.phase).toBe('idle');

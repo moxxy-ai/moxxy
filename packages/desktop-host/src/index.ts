@@ -9,6 +9,12 @@ export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
 export { registerNativeBrowserIpc } from './ipc/native-browser.js';
 export { type NativeBrowserController } from './native-browser-controller.js';
+export {
+  NativeBrowserBridge,
+  nativeBrowserBridgeSocket,
+  type NativeBrowserAgentAction,
+  type NativeBrowserRunnerEnvironment,
+} from './native-browser-bridge.js';
 export { projectNativeBrowserBounds } from './native-browser-geometry.js';
 export {
   NativeBrowserState,

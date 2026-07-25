@@ -24,6 +24,21 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/browser, RESOLVED 2026-07-26] Desktop browsing rendered a
+  screenshot polling mirror while browser tools controlled a separate Playwright
+  page, so user and agent could diverge and the renderer paid continuous capture
+  and base64 costs. Electron now owns one persistent, sandboxed
+  `WebContentsView` per browser tab and exposes only validated high-level actions
+  to the workspace runner through a private token-authenticated local socket.
+  The bridge has no CDP or public TCP surface, rejects remote IPC, preserves the
+  existing SSRF and permission gates, captures action targets before awaits, and
+  falls back atomically to the upgraded multi-tab Playwright sidecar when native
+  startup fails. POSIX sockets use private 0700 directories, 0600 endpoints, and
+  a deterministic short path when macOS path limits would truncate the profile
+  socket. The previously deferred per-owner browser registry is now represented
+  by isolated workspace-native state and per-sidecar tab registries.
+  `apps/desktop/{electron/main,src/shell/surfaces}/`,
+  `packages/{desktop-host,desktop-ipc-contract,plugin-browser}/src/`.
 - [med, tui/providers, RESOLVED 2026-07-23] Text-only models were still given
   the lazy skill index, so Claude Code imitated `load_skill(...)` as assistant
   text and ended the turn before doing the work. ReAct prompt composition now
@@ -457,9 +472,10 @@ or recorded-on-purpose decision.
   silently dropped by a stale validator.
 - [dormant, browser, RESOLVED 2026-07-03] CDP screencast push path (`startScreencast`/
   `stopScreencast` sidecar handlers) — the entry was stale: the handlers were already
-  deleted in the PR #212 quality sweep; only screenshot-polling remains (rationale in
-  `packages/plugin-browser/src/browser-surface.ts`). A regression guard pins the former
-  methods to `unknown method` (`packages/plugin-browser/src/sidecar/dispatch.test.ts`).
+  deleted in the PR #212 quality sweep. Screenshot polling remains only for non-Electron
+  fallback surfaces; desktop uses its native shared `WebContentsView`. A regression guard
+  pins the former methods to `unknown method`
+  (`packages/plugin-browser/src/sidecar/dispatch.test.ts`).
 - [low, tools, RESOLVED 2026-07-03] `resolveSafe` deprecated alias for `resolvePath`
   removed (no callers remained). `packages/tools-builtin/src/util.ts`.
 - [med, mobile, RESOLVED 2026-07-03] `apps/mobile` was the only package in the
@@ -568,8 +584,8 @@ or recorded-on-purpose decision.
   conventions; when a convention/command/invariant changes, update the matching
   SKILL.md in the same PR.
 - **YAGNI extension seams** — subagent retention constants, discovery concurrency,
-  `credentialResolver` capability, per-owner browser sidecar registry, warm
-  subprocess pool are consciously deferred (surface/risk for no current win);
+  `credentialResolver` capability, warm subprocess pool are consciously deferred
+  (surface/risk for no current win);
   revisit when a concrete need appears.
 - **Goal runs have no spend ceiling — on purpose (2026-07-05).** Guardrails
   (iteration cap, token budget, stuck-abort) killed real deliveries, so goal mode
