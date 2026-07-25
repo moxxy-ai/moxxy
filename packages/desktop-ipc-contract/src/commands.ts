@@ -40,6 +40,13 @@ import type {
 import type { DeepLinkPayload } from './deep-link.js';
 import type { AppInstallStatus, AnonymizerParseResult } from './apps.js';
 import type { FocusVerticalAnchor } from './focus-layout.js';
+import type {
+  NativeBrowserAvailability,
+  NativeBrowserCapture,
+  NativeBrowserRect,
+  NativeBrowserSnapshot,
+  NativeBrowserViewport,
+} from './native-browser.js';
 
 // ---------- Invokable commands (renderer → main) --------------------------
 
@@ -477,6 +484,30 @@ export interface IpcCommands {
   }) => Promise<void>;
   /** Detach an open surface instance. */
   'surface.close': (args: { workspaceId: string; surfaceId: string }) => Promise<void>;
+
+  // ---- Native desktop browser (Electron-only; never remote/mobile) -------
+  'nativeBrowser.status': () => Promise<NativeBrowserAvailability>;
+  'nativeBrowser.open': (args: { workspaceId: string }) => Promise<NativeBrowserSnapshot>;
+  'nativeBrowser.setVisible': (args: { workspaceId: string; visible: boolean }) => Promise<void>;
+  'nativeBrowser.setBounds': (args: {
+    workspaceId: string;
+    rect: NativeBrowserRect;
+    rendererViewport: NativeBrowserViewport;
+  }) => Promise<void>;
+  'nativeBrowser.navigate': (args: { workspaceId: string; url: string; tabId?: string }) => Promise<void>;
+  'nativeBrowser.back': (args: { workspaceId: string; tabId?: string }) => Promise<void>;
+  'nativeBrowser.forward': (args: { workspaceId: string; tabId?: string }) => Promise<void>;
+  'nativeBrowser.reload': (args: { workspaceId: string; tabId?: string }) => Promise<void>;
+  'nativeBrowser.setZoom': (args: { workspaceId: string; tabId?: string; zoom: number }) => Promise<void>;
+  'nativeBrowser.newTab': (args: { workspaceId: string; url?: string }) => Promise<NativeBrowserSnapshot>;
+  'nativeBrowser.selectTab': (args: { workspaceId: string; tabId: string }) => Promise<NativeBrowserSnapshot>;
+  'nativeBrowser.closeTab': (args: { workspaceId: string; tabId: string }) => Promise<NativeBrowserSnapshot>;
+  'nativeBrowser.beginCapture': (args: { workspaceId: string; tabId?: string }) => Promise<NativeBrowserCapture>;
+  'nativeBrowser.endCapture': (args: {
+    workspaceId: string;
+    tabId?: string;
+    rect?: NativeBrowserRect;
+  }) => Promise<NativeBrowserCapture | null>;
 
   // ---- Chat transcript history (read from the runner's authoritative log) ---
   /** Page the workspace's history from the RUNNER's authoritative log

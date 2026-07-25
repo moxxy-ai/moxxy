@@ -99,6 +99,17 @@ export type { DeskSession, Desk, DesksOverview, SessionsOverview } from './desks
 // ---------- Chat -----------------------------------------------------------
 export type { PromptAttachment, RunTurnArgs, RunTurnResult } from './chat.js';
 
+// ---------- Native desktop browser ---------------------------------------
+export type {
+  NativeBrowserAvailability,
+  NativeBrowserBackend,
+  NativeBrowserCapture,
+  NativeBrowserRect,
+  NativeBrowserSnapshot,
+  NativeBrowserTabSnapshot,
+  NativeBrowserViewport,
+} from './native-browser.js';
+
 // ---------- Focus window layout ------------------------------------------
 export {
   FOCUS_PET_LAYOUT,

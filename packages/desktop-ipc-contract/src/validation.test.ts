@@ -4,6 +4,35 @@ import { REMOTE_ALLOWED_COMMANDS } from './index.js';
 import type { IpcCommandName } from './index.js';
 
 describe('IPC payload validation', () => {
+  it('strictly validates native browser geometry and navigation commands', () => {
+    expect(() =>
+      validateIpcInput('nativeBrowser.setBounds' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        rect: { x: 600, y: 120, width: 400, height: 500 },
+        rendererViewport: { width: 1000, height: 700 },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('nativeBrowser.setBounds' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        rect: { x: 0, y: 0, width: -1, height: 500 },
+        rendererViewport: { width: 1000, height: 700 },
+      }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('nativeBrowser.navigate' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        url: 'javascript:alert(1)',
+      }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('nativeBrowser.navigate' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        url: 'https://example.com',
+        injected: true,
+      }),
+    ).toThrow();
+  });
   it('accepts no payload for the fixed Local Piper installer commands', () => {
     expect(() => validateIpcInput(
       'voice.isLocalPiperInstalled' as IpcCommandName,

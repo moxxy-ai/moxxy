@@ -8,6 +8,7 @@ import type { MobileGatewayStatus } from './mobile.js';
 import type { AppInstallProgress } from './apps.js';
 import type { DesksOverview } from './desks.js';
 import type { ChannelRuntimeStatus } from './channels.js';
+import type { NativeBrowserSnapshot } from './native-browser.js';
 
 // ---------- Events the renderer subscribes to ------------------------------
 
@@ -85,6 +86,9 @@ export interface IpcEvents {
    *  matching pane by `data.surfaceId` and ignores frames for panes it isn't
    *  showing. Forwarded verbatim from the runner's `surface.data`. */
   'surface.data': { workspaceId: string; data: SurfaceDataMessage };
+  /** Local Electron WebContentsView state. This event is intentionally absent
+   *  from the mobile transport: native browser control never crosses the LAN. */
+  'nativeBrowser.changed': { workspaceId: string; snapshot: NativeBrowserSnapshot };
   /** Streamed during `apps.install` — one event per download/verify step so the
    *  Apps gallery can show a progress bar while an app's assets download. */
   'apps.install.progress': AppInstallProgress;

@@ -141,6 +141,28 @@ const workflowName = z
 
 const scheduleId = z.string().min(1).max(256);
 const webhookId = z.string().min(1).max(256);
+const nativeBrowserWorkspaceId = z.string().min(1).max(256);
+const nativeBrowserTabId = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_.-]+$/, 'invalid native browser tab id');
+const nativeBrowserCoordinate = z.number().finite().min(-100_000).max(100_000);
+const nativeBrowserExtent = z.number().finite().positive().max(100_000);
+const nativeBrowserRect = z
+  .object({
+    x: nativeBrowserCoordinate,
+    y: nativeBrowserCoordinate,
+    width: nativeBrowserExtent,
+    height: nativeBrowserExtent,
+  })
+  .strict();
+const nativeBrowserViewport = z
+  .object({ width: nativeBrowserExtent, height: nativeBrowserExtent })
+  .strict();
+const nativeBrowserTarget = z
+  .object({ workspaceId: nativeBrowserWorkspaceId, tabId: nativeBrowserTabId.optional() })
+  .strict();
 /** A target session id (same shape as a session/desk id), or null to clear it. */
 const sessionRef = z.string().min(1).max(256).nullable();
 const focusDelta = z.number().finite().min(-10_000).max(10_000);
@@ -157,6 +179,41 @@ const focusMiniTextSize = z
   .strict();
 
 export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
+  // Native browser commands are Electron-only, but the local renderer remains
+  // untrusted. Every URL/geometry/tab selector is validated before it can
+  // reach WebContentsView or the persistent browser profile.
+  'nativeBrowser.status': z.undefined(),
+  'nativeBrowser.open': z.object({ workspaceId: nativeBrowserWorkspaceId }).strict(),
+  'nativeBrowser.setVisible': z
+    .object({ workspaceId: nativeBrowserWorkspaceId, visible: z.boolean() })
+    .strict(),
+  'nativeBrowser.setBounds': z
+    .object({
+      workspaceId: nativeBrowserWorkspaceId,
+      rect: nativeBrowserRect,
+      rendererViewport: nativeBrowserViewport,
+    })
+    .strict(),
+  'nativeBrowser.navigate': z
+    .object({ workspaceId: nativeBrowserWorkspaceId, tabId: nativeBrowserTabId.optional(), url: httpUrl })
+    .strict(),
+  'nativeBrowser.back': nativeBrowserTarget,
+  'nativeBrowser.forward': nativeBrowserTarget,
+  'nativeBrowser.reload': nativeBrowserTarget,
+  'nativeBrowser.setZoom': nativeBrowserTarget
+    .extend({ zoom: z.number().finite().min(0.25).max(5) })
+    .strict(),
+  'nativeBrowser.newTab': z
+    .object({ workspaceId: nativeBrowserWorkspaceId, url: httpUrl.optional() })
+    .strict(),
+  'nativeBrowser.selectTab': z
+    .object({ workspaceId: nativeBrowserWorkspaceId, tabId: nativeBrowserTabId })
+    .strict(),
+  'nativeBrowser.closeTab': z
+    .object({ workspaceId: nativeBrowserWorkspaceId, tabId: nativeBrowserTabId })
+    .strict(),
+  'nativeBrowser.beginCapture': nativeBrowserTarget,
+  'nativeBrowser.endCapture': nativeBrowserTarget.extend({ rect: nativeBrowserRect.optional() }).strict(),
   // No-arg, but spawns a child process (npm install) — pin the payload to
   // "nothing" so a hostile renderer can't smuggle args across.
   'app.cliInfo': z.undefined(),
