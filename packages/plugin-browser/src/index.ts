@@ -22,6 +22,12 @@ export {
   type SidecarStream,
 } from './browser-session.js';
 export { buildBrowserSurface } from './browser-surface.js';
+export {
+  assertPublicUrl,
+  isBlockedIp,
+  SsrfBlockedError,
+  type DnsResolver,
+} from './ssrf-guard.js';
 
 export interface BuildBrowserPluginOptions extends BrowserSessionDeps {
   readonly webSearch?: BuildWebSearchToolOptions;

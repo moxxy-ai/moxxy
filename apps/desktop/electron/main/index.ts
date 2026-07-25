@@ -22,6 +22,7 @@ import {
   UNBOUND_ID,
   bindWindow,
   registerIpcHandlers,
+  registerNativeBrowserIpc,
   ElectronCommandBus,
   wsEventBus,
   DeskStore,
@@ -90,6 +91,7 @@ import { armBootProbe } from './boot-probe.js';
 import { installApplicationMenu } from './menus.js';
 import { registerAppAssetSchemePrivileged } from './app-scheme.js';
 import { RealtimeCaptureController } from './realtime-capture.js';
+import { ElectronNativeBrowserController } from './native-browser-controller.js';
 
 // In a packaged build there is no global `moxxy` (and a GUI launch has no
 // shell PATH / system `node`). Point the CLI resolver at a self-contained,
@@ -131,6 +133,7 @@ const CLERK_PUBLISHABLE_KEY =
 
 let pool: RunnerPool | null = null;
 let mainWindow: BrowserWindow | null = null;
+let nativeBrowser: ElectronNativeBrowserController | null = null;
 const realtimeCapture = new RealtimeCaptureController();
 /** The optional WebSocket bridge server (remote/mobile clients). Closed on quit. */
 // Typed as the bridge server (not the bare TransportServer) so the host can
@@ -737,6 +740,17 @@ app.whenReady().then(async () => {
   // unavailable", never takes down the app.
   const electronBus = new ElectronCommandBus();
   const userData = app.getPath('userData');
+  nativeBrowser = new ElectronNativeBrowserController({
+    browserSession: session.fromPartition('persist:moxxy-browser-v1'),
+    userDataDir: userData,
+    getMainWindow: () => mainWindow,
+    onChanged: (workspaceId, snapshot) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      sendEvent(mainWindow, 'nativeBrowser.changed', { workspaceId, snapshot });
+    },
+    backendOverride: process.env.MOXXY_BROWSER_BACKEND,
+  });
+  await nativeBrowser.start();
   const wsConfig = resolveWsBridgeConfig(userData); // non-null only when MOXXY_WS_BRIDGE=1
   let wsBridge: typeof import('@moxxy/ipc-server-ws') | null = null;
   try {
@@ -799,6 +813,9 @@ app.whenReady().then(async () => {
       setRealtimeCaptureActive: (active) => realtimeCapture.setActive(active),
     },
   });
+  // Native browser commands are intentionally registered ONLY on Electron.
+  // The WebSocket/mobile bus never receives these privileged handlers.
+  registerNativeBrowserIpc(electronBus, nativeBrowser);
 
   // Events fan out to WS clients once the bus exists — independent of whether the
   // server is up yet, so a client that connects later still gets the live stream.
@@ -908,6 +925,7 @@ async function shutdown(): Promise<void> {
     // (remote clients + relay tunnel). allSettled never rejects, so one failing
     // doesn't skip the others.
     Promise.allSettled([
+      nativeBrowser?.destroy() ?? Promise.resolve(),
       pool?.stopAll() ?? Promise.resolve(),
       loopback?.close() ?? Promise.resolve(),
       stopGateway,

@@ -76,6 +76,10 @@ describe('REMOTE_ALLOWED_COMMANDS', () => {
       'mobileGateway.setEnabled',
       'mobileGateway.rotateToken',
       'mobileGateway.status',
+      'nativeBrowser.status',
+      'nativeBrowser.open',
+      'nativeBrowser.navigate',
+      'nativeBrowser.beginCapture',
     ];
     for (const cmd of denied) {
       expect(REMOTE_ALLOWED_COMMANDS.has(cmd)).toBe(false);

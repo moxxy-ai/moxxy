@@ -7,6 +7,15 @@
 
 export { RunnerPool, UNBOUND_ID } from './runner-pool.js';
 export { bindWindow, registerIpcHandlers } from './ipc.js';
+export { registerNativeBrowserIpc } from './ipc/native-browser.js';
+export { type NativeBrowserController } from './native-browser-controller.js';
+export { projectNativeBrowserBounds } from './native-browser-geometry.js';
+export {
+  NativeBrowserState,
+  type PersistedNativeBrowserTab,
+  type PersistedNativeBrowserWorkspace,
+} from './native-browser-state.js';
+export { NativeBrowserStateStore } from './native-browser-state-store.js';
 export { type MobileGatewayController } from './ipc/mobile-gateway.js';
 export { sendEvent } from './send-event.js';
 export { ElectronCommandBus } from './bus/electron-bus.js';

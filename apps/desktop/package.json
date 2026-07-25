@@ -40,6 +40,7 @@
     "@moxxy/desktop-ipc-contract": "workspace:*",
     "@moxxy/desktop-ui": "workspace:*",
     "@moxxy/ipc-server-ws": "workspace:*",
+    "@moxxy/plugin-browser": "workspace:*",
     "@moxxy/plugin-channel-mobile": "workspace:*",
     "@moxxy/plugin-stt-whisper-codex": "workspace:*",
     "@moxxy/plugin-vault": "workspace:*",

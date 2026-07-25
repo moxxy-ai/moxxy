@@ -136,6 +136,9 @@ importers:
       '@moxxy/ipc-server-ws':
         specifier: workspace:*
         version: link:../../packages/ipc-server-ws
+      '@moxxy/plugin-browser':
+        specifier: workspace:*
+        version: link:../../packages/plugin-browser
       '@moxxy/plugin-channel-mobile':
         specifier: workspace:*
         version: link:../../packages/plugin-channel-mobile
