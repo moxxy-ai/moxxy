@@ -19,7 +19,7 @@ import { RAIL_MAX_WIDTH, RAIL_MIN_WIDTH, setRailWidth, useRailWidth } from '../l
 import { TerminalPane } from './surfaces/TerminalPane';
 import { FilesPane } from './surfaces/FilesPane';
 import { FilesExplorerPane } from './surfaces/FilesExplorerPane';
-import { BrowserPane } from './surfaces/BrowserPane';
+import { BrowserPaneGateway } from './surfaces/BrowserPaneGateway';
 
 export type RailPane = 'terminal' | 'files' | 'explorer' | 'browser';
 
@@ -140,7 +140,7 @@ export function ContextRail({ pane, onClose, workspaceId }: Props): JSX.Element 
         {pane === 'terminal' && <TerminalPane workspaceId={workspaceId} />}
         {pane === 'files' && <FilesPane workspaceId={workspaceId} cwd={active?.cwd ?? null} />}
         {pane === 'explorer' && <FilesExplorerPane workspaceId={workspaceId} />}
-        {pane === 'browser' && <BrowserPane workspaceId={workspaceId} />}
+        {pane === 'browser' && <BrowserPaneGateway workspaceId={workspaceId} />}
       </div>
     </section>
   );
