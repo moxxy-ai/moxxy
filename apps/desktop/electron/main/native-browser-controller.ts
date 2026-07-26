@@ -6,9 +6,11 @@ import {
   WebContentsView,
   type BrowserWindow,
   type ContextMenuParams,
+  type Debugger,
   type MenuItemConstructorOptions,
   type NativeImage,
   type Session,
+  type WebContents,
 } from 'electron';
 import {
   NativeBrowserState,
@@ -29,6 +31,10 @@ import { assertPublicUrl } from '@moxxy/plugin-browser/ssrf-guard';
 
 const BROWSER_PARTITION = 'persist:moxxy-browser-v1';
 const BLANK_URL = 'about:blank';
+const DEVTOOLS_PROTOCOL_VERSION = '1.3';
+const NETWORK_IDLE_MS = 500;
+const MAX_FULL_PAGE_DIMENSION = 16_384;
+const MAX_FULL_PAGE_PIXELS = 12_000_000;
 
 interface NativeBrowserControllerOptions {
   readonly browserSession: Session;
@@ -54,6 +60,9 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   private readonly store: NativeBrowserStateStore;
   private readonly views = new Map<string, WebContentsView>();
   private readonly activeAgentOperations = new WeakMap<WebContentsView, number>();
+  private readonly debuggerQueues = new WeakMap<WebContentsView, Promise<void>>();
+  private readonly pendingNetworkRequests = new Map<number, Set<number>>();
+  private readonly networkActivityListeners = new Map<number, Set<() => void>>();
   private readonly bounds = new Map<string, NativeBrowserRect>();
   private backend: NativeBrowserAvailability = { backend: 'playwright', available: true };
   private visibleWorkspaceId: string | null = null;
@@ -315,10 +324,11 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         this.state.updateTab(workspaceId, target.id, { url: action.url, loading: true });
         this.publish(workspaceId);
         await this.withAgentOperation(view, () =>
-          withTimeout(
-            view.webContents.loadURL(action.url),
+          this.loadUrl(
+            view,
+            action.url,
+            action.waitUntil ?? 'domcontentloaded',
             action.timeoutMs ?? 30_000,
-            'native browser navigation',
           ),
         );
         return { url: view.webContents.getURL() || action.url, tabId: target.id };
@@ -326,26 +336,46 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       case 'click': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
-        await this.executeScript(
-          view,
-          elementActionScript(action.selector, action.timeoutMs ?? 10_000, 'click'),
-        );
+        await this.withAgentOperation(view, async () => {
+          const point = parseInteractionPoint(
+            await view.webContents.executeJavaScript(
+              clickTargetScript(action.selector, action.timeoutMs ?? 10_000),
+              true,
+            ),
+          );
+          await this.withDebugger(view, async (debuggerSession) => {
+            const input = { x: point.x, y: point.y, button: 'left', clickCount: 1 } as const;
+            await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+              type: 'mousePressed',
+              ...input,
+            });
+            await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+              type: 'mouseReleased',
+              ...input,
+            });
+          });
+        });
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
       case 'fill': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
-        await this.executeScript(
-          view,
-          fillActionScript(action.selector, action.value, action.timeoutMs ?? 10_000),
-        );
+        await this.withAgentOperation(view, async () => {
+          await view.webContents.executeJavaScript(
+            prepareFillTargetScript(action.selector, action.timeoutMs ?? 10_000),
+            true,
+          );
+          await this.withDebugger(view, (debuggerSession) =>
+            debuggerSession.sendCommand('Input.insertText', { text: action.value }),
+          );
+        });
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
       case 'text': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
         const script = action.selector
-          ? elementActionScript(action.selector, 10_000, 'text')
+          ? elementTextScript(action.selector, 10_000)
           : 'document.body ? document.body.innerText : ""';
         return this.executeScript(view, script);
       }
@@ -360,6 +390,10 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       case 'screenshot': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
+        if (action.fullPage) {
+          const capture = await this.withAgentOperation(view, () => this.captureFullPage(view));
+          return { ...capture, tabId: target.id };
+        }
         const image = await this.withAgentOperation(view, () => view.webContents.capturePage());
         return { ...encodeCapture(image), tabId: target.id };
       }
@@ -385,6 +419,8 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       if (!view.webContents.isDestroyed()) view.webContents.close();
     }
     this.views.clear();
+    this.pendingNetworkRequests.clear();
+    this.networkActivityListeners.clear();
   }
 
   private installSessionSecurity(): void {
@@ -393,17 +429,26 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     browserSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
       callback(false);
     });
-    browserSession.webRequest.onBeforeRequest(
-      {
-        urls: ['http://*/*', 'https://*/*'],
-        types: ['mainFrame', 'subFrame'],
-      },
-      (details, callback) => {
-        void assertPublicUrl(details.url, 'native_browser_navigation', { failClosed: true })
-          .then(() => callback({ cancel: false }))
-          .catch(() => callback({ cancel: true }));
-      },
-    );
+    const requestFilter = { urls: ['http://*/*', 'https://*/*'] };
+    browserSession.webRequest.onBeforeRequest(requestFilter, (details, callback) => {
+      this.trackNetworkRequest(details.webContentsId, details.id);
+      if (details.resourceType !== 'mainFrame' && details.resourceType !== 'subFrame') {
+        callback({ cancel: false });
+        return;
+      }
+      void assertPublicUrl(details.url, 'native_browser_navigation', { failClosed: true })
+        .then(() => callback({ cancel: false }))
+        .catch(() => {
+          this.finishNetworkRequest(details.webContentsId, details.id);
+          callback({ cancel: true });
+        });
+    });
+    browserSession.webRequest.onCompleted(requestFilter, (details) => {
+      this.finishNetworkRequest(details.webContentsId, details.id);
+    });
+    browserSession.webRequest.onErrorOccurred(requestFilter, (details) => {
+      this.finishNetworkRequest(details.webContentsId, details.id);
+    });
   }
 
   private ensureView(workspaceId: string, tab: NativeBrowserTabSnapshot): WebContentsView {
@@ -639,6 +684,169 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     return this.withAgentOperation(view, () => view.webContents.executeJavaScript(script, true));
   }
 
+  private async loadUrl(
+    view: WebContentsView,
+    url: string,
+    waitUntil: 'load' | 'domcontentloaded' | 'networkidle',
+    timeoutMs: number,
+  ): Promise<void> {
+    const contents = view.webContents;
+    if (waitUntil === 'networkidle') {
+      const idle = this.createNetworkIdleWaiter(contents.id, NETWORK_IDLE_MS);
+      try {
+        await withTimeout(
+          (async () => {
+            await contents.loadURL(url);
+            idle.start();
+            await idle.promise;
+          })(),
+          timeoutMs,
+          'native browser network-idle navigation',
+        );
+      } finally {
+        idle.dispose();
+      }
+      return;
+    }
+
+    if (waitUntil === 'load') {
+      const navigation = contents.loadURL(url);
+      await withTimeout(navigation, timeoutMs, 'native browser load navigation');
+      return;
+    }
+    const domReady = waitForWebContentsEvent(contents, 'dom-ready');
+    try {
+      const navigation = contents.loadURL(url);
+      await withTimeout(
+        Promise.race([navigation, domReady.promise]),
+        timeoutMs,
+        'native browser DOM navigation',
+      );
+    } finally {
+      domReady.dispose();
+    }
+  }
+
+  private captureFullPage(view: WebContentsView): Promise<NativeBrowserCapture> {
+    return this.withDebugger(view, async (debuggerSession) => {
+      const metrics = parseLayoutMetrics(
+        await debuggerSession.sendCommand('Page.getLayoutMetrics'),
+      );
+      if (
+        metrics.width > MAX_FULL_PAGE_DIMENSION ||
+        metrics.height > MAX_FULL_PAGE_DIMENSION ||
+        metrics.width * metrics.height > MAX_FULL_PAGE_PIXELS
+      ) {
+        throw new Error(
+          `full-page screenshot exceeds the safe capture limit (${metrics.width}x${metrics.height})`,
+        );
+      }
+      const captured = parseScreenshotResult(
+        await debuggerSession.sendCommand('Page.captureScreenshot', {
+          format: 'png',
+          fromSurface: true,
+          captureBeyondViewport: true,
+          clip: { x: 0, y: 0, width: metrics.width, height: metrics.height, scale: 1 },
+        }),
+      );
+      return { mediaType: 'image/png', base64: captured };
+    });
+  }
+
+  private trackNetworkRequest(webContentsId: number | undefined, requestId: number): void {
+    if (webContentsId === undefined) return;
+    let pending = this.pendingNetworkRequests.get(webContentsId);
+    if (!pending) {
+      pending = new Set<number>();
+      this.pendingNetworkRequests.set(webContentsId, pending);
+    }
+    pending.add(requestId);
+    this.notifyNetworkActivity(webContentsId);
+  }
+
+  private finishNetworkRequest(webContentsId: number | undefined, requestId: number): void {
+    if (webContentsId === undefined) return;
+    const pending = this.pendingNetworkRequests.get(webContentsId);
+    if (!pending || !pending.delete(requestId)) return;
+    if (pending.size === 0) this.pendingNetworkRequests.delete(webContentsId);
+    this.notifyNetworkActivity(webContentsId);
+  }
+
+  private notifyNetworkActivity(webContentsId: number): void {
+    const listeners = this.networkActivityListeners.get(webContentsId);
+    if (!listeners) return;
+    for (const listener of listeners) listener();
+  }
+
+  private createNetworkIdleWaiter(webContentsId: number, idleMs: number): {
+    readonly promise: Promise<void>;
+    start: () => void;
+    dispose: () => void;
+  } {
+    let started = false;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let resolveIdle: () => void = () => undefined;
+    const promise = new Promise<void>((resolve) => {
+      resolveIdle = resolve;
+    });
+    const cancel = (): void => {
+      if (!idleTimer) return;
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    };
+    const update = (): void => {
+      cancel();
+      if (!started || (this.pendingNetworkRequests.get(webContentsId)?.size ?? 0) > 0) return;
+      idleTimer = setTimeout(resolveIdle, idleMs);
+      idleTimer.unref?.();
+    };
+    let listeners = this.networkActivityListeners.get(webContentsId);
+    if (!listeners) {
+      listeners = new Set<() => void>();
+      this.networkActivityListeners.set(webContentsId, listeners);
+    }
+    listeners.add(update);
+    return {
+      promise,
+      start: () => {
+        started = true;
+        update();
+      },
+      dispose: () => {
+        cancel();
+        listeners.delete(update);
+        if (listeners.size === 0) this.networkActivityListeners.delete(webContentsId);
+      },
+    };
+  }
+
+  private async withDebugger<T>(
+    view: WebContentsView,
+    operation: (debuggerSession: Debugger) => Promise<T>,
+  ): Promise<T> {
+    const previous = this.debuggerQueues.get(view) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(async () => {
+      const debuggerSession = view.webContents.debugger;
+      const owned = !debuggerSession.isAttached();
+      if (owned) debuggerSession.attach(DEVTOOLS_PROTOCOL_VERSION);
+      try {
+        return await operation(debuggerSession);
+      } finally {
+        if (owned && debuggerSession.isAttached()) debuggerSession.detach();
+      }
+    });
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.debuggerQueues.set(view, tail);
+    try {
+      return await run;
+    } finally {
+      if (this.debuggerQueues.get(view) === tail) this.debuggerQueues.delete(view);
+    }
+  }
+
   private requireNative(): void {
     if (this.backend.backend !== 'native' || !this.backend.available) {
       throw new Error(this.backend.reason ?? 'native browser is unavailable');
@@ -682,16 +890,9 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function elementActionScript(
-  selector: string,
-  timeoutMs: number,
-  action: 'click' | 'text',
-): string {
+function elementTextScript(selector: string, timeoutMs: number): string {
   const selectorJson = JSON.stringify(selector);
-  const actionScript =
-    action === 'click'
-      ? 'element.scrollIntoView({ block: "center", inline: "center" }); element.click(); return undefined;'
-      : 'return element.textContent || "";';
+  const actionScript = 'return element.textContent || "";';
   return `(() => new Promise((resolve, reject) => {
     const selector = ${selectorJson};
     const deadline = Date.now() + ${timeoutMs};
@@ -711,33 +912,19 @@ function elementActionScript(
   }))()`;
 }
 
-function fillActionScript(selector: string, value: string, timeoutMs: number): string {
+function clickTargetScript(selector: string, timeoutMs: number): string {
   const selectorJson = JSON.stringify(selector);
-  const valueJson = JSON.stringify(value);
   return `(() => new Promise((resolve, reject) => {
     const selector = ${selectorJson};
-    const value = ${valueJson};
     const deadline = Date.now() + ${timeoutMs};
     const find = () => {
       const element = document.querySelector(selector);
       if (element instanceof HTMLElement) {
         try {
-          element.focus();
-          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-            const prototype = element instanceof HTMLTextAreaElement
-              ? HTMLTextAreaElement.prototype
-              : HTMLInputElement.prototype;
-            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-            if (setter) setter.call(element, value);
-            else element.value = value;
-          } else if (element.isContentEditable) {
-            element.textContent = value;
-          } else {
-            throw new Error('Target is not fillable: ' + selector);
-          }
-          element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
-          element.dispatchEvent(new Event('change', { bubbles: true }));
-          resolve(undefined);
+          element.scrollIntoView({ block: 'center', inline: 'center' });
+          const rect = element.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) throw new Error('Target is not visible: ' + selector);
+          resolve({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
         } catch (error) { reject(error); }
         return;
       }
@@ -749,6 +936,103 @@ function fillActionScript(selector: string, value: string, timeoutMs: number): s
     };
     find();
   }))()`;
+}
+
+function prepareFillTargetScript(selector: string, timeoutMs: number): string {
+  const selectorJson = JSON.stringify(selector);
+  return `(() => new Promise((resolve, reject) => {
+    const selector = ${selectorJson};
+    const deadline = Date.now() + ${timeoutMs};
+    const find = () => {
+      const element = document.querySelector(selector);
+      if (element instanceof HTMLElement) {
+        try {
+          element.scrollIntoView({ block: 'center', inline: 'center' });
+          element.focus();
+          if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+            if (element.disabled || element.readOnly) throw new Error('Target is not editable: ' + selector);
+            element.select();
+          } else if (element.isContentEditable) {
+            const selection = window.getSelection();
+            if (!selection) throw new Error('Text selection is unavailable');
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          } else {
+            throw new Error('Target is not fillable: ' + selector);
+          }
+          resolve({ fillable: true });
+        } catch (error) { reject(error); }
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(new Error('Timed out waiting for selector: ' + selector));
+        return;
+      }
+      setTimeout(find, 50);
+    };
+    find();
+  }))()`;
+}
+
+function parseInteractionPoint(value: unknown): { x: number; y: number } {
+  if (!value || typeof value !== 'object') throw new Error('native browser click target is invalid');
+  const point = value as { x?: unknown; y?: unknown };
+  if (
+    typeof point.x !== 'number' ||
+    !Number.isFinite(point.x) ||
+    typeof point.y !== 'number' ||
+    !Number.isFinite(point.y)
+  ) {
+    throw new Error('native browser click target has invalid coordinates');
+  }
+  return { x: point.x, y: point.y };
+}
+
+function parseLayoutMetrics(value: unknown): { width: number; height: number } {
+  if (!value || typeof value !== 'object') throw new Error('native browser layout metrics are missing');
+  const result = value as { cssContentSize?: unknown };
+  if (!result.cssContentSize || typeof result.cssContentSize !== 'object') {
+    throw new Error('native browser CSS content metrics are missing');
+  }
+  const size = result.cssContentSize as { width?: unknown; height?: unknown };
+  if (
+    typeof size.width !== 'number' ||
+    !Number.isFinite(size.width) ||
+    size.width <= 0 ||
+    typeof size.height !== 'number' ||
+    !Number.isFinite(size.height) ||
+    size.height <= 0
+  ) {
+    throw new Error('native browser CSS content metrics are invalid');
+  }
+  return { width: Math.ceil(size.width), height: Math.ceil(size.height) };
+}
+
+function parseScreenshotResult(value: unknown): string {
+  if (!value || typeof value !== 'object') throw new Error('native browser screenshot is missing');
+  const result = value as { data?: unknown };
+  if (typeof result.data !== 'string' || result.data.length === 0) {
+    throw new Error('native browser screenshot data is invalid');
+  }
+  return result.data;
+}
+
+function waitForWebContentsEvent(contents: WebContents, event: 'dom-ready'): {
+  readonly promise: Promise<void>;
+  dispose: () => void;
+} {
+  let resolveEvent: () => void = () => undefined;
+  const listener = (): void => resolveEvent();
+  const promise = new Promise<void>((resolve) => {
+    resolveEvent = resolve;
+    contents.once(event, listener);
+  });
+  return {
+    promise,
+    dispose: () => contents.off(event, listener),
+  };
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {

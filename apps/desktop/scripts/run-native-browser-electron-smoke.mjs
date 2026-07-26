@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import electron from 'electron';
@@ -7,7 +7,9 @@ import { build } from 'vite';
 
 const outputDir = path.join(import.meta.dirname, '..', `.tmp-native-browser-smoke-${process.pid}`);
 const output = path.join(outputDir, 'smoke.mjs');
-const resultPath = path.join(outputDir, 'result.json');
+const exerciseResultPath = path.join(outputDir, 'exercise-result.json');
+const restartResultPath = path.join(outputDir, 'restart-result.json');
+const userDataPath = path.join(outputDir, 'user-data');
 
 try {
   await build({
@@ -24,19 +26,37 @@ try {
       },
     },
   });
+  mkdirSync(userDataPath, { recursive: true });
+  const exercise = launchElectron('exercise', exerciseResultPath);
+  const restart = launchElectron('verify-restart', restartResultPath);
+  const result = {
+    ...exercise,
+    restoredTabs: restart.restoredTabs,
+    persistentLogin: restart.persistentLogin,
+  };
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+  if (!result.ok) process.exitCode = 1;
+} finally {
+  rmSync(outputDir, { recursive: true, force: true });
+}
+
+function launchElectron(phase, resultPath) {
   const launched = spawnSync(electron, [output], {
     encoding: 'utf8',
-    env: { ...process.env, MOXXY_NATIVE_BROWSER_SMOKE_RESULT: resultPath },
+    env: {
+      ...process.env,
+      MOXXY_NATIVE_BROWSER_SMOKE_RESULT: resultPath,
+      MOXXY_NATIVE_BROWSER_SMOKE_USER_DATA: userDataPath,
+      MOXXY_NATIVE_BROWSER_SMOKE_PHASE: phase,
+    },
     timeout: 60_000,
   });
   if (launched.error) throw launched.error;
   if (launched.stdout) process.stdout.write(launched.stdout);
   if (launched.stderr) process.stderr.write(launched.stderr);
   const result = waitForResult(resultPath, 60_000);
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-  if (!result.ok) process.exitCode = 1;
-} finally {
-  rmSync(outputDir, { recursive: true, force: true });
+  if (!result.ok) throw new Error(`native browser Electron ${phase} smoke failed`);
+  return result;
 }
 
 function waitForResult(file, timeoutMs) {

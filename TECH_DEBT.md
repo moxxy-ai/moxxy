@@ -36,7 +36,15 @@ or recorded-on-purpose decision.
   startup fails. POSIX sockets use private 0700 directories, 0600 endpoints, and
   a deterministic short path when macOS path limits would truncate the profile
   socket. The previously deferred per-owner browser registry is now represented
-  by isolated workspace-native state and per-sidecar tab registries.
+  by isolated workspace-native state and per-sidecar tab registries. The native
+  action adapter now preserves the Playwright contract for `load`,
+  `domcontentloaded`, `networkidle`, trusted click/fill input, viewport and
+  bounded full-page captures. Its small fixed set of internal DevTools commands
+  is serialized in the main process and is never exposed through the runner
+  bridge. A two-process Electron smoke proves tab and login-cookie persistence,
+  an at-least-6,000 px full-page capture, sub-millisecond direct interaction, no
+  `chrome-headless-shell` descendant, and over 70% lower median CPU than the
+  former 300 ms JPEG/base64 polling workload on the same heavy page.
   `apps/desktop/{electron/main,src/shell/surfaces}/`,
   `packages/{desktop-host,desktop-ipc-contract,plugin-browser}/src/`.
 - [med, tui/providers, RESOLVED 2026-07-23] Text-only models were still given

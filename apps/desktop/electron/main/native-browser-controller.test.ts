@@ -73,11 +73,272 @@ describe('ElectronNativeBrowserController agent operations', () => {
     expect(afterNewTab.activeTabId).not.toBe(initial.activeTabId);
     const second = views[1];
     expect(second).toBeDefined();
-    deferred.resolve(undefined);
+    deferred.resolve({ x: 120, y: 80 });
     await operation;
 
     expect(first?.webContents.executedScripts).toHaveLength(1);
     expect(second?.webContents.executedScripts).toHaveLength(0);
+    await controller.destroy();
+  });
+
+  it('resolves a domcontentloaded navigation as soon as the top-level DOM is ready', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    const load = createDeferred<void>();
+    view?.webContents.setDeferredLoad(load.promise);
+
+    const navigation = controller.executeAgentAction('ws-1', {
+      kind: 'goto',
+      url: 'https://93.184.216.34/dom-ready',
+      waitUntil: 'domcontentloaded',
+    });
+    let settled = false;
+    void navigation.finally(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    view?.webContents.emit('dom-ready');
+
+    await expect(navigation).resolves.toMatchObject({
+      url: 'https://93.184.216.34/dom-ready',
+    });
+    expect(settled).toBe(true);
+    load.resolve(undefined);
+    await controller.destroy();
+  });
+
+  it('subscribes to dom-ready before starting a fast navigation', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    const load = createDeferred<void>();
+    view?.webContents.setDeferredLoad(load.promise);
+    view?.webContents.emitDomReadyDuringLoad();
+
+    const navigation = controller.executeAgentAction('ws-1', {
+      kind: 'goto',
+      url: 'https://93.184.216.34/fast-dom',
+      waitUntil: 'domcontentloaded',
+      timeoutMs: 100,
+    });
+
+    await expect(navigation).resolves.toMatchObject({
+      url: 'https://93.184.216.34/fast-dom',
+    });
+    load.resolve(undefined);
+    await controller.destroy();
+  });
+
+  it('waits for the full load event when waitUntil is load', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    const load = createDeferred<void>();
+    view?.webContents.setDeferredLoad(load.promise);
+
+    const navigation = controller.executeAgentAction('ws-1', {
+      kind: 'goto',
+      url: 'https://93.184.216.34/load',
+      waitUntil: 'load',
+    });
+    let settled = false;
+    void navigation.finally(() => {
+      settled = true;
+    });
+    view?.webContents.emit('dom-ready');
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    load.resolve(undefined);
+
+    await expect(navigation).resolves.toMatchObject({
+      url: 'https://93.184.216.34/load',
+    });
+    await controller.destroy();
+  });
+
+  it('waits for a quiet network window after the final request', async () => {
+    vi.useFakeTimers();
+    try {
+      const lifecycle = createNetworkLifecycle();
+      const controller = await createController(views, [], lifecycle);
+      await controller.open({ workspaceId: 'ws-1' });
+      const view = views[0];
+      const load = createDeferred<void>();
+      view?.webContents.setDeferredLoad(load.promise);
+
+      const navigation = controller.executeAgentAction('ws-1', {
+        kind: 'goto',
+        url: 'https://93.184.216.34/network-idle',
+        waitUntil: 'networkidle',
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      const request = lifecycle.before[0];
+      expect(request).toBeDefined();
+      request?.(
+        {
+          id: 1,
+          webContentsId: view?.webContents.id,
+          resourceType: 'xhr',
+          url: 'https://93.184.216.34/data',
+        },
+        vi.fn(),
+      );
+      let settled = false;
+      void navigation.finally(() => {
+        settled = true;
+      });
+
+      load.resolve(undefined);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(settled).toBe(false);
+      lifecycle.completed[0]?.({
+        id: 1,
+        webContentsId: view?.webContents.id,
+        url: 'https://93.184.216.34/data',
+      });
+      await vi.advanceTimersByTimeAsync(499);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(navigation).resolves.toMatchObject({
+        url: 'https://93.184.216.34/network-idle',
+      });
+      await controller.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('starts the network quiet window only after the document has loaded', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = await createController(views);
+      await controller.open({ workspaceId: 'ws-1' });
+      const view = views[0];
+      const load = createDeferred<void>();
+      view?.webContents.setDeferredLoad(load.promise);
+
+      const navigation = controller.executeAgentAction('ws-1', {
+        kind: 'goto',
+        url: 'https://93.184.216.34/slow-load',
+        waitUntil: 'networkidle',
+      });
+      let settled = false;
+      void navigation.finally(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(settled).toBe(false);
+
+      load.resolve(undefined);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(navigation).resolves.toMatchObject({
+        url: 'https://93.184.216.34/slow-load',
+      });
+      await controller.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses fixed private DevTools commands for a full-page screenshot', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.debugger.setResult('Page.getLayoutMetrics', {
+      cssContentSize: { x: 0, y: 0, width: 900, height: 6_000 },
+    });
+    view?.webContents.debugger.setResult('Page.captureScreenshot', {
+      data: Buffer.from('full-page-png').toString('base64'),
+    });
+
+    const screenshot = await controller.executeAgentAction('ws-1', {
+      kind: 'screenshot',
+      fullPage: true,
+    });
+
+    expect(screenshot).toMatchObject({
+      mediaType: 'image/png',
+      base64: Buffer.from('full-page-png').toString('base64'),
+    });
+    expect(view?.webContents.captureCalls).toHaveLength(0);
+    expect(view?.webContents.debugger.commands).toEqual([
+      { method: 'Page.getLayoutMetrics', params: undefined },
+      {
+        method: 'Page.captureScreenshot',
+        params: {
+          format: 'png',
+          fromSurface: true,
+          captureBeyondViewport: true,
+          clip: { x: 0, y: 0, width: 900, height: 6_000, scale: 1 },
+        },
+      },
+    ]);
+    expect(view?.webContents.debugger.attach).toHaveBeenCalledWith('1.3');
+    expect(view?.webContents.debugger.detach).toHaveBeenCalledOnce();
+    await controller.destroy();
+  });
+
+  it('rejects a page-sized capture that exceeds the bounded memory budget', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.debugger.setResult('Page.getLayoutMetrics', {
+      cssContentSize: { x: 0, y: 0, width: 20_000, height: 20_000 },
+    });
+
+    await expect(
+      controller.executeAgentAction('ws-1', { kind: 'screenshot', fullPage: true }),
+    ).rejects.toThrow('safe capture limit');
+    expect(view?.webContents.debugger.commands).toEqual([
+      { method: 'Page.getLayoutMetrics', params: undefined },
+    ]);
+    await controller.destroy();
+  });
+
+  it('dispatches trusted browser input for agent click and fill actions', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.setScriptResults([
+      { x: 240, y: 160 },
+      { fillable: true },
+    ]);
+
+    await controller.executeAgentAction('ws-1', {
+      kind: 'click',
+      selector: '#checkout',
+    });
+    await controller.executeAgentAction('ws-1', {
+      kind: 'fill',
+      selector: '#email',
+      value: 'hello@example.com',
+    });
+
+    expect(view?.webContents.debugger.commands).toEqual([
+      {
+        method: 'Input.dispatchMouseEvent',
+        params: { type: 'mousePressed', x: 240, y: 160, button: 'left', clickCount: 1 },
+      },
+      {
+        method: 'Input.dispatchMouseEvent',
+        params: { type: 'mouseReleased', x: 240, y: 160, button: 'left', clickCount: 1 },
+      },
+      {
+        method: 'Input.insertText',
+        params: { text: 'hello@example.com' },
+      },
+    ]);
+    expect(view?.webContents.executedScripts[0]).not.toContain('element.click()');
+    expect(view?.webContents.executedScripts[1]).not.toContain('dispatchEvent');
     await controller.destroy();
   });
 
@@ -182,24 +443,62 @@ describe('ElectronNativeBrowserController agent operations', () => {
     const guard = requestGuards[0];
     expect(guard).toBeDefined();
     const redirect = vi.fn();
-    guard?.({ url: 'http://127.0.0.1/redirect-target' }, redirect);
+    guard?.(
+      {
+        id: 1,
+        webContentsId: 42,
+        resourceType: 'mainFrame',
+        url: 'http://127.0.0.1/redirect-target',
+      },
+      redirect,
+    );
     await vi.waitFor(() => expect(redirect).toHaveBeenCalledWith({ cancel: true }));
 
     const iframe = vi.fn();
-    guard?.({ url: 'http://[::1]/iframe-content' }, iframe);
+    guard?.(
+      {
+        id: 2,
+        webContentsId: 42,
+        resourceType: 'subFrame',
+        url: 'http://[::1]/iframe-content',
+      },
+      iframe,
+    );
     await vi.waitFor(() => expect(iframe).toHaveBeenCalledWith({ cancel: true }));
     await controller.destroy();
   });
 });
 
 type RequestGuard = (
-  details: { readonly url: string },
+  details: {
+    readonly id?: number;
+    readonly webContentsId?: number;
+    readonly resourceType?: string;
+    readonly url: string;
+  },
   callback: (result: { readonly cancel: boolean }) => void,
 ) => void;
+
+type RequestCompleted = (details: {
+  readonly id: number;
+  readonly webContentsId?: number;
+  readonly url: string;
+}) => void;
+
+interface NetworkLifecycle {
+  readonly before: RequestGuard[];
+  readonly completed: RequestCompleted[];
+  readonly failed: RequestCompleted[];
+}
+
+function createNetworkLifecycle(): NetworkLifecycle {
+  return { before: [], completed: [], failed: [] };
+}
 
 async function createController(
   views: FakeView[],
   requestGuards: RequestGuard[] = [],
+  lifecycle: NetworkLifecycle = createNetworkLifecycle(),
 ): Promise<ElectronNativeBrowserController> {
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'native-controller-'));
   const controller = new ElectronNativeBrowserController({
@@ -209,6 +508,13 @@ async function createController(
       webRequest: {
         onBeforeRequest: vi.fn((_filter: unknown, guard: RequestGuard) => {
           requestGuards.push(guard);
+          lifecycle.before.push(guard);
+        }),
+        onCompleted: vi.fn((_filter: unknown, listener: RequestCompleted) => {
+          lifecycle.completed.push(listener);
+        }),
+        onErrorOccurred: vi.fn((_filter: unknown, listener: RequestCompleted) => {
+          lifecycle.failed.push(listener);
         }),
       },
     } as never,
@@ -241,7 +547,10 @@ class FakeView {
 }
 
 class FakeWebContents extends EventEmitter {
+  readonly id = 42;
   readonly executedScripts: string[] = [];
+  readonly captureCalls: unknown[] = [];
+  readonly debugger = new FakeDebugger();
   readonly navigationHistory = {
     canGoBack: () => false,
     canGoForward: () => false,
@@ -253,7 +562,10 @@ class FakeWebContents extends EventEmitter {
   private zoom = 1;
   private url = 'about:blank';
   private scriptResult: unknown;
+  private scriptResults: unknown[] = [];
   private deferredScript: Promise<unknown> | null = null;
+  private deferredLoad: Promise<void> | null = null;
+  private emitDomReadyOnLoad = false;
   private popupHandler: ((details: { url: string }) => { action: 'deny' }) | null = null;
 
   setScriptResult(_kind: string, value: unknown): void {
@@ -264,9 +576,22 @@ class FakeWebContents extends EventEmitter {
     this.deferredScript = value;
   }
 
+  setScriptResults(values: unknown[]): void {
+    this.scriptResults = [...values];
+  }
+
+  setDeferredLoad(value: Promise<void>): void {
+    this.deferredLoad = value;
+  }
+
+  emitDomReadyDuringLoad(): void {
+    this.emitDomReadyOnLoad = true;
+  }
+
   executeJavaScript(script: string): Promise<unknown> {
     this.executedScripts.push(script);
     if (this.deferredScript) return this.deferredScript;
+    if (this.scriptResults.length > 0) return Promise.resolve(this.scriptResults.shift());
     return Promise.resolve(this.scriptResult);
   }
 
@@ -304,10 +629,37 @@ class FakeWebContents extends EventEmitter {
   reload(): void {}
   loadURL(url: string): Promise<void> {
     this.url = url;
-    return Promise.resolve();
+    if (this.emitDomReadyOnLoad) this.emit('dom-ready');
+    return this.deferredLoad ?? Promise.resolve();
   }
-  capturePage(): Promise<never> {
+  capturePage(...args: unknown[]): Promise<never> {
+    this.captureCalls.push(args);
     return Promise.reject(new Error('not used'));
+  }
+}
+
+class FakeDebugger extends EventEmitter {
+  readonly attach = vi.fn(() => {
+    this.attached = true;
+  });
+  readonly detach = vi.fn(() => {
+    this.attached = false;
+  });
+  readonly commands: Array<{ method: string; params: unknown }> = [];
+  private attached = false;
+  private readonly results = new Map<string, unknown>();
+
+  isAttached(): boolean {
+    return this.attached;
+  }
+
+  setResult(method: string, result: unknown): void {
+    this.results.set(method, result);
+  }
+
+  sendCommand(method: string, params?: unknown): Promise<unknown> {
+    this.commands.push({ method, params });
+    return Promise.resolve(this.results.get(method));
   }
 }
 
