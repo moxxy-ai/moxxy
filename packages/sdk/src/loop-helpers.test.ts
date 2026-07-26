@@ -245,6 +245,46 @@ describe('projectMessagesFromLog', () => {
     });
   });
 
+  it('projects an image tool result with bounded model text and pixels', () => {
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'inspect page' }),
+      event(1, {
+        type: 'tool_call_requested',
+        turnId: t1,
+        source: 'model',
+        callId: 'c1',
+        name: 'browser_session',
+        input: {},
+      }),
+      event(2, {
+        type: 'tool_result',
+        turnId: t1,
+        source: 'tool',
+        callId: 'c1',
+        ok: true,
+        output: {
+          mediaType: 'image/png',
+          base64: 'PAGEPIXELS',
+          forModel: 'url=https://example.com\nb1 button "Continue"',
+        },
+      }),
+    ]);
+
+    const messages = projectMessagesFromLog({ log });
+    const toolResult = messages.find((message) => message.role === 'tool_result');
+    expect(toolResult?.content).toContainEqual({
+      type: 'image',
+      mediaType: 'image/png',
+      data: 'PAGEPIXELS',
+    });
+    expect(toolResult?.content).toContainEqual({
+      type: 'tool_result',
+      toolUseId: 'c1',
+      content: 'url=https://example.com\nb1 button "Continue"',
+      isError: false,
+    });
+  });
+
   it('does not treat a failed/error tool result as an image', () => {
     const log = reader([
       event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'grab' }),

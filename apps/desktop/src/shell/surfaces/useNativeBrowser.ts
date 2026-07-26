@@ -50,6 +50,7 @@ export interface NativeBrowserViewModel {
   readonly closeTab: (tabId: string) => void;
   readonly startCapture: () => void;
   readonly cancelCapture: () => void;
+  readonly stopAgentControl: () => void;
   readonly retry: () => void;
   readonly onCapturePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   readonly onCapturePointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -407,6 +408,11 @@ export function useNativeBrowser(workspaceId: string): NativeBrowserViewModel {
       void runSnapshotCommand('nativeBrowser.closeTab', { workspaceId, tabId }),
     startCapture,
     cancelCapture: () => void finishCapture(),
+    stopAgentControl: () => {
+      void api()
+        .invoke('nativeBrowser.stopAgentControl', { workspaceId })
+        .catch(showError);
+    },
     retry: () => void open(),
     onCapturePointerDown,
     onCapturePointerMove,

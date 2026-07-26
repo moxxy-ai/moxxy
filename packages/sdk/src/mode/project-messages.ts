@@ -57,6 +57,16 @@ function imageBlockFromOutput(output: unknown): Extract<ContentBlock, { type: 'i
   return { type: 'image', mediaType: o.mediaType, data };
 }
 
+function imageToolText(output: unknown): string {
+  if (typeof output !== 'object' || output === null) {
+    return '[image returned by tool — see attached image]';
+  }
+  const forModel = (output as { forModel?: unknown }).forModel;
+  return typeof forModel === 'string' && forModel.trim()
+    ? forModel.slice(0, 32_000)
+    : '[image returned by tool — see attached image]';
+}
+
 /** Appended to the system prompt while elision is active (see projection). */
 export const ELISION_SYSTEM_NOTE =
   'Context note: to stay within budget, older turns may appear as stubs like ' +
@@ -497,9 +507,9 @@ export function projectMessages(
           // `forModel` summary — the structured `display` is for channels.
           text = e.output.forModel;
         } else if (e.ok && (image = imageBlockFromOutput(e.output))) {
-          // Short marker satisfies the tool_use→tool_result pairing; the image
-          // block (appended below) carries the actual pixels.
-          text = '[image returned by tool — see attached image]';
+          // Bounded semantic context can accompany the image (for example
+          // browser accessibility refs) without stringifying its base64 bytes.
+          text = imageToolText(e.output);
         } else {
           text = safeStringifyOutput(e.output);
         }

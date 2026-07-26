@@ -424,6 +424,7 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
     name: 'browser_session',
     description:
       'Drive the real browser attached to this session. In Moxxy Desktop this is the same native Chromium tab the user sees; CLI uses the Playwright fallback. Use for pages that need JS execution, clicks, form fills, screenshots, or tab management. For simple GETs prefer web_fetch. ' +
+      'For Moxxy Browser, start with `observe`; it returns bounded visible page text, the current tab, viewport, and accessible elements with revision-bound refs. Prefer those refs for click/type/select/upload/hover/drag, and use 0..1000 viewport-relative points only for visual canvas controls. Use `wait` for dynamic results, then re-observe after every action or STALE_BROWSER_STATE result. Never use full-desktop computer tools for Moxxy Browser. Upload accepts absolute paths only and remains permission-gated. ' +
       'Navigation is restricted to public http(s) origins: goto URLs and top-level/iframe navigations (including redirects) to loopback, private (RFC-1918), link-local/metadata, or CGNAT addresses are blocked. ' +
       'The `eval` action runs ARBITRARY JavaScript in the loaded page context (full DOM/cookie/localStorage access, can drive same-origin requests) — set MOXXY_BROWSER_DISABLE_EVAL=1 to disable in-page scripting while keeping navigation/click/fill. ' +
       'Residual risk: by default subresource requests (img/fetch/script) issued by a loaded page are NOT filtered, so a hostile page can still send blind requests at internal services; set MOXXY_BROWSER_FILTER_SUBRESOURCES=1 to filter those too.',
@@ -480,6 +481,9 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
           case 'click':
             return await call('click', {
               selector: action.selector,
+              target: action.target,
+              button: action.button,
+              count: action.count,
               timeoutMs: action.timeoutMs,
               tabId: action.tabId,
             });
@@ -488,6 +492,68 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
               selector: action.selector,
               value: action.value,
               timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
+            });
+          case 'type':
+            return await call('type', {
+              target: action.target,
+              value: action.value,
+              replace: action.replace,
+              timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
+            });
+          case 'hover':
+            return await call('hover', {
+              target: action.target,
+              timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
+            });
+          case 'press':
+            return await call('press', {
+              key: action.key,
+              modifiers: action.modifiers,
+              target: action.target,
+              tabId: action.tabId,
+            });
+          case 'scroll':
+            return await call('scroll', {
+              deltaX: action.deltaX,
+              deltaY: action.deltaY,
+              at: action.at,
+              tabId: action.tabId,
+            });
+          case 'drag':
+            return await call('drag', {
+              from: action.from,
+              to: action.to,
+              steps: action.steps,
+              tabId: action.tabId,
+            });
+          case 'select':
+            return await call('select', {
+              target: action.target,
+              values: action.values,
+              timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
+            });
+          case 'upload':
+            return await call('upload', {
+              target: action.target,
+              paths: action.paths,
+              timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
+            });
+          case 'wait':
+            return await call('wait', {
+              condition: action.condition,
+              timeoutMs: action.timeoutMs,
+              tabId: action.tabId,
+            });
+          case 'observe':
+            return await call('observe', {
+              mode: action.mode,
+              maxNodes: action.maxNodes,
+              maxTextChars: action.maxTextChars,
               tabId: action.tabId,
             });
           case 'text':
@@ -503,6 +569,12 @@ export function buildBrowserSessionTool(deps?: BrowserSessionDeps) {
             return await call('eval', { expression: action.expression, tabId: action.tabId });
           case 'url':
             return await call('url', { tabId: action.tabId });
+          case 'back':
+            return await call('back', { tabId: action.tabId });
+          case 'forward':
+            return await call('forward', { tabId: action.tabId });
+          case 'reload':
+            return await call('reload', { tabId: action.tabId });
           case 'tabs':
             return await call('tabs');
           case 'new_tab':
@@ -525,6 +597,15 @@ async function guardBrowserAction(action: BrowserSessionAction): Promise<void> {
       code: 'INTERNAL',
       message: 'browser_session eval is disabled (MOXXY_BROWSER_DISABLE_EVAL=1)',
     });
+  }
+  if (action.kind === 'upload') {
+    const invalid = action.paths.find((candidate) => !path.isAbsolute(candidate));
+    if (invalid) {
+      throw new MoxxyError({
+        code: 'TOOL_ERROR',
+        message: `browser upload path must be absolute: ${JSON.stringify(invalid)}`,
+      });
+    }
   }
   const url =
     action.kind === 'goto' || (action.kind === 'new_tab' && action.url) ? action.url : null;

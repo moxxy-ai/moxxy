@@ -195,6 +195,24 @@ export function NativeBrowserPaneView({
         </div>
       )}
 
+      {snapshot?.agentControl && (
+        <div
+          className="native-browser__agent-control"
+          role="status"
+          aria-label="Agent browser control"
+        >
+          <span className="native-browser__agent-control-dot" aria-hidden />
+          <span>Moxxy is controlling this tab</span>
+          <button
+            type="button"
+            aria-label="Stop agent control"
+            onClick={model.stopAgentControl}
+          >
+            Stop
+          </button>
+        </div>
+      )}
+
       <div
         ref={model.hostRef}
         className="native-browser__host"

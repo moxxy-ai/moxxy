@@ -24,6 +24,22 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/browser-routing, RESOLVED 2026-07-26] The native Moxxy Browser
+  and macOS Computer Control exposed overlapping visual capabilities without a
+  hard routing contract, so the model could inspect the full desktop and drive
+  DevTools or AppleScript instead of the browser tab shared with the user.
+  Native provider calls now route Moxxy Browser references exclusively through
+  `browser_session`. The browser uses bounded semantic observations with
+  revision-bound private refs first, browser-viewport images and normalized
+  coordinates only as fallback, one validated action schema at both runner and
+  Electron boundaries, observe-act-verify guidance, cancellation on client
+  disconnect, and a visible user Stop control. Hybrid observations project
+  their bounded semantic text and pixels together without serializing image
+  bytes into model text. Generic actions cover keyboard, hover, scroll, drag,
+  selects, uploads, waits, navigation, and tab management on the same signed-in
+  `WebContentsView`; the Playwright fallback preserves the same contract.
+  `packages/{plugin-browser,plugin-computer-control,skills-builtin,sdk}/`,
+  `packages/{desktop-host,desktop-ipc-contract}/`, `apps/desktop/`.
 - [high, desktop/browser, RESOLVED 2026-07-26] Desktop browsing rendered a
   screenshot polling mirror while browser tools controlled a separate Playwright
   page, so user and agent could diverge and the renderer paid continuous capture

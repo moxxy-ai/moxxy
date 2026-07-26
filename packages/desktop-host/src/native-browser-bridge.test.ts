@@ -119,6 +119,78 @@ describe('NativeBrowserBridge', () => {
     expect(executed).toBe(0);
   });
 
+  it('accepts the bounded browser observation contract at the socket boundary', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'moxxy-native-browser-'));
+    const socketPath = nativeBrowserBridgeSocket(root, 'darwin');
+    const received: NativeBrowserAgentAction[] = [];
+    const bridge = new NativeBrowserBridge({
+      socketPath,
+      execute: async (_workspaceId, action) => {
+        received.push(action);
+        return { revision: 'rev-1', nodes: [] };
+      },
+    });
+    bridges.push(bridge);
+    await bridge.start();
+    const env = bridge.runnerEnvironment('ws-1');
+
+    const response = await request(socketPath, {
+      id: 'observe',
+      token: env.MOXXY_NATIVE_BROWSER_TOKEN,
+      workspaceId: 'ws-1',
+      action: { kind: 'observe', mode: 'semantic', maxNodes: 100 },
+    });
+
+    expect(response).toMatchObject({
+      id: 'observe',
+      ok: true,
+      result: { revision: 'rev-1', nodes: [] },
+    });
+    expect(received).toEqual([{ kind: 'observe', mode: 'semantic', maxNodes: 100 }]);
+  });
+
+  it('aborts the in-flight browser action when the runner disconnects', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'moxxy-native-browser-'));
+    const socketPath = nativeBrowserBridgeSocket(root, 'darwin');
+    let observedSignal: AbortSignal | null = null;
+    const aborted = new Promise<void>((resolve) => {
+      const bridge = new NativeBrowserBridge({
+        socketPath,
+        execute: async (_workspaceId, _action, signal) => {
+          observedSignal = signal;
+          await new Promise<void>((done) => signal.addEventListener('abort', () => done(), { once: true }));
+          resolve();
+          throw new Error('runner disconnected');
+        },
+      });
+      bridges.push(bridge);
+    });
+    const bridge = bridges.at(-1);
+    expect(bridge).toBeDefined();
+    await bridge?.start();
+    const env = bridge?.runnerEnvironment('ws-1');
+    expect(env).toBeDefined();
+
+    const socket = connect(socketPath);
+    await new Promise<void>((resolve, reject) => {
+      socket.once('error', reject);
+      socket.once('connect', resolve);
+    });
+    socket.write(
+      `${JSON.stringify({
+        id: 'disconnect',
+        token: env?.MOXXY_NATIVE_BROWSER_TOKEN,
+        workspaceId: 'ws-1',
+        action: { kind: 'goto', url: 'https://example.com/' },
+      })}\n`,
+    );
+    await viWaitFor(() => observedSignal !== null);
+    socket.destroy();
+
+    await aborted;
+    expect(observedSignal?.aborted).toBe(true);
+  });
+
   it('creates a private socket directory and filesystem socket on POSIX', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'moxxy-native-browser-'));
     const socketPath = nativeBrowserBridgeSocket(root, 'linux');
@@ -173,4 +245,12 @@ function request(socketPath: string, payload: unknown): Promise<Record<string, u
       resolve(JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>);
     });
   });
+}
+
+async function viWaitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error('condition was not met');
 }

@@ -1,7 +1,7 @@
 {
   "name": "@moxxy/plugin-browser",
   "version": "0.33.0",
-  "description": "Web capabilities for moxxy: pluggable web_search fallback, web_fetch, and a Playwright browser_session sidecar.",
+  "description": "Web capabilities for moxxy: search, fetch, and a shared native/Playwright browser computer-use session.",
   "keywords": [
     "moxxy",
     "agent",
@@ -34,6 +34,14 @@
     "./ssrf-guard": {
       "types": "./dist/ssrf-guard.d.ts",
       "import": "./dist/ssrf-guard.js"
+    },
+    "./browser-action": {
+      "types": "./dist/browser-action.d.ts",
+      "import": "./dist/browser-action.js"
+    },
+    "./browser-observation": {
+      "types": "./dist/browser-observation.d.ts",
+      "import": "./dist/browser-observation.js"
     }
   },
   "bin": {

@@ -16,6 +16,12 @@ export interface NativeBrowserSnapshot {
   readonly tabs: ReadonlyArray<NativeBrowserTabSnapshot>;
   readonly activeTabId: string;
   readonly visible: boolean;
+  /** Present only while an agent-owned browser action is in flight. This is
+   * runtime UI state and is never persisted with the browser profile. */
+  readonly agentControl?: {
+    readonly action: string;
+    readonly startedAtMs: number;
+  };
 }
 
 export interface NativeBrowserAvailability {

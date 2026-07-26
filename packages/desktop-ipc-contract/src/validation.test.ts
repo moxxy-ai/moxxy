@@ -38,6 +38,20 @@ describe('IPC payload validation', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts only a workspace id when stopping native browser agent control', () => {
+    expect(() =>
+      validateIpcInput('nativeBrowser.stopAgentControl' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('nativeBrowser.stopAgentControl' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        action: 'click',
+      }),
+    ).toThrow();
+  });
   it('accepts no payload for the fixed Local Piper installer commands', () => {
     expect(() => validateIpcInput(
       'voice.isLocalPiperInstalled' as IpcCommandName,

@@ -18,6 +18,9 @@ interface HandleCalls {
   presses: string[];
   types: string[];
   evals: string[];
+  selects: Array<{ selector: string; values: ReadonlyArray<string> }>;
+  uploads: Array<{ selector: string; paths: ReadonlyArray<string> }>;
+  waits: string[];
 }
 
 function makeFakeHandle(opts?: {
@@ -26,7 +29,17 @@ function makeFakeHandle(opts?: {
   content?: string;
   viewport?: { width: number; height: number } | null;
 }): { handle: PlaywrightHandle; gotos: string[]; calls: HandleCalls } {
-  const calls: HandleCalls = { gotos: [], clicks: [], wheels: [], presses: [], types: [], evals: [] };
+  const calls: HandleCalls = {
+    gotos: [],
+    clicks: [],
+    wheels: [],
+    presses: [],
+    types: [],
+    evals: [],
+    selects: [],
+    uploads: [],
+    waits: [],
+  };
   let current = 'about:blank';
   const handle: PlaywrightHandle = {
     browser: { close: async () => {} },
@@ -39,6 +52,24 @@ function makeFakeHandle(opts?: {
       },
       click: async () => {},
       fill: async () => {},
+      selectOption: async (selector, values) => {
+        calls.selects.push({ selector, values });
+        return [...values];
+      },
+      setInputFiles: async (selector, paths) => {
+        calls.uploads.push({ selector, paths });
+      },
+      waitForSelector: async (selector) => {
+        calls.waits.push(selector);
+        return undefined;
+      },
+      waitForLoadState: async (state) => {
+        calls.waits.push(state);
+      },
+      waitForFunction: async (expression) => {
+        calls.waits.push(expression);
+        return undefined;
+      },
       textContent: async () => (opts && 'textContent' in opts ? (opts.textContent ?? null) : null),
       content: async () => opts?.content ?? '',
       screenshot: async () => Buffer.from('screenshot-bytes'),
@@ -50,14 +81,19 @@ function makeFakeHandle(opts?: {
       close: async () => {},
       viewportSize: () => (opts && 'viewport' in opts ? (opts.viewport ?? null) : { width: 800, height: 600 }),
       mouse: {
+        move: async () => {},
         click: async (x: number, y: number) => {
           calls.clicks.push({ x, y });
         },
+        down: async () => {},
+        up: async () => {},
         wheel: async (dx: number, dy: number) => {
           calls.wheels.push({ dx, dy });
         },
       },
       keyboard: {
+        down: async () => {},
+        up: async () => {},
         press: async (key: string) => {
           calls.presses.push(key);
         },
@@ -245,6 +281,54 @@ describe('sidecar dispatch protocol methods (against a pre-seeded handle)', () =
       { dx: 0, dy: 120 },
       { dx: 0, dy: 0 },
     ]);
+  });
+
+  it('handles select, upload, and wait on the Playwright fallback page', async () => {
+    const { handle, calls } = makeFakeHandle();
+    const state: SidecarState = { handle, pendingInstallNotice: null };
+
+    expect(
+      (
+        await dispatch(
+          state,
+          req('select', {
+            target: { type: 'selector', selector: '#country' },
+            values: ['PL'],
+          }),
+        )
+      ).ok,
+    ).toBe(true);
+    expect(
+      (
+        await dispatch(
+          state,
+          req('upload', {
+            target: { type: 'selector', selector: 'input[type=file]' },
+            paths: ['/tmp/avatar.png'],
+          }),
+        )
+      ).ok,
+    ).toBe(true);
+    expect(
+      (
+        await dispatch(
+          state,
+          req('wait', {
+            condition: {
+              type: 'target',
+              target: { type: 'selector', selector: '[role=dialog]' },
+              state: 'visible',
+            },
+          }),
+        )
+      ).ok,
+    ).toBe(true);
+
+    expect(calls.selects).toEqual([{ selector: '#country', values: ['PL'] }]);
+    expect(calls.uploads).toEqual([
+      { selector: 'input[type=file]', paths: ['/tmp/avatar.png'] },
+    ]);
+    expect(calls.waits).toEqual(['[role=dialog]']);
   });
 
   it('eval forwards the expression and returns its value', async () => {

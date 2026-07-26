@@ -3,6 +3,10 @@ import { chmod, lstat, mkdir, unlink } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import path from 'node:path';
 
+import {
+  browserSessionActionSchema,
+  type BrowserSessionAction,
+} from '@moxxy/plugin-browser/browser-action';
 import { isNamedPipe, platformSocket } from '@moxxy/runner';
 import { z } from '@moxxy/sdk';
 
@@ -11,55 +15,16 @@ const MAX_DARWIN_SOCKET_BYTES = 103;
 const MAX_LINUX_SOCKET_BYTES = 107;
 const SAFE_ID = /^[A-Za-z0-9_.-]+$/;
 
-const requiredTabId = z.string().min(1).max(256);
-const optionalTabId = requiredTabId.optional();
-const publicHttpUrl = z
-  .string()
-  .url()
-  .refine((url) => /^https?:\/\//i.test(url), 'only http(s) URLs allowed');
-
-const actionSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('goto'),
-    url: publicHttpUrl,
-    waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
-    timeoutMs: z.number().int().positive().max(120_000).optional(),
-    tabId: optionalTabId,
-  }).strict(),
-  z.object({
-    kind: z.literal('click'),
-    selector: z.string().min(1).max(16_384),
-    timeoutMs: z.number().int().positive().max(60_000).optional(),
-    tabId: optionalTabId,
-  }).strict(),
-  z.object({
-    kind: z.literal('fill'),
-    selector: z.string().min(1).max(16_384),
-    value: z.string().max(2 * 1024 * 1024),
-    timeoutMs: z.number().int().positive().max(60_000).optional(),
-    tabId: optionalTabId,
-  }).strict(),
-  z.object({ kind: z.literal('text'), selector: z.string().max(16_384).optional(), tabId: optionalTabId }).strict(),
-  z.object({ kind: z.literal('html'), tabId: optionalTabId }).strict(),
-  z.object({ kind: z.literal('screenshot'), fullPage: z.boolean().optional(), tabId: optionalTabId }).strict(),
-  z.object({ kind: z.literal('eval'), expression: z.string().min(1).max(2 * 1024 * 1024), tabId: optionalTabId }).strict(),
-  z.object({ kind: z.literal('url'), tabId: optionalTabId }).strict(),
-  z.object({ kind: z.literal('tabs') }).strict(),
-  z.object({ kind: z.literal('new_tab'), url: publicHttpUrl.optional() }).strict(),
-  z.object({ kind: z.literal('select_tab'), tabId: requiredTabId }).strict(),
-  z.object({ kind: z.literal('close_tab'), tabId: requiredTabId }).strict(),
-]);
-
 const requestSchema = z
   .object({
     id: z.string().min(1).max(128),
     token: z.string().regex(/^[a-f0-9]{64}$/),
     workspaceId: z.string().min(1).max(256).regex(SAFE_ID),
-    action: actionSchema,
+    action: browserSessionActionSchema,
   })
   .strict();
 
-export type NativeBrowserAgentAction = z.infer<typeof actionSchema>;
+export type NativeBrowserAgentAction = BrowserSessionAction;
 
 export interface NativeBrowserRunnerEnvironment {
   readonly MOXXY_BROWSER_BACKEND: 'native';
@@ -70,7 +35,11 @@ export interface NativeBrowserRunnerEnvironment {
 
 export interface NativeBrowserBridgeOptions {
   readonly socketPath: string;
-  readonly execute: (workspaceId: string, action: NativeBrowserAgentAction) => Promise<unknown>;
+  readonly execute: (
+    workspaceId: string,
+    action: NativeBrowserAgentAction,
+    signal: AbortSignal,
+  ) => Promise<unknown>;
 }
 
 /** Local-only, workspace-authenticated RPC boundary between a spawned runner
@@ -198,11 +167,25 @@ export class NativeBrowserBridge {
       this.writeError(socket, request.id, 'native browser authorization failed');
       return;
     }
+    const abortController = new AbortController();
+    let complete = false;
+    const abort = (): void => {
+      if (!complete) abortController.abort();
+    };
+    socket.once('close', abort);
     try {
-      const result = await this.options.execute(request.workspaceId, request.action);
+      const result = await this.options.execute(
+        request.workspaceId,
+        request.action,
+        abortController.signal,
+      );
+      complete = true;
       socket.end(`${JSON.stringify({ id: request.id, ok: true, result })}\n`);
     } catch (error) {
+      complete = true;
       this.writeError(socket, request.id, errorMessage(error));
+    } finally {
+      socket.removeListener('close', abort);
     }
   }
 

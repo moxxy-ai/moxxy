@@ -40,6 +40,11 @@ export interface PageHandle {
   goto(url: string, opts?: unknown): Promise<unknown>;
   click(selector: string, opts?: unknown): Promise<void>;
   fill(selector: string, value: string, opts?: unknown): Promise<void>;
+  selectOption(selector: string, values: ReadonlyArray<string>, opts?: unknown): Promise<unknown>;
+  setInputFiles(selector: string, paths: ReadonlyArray<string>, opts?: unknown): Promise<void>;
+  waitForSelector(selector: string, opts?: unknown): Promise<unknown>;
+  waitForLoadState(state: 'networkidle', opts?: unknown): Promise<void>;
+  waitForFunction(expression: string, arg?: unknown, opts?: unknown): Promise<unknown>;
   textContent(selector: string): Promise<string | null>;
   content(): Promise<string>;
   screenshot(opts?: unknown): Promise<Buffer>;
@@ -57,9 +62,13 @@ export interface PageHandle {
   readonly mouse: {
     move(x: number, y: number, opts?: unknown): Promise<void>;
     click(x: number, y: number, opts?: unknown): Promise<void>;
+    down(opts?: unknown): Promise<void>;
+    up(opts?: unknown): Promise<void>;
     wheel(dx: number, dy: number): Promise<void>;
   };
   readonly keyboard: {
+    down(key: string): Promise<void>;
+    up(key: string): Promise<void>;
     press(key: string): Promise<void>;
     type(text: string): Promise<void>;
   };

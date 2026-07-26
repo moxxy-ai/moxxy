@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -19,6 +20,16 @@ import {
   type NativeBrowserController,
   type NativeBrowserAgentAction,
 } from '@moxxy/desktop-host/native-browser';
+import type { BrowserTarget } from '@moxxy/plugin-browser/browser-action';
+import {
+  buildBrowserObservationScript,
+  buildBrowserRefPointScript,
+  buildBrowserRefValidationScript,
+  buildBrowserSelectorPointScript,
+  formatBrowserObservationForModel,
+  parseBrowserObservation,
+  type BrowserObservationTarget,
+} from '@moxxy/plugin-browser/browser-observation';
 import type {
   NativeBrowserAvailability,
   NativeBrowserCapture,
@@ -60,10 +71,19 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   private readonly store: NativeBrowserStateStore;
   private readonly views = new Map<string, WebContentsView>();
   private readonly activeAgentOperations = new WeakMap<WebContentsView, number>();
+  private readonly observations = new WeakMap<
+    WebContentsView,
+    Map<string, ReadonlyMap<string, BrowserObservationTarget>>
+  >();
   private readonly debuggerQueues = new WeakMap<WebContentsView, Promise<void>>();
   private readonly pendingNetworkRequests = new Map<number, Set<number>>();
   private readonly networkActivityListeners = new Map<number, Set<() => void>>();
   private readonly bounds = new Map<string, NativeBrowserRect>();
+  private readonly agentControls = new Map<string, Set<AbortController>>();
+  private readonly agentControlState = new Map<
+    string,
+    { readonly action: string; readonly startedAtMs: number }
+  >();
   private backend: NativeBrowserAvailability = { backend: 'playwright', available: true };
   private visibleWorkspaceId: string | null = null;
   private attachedKey: string | null = null;
@@ -121,7 +141,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     const snapshot = this.state.ensureWorkspace(args.workspaceId);
     for (const tab of snapshot.tabs) this.ensureView(args.workspaceId, tab);
     await this.setVisible({ workspaceId: args.workspaceId, visible: true });
-    return this.state.snapshot(args.workspaceId);
+    return this.snapshot(args.workspaceId);
   }
 
   async setVisible(args: { workspaceId: string; visible: boolean }): Promise<void> {
@@ -220,7 +240,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     if (this.visibleWorkspaceId === args.workspaceId) this.attachActiveView(args.workspaceId);
     this.publish(args.workspaceId);
     await this.persist();
-    return this.state.snapshot(args.workspaceId);
+    return this.snapshot(args.workspaceId);
   }
 
   async selectTab(args: { workspaceId: string; tabId: string }): Promise<NativeBrowserSnapshot> {
@@ -231,7 +251,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     }
     this.publish(args.workspaceId);
     await this.persist();
-    return this.state.snapshot(args.workspaceId);
+    return this.snapshot(args.workspaceId);
   }
 
   async closeTab(args: { workspaceId: string; tabId: string }): Promise<NativeBrowserSnapshot> {
@@ -245,14 +265,14 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       this.capture = null;
     }
     this.state.closeTab(args.workspaceId, args.tabId);
-    const snapshot = this.state.snapshot(args.workspaceId);
+    const snapshot = this.snapshot(args.workspaceId);
     const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
     if (!active) throw new Error('native browser active tab missing after close');
     this.ensureView(args.workspaceId, active);
     if (this.visibleWorkspaceId === args.workspaceId) this.attachActiveView(args.workspaceId);
     this.publish(args.workspaceId);
     await this.persist();
-    return this.state.snapshot(args.workspaceId);
+    return this.snapshot(args.workspaceId);
   }
 
   async beginCapture(args: { workspaceId: string; tabId?: string }): Promise<NativeBrowserCapture> {
@@ -301,12 +321,54 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   async executeAgentAction(
     workspaceId: string,
     action: NativeBrowserAgentAction,
+    signal?: AbortSignal,
   ): Promise<unknown> {
     this.requireNative();
+    this.state.ensureWorkspace(workspaceId);
+    const control = new AbortController();
+    const forwardAbort = (): void => control.abort();
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+    let controls = this.agentControls.get(workspaceId);
+    if (!controls) {
+      controls = new Set();
+      this.agentControls.set(workspaceId, controls);
+    }
+    controls.add(control);
+    this.agentControlState.set(workspaceId, {
+      action: action.kind,
+      startedAtMs: Date.now(),
+    });
+    this.publish(workspaceId);
+    try {
+      return await abortable(
+        this.executeAgentActionUnchecked(workspaceId, action),
+        control.signal,
+        () => this.stopWorkspaceLoads(workspaceId),
+      );
+    } finally {
+      signal?.removeEventListener('abort', forwardAbort);
+      controls.delete(control);
+      if (controls.size === 0) {
+        this.agentControls.delete(workspaceId);
+        this.agentControlState.delete(workspaceId);
+      }
+      this.publish(workspaceId);
+    }
+  }
+
+  async stopAgentControl(args: { workspaceId: string }): Promise<void> {
+    const controls = this.agentControls.get(args.workspaceId);
+    if (!controls) return;
+    for (const control of controls) control.abort();
+  }
+
+  private async executeAgentActionUnchecked(
+    workspaceId: string,
+    action: NativeBrowserAgentAction,
+  ): Promise<unknown> {
     switch (action.kind) {
       case 'tabs':
-        this.state.ensureWorkspace(workspaceId);
-        return this.state.snapshot(workspaceId);
+        return this.snapshot(workspaceId);
       case 'new_tab':
         return this.newTab({ workspaceId, ...(action.url ? { url: action.url } : {}) });
       case 'select_tab': {
@@ -337,23 +399,20 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
         await this.withAgentOperation(view, async () => {
-          const point = parseInteractionPoint(
-            await view.webContents.executeJavaScript(
-              clickTargetScript(action.selector, action.timeoutMs ?? 10_000),
-              true,
-            ),
+          const point = action.target
+            ? (await this.resolveBrowserTarget(view, action.target)).point
+            : parseInteractionPoint(
+                await view.webContents.executeJavaScript(
+                  clickTargetScript(action.selector ?? '', action.timeoutMs ?? 10_000),
+                  true,
+                ),
+              );
+          await this.dispatchMouseClick(
+            view,
+            point,
+            action.button ?? 'left',
+            action.count ?? 1,
           );
-          await this.withDebugger(view, async (debuggerSession) => {
-            const input = { x: point.x, y: point.y, button: 'left', clickCount: 1 } as const;
-            await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
-              type: 'mousePressed',
-              ...input,
-            });
-            await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
-              type: 'mouseReleased',
-              ...input,
-            });
-          });
         });
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
@@ -369,6 +428,227 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
             debuggerSession.sendCommand('Input.insertText', { text: action.value }),
           );
         });
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'observe': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const parsed = parseBrowserObservation(
+          await this.executeScript(
+            view,
+            buildBrowserObservationScript(
+              action.maxNodes ?? 120,
+              action.maxTextChars ?? 6_000,
+            ),
+          ),
+        );
+        this.rememberObservation(view, parsed.observation.revision, parsed.targets);
+        const nodes = action.mode === 'visual' ? [] : parsed.observation.nodes;
+        if (action.mode === 'visual' || action.mode === 'hybrid') {
+          const image = await this.withAgentOperation(view, () => view.webContents.capturePage());
+          return {
+            ...parsed.observation,
+            nodes,
+            tabId: target.id,
+            ...encodeCapture(image),
+            forModel: formatBrowserObservationForModel({
+              ...parsed.observation,
+              nodes,
+            }),
+          };
+        }
+        return { ...parsed.observation, nodes, tabId: target.id };
+      }
+      case 'hover': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const resolved = await this.resolveBrowserTarget(view, action.target);
+        await this.withDebugger(view, (debuggerSession) =>
+          debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: resolved.point.x,
+            y: resolved.point.y,
+          }),
+        );
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'type': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const resolved = await this.resolveBrowserTarget(view, action.target);
+        const selector = resolved.selector;
+        const value = action.value;
+        if (!selector) throw new Error('ELEMENT_NOT_INTERACTABLE: text target required');
+        if (value === undefined) throw new Error('INVALID_ACTION: text value required');
+        await this.withAgentOperation(view, async () => {
+          await view.webContents.executeJavaScript(
+            prepareFillTargetScript(selector, action.timeoutMs ?? 10_000),
+            true,
+          );
+          if (action.replace === false) {
+            await this.withDebugger(view, (debuggerSession) =>
+              debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+                type: 'keyDown',
+                key: 'End',
+              }),
+            );
+          }
+          await this.withDebugger(view, (debuggerSession) =>
+            debuggerSession.sendCommand('Input.insertText', { text: value }),
+          );
+        });
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'press': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        if (action.target) {
+          const resolved = await this.resolveBrowserTarget(view, action.target);
+          if (!resolved.selector) throw new Error('ELEMENT_NOT_INTERACTABLE: focus target required');
+          await this.executeScript(view, focusTargetScript(resolved.selector));
+        }
+        const modifiers = cdpModifiers(action.modifiers);
+        await this.withDebugger(view, async (debuggerSession) => {
+          await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+            type: 'keyDown',
+            key: action.key,
+            modifiers,
+          });
+          await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+            type: 'keyUp',
+            key: action.key,
+            modifiers,
+          });
+        });
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'scroll': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const bounds = view.getBounds();
+        const point = action.at
+          ? normalizedPoint(action.at, bounds.width, bounds.height)
+          : { x: bounds.width / 2, y: bounds.height / 2 };
+        await this.withDebugger(view, (debuggerSession) =>
+          debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseWheel',
+            x: point.x,
+            y: point.y,
+            deltaX: action.deltaX ?? 0,
+            deltaY: action.deltaY ?? 0,
+          }),
+        );
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'drag': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const start = await this.resolveBrowserTarget(view, action.from);
+        const end = await this.resolveBrowserTarget(view, action.to);
+        const steps = action.steps ?? 12;
+        await this.withDebugger(view, async (debuggerSession) => {
+          await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: start.point.x,
+            y: start.point.y,
+          });
+          await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: start.point.x,
+            y: start.point.y,
+            button: 'left',
+            clickCount: 1,
+          });
+          for (let step = 1; step <= steps; step += 1) {
+            const progress = step / steps;
+            await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+              type: 'mouseMoved',
+              x: start.point.x + (end.point.x - start.point.x) * progress,
+              y: start.point.y + (end.point.y - start.point.y) * progress,
+              button: 'left',
+            });
+          }
+          await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: end.point.x,
+            y: end.point.y,
+            button: 'left',
+            clickCount: 1,
+          });
+        });
+        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
+      }
+      case 'select': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const selector = await this.selectorForBrowserTarget(view, action.target);
+        const selected = await this.executeScript(
+          view,
+          selectOptionsScript(selector, action.values),
+        );
+        return {
+          tabId: target.id,
+          url: view.webContents.getURL() || BLANK_URL,
+          selected,
+        };
+      }
+      case 'upload': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const selector = await this.selectorForBrowserTarget(view, action.target);
+        await validateUploadFiles(action.paths);
+        await this.withDebugger(view, async (debuggerSession) => {
+          const objectId = parseRemoteObjectId(
+            await debuggerSession.sendCommand('Runtime.evaluate', {
+              expression: `document.querySelector(${JSON.stringify(selector)})`,
+              returnByValue: false,
+            }),
+          );
+          try {
+            await debuggerSession.sendCommand('DOM.setFileInputFiles', {
+              files: action.paths,
+              objectId,
+            });
+            await debuggerSession.sendCommand('Runtime.callFunctionOn', {
+              objectId,
+              functionDeclaration:
+                'function(){this.dispatchEvent(new Event("input",{bubbles:true}));' +
+                'this.dispatchEvent(new Event("change",{bubbles:true}));}',
+            });
+          } finally {
+            await debuggerSession
+              .sendCommand('Runtime.releaseObject', { objectId })
+              .catch(() => undefined);
+          }
+        });
+        return {
+          tabId: target.id,
+          url: view.webContents.getURL() || BLANK_URL,
+          files: action.paths.length,
+        };
+      }
+      case 'wait': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const timeoutMs = action.timeoutMs ?? 30_000;
+        if (action.condition.type === 'networkidle') {
+          const idle = this.createNetworkIdleWaiter(view.webContents.id, NETWORK_IDLE_MS);
+          try {
+            idle.start();
+            await withTimeout(idle.promise, timeoutMs, 'native browser network idle wait');
+          } finally {
+            idle.dispose();
+          }
+        } else {
+          const selector =
+            action.condition.type === 'target'
+              ? await this.selectorForBrowserTarget(view, action.condition.target)
+              : undefined;
+          await this.executeScript(
+            view,
+            waitConditionScript(action.condition, selector, timeoutMs),
+          );
+        }
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
       case 'text': {
@@ -409,11 +689,40 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         const target = this.captureTarget(workspaceId, action.tabId);
         return this.mustView(workspaceId, target).webContents.getURL() || BLANK_URL;
       }
+      case 'back': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        await this.back({ workspaceId, tabId: target.id });
+        return {
+          tabId: target.id,
+          url: this.mustView(workspaceId, target).webContents.getURL() || BLANK_URL,
+        };
+      }
+      case 'forward': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        await this.forward({ workspaceId, tabId: target.id });
+        return {
+          tabId: target.id,
+          url: this.mustView(workspaceId, target).webContents.getURL() || BLANK_URL,
+        };
+      }
+      case 'reload': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        await this.reload({ workspaceId, tabId: target.id });
+        return {
+          tabId: target.id,
+          url: this.mustView(workspaceId, target).webContents.getURL() || BLANK_URL,
+        };
+      }
     }
   }
 
   async destroy(): Promise<void> {
     this.detachAttachedView();
+    for (const controls of this.agentControls.values()) {
+      for (const control of controls) control.abort();
+    }
+    this.agentControls.clear();
+    this.agentControlState.clear();
     await this.persist().catch(() => undefined);
     for (const view of this.views.values()) {
       if (!view.webContents.isDestroyed()) view.webContents.close();
@@ -585,7 +894,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   private attachActiveView(workspaceId: string): void {
     const bounds = this.bounds.get(workspaceId);
     if (!bounds || this.capture) return;
-    const snapshot = this.state.snapshot(workspaceId);
+    const snapshot = this.snapshot(workspaceId);
     const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeTabId);
     if (!active) throw new Error('native browser active tab missing');
     const view = this.mustView(workspaceId, active);
@@ -651,7 +960,21 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   }
 
   private publish(workspaceId: string): void {
-    this.options.onChanged(workspaceId, this.state.snapshot(workspaceId));
+    this.options.onChanged(workspaceId, this.snapshot(workspaceId));
+  }
+
+  private snapshot(workspaceId: string): NativeBrowserSnapshot {
+    const snapshot = this.state.snapshot(workspaceId);
+    const agentControl = this.agentControlState.get(workspaceId);
+    return agentControl ? { ...snapshot, agentControl } : snapshot;
+  }
+
+  private stopWorkspaceLoads(workspaceId: string): void {
+    const prefix = `${workspaceId}\u0000`;
+    for (const [key, view] of this.views) {
+      if (!key.startsWith(prefix) || view.webContents.isDestroyed()) continue;
+      view.webContents.stop();
+    }
   }
 
   private persist(): Promise<void> {
@@ -682,6 +1005,89 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
 
   private executeScript(view: WebContentsView, script: string): Promise<unknown> {
     return this.withAgentOperation(view, () => view.webContents.executeJavaScript(script, true));
+  }
+
+  private rememberObservation(
+    view: WebContentsView,
+    revision: string,
+    targets: ReadonlyMap<string, BrowserObservationTarget>,
+  ): void {
+    let observations = this.observations.get(view);
+    if (!observations) {
+      observations = new Map();
+      this.observations.set(view, observations);
+    }
+    observations.set(revision, targets);
+    while (observations.size > 3) {
+      const oldest = observations.keys().next().value as string | undefined;
+      if (!oldest) break;
+      observations.delete(oldest);
+    }
+  }
+
+  private async resolveBrowserTarget(
+    view: WebContentsView,
+    target: BrowserTarget,
+  ): Promise<{ readonly point: { readonly x: number; readonly y: number }; readonly selector?: string }> {
+    if (target.type === 'point') {
+      const bounds = view.getBounds();
+      return { point: normalizedPoint(target, bounds.width, bounds.height) };
+    }
+    if (target.type === 'selector') {
+      return {
+        selector: target.selector,
+        point: parseInteractionPoint(
+          await this.executeScript(view, buildBrowserSelectorPointScript(target.selector)),
+          'ELEMENT_NOT_FOUND',
+        ),
+      };
+    }
+    const observation = this.observations.get(view)?.get(target.revision);
+    const stored = observation?.get(target.ref);
+    if (!stored) throw new Error('STALE_BROWSER_STATE: observe the page again');
+    return {
+      selector: stored.selector,
+      point: parseInteractionPoint(
+        await this.executeScript(view, buildBrowserRefPointScript(stored, target.revision)),
+        'STALE_BROWSER_STATE',
+      ),
+    };
+  }
+
+  private async selectorForBrowserTarget(
+    view: WebContentsView,
+    target: Exclude<BrowserTarget, { readonly type: 'point' }>,
+  ): Promise<string> {
+    if (target.type === 'selector') return target.selector;
+    const observations = this.observations.get(view);
+    const revision = observations?.get(target.revision);
+    const stored = revision?.get(target.ref);
+    if (!stored) throw new Error('STALE_BROWSER_STATE: observe the page again');
+    const current = await this.executeScript(
+      view,
+      buildBrowserRefValidationScript(target.revision),
+    );
+    if (current !== true) throw new Error('STALE_BROWSER_STATE: observe the page again');
+    return stored.selector;
+  }
+
+  private dispatchMouseClick(
+    view: WebContentsView,
+    point: { readonly x: number; readonly y: number },
+    button: 'left' | 'middle' | 'right',
+    clickCount: number,
+  ): Promise<void> {
+    return this.withDebugger(view, async (debuggerSession) => {
+      const input = { x: point.x, y: point.y, button, clickCount };
+      await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        ...input,
+      });
+      await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        ...input,
+      });
+    });
   }
 
   private async loadUrl(
@@ -976,18 +1382,152 @@ function prepareFillTargetScript(selector: string, timeoutMs: number): string {
   }))()`;
 }
 
-function parseInteractionPoint(value: unknown): { x: number; y: number } {
-  if (!value || typeof value !== 'object') throw new Error('native browser click target is invalid');
-  const point = value as { x?: unknown; y?: unknown };
+function focusTargetScript(selector: string): string {
+  return `(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!(element instanceof HTMLElement)) {
+      throw new Error('ELEMENT_NOT_FOUND: focus target is unavailable');
+    }
+    element.focus();
+    return { focused: document.activeElement === element };
+  })()`;
+}
+
+function selectOptionsScript(selector: string, values: ReadonlyArray<string>): string {
+  return `(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    if (!(element instanceof HTMLSelectElement)) {
+      throw new Error('ELEMENT_NOT_INTERACTABLE: target is not a select');
+    }
+    const requested = new Set(${JSON.stringify(values)});
+    const selected = [];
+    for (const option of element.options) {
+      option.selected = requested.has(option.value) || requested.has(option.label);
+      if (option.selected) selected.push(option.value);
+    }
+    if (selected.length === 0) {
+      throw new Error('SELECT_OPTION_NOT_FOUND: no requested option exists');
+    }
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return selected;
+  })()`;
+}
+
+function waitConditionScript(
+  condition:
+    | {
+        readonly type: 'target';
+        readonly state: 'visible' | 'hidden';
+      }
+    | { readonly type: 'text'; readonly text: string }
+    | { readonly type: 'url'; readonly includes: string },
+  selector: string | undefined,
+  timeoutMs: number,
+): string {
+  const conditionJson = JSON.stringify(condition);
+  const selectorJson = JSON.stringify(selector ?? null);
+  return `(() => new Promise((resolve, reject) => {
+    const condition = ${conditionJson};
+    const selector = ${selectorJson};
+    const deadline = Date.now() + ${timeoutMs};
+    const visible = (element) => {
+      if (!(element instanceof HTMLElement)) return false;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+        style.visibility !== 'hidden' && style.opacity !== '0';
+    };
+    const matches = () => {
+      if (condition.type === 'target') {
+        const found = selector ? document.querySelector(selector) : null;
+        return condition.state === 'visible' ? visible(found) : !visible(found);
+      }
+      if (condition.type === 'text') {
+        return Boolean(document.body?.innerText.includes(condition.text));
+      }
+      return location.href.includes(condition.includes);
+    };
+    const check = () => {
+      if (matches()) {
+        resolve({ matched: true });
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(new Error('Timed out waiting for browser condition'));
+        return;
+      }
+      setTimeout(check, 50);
+    };
+    check();
+  }))()`;
+}
+
+async function validateUploadFiles(paths: ReadonlyArray<string>): Promise<void> {
+  for (const candidate of paths) {
+    if (!path.isAbsolute(candidate)) {
+      throw new Error(`browser upload path must be absolute: ${JSON.stringify(candidate)}`);
+    }
+    const stats = await lstat(candidate);
+    if (!stats.isFile() || stats.isSymbolicLink()) {
+      throw new Error(`browser upload path must be a regular file: ${JSON.stringify(candidate)}`);
+    }
+  }
+}
+
+function parseRemoteObjectId(value: unknown): string {
+  if (!value || typeof value !== 'object') {
+    throw new Error('ELEMENT_NOT_FOUND: file input is unavailable');
+  }
+  const result = (value as { result?: unknown }).result;
+  if (!result || typeof result !== 'object') {
+    throw new Error('ELEMENT_NOT_FOUND: file input is unavailable');
+  }
+  const objectId = (result as { objectId?: unknown }).objectId;
+  if (typeof objectId !== 'string' || objectId.length === 0) {
+    throw new Error('ELEMENT_NOT_FOUND: file input is unavailable');
+  }
+  return objectId;
+}
+
+function parseInteractionPoint(
+  value: unknown,
+  errorCode = 'native browser click target',
+): { x: number; y: number } {
+  if (!value || typeof value !== 'object') throw new Error(`${errorCode}: target is invalid`);
+  const point = value as { x?: unknown; y?: unknown; stale?: unknown };
+  if (point.stale === true) throw new Error(`${errorCode}: observe the page again`);
   if (
     typeof point.x !== 'number' ||
     !Number.isFinite(point.x) ||
     typeof point.y !== 'number' ||
     !Number.isFinite(point.y)
   ) {
-    throw new Error('native browser click target has invalid coordinates');
+    throw new Error(`${errorCode}: target has invalid coordinates`);
   }
   return { x: point.x, y: point.y };
+}
+
+function normalizedPoint(
+  point: { readonly x: number; readonly y: number },
+  width: number,
+  height: number,
+): { readonly x: number; readonly y: number } {
+  return {
+    x: (point.x / 1_000) * Math.max(1, width),
+    y: (point.y / 1_000) * Math.max(1, height),
+  };
+}
+
+function cdpModifiers(
+  modifiers: ReadonlyArray<'alt' | 'control' | 'meta' | 'shift'> | undefined,
+): number {
+  return (modifiers ?? []).reduce((mask, modifier) => {
+    if (modifier === 'alt') return mask | 1;
+    if (modifier === 'control') return mask | 2;
+    if (modifier === 'meta') return mask | 4;
+    return mask | 8;
+  }, 0);
 }
 
 function parseLayoutMetrics(value: unknown): { width: number; height: number } {
@@ -1046,6 +1586,34 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
       },
       (error) => {
         clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function abortable<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+  onAbort: () => void,
+): Promise<T> {
+  if (signal.aborted) {
+    onAbort();
+    return Promise.reject(new Error('BROWSER_CONTROL_STOPPED: user took control'));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => {
+      onAbort();
+      reject(new Error('BROWSER_CONTROL_STOPPED: user took control'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', abort);
         reject(error);
       },
     );

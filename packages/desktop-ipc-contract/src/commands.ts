@@ -508,6 +508,7 @@ export interface IpcCommands {
     tabId?: string;
     rect?: NativeBrowserRect;
   }) => Promise<NativeBrowserCapture | null>;
+  'nativeBrowser.stopAgentControl': (args: { workspaceId: string }) => Promise<void>;
 
   // ---- Chat transcript history (read from the runner's authoritative log) ---
   /** Page the workspace's history from the RUNNER's authoritative log

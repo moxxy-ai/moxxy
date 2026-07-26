@@ -3,6 +3,7 @@ import { webFetchTool } from './web-fetch.js';
 import { buildWebSearchTool, type BuildWebSearchToolOptions } from './web-search.js';
 import { buildBrowserSessionTool, closeBrowserSidecar, type BrowserSessionDeps } from './browser-session.js';
 import { buildBrowserSurface } from './browser-surface.js';
+import { injectNativeBrowserRouting } from './browser-routing.js';
 
 export { webFetchTool, htmlToPlainText, htmlToMarkdown } from './web-fetch.js';
 export {
@@ -24,6 +25,19 @@ export {
   type SidecarStream,
 } from './browser-session.js';
 export { createNativeBrowserBridgeClient } from './native-browser-client.js';
+export { browserSessionActionSchema, browserTargetSchema } from './browser-action.js';
+export {
+  buildBrowserObservationScript,
+  buildBrowserRefPointScript,
+  buildBrowserRefValidationScript,
+  buildBrowserSelectorPointScript,
+  formatBrowserObservationForModel,
+  parseBrowserObservation,
+  type BrowserObservation,
+  type BrowserObservationTarget,
+  type ParsedBrowserObservation,
+} from './browser-observation.js';
+export { injectNativeBrowserRouting } from './browser-routing.js';
 export { buildBrowserSurface } from './browser-surface.js';
 export {
   assertPublicUrl,
@@ -43,6 +57,8 @@ export function buildBrowserPlugin(opts: BuildBrowserPluginOptions = {}) {
     tools: [buildWebSearchTool(opts.webSearch), webFetchTool, buildBrowserSessionTool(opts)],
     surfaces: [buildBrowserSurface(opts)],
     hooks: {
+      onBeforeProviderCall: (request, context) =>
+        injectNativeBrowserRouting(request, context.env),
       onShutdown: async () => {
         // Make sure the sidecar process exits with the session.
         await closeBrowserSidecar();

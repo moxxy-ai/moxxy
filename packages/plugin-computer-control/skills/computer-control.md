@@ -41,6 +41,12 @@ use the `computer_*` tools. Each one prompts for permission **every time**;
 the user explicitly approves each action. There is no "allow always" for
 these by design.
 
+**Moxxy Browser is not an external desktop app.** If the user says “Moxxy
+Browser”, “the browser pane”, “the first tab”, “this page”, or asks what is
+open there, use `browser_session` and its `observe → act → observe` loop.
+Do not use `computer_screenshot`, coordinates, or AppleScript for Moxxy
+Browser. Use this skill for Safari, Chrome, Finder, and other native apps.
+
 ## macOS permission prerequisites
 
 On first use the user will see a system dialog from macOS itself. Tell them

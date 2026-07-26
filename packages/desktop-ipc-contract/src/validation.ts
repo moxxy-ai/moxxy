@@ -219,6 +219,9 @@ export const ipcInputSchemas: Partial<Record<IpcCommandName, z.ZodTypeAny>> = {
     .strict(),
   'nativeBrowser.beginCapture': nativeBrowserTarget,
   'nativeBrowser.endCapture': nativeBrowserTarget.extend({ rect: nativeBrowserRect.optional() }).strict(),
+  'nativeBrowser.stopAgentControl': z
+    .object({ workspaceId: nativeBrowserWorkspaceId })
+    .strict(),
   // No-arg, but spawns a child process (npm install) — pin the payload to
   // "nothing" so a hostile renderer can't smuggle args across.
   'app.cliInfo': z.undefined(),

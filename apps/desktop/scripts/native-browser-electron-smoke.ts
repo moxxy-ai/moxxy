@@ -137,14 +137,46 @@ async function run(): Promise<void> {
     });
     await progress('form-loaded');
 
+    const observation = await controller.executeAgentAction(WORKSPACE_ID, {
+      kind: 'observe',
+      mode: 'semantic',
+    });
+    const observed = parseObservation(observation);
+    const messageTarget = observed.nodes.find(
+      (node) => node.role === 'textbox' && node.name === 'Message',
+    );
+    const applyTarget = observed.nodes.find(
+      (node) => node.role === 'button' && node.name === 'Apply',
+    );
+    if (!messageTarget || !applyTarget) {
+      throw new Error('semantic observation did not expose the form controls');
+    }
     await controller.executeAgentAction(WORKSPACE_ID, {
-      kind: 'fill',
-      selector: '#message',
+      kind: 'type',
+      target: {
+        type: 'ref',
+        ref: messageTarget.ref,
+        revision: observed.revision,
+      },
       value: 'Zażółć gęślą jaźń — native input',
     });
+    const afterType = parseObservation(
+      await controller.executeAgentAction(WORKSPACE_ID, {
+        kind: 'observe',
+        mode: 'semantic',
+      }),
+    );
+    const currentApplyTarget = afterType.nodes.find(
+      (node) => node.role === 'button' && node.name === 'Apply',
+    );
+    if (!currentApplyTarget) throw new Error('updated observation lost the Apply button');
     await controller.executeAgentAction(WORKSPACE_ID, {
       kind: 'click',
-      selector: '#apply',
+      target: {
+        type: 'ref',
+        ref: currentApplyTarget.ref,
+        revision: afterType.revision,
+      },
     });
     const renderedText = await controller.executeAgentAction(WORKSPACE_ID, {
       kind: 'text',
@@ -265,6 +297,7 @@ async function run(): Promise<void> {
       backend: (await controller.status()).backend,
       realWebContentsViews: views.length,
       tabsBeforeRestart: second.tabs.length,
+      semanticControls: observed.nodes.length,
       interactionMs: round(interactionMs),
       networkIdleMs: round(networkIdleMs),
       captureMs: round(captureMs),
@@ -303,7 +336,29 @@ function testPage(pathname: string): string {
     );
     return `<!doctype html><html><head><title>Heavy</title></head><body><h1 id="headline">Heavy native page</h1><ul>${rows}</ul></body></html>`;
   }
-  return `<!doctype html><html><head><title>Form</title><style>body{min-height:6000px;font:16px sans-serif}input{width:420px}</style></head><body><h1>Native form</h1><input id="message"><button id="apply">Apply</button><output id="result"></output><output id="input-trusted"></output><output id="click-trusted"></output><div style="height:5500px"></div><p>End of page</p><script>message.addEventListener('input', event => { document.querySelector('#input-trusted').textContent = String(event.isTrusted); }); apply.addEventListener('click', event => { result.textContent = message.value; document.querySelector('#click-trusted').textContent = String(event.isTrusted); });</script></body></html>`;
+  return `<!doctype html><html><head><title>Form</title><style>body{min-height:6000px;font:16px sans-serif}input{width:420px}</style></head><body><h1>Native form</h1><label for="message">Message</label><input id="message"><button id="apply">Apply</button><output id="result"></output><output id="input-trusted"></output><output id="click-trusted"></output><div style="height:5500px"></div><p>End of page</p><script>message.addEventListener('input', event => { document.querySelector('#input-trusted').textContent = String(event.isTrusted); }); apply.addEventListener('click', event => { result.textContent = message.value; document.querySelector('#click-trusted').textContent = String(event.isTrusted); });</script></body></html>`;
+}
+
+function parseObservation(value: unknown): {
+  readonly revision: string;
+  readonly nodes: ReadonlyArray<{ readonly ref: string; readonly role: string; readonly name: string }>;
+} {
+  if (!value || typeof value !== 'object') throw new Error('semantic observation was not an object');
+  const observation = value as { revision?: unknown; nodes?: unknown };
+  if (typeof observation.revision !== 'string' || !Array.isArray(observation.nodes)) {
+    throw new Error('semantic observation was incomplete');
+  }
+  const nodes = observation.nodes.filter(
+    (node): node is { ref: string; role: string; name: string } =>
+      Boolean(
+        node &&
+          typeof node === 'object' &&
+          typeof (node as { ref?: unknown }).ref === 'string' &&
+          typeof (node as { role?: unknown }).role === 'string' &&
+          typeof (node as { name?: unknown }).name === 'string',
+      ),
+  );
+  return { revision: observation.revision, nodes };
 }
 
 function isPngCapture(value: unknown): value is { base64: string; mediaType: 'image/png' } {

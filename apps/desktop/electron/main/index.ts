@@ -729,7 +729,8 @@ app.whenReady().then(async () => {
     const controller = nativeBrowser;
     const bridge = new NativeBrowserBridge({
       socketPath: nativeBrowserBridgeSocket(userData),
-      execute: (workspaceId, action) => controller.executeAgentAction(workspaceId, action),
+      execute: (workspaceId, action, signal) =>
+        controller.executeAgentAction(workspaceId, action, signal),
     });
     try {
       await bridge.start();

@@ -25,4 +25,5 @@ export function registerNativeBrowserIpc(
   handle('nativeBrowser.closeTab', (args) => controller.closeTab(args));
   handle('nativeBrowser.beginCapture', (args) => controller.beginCapture(args));
   handle('nativeBrowser.endCapture', (args) => controller.endCapture(args));
+  handle('nativeBrowser.stopAgentControl', (args) => controller.stopAgentControl(args));
 }

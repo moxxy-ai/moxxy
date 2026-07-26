@@ -199,6 +199,39 @@ describe('BrowserPaneGateway', () => {
       }),
     );
   });
+
+  it('shows active agent control and lets the user stop it immediately', async () => {
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'nativeBrowser.open') {
+        return {
+          ...snapshot,
+          agentControl: {
+            action: 'click',
+            startedAtMs: 1_700_000_000_000,
+          },
+        };
+      }
+      return undefined;
+    });
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
+
+    render(<BrowserPaneGateway workspaceId="ws-1" />);
+
+    expect(await screen.findByRole('status', { name: 'Agent browser control' })).toHaveTextContent(
+      'Moxxy is controlling this tab',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Stop agent control' }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('nativeBrowser.stopAgentControl', {
+        workspaceId: 'ws-1',
+      }),
+    );
+  });
 });
 
 function deferred<T>(): {

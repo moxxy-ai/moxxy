@@ -138,6 +138,93 @@ describe('browser_session tool (sidecar protocol)', () => {
     expect((first.params as { expression: string }).expression).toBe('1 + 41');
     await closeBrowserSidecar();
   });
+
+  it('forwards observe and generic computer-use actions through the same sidecar', async () => {
+    const { spawn, receivedRequests } = makeFakeSpawn((req) => {
+      if (req.method === 'observe') {
+        return { revision: 'rev-1', nodes: [{ ref: 'b1', role: 'button', name: 'Send' }] };
+      }
+      return { ok: true };
+    });
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
+
+    await tool.handler(
+      { action: { kind: 'observe', mode: 'semantic', maxNodes: 80 } },
+      baseCtx(),
+    );
+    await tool.handler(
+      {
+        action: {
+          kind: 'click',
+          target: { type: 'ref', ref: 'b1', revision: 'rev-1' },
+        },
+      },
+      baseCtx(),
+    );
+    await tool.handler(
+      { action: { kind: 'press', key: 'Enter', modifiers: ['shift'] } },
+      baseCtx(),
+    );
+
+    expect(receivedRequests.map(({ method }) => method)).toEqual([
+      'observe',
+      'click',
+      'press',
+    ]);
+    expect(receivedRequests[1]?.params).toMatchObject({
+      target: { type: 'ref', ref: 'b1', revision: 'rev-1' },
+    });
+    await closeBrowserSidecar();
+  });
+
+  it('forwards complete form, wait, and navigation actions', async () => {
+    const { spawn, receivedRequests } = makeFakeSpawn(() => ({ ok: true }));
+    const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
+
+    await tool.handler(
+      {
+        action: {
+          kind: 'select',
+          target: { type: 'selector', selector: '#country' },
+          values: ['PL'],
+        },
+      },
+      baseCtx(),
+    );
+    await tool.handler(
+      {
+        action: {
+          kind: 'upload',
+          target: { type: 'selector', selector: 'input[type=file]' },
+          paths: ['/tmp/avatar.png'],
+        },
+      },
+      baseCtx(),
+    );
+    await tool.handler(
+      {
+        action: {
+          kind: 'wait',
+          condition: { type: 'text', text: 'Saved' },
+          timeoutMs: 5_000,
+        },
+      },
+      baseCtx(),
+    );
+    await tool.handler({ action: { kind: 'back' } }, baseCtx());
+    await tool.handler({ action: { kind: 'forward' } }, baseCtx());
+    await tool.handler({ action: { kind: 'reload' } }, baseCtx());
+
+    expect(receivedRequests.map(({ method }) => method)).toEqual([
+      'select',
+      'upload',
+      'wait',
+      'back',
+      'forward',
+      'reload',
+    ]);
+    await closeBrowserSidecar();
+  });
 });
 
 describe('browser_session tool (native desktop bridge)', () => {

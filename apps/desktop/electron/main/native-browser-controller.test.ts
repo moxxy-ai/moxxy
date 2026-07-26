@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -342,6 +342,189 @@ describe('ElectronNativeBrowserController agent operations', () => {
     await controller.destroy();
   });
 
+  it('observes the visible page and clicks a revision-bound element reference', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.setScriptResults([
+      {
+        revision: 'rev-1',
+        title: 'Inbox',
+        url: 'https://mail.example.test/',
+        visibleText: 'Inbox Compose',
+        viewport: { width: 800, height: 600, deviceScaleFactor: 2 },
+        nodes: [
+          {
+            ref: 'b1',
+            role: 'button',
+            name: 'Compose',
+            selector: '#compose',
+            bounds: { x: 80, y: 120, width: 120, height: 40 },
+          },
+        ],
+      },
+      { stale: false, x: 140, y: 140 },
+    ]);
+
+    const observation = await controller.executeAgentAction('ws-1', {
+      kind: 'observe',
+      mode: 'semantic',
+      maxNodes: 80,
+    });
+    await controller.executeAgentAction('ws-1', {
+      kind: 'click',
+      target: { type: 'ref', ref: 'b1', revision: 'rev-1' },
+    });
+
+    expect(observation).toMatchObject({
+      revision: 'rev-1',
+      title: 'Inbox',
+      nodes: [{ ref: 'b1', role: 'button', name: 'Compose' }],
+    });
+    expect(observation).not.toHaveProperty('nodes.0.selector');
+    expect(view?.webContents.debugger.commands).toEqual([
+      {
+        method: 'Input.dispatchMouseEvent',
+        params: { type: 'mousePressed', x: 140, y: 140, button: 'left', clickCount: 1 },
+      },
+      {
+        method: 'Input.dispatchMouseEvent',
+        params: { type: 'mouseReleased', x: 140, y: 140, button: 'left', clickCount: 1 },
+      },
+    ]);
+    await controller.destroy();
+  });
+
+  it('rejects a stale or unknown element reference instead of clicking blindly', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+
+    await expect(
+      controller.executeAgentAction('ws-1', {
+        kind: 'click',
+        target: { type: 'ref', ref: 'b1', revision: 'stale-revision' },
+      }),
+    ).rejects.toThrow(/STALE_BROWSER_STATE/);
+    expect(view?.webContents.debugger.commands).toHaveLength(0);
+    await controller.destroy();
+  });
+
+  it('revalidates a revision-bound ref before non-pointer actions', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.setScriptResults([
+      {
+        revision: 'rev-select-1',
+        title: 'Preferences',
+        url: 'https://example.test/preferences',
+        visibleText: 'Country',
+        viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
+        nodes: [
+          {
+            ref: 'b1',
+            role: 'combobox',
+            name: 'Country',
+            selector: '#country',
+            bounds: { x: 40, y: 80, width: 160, height: 30 },
+          },
+        ],
+      },
+      false,
+    ]);
+
+    await controller.executeAgentAction('ws-1', { kind: 'observe', mode: 'semantic' });
+    await expect(
+      controller.executeAgentAction('ws-1', {
+        kind: 'select',
+        target: { type: 'ref', ref: 'b1', revision: 'rev-select-1' },
+        values: ['PL'],
+      }),
+    ).rejects.toThrow(/STALE_BROWSER_STATE/);
+    expect(view?.webContents.executedScripts.at(-1)).toContain(
+      'state.revision === "rev-select-1"',
+    );
+    await controller.destroy();
+  });
+
+  it('selects options, waits for page state, and uploads only a real file', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    const root = await mkdtemp(path.join(os.tmpdir(), 'native-browser-upload-'));
+    const uploadPath = path.join(root, 'avatar.png');
+    await writeFile(uploadPath, 'image');
+    view?.webContents.setScriptResults([['PL'], { matched: true }]);
+    view?.webContents.debugger.setResult('Runtime.evaluate', {
+      result: { objectId: 'input-object-1' },
+    });
+
+    await expect(
+      controller.executeAgentAction('ws-1', {
+        kind: 'select',
+        target: { type: 'selector', selector: '#country' },
+        values: ['PL'],
+      }),
+    ).resolves.toMatchObject({ selected: ['PL'] });
+    await expect(
+      controller.executeAgentAction('ws-1', {
+        kind: 'wait',
+        condition: { type: 'text', text: 'Saved' },
+      }),
+    ).resolves.toMatchObject({ tabId: expect.any(String) });
+    await expect(
+      controller.executeAgentAction('ws-1', {
+        kind: 'upload',
+        target: { type: 'selector', selector: 'input[type=file]' },
+        paths: [uploadPath],
+      }),
+    ).resolves.toMatchObject({ files: 1 });
+
+    expect(view?.webContents.executedScripts[0]).toContain('HTMLSelectElement');
+    expect(view?.webContents.executedScripts[1]).toContain('Timed out waiting');
+    expect(view?.webContents.debugger.commands).toEqual(
+      expect.arrayContaining([
+        {
+          method: 'DOM.setFileInputFiles',
+          params: { files: [uploadPath], objectId: 'input-object-1' },
+        },
+      ]),
+    );
+    await controller.destroy();
+  });
+
+  it('publishes agent control and lets the user stop a long-running action', async () => {
+    const snapshots: Array<{ agentControl?: { action: string } }> = [];
+    const controller = await createController(
+      views,
+      [],
+      createNetworkLifecycle(),
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    const load = createDeferred<void>();
+    view?.webContents.setDeferredLoad(load.promise);
+
+    const navigation = controller.executeAgentAction('ws-1', {
+      kind: 'goto',
+      url: 'https://93.184.216.34/slow',
+      waitUntil: 'load',
+    });
+    await vi.waitFor(() =>
+      expect(snapshots.at(-1)?.agentControl).toMatchObject({ action: 'goto' }),
+    );
+
+    await controller.stopAgentControl({ workspaceId: 'ws-1' });
+
+    await expect(navigation).rejects.toThrow(/BROWSER_CONTROL_STOPPED/);
+    expect(view?.webContents.stop).toHaveBeenCalledOnce();
+    expect(snapshots.at(-1)?.agentControl).toBeUndefined();
+    load.resolve(undefined);
+    await controller.destroy();
+  });
+
   it('throttles a hidden tab except while an agent operation is active', async () => {
     const controller = await createController(views);
     await controller.open({ workspaceId: 'ws-1' });
@@ -499,6 +682,7 @@ async function createController(
   views: FakeView[],
   requestGuards: RequestGuard[] = [],
   lifecycle: NetworkLifecycle = createNetworkLifecycle(),
+  onChanged: (snapshot: { agentControl?: { action: string } }) => void = vi.fn(),
 ): Promise<ElectronNativeBrowserController> {
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'native-controller-'));
   const controller = new ElectronNativeBrowserController({
@@ -520,7 +704,7 @@ async function createController(
     } as never,
     userDataDir,
     getMainWindow: () => null,
-    onChanged: vi.fn(),
+    onChanged: (_workspaceId, snapshot) => onChanged(snapshot),
     createView: () => {
       const view = new FakeView();
       views.push(view);
@@ -551,6 +735,7 @@ class FakeWebContents extends EventEmitter {
   readonly executedScripts: string[] = [];
   readonly captureCalls: unknown[] = [];
   readonly debugger = new FakeDebugger();
+  readonly stop = vi.fn();
   readonly navigationHistory = {
     canGoBack: () => false,
     canGoForward: () => false,

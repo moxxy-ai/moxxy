@@ -33,5 +33,10 @@ export interface NativeBrowserController {
     tabId?: string;
     rect?: NativeBrowserRect;
   }): Promise<NativeBrowserCapture | null>;
-  executeAgentAction(workspaceId: string, action: NativeBrowserAgentAction): Promise<unknown>;
+  stopAgentControl(args: { workspaceId: string }): Promise<void>;
+  executeAgentAction(
+    workspaceId: string,
+    action: NativeBrowserAgentAction,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
 }

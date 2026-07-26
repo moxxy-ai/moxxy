@@ -5,6 +5,16 @@
 
 import { randomUUID } from 'node:crypto';
 
+import type { BrowserTarget } from '../browser-action.js';
+import {
+  buildBrowserObservationScript,
+  buildBrowserRefPointScript,
+  buildBrowserRefValidationScript,
+  buildBrowserSelectorPointScript,
+  formatBrowserObservationForModel,
+  parseBrowserObservation,
+  type BrowserObservationTarget,
+} from '../browser-observation.js';
 import { assertPublicUrl } from '../ssrf-guard.js';
 import { importPlaywright, launchWithAutoInstall } from './install.js';
 import {
@@ -37,6 +47,10 @@ interface PlaywrightTabRegistry {
 }
 
 const tabRegistries = new WeakMap<SidecarState, PlaywrightTabRegistry>();
+const observationRegistries = new WeakMap<
+  PageHandle,
+  Map<string, ReadonlyMap<string, BrowserObservationTarget>>
+>();
 
 export interface SidecarState {
   handle: PlaywrightHandle | null;
@@ -114,6 +128,93 @@ async function tabSnapshot(registry: PlaywrightTabRegistry): Promise<{
   return { activeTabId: registry.activeTabId, tabs };
 }
 
+interface BrowserPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+function parsePoint(value: unknown, error: string): BrowserPoint {
+  if (!value || typeof value !== 'object') throw badParams(error);
+  const point = value as { x?: unknown; y?: unknown; stale?: unknown };
+  if (point.stale === true) throw badParams('STALE_BROWSER_STATE: observe the page again');
+  if (typeof point.x !== 'number' || !Number.isFinite(point.x)) throw badParams(error);
+  if (typeof point.y !== 'number' || !Number.isFinite(point.y)) throw badParams(error);
+  return { x: point.x, y: point.y };
+}
+
+async function resolveBrowserTarget(
+  page: PageHandle,
+  target: BrowserTarget,
+): Promise<{ readonly point: BrowserPoint; readonly selector?: string }> {
+  if (target.type === 'point') {
+    const viewport = page.viewportSize() ?? { width: 1_280, height: 720 };
+    return {
+      point: {
+        x: (target.x / 1_000) * viewport.width,
+        y: (target.y / 1_000) * viewport.height,
+      },
+    };
+  }
+  if (target.type === 'selector') {
+    return {
+      selector: target.selector,
+      point: parsePoint(
+        await page.evaluate(buildBrowserSelectorPointScript(target.selector)),
+        `ELEMENT_NOT_FOUND: ${target.selector}`,
+      ),
+    };
+  }
+  const observations = observationRegistries.get(page);
+  const observation = observations?.get(target.revision);
+  const stored = observation?.get(target.ref);
+  if (!stored) throw badParams('STALE_BROWSER_STATE: observe the page again');
+  return {
+    selector: stored.selector,
+    point: parsePoint(
+      await page.evaluate(buildBrowserRefPointScript(stored, target.revision)),
+      'STALE_BROWSER_STATE: observe the page again',
+    ),
+  };
+}
+
+function rememberObservation(
+  page: PageHandle,
+  revision: string,
+  targets: ReadonlyMap<string, BrowserObservationTarget>,
+): void {
+  let observations = observationRegistries.get(page);
+  if (!observations) {
+    observations = new Map();
+    observationRegistries.set(page, observations);
+  }
+  observations.set(revision, targets);
+  while (observations.size > 3) {
+    const oldest = observations.keys().next().value as string | undefined;
+    if (!oldest) break;
+    observations.delete(oldest);
+  }
+}
+
+async function selectorForTarget(page: PageHandle, target: BrowserTarget): Promise<string> {
+  if (target.type === 'selector') return target.selector;
+  if (target.type === 'point') throw badParams('action requires a ref or selector target');
+  const observations = observationRegistries.get(page);
+  const revision = observations?.get(target.revision);
+  const stored = revision?.get(target.ref);
+  if (!stored) throw badParams('STALE_BROWSER_STATE: observe the page again');
+  const current = await page.evaluate(buildBrowserRefValidationScript(target.revision));
+  if (current !== true) throw badParams('STALE_BROWSER_STATE: observe the page again');
+  return stored.selector;
+}
+
+function keyChord(key: string, modifiers: ReadonlyArray<string> | undefined): string {
+  const prefixes = (modifiers ?? []).map((modifier) => {
+    if (modifier === 'control') return 'Control';
+    return modifier.slice(0, 1).toUpperCase() + modifier.slice(1);
+  });
+  return [...prefixes, key].join('+');
+}
+
 export async function dispatch(state: SidecarState, req: Req): Promise<Reply> {
   try {
     return await dispatchInner(state, req);
@@ -164,11 +265,33 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       return { id: req.id, ok: true, result: { url: target.page.url(), tabId: target.tabId } };
     }
     case 'click': {
-      const { selector, timeoutMs, tabId } = (req.params ?? {}) as { selector: string; timeoutMs?: number; tabId?: string };
-      if (!selector) throw badParams('selector is required');
+      const { selector, target: requestedTarget, timeoutMs, tabId, button, count } = (req.params ?? {}) as {
+        selector?: string;
+        target?: BrowserTarget;
+        timeoutMs?: number;
+        tabId?: string;
+        button?: 'left' | 'middle' | 'right';
+        count?: number;
+      };
+      if (!selector && !requestedTarget) throw badParams('click target is required');
       const target = await resolvePage(state, tabId);
-      await target.page.click(selector, { timeout: timeoutMs ?? 10_000 });
-      return { id: req.id, ok: true };
+      if (selector) {
+        await target.page.click(selector, {
+          timeout: timeoutMs ?? 10_000,
+          button: button ?? 'left',
+          clickCount: count ?? 1,
+        });
+      } else {
+        const resolved = await resolveBrowserTarget(
+          target.page,
+          requestedTarget as BrowserTarget,
+        );
+        await target.page.mouse.click(resolved.point.x, resolved.point.y, {
+          button: button ?? 'left',
+          clickCount: count ?? 1,
+        });
+      }
+      return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
     }
     case 'fill': {
       const { selector, value, timeoutMs, tabId } = (req.params ?? {}) as {
@@ -181,6 +304,206 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       const target = await resolvePage(state, tabId);
       await target.page.fill(selector, value ?? '', { timeout: timeoutMs ?? 10_000 });
       return { id: req.id, ok: true };
+    }
+    case 'observe': {
+      const { mode, maxNodes, maxTextChars, tabId } = (req.params ?? {}) as {
+        mode?: 'semantic' | 'visual' | 'hybrid';
+        maxNodes?: number;
+        maxTextChars?: number;
+        tabId?: string;
+      };
+      const target = await resolvePage(state, tabId);
+      const parsed = parseBrowserObservation(
+        await target.page.evaluate(
+          buildBrowserObservationScript(maxNodes ?? 120, maxTextChars ?? 6_000),
+        ),
+      );
+      rememberObservation(target.page, parsed.observation.revision, parsed.targets);
+      const nodes = mode === 'visual' ? [] : parsed.observation.nodes;
+      if (mode === 'visual' || mode === 'hybrid') {
+        const image = await target.page.screenshot({
+          type: 'png',
+          fullPage: false,
+          timeout: SCREENSHOT_TIMEOUT_MS,
+        });
+        return {
+          id: req.id,
+          ok: true,
+          result: {
+            ...parsed.observation,
+            nodes,
+            tabId: target.tabId,
+            mediaType: 'image/png',
+            base64: image.toString('base64'),
+            forModel: formatBrowserObservationForModel({
+              ...parsed.observation,
+              nodes,
+            }),
+          },
+        };
+      }
+      return {
+        id: req.id,
+        ok: true,
+        result: { ...parsed.observation, nodes, tabId: target.tabId },
+      };
+    }
+    case 'hover': {
+      const { target: requestedTarget, tabId } = (req.params ?? {}) as {
+        target?: BrowserTarget;
+        tabId?: string;
+      };
+      if (!requestedTarget) throw badParams('hover target is required');
+      const target = await resolvePage(state, tabId);
+      const resolved = await resolveBrowserTarget(target.page, requestedTarget);
+      await target.page.mouse.move(resolved.point.x, resolved.point.y);
+      return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
+    }
+    case 'type': {
+      const { target: requestedTarget, value, replace, timeoutMs, tabId } = (req.params ?? {}) as {
+        target?: BrowserTarget;
+        value?: string;
+        replace?: boolean;
+        timeoutMs?: number;
+        tabId?: string;
+      };
+      if (!requestedTarget || requestedTarget.type === 'point') {
+        throw badParams('type requires a ref or selector target');
+      }
+      const target = await resolvePage(state, tabId);
+      const resolved = await resolveBrowserTarget(target.page, requestedTarget);
+      if (!resolved.selector) throw badParams('type target is not text-addressable');
+      if (replace ?? true) {
+        await target.page.fill(resolved.selector, value ?? '', { timeout: timeoutMs ?? 10_000 });
+      } else {
+        await target.page.click(resolved.selector, { timeout: timeoutMs ?? 10_000 });
+        await target.page.keyboard.type(value ?? '');
+      }
+      return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
+    }
+    case 'press': {
+      const { key, modifiers, target: requestedTarget, tabId } = (req.params ?? {}) as {
+        key?: string;
+        modifiers?: ReadonlyArray<string>;
+        target?: BrowserTarget;
+        tabId?: string;
+      };
+      if (!key) throw badParams('key is required');
+      const target = await resolvePage(state, tabId);
+      if (requestedTarget) {
+        if (requestedTarget.type === 'point') throw badParams('press target must be a ref or selector');
+        const resolved = await resolveBrowserTarget(target.page, requestedTarget);
+        if (!resolved.selector) throw badParams('press target is not focusable');
+        await target.page.click(resolved.selector);
+      }
+      await target.page.keyboard.press(keyChord(key, modifiers));
+      return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
+    }
+    case 'scroll': {
+      const { deltaX, deltaY, dy, at, tabId } = (req.params ?? {}) as {
+        deltaX?: number;
+        deltaY?: number;
+        dy?: number;
+        at?: BrowserPoint;
+        tabId?: string;
+      };
+      const target = await resolvePage(state, tabId);
+      if (at) {
+        const viewport = target.page.viewportSize() ?? { width: 1_280, height: 720 };
+        await target.page.mouse.move((at.x / 1_000) * viewport.width, (at.y / 1_000) * viewport.height);
+      }
+      await target.page.mouse.wheel(deltaX ?? 0, deltaY ?? dy ?? 0);
+      return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
+    }
+    case 'drag': {
+      const { from, to, steps, tabId } = (req.params ?? {}) as {
+        from?: BrowserTarget;
+        to?: BrowserTarget;
+        steps?: number;
+        tabId?: string;
+      };
+      if (!from || !to) throw badParams('drag requires from and to targets');
+      const target = await resolvePage(state, tabId);
+      const start = await resolveBrowserTarget(target.page, from);
+      const end = await resolveBrowserTarget(target.page, to);
+      await target.page.mouse.move(start.point.x, start.point.y);
+      await target.page.mouse.down({ button: 'left' });
+      await target.page.mouse.move(end.point.x, end.point.y, { steps: steps ?? 12 });
+      await target.page.mouse.up({ button: 'left' });
+      return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
+    }
+    case 'select': {
+      const { target: requestedTarget, values, timeoutMs, tabId } = (req.params ?? {}) as {
+        target?: BrowserTarget;
+        values?: ReadonlyArray<string>;
+        timeoutMs?: number;
+        tabId?: string;
+      };
+      if (!requestedTarget || !values || values.length === 0) {
+        throw badParams('select requires a target and at least one value');
+      }
+      const target = await resolvePage(state, tabId);
+      const selector = await selectorForTarget(target.page, requestedTarget);
+      const selected = await target.page.selectOption(selector, values, {
+        timeout: timeoutMs ?? 10_000,
+      });
+      return {
+        id: req.id,
+        ok: true,
+        result: { tabId: target.tabId, url: target.page.url(), selected },
+      };
+    }
+    case 'upload': {
+      const { target: requestedTarget, paths, timeoutMs, tabId } = (req.params ?? {}) as {
+        target?: BrowserTarget;
+        paths?: ReadonlyArray<string>;
+        timeoutMs?: number;
+        tabId?: string;
+      };
+      if (!requestedTarget || !paths || paths.length === 0) {
+        throw badParams('upload requires a target and at least one path');
+      }
+      const target = await resolvePage(state, tabId);
+      const selector = await selectorForTarget(target.page, requestedTarget);
+      await target.page.setInputFiles(selector, paths, { timeout: timeoutMs ?? 10_000 });
+      return {
+        id: req.id,
+        ok: true,
+        result: { tabId: target.tabId, url: target.page.url(), files: paths.length },
+      };
+    }
+    case 'wait': {
+      const { condition, timeoutMs, tabId } = (req.params ?? {}) as {
+        condition?:
+          | { type: 'target'; target: BrowserTarget; state: 'visible' | 'hidden' }
+          | { type: 'text'; text: string }
+          | { type: 'url'; includes: string }
+          | { type: 'networkidle' };
+        timeoutMs?: number;
+        tabId?: string;
+      };
+      if (!condition) throw badParams('wait condition is required');
+      const target = await resolvePage(state, tabId);
+      const timeout = timeoutMs ?? 30_000;
+      if (condition.type === 'networkidle') {
+        await target.page.waitForLoadState('networkidle', { timeout });
+      } else if (condition.type === 'target') {
+        const selector = await selectorForTarget(target.page, condition.target);
+        await target.page.waitForSelector(selector, { state: condition.state, timeout });
+      } else if (condition.type === 'text') {
+        await target.page.waitForFunction(
+          '(expected) => Boolean(document.body?.innerText.includes(expected))',
+          condition.text,
+          { timeout },
+        );
+      } else {
+        await target.page.waitForFunction(
+          '(expected) => location.href.includes(expected)',
+          condition.includes,
+          { timeout },
+        );
+      }
+      return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
     }
     case 'text': {
       const { selector, tabId } = (req.params ?? {}) as { selector?: string; tabId?: string };
@@ -265,7 +588,8 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
     case 'back':
     case 'forward':
     case 'reload': {
-      const { page } = await resolvePage(state);
+      const { tabId } = (req.params ?? {}) as { tabId?: string };
+      const { page } = await resolvePage(state, tabId);
       try {
         if (req.method === 'back') await page.goBack();
         else if (req.method === 'forward') await page.goForward();
@@ -283,12 +607,6 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       // A single printable char is typed (inserts it); a named key is pressed.
       if (key.length === 1) await page.keyboard.type(key);
       else await page.keyboard.press(key);
-      return { id: req.id, ok: true };
-    }
-    case 'scroll': {
-      const { page } = await resolvePage(state);
-      const { dy } = (req.params ?? {}) as { dy: number };
-      await page.mouse.wheel(0, dy ?? 0);
       return { id: req.id, ok: true };
     }
     case 'zoom': {
