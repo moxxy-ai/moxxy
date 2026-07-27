@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { MoxxyConfig } from '@moxxy/config';
+import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
 
 /**
  * A fingerprint of the security-relevant configuration in force.
@@ -32,9 +32,19 @@ export interface PolicySummary {
   readonly managedDenyRules: number;
   /** Whether egress is pinned, not to where. */
   readonly proxyPinned: boolean;
+  /**
+   * Signed bundles in force, as `id@revision`. The revision is the point: two
+   * runs under bundle `corp-baseline` are not comparable unless they ran the
+   * same revision of it, and without this the fingerprint would call a rule
+   * change no change at all.
+   */
+  readonly policyBundles: ReadonlyArray<string>;
 }
 
-export function policySummary(config: MoxxyConfig): PolicySummary {
+export function policySummary(
+  config: MoxxyConfig,
+  sources: ReadonlyArray<PolicySourceRecord> = [],
+): PolicySummary {
   const proxy = config.network?.proxy;
   return {
     securityEnabled: config.security?.enabled ?? false,
@@ -49,6 +59,7 @@ export function policySummary(config: MoxxyConfig): PolicySummary {
     managedAllowRules: config.permissions?.allow?.length ?? 0,
     managedDenyRules: config.permissions?.deny?.length ?? 0,
     proxyPinned: typeof proxy === 'string' && proxy !== 'env' && proxy !== 'off',
+    policyBundles: sources.map((s) => `${s.id}@${s.revision}`).sort(),
   };
 }
 

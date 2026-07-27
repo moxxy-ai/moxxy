@@ -10,7 +10,12 @@ import {
   silentLogger,
 } from '@moxxy/core';
 import type { Plugin } from '@moxxy/sdk';
-import { buildConfigPlugin, loadConfig as loadMergedConfig, loadDisabledProviders } from '@moxxy/config';
+import {
+  buildConfigPlugin,
+  loadConfig as loadMergedConfig,
+  loadDisabledProviders,
+  loadPolicyBundles,
+} from '@moxxy/config';
 import { BUILTIN_SKILLS_DIR_RESOLVED } from './setup/builtin-skills-dir.js';
 import { buildVaultPlugin } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
@@ -113,9 +118,15 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   let sessionRef: Session | undefined;
   const secretResolver = buildSecretResolver(() => sessionRef, vault, opts.cwd);
 
+  // Loaded BEFORE the session so a machine that cannot obtain the policy it
+  // subscribes to never reaches the point of running a turn. Throws
+  // PolicyLoadError, which the caller reports rather than degrading past.
+  const policy = await loadPolicyBundles(config.policy?.bundles ?? []);
+
   const session = await buildSession({
     cwd: opts.cwd,
     config,
+    bundledRules: { allow: policy.allow, deny: policy.deny },
     resolver: opts.resolver,
     resumeSessionId: opts.resumeSessionId,
     sessionId: opts.sessionId,
@@ -317,7 +328,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   const persistence = attachSessionPersistence(session, opts.cwd, opts.disableSessionPersistence);
   // Separate from persistence on purpose: the trail must survive an operator
   // turning session persistence off, and it records a different, smaller thing.
-  const audit = attachAudit(session, config);
+  const audit = attachAudit(session, config, policy.sources);
 
   // The memory plugin (when installed/enabled) published its store as the
   // 'memory' service during onInit; a slim boot without it leaves this

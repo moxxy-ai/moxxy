@@ -70,6 +70,7 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['profile list|<name>', 'print a deployment baseline for the system config scope'],
       ['sync [--check]', 'reconcile installed plugins with the config manifest'],
       ['receipt <turnId>', 'verified account of one run: actor, tools, denials, policy, cost'],
+      ['policy', 'what the agent may do here, and who decided it'],
       ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
       ['security audit|isolators|status', 'inspect plugin-security isolation state'],
       ['mcp list|enable|disable|remove|path', 'manage Model Context Protocol servers'],
@@ -245,6 +246,7 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   profile: async () => (await import('./commands/profile.js')).runProfileCommand,
   sync: async () => (await import('./commands/sync.js')).runSyncCommand,
   receipt: async () => (await import('./commands/receipt.js')).runReceiptCommand,
+  policy: async () => (await import('./commands/policy.js')).runPolicyCommand,
   'self-update': async () => (await import('./commands/self-update.js')).runSelfUpdateCommand,
 };
 

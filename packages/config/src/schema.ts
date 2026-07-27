@@ -14,7 +14,7 @@ export const watcherModeSchema = z.enum(['auto', 'manual', 'off']);
  * means "contains /etc anywhere", which over-blocks as a deny and over-grants
  * as an allow.
  */
-const permissionRuleSchema = z.object({
+export const permissionRuleSchema = z.object({
   name: z.string(),
   inputMatches: z.record(z.string(), z.string()).optional(),
   inputPathPrefix: z.record(z.string(), z.string()).optional(),
@@ -33,6 +33,29 @@ export const permissionsConfigSchema = z.object({
   allow: z.array(permissionRuleSchema).optional(),
   deny: z.array(permissionRuleSchema).optional(),
 });
+
+/**
+ * A signed policy bundle this host subscribes to.
+ *
+ * The public key is pinned HERE, in config the operator controls, and never
+ * taken from the bundle or its host. A key served alongside the thing it
+ * authenticates proves nothing: whoever can replace the bundle can replace the
+ * key with it.
+ */
+export const policyBundleRefSchema = z.object({
+  /** Expected bundle id. A signature proves who wrote it, not which one it is. */
+  id: z.string().min(1),
+  url: z.string().url(),
+  /** SPKI PEM of the publisher's Ed25519 key. */
+  publicKey: z.string().min(1),
+});
+
+export const policyConfigSchema = z.object({
+  bundles: z.array(policyBundleRefSchema).max(32).optional(),
+});
+
+export type PolicyBundleRef = z.infer<typeof policyBundleRefSchema>;
+export type PolicyConfig = z.infer<typeof policyConfigSchema>;
 
 export const securityConfigSchema = z.object({
   /**
@@ -271,6 +294,7 @@ export const moxxyConfigSchema = z.object({
   vault: vaultConfigSchema.optional(),
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
+  policy: policyConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
   /** TUI presentation preferences (read at TUI boot; edited via /settings). */
   tui: z

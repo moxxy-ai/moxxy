@@ -182,6 +182,67 @@ permissions:
 
 Prefer `inputPathPrefix` and `inputGlob` over `inputMatches`: the latter is an unanchored regex, so `{ path: '/etc' }` means "contains /etc anywhere", which over-blocks as a deny and over-grants as an allow.
 
+## 7. Distribute policy as a signed bundle
+
+Section 6 pushes rules through `/etc/moxxy/config.yaml`, which is fine for one machine. Across a fleet every rule change becomes a file change on every host, and a host that missed one is indistinguishable from a host that got it.
+
+A policy bundle is a signed document you publish once and every machine subscribes to:
+
+```json
+{
+  "version": 1,
+  "id": "corp-baseline",
+  "revision": "2026-07-27.1",
+  "permissions": {
+    "deny": [{ "name": "Bash", "reason": "corp policy: no shell" }]
+  }
+}
+```
+
+Sign it with Ed25519, serve it and its detached `.sig` beside it, and pin the public key in config you control:
+
+```yaml
+policy:
+  bundles:
+    - id: corp-baseline
+      url: https://policy.example.internal/moxxy/corp-baseline.json
+      publicKey: |
+        -----BEGIN PUBLIC KEY-----
+        ...
+        -----END PUBLIC KEY-----
+```
+
+Pin the key in config, never take it from the bundle or its host: a key served next to the thing it authenticates proves nothing.
+
+### What a bundle may contain, and why so little
+
+Permission rules. Nothing else. Not `registryUrl`, not a key, not a proxy, not `security.enabled`, and a bundle carrying any of them is rejected rather than quietly stripped.
+
+The reason is the failure mode. A bundle arrives over the network, so the question that matters is what someone who takes over that host can do. Confined to permission rules, the answer is "deny things and break the fleet": loud, reversible, and safe. Let a bundle set `registryUrl` or a trust key and the answer becomes "redirect what every machine trusts", silently. Denial of service is a far better worst case than privilege escalation.
+
+### How it combines with your local rules
+
+Both land above `~/.moxxy/permissions.json`, and every deny is checked before any allow, so:
+
+| Situation | Winner |
+|---|---|
+| Local deny vs bundle allow | Local deny. You outrank a remote publisher. |
+| Bundle deny vs local allow | Bundle deny. Subscribing actually restricts. |
+| Either deny vs an "allow always" answer | The deny. Neither is removable at runtime. |
+
+### It fails closed
+
+A configured bundle that cannot be verified **stops the session**. That is the point: a host running without the rules it subscribes to, with nothing to show for it, is the condition the feature exists to prevent.
+
+The last verified copy is cached at `~/.moxxy/policy/` and carries a session through an outage, re-verified against your pinned key on every read so editing the cache buys nothing. A bad signature is never treated as "unavailable", or anyone who can answer for the URL could pin a fleet to an old revision forever by serving garbage.
+
+```sh
+moxxy policy            # rules in force, each with its origin
+moxxy policy --check    # exit 1 if this host is serving off a stale cache
+```
+
+The bundle revision goes into the policy fingerprint, so `moxxy receipt` proves which revision any past run executed under.
+
 ## Rollout checklist
 
 - [ ] `/etc/moxxy/config.yaml` placed, proxy and CA filled in
@@ -192,6 +253,8 @@ Prefer `inputPathPrefix` and `inputGlob` over `inputMatches`: the latter is an u
 - [ ] `installPolicy` set, and an internal mirror pinned if you have one
 - [ ] Audit sink configured, retention set, chain verification scheduled
 - [ ] Autonomous channels on dedicated runners with minimal allow-lists
+- [ ] Policy bundle published and pinned, or local rules accepted deliberately
+- [ ] `moxxy policy` verified on a pilot host, and `--check` green in CI
 - [ ] [threat-model.md](threat-model.md) and [data-flow.md](data-flow.md) reviewed by whoever signs off
 
 ## Upgrades

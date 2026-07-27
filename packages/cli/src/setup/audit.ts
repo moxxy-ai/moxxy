@@ -6,7 +6,7 @@ import {
   type AuditHandle,
   type Session,
 } from '@moxxy/core';
-import type { MoxxyConfig } from '@moxxy/config';
+import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
 import { policyFingerprint, policySummary } from './policy-fingerprint.js';
 
 /**
@@ -18,7 +18,11 @@ import { policyFingerprint, policySummary } from './policy-fingerprint.js';
  *
  * Returns null when auditing is off, so callers can skip teardown entirely.
  */
-export function attachAudit(session: Session, config: MoxxyConfig): AuditHandle | null {
+export function attachAudit(
+  session: Session,
+  config: MoxxyConfig,
+  policySources: ReadonlyArray<PolicySourceRecord> = [],
+): AuditHandle | null {
   const audit = config.audit;
   if (!audit?.enabled) return null;
 
@@ -43,7 +47,7 @@ export function attachAudit(session: Session, config: MoxxyConfig): AuditHandle 
   // Record the policy in force, once, before anything else is audited. A trail
   // that says what was done but not what the rules were leaves the reviewer's
   // first question unanswerable.
-  const summary = policySummary(config);
+  const summary = policySummary(config, policySources);
   void appendAuditRecord({
     ts: Date.now(),
     sessionId: session.id,
