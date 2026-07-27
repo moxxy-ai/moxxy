@@ -26,6 +26,7 @@ import type { IsolatorRegistry } from '../registries/isolators.js';
 import type { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
 import type { EventStoreRegistry } from '../registries/event-stores.js';
 import type { AuditSinkRegistry } from '../registries/audit-sinks.js';
+import type { SecretProviderRegistry } from '../registries/secret-providers.js';
 import type { ReflectorRegistry } from '../registries/reflectors.js';
 import type { HookDispatcherImpl } from './lifecycle.js';
 import type { RequirementRegistry } from '../requirements.js';
@@ -51,6 +52,7 @@ export interface PluginHostOptions {
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
   readonly auditSinks: AuditSinkRegistry;
+  readonly secretProviders: SecretProviderRegistry;
   readonly reflectors: ReflectorRegistry;
   readonly requirements: RequirementRegistry;
   readonly dispatcher: HookDispatcherImpl;

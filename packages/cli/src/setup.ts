@@ -23,6 +23,7 @@ import { buildSessionConfigApplier } from './config-applier.js';
 import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { applyEgressSettings } from './setup/egress.js';
+import { buildSecretResolver, vaultSecretProvider } from './setup/secrets.js';
 import { interactiveConfigTrustPrompt } from './setup/config-trust-prompt.js';
 import { selectEmbedder } from './setup/embedder.js';
 import { buildSession } from './setup/build-session.js';
@@ -105,6 +106,10 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // mutate it so a runtime toggle takes effect without a restart.
   const disabledPackages = new Set<string>(disabledPackageNames(config));
 
+  // Late-bound so the resolver can consult the registry the session creates.
+  let sessionRef: Session | undefined;
+  const secretResolver = buildSecretResolver(() => sessionRef, vault, opts.cwd);
+
   const session = await buildSession({
     cwd: opts.cwd,
     config,
@@ -117,8 +122,15 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     // value never enters the model's context or `process.env` — only the
     // handler that asks receives it. `vault.get` lazily opens the vault and
     // returns null for unknown names.
-    secretResolver: (name) => vault.get(name),
+    secretResolver,
   });
+  sessionRef = session;
+
+  // Register the vault as the protected FLOOR of the secret-provider registry.
+  // Done here rather than in core because core never imports a plugin, and the
+  // vault is one; making it the floor rather than a hardcoded special case lets
+  // an external store sit above it without migrating every secret first.
+  session.secretProviders.register(vaultSecretProvider(vault), { protected: true });
 
   // Attribute everything this session appends to the local OS account. It is
   // the FLOOR identity, worth exactly as much as local account separation,

@@ -58,6 +58,14 @@ export type {
 } from './audit.js';
 export { defineAuditSink, auditActionOf } from './audit.js';
 
+// Where a named secret comes from (external store instead of the local vault).
+export type {
+  SecretProviderDef,
+  SecretProviderScope,
+  SecretProviderSession,
+} from './secret-provider.js';
+export { defineSecretProvider } from './secret-provider.js';
+
 // Secret redaction for anything leaving the process.
 export {
   isSecretKey,
