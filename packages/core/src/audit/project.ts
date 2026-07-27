@@ -94,6 +94,19 @@ function detailOf(
     case 'plugin_registered':
     case 'plugin_unregistered':
       return { plugin: event.pluginId };
+    case 'provider_response':
+      // Counts only. The request and the reply are conversation and belong in
+      // the event log; what an auditor needs here is what it cost and to whom.
+      return {
+        provider: event.provider,
+        model: event.model,
+        ...(event.inputTokens !== undefined ? { inputTokens: event.inputTokens } : {}),
+        ...(event.outputTokens !== undefined ? { outputTokens: event.outputTokens } : {}),
+        ...(event.cacheReadTokens !== undefined ? { cacheReadTokens: event.cacheReadTokens } : {}),
+        ...(event.cacheCreationTokens !== undefined
+          ? { cacheCreationTokens: event.cacheCreationTokens }
+          : {}),
+      };
     case 'error':
       return { message: cap(redactSecretText(event.message)) };
     default:

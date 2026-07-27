@@ -1,4 +1,5 @@
 import {
+  appendAuditRecord,
   attachAuditSink,
   jsonlAuditSink,
   pruneAuditDays,
@@ -6,6 +7,7 @@ import {
   type Session,
 } from '@moxxy/core';
 import type { MoxxyConfig } from '@moxxy/config';
+import { policyFingerprint, policySummary } from './policy-fingerprint.js';
 
 /**
  * Wire the audit trail for a session, when the operator asked for one.
@@ -37,6 +39,20 @@ export function attachAudit(session: Session, config: MoxxyConfig): AuditHandle 
     logger: session.logger,
     ...(audit.includePromptText ? { includePromptText: true } : {}),
   });
+
+  // Record the policy in force, once, before anything else is audited. A trail
+  // that says what was done but not what the rules were leaves the reviewer's
+  // first question unanswerable.
+  const summary = policySummary(config);
+  void appendAuditRecord({
+    ts: Date.now(),
+    sessionId: session.id,
+    turnId: 'session' as never,
+    action: 'policy',
+    eventType: 'plugin_registered',
+    ...(session.principal ? { actor: session.principal } : {}),
+    detail: { fingerprint: policyFingerprint(summary), ...summary },
+  }).catch(() => undefined);
 
   // Retention runs detached: pruning month-old files must not delay boot, and
   // failing to prune is not a reason to refuse to audit.

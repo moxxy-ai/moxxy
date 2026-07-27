@@ -45,5 +45,6 @@ We deliberately do not claim "sandboxed by default." If your threat model includ
 2. Keep autonomous channels on dedicated runners; keep their allow-lists minimal (never `['*']`).
 3. Don't put secrets in config or env when the vault can hold them — use `${vault:KEY}`.
 4. Rotate channel tokens periodically (`rotateChannelToken`; stale tokens warn after 90 days).
-5. Review `~/.moxxy/permissions.json` occasionally — prune allow rules you no longer need.
-6. Keep moxxy current (`moxxy update`); only the latest release line receives fixes.
+5. Enable `audit.enabled` where runs must be accountable after the fact; `moxxy receipt <turnId>` then explains any single run, and both it and `moxxy security audit-log` exit 1 on a broken chain.
+6. Review `~/.moxxy/permissions.json` occasionally — prune allow rules you no longer need.
+7. Keep moxxy current (`moxxy update`); only the latest release line receives fixes.

@@ -137,6 +137,33 @@ Exit code 1 on a broken chain, so a scheduled check can gate on it.
 
 This is tamper-**evident**, not tamper-proof: whoever can write the file can recompute the chain. It catches silent selective deletion, which is the realistic threat. For a chain head the workstation cannot rewrite, point `audit.sink` at a remote sink.
 
+### Accounting for a single run
+
+The trail answers "what happened on this machine". When someone asks about one specific run, usually because it did something surprising, use a receipt:
+
+```sh
+moxxy receipt <turnId>            # one run
+moxxy receipt --session <id>      # every run in a session
+moxxy receipt <turnId> --json     # to attach to a ticket
+```
+
+```
+  turn     t1
+  actor    os:alice@host
+  trigger  webhook:deploy
+  policy   6c59b147041aab80
+  tools    Read, Edit
+  denied   Bash: managed policy
+  tokens   1200 in / 340 out
+  chain verified
+```
+
+A receipt is a projection over the trail, not a second record, so asking for one writes nothing and cannot change what it reports. It answers the four questions asked after the fact: who acted, what set it off, which rules were in force, and what it cost.
+
+The `policy` line is the fingerprint recorded at session start over the settings that decide what the agent may do. Identical fingerprints on two runs prove they executed under the same rules; a differing one tells you the rules moved between them. It covers no secrets and no paths, only counts and effective values, so it is safe to paste into a ticket.
+
+The chain is verified before anything prints, and a broken one exits 1 with the receipt marked. That matters more than it sounds: a receipt assembled from a trail with a record deleted would otherwise look complete while quietly omitting the removed call.
+
 Records are bounded and redacted. Prompt text is not recorded unless you set `audit.includePromptText: true`; the SHA-256 always is, so a specific prompt stays provable without the trail disclosing business content. Set `audit.retentionDays` deliberately: keeping everything forever is its own compliance problem.
 
 ## 6. Autonomous surfaces

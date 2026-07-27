@@ -20,6 +20,10 @@ import type { Principal } from './principal.js';
 /** What kind of thing happened. Coarser than `MoxxyEventType` on purpose: an
  *  auditor reasons about categories of action, not about the loop's internals. */
 export type AuditAction =
+  /** The security-relevant config in force, recorded once per session. Without
+   *  it a trail says what was done but not what the rules were at the time,
+   *  which is the first question asked when reviewing a past run. */
+  | 'policy'
   | 'prompt'
   | 'tool.request'
   | 'tool.approved'
@@ -30,6 +34,10 @@ export type AuditAction =
   | 'plugin.registered'
   | 'plugin.unregistered'
   | 'abort'
+  /** Token counts for one provider call. Metadata only, never content, which
+   *  is what makes cost attribution auditable without the trail carrying the
+   *  conversation. */
+  | 'usage'
   | 'error'
   | 'other';
 
@@ -119,6 +127,7 @@ const AUDITED: Partial<Record<MoxxyEventType, AuditAction>> = {
   plugin_registered: 'plugin.registered',
   plugin_unregistered: 'plugin.unregistered',
   abort: 'abort',
+  provider_response: 'usage',
   error: 'error',
 };
 
