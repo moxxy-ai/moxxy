@@ -339,6 +339,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     session,
     config,
     configSources: sources,
+    policySources: policy.sources,
     vault,
     memory,
     scheduler,

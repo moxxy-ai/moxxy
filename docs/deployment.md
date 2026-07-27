@@ -113,6 +113,7 @@ Check these lines specifically:
 | `identity` | `os:<user>@<host>`, not `unattributed` |
 | `network` | your proxy, and an extra CA if it terminates TLS |
 | `vault` | `keychain`, or a note that a stored key is in use |
+| `policy` | the bundles in force as `id@revision`; a warn means this host is serving off its cache |
 
 Then confirm the locks actually bind, rather than trusting that they were written:
 

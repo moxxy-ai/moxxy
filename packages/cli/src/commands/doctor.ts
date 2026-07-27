@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Session } from '@moxxy/core';
-import type { MoxxyConfig } from '@moxxy/config';
+import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
@@ -70,7 +70,7 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
     return emit(checks, asJson);
   }
 
-  const { session, config, configSources, vault, memory, pluginRegistration, persistence, audit } =
+  const { session, config, configSources, policySources, vault, memory, pluginRegistration, persistence, audit } =
     setupResult.value;
 
   try {
@@ -78,6 +78,7 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
       session,
       config,
       configSources,
+      policySources,
       vault,
       memory,
       pluginRegistration,
@@ -96,6 +97,7 @@ interface DoctorChecksDeps {
   readonly session: Session;
   readonly config: MoxxyConfig;
   readonly configSources: ReadonlyArray<ConfigSource>;
+  readonly policySources: ReadonlyArray<PolicySourceRecord>;
   readonly vault: VaultStore;
   /** Undefined on a slim boot without the memory plugin installed. */
   readonly memory: MemoryStore | undefined;
@@ -106,7 +108,7 @@ interface DoctorChecksDeps {
 }
 
 async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
-  const { session, config, configSources, vault, memory, pluginRegistration, checks, checkKeys, asJson } =
+  const { session, config, configSources, policySources, vault, memory, pluginRegistration, checks, checkKeys, asJson } =
     deps;
 
   // Config
@@ -277,6 +279,7 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   // cause on a corporate host is a proxy that Node's global fetch ignores, so
   // say plainly whether one is in force and whether a custom CA was supplied.
   checks.push(buildEgressDoctorCheck(config));
+  checks.push(buildPolicyDoctorCheck(config, policySources));
 
   // Self-update — Tier-1 is always available if the plugin is loaded; Tier-2
   // (core patching) additionally needs git/pnpm + pinned source provenance.
@@ -294,6 +297,40 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
  * corporate proxy without it produces `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, which
  * is otherwise a very unrewarding error to diagnose.
  */
+/**
+ * Report which signed policy bundles are in force.
+ *
+ * Warns rather than passes when a bundle is serving off its cache: the rules
+ * still apply, but this host is not demonstrably current, and "the policy
+ * loaded" and "the policy is up to date" are different claims an operator
+ * should not have to conflate.
+ */
+export function buildPolicyDoctorCheck(
+  config: MoxxyConfig,
+  sources: ReadonlyArray<PolicySourceRecord>,
+): Check {
+  const configured = config.policy?.bundles?.length ?? 0;
+  if (configured === 0) {
+    const local =
+      (config.permissions?.allow?.length ?? 0) + (config.permissions?.deny?.length ?? 0);
+    return {
+      id: 'policy',
+      status: 'ok',
+      message: local > 0 ? `${local} managed rule(s) from config` : 'no managed rules',
+    };
+  }
+  const stale = sources.filter((s) => s.from === 'cache');
+  const names = sources.map((s) => `${s.id}@${s.revision}`).join(', ');
+  if (stale.length > 0) {
+    return {
+      id: 'policy',
+      status: 'warn',
+      message: `${names} (serving from cache: ${stale[0]?.staleReason ?? 'remote unavailable'})`,
+    };
+  }
+  return { id: 'policy', status: 'ok', message: names };
+}
+
 export function buildEgressDoctorCheck(config: MoxxyConfig): Check {
   const settings = resolveEgressSettings(config);
   const ca = process.env.NODE_EXTRA_CA_CERTS;
