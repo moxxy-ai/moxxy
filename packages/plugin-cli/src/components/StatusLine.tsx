@@ -60,10 +60,21 @@ export const StatusLine: React.FC<StatusLineProps> = ({
   version,
   updateLatest,
 }) => {
+  // Width tiers. The right-hand side is provider + model + mcp + a 10-cell
+  // context bar + a version chip; under roughly 90 columns that no longer fits
+  // beside the left-hand state, and an Ink flex row that overflows WRAPS, which
+  // reads as broken rather than as degraded. Drop segments in reverse order of
+  // how much they tell you mid-turn: the version chip is reference information,
+  // the mcp count is a rarely-changing status, the model id is recoverable from
+  // /info, and the context meter is the one that changes every turn.
+  const columns = useTerminalColumns();
+  const tier = columns >= 100 ? 'full' : columns >= 84 ? 'wide' : columns >= 68 ? 'narrow' : 'tiny';
   const busy = busyStartedAt != null;
   const showQueue = (queueCount ?? 0) > 0;
-  const showMcp = !!(mcp && mcp.enabled > 0);
-  const showCtx = !!(contextWindow && contextWindow > 0);
+  const showMcp = !!(mcp && mcp.enabled > 0) && tier === 'full';
+  const showCtx = !!(contextWindow && contextWindow > 0) && tier !== 'tiny';
+  const showModel = tier === 'full' || tier === 'wide';
+  const showVersion = !!version && tier === 'full';
   const queuedTail = showQueue ? (
     <>
       <Text dimColor>{'  '}</Text>
@@ -102,7 +113,7 @@ export const StatusLine: React.FC<StatusLineProps> = ({
       </Box>
       <Box>
         <ProviderBadge name={provider} />
-        <Text dimColor>{`  ${model}`}</Text>
+        {showModel ? <Text dimColor>{`  ${model}`}</Text> : null}
         {showMcp ? (
           <>
             <Text dimColor>{`  ${Glyphs.midDot}  `}</Text>
@@ -116,7 +127,7 @@ export const StatusLine: React.FC<StatusLineProps> = ({
             <ContextMeter used={contextUsed ?? 0} total={contextWindow!} />
           </>
         ) : null}
-        {version ? (
+        {showVersion ? (
           <>
             <Text dimColor>{`  ${Glyphs.midDot}  `}</Text>
             {updateLatest ? (
@@ -130,6 +141,24 @@ export const StatusLine: React.FC<StatusLineProps> = ({
     </Box>
   );
 };
+
+/**
+ * The terminal's current width, kept live across resizes. Ink exposes
+ * `useStdout`, but reading `columns` once would freeze the layout at whatever
+ * width the pane had when it mounted, and a status bar that only degrades on
+ * remount is a status bar that stays broken for the rest of the session.
+ */
+function useTerminalColumns(): number {
+  const [columns, setColumns] = useState(() => process.stdout.columns ?? 80);
+  useEffect(() => {
+    const onResize = (): void => setColumns(process.stdout.columns ?? 80);
+    process.stdout.on('resize', onResize);
+    return () => {
+      process.stdout.off('resize', onResize);
+    };
+  }, []);
+  return columns;
+}
 
 const ProviderBadge: React.FC<{ name: string }> = ({ name }) => (
   <Text backgroundColor={Colors.chrome} color="black" bold>{` ${name} `}</Text>
