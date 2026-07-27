@@ -91,6 +91,21 @@ export interface InstallPluginPackageOptions {
   readonly packageName: string;
   /** Optional abort signal; aborting kills the npm child process. */
   readonly signal?: AbortSignal;
+  /**
+   * Opt back INTO running the package's npm lifecycle scripts. Off by default
+   * (see {@link NPM_INSTALL_FLAGS}); this exists for the narrow set of packages
+   * that genuinely cannot install without one, namely native modules that fetch
+   * or compile a binding at install time (`node-pty`, `onnxruntime-node` behind
+   * `@huggingface/transformers`). Those degrade gracefully without it (the
+   * terminal falls back to a piped shell, embeddings fall back to TF-IDF), so
+   * this is a deliberate upgrade, never a default.
+   *
+   * HUMAN-ONLY by construction: `moxxy plugins install --allow-scripts` sets it.
+   * The `install_plugin` model tool deliberately does NOT expose it, because a
+   * prompt-injected model must not be able to talk its way into arbitrary code
+   * execution at install time.
+   */
+  readonly allowScripts?: boolean;
 }
 
 export interface InstallPluginPackageResult {
@@ -128,7 +143,7 @@ export async function installPluginPackage(
   return pluginsDirMutex.run(async () => {
     await ensurePackageJson(dir);
     const { exitCode, stderr } = await runNpm(
-      ['install', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
+      ['install', '--prefix', dir, ...npmFlags(opts.allowScripts), '--save', spec],
       opts.signal,
     );
     if (exitCode !== 0) {
@@ -156,6 +171,8 @@ export interface PinnedInstallOptions {
   readonly cliVersion?: string;
   /** Optional abort signal; aborting kills the npm child process. */
   readonly signal?: AbortSignal;
+  /** See {@link InstallPluginPackageOptions.allowScripts}. Human-only. */
+  readonly allowScripts?: boolean;
   /** Surfaced when an injected pin 404s and the install retries unpinned. */
   readonly onWarn?: (message: string) => void;
   /** Injectable install fn for tests; defaults to {@link installPluginPackage}. */
@@ -183,15 +200,16 @@ export async function installPluginPackagePinned(
     opts.pinnedVersion && NPM_NAME_RE.test(opts.packageName) ? opts.pinnedVersion : undefined;
   const spec = pinFirstPartySpec(opts.packageName, opts.version ?? signedPin, opts.cliVersion);
   const injectedPin = !opts.version && spec !== opts.packageName;
+  const { signal, allowScripts } = opts;
   try {
-    return await install({ packageName: spec, signal: opts.signal });
+    return await install({ packageName: spec, signal, allowScripts });
   } catch (err) {
     if (!injectedPin) throw err;
     opts.onWarn?.(
       `pinned install ${spec} failed (${err instanceof Error ? err.message : String(err)}); ` +
         `retrying latest ${opts.packageName}`,
     );
-    return await install({ packageName: opts.packageName, signal: opts.signal });
+    return await install({ packageName: opts.packageName, signal, allowScripts });
   }
 }
 
@@ -206,7 +224,7 @@ export async function removePluginPackage(
   return pluginsDirMutex.run(async () => {
     await ensurePackageJson(dir);
     const { exitCode, stderr } = await runNpm(
-      ['uninstall', '--prefix', dir, '--no-fund', '--no-audit', '--save', spec],
+      ['uninstall', '--prefix', dir, ...NPM_INSTALL_FLAGS, '--save', spec],
       opts.signal,
     );
     if (exitCode !== 0) {
@@ -414,6 +432,30 @@ async function ensurePackageJson(dir: string): Promise<void> {
 
 /** The npm executable, resolved per-platform (Windows ships `npm.cmd`). */
 const NPM_BIN = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
+/**
+ * Flags shared by every npm invocation we make.
+ *
+ * `--ignore-scripts` is the load-bearing one. Without it, installing a plugin
+ * executes that package's (and every transitive dependency's) `preinstall` /
+ * `install` / `postinstall` hooks with the user's full privileges, before the
+ * package's declared capabilities have been read, outside the permission
+ * engine, outside every isolator. The signed registry pins which VERSION gets
+ * installed, but a signature over the index says nothing about what a tarball's
+ * install script does, so pinning alone does not close this.
+ *
+ * moxxy plugins are plain ESM modules and need no build step at install time.
+ * A package that genuinely cannot install without running scripts is a package
+ * to reject, not a reason to drop the flag.
+ */
+const NPM_INSTALL_FLAGS = ['--no-fund', '--no-audit', '--ignore-scripts'] as const;
+
+/** {@link NPM_INSTALL_FLAGS}, with the script ban lifted only on an explicit,
+ *  human-supplied opt-in (see `InstallPluginPackageOptions.allowScripts`). */
+function npmFlags(allowScripts: boolean | undefined): ReadonlyArray<string> {
+  if (!allowScripts) return NPM_INSTALL_FLAGS;
+  return NPM_INSTALL_FLAGS.filter((f) => f !== '--ignore-scripts');
+}
 
 function runNpm(
   args: ReadonlyArray<string>,

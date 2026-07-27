@@ -1,5 +1,5 @@
 import { createMutex, type Mutex, type PendingToolCall, type PermissionDecision } from '@moxxy/sdk';
-import { writeFileAtomic } from '@moxxy/sdk/server';
+import { PRIVATE_FILE_MODE, writeFileAtomic } from '@moxxy/sdk/server';
 import { promises as fs } from 'node:fs';
 import { z } from 'zod';
 
@@ -173,7 +173,11 @@ export class PermissionEngine {
 
   private async persist(): Promise<void> {
     if (!this.policyPath) return;
-    await writeFileAtomic(this.policyPath, JSON.stringify(this.policy, null, 2));
+    // The policy IS the security control. Owner-only: another local account
+    // must not be able to read which tools this user has standing grants for.
+    await writeFileAtomic(this.policyPath, JSON.stringify(this.policy, null, 2), {
+      mode: PRIVATE_FILE_MODE,
+    });
   }
 
   get policySnapshot(): PermissionPolicy {

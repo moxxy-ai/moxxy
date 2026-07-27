@@ -39,8 +39,8 @@ const HELP = formatHelp({
         ['list', 'list loaded + disabled plugins and the install catalog'],
         ['search <query>', 'search npm + catalog for installable plugins'],
         [
-          'install <spec> [--version v] [--ref r] [--yes]',
-          'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting)',
+          'install <spec> [--version v] [--ref r] [--yes] [--allow-scripts]',
+          'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting; --allow-scripts: permit the package’s npm install hooks to run, needed only by native modules, off by default)',
         ],
         ['remove <pkg>', 'uninstall a plugin package'],
         ['enable <pkg>', 'enable (plug in) a plugin'],
@@ -199,10 +199,22 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     // Bare first-party specs pin to the CLI version (co-published via the
     // fixed changeset group); a pin that 404s retries latest with a warning.
     // Explicit --version/--ref specs pass through untouched.
+    // Lifecycle scripts are banned by default (see NPM_INSTALL_FLAGS). Only an
+    // explicit human `--allow-scripts` lifts that, and only for this one
+    // install. Needed by native modules that fetch/compile a binding at
+    // install time (node-pty, onnxruntime-node behind the transformers
+    // embedder), which otherwise degrade to their documented fallbacks.
+    const allowScripts = argv.flags['allow-scripts'] === true;
+    if (allowScripts) {
+      process.stderr.write(
+        colors.dim(`--allow-scripts: ${spec} may execute install hooks with your privileges\n`),
+      );
+    }
     const result = await installPluginPackagePinned({
       packageName: spec,
       ...(resolved?.pinnedVersion ? { pinnedVersion: resolved.pinnedVersion } : {}),
       ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+      ...(allowScripts ? { allowScripts } : {}),
       onWarn: (msg) => process.stderr.write(colors.dim(msg) + '\n'),
     });
     if (resolved?.origin === 'signed' && resolved.pinnedVersion) {

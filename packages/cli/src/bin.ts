@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { moxxyHome } from '@moxxy/sdk/server';
+import { ensurePrivateDir, moxxyHome, moxxyPath, pruneStaleTempFiles } from '@moxxy/sdk/server';
 import { detectCoreInstall, finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
 import { parseArgv, type ParsedArgv } from './argv.js';
 import { runPromptCommand } from './commands/prompt.js';
@@ -238,6 +238,21 @@ const COMMANDS: Record<string, CommandHandler> = {
 
 async function main(): Promise<number> {
   const argv = parseArgv(process.argv.slice(2));
+
+  // `~/.moxxy` is the trust boundary for everything the agent persists:
+  // transcripts, the permission policy, the vault, cached credentials. A 0700
+  // home means no other local account can traverse in, which protects the state
+  // files whose own modes are set by dozens of independent writers. Awaited
+  // (one mkdir + at most one chmod) so the boundary is in place before any
+  // command writes; `ensurePrivateDir` never throws on a chmod it cannot apply.
+  await ensurePrivateDir(moxxyHome()).catch(() => {
+    /* an unwritable home surfaces later, with a message about what failed */
+  });
+
+  // Abandoned atomic-write temp files (the process was killed between write and
+  // rename) accumulate for the life of the install. Detached: pruning month-old
+  // litter must never add latency to startup.
+  void pruneStaleTempFiles([moxxyHome(), moxxyPath('sessions')]).catch(() => {});
 
   // Reaching this point means the (possibly overlaid) core code imported
   // cleanly, so commit any staged Tier-2 core patch. Best-effort — never
