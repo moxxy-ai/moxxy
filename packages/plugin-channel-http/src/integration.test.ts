@@ -231,17 +231,18 @@ describe('HttpChannel /v1/turn/audio integration', () => {
 });
 
 describe('HttpChannel auth-disabled mode', () => {
+  // Uses the same port-0 + `boundPort` pattern as every other test here. It
+  // previously guessed a port in 50000-60000 and copied it onto a second
+  // channel with Object.assign, which is precisely the EADDRINUSE flake the
+  // helper above exists to avoid; it duly failed in CI on a docs-only PR.
   it('without authToken, /v1/turn does not require Bearer header', async () => {
     const open = new HttpChannel({
       port: 0,
       allowedTools: ['Read'],
     });
-    const port = 50000 + Math.floor(Math.random() * 10000);
-    const real = new HttpChannel({ port, allowedTools: ['Read'] });
-    Object.assign(open, real);
     const openHandle = await open.start({ session: buildSession() });
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/v1/turn`, {
+      const res = await fetch(`http://127.0.0.1:${open.boundPort}/v1/turn`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ prompt: 'hi' }),
