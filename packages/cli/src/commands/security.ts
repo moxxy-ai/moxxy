@@ -22,6 +22,8 @@ const HELP = formatHelp({
         ['status', 'show enabled state, default isolator, and declaration/ratchet modes'],
         ['audit-log', 'list days with an audit trail and verify each hash chain'],
         ['audit-log <YYYY-MM-DD>', 'verify one day and print its record count + chain head'],
+        ['audit-export', 'ship the trail to the collector in audit.export'],
+        ['audit-export --dry-run', 'report what would be sent, send nothing'],
       ],
     },
   ],
@@ -37,6 +39,9 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
   // Reading the audit trail needs no session: the files are the source of
   // truth, and booting one would append to the very trail being verified.
   if (sub === 'audit-log') return await runAuditLog(argv);
+  if (sub === 'audit-export') {
+    return await (await import('./audit-export.js')).runAuditExportCommand(argv);
+  }
 
   const { config, security } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,

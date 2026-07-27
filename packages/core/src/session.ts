@@ -36,6 +36,7 @@ import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
 import { EventStoreRegistry } from './registries/event-stores.js';
+import { AuditExporterRegistry } from './registries/audit-exporters.js';
 import { AuditSinkRegistry } from './registries/audit-sinks.js';
 import { SecretProviderRegistry } from './registries/secret-providers.js';
 import { jsonlAuditSink } from './audit/jsonl-audit-sink.js';
@@ -143,6 +144,7 @@ export class Session implements ClientSession, SessionRuntime {
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
   readonly auditSinks: AuditSinkRegistry;
+  readonly auditExporters: AuditExporterRegistry;
   /**
    * Resolve a named secret, through whatever SecretProvider the host wired.
    * The same function tool handlers receive as `ctx.getSecret`; exposed here so
@@ -299,6 +301,7 @@ export class Session implements ClientSession, SessionRuntime {
     // behind the event log always exists and can be swapped but never removed.
     this.eventStores.register(jsonlEventStore, { protected: true });
     this.auditSinks = new AuditSinkRegistry();
+    this.auditExporters = new AuditExporterRegistry();
     // The hash-chained local sink is the protected floor. A discovered plugin's
     // sink registers alongside it but never auto-activates: a sink's whole job
     // is to send recorded actions somewhere else, so silent adoption would be
@@ -359,6 +362,7 @@ export class Session implements ClientSession, SessionRuntime {
       workflowExecutors: this.workflowExecutors,
       eventStores: this.eventStores,
       auditSinks: this.auditSinks,
+      auditExporters: this.auditExporters,
       secretProviders: this.secretProviders,
       reflectors: this.reflectors,
       requirements: this.requirements,

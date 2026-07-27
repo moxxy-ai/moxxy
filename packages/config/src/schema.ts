@@ -159,6 +159,25 @@ export const auditConfigSchema = z
     /** Delete local audit files older than this. Unset keeps them forever,
      *  which is its own compliance problem. */
     retentionDays: z.number().int().positive().optional(),
+    /**
+     * Ship the local trail to a central collector.
+     *
+     * ADDITIVE, never a replacement. The hash-chained local file stays the
+     * system of record and is what the exporter reads from, so a collector
+     * being unreachable delays central visibility instead of losing records.
+     * Configuring an export does not weaken `sink`.
+     */
+    export: z
+      .object({
+        /** Registered exporter name. 'otlp' is built in. */
+        exporter: z.string().default('otlp'),
+        endpoint: z.string().url(),
+        /** Static headers, e.g. authorization. Supports ${vault:KEY}. */
+        headers: z.record(z.string(), z.string()).optional(),
+        batchSize: z.number().int().positive().max(10_000).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

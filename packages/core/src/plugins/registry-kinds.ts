@@ -17,6 +17,7 @@ import type {
   TunnelProviderDef,
   WorkflowExecutorDef,
   AuditSinkDef,
+  AuditExporterDef,
   SecretProviderDef,
   EventStoreDef,
   ReflectorDef,
@@ -48,6 +49,7 @@ export interface RegistryNameRecord {
   readonly workflowExecutorNames: ReadonlyArray<string>;
   readonly eventStoreNames: ReadonlyArray<string>;
   readonly auditSinkNames: ReadonlyArray<string>;
+  readonly auditExporterNames: ReadonlyArray<string>;
   readonly secretProviderNames: ReadonlyArray<string>;
   readonly reflectorNames: ReadonlyArray<string>;
 }
@@ -261,6 +263,16 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     register: (o, a: AuditSinkDef) => o.auditSinks.register(a),
     unregister: (o, n) => o.auditSinks.unregister(n),
   } satisfies RegistryKind<AuditSinkDef>,
+  {
+    kind: 'auditExporter',
+    recordField: 'auditExporterNames',
+    defs: (p) => p.auditExporters ?? [],
+    nameOf: (e: AuditExporterDef) => e.name,
+    // Same posture as auditSink: an exporter exists to send recorded actions
+    // off the machine, so discovery must not activate one. `audit.export` does.
+    register: (o, e: AuditExporterDef) => o.auditExporters.register(e),
+    unregister: (o, n) => o.auditExporters.unregister(n),
+  } satisfies RegistryKind<AuditExporterDef>,
   {
     kind: 'secretProvider',
     recordField: 'secretProviderNames',

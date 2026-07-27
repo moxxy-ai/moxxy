@@ -108,6 +108,15 @@ audit:
   # the file can recompute the chain. Point this at a remote sink to get a chain
   # head the workstation cannot rewrite.
   # sink: <your-sink>
+  # Ship the trail to a central collector. ADDITIVE: the hash-chained local
+  # file stays the system of record and is what the exporter reads from, so a
+  # collector outage delays central visibility instead of losing records. Run
+  # 'moxxy security audit-export' from cron or a systemd timer; it exits 1 when
+  # it could not drain, so a job that has been failing is visible.
+  # export:
+  #   endpoint: https://otel-collector.example.internal:4318/v1/logs
+  #   headers:
+  #     authorization: \${vault:OTEL_TOKEN}
   retentionDays: 400
   # Prompt TEXT is off by default; only its length and SHA-256 are recorded, so
   # a prompt stays provable without the trail disclosing business content.

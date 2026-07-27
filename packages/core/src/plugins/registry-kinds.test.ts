@@ -36,6 +36,7 @@ import { SynthesizerRegistry } from '../registries/synthesizers.js';
 import { EmbedderRegistry } from '../registries/embedders.js';
 import { IsolatorRegistry } from '../registries/isolators.js';
 import { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
+import { AuditExporterRegistry } from '../registries/audit-exporters.js';
 import { AuditSinkRegistry } from '../registries/audit-sinks.js';
 import { SecretProviderRegistry } from '../registries/secret-providers.js';
 import { EventStoreRegistry } from '../registries/event-stores.js';
@@ -96,6 +97,7 @@ const everyKindPlugin = definePlugin({
       open: () => ({ write: async () => true, close: async () => {} }),
     },
   ],
+  auditExporters: [{ name: 'ae-1', send: async () => {} }],
   secretProviders: [
     {
       name: 'sp-1',
@@ -125,6 +127,7 @@ function makeHost() {
     workflowExecutors: new WorkflowExecutorRegistry(),
     eventStores: new EventStoreRegistry(),
     auditSinks: new AuditSinkRegistry(),
+    auditExporters: new AuditExporterRegistry(),
     secretProviders: new SecretProviderRegistry(),
     reflectors: new ReflectorRegistry(),
   };
@@ -167,6 +170,7 @@ function makeHost() {
     workflowExecutor: registries.workflowExecutors,
     eventStore: registries.eventStores,
     auditSink: registries.auditSinks,
+    auditExporter: registries.auditExporters,
     secretProvider: registries.secretProviders,
     reflector: registries.reflectors,
   };
