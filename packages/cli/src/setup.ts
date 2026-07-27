@@ -21,6 +21,7 @@ import {
 import { cliVersion } from './version.js';
 import { buildSessionConfigApplier } from './config-applier.js';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
+import { applyEgressSettings } from './setup/egress.js';
 import { selectEmbedder } from './setup/embedder.js';
 import { buildSession } from './setup/build-session.js';
 import { buildBuiltinsCore } from './setup/builtins.js';
@@ -83,6 +84,12 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   // mcp_test_server) and the cache populates.
 
   const config = await resolveConfigPlaceholders(rawConfig, vault, logger);
+
+  // Re-resolve egress now that config is available. `bin.ts` already applied
+  // the environment's proxy before any command ran; this second pass is what
+  // lets a managed config pin (or forbid) a proxy the environment did not set.
+  // A no-op when the resolution is unchanged, which is the common case.
+  await applyEgressSettings(config);
 
   // Single source of truth for "is this package disabled?", seeded from the
   // merged config (project + user `plugins[name].enabled = false`). The

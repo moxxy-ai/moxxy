@@ -74,13 +74,20 @@
     "clean": "rm -rf dist .turbo"
   },
   "peerDependencies": {
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "undici": "^6.21.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "typescript": "catalog:",
+    "undici": "^6.21.0",
     "vitest": "catalog:",
     "zod": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "undici": {
+      "optional": true
+    }
   }
 }

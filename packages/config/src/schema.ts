@@ -87,6 +87,26 @@ export const securityConfigSchema = z.object({
   strict: z.boolean().optional(),
 });
 
+/**
+ * Outbound network settings. Node's global `fetch` ignores `HTTPS_PROXY`, so
+ * without this every provider call fails on a network that requires a proxy.
+ */
+export const networkConfigSchema = z
+  .object({
+    /**
+     * `'env'` (the default) reads `http_proxy` / `https_proxy` / `no_proxy`
+     * from the environment. `'off'` forces direct connections even when those
+     * are set. A URL forces that proxy regardless of the environment, which is
+     * what a managed workstation wants so a user cannot unset it by clearing
+     * their shell profile.
+     */
+    proxy: z.union([z.enum(['env', 'off']), z.string().url()]).optional(),
+    /** Bypass rules applied to `proxy`, same syntax as `NO_PROXY`. Merged with
+     *  the environment's `no_proxy` rather than replacing it. */
+    noProxy: z.string().optional(),
+  })
+  .strict();
+
 export const embeddingsConfigSchema = z.object({
   /**
    * 'tfidf' (default, zero deps) | 'openai' (text-embedding-3-*)
@@ -177,6 +197,7 @@ export const moxxyConfigSchema = z.object({
     })
     .optional(),
   security: securityConfigSchema.optional(),
+  network: networkConfigSchema.optional(),
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
@@ -209,6 +230,7 @@ export type ContextConfig = z.infer<typeof contextConfigSchema>;
 export type ElisionConfig = z.infer<typeof elisionConfigSchema>;
 export type WatcherMode = z.infer<typeof watcherModeSchema>;
 export type PermissionsConfig = z.infer<typeof permissionsConfigSchema>;
+export type NetworkConfig = z.infer<typeof networkConfigSchema>;
 export type EmbeddingsConfig = z.infer<typeof embeddingsConfigSchema>;
 export type SecurityConfig = z.infer<typeof securityConfigSchema>;
 

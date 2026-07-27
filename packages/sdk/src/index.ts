@@ -217,6 +217,11 @@ export {
   type ResolvedProviderTools,
 } from './provider-tool-utils.js';
 export type { WriteFileAtomicOptions } from './fs-utils.js';
+export type {
+  EgressProxySettings,
+  EgressStatus,
+  InstallEgressProxyOptions,
+} from './egress.js';
 export type { ChannelRunStatus } from './channel-status.js';
 export type { CrossProcessFireLock, CrossProcessFireLockOptions } from './cross-process-lock.js';
 export { createMutex, type Mutex } from './mutex.js';

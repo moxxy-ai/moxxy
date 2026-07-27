@@ -7,10 +7,12 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
+import { hasProxy, redactProxyUrl } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
 import { embedderSelection } from '../setup/resolve-plugins-tree.js';
+import { resolveEgressSettings } from '../setup/egress.js';
 import type { RegistrationResult } from '../setup/register-plugins.js';
 import { resolveProviderCredentials } from '../provider-credentials.js';
 import { colors } from '../colors.js';
@@ -244,11 +246,52 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     message: `provider=${eProvider}${embedder?.model ? ` model=${embedder.model}` : ''}`,
   });
 
+  // Network egress. The single most common "moxxy cannot reach the provider"
+  // cause on a corporate host is a proxy that Node's global fetch ignores, so
+  // say plainly whether one is in force and whether a custom CA was supplied.
+  checks.push(buildEgressDoctorCheck(config));
+
   // Self-update — Tier-1 is always available if the plugin is loaded; Tier-2
   // (core patching) additionally needs git/pnpm + pinned source provenance.
   checks.push(await buildSelfUpdateDoctorCheck(session));
 
   return emit(checks, asJson);
+}
+
+/**
+ * Report the effective outbound-network posture: which proxy (if any) global
+ * `fetch` is routed through, and whether a custom CA bundle was supplied.
+ *
+ * `NODE_EXTRA_CA_CERTS` cannot be configured from inside the process (Node
+ * reads it at startup), so this reports rather than fixes. A TLS-terminating
+ * corporate proxy without it produces `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, which
+ * is otherwise a very unrewarding error to diagnose.
+ */
+export function buildEgressDoctorCheck(config: MoxxyConfig): Check {
+  const settings = resolveEgressSettings(config);
+  const ca = process.env.NODE_EXTRA_CA_CERTS;
+  const caNote = ca ? `, extra CA=${ca}` : '';
+
+  if (!hasProxy(settings)) {
+    const forcedOff = config.network?.proxy === 'off';
+    return {
+      id: 'network',
+      status: 'ok',
+      message: `direct${forcedOff ? ' (network.proxy=off)' : ''}${caNote}`,
+    };
+  }
+  const via = [
+    settings.httpsProxy ? `https via ${redactProxyUrl(settings.httpsProxy)}` : null,
+    settings.httpProxy ? `http via ${redactProxyUrl(settings.httpProxy)}` : null,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const bypass = settings.noProxy ? `, bypass=${settings.noProxy}` : '';
+  // A TLS-intercepting proxy without a trusted CA is the classic silent
+  // failure, so nudge toward it rather than waiting for the handshake error.
+  const status: Status = ca ? 'ok' : 'warn';
+  const hint = ca ? '' : ' (set NODE_EXTRA_CA_CERTS if the proxy terminates TLS)';
+  return { id: 'network', status, message: `${via}${bypass}${caNote}${hint}` };
 }
 
 export async function buildSelfUpdateDoctorCheck(session: Session): Promise<Check> {

@@ -28,6 +28,7 @@ import { runSecurityCommand } from './commands/security.js';
 import { runSelfUpdateCommand } from './commands/self-update.js';
 import { runUpdateCommand } from './commands/update.js';
 import { probeSession } from './setup.js';
+import { applyEgressSettings } from './setup/egress.js';
 import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
 import { cliVersion } from './version.js';
@@ -111,6 +112,8 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['ANTHROPIC_API_KEY', 'default Anthropic provider key'],
       ['OPENAI_API_KEY', 'OpenAI provider key (and openai embeddings)'],
       ['MOXXY_HOME', 'override the ~/.moxxy data directory'],
+      ['HTTPS_PROXY | NO_PROXY', 'outbound proxy + bypass rules (see `moxxy doctor`)'],
+      ['NODE_EXTRA_CA_CERTS', 'extra CA bundle, needed when the proxy terminates TLS'],
       ['MOXXY_DEBUG=1', 'verbose error output + process diagnostics'],
       ['MOXXY_FIXTURES', 'record | replay — provider fixture mode (used by tests)'],
       ['MOXXY_VAULT_PASSPHRASE', 'headless vault passphrase (alt to keychain)'],
@@ -253,6 +256,14 @@ async function main(): Promise<number> {
   // rename) accumulate for the life of the install. Detached: pruning month-old
   // litter must never add latency to startup.
   void pruneStaleTempFiles([moxxyHome(), moxxyPath('sessions')]).catch(() => {});
+
+  // Route outbound requests through the environment's proxy before any command
+  // can reach the network. Config can override this later (session setup
+  // re-applies once it is loaded); doing the env-only pass here covers the
+  // commands that never load a config but still fetch, such as `update` and
+  // `plugins search`. A no-op when no proxy is set, and `undici` is only
+  // imported when there is one.
+  await applyEgressSettings();
 
   // Reaching this point means the (possibly overlaid) core code imported
   // cleanly, so commit any staged Tier-2 core patch. Best-effort — never
