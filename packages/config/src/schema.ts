@@ -139,6 +139,21 @@ export const auditConfigSchema = z
   })
   .strict();
 
+/** Secret-vault behaviour. */
+export const vaultConfigSchema = z
+  .object({
+    /**
+     * Demand a human-chosen passphrase instead of generating a key.
+     *
+     * Off by default. A passphrase is a genuine increase in protection, but
+     * making it mandatory turned first run into a hard stop on any host without
+     * an OS keychain (a container, a headless box, CI). An operator who wants
+     * the stronger posture sets this and can lock it from the system scope.
+     */
+    requirePassphrase: z.boolean().optional(),
+  })
+  .strict();
+
 export const embeddingsConfigSchema = z.object({
   /**
    * 'tfidf' (default, zero deps) | 'openai' (text-embedding-3-*)
@@ -253,6 +268,7 @@ export const moxxyConfigSchema = z.object({
   security: securityConfigSchema.optional(),
   network: networkConfigSchema.optional(),
   audit: auditConfigSchema.optional(),
+  vault: vaultConfigSchema.optional(),
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
@@ -287,6 +303,7 @@ export type WatcherMode = z.infer<typeof watcherModeSchema>;
 export type PermissionsConfig = z.infer<typeof permissionsConfigSchema>;
 export type NetworkConfig = z.infer<typeof networkConfigSchema>;
 export type AuditConfig = z.infer<typeof auditConfigSchema>;
+export type VaultConfig = z.infer<typeof vaultConfigSchema>;
 export type EmbeddingsConfig = z.infer<typeof embeddingsConfigSchema>;
 export type SecurityConfig = z.infer<typeof securityConfigSchema>;
 

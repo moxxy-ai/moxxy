@@ -20,7 +20,7 @@ import {
   undeclaredToolsWarning,
   type InstallCapabilityReport,
 } from '@moxxy/plugin-plugins-admin';
-import { isFirstPartyPackage } from '@moxxy/sdk';
+import { hostCredentialName, isFirstPartyPackage } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { argvToSetupOptions, bootSession, hasBoolFlag, helpRequested } from '../argv-helpers.js';
 import { probeSession } from '../setup.js';
@@ -191,7 +191,10 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
   const resolved =
     version || ref
       ? undefined
-      : await resolveInstallSource(target, policyCfg.registryUrl ? { url: policyCfg.registryUrl } : {});
+      : await resolveInstallSource(target, {
+          ...(policyCfg.registryUrl ? { url: policyCfg.registryUrl } : {}),
+          ...(policyCfg.token ? { token: policyCfg.token } : {}),
+        });
   const spec =
     resolved?.spec ??
     buildInstallSpec({
@@ -528,7 +531,7 @@ function errorMessage(err: unknown): string {
  */
 async function readInstallConfig(
   argv: ParsedArgv,
-): Promise<{ policy?: InstallPolicy; registryUrl?: string }> {
+): Promise<{ policy?: InstallPolicy; registryUrl?: string; token?: string }> {
   try {
     return await probeSession(
       argvToSetupOptions(argv, {
@@ -536,12 +539,24 @@ async function readInstallConfig(
         tolerateNoProvider: true,
         skipProviderActivation: true,
       }),
-      ({ config }) => ({
-        ...(isInstallPolicy(config.plugins?.installPolicy)
-          ? { policy: config.plugins.installPolicy }
-          : {}),
-        ...(config.plugins?.registryUrl ? { registryUrl: config.plugins.registryUrl } : {}),
-      }),
+      async ({ config, session }) => {
+        const registryUrl = config.plugins?.registryUrl;
+        // An internal mirror usually sits behind auth. The credential is a
+        // named secret under a host convention, resolved through whatever
+        // SecretProvider the machine has active, so this needs no notion of
+        // where secrets actually live.
+        const secretName = registryUrl ? hostCredentialName(registryUrl) : null;
+        const token = secretName
+          ? await session.resolveSecret?.(secretName).catch(() => null)
+          : null;
+        return {
+          ...(isInstallPolicy(config.plugins?.installPolicy)
+            ? { policy: config.plugins.installPolicy }
+            : {}),
+          ...(registryUrl ? { registryUrl } : {}),
+          ...(token ? { token } : {}),
+        };
+      },
     );
   } catch {
     // A probe failure must not silently DROP a restriction, so fail closed on

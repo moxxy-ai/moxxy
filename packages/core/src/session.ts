@@ -143,6 +143,14 @@ export class Session implements ClientSession, SessionRuntime {
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
   readonly auditSinks: AuditSinkRegistry;
+  /**
+   * Resolve a named secret, through whatever SecretProvider the host wired.
+   * The same function tool handlers receive as `ctx.getSecret`; exposed here so
+   * a HOST-side caller (resolving a credential for an internal registry, say)
+   * goes through the active provider instead of reaching past it to the vault.
+   * Undefined when no resolver was supplied.
+   */
+  readonly resolveSecret?: (name: string) => Promise<string | null>;
   /** External secret stores. No core floor: the vault is a plugin, so the
    *  host registers it as the protected floor at boot. */
   readonly secretProviders: SecretProviderRegistry;
@@ -217,6 +225,7 @@ export class Session implements ClientSession, SessionRuntime {
       cwd: this.cwd,
       ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
     });
+    if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();

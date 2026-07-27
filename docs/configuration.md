@@ -154,6 +154,20 @@ Prefer the first two when writing an organisation's policy. `{ Read: { path: '/e
 
 Decision order: managed deny, then file deny, then managed allow, then file allow.
 
+### Secret vault
+
+Keys are encrypted at rest. Where the master key lives is resolved in order: `MOXXY_VAULT_PASSPHRASE`, the OS keychain, a cached key at `~/.moxxy/vault.key` (mode `0600`), and finally a **randomly generated** key that is persisted for next time.
+
+You are never asked to invent a passphrase. That used to be the last resort, which made first run a hard stop on any host without an OS keychain: a container, a headless Linux box, CI. A generated key gives the same protection against what this vault is actually for, which is a key leaking through config committed to git, a transcript, or a log. It does not protect against someone who can already read a `0600` file in your home directory. An OS keychain, or a passphrase, does raise that bar.
+
+```yaml
+vault:
+  # Demand a human-chosen passphrase instead of generating a key.
+  requirePassphrase: true
+```
+
+`moxxy doctor` reports which source is in use.
+
 ### Audit trail
 
 Distinct from the event log. The event log is the conversation: complete, replayable, local. The audit trail is the receipt: bounded, redacted, hash-chained, and safe to forward off the machine.

@@ -226,7 +226,7 @@ export function parseRegistryIndex(bytes: Uint8Array): PluginRegistryIndex | und
  *  from search.ts's JSON-only `FetchLike`. */
 export type RegistryFetchLike = (
   url: string,
-  init?: { readonly signal?: AbortSignal },
+  init?: { readonly signal?: AbortSignal; readonly headers?: Record<string, string> },
 ) => Promise<{
   readonly ok: boolean;
   readonly status: number;
@@ -274,6 +274,16 @@ export interface FetchSignedRegistryOptions {
   readonly publicKeyPem?: string;
   /** Cancels in-flight fetches (combined with the internal 10s deadline). */
   readonly signal?: AbortSignal;
+  /**
+   * Bearer credential for an index that requires authentication, e.g. an
+   * internal mirror behind SSO. Resolved by the caller through the active
+   * SecretProvider, so this module needs no notion of where secrets live.
+   *
+   * Purely about REACHING the index. The Ed25519 verification below is
+   * unchanged and still decides whether the bytes are trusted: an authenticated
+   * mirror serving an unsigned index is refused exactly like an anonymous one.
+   */
+  readonly token?: string;
 }
 
 /**
@@ -310,9 +320,15 @@ export async function fetchSignedRegistry(
   let bytes: Uint8Array;
   let sig: string;
   try {
+    // Sent on BOTH requests: the signature lives beside the index, so a mirror
+    // that gates one gates the other, and omitting it on `.sig` would fail the
+    // fetch in a way that looks like a missing signature.
+    const init = opts.token
+      ? { signal, headers: { authorization: `Bearer ${opts.token}` } }
+      : { signal };
     const [indexRes, sigRes] = await Promise.all([
-      fetchImpl(url, { signal }),
-      fetchImpl(`${url}.sig`, { signal }),
+      fetchImpl(url, init),
+      fetchImpl(`${url}.sig`, init),
     ]);
     if (!indexRes.ok || !sigRes.ok) {
       return fallback(

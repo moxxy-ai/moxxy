@@ -76,8 +76,11 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   });
   progress({ kind: 'config-loaded', sources: sources.length });
 
+  // `requirePassphrase` comes from the RAW config: the vault is what resolves
+  // `${vault:…}` placeholders, so it must exist before they can be resolved.
   const { plugin: vaultPlugin, vault } = buildVaultPlugin({
     disableKeytar: opts.disableKeytar,
+    ...(rawConfig.vault?.requirePassphrase ? { requirePassphrase: true } : {}),
     ...(opts.passphrasePrompt ? { passphrasePrompt: opts.passphrasePrompt } : {}),
   });
 
