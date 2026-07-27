@@ -49,6 +49,30 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 | `MOXXY_NO_CORE_UPDATE=1` | Disables registration of Tier 2 core self-update tools. |
 | `MOXXY_FIXTURES` | Selects `record`, `replay`, or `passthrough` provider fixture mode for tests. |
 
+### Network egress
+
+Node's global `fetch` ignores proxy variables on its own, and every provider call goes through it. Moxxy installs a proxy dispatcher at startup so these take effect.
+
+| Variable | Effect |
+|---|---|
+| `https_proxy` / `HTTPS_PROXY` | Proxy for `https:` origins, which is every provider API. Lowercase wins if both are set. |
+| `http_proxy` / `HTTP_PROXY` | Proxy for `http:` origins. Deliberately not used as a fallback for `https:`. |
+| `no_proxy` / `NO_PROXY` | Comma or whitespace separated bypass rules. `*` bypasses everything; `.corp.example` covers the domain and its subdomains; `host:8081` restricts the rule to that port. |
+| `NODE_EXTRA_CA_CERTS` | Path to an extra CA bundle. Required when the proxy terminates TLS, otherwise requests fail with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. Node reads it at startup, so it must be set in the environment, not in config. |
+
+Run `moxxy doctor` to see which proxy is in force and whether an extra CA is configured. Proxy credentials are masked in all output.
+
+Config can override the environment, which is what a managed workstation wants:
+
+```yaml
+network:
+  # 'env' (default) reads the variables above; 'off' forces direct;
+  # a URL pins that proxy even if the user clears their shell profile.
+  proxy: http://proxy.corp.example:3128
+  # Merged with no_proxy from the environment, never replacing it.
+  noProxy: .corp.example,localhost
+```
+
 ### Channels
 
 | Variable | Effect |
