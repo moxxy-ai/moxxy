@@ -24,6 +24,23 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, tests/determinism, RESOLVED 2026-07-27] Three suites failed only under
+  full-suite parallelism, which made a local `pnpm test` unable to distinguish a
+  regression from load. Each was a test asserting wall-clock timing rather than
+  behaviour. `CrossProcessFireLock` used a 15 ms TTL with a real `sleep`, so any
+  scheduling pause between claiming the fresh marker and sweeping expired it
+  too; it now sets file mtimes and passes the injectable clock, with no sleep at
+  all. The workflows `fileChanged`-across-two-runners test raised its `vi.waitFor`
+  budget to 20 s while vitest's default TEST timeout stayed 10 s, so the generous
+  budget was dead code and the test died first; it now declares its own 40 s
+  timeout. `isolator-subprocess`'s cooperative-abort test asserted that the
+  production 150 ms grace was enough for a child to be scheduled AND flush, which
+  is a measurement of machine load; `abortGraceMs` is now injectable and the test
+  passes a generous value, asserting the mechanism while the production default
+  is unchanged. A repo-wide scan found no other test whose internal wait budget
+  exceeds its own timeout. `packages/sdk/src/cross-process-lock.test.ts`,
+  `packages/cli/src/setup/workflows.test.ts`, `packages/isolator-subprocess/src/`.
+
 - [med, tui/providers, RESOLVED 2026-07-23] Text-only models were still given
   the lazy skill index, so Claude Code imitated `load_skill(...)` as assistant
   text and ended the turn before doing the work. ReAct prompt composition now

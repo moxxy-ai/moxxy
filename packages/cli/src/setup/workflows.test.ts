@@ -579,7 +579,11 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       a.stop();
       b.stop();
     }
-  });
+    // Test timeout must exceed the waitFor budget above. It did not: the
+    // waitFor was raised to 20s to survive load, but vitest's default test
+    // timeout is 10s, so the test died first and the generous budget was dead
+    // code. That is the failure this test has been showing under load.
+  }, 40_000);
 
   it('stop() cancels a pending fileChanged debounce so it does not fire after teardown', async () => {
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-workflows-stopdebounce-'));

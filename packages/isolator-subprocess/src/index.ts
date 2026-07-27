@@ -154,6 +154,13 @@ interface ResultFail {
 type ChildMessage = ResultOk | ResultFail | BrokerRequest;
 
 export interface SubprocessIsolatorOptions {
+  /**
+   * Grace window after posting `abort` before SIGTERM -> SIGKILL. Defaults to
+   * 150 ms. Raise it only where a slower cooperative flush is expected; the
+   * caller's promise rejects immediately either way, so this never adds
+   * latency to an abort.
+   */
+  readonly abortGraceMs?: number;
   /** Default wall-clock budget (ms) when caps.timeMs is omitted. Default 60_000. */
   readonly defaultTimeMs?: number;
   /**
@@ -231,6 +238,13 @@ const MAX_STDERR_BYTES = 64 * 1024;
  * timeout / host-abort) before the SIGTERM -> SIGKILL escalation. Lets a
  * cooperative handler observe `ctx.signal` and flush; the parent promise
  * still rejects immediately, so this never delays the caller.
+ *
+ * Overridable via {@link SubprocessIsolatorOptions.abortGraceMs} so a TEST can
+ * assert the MECHANISM (a cooperative handler does get to flush before the
+ * kill) without also asserting that 150 ms of wall clock is enough on whatever
+ * machine happens to be running it. Under a full parallel suite a child process
+ * can wait longer than that just to be scheduled, which made the assertion a
+ * measurement of load rather than of behaviour.
  */
 const ABORT_GRACE_MS = 150;
 
@@ -281,6 +295,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
   const maxInflightBrokerOps =
     opts.maxInflightBrokerOps ?? DEFAULT_MAX_INFLIGHT_BROKER_OPS;
   const nodePath = opts.nodePath ?? process.execPath;
+  const abortGraceMs = opts.abortGraceMs ?? ABORT_GRACE_MS;
 
   return {
     name: 'subprocess',
@@ -428,7 +443,7 @@ export function createSubprocessIsolator(opts: SubprocessIsolatorOptions = {}): 
               } catch {
                 // Child already closed stdin; fall through to the kill.
               }
-              const grace = setTimeout(killChild, ABORT_GRACE_MS);
+              const grace = setTimeout(killChild, abortGraceMs);
               grace.unref?.();
             } else {
               killChild();
