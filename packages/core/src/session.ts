@@ -37,6 +37,7 @@ import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
 import { EventStoreRegistry } from './registries/event-stores.js';
 import { AuditSinkRegistry } from './registries/audit-sinks.js';
+import { SecretProviderRegistry } from './registries/secret-providers.js';
 import { jsonlAuditSink } from './audit/jsonl-audit-sink.js';
 import { ReflectorRegistry } from './registries/reflectors.js';
 import { ServiceRegistryImpl } from './registries/services.js';
@@ -142,6 +143,9 @@ export class Session implements ClientSession, SessionRuntime {
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
   readonly auditSinks: AuditSinkRegistry;
+  /** External secret stores. No core floor: the vault is a plugin, so the
+   *  host registers it as the protected floor at boot. */
+  readonly secretProviders: SecretProviderRegistry;
   /**
    * The learning-loop block: watches finished turns and proposes memory/skill
    * improvements. NULLABLE — no core-seeded floor, so it stays empty until a
@@ -291,6 +295,7 @@ export class Session implements ClientSession, SessionRuntime {
     // is to send recorded actions somewhere else, so silent adoption would be
     // an exfiltration path wearing a compliance hat.
     this.auditSinks.register(jsonlAuditSink, { protected: true });
+    this.secretProviders = new SecretProviderRegistry();
     // Reflectors are nullable — no core floor is seeded, so reflection stays off
     // until a reflector plugin registers one. Published on the service registry
     // so a discovery-loaded driver (the reflector plugin's own hooks) can resolve
@@ -345,6 +350,7 @@ export class Session implements ClientSession, SessionRuntime {
       workflowExecutors: this.workflowExecutors,
       eventStores: this.eventStores,
       auditSinks: this.auditSinks,
+      secretProviders: this.secretProviders,
       reflectors: this.reflectors,
       requirements: this.requirements,
       dispatcher: this.dispatcher,

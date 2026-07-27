@@ -17,6 +17,7 @@ import type {
   TunnelProviderDef,
   WorkflowExecutorDef,
   AuditSinkDef,
+  SecretProviderDef,
   EventStoreDef,
   ReflectorDef,
 } from '@moxxy/sdk';
@@ -47,6 +48,7 @@ export interface RegistryNameRecord {
   readonly workflowExecutorNames: ReadonlyArray<string>;
   readonly eventStoreNames: ReadonlyArray<string>;
   readonly auditSinkNames: ReadonlyArray<string>;
+  readonly secretProviderNames: ReadonlyArray<string>;
   readonly reflectorNames: ReadonlyArray<string>;
 }
 
@@ -259,6 +261,17 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     register: (o, a: AuditSinkDef) => o.auditSinks.register(a),
     unregister: (o, n) => o.auditSinks.unregister(n),
   } satisfies RegistryKind<AuditSinkDef>,
+  {
+    kind: 'secretProvider',
+    recordField: 'secretProviderNames',
+    defs: (p) => p.secretProviders ?? [],
+    nameOf: (sp: SecretProviderDef) => sp.name,
+    // Throw-on-duplicate, no auto-activation. A secret provider is asked for
+    // plaintext credentials BY NAME, so one that activated itself on discovery
+    // would be a credential-harvesting path wearing a convenience hat.
+    register: (o, sp: SecretProviderDef) => o.secretProviders.register(sp),
+    unregister: (o, n) => o.secretProviders.unregister(n),
+  } satisfies RegistryKind<SecretProviderDef>,
   {
     kind: 'reflector',
     recordField: 'reflectorNames',

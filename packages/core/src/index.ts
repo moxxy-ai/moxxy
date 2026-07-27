@@ -142,3 +142,4 @@ export {
   verifyAuditDay,
 } from './audit/jsonl-audit-sink.js';
 export { AuditSinkRegistry } from './registries/audit-sinks.js';
+export { SecretProviderRegistry } from './registries/secret-providers.js';
