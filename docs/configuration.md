@@ -49,6 +49,59 @@ Provider keys such as `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are detected auto
 | `MOXXY_NO_CORE_UPDATE=1` | Disables registration of Tier 2 core self-update tools. |
 | `MOXXY_FIXTURES` | Selects `record`, `replay`, or `passthrough` provider fixture mode for tests. |
 
+## Scopes and precedence
+
+Configuration is merged from four layers, highest authority first:
+
+| Scope | Location | Notes |
+|---|---|---|
+| system | `/etc/moxxy/config.yaml`, `%PROGRAMDATA%\moxxy\config.yaml`, or `$MOXXY_SYSTEM_CONFIG` | Operator-managed. YAML only, and the only layer that can lock keys. |
+| user | `~/.moxxy/config.yaml` | |
+| project | `moxxy.config.yaml` (or `.ts`) found by walking up from the working directory | |
+| explicit | `--config <path>` | |
+
+The system layer is YAML only on purpose: an executable file there would run as whoever starts moxxy, so a misconfigured `/etc/moxxy` would become a privilege-escalation path.
+
+### Locking settings a user must not change
+
+A system config can pin dot-paths. Every listed path is stripped from the user, project, and explicit layers before merging, and the attempt is reported on stderr.
+
+```yaml
+# /etc/moxxy/config.yaml
+security:
+  enabled: true
+network:
+  proxy: http://proxy.corp.example:3128
+locked:
+  - security.enabled
+  - network.proxy
+```
+
+Locking a parent (`network`) pins the whole subtree, not just the leaves already present.
+
+### Executable project configs
+
+`moxxy.config.ts` (and `.js`/`.mjs`/`.cjs`) is code, executed with your full privileges before the permission engine, the vault, or any isolator exists. Because the search walks up from the working directory, entering a cloned repository used to run its config silently.
+
+Moxxy now asks before running one, and remembers the approval against the file's **content**, so editing it asks again:
+
+```sh
+moxxy config trust                 # approve ./moxxy.config.ts
+moxxy config trust path/to/cfg.ts  # approve a specific file
+moxxy config trust --list          # what has been approved
+moxxy config untrust <file>        # withdraw approval
+```
+
+A non-interactive run has nobody to ask, so it skips the file rather than executing unreviewed code. Pre-approve with `moxxy config trust` when provisioning a daemon or a container image. To forbid executable configs entirely on a managed host:
+
+```yaml
+# /etc/moxxy/config.yaml
+config:
+  allowExecutable: false
+```
+
+YAML configs are data and are never gated.
+
 ### Network egress
 
 Node's global `fetch` ignores proxy variables on its own, and every provider call goes through it. Moxxy installs a proxy dispatcher at startup so these take effect.

@@ -4,16 +4,51 @@ import { pathToFileURL } from 'node:url';
 import { moxxyHome } from '@moxxy/sdk/server';
 import { mergeConfigs } from './merge.js';
 import { moxxyConfigSchema, type MoxxyConfig } from './schema.js';
+import { hashConfigFile, isConfigTrusted, trustConfig } from './config-trust.js';
+import {
+  lockedKeysOf,
+  stripLockedKeys,
+  systemConfigCandidates,
+  type LockedOverride,
+} from './system-scope.js';
+
+/** Layers `loadConfig` reads, highest-authority first. Distinct from
+ *  config-writer's `ConfigScope`: the system layer is operator-managed and is
+ *  never a write target. */
+export type ConfigLoadScope = 'system' | 'project' | 'user' | 'explicit';
+
+/**
+ * Asked to approve executing a project config whose content has not been
+ * trusted before. Returning false (or omitting the callback) skips the file.
+ *
+ * Only wired on interactive surfaces. A headless run has nobody to ask, so it
+ * refuses rather than executing unreviewed code, and the operator pre-approves
+ * with `moxxy config trust`.
+ */
+export type ConfigTrustPrompt = (info: {
+  readonly path: string;
+  readonly sha256: string;
+}) => Promise<boolean>;
 
 export interface LoadConfigOptions {
   readonly cwd: string;
   readonly explicitPath?: string;
   readonly skipUser?: boolean;
+  /** Skip the machine-wide scope (tests, and `--no-system-config`). */
+  readonly skipSystem?: boolean;
+  /** Consent hook for an untrusted executable config. */
+  readonly trustPrompt?: ConfigTrustPrompt;
+  /** Where refusals and locked-key overrides are surfaced. Defaults to stderr. */
+  readonly warn?: (message: string) => void;
 }
 
 export interface LoadedConfig {
   readonly config: MoxxyConfig;
-  readonly sources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
+  readonly sources: ReadonlyArray<{ scope: ConfigLoadScope; path: string }>;
+  /** Locked dot-paths a lower layer tried to set and had stripped. */
+  readonly lockedOverrides: ReadonlyArray<LockedOverride>;
+  /** Executable configs that were found but NOT executed, and why. */
+  readonly skipped: ReadonlyArray<{ readonly path: string; readonly reason: string }>;
 }
 
 const CONFIG_NAMES = [
@@ -38,58 +73,139 @@ const USER_CONFIG_NAMES = [
 export const MAX_CONFIG_SEARCH_DEPTH = 12;
 
 export async function loadConfig(opts: LoadConfigOptions): Promise<LoadedConfig> {
-  const sources: Array<{ scope: 'project' | 'user' | 'explicit'; path: string }> = [];
-  const configs: MoxxyConfig[] = [];
+  const sources: Array<{ scope: ConfigLoadScope; path: string }> = [];
+  const skipped: Array<{ path: string; reason: string }> = [];
+  const warn = opts.warn ?? ((m: string) => process.stderr.write(`[moxxy] ${m}\n`));
+
+  // The system scope loads FIRST and is the only layer allowed to lock keys.
+  // Everything below it is pruned against that list before merging.
+  let system: MoxxyConfig | undefined;
+  let systemPath: string | undefined;
+  if (!opts.skipSystem) {
+    systemPath = await findFirstExisting(systemConfigCandidates());
+    if (systemPath) {
+      system = await loadOne(systemPath);
+      sources.push({ scope: 'system', path: systemPath });
+    }
+  }
+  const locked = lockedKeysOf(system);
+  // A system config can forbid executing project configs outright, which is
+  // what a managed workstation wants: only data, never code.
+  const allowExecutable = system?.config?.allowExecutable ?? true;
+
+  const lower: Array<{ scope: ConfigLoadScope; path: string; config: MoxxyConfig }> = [];
 
   if (!opts.skipUser) {
     const userPath = await findFile(moxxyHome(), USER_CONFIG_NAMES);
     if (userPath) {
-      const cfg = await loadOne(userPath);
-      configs.push(cfg);
-      sources.push({ scope: 'user', path: userPath });
+      const loaded = await loadGuarded(userPath, { allowExecutable, opts, warn, skipped });
+      if (loaded) lower.push({ scope: 'user', path: userPath, config: loaded });
     }
   }
 
   if (opts.explicitPath) {
-    const cfg = await loadOne(opts.explicitPath);
-    configs.push(cfg);
-    sources.push({ scope: 'explicit', path: opts.explicitPath });
+    const loaded = await loadGuarded(opts.explicitPath, { allowExecutable, opts, warn, skipped });
+    if (loaded) lower.push({ scope: 'explicit', path: opts.explicitPath, config: loaded });
   } else {
     const projectPath = await findUpward(opts.cwd, CONFIG_NAMES);
     if (projectPath) {
-      warnIfAncestorExecutableConfig(projectPath, opts.cwd);
-      const cfg = await loadOne(projectPath);
-      configs.push(cfg);
-      sources.push({ scope: 'project', path: projectPath });
+      const loaded = await loadGuarded(projectPath, { allowExecutable, opts, warn, skipped });
+      if (loaded) lower.push({ scope: 'project', path: projectPath, config: loaded });
     }
   }
 
-  return { config: mergeConfigs(...configs), sources };
+  const lockedOverrides: LockedOverride[] = [];
+  const configs: MoxxyConfig[] = system ? [system] : [];
+  for (const layer of lower) {
+    const pruned = stripLockedKeys(layer.config, locked, layer.scope);
+    lockedOverrides.push(...pruned.overrides);
+    configs.push(pruned.config);
+    sources.push({ scope: layer.scope, path: layer.path });
+  }
+  for (const override of lockedOverrides) {
+    warn(
+      `ignoring ${override.scope} config override of "${override.key}": ` +
+        `locked by the system config${systemPath ? ` (${systemPath})` : ''}`,
+    );
+  }
+
+  return { config: mergeConfigs(...configs), sources, lockedOverrides, skipped };
 }
 
-const EXECUTABLE_CONFIG_EXTS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs']);
-
-function isUnderDir(filePath: string, dir: string): boolean {
-  const rel = path.relative(path.resolve(dir), path.resolve(filePath));
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+interface GuardContext {
+  readonly allowExecutable: boolean;
+  readonly opts: LoadConfigOptions;
+  readonly warn: (message: string) => void;
+  readonly skipped: Array<{ path: string; reason: string }>;
 }
 
 /**
- * The project-config upward walk resolves and then EXECUTES the first matching
- * config above cwd. An ancestor (e.g. a shared home/temp parent or an untrusted
- * outer repo) can therefore plant a config whose code runs with full process
- * privileges. We keep the documented upward-walk behavior but surface the exact
- * absolute path on stderr before running an ancestor *executable* config, so the
- * operator can see what is about to execute. Non-executable YAML and at/under-cwd
- * configs are silent (no new trust boundary widened).
+ * Load a config, gating EXECUTABLE ones behind policy and consent.
+ *
+ * The loader resolves and then runs `.ts`/`.js` configs with full process
+ * privileges, before the permission engine, the vault, or any isolator exists.
+ * Because the project search also walks upward, `git clone` + `cd` + `moxxy`
+ * used to execute a stranger's code with no signal at all. Consent is keyed to
+ * file CONTENT, so editing a trusted config asks again: what was approved is
+ * the file somebody read.
+ *
+ * Returns undefined when the file was not executed, in which case the caller
+ * simply proceeds with the remaining layers. Refusing a layer is always safer
+ * than running unreviewed code, so every failure path here skips.
  */
-function warnIfAncestorExecutableConfig(filePath: string, cwd: string): void {
-  if (!EXECUTABLE_CONFIG_EXTS.has(path.extname(filePath))) return;
-  if (isUnderDir(filePath, cwd)) return;
-  console.warn(
-    `[moxxy] executing project config from an ancestor directory: ${path.resolve(filePath)}`,
-  );
+async function loadGuarded(
+  filePath: string,
+  ctx: GuardContext,
+): Promise<MoxxyConfig | undefined> {
+  if (!EXECUTABLE_CONFIG_EXTS.has(path.extname(filePath))) return await loadOne(filePath);
+
+  const resolved = path.resolve(filePath);
+  if (!ctx.allowExecutable) {
+    const reason = 'executable configs are disabled by the system config';
+    ctx.warn(`skipping ${resolved}: ${reason}`);
+    ctx.skipped.push({ path: resolved, reason });
+    return undefined;
+  }
+  if (await isConfigTrusted(resolved)) return await loadOne(filePath);
+
+  const sha256 = await hashConfigFile(resolved);
+  if (!sha256) {
+    const reason = 'cannot read the file to establish trust';
+    ctx.warn(`skipping ${resolved}: ${reason}`);
+    ctx.skipped.push({ path: resolved, reason });
+    return undefined;
+  }
+  if (ctx.opts.trustPrompt && (await ctx.opts.trustPrompt({ path: resolved, sha256 }))) {
+    await trustConfig(resolved);
+    return await loadOne(filePath);
+  }
+  // No prompt available means a headless run, which has nobody to ask. Refuse
+  // rather than execute unreviewed code; `moxxy config trust` pre-approves it.
+  const reason = ctx.opts.trustPrompt
+    ? 'not approved'
+    : 'untrusted executable config and no interactive prompt available; ' +
+      `approve it with \`moxxy config trust ${resolved}\``;
+  ctx.warn(`skipping ${resolved}: ${reason}`);
+  ctx.skipped.push({ path: resolved, reason });
+  return undefined;
 }
+
+async function findFirstExisting(candidates: ReadonlyArray<string>): Promise<string | undefined> {
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      /* try the next */
+    }
+  }
+  return undefined;
+}
+
+// Superseded the ancestor-only stderr warning that used to live here: consent
+// now gates EVERY executable config, at or above cwd, so a narrower warning for
+// the ancestor case would only add noise to a path that already asks.
+const EXECUTABLE_CONFIG_EXTS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs']);
 
 async function loadOne(filePath: string): Promise<MoxxyConfig> {
   const ext = path.extname(filePath);
