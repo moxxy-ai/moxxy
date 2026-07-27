@@ -1,3 +1,4 @@
+import type { ConfigSource } from './load-config.js';
 import type { EventStoreSession, Session } from '@moxxy/core';
 import type { PermissionResolver } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
@@ -98,7 +99,7 @@ export type BootStep =
 export interface SetupResult {
   readonly session: Session;
   readonly config: MoxxyConfig;
-  readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
+  readonly configSources: ReadonlyArray<ConfigSource>;
   readonly vault: VaultStore;
   /** The memory plugin's store ('memory' service); undefined on a slim boot without the plugin. */
   readonly memory: MemoryStore | undefined;

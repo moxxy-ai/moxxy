@@ -1,5 +1,26 @@
 export { defineConfig } from './define.js';
-export { loadConfig, type LoadConfigOptions, type LoadedConfig } from './loader.js';
+export {
+  loadConfig,
+  type ConfigLoadScope,
+  type ConfigTrustPrompt,
+  type LoadConfigOptions,
+  type LoadedConfig,
+} from './loader.js';
+export {
+  configTrustPath,
+  hashConfigFile,
+  isConfigTrusted,
+  listTrustedConfigs,
+  trustConfig,
+  untrustConfig,
+  type TrustEntry,
+} from './config-trust.js';
+export {
+  lockedKeysOf,
+  stripLockedKeys,
+  systemConfigCandidates,
+  type LockedOverride,
+} from './system-scope.js';
 export { mergeConfigs } from './merge.js';
 export {
   buildConfigPlugin,

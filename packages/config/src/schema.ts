@@ -175,7 +175,29 @@ export const contextConfigSchema = z.object({
     .optional(),
 });
 
+/** Settings governing how config itself is loaded. */
+export const configLoadingSchema = z
+  .object({
+    /**
+     * Whether `moxxy.config.{ts,js,mjs,cjs}` may be EXECUTED. Those files are
+     * code, run with the user's full privileges before the permission engine or
+     * any isolator exists. Default true (with trust-on-first-use consent); a
+     * managed host sets false so only YAML data is ever loaded.
+     */
+    allowExecutable: z.boolean().optional(),
+  })
+  .strict();
+
 export const moxxyConfigSchema = z.object({
+  /**
+   * Dot-paths this layer pins, e.g. `['security.enabled', 'network.proxy']`.
+   * Honored ONLY from the system scope: every listed path is stripped from the
+   * user, project, and explicit layers before merging, so a managed setting
+   * cannot be turned off further down. Ignored anywhere else, since a user
+   * config locking keys against itself is meaningless.
+   */
+  locked: z.array(z.string()).optional(),
+  config: configLoadingSchema.optional(),
   /**
    * The unified plugins manifest — the single source of truth for what's
    * installed/enabled (`plugins.packages`) and the active default per category

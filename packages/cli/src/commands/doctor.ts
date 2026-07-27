@@ -13,6 +13,7 @@ import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
 import { closeSession } from '../setup/close-session.js';
 import { embedderSelection } from '../setup/resolve-plugins-tree.js';
+import type { ConfigSource } from '../setup/load-config.js';
 import { resolveEgressSettings } from '../setup/egress.js';
 import type { RegistrationResult } from '../setup/register-plugins.js';
 import { resolveProviderCredentials } from '../provider-credentials.js';
@@ -94,7 +95,7 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
 interface DoctorChecksDeps {
   readonly session: Session;
   readonly config: MoxxyConfig;
-  readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
+  readonly configSources: ReadonlyArray<ConfigSource>;
   readonly vault: VaultStore;
   /** Undefined on a slim boot without the memory plugin installed. */
   readonly memory: MemoryStore | undefined;

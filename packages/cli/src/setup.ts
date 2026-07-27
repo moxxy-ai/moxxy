@@ -23,6 +23,7 @@ import { buildSessionConfigApplier } from './config-applier.js';
 import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { applyEgressSettings } from './setup/egress.js';
+import { interactiveConfigTrustPrompt } from './setup/config-trust-prompt.js';
 import { selectEmbedder } from './setup/embedder.js';
 import { buildSession } from './setup/build-session.js';
 import { buildBuiltinsCore } from './setup/builtins.js';
@@ -62,10 +63,14 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   const skipKeyPrompt = opts.skipKeyPrompt || opts.onProgress != null;
   const progress = opts.onProgress ?? ((): void => undefined);
 
+  // Executable project configs need consent before they run. A probe or any
+  // other non-interactive boot passes no prompt, and the loader then refuses to
+  // execute rather than silently running unreviewed code.
   const { rawConfig, sources } = await loadRawConfig({
     cwd: opts.cwd,
     configPath: opts.configPath,
     skipUser: opts.skipUserConfig,
+    trustPrompt: skipKeyPrompt ? undefined : interactiveConfigTrustPrompt(),
   });
   progress({ kind: 'config-loaded', sources: sources.length });
 
