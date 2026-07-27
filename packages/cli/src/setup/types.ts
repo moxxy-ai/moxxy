@@ -2,7 +2,7 @@ import type { ConfigSource } from './load-config.js';
 import type { AuditHandle } from '@moxxy/core';
 import type { EventStoreSession, Session } from '@moxxy/core';
 import type { PermissionResolver } from '@moxxy/sdk';
-import type { MoxxyConfig } from '@moxxy/config';
+import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import type { SchedulerPoller, ScheduleStore } from '@moxxy/plugin-scheduler';
@@ -98,6 +98,8 @@ export type BootStep =
   | { kind: 'ready' };
 
 export interface SetupResult {
+  /** Signed policy bundles that were verified for this session. */
+  readonly policySources: ReadonlyArray<PolicySourceRecord>;
   readonly session: Session;
   readonly config: MoxxyConfig;
   readonly configSources: ReadonlyArray<ConfigSource>;

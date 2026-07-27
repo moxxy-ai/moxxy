@@ -47,6 +47,8 @@ export type { EventLogReader } from './log.js';
 export type { Principal } from './principal.js';
 export { samePrincipal, formatPrincipal } from './principal.js';
 
+export { verifyEd25519 } from './signature.js';
+
 // Audit trail: the tamper-evident receipt, distinct from the event log.
 export type {
   AuditAction,

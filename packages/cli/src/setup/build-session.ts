@@ -11,11 +11,16 @@ import {
   type Logger,
 } from '@moxxy/core';
 import { MoxxyError, type MoxxyEvent, type PermissionResolver, type SessionId } from '@moxxy/sdk';
-import type { MoxxyConfig } from '@moxxy/config';
+import type { MoxxyConfig, PolicyBundleRule } from '@moxxy/config';
 
 export interface BuildSessionArgs {
   readonly cwd: string;
   readonly config: MoxxyConfig;
+  /** Rules from verified policy bundles, layered with the config's own. */
+  readonly bundledRules?: {
+    readonly allow: ReadonlyArray<PolicyBundleRule>;
+    readonly deny: ReadonlyArray<PolicyBundleRule>;
+  };
   readonly resolver?: PermissionResolver;
   readonly resumeSessionId?: string;
   /**
@@ -54,9 +59,14 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
   // file, not by answering "allow always", not by deleting the file.
   // Previously these config keys existed in the schema and were silently
   // ignored, so there was no way to push a rule at all.
+  // Local config first, then signed bundles. Order is presentational for deny
+  // (any match denies) but the layering that matters is already guaranteed by
+  // the engine: every deny in this layer is checked before any allow in it, so
+  // a local operator's deny beats a remote bundle's allow without needing to
+  // rank the two sources against each other.
   permissionEngine.setImmutableRules({
-    allow: args.config.permissions?.allow ?? [],
-    deny: args.config.permissions?.deny ?? [],
+    allow: [...(args.config.permissions?.allow ?? []), ...(args.bundledRules?.allow ?? [])],
+    deny: [...(args.config.permissions?.deny ?? []), ...(args.bundledRules?.deny ?? [])],
   });
 
   // The effective session id: an explicit `--resume <id>` (errors if missing),

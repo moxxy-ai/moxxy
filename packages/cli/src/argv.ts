@@ -31,6 +31,7 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'allow-scripts',
   'list',
   'check',
+  'json',
 ]);
 
 /**

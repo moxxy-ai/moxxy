@@ -113,6 +113,7 @@ Check these lines specifically:
 | `identity` | `os:<user>@<host>`, not `unattributed` |
 | `network` | your proxy, and an extra CA if it terminates TLS |
 | `vault` | `keychain`, or a note that a stored key is in use |
+| `policy` | the bundles in force as `id@revision`; a warn means this host is serving off its cache |
 
 Then confirm the locks actually bind, rather than trusting that they were written:
 
@@ -137,6 +138,33 @@ Exit code 1 on a broken chain, so a scheduled check can gate on it.
 
 This is tamper-**evident**, not tamper-proof: whoever can write the file can recompute the chain. It catches silent selective deletion, which is the realistic threat. For a chain head the workstation cannot rewrite, point `audit.sink` at a remote sink.
 
+### Accounting for a single run
+
+The trail answers "what happened on this machine". When someone asks about one specific run, usually because it did something surprising, use a receipt:
+
+```sh
+moxxy receipt <turnId>            # one run
+moxxy receipt --session <id>      # every run in a session
+moxxy receipt <turnId> --json     # to attach to a ticket
+```
+
+```
+  turn     t1
+  actor    os:alice@host
+  trigger  webhook:deploy
+  policy   6c59b147041aab80
+  tools    Read, Edit
+  denied   Bash: managed policy
+  tokens   1200 in / 340 out
+  chain verified
+```
+
+A receipt is a projection over the trail, not a second record, so asking for one writes nothing and cannot change what it reports. It answers the four questions asked after the fact: who acted, what set it off, which rules were in force, and what it cost.
+
+The `policy` line is the fingerprint recorded at session start over the settings that decide what the agent may do. Identical fingerprints on two runs prove they executed under the same rules; a differing one tells you the rules moved between them. It covers no secrets and no paths, only counts and effective values, so it is safe to paste into a ticket.
+
+The chain is verified before anything prints, and a broken one exits 1 with the receipt marked. That matters more than it sounds: a receipt assembled from a trail with a record deleted would otherwise look complete while quietly omitting the removed call.
+
 Records are bounded and redacted. Prompt text is not recorded unless you set `audit.includePromptText: true`; the SHA-256 always is, so a specific prompt stays provable without the trail disclosing business content. Set `audit.retentionDays` deliberately: keeping everything forever is its own compliance problem.
 
 ## 6. Autonomous surfaces
@@ -155,6 +183,67 @@ permissions:
 
 Prefer `inputPathPrefix` and `inputGlob` over `inputMatches`: the latter is an unanchored regex, so `{ path: '/etc' }` means "contains /etc anywhere", which over-blocks as a deny and over-grants as an allow.
 
+## 7. Distribute policy as a signed bundle
+
+Section 6 pushes rules through `/etc/moxxy/config.yaml`, which is fine for one machine. Across a fleet every rule change becomes a file change on every host, and a host that missed one is indistinguishable from a host that got it.
+
+A policy bundle is a signed document you publish once and every machine subscribes to:
+
+```json
+{
+  "version": 1,
+  "id": "corp-baseline",
+  "revision": "2026-07-27.1",
+  "permissions": {
+    "deny": [{ "name": "Bash", "reason": "corp policy: no shell" }]
+  }
+}
+```
+
+Sign it with Ed25519, serve it and its detached `.sig` beside it, and pin the public key in config you control:
+
+```yaml
+policy:
+  bundles:
+    - id: corp-baseline
+      url: https://policy.example.internal/moxxy/corp-baseline.json
+      publicKey: |
+        -----BEGIN PUBLIC KEY-----
+        ...
+        -----END PUBLIC KEY-----
+```
+
+Pin the key in config, never take it from the bundle or its host: a key served next to the thing it authenticates proves nothing.
+
+### What a bundle may contain, and why so little
+
+Permission rules. Nothing else. Not `registryUrl`, not a key, not a proxy, not `security.enabled`, and a bundle carrying any of them is rejected rather than quietly stripped.
+
+The reason is the failure mode. A bundle arrives over the network, so the question that matters is what someone who takes over that host can do. Confined to permission rules, the answer is "deny things and break the fleet": loud, reversible, and safe. Let a bundle set `registryUrl` or a trust key and the answer becomes "redirect what every machine trusts", silently. Denial of service is a far better worst case than privilege escalation.
+
+### How it combines with your local rules
+
+Both land above `~/.moxxy/permissions.json`, and every deny is checked before any allow, so:
+
+| Situation | Winner |
+|---|---|
+| Local deny vs bundle allow | Local deny. You outrank a remote publisher. |
+| Bundle deny vs local allow | Bundle deny. Subscribing actually restricts. |
+| Either deny vs an "allow always" answer | The deny. Neither is removable at runtime. |
+
+### It fails closed
+
+A configured bundle that cannot be verified **stops the session**. That is the point: a host running without the rules it subscribes to, with nothing to show for it, is the condition the feature exists to prevent.
+
+The last verified copy is cached at `~/.moxxy/policy/` and carries a session through an outage, re-verified against your pinned key on every read so editing the cache buys nothing. A bad signature is never treated as "unavailable", or anyone who can answer for the URL could pin a fleet to an old revision forever by serving garbage.
+
+```sh
+moxxy policy            # rules in force, each with its origin
+moxxy policy --check    # exit 1 if this host is serving off a stale cache
+```
+
+The bundle revision goes into the policy fingerprint, so `moxxy receipt` proves which revision any past run executed under.
+
 ## Rollout checklist
 
 - [ ] `/etc/moxxy/config.yaml` placed, proxy and CA filled in
@@ -165,6 +254,8 @@ Prefer `inputPathPrefix` and `inputGlob` over `inputMatches`: the latter is an u
 - [ ] `installPolicy` set, and an internal mirror pinned if you have one
 - [ ] Audit sink configured, retention set, chain verification scheduled
 - [ ] Autonomous channels on dedicated runners with minimal allow-lists
+- [ ] Policy bundle published and pinned, or local rules accepted deliberately
+- [ ] `moxxy policy` verified on a pilot host, and `--check` green in CI
 - [ ] [threat-model.md](threat-model.md) and [data-flow.md](data-flow.md) reviewed by whoever signs off
 
 ## Upgrades

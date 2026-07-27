@@ -70,6 +70,33 @@ plugins:
     # a hostile plugin; 'worker' is the lighter middle ground.
     default: subprocess
 
+# Signed policy bundles this host subscribes to. The alternative is editing
+# permission rules on every machine, where a host that missed a change looks
+# exactly like one that got it; a bundle carries a revision, and that revision
+# lands in the audit trail so every run says which rules it ran under.
+#
+# A bundle carries permission rules and NOTHING else: no registry URL, no keys,
+# no proxy, no security toggles. It arrives over the network, so the worst case
+# for whoever controls that host must stay "they can deny things and break the
+# fleet", which is loud and reversible, rather than "they can loosen us".
+#
+# Fails CLOSED. A configured bundle that cannot be verified stops the session
+# rather than running without the rules this machine is supposed to enforce.
+# The last verified copy is cached and carries a session through an outage;
+# 'moxxy policy --check' exits 1 when a host is serving off that cache.
+#
+# policy:
+#   bundles:
+#     - id: corp-baseline
+#       url: https://policy.example.internal/moxxy/corp-baseline.json
+#       # The publisher's Ed25519 SPKI PEM, pinned HERE and never taken from
+#       # the bundle or its host: a key served next to what it authenticates
+#       # proves nothing.
+#       publicKey: |
+#         -----BEGIN PUBLIC KEY-----
+#         ...
+#         -----END PUBLIC KEY-----
+
 config:
   # Never execute a project's moxxy.config.ts. Only YAML data is loaded.
   allowExecutable: false

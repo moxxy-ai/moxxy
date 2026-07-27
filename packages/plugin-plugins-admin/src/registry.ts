@@ -69,10 +69,9 @@
  * index can be replayed.
  */
 
-import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import { z, type CapabilitySpec } from '@moxxy/sdk';
+import { verifyEd25519, z, type CapabilitySpec } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
 import { INSTALLABLE_PLUGIN_CATALOG, resolveCatalogEntry, type PluginCatalogEntry } from './catalog.js';
 import { NPM_NAME_RE } from './shared.js';
@@ -195,13 +194,7 @@ export function verifyRegistryIndex(
   sigB64: string,
   publicKeyPem: string,
 ): boolean {
-  if (!publicKeyPem || !sigB64) return false;
-  try {
-    const key = createPublicKey(publicKeyPem);
-    return cryptoVerify(null, Buffer.from(bytes), key, Buffer.from(sigB64, 'base64'));
-  } catch {
-    return false;
-  }
+  return verifyEd25519(bytes, sigB64, publicKeyPem);
 }
 
 /** Parse + schema-check verified index bytes. Undefined on anything off. */
