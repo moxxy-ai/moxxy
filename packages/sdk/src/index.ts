@@ -64,7 +64,7 @@ export type {
   SecretProviderScope,
   SecretProviderSession,
 } from './secret-provider.js';
-export { defineSecretProvider } from './secret-provider.js';
+export { defineSecretProvider, hostCredentialName } from './secret-provider.js';
 
 // Secret redaction for anything leaving the process.
 export {

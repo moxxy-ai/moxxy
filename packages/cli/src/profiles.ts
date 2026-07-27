@@ -59,6 +59,12 @@ plugins:
   # Point at your own mirror. Whatever it serves must still verify against the
   # key baked into the CLI, so this is a SOURCE decision, not a trust decision.
   # registryUrl: https://registry.example.internal/moxxy/index.json
+  #
+  # A mirror behind SSO needs a credential. Store it under the host convention
+  # and whatever SecretProvider this machine has active will serve it:
+  #   registry.example.internal -> MOXXY_CREDENTIAL_REGISTRY_EXAMPLE_INTERNAL
+  # Authentication only decides whether the index is REACHABLE; the Ed25519
+  # signature still decides whether it is trusted.
   isolator:
     # A real process boundary. 'inproc' is best-effort only and cannot contain
     # a hostile plugin; 'worker' is the lighter middle ground.

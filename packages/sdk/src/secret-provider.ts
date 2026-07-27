@@ -46,3 +46,39 @@ export interface SecretProviderDef {
 export function defineSecretProvider(def: SecretProviderDef): SecretProviderDef {
   return Object.freeze({ ...def });
 }
+
+/**
+ * The canonical secret name holding a credential for `host`.
+ *
+ * A host credential is a named secret plus a convention, which is exactly why
+ * there is no separate `CredentialProvider` registry: whatever store an
+ * organisation already plugged in for secrets serves these too.
+ *
+ * `github.example.com` becomes `MOXXY_CREDENTIAL_GITHUB_EXAMPLE_COM`. The
+ * derivation mirrors the provider-key convention (upper-snake, non-alphanumerics
+ * to `_`) so an operator who has seen one can predict the other, and a port is
+ * dropped because a credential belongs to the host, not to a socket.
+ *
+ * Accepts a bare host or a full URL; anything unparseable yields null rather
+ * than a name derived from garbage, so a caller cannot accidentally look up a
+ * secret keyed on a typo.
+ */
+export function hostCredentialName(hostOrUrl: string): string | null {
+  const raw = hostOrUrl.trim();
+  if (raw.length === 0) return null;
+  let host = raw;
+  if (raw.includes('://')) {
+    try {
+      host = new URL(raw).hostname;
+    } catch {
+      return null;
+    }
+  } else {
+    // Strip a port or a path if the caller passed `host:443/x`.
+    host = raw.split('/')[0]!.split(':')[0]!;
+  }
+  host = host.replace(/^\[|\]$/g, '').trim();
+  if (host.length === 0 || /\s/.test(host)) return null;
+  const slug = host.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return slug.length > 0 ? `MOXXY_CREDENTIAL_${slug}` : null;
+}
