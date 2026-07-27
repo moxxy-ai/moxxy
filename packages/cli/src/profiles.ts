@@ -51,6 +51,14 @@ security:
   strict: true
 
 plugins:
+  # Only packages the signed index vouches for. The index is Ed25519-verified
+  # and pins an exact version, which is what makes "we run reviewed code only"
+  # enforceable rather than aspirational. Use 'denied' for an image built once
+  # and shipped, where any runtime install is by definition drift.
+  installPolicy: registry-only
+  # Point at your own mirror. Whatever it serves must still verify against the
+  # key baked into the CLI, so this is a SOURCE decision, not a trust decision.
+  # registryUrl: https://registry.example.internal/moxxy/index.json
   isolator:
     # A real process boundary. 'inproc' is best-effort only and cannot contain
     # a hostile plugin; 'worker' is the lighter middle ground.
@@ -95,6 +103,7 @@ locked:
   - security.thirdPartyRequireDeclaration
   - security.strict
   - plugins.isolator
+  - plugins.installPolicy
   - config.allowExecutable
   - audit
   - channels.mobile.bindHost

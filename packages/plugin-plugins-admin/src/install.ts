@@ -14,6 +14,7 @@ import { assertSafeNpmSpec, diffSnapshot, NPM_NAME_RE, type PluginSnapshot } fro
 import { pinFirstPartySpec } from './pin.js';
 import { readPluginSetup } from './setup-spec.js';
 import { checkCapabilityManifest, resolveInstallSource } from './registry.js';
+import { assertInstallAllowed, type InstallPolicy } from './install-policy.js';
 
 export type { PluginSnapshot } from './shared.js';
 
@@ -92,6 +93,14 @@ export interface InstallPluginPackageOptions {
   /** Optional abort signal; aborting kills the npm child process. */
   readonly signal?: AbortSignal;
   /**
+   * The machine's install policy. Defaults to `open` so nothing changes for a
+   * personal install; a managed host pins it from the system config scope.
+   */
+  readonly policy?: InstallPolicy;
+  /** Whether the signed registry vouched for this spec. Resolved by the caller,
+   *  which already consults the index for the version pin. */
+  readonly signed?: boolean;
+  /**
    * Opt back INTO running the package's npm lifecycle scripts. Off by default
    * (see {@link NPM_INSTALL_FLAGS}); this exists for the narrow set of packages
    * that genuinely cannot install without one, namely native modules that fetch
@@ -139,6 +148,14 @@ export async function installPluginPackage(
   opts: InstallPluginPackageOptions,
 ): Promise<InstallPluginPackageResult> {
   const spec = assertSafeNpmSpec(opts.packageName);
+  // Checked HERE, not at the CLI surface: `install_plugin` (the model tool)
+  // reaches this same function, and a policy the agent could route around by
+  // asking itself would not be a policy.
+  assertInstallAllowed({
+    policy: opts.policy ?? 'open',
+    spec,
+    signed: opts.signed ?? false,
+  });
   const dir = userPluginsDir();
   return pluginsDirMutex.run(async () => {
     await ensurePackageJson(dir);
@@ -173,6 +190,8 @@ export interface PinnedInstallOptions {
   readonly signal?: AbortSignal;
   /** See {@link InstallPluginPackageOptions.allowScripts}. Human-only. */
   readonly allowScripts?: boolean;
+  /** The machine's install policy; defaults to `open`. */
+  readonly policy?: InstallPolicy;
   /** Surfaced when an injected pin 404s and the install retries unpinned. */
   readonly onWarn?: (message: string) => void;
   /** Injectable install fn for tests; defaults to {@link installPluginPackage}. */
@@ -200,16 +219,19 @@ export async function installPluginPackagePinned(
     opts.pinnedVersion && NPM_NAME_RE.test(opts.packageName) ? opts.pinnedVersion : undefined;
   const spec = pinFirstPartySpec(opts.packageName, opts.version ?? signedPin, opts.cliVersion);
   const injectedPin = !opts.version && spec !== opts.packageName;
-  const { signal, allowScripts } = opts;
+  const { signal, allowScripts, policy } = opts;
+  // `signed` is derived from the pin the caller resolved: a signed registry
+  // entry is exactly what contributes `pinnedVersion`, so the two cannot drift.
+  const signed = opts.pinnedVersion !== undefined;
   try {
-    return await install({ packageName: spec, signal, allowScripts });
+    return await install({ packageName: spec, signal, allowScripts, policy, signed });
   } catch (err) {
     if (!injectedPin) throw err;
     opts.onWarn?.(
       `pinned install ${spec} failed (${err instanceof Error ? err.message : String(err)}); ` +
         `retrying latest ${opts.packageName}`,
     );
-    return await install({ packageName: opts.packageName, signal, allowScripts });
+    return await install({ packageName: opts.packageName, signal, allowScripts, policy, signed });
   }
 }
 

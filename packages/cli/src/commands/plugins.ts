@@ -12,6 +12,8 @@ import {
   resolveCatalogEntry,
   resolveCatalogPackageName,
   resolveInstallSource,
+  isInstallPolicy,
+  type InstallPolicy,
   searchInstallablePlugins,
   setCategoryDefault,
   setPluginEnabled,
@@ -183,10 +185,13 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
   // maintainer key is unprovisioned) — a signed entry contributes its exact,
   // signature-covered version as the pin. Pin precedence:
   // user --version > signed index > cliVersion lockstep > latest.
+  // Config decides both the source (an internal mirror) and the policy. Read
+  // through a probe so the system scope's pin applies, not just the env var.
+  const policyCfg = await readInstallConfig(argv);
   const resolved =
     version || ref
       ? undefined
-      : await resolveInstallSource(target);
+      : await resolveInstallSource(target, policyCfg.registryUrl ? { url: policyCfg.registryUrl } : {});
   const spec =
     resolved?.spec ??
     buildInstallSpec({
@@ -212,6 +217,7 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     }
     const result = await installPluginPackagePinned({
       packageName: spec,
+      ...(policyCfg.policy ? { policy: policyCfg.policy } : {}),
       ...(resolved?.pinnedVersion ? { pinnedVersion: resolved.pinnedVersion } : {}),
       ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
       ...(allowScripts ? { allowScripts } : {}),
@@ -511,4 +517,35 @@ function stringFlag(argv: ParsedArgv, name: string): string | undefined {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The install-source and install-policy settings in force.
+ *
+ * Read through a probe rather than from the environment, so a pin in the SYSTEM
+ * config scope actually binds: `MOXXY_REGISTRY_URL` alone is a variable a user
+ * can unset, which makes it useless as a control.
+ */
+async function readInstallConfig(
+  argv: ParsedArgv,
+): Promise<{ policy?: InstallPolicy; registryUrl?: string }> {
+  try {
+    return await probeSession(
+      argvToSetupOptions(argv, {
+        skipKeyPrompt: true,
+        tolerateNoProvider: true,
+        skipProviderActivation: true,
+      }),
+      ({ config }) => ({
+        ...(isInstallPolicy(config.plugins?.installPolicy)
+          ? { policy: config.plugins.installPolicy }
+          : {}),
+        ...(config.plugins?.registryUrl ? { registryUrl: config.plugins.registryUrl } : {}),
+      }),
+    );
+  } catch {
+    // A probe failure must not silently DROP a restriction, so fail closed on
+    // the policy while leaving the source at its default.
+    return { policy: 'denied' };
+  }
 }
