@@ -4,6 +4,7 @@ import type {
   EmittedEvent,
   LoopGuardSettings,
   MoxxyEvent,
+  Principal,
   RunTurnOptions,
   SessionId,
   SessionInfo,
@@ -388,6 +389,26 @@ export class Session implements ClientSession, SessionRuntime {
   }
 
   /**
+   * Attribute everything this session appends to `principal`.
+   *
+   * Set by whoever owns the surface and can actually vouch for the identity:
+   * the CLI resolves the OS account, an authenticated channel resolves its
+   * token's subject. Core never guesses one, because an identity core invented
+   * would be worth nothing to an auditor.
+   *
+   * Pass `undefined` to go back to unattributed, which is what a surface with
+   * no notion of a user should do rather than inventing a placeholder.
+   */
+  setPrincipal(principal: Principal | undefined): void {
+    this.log.setPrincipal(principal);
+  }
+
+  /** The identity this session currently attributes to, if any. */
+  get principal(): Principal | undefined {
+    return this.log.getPrincipal();
+  }
+
+  /**
    * `SessionLike.reset` — the authoritative `/new`. Clears the event log;
    * the log's clear listeners propagate the wipe to whatever observes it
    * (the persistence sidecar truncates its JSONL so `--resume` sees an
@@ -471,12 +492,17 @@ export class Session implements ClientSession, SessionRuntime {
     if (!this.envSnapshot) {
       this.envSnapshot = Object.freeze({ ...process.env });
     }
+    // Read the principal per call rather than caching it with `envSnapshot`:
+    // a channel can re-attribute mid-session (a second user pairs, a token
+    // rotates) and a hook must see the identity in force NOW.
+    const actor = this.log.getPrincipal();
     return {
       sessionId: this.id,
       cwd: this.cwd,
       log: this.log.asReader(),
       env: this.envSnapshot,
       services: this.services,
+      ...(actor ? { actor } : {}),
     };
   }
 

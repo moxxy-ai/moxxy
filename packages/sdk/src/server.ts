@@ -26,6 +26,9 @@ export {
   PRIVATE_DIR_MODE,
   PRIVATE_FILE_MODE,
 } from './fs-utils.js';
+// The local OS account as a Principal (node:os). The type and its pure helpers
+// ride the main barrel.
+export { resolveOsPrincipal } from './principal-os.js';
 // Outbound proxy support for global `fetch` (dynamic `undici` import). Node-only.
 export {
   installEgressProxy,

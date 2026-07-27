@@ -3,6 +3,7 @@ import type { EventLogReader } from './log.js';
 import type { PendingToolCall } from './permission.js';
 import type { ProviderRequest } from './provider.js';
 import type { SessionId, TurnId } from './ids.js';
+import type { Principal } from './principal.js';
 import type { ServiceRegistry } from './services.js';
 
 export interface AppContext {
@@ -10,6 +11,13 @@ export interface AppContext {
   readonly cwd: string;
   readonly log: EventLogReader;
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * Who the session is attributed to, when the surface could establish it.
+   * This is what lets a policy or audit hook answer "who is asking" instead of
+   * only "what is being asked". Absent means unattributed: a hook that gates on
+   * identity must fail closed on `undefined` rather than assuming an admin.
+   */
+  readonly actor?: Principal;
   /**
    * Inter-plugin service registry — publish a service in `onInit` for sibling
    * plugins to consume in theirs. See {@link ServiceRegistry}.

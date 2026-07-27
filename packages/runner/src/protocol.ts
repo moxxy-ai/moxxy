@@ -7,6 +7,7 @@ import type {
   PendingToolCall,
   PermissionContext,
   PermissionDecision,
+  Principal,
   OpenSurfaceResult,
   SessionInfo,
   SurfaceDataMessage,
@@ -143,11 +144,18 @@ import type {
  * transcript ever goes blank. (Additive — a v9 server simply lacks this one
  * method.)
  *
- * Every change v1→v10 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
+ * v11: `attach` accepts an optional `principal`, the identity the connection
+ * acts on behalf of. The runner stamps it onto every event that connection
+ * causes, so a shared session attributes each client's work instead of
+ * collapsing them into one anonymous stream, and an audit sink downstream gets
+ * self-attributing records. Older clients simply omit it and their events stay
+ * unattributed, exactly as before. (Additive: a v10 server ignores the key.)
+ *
+ * Every change v1→v11 has been ADDITIVE, so MIN_COMPATIBLE stays at 1: today's
  * server can serve any client back to v1, and any client v1+ can attach. Bump
  * MIN_COMPATIBLE to N only when landing a breaking change at version N.
  */
-export const RUNNER_PROTOCOL_VERSION = 10;
+export const RUNNER_PROTOCOL_VERSION = 11;
 
 /**
  * Lowest client protocol version this build's CORE session protocol is
@@ -302,6 +310,18 @@ export interface AttachParams {
   readonly sinceSeq?: number;
   /** Replay policy (v6). Older servers strip the key and replay in full. */
   readonly replay?: AttachReplay;
+  /**
+   * Identity this connection acts on behalf of (v11). The runner stamps it onto
+   * every event the connection causes, so a shared session records WHICH client
+   * did what instead of collapsing them all into one anonymous stream.
+   *
+   * Client-asserted, and only ever as trustworthy as the transport: over the
+   * 0600 unix socket the peer is already the same local user, so `os` is a
+   * statement of fact. A network-facing client must not be believed on this
+   * without its own authentication, which is why {@link Principal.issuer}
+   * travels with the id.
+   */
+  readonly principal?: Principal;
 }
 export interface AttachResult {
   readonly sessionId: string;
@@ -529,6 +549,20 @@ const attachmentSchema = z
   })
   .passthrough();
 
+/**
+ * Trust-boundary schema for an attaching client's asserted identity (v11).
+ * Bounded on every field: this crosses a socket and lands verbatim in the event
+ * log, so an unbounded id or an unbounded claims bag would let a client bloat
+ * every persisted event. Unknown keys are stripped rather than passed through.
+ */
+export const principalSchema = z.object({
+  id: z.string().min(1).max(256),
+  kind: z.union([z.literal('human'), z.literal('service')]),
+  issuer: z.string().min(1).max(64),
+  displayName: z.string().max(256).optional(),
+  claims: z.record(z.string().max(64), z.string().max(1024)).optional(),
+});
+
 export const attachParamsSchema = z.object({
   protocolVersion: z.number(),
   role: z.string(),
@@ -540,6 +574,7 @@ export const attachParamsSchema = z.object({
       z.object({ tail: z.number().int().positive() }),
     ])
     .optional(),
+  principal: principalSchema.optional(),
 });
 
 export const runTurnParamsSchema = z.object({

@@ -1577,3 +1577,46 @@ describe('log completeness: stream-without-seal', () => {
     expect((sealed[0] as AssistantMessageEvent).content).toBe('final');
   });
 });
+
+describe('principal attribution over the wire (v11)', () => {
+  it('stamps an attaching client\'s principal onto the events it causes', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('ok')] }));
+    const principal = { id: 'alice@laptop', kind: 'human', issuer: 'oidc' } as const;
+    const remote = await connectRemoteSession({ socketPath, role: 'test', principal });
+    remotes.push(remote);
+
+    for await (const _event of remote.runTurn('hello')) void _event;
+
+    const prompt = session.log.toJSON().find((e) => e.type === 'user_prompt');
+    expect(prompt?.actor).toEqual(principal);
+  });
+
+  // A thin client over the 0600 unix socket IS the same local user as the
+  // runner, so the default assertion is a statement of fact, not a claim.
+  it('defaults to the local OS account when the caller names no principal', async () => {
+    const { session, socketPath } = await serve(new FakeProvider({ script: [textReply('ok')] }));
+    const remote = await attach(socketPath);
+
+    for await (const _event of remote.runTurn('hello')) void _event;
+
+    const prompt = session.log.toJSON().find((e) => e.type === 'user_prompt');
+    expect(prompt?.actor?.issuer).toBe('os');
+    expect(prompt?.actor?.kind).toBe('human');
+  });
+
+  // The wire is a trust boundary: an oversized id or an unbounded claims bag
+  // would otherwise land verbatim in every persisted event.
+  it('rejects an over-long principal id at the schema', async () => {
+    const { socketPath } = await serve(new FakeProvider({ script: [textReply('ok')] }));
+    const transport = await connectUnixSocket(socketPath);
+    const peer = new JsonRpcPeer(transport);
+    await expect(
+      peer.request(RunnerMethod.Attach, {
+        protocolVersion: RUNNER_PROTOCOL_VERSION,
+        role: 'test',
+        principal: { id: 'x'.repeat(300), kind: 'human', issuer: 'os' },
+      }),
+    ).rejects.toThrow();
+    transport.close();
+  });
+});

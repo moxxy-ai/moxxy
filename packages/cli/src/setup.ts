@@ -20,6 +20,7 @@ import {
 } from '@moxxy/plugin-plugins-admin';
 import { cliVersion } from './version.js';
 import { buildSessionConfigApplier } from './config-applier.js';
+import { resolveOsPrincipal } from '@moxxy/sdk/server';
 import { loadRawConfig, resolveConfigPlaceholders } from './setup/load-config.js';
 import { applyEgressSettings } from './setup/egress.js';
 import { selectEmbedder } from './setup/embedder.js';
@@ -112,6 +113,14 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     // returns null for unknown names.
     secretResolver: (name) => vault.get(name),
   });
+
+  // Attribute everything this session appends to the local OS account. It is
+  // the FLOOR identity, worth exactly as much as local account separation,
+  // which is why it is issued as `os` rather than dressed up as something
+  // stronger. Set before any plugin registers or any hook fires, so no event
+  // can be appended unattributed. A channel that actually authenticates its
+  // users overrides it via `session.setPrincipal`.
+  session.setPrincipal(resolveOsPrincipal());
 
   // Build the builtin list first WITHOUT the config plugin so we can pass the
   // whole list to the ConfigApplier (used for hot-toggle of plugin enable/disable).

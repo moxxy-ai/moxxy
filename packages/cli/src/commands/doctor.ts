@@ -7,6 +7,7 @@ import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import { checkVoiceCaptureAvailable } from '@moxxy/plugin-cli';
 import { corePreflight, detectCoreInstall } from '@moxxy/plugin-self-update';
+import { formatPrincipal } from '@moxxy/sdk';
 import { hasProxy, redactProxyUrl } from '@moxxy/sdk/server';
 import type { ParsedArgv } from '../argv.js';
 import { setupSessionWithConfig } from '../setup.js';
@@ -244,6 +245,18 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     id: 'embeddings',
     status: 'ok',
     message: `provider=${eProvider}${embedder?.model ? ` model=${embedder.model}` : ''}`,
+  });
+
+  // Identity. What every event in this session is attributed to, and how much
+  // that attribution is worth: `os` is only as strong as local account
+  // separation, which an operator reading an audit trail needs to know.
+  const actor = session.principal;
+  checks.push({
+    id: 'identity',
+    status: actor ? 'ok' : 'warn',
+    message: actor
+      ? `${formatPrincipal(actor)} (${actor.kind})`
+      : 'unattributed: events carry no actor',
   });
 
   // Network egress. The single most common "moxxy cannot reach the provider"
