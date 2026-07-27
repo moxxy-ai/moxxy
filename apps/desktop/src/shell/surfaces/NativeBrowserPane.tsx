@@ -21,6 +21,7 @@ export function NativeBrowserPaneView({
 }): JSX.Element {
   const { snapshot, activeTab } = model;
   const captureActive = Boolean(model.captureImage);
+  const permissionRequest = snapshot?.permissionRequest;
 
   return (
     <div className="native-browser">
@@ -195,6 +196,43 @@ export function NativeBrowserPaneView({
         </div>
       )}
 
+      {permissionRequest && (
+        <div className="native-browser__permission" role="alert">
+          <span>
+            <strong>{permissionRequest.origin}</strong> wants to use{' '}
+            {permissionLabel(permissionRequest.permission)}.
+          </span>
+          <div>
+            <button
+              type="button"
+              onClick={() => model.resolvePermission(permissionRequest.id, false)}
+            >
+              Block
+            </button>
+            <button
+              type="button"
+              data-primary="true"
+              onClick={() => model.resolvePermission(permissionRequest.id, true)}
+            >
+              Allow for this session
+            </button>
+          </div>
+        </div>
+      )}
+
+      {snapshot?.downloads?.map((download) => (
+        <div className="native-browser__download" role="status" key={download.id}>
+          <span>
+            <strong>{download.filename}</strong> · {downloadStatus(download)}
+          </span>
+          {download.state === 'progressing' && (
+            <button type="button" onClick={() => model.cancelDownload(download.id)}>
+              Cancel
+            </button>
+          )}
+        </div>
+      ))}
+
       {snapshot?.agentControl && (
         <div
           className="native-browser__agent-control"
@@ -249,6 +287,27 @@ export function NativeBrowserPaneView({
       </div>
     </div>
   );
+}
+
+function permissionLabel(permission: string): string {
+  if (permission === 'microphone-camera') return 'the microphone and camera';
+  if (permission === 'microphone') return 'the microphone';
+  if (permission === 'camera') return 'the camera';
+  if (permission === 'geolocation') return 'your location';
+  return 'the clipboard';
+}
+
+function downloadStatus(download: {
+  readonly state: string;
+  readonly receivedBytes: number;
+  readonly totalBytes: number;
+  readonly savePath: string;
+}): string {
+  if (download.state === 'completed') return `Saved to ${download.savePath}`;
+  if (download.state === 'cancelled') return 'Cancelled';
+  if (download.state === 'interrupted') return 'Interrupted';
+  if (download.totalBytes <= 0) return 'Downloading…';
+  return `${Math.min(100, Math.round((download.receivedBytes / download.totalBytes) * 100))}%`;
 }
 
 function Spinner({

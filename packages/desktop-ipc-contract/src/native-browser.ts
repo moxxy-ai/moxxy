@@ -22,6 +22,36 @@ export interface NativeBrowserSnapshot {
     readonly action: string;
     readonly startedAtMs: number;
   };
+  /** A third-party origin is waiting for a user decision. Agent actions can
+   * observe this state, but only the trusted desktop renderer can resolve it. */
+  readonly permissionRequest?: NativeBrowserPermissionRequest;
+  /** Downloads started by pages in this workspace. Terminal rows remain
+   * visible for the lifetime of the desktop process. */
+  readonly downloads?: ReadonlyArray<NativeBrowserDownload>;
+}
+
+export type NativeBrowserSitePermission =
+  | 'microphone'
+  | 'camera'
+  | 'microphone-camera'
+  | 'geolocation'
+  | 'clipboard';
+
+export interface NativeBrowserPermissionRequest {
+  readonly id: string;
+  readonly tabId: string;
+  readonly origin: string;
+  readonly permission: NativeBrowserSitePermission;
+}
+
+export interface NativeBrowserDownload {
+  readonly id: string;
+  readonly tabId: string;
+  readonly filename: string;
+  readonly state: 'progressing' | 'completed' | 'cancelled' | 'interrupted';
+  readonly receivedBytes: number;
+  readonly totalBytes: number;
+  readonly savePath: string;
 }
 
 export interface NativeBrowserAvailability {

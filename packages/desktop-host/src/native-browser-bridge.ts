@@ -4,11 +4,18 @@ import { createServer, type Server, type Socket } from 'node:net';
 import path from 'node:path';
 
 import {
+  NATIVE_BROWSER_PROTOCOL_VERSION,
   browserSessionActionSchema,
   type BrowserSessionAction,
 } from '@moxxy/plugin-browser/browser-action';
 import { isNamedPipe, platformSocket } from '@moxxy/runner';
 import { z } from '@moxxy/sdk';
+import {
+  BrowserOperationError,
+  browserErrorDetails,
+} from '@moxxy/plugin-browser/browser-errors';
+
+export { NATIVE_BROWSER_PROTOCOL_VERSION };
 
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_DARWIN_SOCKET_BYTES = 103;
@@ -18,6 +25,7 @@ const SAFE_ID = /^[A-Za-z0-9_.-]+$/;
 const requestSchema = z
   .object({
     id: z.string().min(1).max(128),
+    protocolVersion: z.literal(NATIVE_BROWSER_PROTOCOL_VERSION),
     token: z.string().regex(/^[a-f0-9]{64}$/),
     workspaceId: z.string().min(1).max(256).regex(SAFE_ID),
     action: browserSessionActionSchema,
@@ -31,6 +39,7 @@ export interface NativeBrowserRunnerEnvironment {
   readonly MOXXY_NATIVE_BROWSER_SOCKET: string;
   readonly MOXXY_NATIVE_BROWSER_TOKEN: string;
   readonly MOXXY_NATIVE_BROWSER_WORKSPACE_ID: string;
+  readonly MOXXY_NATIVE_BROWSER_PROTOCOL_VERSION: string;
 }
 
 export interface NativeBrowserBridgeOptions {
@@ -88,6 +97,7 @@ export class NativeBrowserBridge {
       MOXXY_NATIVE_BROWSER_SOCKET: this.options.socketPath,
       MOXXY_NATIVE_BROWSER_TOKEN: token,
       MOXXY_NATIVE_BROWSER_WORKSPACE_ID: workspaceId,
+      MOXXY_NATIVE_BROWSER_PROTOCOL_VERSION: String(NATIVE_BROWSER_PROTOCOL_VERSION),
     };
   }
 
@@ -158,7 +168,30 @@ export class NativeBrowserBridge {
     }
     const parsed = requestSchema.safeParse(raw);
     if (!parsed.success) {
-      this.writeError(socket, requestId(raw), 'invalid native browser request');
+      const protocolVersion = requestProtocolVersion(raw);
+      if (protocolVersion !== NATIVE_BROWSER_PROTOCOL_VERSION) {
+        this.writeError(
+          socket,
+          requestId(raw),
+          new BrowserOperationError({
+            code: 'BACKEND_MISMATCH',
+            message: `Native browser protocol ${String(protocolVersion ?? 'missing')} is incompatible with host protocol ${NATIVE_BROWSER_PROTOCOL_VERSION}.`,
+            nextAction: 'restart',
+            retryable: false,
+          }),
+        );
+        return;
+      }
+      this.writeError(
+        socket,
+        requestId(raw),
+        new BrowserOperationError({
+          code: 'INVALID_BROWSER_ACTION',
+          message: 'invalid native browser request',
+          nextAction: 'stop',
+          retryable: false,
+        }),
+      );
       return;
     }
     const request = parsed.data;
@@ -183,14 +216,15 @@ export class NativeBrowserBridge {
       socket.end(`${JSON.stringify({ id: request.id, ok: true, result })}\n`);
     } catch (error) {
       complete = true;
-      this.writeError(socket, request.id, errorMessage(error));
+      this.writeError(socket, request.id, error);
     } finally {
       socket.removeListener('close', abort);
     }
   }
 
-  private writeError(socket: Socket, id: string, message: string): void {
-    socket.end(`${JSON.stringify({ id, ok: false, error: { message } })}\n`);
+  private writeError(socket: Socket, id: string, error: unknown): void {
+    const details = browserErrorDetails(error);
+    socket.end(`${JSON.stringify({ id, ok: false, error: details })}\n`);
   }
 }
 
@@ -226,6 +260,8 @@ function requestId(value: unknown): string {
   return typeof id === 'string' && id.length > 0 && id.length <= 128 ? id : 'invalid-request';
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message.slice(0, 16_384) : String(error).slice(0, 16_384);
+function requestProtocolVersion(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const protocolVersion = (value as { protocolVersion?: unknown }).protocolVersion;
+  return typeof protocolVersion === 'number' ? protocolVersion : undefined;
 }

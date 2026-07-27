@@ -26,4 +26,6 @@ export function registerNativeBrowserIpc(
   handle('nativeBrowser.beginCapture', (args) => controller.beginCapture(args));
   handle('nativeBrowser.endCapture', (args) => controller.endCapture(args));
   handle('nativeBrowser.stopAgentControl', (args) => controller.stopAgentControl(args));
+  handle('nativeBrowser.resolvePermission', (args) => controller.resolvePermission(args));
+  handle('nativeBrowser.cancelDownload', (args) => controller.cancelDownload(args));
 }

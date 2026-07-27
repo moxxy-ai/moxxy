@@ -11,6 +11,7 @@ import {
   buildBrowserRefPointScript,
   buildBrowserRefValidationScript,
   buildBrowserSelectorPointScript,
+  buildSanitizedDocumentHtmlScript,
   formatBrowserObservationForModel,
   parseBrowserObservation,
   type BrowserObservationTarget,
@@ -204,6 +205,7 @@ async function selectorForTarget(page: PageHandle, target: BrowserTarget): Promi
   if (!stored) throw badParams('STALE_BROWSER_STATE: observe the page again');
   const current = await page.evaluate(buildBrowserRefValidationScript(target.revision));
   if (current !== true) throw badParams('STALE_BROWSER_STATE: observe the page again');
+  if (!stored.selector) throw badParams('ELEMENT_NOT_INTERACTABLE: selector target required');
   return stored.selector;
 }
 
@@ -265,45 +267,24 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       return { id: req.id, ok: true, result: { url: target.page.url(), tabId: target.tabId } };
     }
     case 'click': {
-      const { selector, target: requestedTarget, timeoutMs, tabId, button, count } = (req.params ?? {}) as {
+      const { selector, target: requestedTarget, tabId, button, count } = (req.params ?? {}) as {
         selector?: string;
         target?: BrowserTarget;
-        timeoutMs?: number;
         tabId?: string;
         button?: 'left' | 'middle' | 'right';
         count?: number;
       };
-      if (!selector && !requestedTarget) throw badParams('click target is required');
+      const effectiveTarget = requestedTarget ?? (selector
+        ? { type: 'selector' as const, selector }
+        : undefined);
+      if (!effectiveTarget) throw badParams('click target is required');
       const target = await resolvePage(state, tabId);
-      if (selector) {
-        await target.page.click(selector, {
-          timeout: timeoutMs ?? 10_000,
-          button: button ?? 'left',
-          clickCount: count ?? 1,
-        });
-      } else {
-        const resolved = await resolveBrowserTarget(
-          target.page,
-          requestedTarget as BrowserTarget,
-        );
-        await target.page.mouse.click(resolved.point.x, resolved.point.y, {
-          button: button ?? 'left',
-          clickCount: count ?? 1,
-        });
-      }
+      const resolved = await resolveBrowserTarget(target.page, effectiveTarget);
+      await target.page.mouse.click(resolved.point.x, resolved.point.y, {
+        button: button ?? 'left',
+        clickCount: count ?? 1,
+      });
       return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
-    }
-    case 'fill': {
-      const { selector, value, timeoutMs, tabId } = (req.params ?? {}) as {
-        selector: string;
-        value: string;
-        timeoutMs?: number;
-        tabId?: string;
-      };
-      if (!selector) throw badParams('selector is required');
-      const target = await resolvePage(state, tabId);
-      await target.page.fill(selector, value ?? '', { timeout: timeoutMs ?? 10_000 });
-      return { id: req.id, ok: true };
     }
     case 'observe': {
       const { mode, maxNodes, maxTextChars, tabId } = (req.params ?? {}) as {
@@ -345,7 +326,12 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       return {
         id: req.id,
         ok: true,
-        result: { ...parsed.observation, nodes, tabId: target.tabId },
+        result: {
+          ...parsed.observation,
+          nodes,
+          tabId: target.tabId,
+          forModel: formatBrowserObservationForModel({ ...parsed.observation, nodes }),
+        },
       };
     }
     case 'hover': {
@@ -506,10 +492,18 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
       return { id: req.id, ok: true, result: { tabId: target.tabId, url: target.page.url() } };
     }
     case 'text': {
-      const { selector, tabId } = (req.params ?? {}) as { selector?: string; tabId?: string };
+      const { selector, target: requestedTarget, tabId } = (req.params ?? {}) as {
+        selector?: string;
+        target?: BrowserTarget;
+        tabId?: string;
+      };
       const target = await resolvePage(state, tabId);
-      if (selector) {
-        const text = await target.page.textContent(selector);
+      const effectiveTarget = requestedTarget ?? (selector
+        ? { type: 'selector' as const, selector }
+        : undefined);
+      if (effectiveTarget) {
+        const resolvedSelector = await selectorForTarget(target.page, effectiveTarget);
+        const text = await target.page.textContent(resolvedSelector);
         return { id: req.id, ok: true, result: text ?? '' };
       }
       // Whole-document text via evaluate
@@ -519,7 +513,7 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
     case 'html': {
       const { tabId } = (req.params ?? {}) as { tabId?: string };
       const target = await resolvePage(state, tabId);
-      const html = await target.page.content();
+      const html = await target.page.evaluate(buildSanitizedDocumentHtmlScript());
       return { id: req.id, ok: true, result: html };
     }
     case 'screenshot': {

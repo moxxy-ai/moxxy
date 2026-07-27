@@ -186,6 +186,36 @@ describe('toAnthropicTools', () => {
     expect(schema.type).toBe('object');
   });
 
+  it('sends the canonical browser target schema without the legacy selector field', () => {
+    const tool = defineTool({
+      name: 'browser_session',
+      description: 'shared browser',
+      inputSchema: z.any(),
+      inputJsonSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['click'] },
+              target: { type: 'object' },
+            },
+            required: ['kind', 'target'],
+            additionalProperties: false,
+          },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      handler: () => null,
+    });
+
+    const out = toAnthropicTools([tool]);
+    const payload = JSON.stringify(out[0].input_schema);
+    expect(payload).toContain('"target"');
+    expect(payload).not.toContain('"selector"');
+  });
+
   it('marks the last tool with cache_control when cacheLast is set', () => {
     const mk = (name: string) =>
       defineTool({ name, description: name, inputSchema: z.object({}), handler: () => null });

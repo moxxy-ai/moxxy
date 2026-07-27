@@ -37,6 +37,32 @@ async function makePkg(pkgRoot: string, opts: { name: string; entry: string; ent
 }
 
 describe('discoverPlugins + createPluginLoader (end-to-end)', () => {
+  it('returns exact package overrides before an installed package with the same name', async () => {
+    const installed = path.join(cwd, 'node_modules', '@acme', 'mox-thing');
+    const override = path.join(tmp, 'workspace-plugin');
+    await fs.mkdir(override, { recursive: true });
+    await makePkg(installed, {
+      name: '@acme/mox-thing',
+      entry: 'index.mjs',
+      entryContent: 'export default {}',
+    });
+    await makePkg(override, {
+      name: '@acme/mox-thing',
+      entry: 'index.mjs',
+      entryContent: 'export default {}',
+    });
+
+    const manifests = await discoverPlugins({
+      cwd,
+      logger: silentLogger,
+      packagePaths: [override],
+    });
+
+    const samePackage = manifests.filter((manifest) => manifest.packageName === '@acme/mox-thing');
+    expect(samePackage[0]?.packagePath).toBe(override);
+    expect(samePackage[1]?.packagePath).toBe(installed);
+  });
+
   it('finds plugins in cwd/node_modules and loads them via the default loader', async () => {
     const pkgRoot = path.join(cwd, 'node_modules', '@acme', 'mox-thing');
     await makePkg(pkgRoot, {

@@ -44,6 +44,23 @@ describe('define* factories', () => {
     expect(out).toBe('HI');
   });
 
+  it('defineTool preserves serializable runtime capability metadata', () => {
+    const tool = defineTool({
+      name: 'browser_session',
+      description: 'browser',
+      inputSchema: z.object({}),
+      capabilities: {
+        nativeBrowserProtocol: 2,
+        backends: 'native,playwright',
+      },
+      handler: () => null,
+    });
+    expect(tool.capabilities).toEqual({
+      nativeBrowserProtocol: 2,
+      backends: 'native,playwright',
+    });
+  });
+
   it('defineProvider, defineMode, defineCompactor, definePermission, defineSkill, defineTranscriber all freeze', () => {
     const items = [
       defineProvider({ name: 'p', models: [], createClient: () => ({}) as never }),

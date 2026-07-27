@@ -716,6 +716,7 @@ app.whenReady().then(async () => {
   nativeBrowser = new ElectronNativeBrowserController({
     browserSession: session.fromPartition('persist:moxxy-browser-v1'),
     userDataDir: userData,
+    downloadsDir: app.getPath('downloads'),
     getMainWindow: () => mainWindow,
     onChanged: (workspaceId, snapshot) => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -743,13 +744,20 @@ app.whenReady().then(async () => {
     }
   }
 
+  const localBrowserPluginPath = isDev
+    ? path.resolve(__dirname, '..', '..', '..', '..', 'packages', 'plugin-browser')
+    : null;
   pool = new RunnerPool({
-    environmentForWorkspace: nativeBrowserBridge
-      ? (workspaceId) => {
-          const environment = nativeBrowserBridge?.runnerEnvironment(workspaceId);
-          return environment ? { ...environment } : undefined;
-        }
-      : undefined,
+    environmentForWorkspace: (workspaceId) => {
+      const environment = nativeBrowserBridge?.runnerEnvironment(workspaceId);
+      if (!environment && !localBrowserPluginPath) return undefined;
+      return {
+        ...(environment ?? {}),
+        ...(localBrowserPluginPath
+          ? { MOXXY_PLUGIN_OVERRIDE_PATHS: localBrowserPluginPath }
+          : {}),
+      };
+    },
   });
   // No boot-time import step: each runner writes its session's single metadata
   // file directly, and the registry derives the workspace list from those files.

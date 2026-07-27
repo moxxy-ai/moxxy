@@ -1338,6 +1338,9 @@ importers:
       undici:
         specifier: ^6.26.0
         version: 6.26.0
+      zod:
+        specifier: 'catalog:'
+        version: 3.25.76
     devDependencies:
       '@moxxy/tsconfig':
         specifier: workspace:*

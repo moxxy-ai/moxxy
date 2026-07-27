@@ -42,6 +42,10 @@
     "./browser-observation": {
       "types": "./dist/browser-observation.d.ts",
       "import": "./dist/browser-observation.js"
+    },
+    "./browser-errors": {
+      "types": "./dist/browser-errors.d.ts",
+      "import": "./dist/browser-errors.js"
     }
   },
   "bin": {
@@ -66,7 +70,8 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
-    "undici": "^6.26.0"
+    "undici": "^6.26.0",
+    "zod": "catalog:"
   },
   "peerDependencies": {
     "playwright": "^1.40.0"

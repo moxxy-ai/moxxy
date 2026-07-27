@@ -1,5 +1,6 @@
 import { appendFile, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { app, BrowserWindow, nativeImage, session, WebContentsView } from 'electron';
@@ -67,6 +68,7 @@ async function run(): Promise<void> {
     controller = new ElectronNativeBrowserController({
       browserSession,
       userDataDir: smokeUserDataPath,
+      downloadsDir: path.join(smokeUserDataPath, 'downloads'),
       getMainWindow: () => window,
       onChanged: () => undefined,
       createView: () => {
@@ -124,7 +126,7 @@ async function run(): Promise<void> {
     const networkIdleMs = performance.now() - networkIdleStarted;
     const networkStatus = await controller.executeAgentAction(WORKSPACE_ID, {
       kind: 'text',
-      selector: '#network-status',
+      target: { type: 'selector', selector: '#network-status' },
     });
     assertEqual(networkStatus, 'ready', 'network-idle resource');
     if (networkIdleMs < 500) {
@@ -180,16 +182,16 @@ async function run(): Promise<void> {
     });
     const renderedText = await controller.executeAgentAction(WORKSPACE_ID, {
       kind: 'text',
-      selector: '#result',
+      target: { type: 'selector', selector: '#result' },
     });
     assertEqual(renderedText, 'Zażółć gęślą jaźń — native input', 'shared form result');
     const trustedInput = await controller.executeAgentAction(WORKSPACE_ID, {
       kind: 'text',
-      selector: '#input-trusted',
+      target: { type: 'selector', selector: '#input-trusted' },
     });
     const trustedClick = await controller.executeAgentAction(WORKSPACE_ID, {
       kind: 'text',
-      selector: '#click-trusted',
+      target: { type: 'selector', selector: '#click-trusted' },
     });
     assertEqual(trustedInput, 'true', 'trusted native input event');
     assertEqual(trustedClick, 'true', 'trusted native click event');
@@ -257,7 +259,7 @@ async function run(): Promise<void> {
     await controller.setVisible({ workspaceId: WORKSPACE_ID, visible: false });
     const hiddenText = await controller.executeAgentAction(WORKSPACE_ID, {
       kind: 'text',
-      selector: '#headline',
+      target: { type: 'selector', selector: '#headline' },
     });
     assertEqual(hiddenText, 'Heavy native page', 'hidden agent operation');
     await progress('hidden-operation-complete');

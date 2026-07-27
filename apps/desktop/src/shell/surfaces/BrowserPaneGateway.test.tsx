@@ -32,6 +32,20 @@ const snapshot: NativeBrowserSnapshot = {
   ],
 };
 
+const compatibleSessionInfo = {
+  tools: [
+    {
+      name: 'browser_session',
+      description: 'Shared browser',
+      capabilities: {
+        nativeBrowserProtocol: 2,
+        backends: 'native,playwright',
+        sharedDesktopSession: true,
+      },
+    },
+  ],
+};
+
 afterEach(() => {
   cleanup();
   __setApiOverride(null);
@@ -41,6 +55,7 @@ describe('BrowserPaneGateway', () => {
   it('uses native tabs and navigation without opening the screenshot surface', async () => {
     const invoke = vi.fn(async (channel: string, args?: unknown) => {
       if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'session.info') return compatibleSessionInfo;
       if (channel === 'nativeBrowser.open') return snapshot;
       if (channel === 'nativeBrowser.selectTab') {
         return { ...snapshot, activeTabId: (args as { tabId: string }).tabId };
@@ -117,6 +132,7 @@ describe('BrowserPaneGateway', () => {
   it('treats address-bar text as a search instead of an invalid hostname', async () => {
     const invoke = vi.fn(async (channel: string) => {
       if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'session.info') return compatibleSessionInfo;
       if (channel === 'nativeBrowser.open') return snapshot;
       return undefined;
     });
@@ -149,6 +165,7 @@ describe('BrowserPaneGateway', () => {
         if (statusAttempts === 1) throw new Error('IPC temporarily unavailable');
         return { backend: 'native', available: true };
       }
+      if (channel === 'session.info') return compatibleSessionInfo;
       if (channel === 'nativeBrowser.open') return snapshot;
       return undefined;
     });
@@ -175,6 +192,7 @@ describe('BrowserPaneGateway', () => {
     const capture = deferred<{ mediaType: 'image/png'; base64: string }>();
     const invoke = vi.fn(async (channel: string, args?: unknown) => {
       if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'session.info') return compatibleSessionInfo;
       if (channel === 'nativeBrowser.open') {
         const workspaceId = (args as { workspaceId: string }).workspaceId;
         return { ...snapshot, workspaceId };
@@ -203,6 +221,7 @@ describe('BrowserPaneGateway', () => {
   it('shows active agent control and lets the user stop it immediately', async () => {
     const invoke = vi.fn(async (channel: string) => {
       if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'session.info') return compatibleSessionInfo;
       if (channel === 'nativeBrowser.open') {
         return {
           ...snapshot,
@@ -231,6 +250,84 @@ describe('BrowserPaneGateway', () => {
         workspaceId: 'ws-1',
       }),
     );
+  });
+
+  it('keeps page permissions and downloads visible and user-controlled', async () => {
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'session.info') return compatibleSessionInfo;
+      if (channel === 'nativeBrowser.open') {
+        return {
+          ...snapshot,
+          permissionRequest: {
+            id: 'permission-1',
+            origin: 'https://meet.example',
+            permission: 'microphone',
+          },
+          downloads: [
+            {
+              id: 'download-1',
+              filename: 'report.pdf',
+              receivedBytes: 512,
+              totalBytes: 1024,
+              state: 'progressing',
+            },
+          ],
+        };
+      }
+      return undefined;
+    });
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
+
+    render(<BrowserPaneGateway workspaceId="ws-1" />);
+
+    expect(await screen.findByText(/meet\.example/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow for this session' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('nativeBrowser.resolvePermission', {
+        workspaceId: 'ws-1',
+        requestId: 'permission-1',
+        allow: true,
+      });
+      expect(invoke).toHaveBeenCalledWith('nativeBrowser.cancelDownload', {
+        workspaceId: 'ws-1',
+        downloadId: 'download-1',
+      });
+    });
+  });
+
+  it('blocks shared control when the runner loaded an incompatible browser plugin', async () => {
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === 'nativeBrowser.status') return { backend: 'native', available: true };
+      if (channel === 'session.info') {
+        return {
+          tools: [
+            {
+              name: 'browser_session',
+              description: 'Old browser',
+              capabilities: { nativeBrowserProtocol: 1 },
+            },
+          ],
+        };
+      }
+      return undefined;
+    });
+    __setApiOverride({
+      invoke,
+      subscribe: vi.fn(() => () => undefined),
+    } as never);
+
+    render(<BrowserPaneGateway workspaceId="ws-1" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Browser plugin update/restart required',
+    );
+    expect(invoke).not.toHaveBeenCalledWith('nativeBrowser.open', expect.anything());
   });
 });
 

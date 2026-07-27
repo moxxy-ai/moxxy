@@ -9,7 +9,13 @@ import type { PermissionRule } from './permission.js';
 import type { Plugin, PluginSpec } from './plugin.js';
 import type { ProviderDef } from './provider.js';
 import type { SkillDef, SkillFrontmatter } from './skill.js';
-import type { HostedTool, ToolCompactPresentation, ToolContext, ToolDef } from './tool.js';
+import type {
+  HostedTool,
+  ToolCompactPresentation,
+  ToolContext,
+  ToolDef,
+  ToolRuntimeCapabilities,
+} from './tool.js';
 import type { ToolIsolationSpec } from './isolation.js';
 import type { TranscriberDef } from './transcriber.js';
 import type { SynthesizerDef } from './synthesizer.js';
@@ -41,6 +47,7 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
   description: string;
   inputSchema: S;
   inputJsonSchema?: unknown;
+  capabilities?: ToolRuntimeCapabilities;
   outputSchema?: z.ZodType<O>;
   hosted?: HostedTool;
   permission?: PermissionRule;
@@ -53,6 +60,7 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
     description: spec.description,
     inputSchema: spec.inputSchema,
     inputJsonSchema: spec.inputJsonSchema,
+    capabilities: spec.capabilities,
     outputSchema: spec.outputSchema,
     hosted: spec.hosted,
     permission: spec.permission,

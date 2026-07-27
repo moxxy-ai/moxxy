@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { connect, type Socket } from 'node:net';
+import { connect } from 'node:net';
 
 import { MoxxyError, z } from '@moxxy/sdk';
 
-import type { BrowserSessionAction } from './browser-action.js';
+import {
+  NATIVE_BROWSER_PROTOCOL_VERSION,
+  type BrowserSessionAction,
+} from './browser-action.js';
+import {
+  BROWSER_ERROR_CODES,
+  formatBrowserErrorForModel,
+  type BrowserErrorDetails,
+} from './browser-errors.js';
 
 const DEFAULT_TIMEOUT_MS = 150_000;
 const MAX_RESPONSE_BYTES = 96 * 1024 * 1024;
@@ -14,7 +22,12 @@ const responseSchema = z
     ok: z.boolean(),
     result: z.unknown().optional(),
     error: z
-      .object({ message: z.string().min(1).max(16_384) })
+      .object({
+        code: z.enum(BROWSER_ERROR_CODES),
+        message: z.string().min(1).max(16_384),
+        nextAction: z.enum(['observe', 'stop', 'ask_user', 'retry_once', 'restart']),
+        retryable: z.boolean(),
+      })
       .strict()
       .optional(),
   })
@@ -29,6 +42,7 @@ export interface NativeBrowserClientEnvironment {
   readonly MOXXY_NATIVE_BROWSER_SOCKET?: string;
   readonly MOXXY_NATIVE_BROWSER_TOKEN?: string;
   readonly MOXXY_NATIVE_BROWSER_WORKSPACE_ID?: string;
+  readonly MOXXY_NATIVE_BROWSER_PROTOCOL_VERSION?: string;
 }
 
 /** Resolves the browser backend once while the plugin is constructed. A
@@ -45,13 +59,23 @@ export function createNativeBrowserBridgeClient(
     environment.MOXXY_NATIVE_BROWSER_WORKSPACE_ID,
     'workspace id',
   );
-  return new SocketNativeBrowserBridgeClient({ socketPath, token, workspaceId });
+  const protocolVersion = Number(
+    requiredEnvironment(environment.MOXXY_NATIVE_BROWSER_PROTOCOL_VERSION, 'protocol version'),
+  );
+  if (protocolVersion !== NATIVE_BROWSER_PROTOCOL_VERSION) {
+    throw new MoxxyError({
+      code: 'INTERNAL',
+      message: `[BACKEND_MISMATCH] Native browser plugin protocol ${String(protocolVersion)} does not match required protocol ${NATIVE_BROWSER_PROTOCOL_VERSION}. Restart or update the browser plugin.`,
+    });
+  }
+  return new SocketNativeBrowserBridgeClient({ socketPath, token, workspaceId, protocolVersion });
 }
 
 interface SocketNativeBrowserBridgeClientOptions {
   readonly socketPath: string;
   readonly token: string;
   readonly workspaceId: string;
+  readonly protocolVersion: number;
   readonly timeoutMs?: number;
 }
 
@@ -93,6 +117,7 @@ class SocketNativeBrowserBridgeClient implements NativeBrowserBridgeClient {
           id,
           token: this.options.token,
           workspaceId: this.options.workspaceId,
+          protocolVersion: this.options.protocolVersion,
           action,
         };
         socket.write(`${JSON.stringify(request)}\n`);
@@ -124,11 +149,14 @@ class SocketNativeBrowserBridgeClient implements NativeBrowserBridgeClient {
           return;
         }
         if (!parsed.data.ok) {
+          const details = parsed.data.error;
           finish({
             ok: false,
             error: new MoxxyError({
               code: 'INTERNAL',
-              message: parsed.data.error?.message ?? 'native browser operation failed',
+              message: details
+                ? formatBrowserErrorForModel(details as BrowserErrorDetails)
+                : 'native browser operation failed',
             }),
           });
           return;

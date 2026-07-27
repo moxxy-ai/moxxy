@@ -149,17 +149,32 @@ describe('toOpenAITools', () => {
     expect((out[0].function.parameters as { type: string }).type).toBe('object');
   });
 
-  it('prefers inputJsonSchema when present', () => {
+  it('sends the canonical browser target schema without the legacy selector field', () => {
     const tool = defineTool({
-      name: 'X',
-      description: 'x',
+      name: 'browser_session',
+      description: 'shared browser',
       inputSchema: z.any(),
-      inputJsonSchema: { type: 'object', properties: { custom: { type: 'integer' } } },
+      inputJsonSchema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['click'] },
+              target: { type: 'object' },
+            },
+            required: ['kind', 'target'],
+            additionalProperties: false,
+          },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
       handler: () => null,
     });
     const out = toOpenAITools([tool]);
-    expect((out[0].function.parameters as { properties: { custom: unknown } }).properties.custom).toEqual({
-      type: 'integer',
-    });
+    const payload = JSON.stringify(out[0].function.parameters);
+    expect(payload).toContain('"target"');
+    expect(payload).not.toContain('"selector"');
   });
 });

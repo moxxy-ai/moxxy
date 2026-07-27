@@ -51,6 +51,8 @@ export interface NativeBrowserViewModel {
   readonly startCapture: () => void;
   readonly cancelCapture: () => void;
   readonly stopAgentControl: () => void;
+  readonly resolvePermission: (requestId: string, allow: boolean) => void;
+  readonly cancelDownload: (downloadId: string) => void;
   readonly retry: () => void;
   readonly onCapturePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   readonly onCapturePointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -411,6 +413,16 @@ export function useNativeBrowser(workspaceId: string): NativeBrowserViewModel {
     stopAgentControl: () => {
       void api()
         .invoke('nativeBrowser.stopAgentControl', { workspaceId })
+        .catch(showError);
+    },
+    resolvePermission: (requestId, allow) => {
+      void api()
+        .invoke('nativeBrowser.resolvePermission', { workspaceId, requestId, allow })
+        .catch(showError);
+    },
+    cancelDownload: (downloadId) => {
+      void api()
+        .invoke('nativeBrowser.cancelDownload', { workspaceId, downloadId })
         .catch(showError);
     },
     retry: () => void open(),

@@ -85,6 +85,7 @@ export async function registerPlugins(
       cwd,
       logger,
       extraPaths: [userPluginsDir, userPluginsNodeModules],
+      packagePaths: pluginOverridePaths(process.env.MOXXY_PLUGIN_OVERRIDE_PATHS),
     });
     for (const manifest of manifests) {
       if (registered.has(manifest.packageName)) continue;
@@ -112,6 +113,14 @@ export async function registerPlugins(
   }
 
   return { registered, skipped: session.pluginHost.listSkipped() };
+}
+
+function pluginOverridePaths(value: string | undefined): ReadonlyArray<string> {
+  if (!value) return [];
+  return value
+    .split(path.delimiter)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 /**

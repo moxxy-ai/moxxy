@@ -27,6 +27,53 @@ files only, and stale refs fail closed. The Browser pane exposes active agent
 control and a Stop action. Consequential page actions still pass through the
 normal Moxxy permission flow and must be verified with a fresh observation.
 
+Providers receive a hand-written JSON Schema with one canonical element target:
+
+```ts
+target:
+  | { type: 'ref'; ref: string; revision: string }
+  | { type: 'selector'; selector: string }
+  | { type: 'point'; x: number; y: number }
+```
+
+`ref` is preferred because Desktop binds it to the observed frame and backend
+DOM node. `point` uses viewport-relative coordinates from 0 to 1000 and is a
+fallback for canvas/WebGL applications. The runtime still accepts the former
+top-level `selector` and `fill` shapes for compatibility, but providers never
+see those legacy fields. Blank optional placeholders are ignored without
+changing a deliberately empty value used to clear a text field.
+
+Desktop observations combine the document accessibility tree, open Shadow DOM,
+cross-origin frames, and a browser-viewport screenshot when hybrid or visual
+mode is requested. Every navigation, DOM change, tab switch, or user input
+invalidates old refs. Mutating actions return `verificationRequired: true`; the
+agent must observe again instead of assuming the requested state was reached.
+
+The native bridge advertises protocol version 2 in tool capabilities and in its
+private authenticated socket handshake. Desktop refuses an old or detached
+browser plugin with `Browser plugin update/restart required` instead of silently
+opening a second Playwright browser. Development builds explicitly prefer the
+workspace plugin over a stale package under `~/.moxxy/plugins`.
+
+Failures use stable codes (`STALE_BROWSER_STATE`, `ELEMENT_NOT_FOUND`,
+`ELEMENT_NOT_INTERACTABLE`, `NAVIGATION_BLOCKED`, `BACKEND_MISMATCH`,
+`USER_TAKEOVER`, `USER_ABORTED`, and `TIMEOUT`) and tell the model whether to
+observe again or stop. Two equivalent failures in one turn open a retry circuit,
+preventing repeated blind clicks. User input always wins and cancels work based
+on the previous page epoch.
+
+Downloads are visible and cancellable, use collision-free safe filenames, and
+never overwrite silently. Popups and OAuth flows become normal Moxxy Browser
+tabs in the same persistent partition. Site access to microphone, camera,
+location, and clipboard requires an explicit per-origin user decision; the
+agent cannot approve it. CAPTCHA, 2FA, payments, and system authentication stay
+with the user.
+
+Page text, accessibility labels, and pixels are returned as
+`UNTRUSTED_PAGE_DATA`. Password values, cookies, bridge tokens, and credential
+attributes are excluded from observations and logs. Set
+`MOXXY_BROWSER_DISABLE_EVAL=1` to remove the last-resort page-script action.
+
 ## Custom search adapter
 
 ```ts

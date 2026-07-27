@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBrowserObservationScript,
   buildBrowserRefValidationScript,
+  buildSanitizedDocumentHtmlScript,
+  buildAccessibilityObservationNodes,
   formatBrowserObservationForModel,
   parseBrowserObservation,
 } from './browser-observation.js';
@@ -88,5 +90,56 @@ describe('browser observation boundary', () => {
     expect(text).toContain('"ref":"b1"');
     expect(text).toContain('A visible article heading');
     expect(text).not.toContain('SECRETPIXELS');
+    expect(text).toContain('UNTRUSTED_PAGE_DATA');
+  });
+
+  it('redacts credential-like fields before returning page HTML', () => {
+    const script = buildSanitizedDocumentHtmlScript();
+
+    expect(script).toContain("element.type.toLowerCase() === 'password'");
+    expect(script).toContain("element.value = '[REDACTED]'");
+    expect(script).toContain('element.removeAttribute(attribute.name)');
+    expect(script).toContain('clone.outerHTML');
+  });
+
+  it('projects actionable cross-frame accessibility nodes without exposing editable values', () => {
+    const projected = buildAccessibilityObservationNodes(
+      [
+        {
+          frameId: 'frame-mail',
+          nodes: [
+            {
+              nodeId: 'ax-1',
+              backendDOMNodeId: 41,
+              role: { value: 'button' },
+              name: { value: 'Compose' },
+            },
+            {
+              nodeId: 'ax-2',
+              backendDOMNodeId: 42,
+              role: { value: 'textbox' },
+              name: { value: 'Password' },
+              value: { value: 'must-not-leak' },
+              properties: [{ name: 'focused', value: { value: true } }],
+            },
+          ],
+        },
+      ],
+      new Map([
+        ['frame-mail:41', { x: 10, y: 20, width: 100, height: 30 }],
+        ['frame-mail:42', { x: 10, y: 60, width: 200, height: 30 }],
+      ]),
+      20,
+    );
+
+    expect(projected.nodes).toEqual([
+      expect.objectContaining({ role: 'button', name: 'Compose' }),
+      expect.objectContaining({ role: 'textbox', name: 'Password', focused: true }),
+    ]);
+    expect(projected.nodes[1]).not.toHaveProperty('value');
+    expect(projected.targets[0]).toMatchObject({
+      backendDOMNodeId: 41,
+      frameId: 'frame-mail',
+    });
   });
 });

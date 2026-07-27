@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { browserSessionActionSchema } from './browser-action.js';
+import {
+  browserSessionActionInputJsonSchema,
+  browserSessionActionSchema,
+} from './browser-action.js';
 
 describe('browserSessionActionSchema computer-use contract', () => {
   it('accepts a bounded semantic observation request', () => {
@@ -108,14 +111,62 @@ describe('browserSessionActionSchema computer-use contract', () => {
     expect(browserSessionActionSchema.parse({ kind: 'reload' })).toEqual({ kind: 'reload' });
   });
 
-  it('rejects ambiguous or missing click targets', () => {
+  it('normalizes the real provider payload with an empty legacy selector', () => {
+    expect(
+      browserSessionActionSchema.parse({
+        kind: 'click',
+        selector: '',
+        target: { type: 'ref', ref: 'b17', revision: 'rev-4' },
+        tabId: ' ',
+      }),
+    ).toEqual({
+      kind: 'click',
+      target: { type: 'ref', ref: 'b17', revision: 'rev-4' },
+    });
+  });
+
+  it('prefers the canonical target when a legacy selector is also present', () => {
+    expect(
+      browserSessionActionSchema.parse({
+        kind: 'click',
+        selector: 'button',
+        target: { type: 'ref', ref: 'b17', revision: 'rev-4' },
+      }),
+    ).toEqual({
+      kind: 'click',
+      target: { type: 'ref', ref: 'b17', revision: 'rev-4' },
+    });
+  });
+
+  it('keeps legacy selector-only clicks executable without advertising them', () => {
+    expect(
+      browserSessionActionSchema.parse({ kind: 'click', selector: '#legacy' }),
+    ).toEqual({
+      kind: 'click',
+      target: { type: 'selector', selector: '#legacy' },
+    });
+  });
+
+  it('rejects a click with no usable target', () => {
     expect(() => browserSessionActionSchema.parse({ kind: 'click' })).toThrow();
     expect(() =>
       browserSessionActionSchema.parse({
         kind: 'click',
-        selector: '#legacy',
-        target: { type: 'selector', selector: '#new' },
+        selector: '   ',
       }),
     ).toThrow();
+  });
+
+  it('advertises only the canonical target contract to providers', () => {
+    const root = browserSessionActionInputJsonSchema as {
+      properties: { action: { oneOf: Array<{ properties: Record<string, unknown> }> } };
+    };
+    const variants = root.properties.action.oneOf;
+    const click = variants.find((variant) =>
+      JSON.stringify(variant.properties.kind).includes('click'),
+    );
+    expect(click?.properties).toHaveProperty('target');
+    expect(click?.properties).not.toHaveProperty('selector');
+    expect(variants.some((variant) => JSON.stringify(variant.properties.kind).includes('fill'))).toBe(false);
   });
 });

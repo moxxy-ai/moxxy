@@ -15,7 +15,10 @@ import { setSsrfDnsResolver } from './ssrf-guard.js';
 // Hermetic DNS for the parent-side SSRF guard on `goto`: every hostname
 // "resolves" public so tests never hit real DNS.
 beforeEach(() => setSsrfDnsResolver(async () => ['93.184.216.34']));
-afterEach(() => setSsrfDnsResolver(null));
+afterEach(async () => {
+  setSsrfDnsResolver(null);
+  await closeBrowserSidecar();
+});
 
 /**
  * The sidecar is exercised via a fake `spawnFn` that drives a scripted
@@ -97,7 +100,11 @@ describe('browser_session tool (sidecar protocol)', () => {
       { action: { kind: 'goto', url: 'https://example.com' } },
       baseCtx(),
     );
-    expect(out).toEqual({ url: 'https://example.com' });
+    expect(out).toEqual({
+      url: 'https://example.com',
+      verificationRequired: true,
+      nextAction: 'observe',
+    });
     expect(receivedRequests).toHaveLength(1);
     const first = receivedRequests[0];
     assertDefined(first, 'receivedRequests has length 1');
@@ -132,7 +139,11 @@ describe('browser_session tool (sidecar protocol)', () => {
       { action: { kind: 'eval', expression: '1 + 41' } },
       baseCtx(),
     );
-    expect(out).toBe(42);
+    expect(out).toEqual({
+      result: 42,
+      verificationRequired: true,
+      nextAction: 'observe',
+    });
     const first = receivedRequests[0];
     assertDefined(first, 'sidecar received the eval request');
     expect((first.params as { expression: string }).expression).toBe('1 + 41');
@@ -228,6 +239,18 @@ describe('browser_session tool (sidecar protocol)', () => {
 });
 
 describe('browser_session tool (native desktop bridge)', () => {
+  it('publishes the canonical provider schema and native protocol capability', () => {
+    const tool = buildBrowserSessionTool({ nativeBridge: null });
+    expect(tool.inputJsonSchema).toBeDefined();
+    expect(tool.capabilities).toMatchObject({
+      nativeBrowserProtocol: 2,
+      actionSchema: 2,
+      sharedDesktopSession: true,
+    });
+    const serialized = JSON.stringify(tool.inputJsonSchema);
+    expect(serialized).not.toContain('"kind":{"type":"string","enum":["fill"]');
+  });
+
   it('locks onto the native backend at tool construction and never spawns Playwright', async () => {
     const calls: Array<{ action: Record<string, unknown>; signal?: AbortSignal }> = [];
     const nativeBridge: NativeBrowserBridgeClient = {
@@ -243,16 +266,20 @@ describe('browser_session tool (native desktop bridge)', () => {
     const ctx = baseCtx();
 
     const tabs = await tool.handler({ action: { kind: 'tabs' } }, ctx);
-    const text = await tool.handler(
-      { action: { kind: 'text', selector: 'main', tabId: 'tab-2' } },
-      ctx,
-    );
+    const parsedText = tool.inputSchema.parse({
+      action: { kind: 'text', selector: 'main', tabId: 'tab-2' },
+    });
+    const text = await tool.handler(parsedText, ctx);
 
     expect(tabs).toEqual({ activeTabId: 'tab-2', tabs: [] });
     expect(text).toBe('native text');
     expect(calls.map(({ action }) => action)).toEqual([
       { kind: 'tabs' },
-      { kind: 'text', selector: 'main', tabId: 'tab-2' },
+      {
+        kind: 'text',
+        target: { type: 'selector', selector: 'main' },
+        tabId: 'tab-2',
+      },
     ]);
     expect(calls.every(({ signal }) => signal === ctx.signal)).toBe(true);
     expect(spawnFn).not.toHaveBeenCalled();
@@ -289,6 +316,32 @@ describe('browser_session tool (native desktop bridge)', () => {
       /native bridge disconnected/,
     );
     expect(spawnFn).not.toHaveBeenCalled();
+  });
+
+  it('opens a failure circuit after two identical browser failures until re-observe', async () => {
+    const nativeBridge: NativeBrowserBridgeClient = {
+      call: vi.fn(async (action) => {
+        if (action.kind === 'observe') return { revision: 'rev-2', nodes: [] };
+        throw new Error('ELEMENT_NOT_FOUND: checkout button');
+      }),
+    };
+    const tool = buildBrowserSessionTool({ nativeBridge });
+    const action = {
+      action: {
+        kind: 'click' as const,
+        target: { type: 'selector' as const, selector: '#checkout' },
+      },
+    };
+    const ctx = baseCtx();
+
+    await expect(tool.handler(action, ctx)).rejects.toThrow(/ELEMENT_NOT_FOUND/);
+    await expect(tool.handler(action, ctx)).rejects.toThrow(/repeated twice/i);
+    await expect(tool.handler(action, ctx)).rejects.toThrow(/re-observe/i);
+    expect(nativeBridge.call).toHaveBeenCalledTimes(2);
+
+    await tool.handler({ action: { kind: 'observe' } }, ctx);
+    await expect(tool.handler(action, ctx)).rejects.toThrow(/ELEMENT_NOT_FOUND/);
+    expect(nativeBridge.call).toHaveBeenCalledTimes(4);
   });
 });
 
@@ -483,7 +536,11 @@ describe('browser_session SSRF guard (parent layer)', () => {
       { action: { kind: 'goto', url: 'https://example.com/' } },
       baseCtx(),
     );
-    expect(out).toEqual({ url: 'https://example.com/' });
+    expect(out).toEqual({
+      url: 'https://example.com/',
+      verificationRequired: true,
+      nextAction: 'observe',
+    });
     expect(receivedRequests).toHaveLength(1);
     await closeBrowserSidecar();
   });

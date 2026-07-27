@@ -24,6 +24,23 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, browser/tool-contract, RESOLVED 2026-07-27] The generated provider
+  schema exposed both the legacy top-level `selector` and the canonical
+  `target`, so real model calls could send both and fail validation before any
+  browser action ran. `browser_session` now publishes a hand-written,
+  provider-tested JSON Schema with only a ref/selector/point target union while
+  a local compatibility boundary normalizes old calls and blank placeholders.
+  The same revision-bound contract spans Playwright and the authenticated
+  native bridge; CDP observations cover accessibility nodes across frames and
+  open Shadow DOM, with viewport-only visual fallback for canvas applications.
+  Stable error codes, a two-failure retry circuit, user-takeover epochs, action
+  verification, capability/protocol negotiation, and deterministic local
+  plugin overrides prevent blind retry loops and stale-package fallbacks.
+  Popup/OAuth tabs, cancellable collision-safe downloads, explicit per-origin
+  site permissions, credential redaction, and untrusted-page labeling close
+  the remaining production lifecycle and prompt-injection gaps.
+  `packages/{plugin-browser,sdk,core,cli,desktop-host,desktop-ipc-contract}/`,
+  `apps/desktop/`.
 - [high, desktop/browser-routing, RESOLVED 2026-07-26] The native Moxxy Browser
   and macOS Computer Control exposed overlapping visual capabilities without a
   hard routing contract, so the model could inspect the full desktop and drive

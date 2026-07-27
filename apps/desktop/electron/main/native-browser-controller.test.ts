@@ -5,7 +5,12 @@ import path from 'node:path';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NativeBrowserBridge, nativeBrowserBridgeSocket } from '@moxxy/desktop-host';
-import { createNativeBrowserBridgeClient } from '@moxxy/plugin-browser';
+import {
+  buildBrowserSessionTool,
+  createNativeBrowserBridgeClient,
+} from '@moxxy/plugin-browser';
+import { asSessionId, asToolCallId, asTurnId } from '@moxxy/sdk';
+import type { ToolContext } from '@moxxy/sdk';
 
 const electronMocks = vi.hoisted(() => ({
   popup: vi.fn(),
@@ -45,7 +50,7 @@ describe('ElectronNativeBrowserController agent operations', () => {
 
     const result = await controller.executeAgentAction('ws-1', {
       kind: 'text',
-      selector: 'main',
+      target: { type: 'selector', selector: 'main' },
     });
 
     expect(result).toBe('the visible page');
@@ -67,7 +72,7 @@ describe('ElectronNativeBrowserController agent operations', () => {
 
     const operation = controller.executeAgentAction('ws-1', {
       kind: 'click',
-      selector: '#buy',
+      target: { type: 'selector', selector: '#buy' },
     });
     const afterNewTab = await controller.newTab({ workspaceId: 'ws-1' });
     expect(afterNewTab.activeTabId).not.toBe(initial.activeTabId);
@@ -315,12 +320,13 @@ describe('ElectronNativeBrowserController agent operations', () => {
 
     await controller.executeAgentAction('ws-1', {
       kind: 'click',
-      selector: '#checkout',
+      target: { type: 'selector', selector: '#checkout' },
     });
     await controller.executeAgentAction('ws-1', {
-      kind: 'fill',
-      selector: '#email',
+      kind: 'type',
+      target: { type: 'selector', selector: '#email' },
       value: 'hello@example.com',
+      replace: true,
     });
 
     expect(view?.webContents.debugger.commands).toEqual([
@@ -382,7 +388,11 @@ describe('ElectronNativeBrowserController agent operations', () => {
       nodes: [{ ref: 'b1', role: 'button', name: 'Compose' }],
     });
     expect(observation).not.toHaveProperty('nodes.0.selector');
-    expect(view?.webContents.debugger.commands).toEqual([
+    expect(
+      view?.webContents.debugger.commands.filter((command) =>
+        command.method.startsWith('Input.'),
+      ),
+    ).toEqual([
       {
         method: 'Input.dispatchMouseEvent',
         params: { type: 'mousePressed', x: 140, y: 140, button: 'left', clickCount: 1 },
@@ -392,6 +402,75 @@ describe('ElectronNativeBrowserController agent operations', () => {
         params: { type: 'mouseReleased', x: 140, y: 140, button: 'left', clickCount: 1 },
       },
     ]);
+    await controller.destroy();
+  });
+
+  it('adds accessibility targets from cross-origin frames to the shared observation', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.setScriptResults([
+      {
+        revision: 'rev-frame-1',
+        title: 'Embedded checkout',
+        url: 'https://shop.example.test/',
+        visibleText: 'Checkout',
+        viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
+        nodes: [],
+      },
+      true,
+    ]);
+    view?.webContents.debugger.setResult('Page.getFrameTree', {
+      frameTree: {
+        frame: { id: 'main-frame' },
+        childFrames: [{ frame: { id: 'payment-frame' } }],
+      },
+    });
+    view?.webContents.debugger.setResult('Accessibility.getFullAXTree', {
+      nodes: [
+        {
+          nodeId: 'ax-pay',
+          backendDOMNodeId: 77,
+          role: { value: 'button' },
+          name: { value: 'Pay now' },
+        },
+      ],
+    });
+    view?.webContents.debugger.setResult('DOM.getBoxModel', {
+      model: { border: [100, 200, 220, 200, 220, 240, 100, 240] },
+    });
+
+    const observation = await controller.executeAgentAction('ws-1', {
+      kind: 'observe',
+      mode: 'semantic',
+      maxNodes: 20,
+    });
+    await controller.executeAgentAction('ws-1', {
+      kind: 'click',
+      target: { type: 'ref', ref: 'b1', revision: 'rev-frame-1' },
+    });
+
+    expect(observation).toMatchObject({
+      nodes: [expect.objectContaining({ role: 'button', name: 'Pay now' })],
+    });
+    expect(view?.webContents.debugger.commands).toEqual(
+      expect.arrayContaining([
+        { method: 'Page.getFrameTree', params: undefined },
+        {
+          method: 'Accessibility.getFullAXTree',
+          params: { frameId: 'payment-frame' },
+        },
+        { method: 'DOM.getBoxModel', params: { backendNodeId: 77 } },
+      ]),
+    );
+    expect(view?.webContents.debugger.commands).toEqual(
+      expect.arrayContaining([
+        {
+          method: 'Input.dispatchMouseEvent',
+          params: { type: 'mousePressed', x: 160, y: 220, button: 'left', clickCount: 1 },
+        },
+      ]),
+    );
     await controller.destroy();
   });
 
@@ -406,7 +485,70 @@ describe('ElectronNativeBrowserController agent operations', () => {
         target: { type: 'ref', ref: 'b1', revision: 'stale-revision' },
       }),
     ).rejects.toThrow(/STALE_BROWSER_STATE/);
-    expect(view?.webContents.debugger.commands).toHaveLength(0);
+    expect(
+      view?.webContents.debugger.commands.filter((command) =>
+        command.method.startsWith('Input.'),
+      ),
+    ).toHaveLength(0);
+    await controller.destroy();
+  });
+
+  it('invalidates observed refs when the user interacts with the shared page', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.setScriptResult('observe', {
+      revision: 'rev-before-user-input',
+      title: 'Editor',
+      url: 'https://example.test/editor',
+      visibleText: 'Save',
+      viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
+      nodes: [
+        {
+          ref: 'b1',
+          role: 'button',
+          name: 'Save',
+          selector: '#save',
+          bounds: { x: 40, y: 80, width: 100, height: 30 },
+        },
+      ],
+    });
+
+    await controller.executeAgentAction('ws-1', { kind: 'observe', mode: 'semantic' });
+    view?.webContents.emit('input-event', {}, { type: 'mouseDown' });
+
+    await expect(
+      controller.executeAgentAction('ws-1', {
+        kind: 'click',
+        target: { type: 'ref', ref: 'b1', revision: 'rev-before-user-input' },
+      }),
+    ).rejects.toThrow(/STALE_BROWSER_STATE/);
+    expect(
+      view?.webContents.debugger.commands.filter((command) =>
+        command.method.startsWith('Input.'),
+      ),
+    ).toHaveLength(0);
+    await controller.destroy();
+  });
+
+  it('aborts an in-flight agent action when the user takes over the shared page', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    const load = createDeferred<void>();
+    view?.webContents.setDeferredLoad(load.promise);
+
+    const navigation = controller.executeAgentAction('ws-1', {
+      kind: 'goto',
+      url: 'https://93.184.216.34/slow-user-takeover',
+      waitUntil: 'load',
+    });
+    await Promise.resolve();
+    view?.webContents.emit('input-event', {}, { type: 'mouseDown' });
+
+    await expect(navigation).rejects.toMatchObject({ code: 'USER_TAKEOVER' });
+    expect(view?.webContents.stop).toHaveBeenCalledOnce();
+    load.resolve(undefined);
     await controller.destroy();
   });
 
@@ -518,7 +660,7 @@ describe('ElectronNativeBrowserController agent operations', () => {
 
     await controller.stopAgentControl({ workspaceId: 'ws-1' });
 
-    await expect(navigation).rejects.toThrow(/BROWSER_CONTROL_STOPPED/);
+    await expect(navigation).rejects.toMatchObject({ code: 'USER_ABORTED' });
     expect(view?.webContents.stop).toHaveBeenCalledOnce();
     expect(snapshots.at(-1)?.agentControl).toBeUndefined();
     load.resolve(undefined);
@@ -545,7 +687,7 @@ describe('ElectronNativeBrowserController agent operations', () => {
     await controller.destroy();
   });
 
-  it('lets the runner bridge operate the exact WebContentsView shown to the user', async () => {
+  it('routes the parsed browser_session tool through the bridge to the exact visible WebContentsView', async () => {
     const controller = await createController(views);
     await controller.open({ workspaceId: 'ws-1' });
     const visibleView = views[0];
@@ -560,7 +702,14 @@ describe('ElectronNativeBrowserController agent operations', () => {
       const environment = bridge.runnerEnvironment('ws-1');
       const client = createNativeBrowserBridgeClient(environment);
       expect(client).not.toBeNull();
-      const result = await client?.call({ kind: 'text', selector: 'main' });
+      const tool = buildBrowserSessionTool({ nativeBridge: client });
+      const input = tool.inputSchema.parse({
+        action: {
+          kind: 'text',
+          target: { type: 'selector', selector: 'main' },
+        },
+      });
+      const result = await tool.handler(input, browserToolContext());
 
       expect(result).toBe('shared native page');
       expect(views).toHaveLength(1);
@@ -603,8 +752,10 @@ describe('ElectronNativeBrowserController agent operations', () => {
     const initial = await controller.open({ workspaceId: 'ws-1' });
     const first = views[0];
 
-    expect(first?.webContents.openPopup('https://93.184.216.34/popup')).toEqual({ action: 'deny' });
-    await vi.waitFor(() => expect(views).toHaveLength(2));
+    const popup = first?.webContents.openPopup('https://93.184.216.34/popup');
+    expect(popup?.action).toBe('allow');
+    popup?.createWindow?.();
+    expect(views).toHaveLength(2);
     expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject({
       tabs: expect.arrayContaining([
         expect.objectContaining({ url: 'https://93.184.216.34/popup' }),
@@ -650,6 +801,79 @@ describe('ElectronNativeBrowserController agent operations', () => {
     await vi.waitFor(() => expect(iframe).toHaveBeenCalledWith({ cancel: true }));
     await controller.destroy();
   });
+
+  it('keeps site permissions denied until the trusted renderer resolves the origin request', async () => {
+    const session = createSessionHarness();
+    const controller = await createController(views, [], createNetworkLifecycle(), vi.fn(), session);
+    const opened = await controller.open({ workspaceId: 'ws-1' });
+    const decision = vi.fn();
+    session.permissionRequest?.(
+      views[0]?.webContents as never,
+      'media',
+      decision,
+      {
+        requestingUrl: 'https://example.com/call',
+        securityOrigin: 'https://example.com',
+        mediaTypes: ['audio'],
+      },
+    );
+
+    const pending = await controller.executeAgentAction('ws-1', { kind: 'tabs' });
+    expect(pending).toMatchObject({
+      permissionRequest: {
+        tabId: opened.activeTabId,
+        origin: 'https://example.com',
+        permission: 'microphone',
+      },
+    });
+    const request = (pending as { permissionRequest: { id: string } }).permissionRequest;
+    await controller.resolvePermission({ workspaceId: 'ws-1', requestId: request.id, allow: true });
+
+    expect(decision).toHaveBeenCalledWith(true);
+    expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).not.toHaveProperty(
+      'permissionRequest',
+    );
+    expect(
+      session.permissionCheck?.(
+        views[0]?.webContents as never,
+        'media',
+        'https://example.com',
+        { mediaType: 'audio', securityOrigin: 'https://example.com' },
+      ),
+    ).toBe(true);
+    await controller.destroy();
+  });
+
+  it('publishes page downloads, allocates a safe non-overwriting path and allows cancellation', async () => {
+    const session = createSessionHarness();
+    const controller = await createController(views, [], createNetworkLifecycle(), vi.fn(), session);
+    await controller.open({ workspaceId: 'ws-1' });
+    const item = new FakeDownloadItem('../report.pdf');
+
+    session.willDownload?.(item as never, views[0]?.webContents as never);
+
+    const active = await controller.executeAgentAction('ws-1', { kind: 'tabs' });
+    expect(active).toMatchObject({
+      downloads: [
+        {
+          filename: 'report.pdf',
+          state: 'progressing',
+          receivedBytes: 16,
+          totalBytes: 64,
+        },
+      ],
+    });
+    expect(item.savePath).toMatch(/downloads\/report\.pdf$/);
+    const download = (active as { downloads: Array<{ id: string }> }).downloads[0];
+    expect(download).toBeDefined();
+    await controller.cancelDownload({ workspaceId: 'ws-1', downloadId: download?.id ?? '' });
+    expect(item.cancel).toHaveBeenCalledOnce();
+    item.finish('cancelled');
+    expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject({
+      downloads: [{ state: 'cancelled' }],
+    });
+    await controller.destroy();
+  });
 });
 
 type RequestGuard = (
@@ -674,6 +898,30 @@ interface NetworkLifecycle {
   readonly failed: RequestCompleted[];
 }
 
+interface SessionHarness {
+  permissionCheck?: (
+    webContents: unknown,
+    permission: string,
+    origin: string,
+    details: { mediaType?: 'video' | 'audio' | 'unknown'; securityOrigin?: string },
+  ) => boolean;
+  permissionRequest?: (
+    webContents: unknown,
+    permission: string,
+    callback: (allow: boolean) => void,
+    details: {
+      requestingUrl: string;
+      securityOrigin?: string;
+      mediaTypes?: Array<'video' | 'audio'>;
+    },
+  ) => void;
+  willDownload?: (item: unknown, webContents: unknown) => void;
+}
+
+function createSessionHarness(): SessionHarness {
+  return {};
+}
+
 function createNetworkLifecycle(): NetworkLifecycle {
   return { before: [], completed: [], failed: [] };
 }
@@ -683,12 +931,22 @@ async function createController(
   requestGuards: RequestGuard[] = [],
   lifecycle: NetworkLifecycle = createNetworkLifecycle(),
   onChanged: (snapshot: { agentControl?: { action: string } }) => void = vi.fn(),
+  sessionHarness: SessionHarness = createSessionHarness(),
 ): Promise<ElectronNativeBrowserController> {
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'native-controller-'));
   const controller = new ElectronNativeBrowserController({
     browserSession: {
-      setPermissionCheckHandler: vi.fn(),
-      setPermissionRequestHandler: vi.fn(),
+      setPermissionCheckHandler: vi.fn((handler: SessionHarness['permissionCheck']) => {
+        sessionHarness.permissionCheck = handler;
+      }),
+      setPermissionRequestHandler: vi.fn((handler: SessionHarness['permissionRequest']) => {
+        sessionHarness.permissionRequest = handler;
+      }),
+      on: vi.fn((event: string, handler: (event: unknown, item: unknown, webContents: unknown) => void) => {
+        if (event === 'will-download') {
+          sessionHarness.willDownload = (item, webContents) => handler({}, item, webContents);
+        }
+      }),
       webRequest: {
         onBeforeRequest: vi.fn((_filter: unknown, guard: RequestGuard) => {
           requestGuards.push(guard);
@@ -703,6 +961,7 @@ async function createController(
       },
     } as never,
     userDataDir,
+    downloadsDir: path.join(userDataDir, 'downloads'),
     getMainWindow: () => null,
     onChanged: (_workspaceId, snapshot) => onChanged(snapshot),
     createView: () => {
@@ -751,7 +1010,10 @@ class FakeWebContents extends EventEmitter {
   private deferredScript: Promise<unknown> | null = null;
   private deferredLoad: Promise<void> | null = null;
   private emitDomReadyOnLoad = false;
-  private popupHandler: ((details: { url: string }) => { action: 'deny' }) | null = null;
+  private popupHandler: ((details: { url: string }) => {
+    action: 'allow' | 'deny';
+    createWindow?: () => unknown;
+  }) | null = null;
 
   setScriptResult(_kind: string, value: unknown): void {
     this.scriptResult = value;
@@ -792,10 +1054,13 @@ class FakeWebContents extends EventEmitter {
   setBackgroundThrottling(enabled: boolean): void {
     this.backgroundThrottling = enabled;
   }
-  setWindowOpenHandler(handler: (details: { url: string }) => { action: 'deny' }): void {
+  setWindowOpenHandler(handler: (details: { url: string }) => {
+    action: 'allow' | 'deny';
+    createWindow?: () => unknown;
+  }): void {
     this.popupHandler = handler;
   }
-  openPopup(url: string): { action: 'deny' } {
+  openPopup(url: string): { action: 'allow' | 'deny'; createWindow?: () => unknown } {
     if (!this.popupHandler) throw new Error('popup handler is not installed');
     return this.popupHandler({ url });
   }
@@ -848,6 +1113,35 @@ class FakeDebugger extends EventEmitter {
   }
 }
 
+class FakeDownloadItem extends EventEmitter {
+  readonly cancel = vi.fn();
+  savePath = '';
+
+  constructor(private readonly filename: string) {
+    super();
+  }
+
+  getFilename(): string {
+    return this.filename;
+  }
+
+  setSavePath(value: string): void {
+    this.savePath = value;
+  }
+
+  getReceivedBytes(): number {
+    return 16;
+  }
+
+  getTotalBytes(): number {
+    return 64;
+  }
+
+  finish(state: 'completed' | 'cancelled' | 'interrupted'): void {
+    this.emit('done', {}, state);
+  }
+}
+
 function createDeferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -857,4 +1151,28 @@ function createDeferred<T>(): {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+function browserToolContext(): ToolContext {
+  return {
+    sessionId: asSessionId('native-browser-session'),
+    turnId: asTurnId('native-browser-turn'),
+    callId: asToolCallId('native-browser-call'),
+    cwd: '/tmp',
+    signal: new AbortController().signal,
+    log: {
+      length: 0,
+      at: () => undefined,
+      slice: () => [],
+      ofType: () => [],
+      byTurn: () => [],
+      toJSON: () => [],
+    },
+    logger: {
+      debug: () => undefined,
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    },
+  };
 }

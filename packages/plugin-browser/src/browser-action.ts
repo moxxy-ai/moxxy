@@ -1,9 +1,12 @@
-import { z } from '@moxxy/sdk';
+import { z } from 'zod';
 
-const requiredTabId = z.string().min(1).max(256);
+/** Increment when the native socket request/response contract changes. */
+export const NATIVE_BROWSER_PROTOCOL_VERSION = 2;
+
+const requiredTabId = z.string().trim().min(1).max(256);
 const optionalTabId = requiredTabId.optional();
-const selector = z.string().min(1).max(16_384);
-const revision = z.string().min(1).max(128);
+const selector = z.string().trim().min(1).max(16_384);
+const revision = z.string().trim().min(1).max(128);
 const browserRef = z.string().regex(/^b[1-9][0-9]{0,5}$/);
 const normalizedCoordinate = z.number().finite().min(0).max(1_000);
 const publicHttpUrl = z
@@ -34,27 +37,6 @@ export const browserTargetSchema = z.discriminatedUnion('type', [
     .strict(),
 ]);
 
-const clickActionSchema = z
-  .object({
-    kind: z.literal('click'),
-    selector: selector.optional(),
-    target: browserTargetSchema.optional(),
-    button: z.enum(['left', 'middle', 'right']).optional(),
-    count: z.number().int().min(1).max(3).optional(),
-    timeoutMs: z.number().int().positive().max(60_000).optional(),
-    tabId: optionalTabId,
-  })
-  .strict()
-  .superRefine((action, context) => {
-    if (Boolean(action.selector) === Boolean(action.target)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'provide exactly one of selector or target',
-        path: ['target'],
-      });
-    }
-  });
-
 const textTargetSchema = z.union([
   z
     .object({
@@ -84,20 +66,22 @@ const waitConditionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('networkidle') }).strict(),
 ]);
 
-export const browserSessionActionSchema = z.union([
-  z.object({
-    kind: z.literal('goto'),
-    url: publicHttpUrl,
-    waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
-    timeoutMs: z.number().int().positive().max(120_000).optional(),
-    tabId: optionalTabId,
-  }).strict(),
-  clickActionSchema,
+const canonicalBrowserSessionActionSchema = z.union([
   z
     .object({
-      kind: z.literal('fill'),
-      selector,
-      value: z.string().max(2 * 1024 * 1024),
+      kind: z.literal('goto'),
+      url: publicHttpUrl,
+      waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional(),
+      timeoutMs: z.number().int().positive().max(120_000).optional(),
+      tabId: optionalTabId,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('click'),
+      target: browserTargetSchema,
+      button: z.enum(['left', 'middle', 'right']).optional(),
+      count: z.number().int().min(1).max(3).optional(),
       timeoutMs: z.number().int().positive().max(60_000).optional(),
       tabId: optionalTabId,
     })
@@ -124,10 +108,7 @@ export const browserSessionActionSchema = z.union([
     .object({
       kind: z.literal('press'),
       key: z.string().min(1).max(64),
-      modifiers: z
-        .array(z.enum(['alt', 'control', 'meta', 'shift']))
-        .max(4)
-        .optional(),
+      modifiers: z.array(z.enum(['alt', 'control', 'meta', 'shift'])).max(4).optional(),
       target: textTargetSchema.optional(),
       tabId: optionalTabId,
     })
@@ -137,13 +118,7 @@ export const browserSessionActionSchema = z.union([
       kind: z.literal('scroll'),
       deltaX: z.number().finite().min(-100_000).max(100_000).optional(),
       deltaY: z.number().finite().min(-100_000).max(100_000).optional(),
-      at: z
-        .object({
-          x: normalizedCoordinate,
-          y: normalizedCoordinate,
-        })
-        .strict()
-        .optional(),
+      at: z.object({ x: normalizedCoordinate, y: normalizedCoordinate }).strict().optional(),
       tabId: optionalTabId,
     })
     .strict()
@@ -172,7 +147,7 @@ export const browserSessionActionSchema = z.union([
     .object({
       kind: z.literal('upload'),
       target: textTargetSchema,
-      paths: z.array(z.string().min(1).max(4_096)).min(1).max(16),
+      paths: z.array(z.string().trim().min(1).max(4_096)).min(1).max(16),
       timeoutMs: z.number().int().positive().max(60_000).optional(),
       tabId: optionalTabId,
     })
@@ -194,7 +169,7 @@ export const browserSessionActionSchema = z.union([
       tabId: optionalTabId,
     })
     .strict(),
-  z.object({ kind: z.literal('text'), selector: selector.optional(), tabId: optionalTabId }).strict(),
+  z.object({ kind: z.literal('text'), target: textTargetSchema.optional(), tabId: optionalTabId }).strict(),
   z.object({ kind: z.literal('html'), tabId: optionalTabId }).strict(),
   z.object({ kind: z.literal('screenshot'), fullPage: z.boolean().optional(), tabId: optionalTabId }).strict(),
   z.object({ kind: z.literal('eval'), expression: z.string().min(1).max(2 * 1024 * 1024), tabId: optionalTabId }).strict(),
@@ -208,5 +183,242 @@ export const browserSessionActionSchema = z.union([
   z.object({ kind: z.literal('close_tab'), tabId: requiredTabId }).strict(),
 ]);
 
-export type BrowserSessionAction = z.infer<typeof browserSessionActionSchema>;
+function nonBlankString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Accept the pre-0.34 selector/fill surface without exposing it to providers.
+ * The canonical target always wins when a provider sends both generations of
+ * the contract, which is how real OpenAI calls triggered the Canva regression.
+ */
+function normalizeLegacyBrowserAction(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const source = input as Record<string, unknown>;
+  const action: Record<string, unknown> = { ...source };
+  const tabId = nonBlankString(action.tabId);
+  if (tabId) action.tabId = tabId;
+  else delete action.tabId;
+
+  if (action.kind === 'click') {
+    const legacySelector = nonBlankString(action.selector);
+    if (!action.target && legacySelector) {
+      action.target = { type: 'selector', selector: legacySelector };
+    }
+    delete action.selector;
+  }
+
+  if (action.kind === 'fill') {
+    const legacySelector = nonBlankString(action.selector);
+    return {
+      kind: 'type',
+      ...(legacySelector
+        ? { target: { type: 'selector', selector: legacySelector } }
+        : {}),
+      value: action.value,
+      replace: true,
+      ...(action.timeoutMs === undefined ? {} : { timeoutMs: action.timeoutMs }),
+      ...(tabId ? { tabId } : {}),
+    };
+  }
+
+  if (action.kind === 'text' && 'selector' in action) {
+    const legacySelector = nonBlankString(action.selector);
+    if (!action.target && legacySelector) {
+      action.target = { type: 'selector', selector: legacySelector };
+    }
+    delete action.selector;
+  }
+
+  return action;
+}
+
+export const browserSessionActionSchema = z.preprocess(
+  normalizeLegacyBrowserAction,
+  canonicalBrowserSessionActionSchema,
+);
+
+type JsonSchema = Readonly<Record<string, unknown>>;
+
+const stringSchema = (maxLength: number, minLength = 1): JsonSchema => ({
+  type: 'string',
+  minLength,
+  maxLength,
+});
+
+const targetJsonSchema: JsonSchema = {
+  oneOf: [
+    {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['ref'] },
+        ref: { type: 'string', pattern: '^b[1-9][0-9]{0,5}$' },
+        revision: stringSchema(128),
+      },
+      required: ['type', 'ref', 'revision'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['selector'] },
+        selector: stringSchema(16_384),
+      },
+      required: ['type', 'selector'],
+      additionalProperties: false,
+    },
+    {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['point'] },
+        x: { type: 'number', minimum: 0, maximum: 1_000 },
+        y: { type: 'number', minimum: 0, maximum: 1_000 },
+      },
+      required: ['type', 'x', 'y'],
+      additionalProperties: false,
+    },
+  ],
+};
+
+const textTargetJsonSchema: JsonSchema = {
+  oneOf: (targetJsonSchema.oneOf as readonly unknown[]).slice(0, 2),
+};
+
+const tabIdJsonSchema = stringSchema(256);
+const timeoutJsonSchema = (maximum: number): JsonSchema => ({
+  type: 'integer', minimum: 1, maximum,
+});
+const enumSchema = (values: readonly string[]): JsonSchema => ({ type: 'string', enum: values });
+
+function actionJsonSchema(
+  kind: string,
+  properties: Readonly<Record<string, unknown>> = {},
+  required: readonly string[] = [],
+  extra: Readonly<Record<string, unknown>> = {},
+): JsonSchema {
+  return {
+    type: 'object',
+    properties: {
+      kind: { type: 'string', enum: [kind] },
+      ...properties,
+    },
+    required: ['kind', ...required],
+    additionalProperties: false,
+    ...extra,
+  };
+}
+
+const tab = { tabId: tabIdJsonSchema };
+const timeout60 = { timeoutMs: timeoutJsonSchema(60_000) };
+
+/** Exact schema shown to model providers. Legacy selector/fill fields exist
+ * only in the Zod compatibility parser above and can never be generated from
+ * this contract. */
+export const browserSessionActionInputJsonSchema: JsonSchema = {
+  type: 'object',
+  properties: {
+    action: {
+      oneOf: [
+        actionJsonSchema('goto', {
+          url: { type: 'string', format: 'uri', pattern: '^https?://' },
+          waitUntil: enumSchema(['load', 'domcontentloaded', 'networkidle']),
+          timeoutMs: timeoutJsonSchema(120_000), ...tab,
+        }, ['url']),
+        actionJsonSchema('click', {
+          target: targetJsonSchema,
+          button: enumSchema(['left', 'middle', 'right']),
+          count: { type: 'integer', minimum: 1, maximum: 3 },
+          ...timeout60, ...tab,
+        }, ['target']),
+        actionJsonSchema('type', {
+          target: textTargetJsonSchema,
+          value: stringSchema(2 * 1024 * 1024, 0),
+          replace: { type: 'boolean' }, ...timeout60, ...tab,
+        }, ['target', 'value']),
+        actionJsonSchema('hover', { target: targetJsonSchema, ...timeout60, ...tab }, ['target']),
+        actionJsonSchema('press', {
+          key: stringSchema(64),
+          modifiers: { type: 'array', items: enumSchema(['alt', 'control', 'meta', 'shift']), maxItems: 4 },
+          target: textTargetJsonSchema, ...tab,
+        }, ['key']),
+        actionJsonSchema('scroll', {
+          deltaX: { type: 'number', minimum: -100_000, maximum: 100_000 },
+          deltaY: { type: 'number', minimum: -100_000, maximum: 100_000 },
+          at: {
+            type: 'object',
+            properties: {
+              x: { type: 'number', minimum: 0, maximum: 1_000 },
+              y: { type: 'number', minimum: 0, maximum: 1_000 },
+            },
+            required: ['x', 'y'], additionalProperties: false,
+          }, ...tab,
+        }, [], { anyOf: [{ required: ['deltaX'] }, { required: ['deltaY'] }] }),
+        actionJsonSchema('drag', {
+          from: targetJsonSchema, to: targetJsonSchema,
+          steps: { type: 'integer', minimum: 2, maximum: 60 }, ...tab,
+        }, ['from', 'to']),
+        actionJsonSchema('select', {
+          target: textTargetJsonSchema,
+          values: { type: 'array', items: stringSchema(4_096, 0), minItems: 1, maxItems: 20 },
+          ...timeout60, ...tab,
+        }, ['target', 'values']),
+        actionJsonSchema('upload', {
+          target: textTargetJsonSchema,
+          paths: { type: 'array', items: stringSchema(4_096), minItems: 1, maxItems: 16 },
+          ...timeout60, ...tab,
+        }, ['target', 'paths']),
+        actionJsonSchema('wait', {
+          condition: {
+            oneOf: [
+              {
+                type: 'object', properties: {
+                  type: { type: 'string', enum: ['target'] },
+                  target: textTargetJsonSchema,
+                  state: enumSchema(['visible', 'hidden']),
+                }, required: ['type', 'target', 'state'], additionalProperties: false,
+              },
+              {
+                type: 'object', properties: {
+                  type: { type: 'string', enum: ['text'] }, text: stringSchema(4_096),
+                }, required: ['type', 'text'], additionalProperties: false,
+              },
+              {
+                type: 'object', properties: {
+                  type: { type: 'string', enum: ['url'] }, includes: stringSchema(4_096),
+                }, required: ['type', 'includes'], additionalProperties: false,
+              },
+              {
+                type: 'object', properties: { type: { type: 'string', enum: ['networkidle'] } },
+                required: ['type'], additionalProperties: false,
+              },
+            ],
+          }, timeoutMs: timeoutJsonSchema(120_000), ...tab,
+        }, ['condition']),
+        actionJsonSchema('observe', {
+          mode: enumSchema(['semantic', 'visual', 'hybrid']),
+          maxNodes: { type: 'integer', minimum: 1, maximum: 300 },
+          maxTextChars: { type: 'integer', minimum: 0, maximum: 20_000 }, ...tab,
+        }),
+        actionJsonSchema('text', { target: textTargetJsonSchema, ...tab }),
+        actionJsonSchema('html', tab),
+        actionJsonSchema('screenshot', { fullPage: { type: 'boolean' }, ...tab }),
+        actionJsonSchema('eval', { expression: stringSchema(2 * 1024 * 1024), ...tab }, ['expression']),
+        actionJsonSchema('url', tab),
+        actionJsonSchema('back', tab),
+        actionJsonSchema('forward', tab),
+        actionJsonSchema('reload', tab),
+        actionJsonSchema('tabs'),
+        actionJsonSchema('new_tab', { url: { type: 'string', format: 'uri', pattern: '^https?://' } }),
+        actionJsonSchema('select_tab', { tabId: tabIdJsonSchema }, ['tabId']),
+        actionJsonSchema('close_tab', { tabId: tabIdJsonSchema }, ['tabId']),
+      ],
+    },
+  },
+  required: ['action'],
+  additionalProperties: false,
+};
+
+export type BrowserSessionAction = z.infer<typeof canonicalBrowserSessionActionSchema>;
 export type BrowserTarget = z.infer<typeof browserTargetSchema>;

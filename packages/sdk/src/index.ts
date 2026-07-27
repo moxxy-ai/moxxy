@@ -98,6 +98,7 @@ export type {
   ToolDef,
   HostedTool,
   ToolCompactPresentation,
+  ToolRuntimeCapabilities,
   BrokeredFs,
   BrokeredStat,
   BrokeredFetch,

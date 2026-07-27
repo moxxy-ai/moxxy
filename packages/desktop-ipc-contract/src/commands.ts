@@ -43,6 +43,7 @@ import type { FocusVerticalAnchor } from './focus-layout.js';
 import type {
   NativeBrowserAvailability,
   NativeBrowserCapture,
+  NativeBrowserPermissionRequest,
   NativeBrowserRect,
   NativeBrowserSnapshot,
   NativeBrowserViewport,
@@ -509,6 +510,15 @@ export interface IpcCommands {
     rect?: NativeBrowserRect;
   }) => Promise<NativeBrowserCapture | null>;
   'nativeBrowser.stopAgentControl': (args: { workspaceId: string }) => Promise<void>;
+  'nativeBrowser.resolvePermission': (args: {
+    workspaceId: string;
+    requestId: NativeBrowserPermissionRequest['id'];
+    allow: boolean;
+  }) => Promise<void>;
+  'nativeBrowser.cancelDownload': (args: {
+    workspaceId: string;
+    downloadId: string;
+  }) => Promise<void>;
 
   // ---- Chat transcript history (read from the runner's authoritative log) ---
   /** Page the workspace's history from the RUNNER's authoritative log

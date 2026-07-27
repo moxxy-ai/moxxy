@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -8,6 +9,7 @@ import {
   type BrowserWindow,
   type ContextMenuParams,
   type Debugger,
+  type DownloadItem,
   type MenuItemConstructorOptions,
   type NativeImage,
   type Session,
@@ -22,23 +24,30 @@ import {
 } from '@moxxy/desktop-host/native-browser';
 import type { BrowserTarget } from '@moxxy/plugin-browser/browser-action';
 import {
+  buildAccessibilityObservationNodes,
   buildBrowserObservationScript,
   buildBrowserRefPointScript,
   buildBrowserRefValidationScript,
   buildBrowserSelectorPointScript,
+  buildSanitizedDocumentHtmlScript,
   formatBrowserObservationForModel,
   parseBrowserObservation,
+  type BrowserObservationNode,
   type BrowserObservationTarget,
 } from '@moxxy/plugin-browser/browser-observation';
 import type {
   NativeBrowserAvailability,
   NativeBrowserCapture,
+  NativeBrowserDownload,
+  NativeBrowserPermissionRequest,
   NativeBrowserRect,
+  NativeBrowserSitePermission,
   NativeBrowserSnapshot,
   NativeBrowserTabSnapshot,
   NativeBrowserViewport,
 } from '@moxxy/desktop-ipc-contract';
 import { assertPublicUrl } from '@moxxy/plugin-browser/ssrf-guard';
+import { BrowserOperationError } from '@moxxy/plugin-browser/browser-errors';
 
 const BROWSER_PARTITION = 'persist:moxxy-browser-v1';
 const BLANK_URL = 'about:blank';
@@ -50,6 +59,7 @@ const MAX_FULL_PAGE_PIXELS = 12_000_000;
 interface NativeBrowserControllerOptions {
   readonly browserSession: Session;
   readonly userDataDir: string;
+  readonly downloadsDir: string;
   readonly getMainWindow: () => BrowserWindow | null;
   readonly onChanged: (workspaceId: string, snapshot: NativeBrowserSnapshot) => void;
   readonly backendOverride?: string;
@@ -61,6 +71,18 @@ interface CaptureState {
   readonly tabId: string;
   readonly image: NativeImage;
   readonly viewBounds: NativeBrowserRect;
+}
+
+interface PendingPermission {
+  readonly workspaceId: string;
+  readonly request: NativeBrowserPermissionRequest;
+  readonly callback: (allowed: boolean) => void;
+}
+
+interface ActiveDownload {
+  readonly workspaceId: string;
+  readonly item: DownloadItem;
+  snapshot: NativeBrowserDownload;
 }
 
 /** Owns every third-party WebContents used by the Moxxy Browser. The app
@@ -76,6 +98,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     Map<string, ReadonlyMap<string, BrowserObservationTarget>>
   >();
   private readonly debuggerQueues = new WeakMap<WebContentsView, Promise<void>>();
+  private readonly syntheticInputDepth = new WeakMap<WebContentsView, number>();
   private readonly pendingNetworkRequests = new Map<number, Set<number>>();
   private readonly networkActivityListeners = new Map<number, Set<() => void>>();
   private readonly bounds = new Map<string, NativeBrowserRect>();
@@ -84,6 +107,10 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     string,
     { readonly action: string; readonly startedAtMs: number }
   >();
+  private readonly pendingPermissions = new Map<string, PendingPermission>();
+  private readonly permissionGrants = new Set<string>();
+  private readonly downloads = new Map<string, ActiveDownload>();
+  private readonly reservedDownloadPaths = new Set<string>();
   private backend: NativeBrowserAvailability = { backend: 'playwright', available: true };
   private visibleWorkspaceId: string | null = null;
   private attachedKey: string | null = null;
@@ -359,7 +386,41 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   async stopAgentControl(args: { workspaceId: string }): Promise<void> {
     const controls = this.agentControls.get(args.workspaceId);
     if (!controls) return;
-    for (const control of controls) control.abort();
+    for (const control of controls) {
+      control.abort(
+        new BrowserOperationError({
+          code: 'USER_ABORTED',
+          message: 'The user stopped browser control.',
+          nextAction: 'stop',
+          retryable: false,
+        }),
+      );
+    }
+  }
+
+  async resolvePermission(args: {
+    workspaceId: string;
+    requestId: string;
+    allow: boolean;
+  }): Promise<void> {
+    const pending = this.pendingPermissions.get(args.requestId);
+    if (!pending || pending.workspaceId !== args.workspaceId) {
+      throw new Error('browser permission request is no longer active');
+    }
+    this.pendingPermissions.delete(args.requestId);
+    if (args.allow) {
+      this.permissionGrants.add(permissionGrantKey(pending.request.origin, pending.request.permission));
+    }
+    pending.callback(args.allow);
+    this.publish(args.workspaceId);
+  }
+
+  async cancelDownload(args: { workspaceId: string; downloadId: string }): Promise<void> {
+    const download = this.downloads.get(args.downloadId);
+    if (!download || download.workspaceId !== args.workspaceId) {
+      throw new Error('browser download is no longer active');
+    }
+    if (download.snapshot.state === 'progressing') download.item.cancel();
   }
 
   private async executeAgentActionUnchecked(
@@ -399,33 +460,12 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
         await this.withAgentOperation(view, async () => {
-          const point = action.target
-            ? (await this.resolveBrowserTarget(view, action.target)).point
-            : parseInteractionPoint(
-                await view.webContents.executeJavaScript(
-                  clickTargetScript(action.selector ?? '', action.timeoutMs ?? 10_000),
-                  true,
-                ),
-              );
+          const point = (await this.resolveBrowserTarget(view, action.target)).point;
           await this.dispatchMouseClick(
             view,
             point,
             action.button ?? 'left',
             action.count ?? 1,
-          );
-        });
-        return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
-      }
-      case 'fill': {
-        const target = this.captureTarget(workspaceId, action.tabId);
-        const view = this.mustView(workspaceId, target);
-        await this.withAgentOperation(view, async () => {
-          await view.webContents.executeJavaScript(
-            prepareFillTargetScript(action.selector, action.timeoutMs ?? 10_000),
-            true,
-          );
-          await this.withDebugger(view, (debuggerSession) =>
-            debuggerSession.sendCommand('Input.insertText', { text: action.value }),
           );
         });
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
@@ -442,8 +482,22 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
             ),
           ),
         );
-        this.rememberObservation(view, parsed.observation.revision, parsed.targets);
-        const nodes = action.mode === 'visual' ? [] : parsed.observation.nodes;
+        const accessibility =
+          action.mode === 'visual'
+            ? { nodes: [], targets: [] }
+            : await this.collectAccessibilityObservation(
+                view,
+                Math.max(0, (action.maxNodes ?? 120) - parsed.observation.nodes.length),
+                parsed.observation.nodes.length + 1,
+              );
+        const merged = mergeObservationNodes(
+          parsed.observation.nodes,
+          parsed.targets,
+          accessibility.nodes,
+          accessibility.targets,
+        );
+        this.rememberObservation(view, parsed.observation.revision, merged.targets);
+        const nodes = action.mode === 'visual' ? [] : merged.nodes;
         if (action.mode === 'visual' || action.mode === 'hybrid') {
           const image = await this.withAgentOperation(view, () => view.webContents.capturePage());
           return {
@@ -457,44 +511,58 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
             }),
           };
         }
-        return { ...parsed.observation, nodes, tabId: target.id };
+        return {
+          ...parsed.observation,
+          nodes,
+          tabId: target.id,
+          forModel: formatBrowserObservationForModel({ ...parsed.observation, nodes }),
+        };
       }
       case 'hover': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
         const resolved = await this.resolveBrowserTarget(view, action.target);
-        await this.withDebugger(view, (debuggerSession) =>
-          debuggerSession.sendCommand('Input.dispatchMouseEvent', {
-            type: 'mouseMoved',
-            x: resolved.point.x,
-            y: resolved.point.y,
-          }),
+        await this.withSyntheticInput(view, () =>
+          this.withDebugger(view, (debuggerSession) =>
+            debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+              type: 'mouseMoved',
+              x: resolved.point.x,
+              y: resolved.point.y,
+            }),
+          ),
         );
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
       case 'type': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
-        const resolved = await this.resolveBrowserTarget(view, action.target);
-        const selector = resolved.selector;
+        const element = await this.resolveBrowserElementTarget(view, action.target);
         const value = action.value;
-        if (!selector) throw new Error('ELEMENT_NOT_INTERACTABLE: text target required');
         if (value === undefined) throw new Error('INVALID_ACTION: text value required');
         await this.withAgentOperation(view, async () => {
-          await view.webContents.executeJavaScript(
-            prepareFillTargetScript(selector, action.timeoutMs ?? 10_000),
-            true,
-          );
+          if (element.selector) {
+            await view.webContents.executeJavaScript(
+              prepareFillTargetScript(element.selector, action.timeoutMs ?? 10_000),
+              true,
+            );
+          } else {
+            await this.focusBackendNode(view, element);
+            if (action.replace !== false) await this.selectFocusedText(view);
+          }
           if (action.replace === false) {
-            await this.withDebugger(view, (debuggerSession) =>
-              debuggerSession.sendCommand('Input.dispatchKeyEvent', {
-                type: 'keyDown',
-                key: 'End',
-              }),
+            await this.withSyntheticInput(view, () =>
+              this.withDebugger(view, (debuggerSession) =>
+                debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+                  type: 'keyDown',
+                  key: 'End',
+                }),
+              ),
             );
           }
-          await this.withDebugger(view, (debuggerSession) =>
-            debuggerSession.sendCommand('Input.insertText', { text: value }),
+          await this.withSyntheticInput(view, () =>
+            this.withDebugger(view, (debuggerSession) =>
+              debuggerSession.sendCommand('Input.insertText', { text: value }),
+            ),
           );
         });
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
@@ -503,23 +571,25 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
         if (action.target) {
-          const resolved = await this.resolveBrowserTarget(view, action.target);
-          if (!resolved.selector) throw new Error('ELEMENT_NOT_INTERACTABLE: focus target required');
-          await this.executeScript(view, focusTargetScript(resolved.selector));
+          const element = await this.resolveBrowserElementTarget(view, action.target);
+          if (element.selector) await this.executeScript(view, focusTargetScript(element.selector));
+          else await this.focusBackendNode(view, element);
         }
         const modifiers = cdpModifiers(action.modifiers);
-        await this.withDebugger(view, async (debuggerSession) => {
-          await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
-            type: 'keyDown',
-            key: action.key,
-            modifiers,
-          });
-          await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
-            type: 'keyUp',
-            key: action.key,
-            modifiers,
-          });
-        });
+        await this.withSyntheticInput(view, () =>
+          this.withDebugger(view, async (debuggerSession) => {
+            await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+              type: 'keyDown',
+              key: action.key,
+              modifiers,
+            });
+            await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+              type: 'keyUp',
+              key: action.key,
+              modifiers,
+            });
+          }),
+        );
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
       case 'scroll': {
@@ -529,14 +599,16 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         const point = action.at
           ? normalizedPoint(action.at, bounds.width, bounds.height)
           : { x: bounds.width / 2, y: bounds.height / 2 };
-        await this.withDebugger(view, (debuggerSession) =>
-          debuggerSession.sendCommand('Input.dispatchMouseEvent', {
-            type: 'mouseWheel',
-            x: point.x,
-            y: point.y,
-            deltaX: action.deltaX ?? 0,
-            deltaY: action.deltaY ?? 0,
-          }),
+        await this.withSyntheticInput(view, () =>
+          this.withDebugger(view, (debuggerSession) =>
+            debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+              type: 'mouseWheel',
+              x: point.x,
+              y: point.y,
+              deltaX: action.deltaX ?? 0,
+              deltaY: action.deltaY ?? 0,
+            }),
+          ),
         );
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
@@ -546,7 +618,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         const start = await this.resolveBrowserTarget(view, action.from);
         const end = await this.resolveBrowserTarget(view, action.to);
         const steps = action.steps ?? 12;
-        await this.withDebugger(view, async (debuggerSession) => {
+        await this.withSyntheticInput(view, () => this.withDebugger(view, async (debuggerSession) => {
           await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
             type: 'mouseMoved',
             x: start.point.x,
@@ -575,17 +647,16 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
             button: 'left',
             clickCount: 1,
           });
-        });
+        }));
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
       case 'select': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
-        const selector = await this.selectorForBrowserTarget(view, action.target);
-        const selected = await this.executeScript(
-          view,
-          selectOptionsScript(selector, action.values),
-        );
+        const element = await this.resolveBrowserElementTarget(view, action.target);
+        const selected = element.selector
+          ? await this.executeScript(view, selectOptionsScript(element.selector, action.values))
+          : await this.callFunctionOnElement(view, element, selectOptionsFunction(action.values));
         return {
           tabId: target.id,
           url: view.webContents.getURL() || BLANK_URL,
@@ -595,15 +666,10 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       case 'upload': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
-        const selector = await this.selectorForBrowserTarget(view, action.target);
+        const element = await this.resolveBrowserElementTarget(view, action.target);
         await validateUploadFiles(action.paths);
         await this.withDebugger(view, async (debuggerSession) => {
-          const objectId = parseRemoteObjectId(
-            await debuggerSession.sendCommand('Runtime.evaluate', {
-              expression: `document.querySelector(${JSON.stringify(selector)})`,
-              returnByValue: false,
-            }),
-          );
+          const objectId = await resolveElementObjectId(debuggerSession, element);
           try {
             await debuggerSession.sendCommand('DOM.setFileInputFiles', {
               files: action.paths,
@@ -640,31 +706,54 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
             idle.dispose();
           }
         } else {
-          const selector =
-            action.condition.type === 'target'
-              ? await this.selectorForBrowserTarget(view, action.condition.target)
-              : undefined;
-          await this.executeScript(
-            view,
-            waitConditionScript(action.condition, selector, timeoutMs),
-          );
+          if (action.condition.type === 'target') {
+            const element = await this.resolveBrowserElementTarget(
+              view,
+              action.condition.target,
+            );
+            if (element.backendDOMNodeId) {
+              await this.waitForBackendTarget(
+                view,
+                element.backendDOMNodeId,
+                action.condition.state,
+                timeoutMs,
+              );
+            } else {
+              await this.executeScript(
+                view,
+                waitConditionScript(action.condition, element.selector, timeoutMs),
+              );
+            }
+          } else {
+            await this.executeScript(
+              view,
+              waitConditionScript(action.condition, undefined, timeoutMs),
+            );
+          }
         }
         return { tabId: target.id, url: view.webContents.getURL() || BLANK_URL };
       }
       case 'text': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
-        const script = action.selector
-          ? elementTextScript(action.selector, 10_000)
-          : 'document.body ? document.body.innerText : ""';
-        return this.executeScript(view, script);
+        if (!action.target) {
+          return this.executeScript(view, 'document.body ? document.body.innerText : ""');
+        }
+        const element = await this.resolveBrowserElementTarget(view, action.target);
+        return element.selector
+          ? this.executeScript(view, elementTextScript(element.selector, 10_000))
+          : this.callFunctionOnElement(
+              view,
+              element,
+              'function(){return this.innerText || this.textContent || this.value || "";}',
+            );
       }
       case 'html': {
         const target = this.captureTarget(workspaceId, action.tabId);
         const view = this.mustView(workspaceId, target);
         return this.executeScript(
           view,
-          'document.documentElement ? document.documentElement.outerHTML : ""',
+          buildSanitizedDocumentHtmlScript(),
         );
       }
       case 'screenshot': {
@@ -723,6 +812,13 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     }
     this.agentControls.clear();
     this.agentControlState.clear();
+    for (const pending of this.pendingPermissions.values()) pending.callback(false);
+    this.pendingPermissions.clear();
+    for (const download of this.downloads.values()) {
+      if (download.snapshot.state === 'progressing') download.item.cancel();
+    }
+    this.downloads.clear();
+    this.reservedDownloadPaths.clear();
     await this.persist().catch(() => undefined);
     for (const view of this.views.values()) {
       if (!view.webContents.isDestroyed()) view.webContents.close();
@@ -734,9 +830,43 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
 
   private installSessionSecurity(): void {
     const browserSession = this.options.browserSession;
-    browserSession.setPermissionCheckHandler(() => false);
-    browserSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-      callback(false);
+    browserSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
+      const sitePermission = mapSitePermission(permission, details.mediaType);
+      if (!sitePermission) return false;
+      const origin = publicOrigin(details.securityOrigin ?? requestingOrigin);
+      if (!origin) return false;
+      if (this.permissionGrants.has(permissionGrantKey(origin, sitePermission))) return true;
+      return (
+        (sitePermission === 'microphone' || sitePermission === 'camera') &&
+        this.permissionGrants.has(permissionGrantKey(origin, 'microphone-camera'))
+      );
+    });
+    browserSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      const context = this.contextForWebContents(webContents);
+      const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined;
+      const sitePermission = mapRequestedSitePermission(permission, mediaTypes);
+      const origin = publicOrigin(
+        ('securityOrigin' in details ? details.securityOrigin : undefined) ?? details.requestingUrl,
+      );
+      if (!context || !sitePermission || !origin) {
+        callback(false);
+        return;
+      }
+      const request: NativeBrowserPermissionRequest = {
+        id: randomUUID(),
+        tabId: context.tabId,
+        origin,
+        permission: sitePermission,
+      };
+      this.pendingPermissions.set(request.id, {
+        workspaceId: context.workspaceId,
+        request,
+        callback,
+      });
+      this.publish(context.workspaceId);
+    });
+    browserSession.on('will-download', (_event, item, webContents) => {
+      this.registerDownload(item, webContents);
     });
     const requestFilter = { urls: ['http://*/*', 'https://*/*'] };
     browserSession.webRequest.onBeforeRequest(requestFilter, (details, callback) => {
@@ -782,11 +912,18 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     contents.setBackgroundThrottling(true);
     contents.setZoomFactor(tab.zoom);
     contents.setWindowOpenHandler(({ url }) => {
-      if (isHttpUrl(url)) void this.openPopup(workspaceId, url);
-      return { action: 'deny' };
+      if (!isHttpUrl(url)) return { action: 'deny' };
+      return {
+        action: 'allow',
+        createWindow: () => this.createPopupView(workspaceId, url).webContents,
+      };
     });
     contents.on('context-menu', (_event, params) => {
       this.showContextMenu(workspaceId, tab.id, view, params);
+    });
+    contents.on('input-event', () => {
+      if ((this.syntheticInputDepth.get(view) ?? 0) > 0) return;
+      this.handleUserTakeover(workspaceId, view);
     });
     contents.on('will-navigate', (event, url) => {
       if (!isAllowedDocumentUrl(url)) event.preventDefault();
@@ -824,14 +961,19 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     return view;
   }
 
+  private createPopupView(workspaceId: string, url: string): WebContentsView {
+    const tab = this.state.newTab(workspaceId);
+    this.state.updateTab(workspaceId, tab.id, { url, loading: true });
+    const view = this.ensureView(workspaceId, tab);
+    this.attachActiveView(workspaceId);
+    this.publish(workspaceId);
+    void this.persist().catch(() => undefined);
+    return view;
+  }
+
   private async openPopup(workspaceId: string, url: string): Promise<void> {
-    try {
-      await assertPublicUrl(url, 'native_browser_popup', { failClosed: true });
-      await this.newTab({ workspaceId, url });
-    } catch {
-      // Popups are always denied by Electron. Unsafe/unresolvable targets are
-      // intentionally discarded instead of leaking into the OS browser.
-    }
+    const view = this.createPopupView(workspaceId, url);
+    await view.webContents.loadURL(url);
   }
 
   private showContextMenu(
@@ -966,7 +1108,71 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   private snapshot(workspaceId: string): NativeBrowserSnapshot {
     const snapshot = this.state.snapshot(workspaceId);
     const agentControl = this.agentControlState.get(workspaceId);
-    return agentControl ? { ...snapshot, agentControl } : snapshot;
+    const permissionRequest = [...this.pendingPermissions.values()].find(
+      (pending) => pending.workspaceId === workspaceId,
+    )?.request;
+    const downloads = [...this.downloads.values()]
+      .filter((download) => download.workspaceId === workspaceId)
+      .map((download) => download.snapshot);
+    return {
+      ...snapshot,
+      ...(agentControl ? { agentControl } : {}),
+      ...(permissionRequest ? { permissionRequest } : {}),
+      ...(downloads.length > 0 ? { downloads } : {}),
+    };
+  }
+
+  private contextForWebContents(webContents: WebContents):
+    | { readonly workspaceId: string; readonly tabId: string }
+    | null {
+    for (const [key, view] of this.views) {
+      if (view.webContents.id !== webContents.id) continue;
+      const separator = key.indexOf('\u0000');
+      if (separator < 1) return null;
+      return { workspaceId: key.slice(0, separator), tabId: key.slice(separator + 1) };
+    }
+    return null;
+  }
+
+  private registerDownload(item: DownloadItem, webContents: WebContents): void {
+    const context = this.contextForWebContents(webContents);
+    if (!context) {
+      item.cancel();
+      return;
+    }
+    const id = randomUUID();
+    const filename = safeDownloadFilename(item.getFilename());
+    const savePath = this.availableDownloadPath(filename);
+    item.setSavePath(savePath);
+    const active: ActiveDownload = {
+      workspaceId: context.workspaceId,
+      item,
+      snapshot: downloadSnapshot(id, context.tabId, filename, savePath, item, 'progressing'),
+    };
+    this.downloads.set(id, active);
+    this.publish(context.workspaceId);
+    item.on('updated', (_event, state) => {
+      active.snapshot = downloadSnapshot(id, context.tabId, filename, savePath, item, state);
+      this.publish(context.workspaceId);
+    });
+    item.once('done', (_event, state) => {
+      active.snapshot = downloadSnapshot(id, context.tabId, filename, savePath, item, state);
+      this.reservedDownloadPaths.delete(savePath);
+      this.publish(context.workspaceId);
+    });
+  }
+
+  private availableDownloadPath(filename: string): string {
+    const extension = path.extname(filename);
+    const stem = path.basename(filename, extension);
+    for (let index = 0; index < 10_000; index += 1) {
+      const candidateName = index === 0 ? filename : `${stem} (${index})${extension}`;
+      const candidate = path.join(this.options.downloadsDir, candidateName);
+      if (existsSync(candidate) || this.reservedDownloadPaths.has(candidate)) continue;
+      this.reservedDownloadPaths.add(candidate);
+      return candidate;
+    }
+    throw new Error('unable to allocate a safe browser download path');
   }
 
   private stopWorkspaceLoads(workspaceId: string): void {
@@ -975,6 +1181,19 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       if (!key.startsWith(prefix) || view.webContents.isDestroyed()) continue;
       view.webContents.stop();
     }
+  }
+
+  private handleUserTakeover(workspaceId: string, view: WebContentsView): void {
+    this.observations.delete(view);
+    const controls = this.agentControls.get(workspaceId);
+    if (!controls) return;
+    const reason = new BrowserOperationError({
+      code: 'USER_TAKEOVER',
+      message: 'The user interacted with the shared browser page.',
+      nextAction: 'observe',
+      retryable: true,
+    });
+    for (const control of controls) control.abort(reason);
   }
 
   private persist(): Promise<void> {
@@ -1025,6 +1244,47 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     }
   }
 
+  private collectAccessibilityObservation(
+    view: WebContentsView,
+    maxNodes: number,
+    startRef: number,
+  ): Promise<ReturnType<typeof buildAccessibilityObservationNodes>> {
+    if (maxNodes <= 0) return Promise.resolve({ nodes: [], targets: [] });
+    return this.withDebugger(view, async (debuggerSession) => {
+      const frameTree = await debuggerSession.sendCommand('Page.getFrameTree');
+      const frameIds = extractFrameIds(frameTree).slice(0, 32);
+      if (frameIds.length === 0) return { nodes: [], targets: [] };
+      const trees: Array<{ frameId: string; nodes: ReadonlyArray<unknown> }> = [];
+      const bounds = new Map<
+        string,
+        { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+      >();
+      const describedBackendNodes = new Set<number>();
+      for (const frameId of frameIds) {
+        const response = await debuggerSession.sendCommand('Accessibility.getFullAXTree', {
+          frameId,
+        });
+        const nodes = extractAccessibilityNodes(response);
+        trees.push({ frameId, nodes });
+        for (const candidate of nodes) {
+          const backendDOMNodeId = extractBackendDOMNodeId(candidate);
+          if (!backendDOMNodeId || describedBackendNodes.has(backendDOMNodeId)) continue;
+          describedBackendNodes.add(backendDOMNodeId);
+          try {
+            const model = await debuggerSession.sendCommand('DOM.getBoxModel', {
+              backendNodeId: backendDOMNodeId,
+            });
+            const nodeBounds = extractBoxModelBounds(model);
+            if (nodeBounds) bounds.set(`${frameId}:${backendDOMNodeId}`, nodeBounds);
+          } catch {
+            // Detached or non-rendered accessibility nodes are intentionally skipped.
+          }
+        }
+      }
+      return buildAccessibilityObservationNodes(trees, bounds, maxNodes, startRef);
+    });
+  }
+
   private async resolveBrowserTarget(
     view: WebContentsView,
     target: BrowserTarget,
@@ -1045,6 +1305,28 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     const observation = this.observations.get(view)?.get(target.revision);
     const stored = observation?.get(target.ref);
     if (!stored) throw new Error('STALE_BROWSER_STATE: observe the page again');
+    if (stored.backendDOMNodeId) {
+      const current = await this.executeScript(
+        view,
+        buildBrowserRefValidationScript(target.revision),
+      );
+      if (current !== true) throw new Error('STALE_BROWSER_STATE: observe the page again');
+      const model = await this.withDebugger(view, (debuggerSession) =>
+        debuggerSession.sendCommand('DOM.getBoxModel', {
+          backendNodeId: stored.backendDOMNodeId,
+        }),
+      );
+      const bounds = extractBoxModelBounds(model);
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+        throw new Error('STALE_BROWSER_STATE: accessibility target is no longer visible');
+      }
+      return {
+        point: { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
+      };
+    }
+    if (!stored.selector) {
+      throw new Error('ELEMENT_NOT_INTERACTABLE: target cannot be resolved');
+    }
     return {
       selector: stored.selector,
       point: parseInteractionPoint(
@@ -1058,7 +1340,23 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     view: WebContentsView,
     target: Exclude<BrowserTarget, { readonly type: 'point' }>,
   ): Promise<string> {
-    if (target.type === 'selector') return target.selector;
+    const stored = await this.resolveBrowserElementTarget(view, target);
+    if (!stored.selector) {
+      throw new Error('ELEMENT_NOT_INTERACTABLE: selector target required for this action');
+    }
+    return stored.selector;
+  }
+
+  private async resolveBrowserElementTarget(
+    view: WebContentsView,
+    target: Exclude<BrowserTarget, { readonly type: 'point' }>,
+  ): Promise<BrowserObservationTarget> {
+    if (target.type === 'selector') {
+      return {
+        selector: target.selector,
+        bounds: { x: 0, y: 0, width: 0, height: 0 },
+      };
+    }
     const observations = this.observations.get(view);
     const revision = observations?.get(target.revision);
     const stored = revision?.get(target.ref);
@@ -1068,7 +1366,84 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       buildBrowserRefValidationScript(target.revision),
     );
     if (current !== true) throw new Error('STALE_BROWSER_STATE: observe the page again');
-    return stored.selector;
+    return stored;
+  }
+
+  private focusBackendNode(view: WebContentsView, target: BrowserObservationTarget): Promise<void> {
+    if (!target.backendDOMNodeId) {
+      return Promise.reject(new Error('ELEMENT_NOT_INTERACTABLE: focus target is unavailable'));
+    }
+    return this.withDebugger(view, async (debuggerSession) => {
+      await debuggerSession.sendCommand('DOM.focus', {
+        backendNodeId: target.backendDOMNodeId,
+      });
+    });
+  }
+
+  private selectFocusedText(view: WebContentsView): Promise<void> {
+    const modifiers = process.platform === 'darwin' ? 4 : 2;
+    return this.withSyntheticInput(view, () =>
+      this.withDebugger(view, async (debuggerSession) => {
+        await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+          type: 'keyDown',
+          key: 'a',
+          modifiers,
+        });
+        await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+          type: 'keyUp',
+          key: 'a',
+          modifiers,
+        });
+      }),
+    );
+  }
+
+  private callFunctionOnElement(
+    view: WebContentsView,
+    target: BrowserObservationTarget,
+    functionDeclaration: string,
+  ): Promise<unknown> {
+    return this.withDebugger(view, async (debuggerSession) => {
+      const objectId = await resolveElementObjectId(debuggerSession, target);
+      try {
+        const response = await debuggerSession.sendCommand('Runtime.callFunctionOn', {
+          objectId,
+          functionDeclaration,
+          returnByValue: true,
+        });
+        return remoteResultValue(response);
+      } finally {
+        await debuggerSession
+          .sendCommand('Runtime.releaseObject', { objectId })
+          .catch(() => undefined);
+      }
+    });
+  }
+
+  private async waitForBackendTarget(
+    view: WebContentsView,
+    backendDOMNodeId: number,
+    state: 'visible' | 'hidden',
+    timeoutMs: number,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      let visible = false;
+      try {
+        const model = await this.withDebugger(view, (debuggerSession) =>
+          debuggerSession.sendCommand('DOM.getBoxModel', { backendNodeId: backendDOMNodeId }),
+        );
+        const bounds = extractBoxModelBounds(model);
+        visible = Boolean(bounds && bounds.width > 0 && bounds.height > 0);
+      } catch {
+        visible = false;
+      }
+      if ((state === 'visible' && visible) || (state === 'hidden' && !visible)) return;
+      if (Date.now() >= deadline) {
+        throw new Error(`TIMEOUT: target did not become ${state}`);
+      }
+      await delay(50);
+    }
   }
 
   private dispatchMouseClick(
@@ -1077,17 +1452,33 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     button: 'left' | 'middle' | 'right',
     clickCount: number,
   ): Promise<void> {
-    return this.withDebugger(view, async (debuggerSession) => {
-      const input = { x: point.x, y: point.y, button, clickCount };
-      await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
-        type: 'mousePressed',
-        ...input,
-      });
-      await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
-        type: 'mouseReleased',
-        ...input,
-      });
-    });
+    return this.withSyntheticInput(view, () =>
+      this.withDebugger(view, async (debuggerSession) => {
+        const input = { x: point.x, y: point.y, button, clickCount };
+        await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          ...input,
+        });
+        await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          ...input,
+        });
+      }),
+    );
+  }
+
+  private async withSyntheticInput<T>(
+    view: WebContentsView,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    this.syntheticInputDepth.set(view, (this.syntheticInputDepth.get(view) ?? 0) + 1);
+    try {
+      return await operation();
+    } finally {
+      const remaining = Math.max(0, (this.syntheticInputDepth.get(view) ?? 1) - 1);
+      if (remaining === 0) this.syntheticInputDepth.delete(view);
+      else this.syntheticInputDepth.set(view, remaining);
+    }
   }
 
   private async loadUrl(
@@ -1270,6 +1661,113 @@ function viewKey(workspaceId: string, tabId: string): string {
   return `${workspaceId}\u0000${tabId}`;
 }
 
+function mergeObservationNodes(
+  primaryNodes: ReadonlyArray<BrowserObservationNode>,
+  primaryTargets: ReadonlyMap<string, BrowserObservationTarget>,
+  accessibilityNodes: ReadonlyArray<BrowserObservationNode>,
+  accessibilityTargets: ReadonlyArray<BrowserObservationTarget>,
+): {
+  readonly nodes: ReadonlyArray<BrowserObservationNode>;
+  readonly targets: ReadonlyMap<string, BrowserObservationTarget>;
+} {
+  const nodes = [...primaryNodes];
+  const targets = new Map(primaryTargets);
+  accessibilityNodes.forEach((node, index) => {
+    const duplicate = nodes.some(
+      (existing) =>
+        existing.role === node.role &&
+        existing.name === node.name &&
+        approximatelyEqualBounds(existing.bounds, node.bounds),
+    );
+    if (duplicate) return;
+    const target = accessibilityTargets[index];
+    if (!target) return;
+    nodes.push(node);
+    targets.set(node.ref, target);
+  });
+  return { nodes, targets };
+}
+
+function approximatelyEqualBounds(
+  left: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
+  right: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
+): boolean {
+  return (
+    Math.abs(left.x - right.x) < 2 &&
+    Math.abs(left.y - right.y) < 2 &&
+    Math.abs(left.width - right.width) < 2 &&
+    Math.abs(left.height - right.height) < 2
+  );
+}
+
+function extractFrameIds(value: unknown): string[] {
+  const root = objectValue(value, 'frameTree');
+  const result: string[] = [];
+  const visit = (candidate: unknown): void => {
+    const frame = objectValue(candidate, 'frame');
+    const id = stringValue(frame, 'id');
+    if (id) result.push(id);
+    const children = arrayValue(candidate, 'childFrames');
+    for (const child of children) visit(child);
+  };
+  if (root) visit(root);
+  return result;
+}
+
+function extractAccessibilityNodes(value: unknown): ReadonlyArray<unknown> {
+  return arrayValue(value, 'nodes');
+}
+
+function extractBackendDOMNodeId(value: unknown): number | undefined {
+  const record = objectRecord(value);
+  const candidate = record?.backendDOMNodeId;
+  return typeof candidate === 'number' && Number.isInteger(candidate) && candidate > 0
+    ? candidate
+    : undefined;
+}
+
+function extractBoxModelBounds(
+  value: unknown,
+): { readonly x: number; readonly y: number; readonly width: number; readonly height: number } | undefined {
+  const model = objectValue(value, 'model');
+  const border = arrayValue(model, 'border').filter(
+    (candidate): candidate is number => typeof candidate === 'number' && Number.isFinite(candidate),
+  );
+  if (border.length !== 8) return undefined;
+  let left = Number.POSITIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < border.length; index += 2) {
+    const x = border[index];
+    const y = border[index + 1];
+    if (x === undefined || y === undefined) return undefined;
+    left = Math.min(left, x);
+    top = Math.min(top, y);
+    right = Math.max(right, x);
+    bottom = Math.max(bottom, y);
+  }
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
+}
+
+function objectValue(value: unknown, key: string): Record<string, unknown> | undefined {
+  return objectRecord(objectRecord(value)?.[key]);
+}
+
+function arrayValue(value: unknown, key: string): ReadonlyArray<unknown> {
+  const candidate = objectRecord(value)?.[key];
+  return Array.isArray(candidate) ? candidate : [];
+}
+
+function stringValue(value: unknown, key: string): string | undefined {
+  const candidate = objectRecord(value)?.[key];
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : undefined;
+}
+
 function encodeCapture(image: NativeImage): NativeBrowserCapture {
   return { mediaType: 'image/png', base64: image.toPNG().toString('base64') };
 }
@@ -1306,32 +1804,6 @@ function elementTextScript(selector: string, timeoutMs: number): string {
       const element = document.querySelector(selector);
       if (element instanceof HTMLElement) {
         try { resolve((() => { ${actionScript} })()); } catch (error) { reject(error); }
-        return;
-      }
-      if (Date.now() >= deadline) {
-        reject(new Error('Timed out waiting for selector: ' + selector));
-        return;
-      }
-      setTimeout(find, 50);
-    };
-    find();
-  }))()`;
-}
-
-function clickTargetScript(selector: string, timeoutMs: number): string {
-  const selectorJson = JSON.stringify(selector);
-  return `(() => new Promise((resolve, reject) => {
-    const selector = ${selectorJson};
-    const deadline = Date.now() + ${timeoutMs};
-    const find = () => {
-      const element = document.querySelector(selector);
-      if (element instanceof HTMLElement) {
-        try {
-          element.scrollIntoView({ block: 'center', inline: 'center' });
-          const rect = element.getBoundingClientRect();
-          if (rect.width <= 0 || rect.height <= 0) throw new Error('Target is not visible: ' + selector);
-          resolve({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-        } catch (error) { reject(error); }
         return;
       }
       if (Date.now() >= deadline) {
@@ -1414,6 +1886,26 @@ function selectOptionsScript(selector: string, values: ReadonlyArray<string>): s
   })()`;
 }
 
+function selectOptionsFunction(values: ReadonlyArray<string>): string {
+  return `function(){
+    if (!(this instanceof HTMLSelectElement)) {
+      throw new Error('ELEMENT_NOT_INTERACTABLE: target is not a select');
+    }
+    const requested = new Set(${JSON.stringify(values)});
+    const selected = [];
+    for (const option of this.options) {
+      option.selected = requested.has(option.value) || requested.has(option.label);
+      if (option.selected) selected.push(option.value);
+    }
+    if (selected.length === 0) {
+      throw new Error('ELEMENT_NOT_FOUND: no requested option exists');
+    }
+    this.dispatchEvent(new Event('input', { bubbles: true }));
+    this.dispatchEvent(new Event('change', { bubbles: true }));
+    return selected;
+  }`;
+}
+
 function waitConditionScript(
   condition:
     | {
@@ -1479,7 +1971,8 @@ function parseRemoteObjectId(value: unknown): string {
   if (!value || typeof value !== 'object') {
     throw new Error('ELEMENT_NOT_FOUND: file input is unavailable');
   }
-  const result = (value as { result?: unknown }).result;
+  const envelope = value as { result?: unknown; object?: unknown };
+  const result = envelope.result ?? envelope.object;
   if (!result || typeof result !== 'object') {
     throw new Error('ELEMENT_NOT_FOUND: file input is unavailable');
   }
@@ -1488,6 +1981,33 @@ function parseRemoteObjectId(value: unknown): string {
     throw new Error('ELEMENT_NOT_FOUND: file input is unavailable');
   }
   return objectId;
+}
+
+async function resolveElementObjectId(
+  debuggerSession: Debugger,
+  target: BrowserObservationTarget,
+): Promise<string> {
+  if (target.backendDOMNodeId) {
+    return parseRemoteObjectId(
+      await debuggerSession.sendCommand('DOM.resolveNode', {
+        backendNodeId: target.backendDOMNodeId,
+      }),
+    );
+  }
+  if (!target.selector) {
+    throw new Error('ELEMENT_NOT_INTERACTABLE: element target is unavailable');
+  }
+  return parseRemoteObjectId(
+    await debuggerSession.sendCommand('Runtime.evaluate', {
+      expression: `document.querySelector(${JSON.stringify(target.selector)})`,
+      returnByValue: false,
+    }),
+  );
+}
+
+function remoteResultValue(value: unknown): unknown {
+  const result = objectValue(value, 'result');
+  return result?.value;
 }
 
 function parseInteractionPoint(
@@ -1592,6 +2112,13 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
+
 function abortable<T>(
   promise: Promise<T>,
   signal: AbortSignal,
@@ -1599,12 +2126,12 @@ function abortable<T>(
 ): Promise<T> {
   if (signal.aborted) {
     onAbort();
-    return Promise.reject(new Error('BROWSER_CONTROL_STOPPED: user took control'));
+    return Promise.reject(browserAbortReason(signal));
   }
   return new Promise<T>((resolve, reject) => {
     const abort = (): void => {
       onAbort();
-      reject(new Error('BROWSER_CONTROL_STOPPED: user took control'));
+      reject(browserAbortReason(signal));
     };
     signal.addEventListener('abort', abort, { once: true });
     promise.then(
@@ -1618,4 +2145,84 @@ function abortable<T>(
       },
     );
   });
+}
+
+function browserAbortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new BrowserOperationError({
+        code: 'USER_ABORTED',
+        message: 'The user stopped browser control.',
+        nextAction: 'stop',
+        retryable: false,
+      });
+}
+
+function mapSitePermission(
+  permission: string,
+  mediaType: 'video' | 'audio' | 'unknown' | undefined,
+): NativeBrowserSitePermission | null {
+  if (permission === 'media') {
+    if (mediaType === 'audio') return 'microphone';
+    if (mediaType === 'video') return 'camera';
+    return 'microphone-camera';
+  }
+  if (permission === 'geolocation') return 'geolocation';
+  if (permission === 'clipboard-read' || permission === 'clipboard-sanitized-write') {
+    return 'clipboard';
+  }
+  return null;
+}
+
+function mapRequestedSitePermission(
+  permission: string,
+  mediaTypes: ReadonlyArray<'video' | 'audio'> | undefined,
+): NativeBrowserSitePermission | null {
+  if (permission !== 'media') return mapSitePermission(permission, undefined);
+  const audio = mediaTypes?.includes('audio') ?? false;
+  const video = mediaTypes?.includes('video') ?? false;
+  if (audio && video) return 'microphone-camera';
+  if (audio) return 'microphone';
+  if (video) return 'camera';
+  return null;
+}
+
+function permissionGrantKey(origin: string, permission: NativeBrowserSitePermission): string {
+  return `${origin}\u0000${permission}`;
+}
+
+function publicOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function safeDownloadFilename(value: string): string {
+  const basename = path.basename(value).replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  if (!basename || basename === '.' || basename === '..') return 'download';
+  return basename.slice(0, 240);
+}
+
+function downloadSnapshot(
+  id: string,
+  tabId: string,
+  filename: string,
+  savePath: string,
+  item: DownloadItem,
+  state: NativeBrowserDownload['state'],
+): NativeBrowserDownload {
+  return {
+    id,
+    tabId,
+    filename,
+    state,
+    receivedBytes: Math.max(0, item.getReceivedBytes()),
+    totalBytes: Math.max(0, item.getTotalBytes()),
+    savePath,
+  };
 }

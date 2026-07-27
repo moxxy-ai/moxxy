@@ -52,6 +52,30 @@ describe('IPC payload validation', () => {
       }),
     ).toThrow();
   });
+
+  it('strictly validates trusted browser permission and download decisions', () => {
+    const requestId = 'b7268cff-1933-4e56-8e76-2cbecb46fc85';
+    expect(() =>
+      validateIpcInput('nativeBrowser.resolvePermission' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        requestId,
+        allow: true,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateIpcInput('nativeBrowser.resolvePermission' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        requestId,
+        allow: 'yes',
+      }),
+    ).toThrow();
+    expect(() =>
+      validateIpcInput('nativeBrowser.cancelDownload' as IpcCommandName, {
+        workspaceId: 'workspace-1',
+        downloadId: requestId,
+      }),
+    ).not.toThrow();
+  });
   it('accepts no payload for the fixed Local Piper installer commands', () => {
     expect(() => validateIpcInput(
       'voice.isLocalPiperInstalled' as IpcCommandName,

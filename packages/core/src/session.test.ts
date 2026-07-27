@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { asSessionId, asToolCallId, defineMode, definePlugin } from '@moxxy/sdk';
+import { asSessionId, asToolCallId, defineMode, definePlugin, defineTool, z } from '@moxxy/sdk';
 import { Session } from './session.js';
 import {
   getRetainedChild,
@@ -148,6 +148,26 @@ describe('Session', () => {
     expect(info.hasTranscriber).toBe(false);
     // The snapshot must survive a JSON round-trip (it crosses the wire).
     expect(JSON.parse(JSON.stringify(info))).toEqual(info);
+  });
+
+  it('publishes tool runtime capabilities through SessionInfo', () => {
+    const s = new Session({ cwd: '/tmp', silent: true });
+    s.tools.register(
+      defineTool({
+        name: 'browser_session',
+        description: 'browser',
+        inputSchema: z.object({}),
+        capabilities: { nativeBrowserProtocol: 2, backend: 'native' },
+        handler: () => null,
+      }),
+    );
+    expect(s.getInfo().tools).toEqual([
+      {
+        name: 'browser_session',
+        description: 'browser',
+        capabilities: { nativeBrowserProtocol: 2, backend: 'native' },
+      },
+    ]);
   });
 
   it('getInfo surfaces the active mode badge (and null for unbadged modes)', () => {

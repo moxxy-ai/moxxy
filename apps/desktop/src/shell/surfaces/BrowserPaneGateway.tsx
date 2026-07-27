@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@moxxy/client-core';
+import { NATIVE_BROWSER_PROTOCOL_VERSION } from '@moxxy/plugin-browser/browser-action';
 
 import { BrowserPane } from './BrowserPane';
 import { NativeBrowserPane } from './NativeBrowserPane';
@@ -64,10 +65,19 @@ function useBrowserBackend(workspaceId: string | null): {
         active = false;
       };
     }
-    void api()
-      .invoke('nativeBrowser.status')
-      .then((status) => {
+    void Promise.all([
+      api().invoke('nativeBrowser.status'),
+      api().invoke('session.info', { workspaceId }),
+    ])
+      .then(([status, info]) => {
         if (!active) return;
+        if (status.backend === 'native' && status.available) {
+          const compatibilityError = browserPluginCompatibilityError(info);
+          if (compatibilityError) {
+            setState({ status: 'error', message: compatibilityError });
+            return;
+          }
+        }
         setState({
           status: 'ready',
           backend: status.backend === 'native' && status.available ? 'native' : 'playwright',
@@ -83,6 +93,29 @@ function useBrowserBackend(workspaceId: string | null): {
   }, [attempt, workspaceId]);
 
   return { state, retry };
+}
+
+function browserPluginCompatibilityError(
+  info: Awaited<ReturnType<ReturnType<typeof api>['invoke']>> | null,
+): string | null {
+  if (!info || typeof info !== 'object' || !('tools' in info) || !Array.isArray(info.tools)) {
+    return 'Browser plugin update/restart required: the active runner did not publish browser capabilities.';
+  }
+  const tool = info.tools.find(
+    (candidate): candidate is { name: string; capabilities?: Record<string, unknown> } =>
+      Boolean(candidate && typeof candidate === 'object' && candidate.name === 'browser_session'),
+  );
+  const capabilities = tool?.capabilities;
+  if (
+    !capabilities ||
+    capabilities.nativeBrowserProtocol !== NATIVE_BROWSER_PROTOCOL_VERSION ||
+    capabilities.sharedDesktopSession !== true ||
+    typeof capabilities.backends !== 'string' ||
+    !capabilities.backends.split(',').includes('native')
+  ) {
+    return 'Browser plugin update/restart required: this runner cannot control the shared Moxxy Browser session.';
+  }
+  return null;
 }
 
 function errorMessage(reason: unknown): string {

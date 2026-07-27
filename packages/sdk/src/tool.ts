@@ -173,6 +173,13 @@ export interface ToolCompactPresentation {
   readonly previewKey?: string;
 }
 
+/** Flat, JSON-safe metadata used by thin clients to verify that a loaded tool
+ * and its host-side bridge speak compatible protocols. It is informational;
+ * executable isolation permissions remain in `ToolIsolationSpec`. */
+export type ToolRuntimeCapabilities = Readonly<
+  Record<string, string | number | boolean>
+>;
+
 export interface ToolDef {
   readonly name: string;
   readonly description: string;
@@ -184,6 +191,7 @@ export interface ToolDef {
    * carry a JSON Schema and where zod conversion would be lossy.
    */
   readonly inputJsonSchema?: unknown;
+  readonly capabilities?: ToolRuntimeCapabilities;
   readonly outputSchema?: z.ZodTypeAny;
   /** Optional provider-hosted equivalent. This handler remains the fallback. */
   readonly hosted?: HostedTool;

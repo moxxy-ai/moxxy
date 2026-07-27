@@ -25,7 +25,21 @@ export {
   type SidecarStream,
 } from './browser-session.js';
 export { createNativeBrowserBridgeClient } from './native-browser-client.js';
-export { browserSessionActionSchema, browserTargetSchema } from './browser-action.js';
+export {
+  NATIVE_BROWSER_PROTOCOL_VERSION,
+  browserSessionActionInputJsonSchema,
+  browserSessionActionSchema,
+  browserTargetSchema,
+} from './browser-action.js';
+export {
+  BROWSER_ERROR_CODES,
+  BrowserOperationError,
+  browserErrorDetails,
+  formatBrowserErrorForModel,
+  type BrowserErrorCode,
+  type BrowserErrorDetails,
+  type BrowserNextAction,
+} from './browser-errors.js';
 export {
   buildBrowserObservationScript,
   buildBrowserRefPointScript,

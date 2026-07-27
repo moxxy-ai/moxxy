@@ -27,9 +27,9 @@ Use for: JS-heavy SPAs, pages that require clicks/fills, pages with anti-bot det
 
 ```
 browser_session({ action: { kind: "goto", url, waitUntil: "networkidle" } })
-browser_session({ action: { kind: "text", selector: "main" } })   // or no selector for whole body
-browser_session({ action: { kind: "click", selector: "button.show-more" } })
-browser_session({ action: { kind: "fill", selector: "input[name=q]", value: "query" } })
+browser_session({ action: { kind: "text", target: { type: "selector", selector: "main" } } })
+browser_session({ action: { kind: "click", target: { type: "selector", selector: "button.show-more" } } })
+browser_session({ action: { kind: "type", target: { type: "selector", selector: "input[name=q]" }, value: "query", replace: true } })
 browser_session({ action: { kind: "screenshot", fullPage: true } })
 ```
 

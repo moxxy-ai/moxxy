@@ -196,11 +196,12 @@ describe('sidecar dispatch protocol methods (against a pre-seeded handle)', () =
     expect(reply.result).toBe('');
   });
 
-  it('html returns the page content', async () => {
-    const { handle } = makeFakeHandle({ content: '<html>x</html>' });
+  it('html returns sanitized page content', async () => {
+    const { handle, calls } = makeFakeHandle({ evalResult: '<html>x</html>' });
     const state: SidecarState = { handle, pendingInstallNotice: null };
     const reply = (await dispatch(state, req('html'))) as Ok;
     expect(reply.result).toBe('<html>x</html>');
+    expect(calls.evals).toHaveLength(1);
   });
 
   it('screenshot returns a png mediaType + base64 payload', async () => {

@@ -4,4 +4,4 @@
 '@moxxy/sdk': patch
 ---
 
-Add shared, observable Moxxy Browser computer use with semantic refs, visual fallback, generic web actions, and user takeover controls.
+Add production shared-browser control with one provider-safe target contract, frame-aware semantic refs, visual canvas fallback, verified actions, structured retry recovery, persistent popup/download flows, explicit site permissions, and native plugin protocol checks.

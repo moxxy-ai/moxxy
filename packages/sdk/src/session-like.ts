@@ -6,7 +6,7 @@ import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
 import type { ModelDescriptor, ProviderKeyValidation } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
-import type { ToolCompactPresentation } from './tool.js';
+import type { ToolCompactPresentation, ToolRuntimeCapabilities } from './tool.js';
 
 /**
  * Options accepted by `SessionLike.runTurn`. Defined here (rather than in
@@ -80,6 +80,8 @@ export interface ToolInfo {
   readonly description: string;
   /** Compact presentation hint (plain data - crosses the wire intact). */
   readonly compact?: ToolCompactPresentation;
+  /** Optional protocol/backend metadata for host compatibility checks. */
+  readonly capabilities?: ToolRuntimeCapabilities;
 }
 
 /** Serializable skill metadata. */

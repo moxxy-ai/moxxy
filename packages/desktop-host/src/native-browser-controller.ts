@@ -34,6 +34,12 @@ export interface NativeBrowserController {
     rect?: NativeBrowserRect;
   }): Promise<NativeBrowserCapture | null>;
   stopAgentControl(args: { workspaceId: string }): Promise<void>;
+  resolvePermission(args: {
+    workspaceId: string;
+    requestId: string;
+    allow: boolean;
+  }): Promise<void>;
+  cancelDownload(args: { workspaceId: string; downloadId: string }): Promise<void>;
   executeAgentAction(
     workspaceId: string,
     action: NativeBrowserAgentAction,

@@ -45,11 +45,23 @@ export interface DiscoveryOptions {
   readonly cwd: string;
   readonly logger: Logger;
   readonly extraPaths?: ReadonlyArray<string>;
+  /** Exact package directories to inspect before ordinary node_modules roots.
+   * Used by development hosts that must not be shadowed by an older user
+   * install of the same package. */
+  readonly packagePaths?: ReadonlyArray<string>;
 }
 
 export async function discoverPlugins(opts: DiscoveryOptions): Promise<ReadonlyArray<ResolvedPluginManifest>> {
   const seen = new Set<string>();
   const out: ResolvedPluginManifest[] = [];
+
+  for (const pkgPath of opts.packagePaths ?? []) {
+    const resolved = path.resolve(pkgPath);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    const manifest = await readPluginManifest(resolved, opts.logger);
+    if (manifest) out.push(manifest);
+  }
 
   const roots = await candidateRoots(opts.cwd);
   for (const extra of opts.extraPaths ?? []) roots.push(extra);

@@ -541,6 +541,7 @@ export class Session implements ClientSession, SessionRuntime {
         name: t.name,
         description: t.description,
         ...(t.compact ? { compact: t.compact } : {}),
+        ...(t.capabilities ? { capabilities: t.capabilities } : {}),
       })),
       skills: this.skills.list().map((s) => ({ id: s.id, name: s.frontmatter.name })),
       commands: this.commands.list().map((c) => ({

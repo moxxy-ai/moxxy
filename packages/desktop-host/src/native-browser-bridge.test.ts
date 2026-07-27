@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   NativeBrowserBridge,
+  NATIVE_BROWSER_PROTOCOL_VERSION,
   nativeBrowserBridgeSocket,
   type NativeBrowserAgentAction,
 } from './native-browser-bridge.js';
@@ -37,7 +38,11 @@ describe('NativeBrowserBridge', () => {
       id: 'request-1',
       token: env.MOXXY_NATIVE_BROWSER_TOKEN,
       workspaceId: 'ws-1',
-      action: { kind: 'text', selector: 'main', tabId: 'tab-1' },
+      action: {
+        kind: 'text',
+        target: { type: 'selector', selector: 'main' },
+        tabId: 'tab-1',
+      },
     });
 
     expect(response).toEqual({
@@ -48,15 +53,49 @@ describe('NativeBrowserBridge', () => {
     expect(received).toEqual([
       {
         workspaceId: 'ws-1',
-        action: { kind: 'text', selector: 'main', tabId: 'tab-1' },
+        action: {
+          kind: 'text',
+          target: { type: 'selector', selector: 'main' },
+          tabId: 'tab-1',
+        },
       },
     ]);
     expect(env).toMatchObject({
       MOXXY_BROWSER_BACKEND: 'native',
       MOXXY_NATIVE_BROWSER_SOCKET: socketPath,
       MOXXY_NATIVE_BROWSER_WORKSPACE_ID: 'ws-1',
+      MOXXY_NATIVE_BROWSER_PROTOCOL_VERSION: String(NATIVE_BROWSER_PROTOCOL_VERSION),
     });
     expect(env.MOXXY_NATIVE_BROWSER_TOKEN).toHaveLength(64);
+  });
+
+  it('rejects an absent or mismatched native browser protocol before execution', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'moxxy-native-browser-'));
+    const socketPath = nativeBrowserBridgeSocket(root, 'darwin');
+    let executed = 0;
+    const bridge = new NativeBrowserBridge({
+      socketPath,
+      execute: async () => {
+        executed += 1;
+        return null;
+      },
+    });
+    bridges.push(bridge);
+    await bridge.start();
+    const env = bridge.runnerEnvironment('ws-1');
+    const base = {
+      id: 'protocol',
+      token: env.MOXXY_NATIVE_BROWSER_TOKEN,
+      workspaceId: 'ws-1',
+      action: { kind: 'url' },
+    };
+
+    const absent = await requestRaw(socketPath, base);
+    const mismatched = await requestRaw(socketPath, { ...base, protocolVersion: 999 });
+
+    expect(absent).toMatchObject({ ok: false, error: { code: 'BACKEND_MISMATCH' } });
+    expect(mismatched).toMatchObject({ ok: false, error: { code: 'BACKEND_MISMATCH' } });
+    expect(executed).toBe(0);
   });
 
   it('rejects an invalid token and a token replayed for another workspace', async () => {
@@ -179,6 +218,7 @@ describe('NativeBrowserBridge', () => {
     socket.write(
       `${JSON.stringify({
         id: 'disconnect',
+        protocolVersion: NATIVE_BROWSER_PROTOCOL_VERSION,
         token: env?.MOXXY_NATIVE_BROWSER_TOKEN,
         workspaceId: 'ws-1',
         action: { kind: 'goto', url: 'https://example.com/' },
@@ -229,6 +269,16 @@ describe('NativeBrowserBridge', () => {
 });
 
 function request(socketPath: string, payload: unknown): Promise<Record<string, unknown>> {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return requestRaw(socketPath, {
+      protocolVersion: NATIVE_BROWSER_PROTOCOL_VERSION,
+      ...(payload as Record<string, unknown>),
+    });
+  }
+  return requestRaw(socketPath, payload);
+}
+
+function requestRaw(socketPath: string, payload: unknown): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const socket = connect(socketPath);
     let buffer = '';
