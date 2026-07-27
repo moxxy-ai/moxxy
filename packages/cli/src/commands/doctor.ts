@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Session } from '@moxxy/core';
+import { pendingExportCount } from '@moxxy/core';
 import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
@@ -280,6 +281,12 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
   // say plainly whether one is in force and whether a custom CA was supplied.
   checks.push(buildEgressDoctorCheck(config));
   checks.push(buildPolicyDoctorCheck(config, policySources));
+  // Excludes this diagnostic's own session: booting one to run these checks
+  // appends a record, which would otherwise make "up to date" unreachable.
+  const exportCheck = await buildAuditExportDoctorCheck(config, (exporter, endpoint) =>
+    pendingExportCount(exporter, endpoint, undefined, String(session.id)),
+  );
+  if (exportCheck) checks.push(exportCheck);
 
   // Self-update — Tier-1 is always available if the plugin is loaded; Tier-2
   // (core patching) additionally needs git/pnpm + pinned source provenance.
@@ -305,6 +312,53 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
  * loaded" and "the policy is up to date" are different claims an operator
  * should not have to conflate.
  */
+/**
+ * Report whether a configured audit export is actually draining.
+ *
+ * The failure this catches: an export is configured, the scheduled job that
+ * runs it silently stops (a broken cron, an expired token, a collector moved),
+ * and everything keeps looking healthy because the LOCAL trail is still being
+ * written. A compliance control that quietly stopped running is worse than one
+ * that was never configured, because someone is relying on it.
+ *
+ * Backlog is measured in records rather than time: a machine that was idle for
+ * a week is not behind, and flagging it would train operators to ignore this.
+ */
+export async function buildAuditExportDoctorCheck(
+  config: MoxxyConfig,
+  countPending: (exporter: string, endpoint: string) => Promise<number>,
+): Promise<Check | null> {
+  const settings = config.audit?.export;
+  if (!settings) return null;
+  if (!config.audit?.enabled) {
+    return {
+      id: 'audit-export',
+      status: 'warn',
+      message: 'export is configured but audit.enabled is false, so nothing is recorded to send',
+    };
+  }
+  let pending: number;
+  try {
+    pending = await countPending(settings.exporter, settings.endpoint);
+  } catch (err) {
+    return {
+      id: 'audit-export',
+      status: 'warn',
+      message: `cannot read the export checkpoint: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (pending === 0) {
+    return { id: 'audit-export', status: 'ok', message: `up to date with ${settings.endpoint}` };
+  }
+  return {
+    id: 'audit-export',
+    status: 'warn',
+    message:
+      `${pending} record(s) not yet sent to ${settings.endpoint}. ` +
+      'Run `moxxy security audit-export`, or check the job that should.',
+  };
+}
+
 export function buildPolicyDoctorCheck(
   config: MoxxyConfig,
   sources: ReadonlyArray<PolicySourceRecord>,

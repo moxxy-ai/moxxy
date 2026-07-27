@@ -136,18 +136,31 @@ export async function exportAuditTrail(
   return { sent, batches, checkpoint };
 }
 
-/** Records a run would ship right now, without shipping them. For `--dry-run`. */
+/**
+ * Records a run would ship right now, without shipping them. For `--dry-run`
+ * and for the doctor row.
+ *
+ * `excludeSessionId` exists for the diagnostic case: booting a session to ask
+ * the question writes a record of its own, so a check that counted it could
+ * never report "up to date", and a check that always warns teaches people to
+ * ignore it.
+ */
 export async function pendingExportCount(
   exporter: string,
   endpoint: string,
   dir = auditDir(),
+  excludeSessionId?: string,
 ): Promise<number> {
   const start = await readCheckpoint(exporter, endpoint, dir);
   const days = (await listAuditDays()).filter((d) => !start || d >= start.day);
   let n = 0;
   for (const day of days) {
     const all: AuditRecord[] = await readAuditDay(day);
-    n += start && day === start.day ? all.filter((r) => r.seq > start.seq).length : all.length;
+    const afterCheckpoint =
+      start && day === start.day ? all.filter((r) => r.seq > start.seq) : all;
+    n += excludeSessionId
+      ? afterCheckpoint.filter((r) => String(r.sessionId) !== excludeSessionId).length
+      : afterCheckpoint.length;
   }
   return n;
 }

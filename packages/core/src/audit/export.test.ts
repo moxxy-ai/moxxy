@@ -186,6 +186,25 @@ describe('pendingExportCount', () => {
     await fs.rm(home, { recursive: true, force: true });
   });
 
+  it('can exclude one session, so a diagnostic does not count its own record', async () => {
+    const add = async (sessionId: string) =>
+      appendAuditRecord({
+        ts: 1_700_000_000_000,
+        sessionId: sessionId as never,
+        turnId: 't1' as never,
+        action: 'policy',
+        eventType: 'plugin_registered',
+      });
+    await add('real-1');
+    await add('real-2');
+    await add('the-diagnostic');
+
+    expect(await pendingExportCount('rec', 'http://c')).toBe(3);
+    // Without this a doctor row could never report "up to date", because
+    // booting a session to ask the question writes a record of its own.
+    expect(await pendingExportCount('rec', 'http://c', undefined, 'the-diagnostic')).toBe(2);
+  });
+
   it('counts what a run would send, without sending it', async () => {
     for (let i = 0; i < 4; i++) {
       await appendAuditRecord({

@@ -16,3 +16,5 @@ The checkpoint advances only after a batch is durably accepted, so a crash or fa
 Records map to OTLP logs rather than traces, spoken over plain `fetch` with no `@opentelemetry/*` dependency, which would have added megabytes to a CLI whose bundle budget is enforced at build time. `auditExporter` is a new registry kind, so another destination is a plugin; like audit sinks, a discovered exporter never activates on its own.
 
 Exporting needs no model provider and boots no session, so a machine with an expired API key still exports.
+
+`moxxy doctor` gains an `audit-export` row so a scheduled export that silently stopped (broken cron, expired token, moved collector) is visible: the local trail keeps being written either way, so nothing else would look wrong. The backlog excludes the diagnostic's own session, since booting one to ask the question writes a record and a check that always warns teaches people to ignore it.
