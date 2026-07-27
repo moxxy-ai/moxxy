@@ -940,6 +940,18 @@ or recorded-on-purpose decision.
 - [note] EAS build: `eas-build-post-install` runs `pnpm build` on the workspace
   closure; local repro needs wiping both `dist/` AND `*.tsbuildinfo`. `apps/mobile/eas.json`.
 
+## Brand & design tokens
+
+- [med, logged 2026-07-27] The mark and the product palette disagree. The logo
+  ships Signal `#FF4A1E` (`assets/brand/`), while `packages/design-tokens` still
+  exports the previous pink `#ec4899` as `primary`, so every accent in desktop
+  and mobile reads pink around an orange mark — most visibly the primary-tinted
+  disc the mark sits inside on mobile onboarding and the empty chat state.
+  Retiring this means repalletting the token set (`packages/design-tokens/src/index.ts`
+  plus the mirrored literals in `apps/desktop/src/styles.css`, which the parity
+  test keeps in lockstep). Deliberately scoped out of the logo change: recolouring
+  every accent is a product decision, not a logo swap.
+
 ## Docs site
 
 - [note, logged 2026-07-03] `apps/docs/src/content/docs/why-moxxy.md` carries

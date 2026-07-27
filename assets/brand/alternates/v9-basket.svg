@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="bh" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="-30" y="-21" width="60" height="42" fill="#000" transform="translate(158 98) rotate(90)"/>
+      <rect x="-30" y="-21" width="60" height="42" fill="#000" transform="translate(98 158) rotate(90)"/>
+    </mask>
+    <mask id="bv" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="-30" y="-21" width="60" height="42" fill="#000" transform="translate(98 98) rotate(0)"/>
+      <rect x="-30" y="-21" width="60" height="42" fill="#000" transform="translate(158 158) rotate(0)"/>
+    </mask>
+  </defs>
+  <g fill="none" stroke-width="26" stroke-linecap="round">
+    <g mask="url(#bh)" stroke="#0B0D12"><path d="M40 98 H216 M40 158 H216"/></g>
+    <g mask="url(#bv)" stroke="#FF4A1E"><path d="M98 40 V216 M158 40 V216"/></g>
+  </g>
+</svg>

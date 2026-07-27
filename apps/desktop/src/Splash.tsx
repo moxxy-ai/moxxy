@@ -1,9 +1,10 @@
 /**
- * Full-screen splash — shown until the first ConnectionSnapshot
- * arrives. A plain ring spinner (brand pink) rather than the logo mark,
- * which read poorly on this large, empty cold-start surface.
+ * Full-screen splash, shown until the first ConnectionSnapshot arrives. The
+ * mark turns a quarter at a time; being geometric it holds up at this size,
+ * where the old raster did not.
  */
 
+import { MoxxyMark } from '@/components/MoxxyMark';
 import './styles.css';
 
 export function Splash({
@@ -29,7 +30,7 @@ export function Splash({
         color: 'var(--color-text)',
       }}
     >
-      <span className="moxxy-splash-spinner" aria-hidden="true" />
+      <MoxxyMark size={64} className="moxxy-avatar-loader" />
       <p
         className="mono"
         style={{

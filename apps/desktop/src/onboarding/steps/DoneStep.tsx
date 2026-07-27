@@ -3,8 +3,8 @@
  * back to the app. First-run only.
  */
 
+import { MoxxyMark } from '@/components/MoxxyMark';
 import { usePrefs } from '@moxxy/client-core';
-import { asset } from '@/lib/asset';
 import { Icon } from '@moxxy/desktop-ui';
 import { PrimaryButton } from '../chrome';
 
@@ -24,12 +24,7 @@ export function DoneStep({ onComplete }: { readonly onComplete: () => void }): J
         gap: 18,
       }}
     >
-      <img
-        src={asset('logo.png')}
-        alt=""
-        aria-hidden
-        style={{ width: 200, height: 'auto', imageRendering: 'pixelated' }}
-      />
+      <MoxxyMark size={200} />
       <div>
         <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>You&rsquo;re all set!</h2>
         <p

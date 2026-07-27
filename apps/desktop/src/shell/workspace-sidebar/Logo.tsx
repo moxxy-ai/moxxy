@@ -1,7 +1,8 @@
-import { asset } from '@/lib/asset';
+import { MoxxyMark } from '@/components/MoxxyMark';
 /**
- * Sidebar masthead — the pixel-art MoxxyAI mark plus the "Workspaces"
- * wordmark stacked beside it. Sits flush at the top of the dark rail.
+ * Sidebar masthead: the MoxxyAI mark plus the "Workspaces" wordmark stacked
+ * beside it. Sits flush at the top of the dark rail, so the mark's ink strand
+ * picks up the rail's own text colour.
  */
 export function Logo(): JSX.Element {
   return (
@@ -13,19 +14,7 @@ export function Logo(): JSX.Element {
         padding: '18px 18px 14px',
       }}
     >
-      <img
-        src={asset('logo.png')}
-        alt="MoxxyAI Workspaces"
-        width={32}
-        height={32}
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          imageRendering: 'pixelated',
-          flexShrink: 0,
-        }}
-      />
+      <MoxxyMark size={32} />
       <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
         <span style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: '-0.01em' }}>
           MoxxyAI

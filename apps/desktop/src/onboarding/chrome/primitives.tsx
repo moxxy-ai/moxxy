@@ -6,8 +6,8 @@
  * module is otherwise self-contained so it stays a dependency leaf.
  */
 
+import { MoxxyMark } from '@/components/MoxxyMark';
 import { Icon } from '@moxxy/desktop-ui';
-import { asset } from '@/lib/asset';
 import { primaryBtnStyle, secondaryBtnStyle } from './styles';
 
 // ---- StepCard -------------------------------------------------------------
@@ -167,13 +167,7 @@ export function Pulse({ label }: { readonly label: string }): JSX.Element {
         color: 'var(--color-text-muted)',
       }}
     >
-      <img
-        src={asset('logo.png')}
-        alt=""
-        aria-hidden
-        className="moxxy-avatar-loader moxxy-avatar-loader--sm"
-        style={{ width: 28, height: 'auto', imageRendering: 'pixelated' }}
-      />
+      <MoxxyMark size={28} className="moxxy-avatar-loader moxxy-avatar-loader--sm" />
       {label}
     </div>
   );
