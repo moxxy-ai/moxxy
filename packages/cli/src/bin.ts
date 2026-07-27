@@ -1,38 +1,15 @@
 #!/usr/bin/env node
 import { ensurePrivateDir, moxxyHome, moxxyPath, pruneStaleTempFiles } from '@moxxy/sdk/server';
 import { detectCoreInstall, finalizeStagedCoreUpdate } from '@moxxy/plugin-self-update';
+// Subpath, not the barrel: `@moxxy/plugin-cli` is the Ink TUI, and `--help`
+// must not evaluate a React renderer to print a tagline. logo-data.ts has no
+// imports at all.
+import { pickSlogan } from '@moxxy/plugin-cli/logo-data';
 import { parseArgv, type ParsedArgv } from './argv.js';
-import { runPromptCommand } from './commands/prompt.js';
-import { runTuiCommand } from './commands/tui.js';
-import { runSkillsCommand } from './commands/skills.js';
-import { runPluginsCommand } from './commands/plugins.js';
-import { runChannelsCommand } from './commands/channels.js';
-import { runChannelByName } from './commands/run-channel.js';
-import { runInitCommand } from './commands/init.js';
-import { runOnboardCommand } from './commands/onboard.js';
-import { runProvisionCommand } from './commands/provision.js';
-import { runPermsCommand } from './commands/perms.js';
-import { runConfigCommand } from './commands/config.js';
-import { runMemoryCommand } from './commands/memory.js';
-import { runMcpCommand } from './commands/mcp.js';
-import { runScheduleCommand } from './commands/schedule.js';
-import { runDoctorCommand } from './commands/doctor.js';
-import { runLoginCommand } from './commands/login.js';
-import { runResumeCommand } from './commands/resume.js';
-import { runServiceCommand } from './commands/service.js';
-import { runServeCommand } from './commands/serve.js';
-import { runAgentCommand } from './commands/agent.js';
-import { runCollabCommand } from './commands/collab.js';
-import { runSessionsCommand } from './commands/sessions.js';
-import { runSecurityCommand } from './commands/security.js';
-import { runSelfUpdateCommand } from './commands/self-update.js';
-import { runUpdateCommand } from './commands/update.js';
-import { probeSession } from './setup.js';
 import { applyEgressSettings } from './setup/egress.js';
 import { renderLogo } from './logo.js';
 import { colors } from './colors.js';
 import { cliVersion } from './version.js';
-import { pickSlogan } from '@moxxy/plugin-cli';
 import { formatErrorForCli } from './error-formatter.js';
 import { installProcessGuards } from './process-guards.js';
 
@@ -196,47 +173,58 @@ function renderHelp(): string {
 // Single source of truth: a command name → handler dispatch table. Adding a
 // new built-in subcommand here is enough; there's no separate KNOWN_COMMANDS
 // set that can drift out of sync.
-const COMMANDS: Record<string, CommandHandler> = {
-  help: async () => {
+/**
+ * Command name to a LAZY loader for its module.
+ *
+ * Every handler used to be a static import, which meant `moxxy --version` in a
+ * container evaluated the module graph of all 24 commands: the whole setup
+ * path, the runner, and through the TUI channel the entire Ink runtime
+ * (react-reconciler + yoga + react). A `--cpu-prof` run confirmed `react/index.js`
+ * really did execute just to print a version string.
+ *
+ * Loading on dispatch means a command pays only for itself. Still a single
+ * source of truth for "what commands exist", so there is no separate
+ * KNOWN_COMMANDS set to drift out of sync.
+ */
+const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
+  help: async () => async () => {
     process.stdout.write(renderLogo(undefined, { center: true }) + renderHelp());
     return 0;
   },
-  version: async () => {
+  version: async () => async () => {
     const v = cliVersion() ?? '0.0.0';
     const width = process.stdout.columns ?? 80;
     const line = `moxxy ${v}`;
     const pad = ' '.repeat(Math.max(0, Math.floor((width - line.length) / 2)));
-    process.stdout.write(
-      renderLogo(undefined, { center: true }) + pad + line + '\n',
-    );
+    process.stdout.write(renderLogo(undefined, { center: true }) + pad + line + '\n');
     return 0;
   },
-  init: runInitCommand,
-  onboard: runOnboardCommand,
-  provision: runProvisionCommand,
-  login: runLoginCommand,
-  perms: runPermsCommand,
-  config: runConfigCommand,
-  memory: runMemoryCommand,
-  mcp: runMcpCommand,
-  schedule: runScheduleCommand,
-  doctor: runDoctorCommand,
-  update: runUpdateCommand,
-  prompt: runPromptCommand,
-  tui: runTuiCommand,
-  resume: runResumeCommand,
-  service: runServiceCommand,
-  serve: runServeCommand,
+  init: async () => (await import('./commands/init.js')).runInitCommand,
+  onboard: async () => (await import('./commands/onboard.js')).runOnboardCommand,
+  provision: async () => (await import('./commands/provision.js')).runProvisionCommand,
+  login: async () => (await import('./commands/login.js')).runLoginCommand,
+  perms: async () => (await import('./commands/perms.js')).runPermsCommand,
+  config: async () => (await import('./commands/config.js')).runConfigCommand,
+  memory: async () => (await import('./commands/memory.js')).runMemoryCommand,
+  mcp: async () => (await import('./commands/mcp.js')).runMcpCommand,
+  schedule: async () => (await import('./commands/schedule.js')).runScheduleCommand,
+  doctor: async () => (await import('./commands/doctor.js')).runDoctorCommand,
+  update: async () => (await import('./commands/update.js')).runUpdateCommand,
+  prompt: async () => (await import('./commands/prompt.js')).runPromptCommand,
+  tui: async () => (await import('./commands/tui.js')).runTuiCommand,
+  resume: async () => (await import('./commands/resume.js')).runResumeCommand,
+  service: async () => (await import('./commands/service.js')).runServiceCommand,
+  serve: async () => (await import('./commands/serve.js')).runServeCommand,
   // Internal: a collaboration peer runner spawned by `collaborative` mode.
-  agent: runAgentCommand,
+  agent: async () => (await import('./commands/agent.js')).runAgentCommand,
   // The dedicated collaboration coordinator runner (spawned by the collaborate UI).
-  collab: runCollabCommand,
-  sessions: runSessionsCommand,
-  security: runSecurityCommand,
-  skills: runSkillsCommand,
-  plugins: runPluginsCommand,
-  channels: runChannelsCommand,
-  'self-update': runSelfUpdateCommand,
+  collab: async () => (await import('./commands/collab.js')).runCollabCommand,
+  sessions: async () => (await import('./commands/sessions.js')).runSessionsCommand,
+  security: async () => (await import('./commands/security.js')).runSecurityCommand,
+  skills: async () => (await import('./commands/skills.js')).runSkillsCommand,
+  plugins: async () => (await import('./commands/plugins.js')).runPluginsCommand,
+  channels: async () => (await import('./commands/channels.js')).runChannelsCommand,
+  'self-update': async () => (await import('./commands/self-update.js')).runSelfUpdateCommand,
 };
 
 async function main(): Promise<number> {
@@ -284,8 +272,8 @@ async function main(): Promise<number> {
     }
   });
 
-  const handler = COMMANDS[argv.command];
-  if (handler) return handler(argv);
+  const load = COMMANDS[argv.command];
+  if (load) return (await load())(argv);
 
   // Not a built-in. See if it names a registered channel — skip the
   // API-key prompt so a typo doesn't accidentally boot the provider.
@@ -303,6 +291,7 @@ async function main(): Promise<number> {
     // the provider. Activating it can hang or throw on hosts without a
     // configured key, which would mask the real "unknown command"
     // feedback.
+    const { probeSession } = await import('./setup.js');
     isChannel = await probeSession(
       {
         cwd: process.cwd(),
@@ -319,6 +308,7 @@ async function main(): Promise<number> {
   if (isChannel) {
     // Outside the try: any error from running the channel propagates
     // normally and is surfaced by the top-level .catch in main().then().
+    const { runChannelByName } = await import('./commands/run-channel.js');
     return await runChannelByName(argv.command, argv);
   }
 

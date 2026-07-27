@@ -8,7 +8,9 @@
  * that keeps the slogan from appearing twice.
  */
 
-import { selectLogo } from '@moxxy/plugin-cli';
+// Subpath, not the barrel: this renders the boot art for `--help` and
+// `--version`, which must not evaluate the Ink/React runtime.
+import { selectLogo } from '@moxxy/plugin-cli/logo-data';
 import { colors } from './colors.js';
 
 export interface RenderLogoOptions {

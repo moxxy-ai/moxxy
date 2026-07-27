@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./logo-data": {
+      "types": "./dist/logo-data.d.ts",
+      "import": "./dist/logo-data.js"
     }
   },
   "files": [
