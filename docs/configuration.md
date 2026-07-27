@@ -124,6 +124,36 @@ config:
 
 YAML configs are data and are never gated.
 
+### Permission rules an operator can push
+
+`permissions.allow` / `permissions.deny` in config are applied as an **immutable layer above** `~/.moxxy/permissions.json`. They are checked first, never written back, and cannot be removed by editing that file, by answering "allow always", or by deleting it. Put them in the system scope with `permissions` in `locked:` and they become policy a user cannot get rid of.
+
+```yaml
+permissions:
+  deny:
+    # Anchored and path-aware: covers /etc and everything under it.
+    - name: Read
+      inputPathPrefix: { path: /etc }
+      reason: managed policy
+    - name: Read
+      inputGlob: { path: "**/.ssh/**" }
+  allow:
+    - name: Read
+      inputPathPrefix: { path: /srv/app }
+```
+
+Three matchers, and the choice matters:
+
+| Matcher | Semantics |
+|---|---|
+| `inputPathPrefix` | anchored, path-segment aware. `/srv/app` covers `/srv/app/x` but not `/srv/apple`, and `..` is normalised away first. |
+| `inputGlob` | anchored whole-value. `*` stays within a path segment, `**` crosses, `?` is one character. |
+| `inputMatches` | **unanchored** regex, the long-standing policy-file contract. |
+
+Prefer the first two when writing an organisation's policy. `{ Read: { path: '/etc' } }` as `inputMatches` reads like "under /etc" but means "contains /etc anywhere", which over-blocks as a deny and over-grants as an allow.
+
+Decision order: managed deny, then file deny, then managed allow, then file allow.
+
 ### Audit trail
 
 Distinct from the event log. The event log is the conversation: complete, replayable, local. The audit trail is the receipt: bounded, redacted, hash-chained, and safe to forward off the machine.

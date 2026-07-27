@@ -48,6 +48,16 @@ export async function buildSession(args: BuildSessionArgs): Promise<Session> {
   const userPolicyPath =
     args.config.permissions?.policyPath ?? path.join(os.homedir(), '.moxxy', 'permissions.json');
   const permissionEngine = await PermissionEngine.load(userPolicyPath);
+  // Config-supplied rules sit ABOVE the user's policy file and are never
+  // written back. From the system scope (with `permissions` in `locked:`) this
+  // is how an operator ships a deny a user cannot remove: not by editing the
+  // file, not by answering "allow always", not by deleting the file.
+  // Previously these config keys existed in the schema and were silently
+  // ignored, so there was no way to push a rule at all.
+  permissionEngine.setImmutableRules({
+    allow: args.config.permissions?.allow ?? [],
+    deny: args.config.permissions?.deny ?? [],
+  });
 
   // The effective session id: an explicit `--resume <id>` (errors if missing),
   // or a sticky `sessionId` (resume-if-present, fresh on first run). Both reuse

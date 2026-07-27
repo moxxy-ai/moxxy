@@ -4,26 +4,34 @@ import { pluginsTreeSchema } from './plugins-tree-schema.js';
 
 export const watcherModeSchema = z.enum(['auto', 'manual', 'off']);
 
+/**
+ * One rule in a config-supplied permission policy.
+ *
+ * `inputMatches` is an UNANCHORED regex (the long-standing contract of the
+ * policy file, never silently anchored). `inputPathPrefix` and `inputGlob` are
+ * anchored alternatives, and an organisation's policy should prefer them: the
+ * obvious `{ Read: { path: '/etc' } }` reads like "under /etc" but as a regex
+ * means "contains /etc anywhere", which over-blocks as a deny and over-grants
+ * as an allow.
+ */
+const permissionRuleSchema = z.object({
+  name: z.string(),
+  inputMatches: z.record(z.string(), z.string()).optional(),
+  inputPathPrefix: z.record(z.string(), z.string()).optional(),
+  inputGlob: z.record(z.string(), z.string()).optional(),
+  reason: z.string().optional(),
+});
+
 export const permissionsConfigSchema = z.object({
   policyPath: z.string().optional(),
-  allow: z
-    .array(
-      z.object({
-        name: z.string(),
-        inputMatches: z.record(z.string(), z.string()).optional(),
-        reason: z.string().optional(),
-      }),
-    )
-    .optional(),
-  deny: z
-    .array(
-      z.object({
-        name: z.string(),
-        inputMatches: z.record(z.string(), z.string()).optional(),
-        reason: z.string().optional(),
-      }),
-    )
-    .optional(),
+  /**
+   * Rules applied as an IMMUTABLE layer above `~/.moxxy/permissions.json`.
+   * Checked first, never written back, and never removable by an "allow
+   * always" answer. Put them in the system scope with `permissions` in
+   * `locked:` and they become policy a user cannot get rid of.
+   */
+  allow: z.array(permissionRuleSchema).optional(),
+  deny: z.array(permissionRuleSchema).optional(),
 });
 
 export const securityConfigSchema = z.object({
