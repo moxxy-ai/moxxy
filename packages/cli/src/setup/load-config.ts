@@ -5,7 +5,12 @@ import {
   type LockedOverride,
   type MoxxyConfig,
 } from '@moxxy/config';
-import { containsPlaceholder, resolveValue, type VaultStore } from '@moxxy/plugin-vault';
+import {
+  containsPlaceholder,
+  resolveValue,
+  type SecretLookup,
+  type VaultStore,
+} from '@moxxy/plugin-vault';
 
 type InfoLogger = { info(msg: string, meta?: Record<string, unknown>): void };
 
@@ -39,10 +44,10 @@ export async function loadRawConfig(opts: {
 /** Resolve any `${vault:…}` placeholders against the user's open vault. */
 export async function resolveConfigPlaceholders(
   rawConfig: MoxxyConfig,
-  vault: VaultStore,
+  source: SecretLookup | VaultStore,
   logger: InfoLogger,
 ): Promise<MoxxyConfig> {
   if (!containsPlaceholder(rawConfig)) return rawConfig;
   logger.info('resolving vault placeholders in config');
-  return (await resolveValue(rawConfig, vault)) as MoxxyConfig;
+  return (await resolveValue(rawConfig, source)) as MoxxyConfig;
 }

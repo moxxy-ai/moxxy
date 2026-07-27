@@ -28,7 +28,7 @@ export default defineConfig({
 });
 ```
 
-`${vault:NAME}` placeholders are resolved when a session starts. The vault unlocks through the OS keychain by default and supports a passphrase fallback. Headless environments can provide that passphrase with `MOXXY_VAULT_PASSPHRASE`.
+`${vault:NAME}` placeholders are resolved when a session starts, through the **active secret provider** with the local vault as fallback, which is the same path `ctx.getSecret(name)` takes inside a tool. A placeholder therefore means the same thing in config as it does anywhere else. The vault unlocks through the OS keychain by default and supports a passphrase fallback. Headless environments can provide that passphrase with `MOXXY_VAULT_PASSPHRASE`.
 
 Do not commit plaintext credentials. See [SECURITY.md](../SECURITY.md) for the security model and hardening guidance.
 

@@ -185,6 +185,19 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
 
   let pluginRegistration = await registerPlugins(session, config, builtins, opts.cwd, logger);
 
+  // Re-resolve `${vault:…}` now that plugins have registered, this time through
+  // the session's resolver rather than the vault directly.
+  //
+  // The first pass above runs before any plugin exists, so it can only reach
+  // the local vault. That made `${vault:KEY}` mean two different things: in
+  // config it was always the local vault, while `ctx.getSecret` in a tool went
+  // through whatever SecretProvider the machine had active. This second pass is
+  // what makes the two uniform; on a machine with no external provider it
+  // resolves identically and the extra pass is a no-op walk.
+  const resolvedConfig = session.resolveSecret
+    ? await resolveConfigPlaceholders(rawConfig, session.resolveSecret, logger)
+    : config;
+
   // Compatibility migration for providers that used to ship inside the CLI.
   // If any configured provider is missing but advertises itself through a
   // provider-owned catalog manifest, install it into the normal user plugin
@@ -247,9 +260,12 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
 
   const { credentialResolver } = await activateProvider({
     session,
-    config,
+    config: resolvedConfig,
     vault,
-    providerConfig: { ...(providerItem(config).config ?? {}), ...(opts.providerConfig ?? {}) },
+    providerConfig: {
+      ...(providerItem(resolvedConfig).config ?? {}),
+      ...(opts.providerConfig ?? {}),
+    },
     skipKeyPrompt,
     skipProviderActivation: opts.skipProviderActivation,
     tolerateNoProvider: opts.tolerateNoProvider,
