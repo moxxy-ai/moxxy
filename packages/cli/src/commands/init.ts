@@ -43,7 +43,7 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
   // `passphrasePrompt` (TTY only) swaps the vault's bare readline prompt for
   // a @clack/prompts step, so the first-run passphrase reads as part of the
   // setup wizard rather than an unstyled prompt before it.
-  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     ...(interactive ? { passphrasePrompt: promptVaultPassphrase } : {}),
@@ -61,7 +61,7 @@ export async function runInitCommand(argv: ParsedArgv): Promise<number> {
     }
     return await runInteractiveInit(session, vault, config);
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 

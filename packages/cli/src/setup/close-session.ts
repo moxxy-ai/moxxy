@@ -1,4 +1,4 @@
-import type { EventStoreSession, Session } from '@moxxy/core';
+import type { AuditHandle, EventStoreSession, Session } from '@moxxy/core';
 
 /**
  * Cleanly tear down a one-shot CLI session so the process can exit promptly
@@ -31,6 +31,7 @@ import type { EventStoreSession, Session } from '@moxxy/core';
 export async function closeSession(
   session: Session,
   persistence?: EventStoreSession | null,
+  audit?: AuditHandle | null,
 ): Promise<void> {
   // Drain persistence FIRST so the last event + final index row are on disk
   // before the shutdown hook detaches the listener. Best-effort: a flush
@@ -39,5 +40,8 @@ export async function closeSession(
     await persistence.flush().catch(() => undefined);
     await persistence.settleWrites().catch(() => undefined);
   }
+  // Drain the audit queue too: writes are fire-and-forget so the turn is never
+  // blocked on the trail, which means the LAST record can still be in flight.
+  if (audit) await audit.close().catch(() => undefined);
   await session.close('cli-exit').catch(() => undefined);
 }

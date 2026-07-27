@@ -70,7 +70,7 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
     return emit(checks, asJson);
   }
 
-  const { session, config, configSources, vault, memory, pluginRegistration, persistence } =
+  const { session, config, configSources, vault, memory, pluginRegistration, persistence, audit } =
     setupResult.value;
 
   try {
@@ -88,7 +88,7 @@ export async function runDoctorCommand(argv: ParsedArgv): Promise<number> {
   } finally {
     // Drain persistence + fire onShutdown hooks / stop the boot daemons so the
     // process exits promptly. Best-effort — never masks the doctor exit code.
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 

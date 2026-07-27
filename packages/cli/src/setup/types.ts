@@ -1,4 +1,5 @@
 import type { ConfigSource } from './load-config.js';
+import type { AuditHandle } from '@moxxy/core';
 import type { EventStoreSession, Session } from '@moxxy/core';
 import type { PermissionResolver } from '@moxxy/sdk';
 import type { MoxxyConfig } from '@moxxy/config';
@@ -117,6 +118,8 @@ export interface SetupResult {
   };
   /** Active EventStore session handle. Null when `disableSessionPersistence` is set. */
   readonly persistence: EventStoreSession | null;
+  /** Audit-trail handle, or null when `audit.enabled` is off. */
+  readonly audit: AuditHandle | null;
   /** Security plugin handle. `audit()` lists every tool's isolation
    *  status; `registry` exposes the available `Isolator` impls. The
    *  plugin itself is a no-op until `security.enabled: true`. */

@@ -36,6 +36,8 @@ import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
 import { EventStoreRegistry } from './registries/event-stores.js';
+import { AuditSinkRegistry } from './registries/audit-sinks.js';
+import { jsonlAuditSink } from './audit/jsonl-audit-sink.js';
 import { ReflectorRegistry } from './registries/reflectors.js';
 import { ServiceRegistryImpl } from './registries/services.js';
 import { jsonlEventStore } from './sessions/jsonl-event-store.js';
@@ -139,6 +141,7 @@ export class Session implements ClientSession, SessionRuntime {
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
+  readonly auditSinks: AuditSinkRegistry;
   /**
    * The learning-loop block: watches finished turns and proposes memory/skill
    * improvements. NULLABLE — no core-seeded floor, so it stays empty until a
@@ -282,6 +285,12 @@ export class Session implements ClientSession, SessionRuntime {
     // Seed the built-in JSONL store as the protected floor — the storage backend
     // behind the event log always exists and can be swapped but never removed.
     this.eventStores.register(jsonlEventStore, { protected: true });
+    this.auditSinks = new AuditSinkRegistry();
+    // The hash-chained local sink is the protected floor. A discovered plugin's
+    // sink registers alongside it but never auto-activates: a sink's whole job
+    // is to send recorded actions somewhere else, so silent adoption would be
+    // an exfiltration path wearing a compliance hat.
+    this.auditSinks.register(jsonlAuditSink, { protected: true });
     // Reflectors are nullable — no core floor is seeded, so reflection stays off
     // until a reflector plugin registers one. Published on the service registry
     // so a discovery-loaded driver (the reflector plugin's own hooks) can resolve
@@ -335,6 +344,7 @@ export class Session implements ClientSession, SessionRuntime {
       isolators: this.isolators,
       workflowExecutors: this.workflowExecutors,
       eventStores: this.eventStores,
+      auditSinks: this.auditSinks,
       reflectors: this.reflectors,
       requirements: this.requirements,
       dispatcher: this.dispatcher,

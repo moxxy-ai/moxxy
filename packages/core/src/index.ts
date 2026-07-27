@@ -125,3 +125,20 @@ export {
   createAllowListResolver,
 } from './permissions/resolvers.js';
 export { createLogger, silentLogger, type Logger, type LogLevel } from './logger.js';
+
+// Audit trail (see packages/core/src/audit).
+export { attachAuditSink, type AttachAuditOptions, type AuditHandle } from './audit/attach.js';
+export { chainRecord, verifyChain, type ChainVerdict } from './audit/chain.js';
+export { projectAuditRecord, type AuditProjectionOptions } from './audit/project.js';
+export {
+  auditDir,
+  auditFileFor,
+  appendAuditRecord,
+  jsonlAuditSink,
+  listAuditDays,
+  pruneAuditDays,
+  readAuditDay,
+  resetAuditHeadForTests,
+  verifyAuditDay,
+} from './audit/jsonl-audit-sink.js';
+export { AuditSinkRegistry } from './registries/audit-sinks.js';

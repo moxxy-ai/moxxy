@@ -36,6 +36,7 @@ import { SynthesizerRegistry } from '../registries/synthesizers.js';
 import { EmbedderRegistry } from '../registries/embedders.js';
 import { IsolatorRegistry } from '../registries/isolators.js';
 import { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
+import { AuditSinkRegistry } from '../registries/audit-sinks.js';
 import { EventStoreRegistry } from '../registries/event-stores.js';
 import { ReflectorRegistry } from '../registries/reflectors.js';
 import { RequirementRegistry } from '../requirements.js';
@@ -88,6 +89,12 @@ const everyKindPlugin = definePlugin({
       readPage: async () => ({ events: [], prevCursor: null }),
     },
   ],
+  auditSinks: [
+    {
+      name: 'as-1',
+      open: () => ({ write: async () => true, close: async () => {} }),
+    },
+  ],
   reflectors: [{ name: 'refl-1', reflect: async () => [] }],
 });
 
@@ -110,6 +117,7 @@ function makeHost() {
     isolators: new IsolatorRegistry(),
     workflowExecutors: new WorkflowExecutorRegistry(),
     eventStores: new EventStoreRegistry(),
+    auditSinks: new AuditSinkRegistry(),
     reflectors: new ReflectorRegistry(),
   };
   const requirements = new RequirementRegistry({
@@ -150,6 +158,7 @@ function makeHost() {
     isolator: registries.isolators,
     workflowExecutor: registries.workflowExecutors,
     eventStore: registries.eventStores,
+    auditSink: registries.auditSinks,
     reflector: registries.reflectors,
   };
   return { host, byKind };

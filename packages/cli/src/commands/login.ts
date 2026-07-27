@@ -69,7 +69,7 @@ export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
     // boot fails for any reason fall back to a generic help body.
     let session: Session | null = null;
     try {
-      const { session: s, persistence } = await bootSessionWithConfig(argv, {
+      const { session: s, persistence, audit } = await bootSessionWithConfig(argv, {
         skipKeyPrompt: true,
         skipProviderActivation: true,
         tolerateNoProvider: true,
@@ -80,7 +80,7 @@ export async function runLoginCommand(argv: ParsedArgv): Promise<number> {
       try {
         process.stdout.write(buildHelp(session));
       } finally {
-        await closeSession(s, persistence);
+        await closeSession(s, persistence, audit);
       }
       return sub ? 0 : 2;
     } catch {
@@ -105,7 +105,7 @@ function providerAuthConfig(
 }
 
 async function loginProvider(argv: ParsedArgv, providerName: string): Promise<number> {
-  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
@@ -113,7 +113,7 @@ async function loginProvider(argv: ParsedArgv, providerName: string): Promise<nu
   try {
     return await runLoginProvider(argv, providerName, session, vault, providerAuthConfig(config, providerName));
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 
@@ -198,7 +198,7 @@ export async function runLoginProvider(
 }
 
 async function loginStatus(argv: ParsedArgv): Promise<number> {
-  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
@@ -206,7 +206,7 @@ async function loginStatus(argv: ParsedArgv): Promise<number> {
   try {
     return await runLoginStatus(argv, session, vault, config);
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 
@@ -292,7 +292,7 @@ async function loginLogout(argv: ParsedArgv): Promise<number> {
     );
     return 2;
   }
-  const { session, vault, config, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, config, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
     tolerateNoProvider: true,
@@ -300,7 +300,7 @@ async function loginLogout(argv: ParsedArgv): Promise<number> {
   try {
     return await runLoginLogout(providerName, session, vault, providerAuthConfig(config, providerName));
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 
