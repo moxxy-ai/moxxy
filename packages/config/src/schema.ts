@@ -107,6 +107,30 @@ export const networkConfigSchema = z
   })
   .strict();
 
+/**
+ * The audit trail: a tamper-evident record of what was done and for whom,
+ * distinct from the event log (which is the conversation).
+ */
+export const auditConfigSchema = z
+  .object({
+    /** Off by default: an audit trail is a deliberate operator choice, and a
+     *  trail nobody asked for is just another file holding sensitive data. */
+    enabled: z.boolean().optional(),
+    /** Active sink name. Defaults to the protected local floor. */
+    sink: z.string().optional(),
+    /**
+     * Record prompt TEXT rather than only its length and SHA-256. Off by
+     * default: the trail proves what was done, and prompts carry business
+     * content that has no reason to leave the machine. The hash is recorded
+     * either way, so a given prompt can still be PROVEN to be the audited one.
+     */
+    includePromptText: z.boolean().optional(),
+    /** Delete local audit files older than this. Unset keeps them forever,
+     *  which is its own compliance problem. */
+    retentionDays: z.number().int().positive().optional(),
+  })
+  .strict();
+
 export const embeddingsConfigSchema = z.object({
   /**
    * 'tfidf' (default, zero deps) | 'openai' (text-embedding-3-*)
@@ -220,6 +244,7 @@ export const moxxyConfigSchema = z.object({
     .optional(),
   security: securityConfigSchema.optional(),
   network: networkConfigSchema.optional(),
+  audit: auditConfigSchema.optional(),
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
@@ -253,6 +278,7 @@ export type ElisionConfig = z.infer<typeof elisionConfigSchema>;
 export type WatcherMode = z.infer<typeof watcherModeSchema>;
 export type PermissionsConfig = z.infer<typeof permissionsConfigSchema>;
 export type NetworkConfig = z.infer<typeof networkConfigSchema>;
+export type AuditConfig = z.infer<typeof auditConfigSchema>;
 export type EmbeddingsConfig = z.infer<typeof embeddingsConfigSchema>;
 export type SecurityConfig = z.infer<typeof securityConfigSchema>;
 

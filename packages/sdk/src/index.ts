@@ -47,6 +47,25 @@ export type { EventLogReader } from './log.js';
 export type { Principal } from './principal.js';
 export { samePrincipal, formatPrincipal } from './principal.js';
 
+// Audit trail: the tamper-evident receipt, distinct from the event log.
+export type {
+  AuditAction,
+  AuditRecord,
+  AuditSinkDef,
+  AuditSinkScope,
+  AuditSinkSession,
+  UnchainedAuditRecord,
+} from './audit.js';
+export { defineAuditSink, auditActionOf } from './audit.js';
+
+// Secret redaction for anything leaving the process.
+export {
+  isSecretKey,
+  redactSecrets,
+  redactSecretText,
+  REDACTED_PLACEHOLDER,
+} from './redact.js';
+
 export type {
   RunTurnOptions,
   SessionLogReader,

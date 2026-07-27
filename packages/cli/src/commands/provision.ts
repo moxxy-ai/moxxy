@@ -21,7 +21,7 @@ export async function runProvisionCommand(argv: ParsedArgv): Promise<number> {
     return 2;
   }
 
-  const { session, vault, persistence } = await bootSessionWithConfig(argv, {
+  const { session, vault, persistence, audit } = await bootSessionWithConfig(argv, {
     skipKeyPrompt: true,
     skipProviderActivation: true,
   });
@@ -57,7 +57,7 @@ export async function runProvisionCommand(argv: ParsedArgv): Promise<number> {
     process.stderr.write(`moxxy provision: ${err instanceof Error ? err.message : String(err)}\n`);
     return 1;
   } finally {
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
 }
 

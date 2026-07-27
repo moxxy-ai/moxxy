@@ -44,6 +44,7 @@ import {
 } from './setup/resolve-plugins-tree.js';
 import { applySessionHeaderPreferences } from './setup/session-header-preferences.js';
 import { attachSessionPersistence } from './setup/persistence.js';
+import { attachAudit } from './setup/audit.js';
 import type { SetupOptions, SetupResult } from './setup/types.js';
 
 export type { BootStep, SetupOptions, SetupResult } from './setup/types.js';
@@ -299,6 +300,9 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
   progress({ kind: 'ready' });
 
   const persistence = attachSessionPersistence(session, opts.cwd, opts.disableSessionPersistence);
+  // Separate from persistence on purpose: the trail must survive an operator
+  // turning session persistence off, and it records a different, smaller thing.
+  const audit = attachAudit(session, config);
 
   // The memory plugin (when installed/enabled) published its store as the
   // 'memory' service during onInit; a slim boot without it leaves this
@@ -314,6 +318,7 @@ export async function setupSessionWithConfig(opts: SetupOptions): Promise<SetupR
     scheduler,
     webhooks,
     persistence,
+    audit,
     security,
     pluginRegistration,
   };

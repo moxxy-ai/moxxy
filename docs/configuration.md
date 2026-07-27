@@ -102,6 +102,31 @@ config:
 
 YAML configs are data and are never gated.
 
+### Audit trail
+
+Distinct from the event log. The event log is the conversation: complete, replayable, local. The audit trail is the receipt: bounded, redacted, hash-chained, and safe to forward off the machine.
+
+```yaml
+audit:
+  enabled: true          # off by default; a trail nobody asked for is a liability
+  sink: local            # the hash-chained floor; plugins can register others
+  includePromptText: false  # default: record only a prompt's length + SHA-256
+  retentionDays: 400
+```
+
+Records land in `~/.moxxy/audit/<YYYY-MM-DD>.jsonl`, owner-only. Each commits to the previous record's hash, so removing or editing one breaks every hash after it.
+
+```sh
+moxxy security audit-log               # verify every day's chain
+moxxy security audit-log 2026-07-27    # verify one day
+```
+
+Exit code 1 on a broken chain, so a scheduled check can gate on it.
+
+Chaining makes the trail tamper-**evident**, not tamper-proof: whoever can write the file can recompute the whole chain. It catches silent, selective deletion, which is the realistic threat. Genuine tamper-proofing needs the chain head somewhere the machine cannot rewrite, which is what a remote sink provides.
+
+Prompt text is not recorded by default. The SHA-256 always is, so a specific prompt can still be proven to be the audited one without the trail itself disclosing it. Tool inputs are recorded redacted, alongside a hash of the unredacted input.
+
 ### Network egress
 
 Node's global `fetch` ignores proxy variables on its own, and every provider call goes through it. Moxxy installs a proxy dispatcher at startup so these take effect.

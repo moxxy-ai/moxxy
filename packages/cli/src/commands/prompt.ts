@@ -35,7 +35,7 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
       ? createAllowListResolver(allowTools)
       : denyByDefaultResolver;
 
-  const { session, persistence } = await setupSessionWithConfig({
+  const { session, persistence, audit } = await setupSessionWithConfig({
     ...argvToSetupOptions(argv),
     resolver,
   });
@@ -77,7 +77,7 @@ export async function runPromptCommand(argv: ParsedArgv): Promise<number> {
     // Drain persistence (last event + final index row) then fire onShutdown
     // hooks / stop daemons so the process exits promptly. Best-effort — never
     // masks the command's exit code.
-    await closeSession(session, persistence);
+    await closeSession(session, persistence, audit);
   }
   return exitCode;
 }
