@@ -30,6 +30,7 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'background',
   'allow-scripts',
   'list',
+  'check',
 ]);
 
 /**
