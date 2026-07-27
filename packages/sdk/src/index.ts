@@ -49,6 +49,14 @@ export { samePrincipal, formatPrincipal } from './principal.js';
 
 export { verifyEd25519 } from './signature.js';
 
+export type {
+  AuditExporterDef,
+  AuditExportBatch,
+  AuditExportContext,
+  AuditExportResource,
+} from './audit-export.js';
+export { defineAuditExporter } from './audit-export.js';
+
 // Audit trail: the tamper-evident receipt, distinct from the event log.
 export type {
   AuditAction,

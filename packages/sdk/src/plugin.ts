@@ -18,6 +18,7 @@ import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
 import type { EventStoreDef } from './event-store.js';
 import type { AuditSinkDef } from './audit.js';
+import type { AuditExporterDef } from './audit-export.js';
 import type { SecretProviderDef } from './secret-provider.js';
 import type { ReflectorDef } from './reflector.js';
 
@@ -59,6 +60,7 @@ export interface PluginSpec {
   /** Audit-trail sinks (syslog, OTel, S3, webhook). Registered alongside the
    *  protected local floor; never auto-activated, see registry-kinds. */
   readonly auditSinks?: ReadonlyArray<AuditSinkDef>;
+  readonly auditExporters?: ReadonlyArray<AuditExporterDef>;
   /** External secret stores (Vault, AWS/Azure, 1Password). Registered
    *  alongside the vault floor; never auto-activated. */
   readonly secretProviders?: ReadonlyArray<SecretProviderDef>;

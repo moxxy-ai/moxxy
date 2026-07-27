@@ -114,6 +114,7 @@ Check these lines specifically:
 | `network` | your proxy, and an extra CA if it terminates TLS |
 | `vault` | `keychain`, or a note that a stored key is in use |
 | `policy` | the bundles in force as `id@revision`; a warn means this host is serving off its cache |
+| `audit-export` | `up to date`; a backlog means the job that should be exporting has stopped |
 
 Then confirm the locks actually bind, rather than trusting that they were written:
 
@@ -164,6 +165,38 @@ A receipt is a projection over the trail, not a second record, so asking for one
 The `policy` line is the fingerprint recorded at session start over the settings that decide what the agent may do. Identical fingerprints on two runs prove they executed under the same rules; a differing one tells you the rules moved between them. It covers no secrets and no paths, only counts and effective values, so it is safe to paste into a ticket.
 
 The chain is verified before anything prints, and a broken one exits 1 with the receipt marked. That matters more than it sounds: a receipt assembled from a trail with a record deleted would otherwise look complete while quietly omitting the removed call.
+
+### Shipping it somewhere central
+
+The local file answers "what happened on this machine". A fleet needs one place to ask, and a chain head the workstation cannot rewrite.
+
+```yaml
+audit:
+  enabled: true
+  export:
+    endpoint: https://otel-collector.example.internal:4318/v1/logs
+    headers:
+      authorization: ${vault:OTEL_TOKEN}
+```
+
+```sh
+moxxy security audit-export --dry-run   # what would be sent
+moxxy security audit-export             # send it
+```
+
+Run it from cron or a systemd timer. It exits 1 when it could not drain, so a collector that has been unreachable for a week is visible instead of silently logging "sent 0".
+
+Records go out as OTLP logs, not traces: an audit record is a flat statement of what was done and whether it was allowed, which is a log with attributes. Any OTLP collector works.
+
+Three properties worth knowing before you rely on it:
+
+- **Additive, not a replacement.** The local hash-chained file stays the system of record and is what the exporter reads from. Configuring an export does not weaken the local trail, and a collector outage delays central visibility rather than losing records.
+- **At least once, never at most once.** The checkpoint advances only after the collector durably accepts a batch, so a crash or a failed send re-offers that batch instead of skipping it. Each record carries its chain hash, so deduplicate on `moxxy.hash` at the collector.
+- **A partial rejection is a failure.** OTLP can return 200 and still discard records inside the request. That advances nothing here, because a checkpoint moving past records the collector threw away is exactly the invisible hole this is meant to prevent.
+
+Exporting needs no model provider and boots no session: it reads files that are already written. A machine with an expired API key still exports.
+
+To send somewhere OTLP cannot reach, register your own exporter (`auditExporters` in a plugin) and name it in `audit.export.exporter`. Like the sink, a discovered exporter never activates on its own.
 
 Records are bounded and redacted. Prompt text is not recorded unless you set `audit.includePromptText: true`; the SHA-256 always is, so a specific prompt stays provable without the trail disclosing business content. Set `audit.retentionDays` deliberately: keeping everything forever is its own compliance problem.
 
@@ -253,6 +286,7 @@ The bundle revision goes into the policy fingerprint, so `moxxy receipt` proves 
 - [ ] `plugins.packages` committed; `moxxy sync --check` green in CI
 - [ ] `installPolicy` set, and an internal mirror pinned if you have one
 - [ ] Audit sink configured, retention set, chain verification scheduled
+- [ ] `moxxy security audit-export` scheduled, and its exit code alerted on
 - [ ] Autonomous channels on dedicated runners with minimal allow-lists
 - [ ] Policy bundle published and pinned, or local rules accepted deliberately
 - [ ] `moxxy policy` verified on a pilot host, and `--check` green in CI

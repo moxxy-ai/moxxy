@@ -129,6 +129,16 @@ export { createLogger, silentLogger, type Logger, type LogLevel } from './logger
 // Audit trail (see packages/core/src/audit).
 export { attachAuditSink, type AttachAuditOptions, type AuditHandle } from './audit/attach.js';
 export { chainRecord, verifyChain, type ChainVerdict } from './audit/chain.js';
+export {
+  exportAuditTrail,
+  pendingExportCount,
+  readCheckpoint,
+  type ExportCheckpoint,
+  type ExportOptions,
+  type ExportResult,
+} from './audit/export.js';
+export { otlpAuditExporter } from './audit/otlp-exporter.js';
+export { AuditExporterRegistry } from './registries/audit-exporters.js';
 export { projectAuditRecord, type AuditProjectionOptions } from './audit/project.js';
 export {
   auditDir,

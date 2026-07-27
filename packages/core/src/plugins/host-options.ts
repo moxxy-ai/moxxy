@@ -25,6 +25,7 @@ import type { EmbedderRegistry } from '../registries/embedders.js';
 import type { IsolatorRegistry } from '../registries/isolators.js';
 import type { WorkflowExecutorRegistry } from '../registries/workflow-executors.js';
 import type { EventStoreRegistry } from '../registries/event-stores.js';
+import type { AuditExporterRegistry } from '../registries/audit-exporters.js';
 import type { AuditSinkRegistry } from '../registries/audit-sinks.js';
 import type { SecretProviderRegistry } from '../registries/secret-providers.js';
 import type { ReflectorRegistry } from '../registries/reflectors.js';
@@ -52,6 +53,7 @@ export interface PluginHostOptions {
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
   readonly auditSinks: AuditSinkRegistry;
+  readonly auditExporters: AuditExporterRegistry;
   readonly secretProviders: SecretProviderRegistry;
   readonly reflectors: ReflectorRegistry;
   readonly requirements: RequirementRegistry;

@@ -32,6 +32,7 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'list',
   'check',
   'json',
+  'dry-run',
 ]);
 
 /**
