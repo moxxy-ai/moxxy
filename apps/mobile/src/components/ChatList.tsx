@@ -1,6 +1,5 @@
 import { sx } from '../styles/tokens';
 import {
-  ActivityIndicator,
   FlatList,
   Image,
   Linking,
@@ -47,10 +46,11 @@ import type { InlineTok } from '@moxxy/chat-model/markdown';
 import type { ImageSourcePropType } from 'react-native';
 import { BottomSheet, SheetGroup, SheetRow } from '@/ui/kit';
 import { MobileIcon } from './MobileIcon';
+import { MoxxyMarkSpinner } from './MoxxyMarkSpinner';
 import { ThinkingIndicator } from './ThinkingIndicator';
 
 const CHAT_LIST_PERFORMANCE_PROPS = buildMobileChatListPerformanceProps();
-const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
+const moxxyMark = require('../../assets/moxxy-mark.png') as ImageSourcePropType;
 
 export interface ChatWelcome {
   readonly title: string;
@@ -193,7 +193,7 @@ function WelcomeView({ welcome }: { readonly welcome: ChatWelcome }) {
     <View style={sx('flex-1 items-center justify-center', { paddingVertical: 16 })}>
       <View style={sx('items-center justify-center', { height: 136, width: 136 })}>
         <View style={sx('absolute rounded-full', { backgroundColor: colors.primary, height: 136, opacity: 0.09, width: 136 })} />
-        <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 124, width: 124 }} />
+        <Image source={moxxyMark} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 124, width: 124 }} />
       </View>
       <Text style={sx('mt-3 text-[25px] font-black text-text text-center', { letterSpacing: -0.5 })}>{welcome.title}</Text>
       <Text style={sx('mt-2 text-[15px] font-medium text-muted text-center', { lineHeight: 21, maxWidth: 320 })}>
@@ -209,9 +209,8 @@ function SessionLoadingView() {
     <View style={sx('flex-1 items-center justify-center', { gap: 14, paddingBottom: 48 })}>
       <View style={sx('items-center justify-center', { height: 116, width: 116 })}>
         <View style={sx('absolute rounded-full', { backgroundColor: colors.primary, height: 116, opacity: 0.09, width: 116 })} />
-        <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 104, width: 104 }} />
+        <MoxxyMarkSpinner size={104} />
       </View>
-      <ActivityIndicator color={colors.primary} />
       <Text style={sx('text-[14px] font-semibold text-dim')}>Loading chat…</Text>
     </View>
   );

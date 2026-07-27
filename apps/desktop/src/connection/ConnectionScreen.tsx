@@ -1,6 +1,6 @@
+import { MoxxyMark } from '@/components/MoxxyMark';
 import { useState } from 'react';
 import type { ConnectionPhase, ConnectionSnapshot } from '@moxxy/desktop-ipc-contract';
-import { asset } from '@/lib/asset';
 import { Splash } from '@/Splash';
 
 /** Result of an in-app CLI update attempt. On success the caller (App.tsx)
@@ -82,12 +82,7 @@ export function ConnectionScreen({
           textAlign: 'center',
         }}
       >
-        <img
-          src={asset('logo.png')}
-          alt=""
-          aria-hidden="true"
-          style={{ width: 120, height: 'auto', objectFit: 'contain' }}
-        />
+        <MoxxyMark size={120} />
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em' }}>
             {friendlyTitle(phase.phase)}

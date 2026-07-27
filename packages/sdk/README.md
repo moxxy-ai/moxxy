@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://moxxy.ai">
-    <img src="https://moxxy.ai/moxxy-head-256.png" alt="moxxy" width="128" />
+    <img src="https://raw.githubusercontent.com/moxxy-ai/moxxy/main/assets/brand/png/moxxy-mark-256.png" alt="moxxy" width="128" />
   </a>
 </p>
 

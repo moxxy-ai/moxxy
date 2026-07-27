@@ -8,9 +8,10 @@ Assets referenced by the top-level `README.md`.
 
 Already present:
 
+- `brand/` — the logo itself: mark, wordmark, lockups, app icons, social card, and
+  the script that regenerates every variant. See `brand/README.md`.
 - `moxxy-ai-video.mp4` — animated moxxy video presentation used in the README hero.
 - `tui-demo.gif` — real recorded TUI session ("See it in action" → left): boot splash → "fix the TODO in src/parse.ts, then verify with npm run check" → Read/Edit/Bash tool blocks → green `tsc` → streamed summary. Recorded with `vhs tui.tape` (see the tape header for the isolation setup it needs).
-- `moxxy-mascot.gif` — the moxxy character animation (brand accent in the "Why moxxy?" section). Copied from `apps/desktop/public/new-animation.gif`.
 
 ## Capturing the TUI
 

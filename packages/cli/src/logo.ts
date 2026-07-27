@@ -2,7 +2,7 @@
  * Plain-string moxxy banner for non-Ink contexts (`moxxy --help`/`--version`,
  * the init wizard intro, doctor output). Reuses `selectLogo` from
  * `@moxxy/plugin-cli` so this helper and the TUI's React `<Logo />` step
- * through the same mascot → wordmark → text fallbacks at the same widths.
+ * through the same mark → wordmark → text fallbacks at the same widths.
  * The slogan + version line is rendered by the caller (typically in the
  * clack-style box header right under the banner), not by this function —
  * that keeps the slogan from appearing twice.
@@ -26,7 +26,7 @@ export interface RenderLogoOptions {
 const fade = (s: string): string => colors.dim(colors.gray(s));
 
 /**
- * Render the moxxy banner. `selectLogo` picks the mascot, the `MOXXY`
+ * Render the moxxy banner. `selectLogo` picks the mark, the `MOXXY`
  * wordmark, or a one-line text mark based on `width`; every row is dim-gray
  * and (optionally) centered. Rows within a selection share one width, so
  * centering shifts the whole mark as a block rather than shearing it.

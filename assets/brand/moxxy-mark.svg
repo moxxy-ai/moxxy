@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="moxxy">
+  <title>moxxy</title>
+  <defs>
+    <!-- Shows the ink strand on top at four alternating crossings, which is
+         what turns two overlapping squares into a genuine over/under weave. -->
+    <mask id="moxxy-weave" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#000"/>
+      <circle cx="188" cy="153" r="27" fill="#fff"/>
+      <circle cx="103" cy="188" r="27" fill="#fff"/>
+      <circle cx="68" cy="103" r="27" fill="#fff"/>
+      <circle cx="153" cy="68" r="27" fill="#fff"/>
+    </mask>
+  </defs>
+  <g fill="none" stroke-width="22" stroke-linejoin="round">
+    <rect x="68" y="68" width="120" height="120" rx="12" stroke="#0B0D12"/>
+    <rect x="68" y="68" width="120" height="120" rx="12" stroke="#FF4A1E" transform="rotate(45 128 128)"/>
+    <g mask="url(#moxxy-weave)">
+      <rect x="68" y="68" width="120" height="120" rx="12" stroke="#0B0D12"/>
+    </g>
+  </g>
+</svg>

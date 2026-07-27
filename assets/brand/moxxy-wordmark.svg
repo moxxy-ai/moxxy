@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 502 128" width="502" height="128" role="img" aria-label="moxxy">
+  <title>moxxy</title>
+  <defs>
+    <!-- Each x is woven, not merged: the rising stroke is interrupted where
+         the falling stroke passes over it, echoing the mark. -->
+    <mask id="moxxy-xweave" maskUnits="userSpaceOnUse" x="-40" y="-40" width="600" height="240">
+      <rect x="-40" y="-40" width="600" height="240" fill="#fff"/>
+      <rect x="-23" y="-16" width="46" height="32" fill="#000" transform="translate(247 77) rotate(45)"/>
+      <rect x="-23" y="-16" width="46" height="32" fill="#000" transform="translate(348 77) rotate(45)"/>
+    </mask>
+  </defs>
+  <g transform="translate(9 -33)" fill="none" stroke="#0B0D12" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 112 V62 A20 20 0 0 1 40 62 V112 M40 62 A20 20 0 0 1 80 62 V112"/>
+    <path d="M111 77 a35 35 0 1 0 70 0 a35 35 0 1 0 -70 0"/>
+    <g mask="url(#moxxy-xweave)">
+      <path d="M282 42 L212 112 M383 42 L313 112"/>
+    </g>
+    <path d="M212 42 L282 112 M313 42 L383 112"/>
+    <path d="M414 42 L449 112 M484 42 L429 152"/>
+  </g>
+</svg>
