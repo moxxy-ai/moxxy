@@ -206,3 +206,43 @@ describe('installPluginPackage does not execute lifecycle scripts', () => {
     expect(existsSync(path.join(installed, 'PWNED'))).toBe(true);
   }, 120_000);
 });
+
+// The policy must bite inside the install FUNCTION, not at the CLI surface:
+// `install_plugin` (the model tool) reaches this same path, and a restriction
+// the agent could route around by asking itself would not be a restriction.
+describe('installPluginPackage enforces the install policy', () => {
+  let home: string;
+  let prevHome: string | undefined;
+  beforeEach(() => {
+    home = mkdtempSync(path.join(os.tmpdir(), 'mox-policy-home-'));
+    prevHome = process.env.MOXXY_HOME;
+    process.env.MOXXY_HOME = home;
+  });
+  afterEach(() => {
+    if (prevHome === undefined) delete process.env.MOXXY_HOME;
+    else process.env.MOXXY_HOME = prevHome;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('refuses under `denied` without ever spawning npm', async () => {
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', policy: 'denied' }),
+    ).rejects.toThrow(/disabled on this machine/);
+    expect(existsSync(path.join(userPluginsDir(), 'node_modules'))).toBe(false);
+  });
+
+  it('refuses an unsigned spec under `registry-only`', async () => {
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', policy: 'registry-only', signed: false }),
+    ).rejects.toThrow(/not in the signed plugin registry/);
+    expect(existsSync(path.join(userPluginsDir(), 'node_modules'))).toBe(false);
+  });
+
+  it('leaves the default path unrestricted', async () => {
+    // No policy passed = `open`; the abort guard is what stops it here, which
+    // proves the policy check did not fire first.
+    await expect(
+      installPluginPackage({ packageName: 'left-pad', signal: AbortSignal.abort() }),
+    ).rejects.toThrow(/aborted before start/);
+  });
+});
