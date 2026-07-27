@@ -10,6 +10,8 @@ Report privately via [GitHub's private vulnerability reporting](https://github.c
 
 Only the latest published release line receives security fixes.
 
+For a full review: [threat model](docs/threat-model.md) (what each control is worth, and where a name promises more than the mechanism delivers), [what leaves the machine](docs/data-flow.md), and [deploying in an organisation](docs/deployment.md).
+
 ## The security model
 
 One sentence: **moxxy is permission-gated and vault-protected by default, and isolatable on demand.**
@@ -17,7 +19,7 @@ One sentence: **moxxy is permission-gated and vault-protected by default, and is
 ### Enforced by default
 
 - **Per-tool permission gating.** Every tool call passes through the permission engine before it runs. Interactive channels prompt; "allow always" answers become persisted policy rules (`~/.moxxy/permissions.json`, deny-before-allow, fail-closed on malformed rules). Headless/autonomous channels are deny-by-default and run against an explicit allow-list.
-- **Secrets vault.** API keys and channel tokens live in an AES-256-GCM vault (`moxxy vault`), unlocked via the OS keychain with a passphrase fallback. Config and tools reference secrets as `${vault:KEY}` placeholders — resolved at the boundary where they are used, so **the model never sees plaintext secrets** and they never appear in the transcript or event log.
+- **Secrets vault.** API keys and channel tokens live in an AES-256-GCM vault (`moxxy vault`), unlocked via the OS keychain. Where no keychain exists the master key is generated and stored beside the vault at `0600` rather than demanding a passphrase, which protects a key from leaking through config, a transcript, or a log, but not from someone who can already read that file; `vault.requirePassphrase: true` raises that bar. Config and tools reference secrets as `${vault:KEY}` placeholders, resolved at the boundary where they are used, so **the model never sees plaintext secrets** and they never appear in the transcript or event log.
 - **Channel authentication.** Every remote surface is gated: Telegram/Slack pair explicitly (code/QR/TOFU) and drop unpaired traffic; HTTP/WebSocket channels require bearer tokens (generated, never empty, constant-time compared); webhook ingestion verifies HMAC signatures over raw bytes with replay windows before parsing; inbound payloads are schema-validated and size-capped before they reach a session.
 - **Install-time script ban.** `moxxy plugins install` runs npm with `--ignore-scripts`, so a package's (and its dependencies') `preinstall`/`install`/`postinstall` hooks never execute. Version pinning from the signed registry does not cover this on its own: a signature over the index says nothing about what a tarball's install script does. An explicit human `--allow-scripts` lifts the ban for one install (native modules that compile or fetch a binding); the `install_plugin` model tool cannot reach that flag.
 - **Owner-only state.** `~/.moxxy` is created `0700`, and session transcripts, their metadata sidecars, and the permission policy are written `0600` (existing looser files are tightened in place on next use). A transcript holds every prompt, every file the agent read, and every command's output, so on a shared host it must not be readable by another local account.

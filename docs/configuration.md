@@ -252,4 +252,7 @@ network:
 - [Getting started](getting-started.md)
 - [Features and channels](features.md)
 - [Developer guide](developer-guide.md)
+- [Deploying in an organisation](deployment.md)
+- [Threat model](threat-model.md)
+- [What leaves the machine](data-flow.md)
 - [Security and hardening](../SECURITY.md)
