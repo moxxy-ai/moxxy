@@ -747,16 +747,23 @@ describe('ElectronNativeBrowserController agent operations', () => {
     await controller.destroy();
   });
 
-  it('opens a public HTTP popup as a Moxxy tab and blocks dangerous protocols', async () => {
+  it('adopts the exact Electron webContents for a foreground popup', async () => {
     const controller = await createController(views, requestGuards);
     const initial = await controller.open({ workspaceId: 'ws-1' });
     const first = views[0];
+    const popupContents = new FakeWebContents();
 
     const popup = first?.webContents.openPopup('https://93.184.216.34/popup');
     expect(popup?.action).toBe('allow');
-    popup?.createWindow?.();
+    expect(
+      popup?.createWindow?.({
+        webContents: popupContents,
+      }),
+    ).toBe(popupContents);
     expect(views).toHaveLength(2);
+    expect(views[1]?.webContents).toBe(popupContents);
     expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject({
+      activeTabId: expect.not.stringMatching(initial.activeTabId),
       tabs: expect.arrayContaining([
         expect.objectContaining({ url: 'https://93.184.216.34/popup' }),
       ]),
@@ -768,6 +775,136 @@ describe('ElectronNativeBrowserController agent operations', () => {
     await Promise.resolve();
     expect(views).toHaveLength(2);
     expect(initial.tabs).toHaveLength(1);
+    await controller.destroy();
+  });
+
+  it('keeps a background popup inactive and manually loads it without Electron webContents', async () => {
+    const controller = await createController(views, requestGuards);
+    const initial = await controller.open({ workspaceId: 'ws-1' });
+    const first = views[0];
+
+    const popup = first?.webContents.openPopup(
+      'https://93.184.216.34/background',
+      'background-tab',
+    );
+    const popupContents = popup?.createWindow?.({});
+    await Promise.resolve();
+
+    expect(popup?.action).toBe('allow');
+    expect(popupContents).toBe(views[1]?.webContents);
+    expect(views[1]?.webContents.getURL()).toBe('https://93.184.216.34/background');
+    expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject({
+      activeTabId: initial.activeTabId,
+    });
+    await controller.destroy();
+  });
+
+  it('allows an Electron-owned about:blank popup without loading it again', async () => {
+    const controller = await createController(views, requestGuards);
+    await controller.open({ workspaceId: 'ws-1' });
+    const first = views[0];
+    const popupContents = new FakeWebContents();
+    const load = vi.spyOn(popupContents, 'loadURL');
+
+    const popup = first?.webContents.openPopup('about:blank');
+    expect(popup?.action).toBe('allow');
+    expect(popup?.createWindow?.({ webContents: popupContents })).toBe(popupContents);
+    expect(load).not.toHaveBeenCalled();
+    await controller.destroy();
+  });
+
+  it('preserves Electron-owned POST popup contents without a duplicate GET load', async () => {
+    const controller = await createController(views, requestGuards);
+    await controller.open({ workspaceId: 'ws-1' });
+    const popupContents = new FakeWebContents();
+    const load = vi.spyOn(popupContents, 'loadURL');
+
+    const popup = views[0]?.webContents.openPopup(
+      'https://93.184.216.34/form-result',
+      'foreground-tab',
+    );
+    expect(
+      popup?.createWindow?.({
+        webContents: popupContents,
+        postBody: [{ type: 'rawData', bytes: Buffer.from('message=hello') }],
+      }),
+    ).toBe(popupContents);
+
+    expect(load).not.toHaveBeenCalled();
+    await controller.destroy();
+  });
+
+  it('removes a popup tab when the page closes its own webContents', async () => {
+    const controller = await createController(views, requestGuards);
+    const initial = await controller.open({ workspaceId: 'ws-1' });
+    const popupContents = new FakeWebContents();
+    const popup = views[0]?.webContents.openPopup('https://93.184.216.34/self-close');
+    popup?.createWindow?.({ webContents: popupContents });
+
+    popupContents.close();
+
+    await vi.waitFor(async () => {
+      expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject({
+        activeTabId: initial.activeTabId,
+        tabs: initial.tabs,
+      });
+    });
+    await controller.destroy();
+  });
+
+  it('closes an adopted popup through tab controls without double-removing state', async () => {
+    const controller = await createController(views, requestGuards);
+    const initial = await controller.open({ workspaceId: 'ws-1' });
+    const popupContents = new FakeWebContents();
+    views[0]?.webContents
+      .openPopup('https://93.184.216.34/user-close')
+      .createWindow?.({ webContents: popupContents });
+    const opened = await controller.executeAgentAction('ws-1', { kind: 'tabs' });
+    const popupTabId = (opened as { activeTabId: string }).activeTabId;
+
+    await expect(controller.closeTab({ workspaceId: 'ws-1', tabId: popupTabId })).resolves.toMatchObject({
+      activeTabId: initial.activeTabId,
+      tabs: initial.tabs,
+    });
+    expect(popupContents.closed).toBe(true);
+    await controller.destroy();
+  });
+
+  it('installs popup handling recursively on adopted webContents', async () => {
+    const controller = await createController(views, requestGuards);
+    await controller.open({ workspaceId: 'ws-1' });
+    const childContents = new FakeWebContents();
+    const grandchildContents = new FakeWebContents();
+    views[0]?.webContents
+      .openPopup('https://93.184.216.34/child')
+      .createWindow?.({ webContents: childContents });
+
+    const nested = childContents.openPopup('https://93.184.216.34/grandchild');
+    expect(nested.action).toBe('allow');
+    expect(nested.createWindow?.({ webContents: grandchildContents })).toBe(grandchildContents);
+    expect(views).toHaveLength(3);
+    await controller.destroy();
+  });
+
+  it('rolls back an Electron popup when the adopted view cannot be created', async () => {
+    const controller = await createController(
+      views,
+      requestGuards,
+      createNetworkLifecycle(),
+      vi.fn(),
+      createSessionHarness(),
+      (webContents) => {
+        if (webContents) throw new Error('adoption failed');
+        return new FakeView();
+      },
+    );
+    const initial = await controller.open({ workspaceId: 'ws-1' });
+    const popupContents = new FakeWebContents();
+    const popup = views[0]?.webContents.openPopup('https://93.184.216.34/failure');
+
+    expect(() => popup?.createWindow?.({ webContents: popupContents })).toThrow('adoption failed');
+    expect(popupContents.closed).toBe(true);
+    expect(await controller.executeAgentAction('ws-1', { kind: 'tabs' })).toMatchObject(initial);
     await controller.destroy();
   });
 
@@ -932,6 +1069,7 @@ async function createController(
   lifecycle: NetworkLifecycle = createNetworkLifecycle(),
   onChanged: (snapshot: { agentControl?: { action: string } }) => void = vi.fn(),
   sessionHarness: SessionHarness = createSessionHarness(),
+  viewFactory?: (webContents?: FakeWebContents) => FakeView,
 ): Promise<ElectronNativeBrowserController> {
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'native-controller-'));
   const controller = new ElectronNativeBrowserController({
@@ -964,8 +1102,9 @@ async function createController(
     downloadsDir: path.join(userDataDir, 'downloads'),
     getMainWindow: () => null,
     onChanged: (_workspaceId, snapshot) => onChanged(snapshot),
-    createView: () => {
-      const view = new FakeView();
+    createView: (webContents) => {
+      const adopted = webContents as unknown as FakeWebContents | undefined;
+      const view = viewFactory?.(adopted) ?? new FakeView(adopted);
       views.push(view);
       return view as never;
     },
@@ -975,8 +1114,12 @@ async function createController(
 }
 
 class FakeView {
-  readonly webContents = new FakeWebContents();
+  readonly webContents: FakeWebContents;
   private bounds = { x: 0, y: 0, width: 800, height: 600 };
+
+  constructor(webContents = new FakeWebContents()) {
+    this.webContents = webContents;
+  }
 
   setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
     this.bounds = bounds;
@@ -1010,9 +1153,9 @@ class FakeWebContents extends EventEmitter {
   private deferredScript: Promise<unknown> | null = null;
   private deferredLoad: Promise<void> | null = null;
   private emitDomReadyOnLoad = false;
-  private popupHandler: ((details: { url: string }) => {
+  private popupHandler: ((details: { url: string; disposition: string }) => {
     action: 'allow' | 'deny';
-    createWindow?: () => unknown;
+    createWindow?: (options: PopupCreateWindowOptions) => unknown;
   }) | null = null;
 
   setScriptResult(_kind: string, value: unknown): void {
@@ -1054,15 +1197,21 @@ class FakeWebContents extends EventEmitter {
   setBackgroundThrottling(enabled: boolean): void {
     this.backgroundThrottling = enabled;
   }
-  setWindowOpenHandler(handler: (details: { url: string }) => {
+  setWindowOpenHandler(handler: (details: { url: string; disposition: string }) => {
     action: 'allow' | 'deny';
-    createWindow?: () => unknown;
+    createWindow?: (options: PopupCreateWindowOptions) => unknown;
   }): void {
     this.popupHandler = handler;
   }
-  openPopup(url: string): { action: 'allow' | 'deny'; createWindow?: () => unknown } {
+  openPopup(
+    url: string,
+    disposition = 'new-window',
+  ): {
+    action: 'allow' | 'deny';
+    createWindow?: (options: PopupCreateWindowOptions) => unknown;
+  } {
     if (!this.popupHandler) throw new Error('popup handler is not installed');
-    return this.popupHandler({ url });
+    return this.popupHandler({ url, disposition });
   }
   setZoomFactor(value: number): void {
     this.zoom = value;
@@ -1086,6 +1235,14 @@ class FakeWebContents extends EventEmitter {
     this.captureCalls.push(args);
     return Promise.reject(new Error('not used'));
   }
+}
+
+interface PopupCreateWindowOptions {
+  readonly webContents?: FakeWebContents;
+  readonly postBody?: ReadonlyArray<{
+    readonly type: 'rawData';
+    readonly bytes: Buffer;
+  }>;
 }
 
 class FakeDebugger extends EventEmitter {

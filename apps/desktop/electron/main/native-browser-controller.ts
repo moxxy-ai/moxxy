@@ -7,6 +7,7 @@ import {
   Menu,
   WebContentsView,
   type BrowserWindow,
+  type BrowserWindowConstructorOptions,
   type ContextMenuParams,
   type Debugger,
   type DownloadItem,
@@ -63,8 +64,19 @@ interface NativeBrowserControllerOptions {
   readonly getMainWindow: () => BrowserWindow | null;
   readonly onChanged: (workspaceId: string, snapshot: NativeBrowserSnapshot) => void;
   readonly backendOverride?: string;
-  readonly createView?: () => WebContentsView;
+  readonly createView?: (webContents?: WebContents) => WebContentsView;
 }
+
+type PopupWindowOptions = BrowserWindowConstructorOptions & {
+  readonly webContents?: WebContents;
+};
+
+type PopupDisposition =
+  | 'default'
+  | 'foreground-tab'
+  | 'background-tab'
+  | 'new-window'
+  | 'other';
 
 interface CaptureState {
   readonly workspaceId: string;
@@ -111,12 +123,14 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   private readonly permissionGrants = new Set<string>();
   private readonly downloads = new Map<string, ActiveDownload>();
   private readonly reservedDownloadPaths = new Set<string>();
+  private readonly intentionalClosures = new WeakSet<WebContentsView>();
   private backend: NativeBrowserAvailability = { backend: 'playwright', available: true };
   private visibleWorkspaceId: string | null = null;
   private attachedKey: string | null = null;
   private attachedWindowId: number | null = null;
   private capture: CaptureState | null = null;
   private started = false;
+  private destroying = false;
 
   constructor(private readonly options: NativeBrowserControllerOptions) {
     this.store = new NativeBrowserStateStore(
@@ -287,7 +301,10 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     if (this.attachedKey === key) this.detachAttachedView();
     const view = this.views.get(key);
     this.views.delete(key);
-    if (view && !view.webContents.isDestroyed()) view.webContents.close();
+    if (view && !view.webContents.isDestroyed()) {
+      this.intentionalClosures.add(view);
+      view.webContents.close();
+    }
     if (this.capture?.workspaceId === args.workspaceId && this.capture.tabId === args.tabId) {
       this.capture = null;
     }
@@ -806,6 +823,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   }
 
   async destroy(): Promise<void> {
+    this.destroying = true;
     this.detachAttachedView();
     for (const controls of this.agentControls.values()) {
       for (const control of controls) control.abort();
@@ -821,7 +839,10 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     this.reservedDownloadPaths.clear();
     await this.persist().catch(() => undefined);
     for (const view of this.views.values()) {
-      if (!view.webContents.isDestroyed()) view.webContents.close();
+      if (!view.webContents.isDestroyed()) {
+        this.intentionalClosures.add(view);
+        view.webContents.close();
+      }
     }
     this.views.clear();
     this.pendingNetworkRequests.clear();
@@ -895,27 +916,58 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     const existing = this.views.get(key);
     if (existing && !existing.webContents.isDestroyed()) return existing;
 
-    const view =
-      this.options.createView?.() ??
-      new WebContentsView({
-        webPreferences: {
-          partition: BROWSER_PARTITION,
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-          webSecurity: true,
-        },
-      });
+    const view = this.createBrowserView();
+    this.registerView(workspaceId, tab, view);
+    if (tab.url !== BLANK_URL) void view.webContents.loadURL(tab.url).catch(() => undefined);
+    return view;
+  }
+
+  private createBrowserView(webContents?: WebContents): WebContentsView {
+    const custom = this.options.createView?.(webContents);
+    if (custom) return custom;
+    if (webContents) return new WebContentsView({ webContents });
+    return new WebContentsView({
+      webPreferences: {
+        partition: BROWSER_PARTITION,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+      },
+    });
+  }
+
+  private registerView(
+    workspaceId: string,
+    tab: NativeBrowserTabSnapshot,
+    view: WebContentsView,
+  ): void {
+    const key = viewKey(workspaceId, tab.id);
     const contents = view.webContents;
     // Detached tabs remain alive, but Chromium may throttle them until the tab
     // is visible or an agent operation explicitly leases it below.
     contents.setBackgroundThrottling(true);
     contents.setZoomFactor(tab.zoom);
-    contents.setWindowOpenHandler(({ url }) => {
-      if (!isHttpUrl(url)) return { action: 'deny' };
+    contents.setWindowOpenHandler(({ url, disposition }) => {
+      if (!isAllowedPopupUrl(url)) return { action: 'deny' };
       return {
         action: 'allow',
-        createWindow: () => this.createPopupView(workspaceId, url).webContents,
+        overrideBrowserWindowOptions: {
+          webPreferences: {
+            partition: BROWSER_PARTITION,
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false,
+            webSecurity: true,
+          },
+        },
+        createWindow: (options) =>
+          this.createPopupView(
+            workspaceId,
+            url,
+            disposition,
+            options as PopupWindowOptions,
+          ),
       };
     });
     contents.on('context-menu', (_event, params) => {
@@ -955,25 +1007,108 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
         this.attachedKey = null;
         this.attachedWindowId = null;
       }
+      if (this.destroying || this.intentionalClosures.has(view)) return;
+      this.removeClosedPopup(workspaceId, tab.id);
     });
     this.views.set(key, view);
-    if (tab.url !== BLANK_URL) void contents.loadURL(tab.url).catch(() => undefined);
-    return view;
   }
 
-  private createPopupView(workspaceId: string, url: string): WebContentsView {
-    const tab = this.state.newTab(workspaceId);
-    this.state.updateTab(workspaceId, tab.id, { url, loading: true });
-    const view = this.ensureView(workspaceId, tab);
-    this.attachActiveView(workspaceId);
-    this.publish(workspaceId);
-    void this.persist().catch(() => undefined);
-    return view;
+  private createPopupView(
+    workspaceId: string,
+    url: string,
+    disposition: PopupDisposition,
+    options: PopupWindowOptions,
+  ): WebContents {
+    const before = this.state.ensureWorkspace(workspaceId);
+    const adoptedContents = options.webContents;
+    let view: WebContentsView;
+    try {
+      view = this.createBrowserView(adoptedContents);
+    } catch (error) {
+      this.closeUnregisteredContents(adoptedContents);
+      throw error;
+    }
+    if (adoptedContents && view.webContents !== adoptedContents) {
+      this.closeUnregisteredView(view);
+      this.closeUnregisteredContents(adoptedContents);
+      throw new Error('popup view did not adopt Electron webContents');
+    }
+
+    let tab: NativeBrowserTabSnapshot | null = null;
+    try {
+      tab = this.state.newTab(workspaceId, url);
+      if (disposition === 'background-tab') {
+        this.state.selectTab(workspaceId, before.activeTabId);
+      }
+      this.registerView(workspaceId, tab, view);
+      if (this.visibleWorkspaceId === workspaceId && disposition !== 'background-tab') {
+        this.attachActiveView(workspaceId);
+      }
+      this.publish(workspaceId);
+      void this.persist().catch(() => undefined);
+      if (!adoptedContents) {
+        queueMicrotask(() => {
+          if (view.webContents.isDestroyed()) return;
+          void view.webContents.loadURL(url).catch(() => this.rollbackPopup(workspaceId, tab?.id, view));
+        });
+      }
+      return view.webContents;
+    } catch (error) {
+      this.rollbackPopup(workspaceId, tab?.id, view, before.activeTabId);
+      throw error;
+    }
   }
 
   private async openPopup(workspaceId: string, url: string): Promise<void> {
-    const view = this.createPopupView(workspaceId, url);
-    await view.webContents.loadURL(url);
+    await this.newTab({ workspaceId, url });
+  }
+
+  private removeClosedPopup(workspaceId: string, tabId: string): void {
+    const snapshot = this.state.snapshot(workspaceId);
+    if (!snapshot.tabs.some((tab) => tab.id === tabId)) return;
+    if (this.capture?.workspaceId === workspaceId && this.capture.tabId === tabId) {
+      this.capture = null;
+    }
+    this.state.closeTab(workspaceId, tabId);
+    const active = this.state.resolveOperationTarget(workspaceId);
+    this.ensureView(workspaceId, active);
+    if (this.visibleWorkspaceId === workspaceId) this.attachActiveView(workspaceId);
+    this.publish(workspaceId);
+    void this.persist().catch(() => undefined);
+  }
+
+  private rollbackPopup(
+    workspaceId: string,
+    tabId: string | undefined,
+    view: WebContentsView,
+    activeTabId?: string,
+  ): void {
+    if (tabId) {
+      const key = viewKey(workspaceId, tabId);
+      if (this.views.get(key) === view) this.views.delete(key);
+      const snapshot = this.state.snapshot(workspaceId);
+      if (snapshot.tabs.some((candidate) => candidate.id === tabId)) {
+        this.state.closeTab(workspaceId, tabId);
+        if (activeTabId && this.state.snapshot(workspaceId).tabs.some((tab) => tab.id === activeTabId)) {
+          this.state.selectTab(workspaceId, activeTabId);
+        }
+      }
+    }
+    this.closeUnregisteredView(view);
+    if (this.visibleWorkspaceId === workspaceId) this.attachActiveView(workspaceId);
+    this.publish(workspaceId);
+    void this.persist().catch(() => undefined);
+  }
+
+  private closeUnregisteredView(view: WebContentsView): void {
+    if (view.webContents.isDestroyed()) return;
+    this.intentionalClosures.add(view);
+    view.webContents.close();
+  }
+
+  private closeUnregisteredContents(contents: WebContents | undefined): void {
+    if (!contents || contents.isDestroyed()) return;
+    contents.close();
   }
 
   private showContextMenu(
@@ -1783,6 +1918,10 @@ function isHttpUrl(raw: string): boolean {
 
 function isAllowedDocumentUrl(raw: string): boolean {
   return raw === BLANK_URL || isHttpUrl(raw);
+}
+
+function isAllowedPopupUrl(raw: string): boolean {
+  return isAllowedDocumentUrl(raw);
 }
 
 function cleanTitle(title: string): string {

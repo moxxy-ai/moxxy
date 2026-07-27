@@ -59,7 +59,7 @@ async function run(): Promise<void> {
       if (url.pathname === '/slow-resource') {
         return delay(250).then(() => new Response('ready', { status: 200 }));
       }
-      return new Response(testPage(url.pathname), {
+      return new Response(testPage(url.pathname, request.method), {
         headers: { 'content-type': 'text/html; charset=utf-8' },
       });
     });
@@ -71,16 +71,18 @@ async function run(): Promise<void> {
       downloadsDir: path.join(smokeUserDataPath, 'downloads'),
       getMainWindow: () => window,
       onChanged: () => undefined,
-      createView: () => {
-        const view = new WebContentsView({
-          webPreferences: {
-            partition,
-            sandbox: true,
-            contextIsolation: true,
-            nodeIntegration: false,
-            webSecurity: true,
-          },
-        });
+      createView: (webContents) => {
+        const view = webContents
+          ? new WebContentsView({ webContents })
+          : new WebContentsView({
+              webPreferences: {
+                partition,
+                sandbox: true,
+                contextIsolation: true,
+                nodeIntegration: false,
+                webSecurity: true,
+              },
+            });
         views.push(view);
         return view;
       },
@@ -250,6 +252,63 @@ async function run(): Promise<void> {
     if (!region?.base64) throw new Error('capture region was empty');
     await progress('capture-complete');
 
+    await browserSession.cookies.set({
+      url: TEST_ORIGIN,
+      name: 'moxxy-popup-session',
+      value: 'shared',
+      secure: true,
+    });
+    await controller.navigate({
+      workspaceId: WORKSPACE_ID,
+      tabId: opened.activeTabId,
+      url: `${TEST_ORIGIN}/popup-opener`,
+    });
+    await firstView.webContents.executeJavaScript(
+      'document.querySelector("#popup-link").click()',
+      true,
+    );
+    const popupSnapshot = await waitForTabs(controller, 2);
+    if (popupSnapshot.activeTabId === opened.activeTabId) {
+      throw new Error('foreground popup did not become the active Moxxy Browser tab');
+    }
+    const popupHeading = await controller.executeAgentAction(WORKSPACE_ID, {
+      kind: 'text',
+      target: { type: 'selector', selector: '#popup-heading' },
+    });
+    assertEqual(popupHeading, 'Visible popup', 'window.open popup content');
+    const popupCookie = await controller.executeAgentAction(WORKSPACE_ID, {
+      kind: 'text',
+      target: { type: 'selector', selector: '#popup-cookie' },
+    });
+    if (!String(popupCookie).includes('moxxy-popup-session=shared')) {
+      throw new Error(`popup did not share the persistent session: ${String(popupCookie)}`);
+    }
+    const popupView = views.at(-1);
+    if (!popupView) throw new Error('window.open popup view was not adopted');
+    await popupView.webContents.executeJavaScript('window.close()', true);
+    await waitForTabs(controller, 1);
+
+    await controller.navigate({
+      workspaceId: WORKSPACE_ID,
+      tabId: opened.activeTabId,
+      url: `${TEST_ORIGIN}/popup-form`,
+    });
+    await firstView.webContents.executeJavaScript(
+      'document.querySelector("#popup-form").requestSubmit()',
+      true,
+    );
+    await waitForTabs(controller, 2);
+    const formMethod = await controller.executeAgentAction(WORKSPACE_ID, {
+      kind: 'text',
+      target: { type: 'selector', selector: '#request-method' },
+    });
+    assertEqual(formMethod, 'POST', 'target=_blank form method');
+    const formPopupView = views.at(-1);
+    if (!formPopupView) throw new Error('target=_blank form view was not adopted');
+    await formPopupView.webContents.executeJavaScript('window.close()', true);
+    await waitForTabs(controller, 1);
+    await progress('popup-lifecycle-complete');
+
     const second = await controller.newTab({
       workspaceId: WORKSPACE_ID,
       url: `${TEST_ORIGIN}/heavy`,
@@ -265,7 +324,7 @@ async function run(): Promise<void> {
     await progress('hidden-operation-complete');
 
     await controller.setVisible({ workspaceId: WORKSPACE_ID, visible: true });
-    const heavyView = views[1];
+    const heavyView = views.at(-1);
     if (!heavyView) throw new Error('heavy-page WebContentsView was not created');
     const nativeMedianCpu = await measureMedianAppCpu();
     const legacyMedianCpu = await measureMedianAppCpu(async () => {
@@ -305,6 +364,7 @@ async function run(): Promise<void> {
       captureMs: round(captureMs),
       captureBytes: Buffer.from(capture.base64, 'base64').byteLength,
       fullPageHeight: fullPageSize.height,
+      popupLifecycle: true,
       regionBytes: Buffer.from(region.base64, 'base64').byteLength,
       nativeMedianCpu: round(nativeMedianCpu),
       legacyMedianCpu: round(legacyMedianCpu),
@@ -328,7 +388,7 @@ async function run(): Promise<void> {
   }
 }
 
-function testPage(pathname: string): string {
+function testPage(pathname: string, method = 'GET'): string {
   if (pathname === '/network-idle') {
     return `<!doctype html><html><head><title>Network idle</title></head><body><output id="network-status">waiting</output><script>fetch('/slow-resource').then(response => response.text()).then(value => { document.querySelector('#network-status').textContent = value; });</script></body></html>`;
   }
@@ -337,6 +397,18 @@ function testPage(pathname: string): string {
       '',
     );
     return `<!doctype html><html><head><title>Heavy</title></head><body><h1 id="headline">Heavy native page</h1><ul>${rows}</ul></body></html>`;
+  }
+  if (pathname === '/popup-opener') {
+    return `<!doctype html><html><head><title>Popup opener</title></head><body><a id="popup-link" href="${TEST_ORIGIN}/popup-target" target="_blank">Open popup</a></body></html>`;
+  }
+  if (pathname === '/popup-target') {
+    return `<!doctype html><html><head><title>Popup target</title></head><body><h1 id="popup-heading">Visible popup</h1><output id="popup-cookie"></output><script>document.querySelector('#popup-cookie').textContent = document.cookie;</script></body></html>`;
+  }
+  if (pathname === '/popup-form') {
+    return `<!doctype html><html><head><title>Popup form</title></head><body><form id="popup-form" action="${TEST_ORIGIN}/popup-form-result" method="post" target="_blank"><input name="message" value="preserve-me"><button type="submit">Submit</button></form></body></html>`;
+  }
+  if (pathname === '/popup-form-result') {
+    return `<!doctype html><html><head><title>Popup form result</title></head><body><output id="request-method">${method}</output></body></html>`;
   }
   return `<!doctype html><html><head><title>Form</title><style>body{min-height:6000px;font:16px sans-serif}input{width:420px}</style></head><body><h1>Native form</h1><label for="message">Message</label><input id="message"><button id="apply">Apply</button><output id="result"></output><output id="input-trusted"></output><output id="click-trusted"></output><div style="height:5500px"></div><p>End of page</p><script>message.addEventListener('input', event => { document.querySelector('#input-trusted').textContent = String(event.isTrusted); }); apply.addEventListener('click', event => { result.textContent = message.value; document.querySelector('#click-trusted').textContent = String(event.isTrusted); });</script></body></html>`;
 }
@@ -437,4 +509,25 @@ async function assertNoHeadlessShellDescendant(): Promise<void> {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTabs(
+  controller: ElectronNativeBrowserController,
+  count: number,
+): Promise<{ readonly activeTabId: string; readonly tabs: ReadonlyArray<{ readonly id: string }> }> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const value = await controller.executeAgentAction(WORKSPACE_ID, { kind: 'tabs' });
+    if (isTabSnapshot(value) && value.tabs.length === count) return value;
+    await delay(25);
+  }
+  throw new Error(`timed out waiting for ${count} Moxxy Browser tabs`);
+}
+
+function isTabSnapshot(
+  value: unknown,
+): value is { readonly activeTabId: string; readonly tabs: ReadonlyArray<{ readonly id: string }> } {
+  if (!value || typeof value !== 'object') return false;
+  const snapshot = value as { activeTabId?: unknown; tabs?: unknown };
+  return typeof snapshot.activeTabId === 'string' && Array.isArray(snapshot.tabs);
 }

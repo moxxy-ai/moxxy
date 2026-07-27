@@ -24,6 +24,18 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, desktop/browser-popup, RESOLVED 2026-07-27] The native popup handler
+  discarded Electron's `createWindow(options)` object and returned a separately
+  allocated `webContents`, which crashed real `window.open`, `target=_blank`,
+  POST-form, and OAuth flows with `Invalid webContents` while the fake accepted
+  an argument-free callback. Popup tabs now adopt Electron's exact guest,
+  preserve opener/session/POST navigation, enforce sandboxed preferences,
+  support foreground, background, nested, `about:blank`, page-close and
+  user-close lifecycles, and roll back failed creation without orphan tabs.
+  The real Electron smoke exercises shared cookies, self-close and a POST form,
+  while the fake mirrors the production callback ownership contract.
+  `apps/desktop/electron/main/native-browser-controller.ts`,
+  `apps/desktop/{electron/main/native-browser-controller.test.ts,scripts/native-browser-electron-smoke.ts}`.
 - [high, browser/tool-contract, RESOLVED 2026-07-27] The generated provider
   schema exposed both the legacy top-level `selector` and the canonical
   `target`, so real model calls could send both and fail validation before any
