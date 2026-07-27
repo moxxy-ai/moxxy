@@ -127,7 +127,20 @@ async function runDoctorChecks(deps: DoctorChecksDeps): Promise<number> {
     return vault.sourceName;
   });
   if (vaultRes.ok) {
-    checks.push({ id: 'vault', status: 'ok', message: `unlocked via ${vaultRes.value}` });
+    // Name the posture, not just the mechanism. A generated key protects a key
+    // from leaking through config in git, a transcript, or a log, which is the
+    // threat this vault addresses; it does not protect against someone who can
+    // already read a 0600 file in this user's home. The OS keychain and a
+    // passphrase both raise that bar, so say so once rather than leaving the
+    // user to infer it from the word "file:".
+    const source = vaultRes.value;
+    const note =
+      source === 'generated' || source.startsWith('file:')
+        ? colors.dim(
+            ' (key stored beside the vault; an OS keychain or `vault.requirePassphrase: true` raises the bar)',
+          )
+        : '';
+    checks.push({ id: 'vault', status: 'ok', message: `unlocked via ${source}${note}` });
   } else {
     checks.push({
       id: 'vault',
