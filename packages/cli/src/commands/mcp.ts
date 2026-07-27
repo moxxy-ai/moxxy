@@ -1,9 +1,11 @@
+// Subpath, not the barrel: the barrel loads the MCP SDK (and its ~200 KB ajv
+// dependency) for a command that only reads and edits ~/.moxxy/mcp.json.
 import {
   mcpConfigPath,
   readMcpConfig,
   removeServerFromConfig,
   setServerDisabled,
-} from '@moxxy/plugin-mcp';
+} from '@moxxy/plugin-mcp/config-io';
 import type { ParsedArgv } from '../argv.js';
 import { helpRequested } from '../argv-helpers.js';
 import { colors } from '../colors.js';

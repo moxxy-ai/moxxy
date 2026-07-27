@@ -30,6 +30,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./config-io": {
+      "types": "./dist/admin/config-io.d.ts",
+      "import": "./dist/admin/config-io.js"
     }
   },
   "files": [

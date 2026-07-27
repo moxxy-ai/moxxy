@@ -30,6 +30,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./key-name": {
+      "types": "./dist/key-name.d.ts",
+      "import": "./dist/key-name.js"
     }
   },
   "files": [

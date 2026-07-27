@@ -1,3 +1,11 @@
+/**
+ * Exported as its own entry point (`@moxxy/plugin-mcp/config-io`), NOT only
+ * through the package barrel: the barrel loads the MCP client runtime and with
+ * it `@modelcontextprotocol/sdk` and `ajv`. Surfaces that merely read or edit
+ * `~/.moxxy/mcp.json` (the `moxxy mcp` command) must not pay for that, so keep
+ * this file's imports confined to node builtins, `@moxxy/sdk`, and local
+ * schema/type modules.
+ */
 import { promises as fs } from 'node:fs';
 import { assertDefined, createMutex } from '@moxxy/sdk';
 import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';

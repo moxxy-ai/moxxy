@@ -1,5 +1,7 @@
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { providerApiKeyName } from '@moxxy/plugin-provider-admin';
+// Subpath, not the barrel: the barrel pulls in the OpenAI SDK (see key-name.ts).
+// Subpath, not the barrel: the barrel pulls in the OpenAI SDK (see key-name.ts).
+import { providerApiKeyName } from '@moxxy/plugin-provider-admin/key-name';
 import { MoxxyError } from '@moxxy/sdk';
 import * as readline from 'node:readline/promises';
 
