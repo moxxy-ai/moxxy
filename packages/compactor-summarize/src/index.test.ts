@@ -327,6 +327,27 @@ describe('summarizeCompactor', () => {
     expect(result.turnId).toBe('t1');
   });
 
+  it('never compacts the explicitly active turn and ignores compaction events when counting recent turns', async () => {
+    const compactor = createSummarizeCompactor({ keepRecentTurns: 1 });
+    const events: MoxxyEvent[] = [
+      ev(0, 'old-1', 'old one'),
+      ev(1, 'old-2', 'old two'),
+      compaction(2, [0, 0], 'old-1'),
+      ev(3, 'active', 'the active user task must remain verbatim'),
+    ];
+
+    const result = await compactor.compact(events, {
+      log: { length: events.length, at: (seq) => events[seq], slice: () => events, ofType: () => [], byTurn: () => [], toJSON: () => events },
+      budget: { contextWindow: 100_000, estimatedTokens: 90_000, reserveForOutput: 0 },
+      signal: new AbortController().signal,
+      activeTurnId: 'active',
+    } as never);
+
+    expect(result.replacedRange).toEqual([1, 1]);
+    expect(result.summary).toContain('old two');
+    expect(result.summary).not.toContain('active user task');
+  });
+
   it('treats a NaN thresholdRatio as the 0.75 default so compaction still fires', () => {
     const compactor = createSummarizeCompactor({ thresholdRatio: Number.NaN });
     // estimatedTokens 80k of a 100k window > 0.75*100k → compaction triggers.

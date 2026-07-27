@@ -16,6 +16,7 @@ import type {
   ToolDef,
   ToolRuntimeCapabilities,
 } from './tool.js';
+import type { ToolResultContextPolicy } from './events.js';
 import type { ToolIsolationSpec } from './isolation.js';
 import type { TranscriberDef } from './transcriber.js';
 import type { SynthesizerDef } from './synthesizer.js';
@@ -52,6 +53,10 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
   hosted?: HostedTool;
   permission?: PermissionRule;
   handler: (input: z.output<S>, ctx: ToolContext) => Promise<O> | O;
+  contextPolicy?: (
+    input: z.output<S>,
+    output: O,
+  ) => ToolResultContextPolicy | undefined;
   compact?: ToolCompactPresentation;
   isolation?: ToolIsolationSpec;
 }): ToolDef {
@@ -65,6 +70,7 @@ export function defineTool<S extends z.ZodTypeAny, O = unknown>(spec: {
     hosted: spec.hosted,
     permission: spec.permission,
     handler: spec.handler as (input: unknown, ctx: ToolContext) => Promise<unknown> | unknown,
+    contextPolicy: spec.contextPolicy as ToolDef['contextPolicy'],
     compact: spec.compact,
     isolation: spec.isolation,
   });

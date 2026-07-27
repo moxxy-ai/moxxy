@@ -3,17 +3,20 @@
  * one-to-one with the wire-format methods documented in `sidecar.ts`.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { BrowserTarget } from '../browser-action.js';
 import {
   buildBrowserObservationScript,
+  buildBrowserInspectScript,
   buildBrowserRefPointScript,
   buildBrowserRefValidationScript,
   buildBrowserSelectorPointScript,
   buildSanitizedDocumentHtmlScript,
   formatBrowserObservationForModel,
   parseBrowserObservation,
+  withBrowserObservationDelta,
+  type BrowserObservation,
   type BrowserObservationTarget,
 } from '../browser-observation.js';
 import { assertPublicUrl } from '../ssrf-guard.js';
@@ -52,6 +55,7 @@ const observationRegistries = new WeakMap<
   PageHandle,
   Map<string, ReadonlyMap<string, BrowserObservationTarget>>
 >();
+const previousObservations = new WeakMap<PageHandle, BrowserObservation>();
 
 export interface SidecarState {
   handle: PlaywrightHandle | null;
@@ -203,7 +207,7 @@ async function selectorForTarget(page: PageHandle, target: BrowserTarget): Promi
   const revision = observations?.get(target.revision);
   const stored = revision?.get(target.ref);
   if (!stored) throw badParams('STALE_BROWSER_STATE: observe the page again');
-  const current = await page.evaluate(buildBrowserRefValidationScript(target.revision));
+  const current = await page.evaluate(buildBrowserRefValidationScript(stored, target.revision));
   if (current !== true) throw badParams('STALE_BROWSER_STATE: observe the page again');
   if (!stored.selector) throw badParams('ELEMENT_NOT_INTERACTABLE: selector target required');
   return stored.selector;
@@ -288,7 +292,7 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
     }
     case 'observe': {
       const { mode, maxNodes, maxTextChars, tabId } = (req.params ?? {}) as {
-        mode?: 'semantic' | 'visual' | 'hybrid';
+        mode?: 'auto' | 'semantic' | 'visual' | 'hybrid';
         maxNodes?: number;
         maxTextChars?: number;
         tabId?: string;
@@ -300,39 +304,67 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
         ),
       );
       rememberObservation(target.page, parsed.observation.revision, parsed.targets);
-      const nodes = mode === 'visual' ? [] : parsed.observation.nodes;
-      if (mode === 'visual' || mode === 'hybrid') {
-        const image = await target.page.screenshot({
-          type: 'png',
-          fullPage: false,
-          timeout: SCREENSHOT_TIMEOUT_MS,
-        });
+      const previous = previousObservations.get(target.page);
+      const effectiveMode = mode === 'auto' || mode === undefined
+        ? (!previous || parsed.observation.visualSurface || parsed.observation.nodes.length < 8
+            ? 'hybrid'
+            : 'semantic')
+        : mode;
+      const nodes = effectiveMode === 'visual' ? [] : parsed.observation.nodes;
+      if (effectiveMode === 'visual' || effectiveMode === 'hybrid') {
+        const image = await captureModelScreenshot(target.page);
+        const current: BrowserObservation = {
+          ...parsed.observation,
+          stateVersion: 3,
+          domRevision: parsed.observation.revision,
+          visualRevision: createHash('sha256').update(image).digest('hex').slice(0, 24),
+          nodes,
+        };
+        const hasNewVisualState = previous?.visualRevision !== current.visualRevision;
+        const observation = withBrowserObservationDelta(previous, current);
+        previousObservations.set(target.page, current);
         return {
           id: req.id,
           ok: true,
           result: {
-            ...parsed.observation,
-            nodes,
+            ...observation,
             tabId: target.tabId,
-            mediaType: 'image/png',
-            base64: image.toString('base64'),
-            forModel: formatBrowserObservationForModel({
-              ...parsed.observation,
-              nodes,
-            }),
+            ...(hasNewVisualState
+              ? { mediaType: 'image/jpeg', base64: image.toString('base64') }
+              : {}),
+            forModel: formatBrowserObservationForModel(observation),
           },
         };
       }
+      const current: BrowserObservation = {
+        ...parsed.observation,
+        stateVersion: 3,
+        domRevision: parsed.observation.revision,
+        nodes,
+      };
+      const observation = withBrowserObservationDelta(previous, current);
+      previousObservations.set(target.page, current);
       return {
         id: req.id,
         ok: true,
         result: {
-          ...parsed.observation,
-          nodes,
+          ...observation,
           tabId: target.tabId,
-          forModel: formatBrowserObservationForModel({ ...parsed.observation, nodes }),
+          forModel: formatBrowserObservationForModel(observation),
         },
       };
+    }
+    case 'inspect': {
+      const { target: requestedTarget, tabId } = (req.params ?? {}) as {
+        target?: BrowserTarget;
+        tabId?: string;
+      };
+      if (!requestedTarget) throw badParams('inspect target is required');
+      const target = await resolvePage(state, tabId);
+      const resolved = await resolveBrowserTarget(target.page, requestedTarget);
+      const inspection = await target.page.evaluate(buildBrowserInspectScript(resolved));
+      if (!inspection) throw badParams('ELEMENT_NOT_FOUND: inspect target is unavailable');
+      return { id: req.id, ok: true, result: { tabId: target.tabId, inspection } };
     }
     case 'hover': {
       const { target: requestedTarget, tabId } = (req.params ?? {}) as {
@@ -729,4 +761,18 @@ async function dispatchInner(state: SidecarState, req: Req): Promise<Reply> {
         error: { message: `unknown method: ${req.method}`, kind: 'runtime' },
       };
   }
+}
+
+async function captureModelScreenshot(page: PageHandle): Promise<Buffer> {
+  let image: Buffer = Buffer.alloc(0);
+  for (const quality of [78, 64, 50, 36]) {
+    image = await page.screenshot({
+      type: 'jpeg',
+      quality,
+      fullPage: false,
+      timeout: SCREENSHOT_TIMEOUT_MS,
+    });
+    if (image.length <= 500 * 1024) break;
+  }
+  return image;
 }

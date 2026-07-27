@@ -6,6 +6,25 @@ import {
 } from './browser-action.js';
 
 describe('browserSessionActionSchema computer-use contract', () => {
+  it('uses protocol v3 and accepts auto observation with inspection', async () => {
+    const { NATIVE_BROWSER_PROTOCOL_VERSION } = await import('./browser-action.js');
+    expect(NATIVE_BROWSER_PROTOCOL_VERSION).toBe(3);
+    expect(browserSessionActionSchema.parse({ kind: 'observe', mode: 'auto' })).toEqual({
+      kind: 'observe', mode: 'auto',
+    });
+    expect(browserSessionActionSchema.parse({
+      kind: 'inspect',
+      target: { type: 'ref', ref: 'b2', revision: 'rev-2' },
+    })).toMatchObject({ kind: 'inspect' });
+  });
+
+  it('accepts a postcondition on mutating actions', () => {
+    expect(browserSessionActionSchema.parse({
+      kind: 'click',
+      target: { type: 'selector', selector: '#save' },
+      expect: { type: 'text', text: 'Saved' },
+    })).toMatchObject({ expect: { type: 'text', text: 'Saved' } });
+  });
   it('accepts a bounded semantic observation request', () => {
     expect(
       browserSessionActionSchema.parse({

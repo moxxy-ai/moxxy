@@ -8,6 +8,9 @@ export const BROWSER_ERROR_CODES = [
   'USER_TAKEOVER',
   'USER_ABORTED',
   'TIMEOUT',
+  'UNRELIABLE_TARGET',
+  'NO_STATE_CHANGE',
+  'VERIFICATION_FAILED',
 ] as const;
 
 export type BrowserErrorCode = (typeof BROWSER_ERROR_CODES)[number];
@@ -67,6 +70,15 @@ export function browserErrorDetails(error: unknown): BrowserErrorDetails {
   }
   if (/timeout|timed out/i.test(message)) {
     return { code: 'TIMEOUT', message, nextAction: 'observe', retryable: true };
+  }
+  if (/UNRELIABLE_TARGET/i.test(message)) {
+    return { code: 'UNRELIABLE_TARGET', message, nextAction: 'observe', retryable: true };
+  }
+  if (/NO_STATE_CHANGE/i.test(message)) {
+    return { code: 'NO_STATE_CHANGE', message, nextAction: 'observe', retryable: true };
+  }
+  if (/VERIFICATION_FAILED/i.test(message)) {
+    return { code: 'VERIFICATION_FAILED', message, nextAction: 'observe', retryable: true };
   }
   return {
     code: 'INVALID_BROWSER_ACTION',

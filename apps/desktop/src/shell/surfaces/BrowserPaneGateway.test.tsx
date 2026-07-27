@@ -38,7 +38,7 @@ const compatibleSessionInfo = {
       name: 'browser_session',
       description: 'Shared browser',
       capabilities: {
-        nativeBrowserProtocol: 2,
+        nativeBrowserProtocol: 3,
         backends: 'native,playwright',
         sharedDesktopSession: true,
       },

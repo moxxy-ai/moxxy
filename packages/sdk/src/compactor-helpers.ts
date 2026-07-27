@@ -12,6 +12,10 @@ import type { EmittedEvent, MoxxyEvent } from './events.js';
 import type { EventLogReader } from './log.js';
 import type { ModeContext } from './mode.js';
 import type { LLMProvider } from './provider.js';
+import {
+  latestToolResultContextSeq,
+  supersededToolResult,
+} from './tool-result-context.js';
 
 /**
  * Cheap, no-network estimate of how many tokens the current event log
@@ -42,6 +46,7 @@ export function estimateContextTokens(
   // is actually sent — pinned recalls / never-elide / tiny turns counted full,
   // not undercounted (which would let the context overflow before compaction).
   const el = precomputedElisionState ?? computeElisionState(events);
+  const latestContextSeq = latestToolResultContextSeq(events);
   let chars = 0;
   // Collect each compaction's covered range as a [from, to] interval rather
   // than materializing every covered seq into a Set — replacedRange can span
@@ -59,6 +64,13 @@ export function estimateContextTokens(
     compactedRanges.some(([from, to]) => seq >= from && seq <= to);
   for (const e of events) {
     if (isCompacted(e.seq)) continue;
+    if (e.type === 'tool_result') {
+      const superseded = supersededToolResult(e, latestContextSeq);
+      if (superseded !== null) {
+        chars += superseded.length;
+        continue;
+      }
+    }
     if (e.type === 'tool_result' && toolResultStubbed(e, el)) {
       const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
       chars += toolResultStub(e.callId, toolResultBytes(e.output), recalled).length;
@@ -255,6 +267,7 @@ export async function runCompactionIfNeeded(
       // when no provider is reachable).
       provider: ctx.provider,
       model: ctx.model,
+      activeTurnId: ctx.turnId,
     });
     if (result.tokensSaved <= 0 || result.summary.trim().length === 0) return false;
     // `compactor.compact` declares `Omit<CompactionEvent, keyof EventBase>`,

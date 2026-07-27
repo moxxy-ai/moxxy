@@ -180,4 +180,66 @@ describe('projectMessagesFromLog tool_result stringify hardening', () => {
   it('passes a string output through verbatim', () => {
     expect(toolResultText(logWith('plain text'))).toBe('plain text');
   });
+
+  it('keeps tool pairing but replaces older model-visible state for the same context key', () => {
+    const events: MoxxyEvent[] = [
+      event(0, { type: 'user_prompt', turnId: t1, source: 'user', text: 'inspect the page' }),
+      event(1, {
+        type: 'tool_call_requested',
+        turnId: t1,
+        source: 'model',
+        callId: 'observe-1',
+        name: 'browser_session',
+        input: { action: { kind: 'observe' } },
+      }),
+      event(2, {
+        type: 'tool_result',
+        turnId: t1,
+        source: 'tool',
+        callId: 'observe-1',
+        ok: true,
+        output: { mediaType: 'image/jpeg', base64: 'OLD_PIXELS', forModel: 'old page state' },
+        contextPolicy: { mode: 'replace_previous', key: 'browser:tab-1' },
+      } as never),
+      event(3, {
+        type: 'tool_call_requested',
+        turnId: t1,
+        source: 'model',
+        callId: 'observe-2',
+        name: 'browser_session',
+        input: { action: { kind: 'observe' } },
+      }),
+      event(4, {
+        type: 'tool_result',
+        turnId: t1,
+        source: 'tool',
+        callId: 'observe-2',
+        ok: true,
+        output: { mediaType: 'image/jpeg', base64: 'NEW_PIXELS', forModel: 'current page state' },
+        contextPolicy: { mode: 'replace_previous', key: 'browser:tab-1' },
+      } as never),
+    ];
+
+    const results = projectMessagesFromLog({ log: reader(events) }).filter(
+      (message) => message.role === 'tool_result',
+    );
+    expect(results).toHaveLength(2);
+    expect(results[0]?.content).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'observe-1',
+        content: '[state superseded by a newer observation for "browser:tab-1"]',
+        isError: false,
+      },
+    ]);
+    expect(results[1]?.content).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'observe-2',
+        content: 'current page state',
+        isError: false,
+      },
+      { type: 'image', mediaType: 'image/jpeg', data: 'NEW_PIXELS' },
+    ]);
+  });
 });

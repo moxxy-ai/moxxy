@@ -24,6 +24,27 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [high, browser/context-and-state, RESOLVED 2026-07-27] Multimodal browser
+  results were costed from base64 text length, old screenshots remained in the
+  model projection, and compaction could replace the active turn after counting
+  earlier compaction records as conversation turns. Tool results now carry an
+  additively typed replace-previous context policy keyed by browser tab; model
+  projection retains only the newest state while preserving call/result audit
+  stubs, and image accounting uses bounded multimodal cost rather than encoded
+  byte length. Compactors receive the active turn ID, ignore compaction records
+  when selecting recent turns, and never compact current work. Browser State v3
+  adds stable full/diff observations, DOM and visual revisions, removed refs,
+  focus, selection, overlays, canvas detection, bounded JPEG evidence, CDP
+  hit-testing, safe inspection and atomic postcondition verification. A bundled
+  playbook prevents unverified completion claims and stale coordinate reuse.
+  Document identity is independent of observation limits and unrelated SPA
+  mutations: exact DOM identity plus native CDP hit-testing keeps a live target
+  usable without weakening navigation, user-takeover, detached-node or
+  replacement-node protection. Retry accounting normalizes transient revision
+  tokens so observe/retry loops stop after two equivalent failures, and a
+  postcondition already true before an action is no longer accepted as proof.
+  `packages/{sdk,compactor-summarize,plugin-browser}/src/`,
+  `packages/plugin-browser/skills/`, `apps/desktop/electron/main/`.
 - [high, desktop/browser-popup, RESOLVED 2026-07-27] The native popup handler
   discarded Electron's `createWindow(options)` object and returned a separately
   allocated `webContents`, which crashed real `window.open`, `target=_blank`,

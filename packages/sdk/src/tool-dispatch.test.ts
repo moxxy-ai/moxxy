@@ -93,6 +93,34 @@ describe('dispatchToolCall — orphan prevention', () => {
     expect(result?.ok).toBe(true);
   });
 
+  it('persists a valid replace_previous policy from the concrete tool definition', async () => {
+    const { ctx, events } = makeCtx({ execute: () => ({ tabId: 'tab-1', revision: 'rev-2' }) });
+    (ctx.tools as unknown as { get: () => unknown }).get = () => ({
+      contextPolicy: () => ({ mode: 'replace_previous', key: 'browser:tab-1' }),
+    });
+
+    await drain(dispatchToolCall(ctx, tool, 0));
+
+    expect(events.find((event) => event.type === 'tool_result')).toMatchObject({
+      ok: true,
+      contextPolicy: { mode: 'replace_previous', key: 'browser:tab-1' },
+    });
+  });
+
+  it('does not fail an executed tool when its optional context policy throws', async () => {
+    const { ctx, events } = makeCtx({ execute: () => 'completed side effect' });
+    (ctx.tools as unknown as { get: () => unknown }).get = () => ({
+      contextPolicy: () => { throw new Error('presentation hint failed'); },
+    });
+
+    await drain(dispatchToolCall(ctx, tool, 0));
+
+    expect(events.find((event) => event.type === 'tool_result')).toMatchObject({
+      ok: true,
+      output: 'completed side effect',
+    });
+  });
+
   it('synthesizes a failed result when the hook throws (no orphan)', async () => {
     const { ctx, events } = makeCtx({
       verdict: () => {

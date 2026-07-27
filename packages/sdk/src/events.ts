@@ -128,11 +128,17 @@ export interface ToolCallDeniedEvent extends EventBase {
   readonly reason: string;
 }
 
+export interface ToolResultContextPolicy {
+  readonly mode: 'replace_previous';
+  readonly key: string;
+}
+
 export interface ToolResultEvent extends EventBase {
   readonly type: 'tool_result';
   readonly callId: ToolCallId;
   readonly ok: boolean;
   readonly output?: unknown;
+  readonly contextPolicy?: ToolResultContextPolicy;
   readonly error?: { message: string; kind: 'aborted' | 'threw' | 'denied' | 'timeout' };
 }
 

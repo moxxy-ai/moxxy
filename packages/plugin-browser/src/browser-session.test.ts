@@ -90,8 +90,13 @@ function makeFakeSpawn(handler: (req: { id: string; method: string; params?: unk
 
 describe('browser_session tool (sidecar protocol)', () => {
   it('drives `goto` and returns the result', async () => {
+    let revision = 0;
     const { spawn, receivedRequests } = makeFakeSpawn((req) => {
-      if (req.method === 'goto') return { url: (req.params as { url: string }).url };
+      if (req.method === 'observe') return { revision: `rev-${revision}`, nodes: [] };
+      if (req.method === 'goto') {
+        revision += 1;
+        return { url: (req.params as { url: string }).url };
+      }
       return null;
     });
 
@@ -100,22 +105,26 @@ describe('browser_session tool (sidecar protocol)', () => {
       { action: { kind: 'goto', url: 'https://example.com' } },
       baseCtx(),
     );
-    expect(out).toEqual({
-      url: 'https://example.com',
-      verificationRequired: true,
-      nextAction: 'observe',
+    expect(out).toMatchObject({
+      actionResult: { url: 'https://example.com' },
+      status: 'changed_but_unverified',
+      diff: { changed: true },
     });
-    expect(receivedRequests).toHaveLength(1);
-    const first = receivedRequests[0];
-    assertDefined(first, 'receivedRequests has length 1');
-    expect(first.method).toBe('goto');
+    expect(receivedRequests.map(({ method }) => method)).toEqual([
+      'observe', 'goto', 'observe', 'observe',
+    ]);
 
     await closeBrowserSidecar();
   });
 
   it('drives `text` after `goto` on the same sidecar (shared page)', async () => {
+    let revision = 0;
     const { spawn, receivedRequests } = makeFakeSpawn((req) => {
-      if (req.method === 'goto') return { url: 'https://x' };
+      if (req.method === 'observe') return { revision: `rev-${revision}`, nodes: [] };
+      if (req.method === 'goto') {
+        revision += 1;
+        return { url: 'https://x' };
+      }
       if (req.method === 'text') return 'hello world';
       return null;
     });
@@ -124,14 +133,21 @@ describe('browser_session tool (sidecar protocol)', () => {
     await tool.handler({ action: { kind: 'goto', url: 'https://x' } }, baseCtx());
     const text = await tool.handler({ action: { kind: 'text', selector: 'main' } }, baseCtx());
     expect(text).toBe('hello world');
-    expect(receivedRequests.map((r) => r.method)).toEqual(['goto', 'text']);
+    expect(receivedRequests.map((r) => r.method)).toEqual([
+      'observe', 'goto', 'observe', 'observe', 'text',
+    ]);
 
     await closeBrowserSidecar();
   });
 
   it('forwards eval expression to the sidecar', async () => {
+    let revision = 0;
     const { spawn, receivedRequests } = makeFakeSpawn((req) => {
-      if (req.method === 'eval') return 42;
+      if (req.method === 'observe') return { revision: `rev-${revision}`, nodes: [] };
+      if (req.method === 'eval') {
+        revision += 1;
+        return 42;
+      }
       return null;
     });
     const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
@@ -139,22 +155,24 @@ describe('browser_session tool (sidecar protocol)', () => {
       { action: { kind: 'eval', expression: '1 + 41' } },
       baseCtx(),
     );
-    expect(out).toEqual({
-      result: 42,
-      verificationRequired: true,
-      nextAction: 'observe',
+    expect(out).toMatchObject({
+      actionResult: 42,
+      status: 'changed_but_unverified',
+      diff: { changed: true },
     });
-    const first = receivedRequests[0];
-    assertDefined(first, 'sidecar received the eval request');
-    expect((first.params as { expression: string }).expression).toBe('1 + 41');
+    const evalRequest = receivedRequests.find(({ method }) => method === 'eval');
+    assertDefined(evalRequest, 'sidecar received the eval request');
+    expect((evalRequest.params as { expression: string }).expression).toBe('1 + 41');
     await closeBrowserSidecar();
   });
 
   it('forwards observe and generic computer-use actions through the same sidecar', async () => {
+    let revision = 1;
     const { spawn, receivedRequests } = makeFakeSpawn((req) => {
       if (req.method === 'observe') {
-        return { revision: 'rev-1', nodes: [{ ref: 'b1', role: 'button', name: 'Send' }] };
+        return { revision: `rev-${revision}`, nodes: [{ ref: 'b1', role: 'button', name: 'Send' }] };
       }
+      if (req.method === 'click' || req.method === 'press') revision += 1;
       return { ok: true };
     });
     const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
@@ -177,19 +195,23 @@ describe('browser_session tool (sidecar protocol)', () => {
       baseCtx(),
     );
 
-    expect(receivedRequests.map(({ method }) => method)).toEqual([
-      'observe',
-      'click',
-      'press',
+    expect(receivedRequests.filter(({ method }) => method !== 'observe').map(({ method }) => method)).toEqual([
+      'click', 'press',
     ]);
-    expect(receivedRequests[1]?.params).toMatchObject({
+    const click = receivedRequests.find(({ method }) => method === 'click');
+    expect(click?.params).toMatchObject({
       target: { type: 'ref', ref: 'b1', revision: 'rev-1' },
     });
     await closeBrowserSidecar();
   });
 
   it('forwards complete form, wait, and navigation actions', async () => {
-    const { spawn, receivedRequests } = makeFakeSpawn(() => ({ ok: true }));
+    let revision = 0;
+    const { spawn, receivedRequests } = makeFakeSpawn((req) => {
+      if (req.method === 'observe') return { revision: `rev-${revision}`, nodes: [] };
+      if (['select', 'upload', 'back', 'forward', 'reload'].includes(req.method)) revision += 1;
+      return { ok: true };
+    });
     const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
 
     await tool.handler(
@@ -226,7 +248,7 @@ describe('browser_session tool (sidecar protocol)', () => {
     await tool.handler({ action: { kind: 'forward' } }, baseCtx());
     await tool.handler({ action: { kind: 'reload' } }, baseCtx());
 
-    expect(receivedRequests.map(({ method }) => method)).toEqual([
+    expect(receivedRequests.filter(({ method }) => method !== 'observe').map(({ method }) => method)).toEqual([
       'select',
       'upload',
       'wait',
@@ -243,8 +265,8 @@ describe('browser_session tool (native desktop bridge)', () => {
     const tool = buildBrowserSessionTool({ nativeBridge: null });
     expect(tool.inputJsonSchema).toBeDefined();
     expect(tool.capabilities).toMatchObject({
-      nativeBrowserProtocol: 2,
-      actionSchema: 2,
+      nativeBrowserProtocol: 3,
+      actionSchema: 3,
       sharedDesktopSession: true,
     });
     const serialized = JSON.stringify(tool.inputJsonSchema);
@@ -318,7 +340,7 @@ describe('browser_session tool (native desktop bridge)', () => {
     expect(spawnFn).not.toHaveBeenCalled();
   });
 
-  it('opens a failure circuit after two identical browser failures until re-observe', async () => {
+  it('opens a failure circuit after two identical browser failures for the rest of the turn', async () => {
     const nativeBridge: NativeBrowserBridgeClient = {
       call: vi.fn(async (action) => {
         if (action.kind === 'observe') return { revision: 'rev-2', nodes: [] };
@@ -337,11 +359,49 @@ describe('browser_session tool (native desktop bridge)', () => {
     await expect(tool.handler(action, ctx)).rejects.toThrow(/ELEMENT_NOT_FOUND/);
     await expect(tool.handler(action, ctx)).rejects.toThrow(/repeated twice/i);
     await expect(tool.handler(action, ctx)).rejects.toThrow(/re-observe/i);
-    expect(nativeBridge.call).toHaveBeenCalledTimes(2);
+    expect(nativeBridge.call).toHaveBeenCalledTimes(4);
 
     await tool.handler({ action: { kind: 'observe' } }, ctx);
-    await expect(tool.handler(action, ctx)).rejects.toThrow(/ELEMENT_NOT_FOUND/);
-    expect(nativeBridge.call).toHaveBeenCalledTimes(4);
+    await expect(tool.handler(action, ctx)).rejects.toThrow(/re-observe/i);
+    expect(nativeBridge.call).toHaveBeenCalledTimes(5);
+  });
+
+  it('opens the failure circuit for the same logical ref action across fresh revisions', async () => {
+    let revision = 1;
+    const clicks: Array<{ readonly revision: string }> = [];
+    const nativeBridge: NativeBrowserBridgeClient = {
+      call: vi.fn(async (action) => {
+        if (action.kind === 'observe') {
+          return {
+            revision: `rev-${revision}`,
+            nodes: [{ ref: 'b129', role: 'button', name: 'Post na Instagram (4:5)' }],
+          };
+        }
+        if (action.kind === 'click') {
+          clicks.push({ revision: action.target.type === 'ref' ? action.target.revision : '' });
+          throw new Error('STALE_BROWSER_STATE: observe the page again');
+        }
+        return null;
+      }),
+    };
+    const tool = buildBrowserSessionTool({ nativeBridge });
+    const ctx = baseCtx();
+
+    await expect(tool.handler({
+      action: { kind: 'click', target: { type: 'ref', ref: 'b129', revision: 'rev-1' } },
+    }, ctx)).rejects.toThrow(/STALE_BROWSER_STATE/);
+    revision = 2;
+    await tool.handler({ action: { kind: 'observe', mode: 'semantic' } }, ctx);
+    await expect(tool.handler({
+      action: { kind: 'click', target: { type: 'ref', ref: 'b129', revision: 'rev-2' } },
+    }, ctx)).rejects.toThrow(/repeated twice/i);
+    revision = 3;
+    await tool.handler({ action: { kind: 'observe', mode: 'semantic' } }, ctx);
+    await expect(tool.handler({
+      action: { kind: 'click', target: { type: 'ref', ref: 'b129', revision: 'rev-3' } },
+    }, ctx)).rejects.toThrow(/re-observe/i);
+
+    expect(clicks).toEqual([{ revision: 'rev-1' }, { revision: 'rev-2' }]);
   });
 });
 
@@ -527,8 +587,13 @@ describe('browser_session SSRF guard (parent layer)', () => {
   });
 
   it('allows a public URL through to the sidecar', async () => {
+    let revision = 0;
     const { spawn, receivedRequests } = makeFakeSpawn((req) => {
-      if (req.method === 'goto') return { url: (req.params as { url: string }).url };
+      if (req.method === 'observe') return { revision: `rev-${revision}`, nodes: [] };
+      if (req.method === 'goto') {
+        revision += 1;
+        return { url: (req.params as { url: string }).url };
+      }
       return null;
     });
     const tool = buildBrowserSessionTool({ sidecarPath: '/fake.js', spawnFn: spawn });
@@ -536,12 +601,14 @@ describe('browser_session SSRF guard (parent layer)', () => {
       { action: { kind: 'goto', url: 'https://example.com/' } },
       baseCtx(),
     );
-    expect(out).toEqual({
-      url: 'https://example.com/',
-      verificationRequired: true,
-      nextAction: 'observe',
+    expect(out).toMatchObject({
+      actionResult: { url: 'https://example.com/' },
+      status: 'changed_but_unverified',
+      diff: { changed: true },
     });
-    expect(receivedRequests).toHaveLength(1);
+    expect(receivedRequests.map(({ method }) => method)).toEqual([
+      'observe', 'goto', 'observe', 'observe',
+    ]);
     await closeBrowserSidecar();
   });
 });

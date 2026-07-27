@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { injectNativeBrowserRouting } from './browser-routing.js';
 
@@ -33,5 +36,16 @@ describe('injectNativeBrowserRouting', () => {
 
     expect(routed.system).toContain('Keep this instruction.');
     expect(routed.system).toContain('Moxxy Browser');
+  });
+
+  it('ships the dedicated Moxxy Browser playbook declared by the plugin manifest', async () => {
+    const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    const skill = await readFile(path.join(packageRoot, 'skills', 'moxxy-browser.md'), 'utf8');
+
+    expect(skill).toContain('name: moxxy-browser');
+    expect(skill).toContain('tabs');
+    expect(skill).toContain('observe auto');
+    expect(skill).toContain('Do not say that the task is done');
+    expect(skill).toContain('canvas');
   });
 });

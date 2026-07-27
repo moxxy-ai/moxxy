@@ -292,6 +292,15 @@ export {
 } from './tool-dispatch.js';
 
 export type { TokenBudget, CompactContext, CompactorDef } from './compactor.js';
+export type { ToolResultContextPolicy } from './events.js';
+export {
+  imageToolResult,
+  latestToolResultContextSeq,
+  supersededToolResult,
+  supersededToolResultStub,
+  IMAGE_TOOL_RESULT_ESTIMATED_TOKENS,
+  type ImageToolResult,
+} from './tool-result-context.js';
 export {
   estimateContextTokens,
   runCompactionIfNeeded,

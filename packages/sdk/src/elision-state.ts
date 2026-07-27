@@ -1,5 +1,6 @@
 import type { MoxxyEvent } from './events.js';
 import { isToolDisplayResult } from './tool-display.js';
+import { imageToolResultChars } from './tool-result-context.js';
 
 /**
  * Shared elision decision logic — the single source of truth for "is this event
@@ -21,6 +22,8 @@ export function toolResultBytes(output: unknown, errorMessage?: string): number 
   // string to the model — measure THAT so the estimate matches projection
   // and the bulky `display` payload never trips elision.
   if (isToolDisplayResult(output)) return output.forModel.length;
+  const imageChars = imageToolResultChars(output);
+  if (imageChars !== null) return imageChars;
   try {
     return JSON.stringify(output ?? '').length;
   } catch {

@@ -12,6 +12,11 @@ import {
   type ElisionState,
 } from '../elision-state.js';
 import { isToolDisplayResult } from '../tool-display.js';
+import {
+  imageToolResult,
+  latestToolResultContextSeq,
+  supersededToolResult,
+} from '../tool-result-context.js';
 
 /**
  * Stringify an arbitrary tool output for the model-facing tool_result text.
@@ -42,31 +47,6 @@ function safeStringifyOutput(output: unknown): string {
  * the same provider `image` block so the model SEES the pixels instead of a
  * stringified blob of base64.
  */
-function imageBlockFromOutput(output: unknown): Extract<ContentBlock, { type: 'image' }> | null {
-  if (typeof output !== 'object' || output === null) return null;
-  const o = output as { type?: unknown; mediaType?: unknown; base64?: unknown; data?: unknown };
-  if (typeof o.mediaType !== 'string') return null;
-  // `{ mediaType, base64 }` (raw shape) or `{ type:'image', mediaType, data }`.
-  const data =
-    typeof o.base64 === 'string'
-      ? o.base64
-      : o.type === 'image' && typeof o.data === 'string'
-        ? o.data
-        : null;
-  if (data === null) return null;
-  return { type: 'image', mediaType: o.mediaType, data };
-}
-
-function imageToolText(output: unknown): string {
-  if (typeof output !== 'object' || output === null) {
-    return '[image returned by tool — see attached image]';
-  }
-  const forModel = (output as { forModel?: unknown }).forModel;
-  return typeof forModel === 'string' && forModel.trim()
-    ? forModel.slice(0, 32_000)
-    : '[image returned by tool — see attached image]';
-}
-
 /** Appended to the system prompt while elision is active (see projection). */
 export const ELISION_SYSTEM_NOTE =
   'Context note: to stay within budget, older turns may appear as stubs like ' +
@@ -327,6 +307,7 @@ export function projectMessages(
   // snapshot; otherwise `computeElisionState` is memoized on the log version so
   // the in-iteration projection still folds only once.
   const el = opts.precomputedElisionState ?? computeElisionState(allEvents);
+  const latestContextSeq = latestToolResultContextSeq(allEvents);
 
   const messages: ProviderMessage[] = [];
   // The stable prefix is every message produced from events at/below the
@@ -497,7 +478,10 @@ export function projectMessages(
         // provider `image` block so the model SEES the pixels — only when the
         // result isn't stubbed (elided) or an error and the call succeeded.
         let image: Extract<ContentBlock, { type: 'image' }> | null = null;
-        if (toolResultStubbed(e, el)) {
+        const superseded = supersededToolResult(e, latestContextSeq);
+        if (superseded !== null) {
+          text = superseded;
+        } else if (toolResultStubbed(e, el)) {
           const recalled = el.recalledCallIds.has(e.callId) || el.recalledSeqs.has(e.seq);
           text = toolResultStub(e.callId, toolResultBytes(e.output), recalled);
         } else if (e.error) {
@@ -506,10 +490,16 @@ export function projectMessages(
           // Rich result (e.g. a file diff): the model only needs the short
           // `forModel` summary — the structured `display` is for channels.
           text = e.output.forModel;
-        } else if (e.ok && (image = imageBlockFromOutput(e.output))) {
+        } else if (e.ok) {
+          const imageResult = imageToolResult(e.output);
+          if (imageResult !== null) {
+            image = { type: 'image', mediaType: imageResult.mediaType, data: imageResult.data };
+            text = imageResult.forModel;
+          } else {
+            text = safeStringifyOutput(e.output);
+          }
           // Bounded semantic context can accompany the image (for example
           // browser accessibility refs) without stringifying its base64 bytes.
-          text = imageToolText(e.output);
         } else {
           text = safeStringifyOutput(e.output);
         }

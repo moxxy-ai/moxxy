@@ -1,6 +1,7 @@
 import type { CompactionEvent, MoxxyEvent } from './events.js';
 import type { EventLogReader } from './log.js';
 import type { LLMProvider } from './provider.js';
+import type { TurnId } from './ids.js';
 
 export interface TokenBudget {
   readonly contextWindow: number;
@@ -21,6 +22,8 @@ export interface CompactContext {
    */
   readonly provider?: LLMProvider;
   readonly model?: string;
+  /** Turn currently being produced. Compactors must never replace it. */
+  readonly activeTurnId?: TurnId;
 }
 
 export interface CompactorDef {

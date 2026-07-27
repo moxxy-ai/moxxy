@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
@@ -27,12 +27,15 @@ import type { BrowserTarget } from '@moxxy/plugin-browser/browser-action';
 import {
   buildAccessibilityObservationNodes,
   buildBrowserObservationScript,
+  buildBrowserInspectScript,
   buildBrowserRefPointScript,
   buildBrowserRefValidationScript,
   buildBrowserSelectorPointScript,
   buildSanitizedDocumentHtmlScript,
   formatBrowserObservationForModel,
   parseBrowserObservation,
+  withBrowserObservationDelta,
+  type BrowserObservation,
   type BrowserObservationNode,
   type BrowserObservationTarget,
 } from '@moxxy/plugin-browser/browser-observation';
@@ -108,6 +111,11 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   private readonly observations = new WeakMap<
     WebContentsView,
     Map<string, ReadonlyMap<string, BrowserObservationTarget>>
+  >();
+  private readonly previousObservations = new WeakMap<WebContentsView, BrowserObservation>();
+  private readonly accessibilityRefs = new WeakMap<
+    WebContentsView,
+    { readonly refs: Map<string, string>; next: number }
   >();
   private readonly debuggerQueues = new WeakMap<WebContentsView, Promise<void>>();
   private readonly syntheticInputDepth = new WeakMap<WebContentsView, number>();
@@ -512,28 +520,56 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
           parsed.targets,
           accessibility.nodes,
           accessibility.targets,
+          parsed.observation.documentId,
         );
+        const hadObservation = (this.observations.get(view)?.size ?? 0) > 0;
+        const effectiveMode = action.mode === 'auto' || action.mode === undefined
+          ? (!hadObservation || parsed.observation.visualSurface || merged.nodes.length < 8
+              ? 'hybrid'
+              : 'semantic')
+          : action.mode;
         this.rememberObservation(view, parsed.observation.revision, merged.targets);
-        const nodes = action.mode === 'visual' ? [] : merged.nodes;
-        if (action.mode === 'visual' || action.mode === 'hybrid') {
-          const image = await this.withAgentOperation(view, () => view.webContents.capturePage());
-          return {
-            ...parsed.observation,
-            nodes,
-            tabId: target.id,
-            ...encodeCapture(image),
-            forModel: formatBrowserObservationForModel({
-              ...parsed.observation,
-              nodes,
-            }),
-          };
-        }
-        return {
+        const nodes = effectiveMode === 'visual' ? [] : merged.nodes;
+        const baseState: BrowserObservation = {
           ...parsed.observation,
+          stateVersion: 3 as const,
+          domRevision: parsed.observation.revision,
           nodes,
           tabId: target.id,
-          forModel: formatBrowserObservationForModel({ ...parsed.observation, nodes }),
+          loading: this.snapshot(workspaceId).tabs.find((tab) => tab.id === target.id)?.loading ?? false,
+          focusedRef: nodes.find((node) => node.focused)?.ref,
         };
+        if (effectiveMode === 'visual' || effectiveMode === 'hybrid') {
+          const image = await this.withAgentOperation(view, () => view.webContents.capturePage());
+          const capture = encodeModelCapture(image);
+          const current: BrowserObservation = {
+            ...baseState,
+            visualRevision: createHash('sha256').update(capture.base64).digest('hex').slice(0, 24),
+          };
+          const previous = this.previousObservations.get(view);
+          const hasNewVisualState = previous?.visualRevision !== current.visualRevision;
+          const state = withBrowserObservationDelta(previous, current);
+          this.previousObservations.set(view, current);
+          return {
+            ...state,
+            ...(hasNewVisualState ? capture : {}),
+            forModel: formatBrowserObservationForModel(state),
+          };
+        }
+        const state = withBrowserObservationDelta(this.previousObservations.get(view), baseState);
+        this.previousObservations.set(view, baseState);
+        return {
+          ...state,
+          forModel: formatBrowserObservationForModel(state),
+        };
+      }
+      case 'inspect': {
+        const target = this.captureTarget(workspaceId, action.tabId);
+        const view = this.mustView(workspaceId, target);
+        const resolved = await this.resolveBrowserTarget(view, action.target);
+        const inspection = await this.executeScript(view, buildBrowserInspectScript(resolved));
+        if (!inspection) throw new Error('ELEMENT_NOT_FOUND: inspect target is unavailable');
+        return { tabId: target.id, inspection };
       }
       case 'hover': {
         const target = this.captureTarget(workspaceId, action.tabId);
@@ -1416,8 +1452,33 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
           }
         }
       }
-      return buildAccessibilityObservationNodes(trees, bounds, maxNodes, startRef);
+      return buildAccessibilityObservationNodes(
+        trees,
+        bounds,
+        maxNodes,
+        startRef,
+        (frameId, backendDOMNodeId) => this.accessibilityRef(view, frameId, backendDOMNodeId),
+      );
     });
+  }
+
+  private accessibilityRef(
+    view: WebContentsView,
+    frameId: string,
+    backendDOMNodeId: number,
+  ): string {
+    let state = this.accessibilityRefs.get(view);
+    if (!state) {
+      state = { refs: new Map(), next: 50_000 };
+      this.accessibilityRefs.set(view, state);
+    }
+    const identity = `${frameId}:${backendDOMNodeId}`;
+    const existing = state.refs.get(identity);
+    if (existing) return existing;
+    const ref = `b${state.next}`;
+    state.next += 1;
+    state.refs.set(identity, ref);
+    return ref;
   }
 
   private async resolveBrowserTarget(
@@ -1426,15 +1487,19 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
   ): Promise<{ readonly point: { readonly x: number; readonly y: number }; readonly selector?: string }> {
     if (target.type === 'point') {
       const bounds = view.getBounds();
-      return { point: normalizedPoint(target, bounds.width, bounds.height) };
+      const point = normalizedPoint(target, bounds.width, bounds.height);
+      await this.assertReliablePoint(view, point);
+      return { point };
     }
     if (target.type === 'selector') {
+      const point = parseInteractionPoint(
+        await this.executeScript(view, buildBrowserSelectorPointScript(target.selector)),
+        'ELEMENT_NOT_FOUND',
+      );
+      await this.assertReliablePoint(view, point);
       return {
         selector: target.selector,
-        point: parseInteractionPoint(
-          await this.executeScript(view, buildBrowserSelectorPointScript(target.selector)),
-          'ELEMENT_NOT_FOUND',
-        ),
+        point,
       };
     }
     const observation = this.observations.get(view)?.get(target.revision);
@@ -1443,7 +1508,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     if (stored.backendDOMNodeId) {
       const current = await this.executeScript(
         view,
-        buildBrowserRefValidationScript(target.revision),
+        buildBrowserRefValidationScript(stored, target.revision),
       );
       if (current !== true) throw new Error('STALE_BROWSER_STATE: observe the page again');
       const model = await this.withDebugger(view, (debuggerSession) =>
@@ -1455,20 +1520,46 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
       if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
         throw new Error('STALE_BROWSER_STATE: accessibility target is no longer visible');
       }
-      return {
-        point: { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
-      };
+      const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+      await this.assertReliablePoint(view, point, stored.backendDOMNodeId);
+      return { point };
     }
     if (!stored.selector) {
       throw new Error('ELEMENT_NOT_INTERACTABLE: target cannot be resolved');
     }
+    const point = parseInteractionPoint(
+      await this.executeScript(view, buildBrowserRefPointScript(stored, target.revision)),
+      'STALE_BROWSER_STATE',
+    );
+    await this.assertReliablePoint(view, point);
     return {
       selector: stored.selector,
-      point: parseInteractionPoint(
-        await this.executeScript(view, buildBrowserRefPointScript(stored, target.revision)),
-        'STALE_BROWSER_STATE',
-      ),
+      point,
     };
+  }
+
+  private async assertReliablePoint(
+    view: WebContentsView,
+    point: { readonly x: number; readonly y: number },
+    expectedBackendDOMNodeId?: number,
+  ): Promise<void> {
+    const hit = await this.withDebugger(view, (debuggerSession) =>
+      debuggerSession.sendCommand('DOM.getNodeForLocation', {
+        x: Math.round(point.x),
+        y: Math.round(point.y),
+        includeUserAgentShadowDOM: true,
+        ignorePointerEventsNone: false,
+      }),
+    );
+    const actualBackendDOMNodeId = extractBackendDOMNodeId(hit);
+    if (!actualBackendDOMNodeId) {
+      throw new Error('UNRELIABLE_TARGET: CDP hit-test found no interactable node at target point');
+    }
+    if (expectedBackendDOMNodeId !== undefined && actualBackendDOMNodeId !== expectedBackendDOMNodeId) {
+      throw new Error(
+        `UNRELIABLE_TARGET: CDP hit-test resolved node ${actualBackendDOMNodeId}, expected ${expectedBackendDOMNodeId}`,
+      );
+    }
   }
 
   private async selectorForBrowserTarget(
@@ -1498,7 +1589,7 @@ export class ElectronNativeBrowserController implements NativeBrowserController 
     if (!stored) throw new Error('STALE_BROWSER_STATE: observe the page again');
     const current = await this.executeScript(
       view,
-      buildBrowserRefValidationScript(target.revision),
+      buildBrowserRefValidationScript(stored, target.revision),
     );
     if (current !== true) throw new Error('STALE_BROWSER_STATE: observe the page again');
     return stored;
@@ -1801,6 +1892,7 @@ function mergeObservationNodes(
   primaryTargets: ReadonlyMap<string, BrowserObservationTarget>,
   accessibilityNodes: ReadonlyArray<BrowserObservationNode>,
   accessibilityTargets: ReadonlyArray<BrowserObservationTarget>,
+  documentId?: string,
 ): {
   readonly nodes: ReadonlyArray<BrowserObservationNode>;
   readonly targets: ReadonlyMap<string, BrowserObservationTarget>;
@@ -1818,7 +1910,11 @@ function mergeObservationNodes(
     const target = accessibilityTargets[index];
     if (!target) return;
     nodes.push(node);
-    targets.set(node.ref, target);
+    targets.set(node.ref, {
+      ...target,
+      ref: node.ref,
+      ...(documentId ? { documentId } : {}),
+    });
   });
   return { nodes, targets };
 }
@@ -1855,7 +1951,9 @@ function extractAccessibilityNodes(value: unknown): ReadonlyArray<unknown> {
 
 function extractBackendDOMNodeId(value: unknown): number | undefined {
   const record = objectRecord(value);
-  const candidate = record?.backendDOMNodeId;
+  // Accessibility nodes use `backendDOMNodeId`, while CDP
+  // DOM.getNodeForLocation returns `backendNodeId`.
+  const candidate = record?.backendDOMNodeId ?? record?.backendNodeId;
   return typeof candidate === 'number' && Number.isInteger(candidate) && candidate > 0
     ? candidate
     : undefined;
@@ -1905,6 +2003,25 @@ function stringValue(value: unknown, key: string): string | undefined {
 
 function encodeCapture(image: NativeImage): NativeBrowserCapture {
   return { mediaType: 'image/png', base64: image.toPNG().toString('base64') };
+}
+
+function encodeModelCapture(image: NativeImage): { readonly mediaType: 'image/jpeg'; readonly base64: string } {
+  const size = image.getSize();
+  const longest = Math.max(size.width, size.height);
+  const bounded = longest > 1_600
+    ? image.resize(
+        size.width >= size.height
+          ? { width: 1_600 }
+          : { height: 1_600 },
+      )
+    : image;
+  for (const quality of [82, 72, 60, 48, 36]) {
+    const bytes = bounded.toJPEG(quality);
+    if (bytes.length <= 500 * 1024 || quality === 36) {
+      return { mediaType: 'image/jpeg', base64: bytes.toString('base64') };
+    }
+  }
+  return { mediaType: 'image/jpeg', base64: bounded.toJPEG(36).toString('base64') };
 }
 
 function isHttpUrl(raw: string): boolean {

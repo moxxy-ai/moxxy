@@ -329,7 +329,7 @@ describe('ElectronNativeBrowserController agent operations', () => {
       replace: true,
     });
 
-    expect(view?.webContents.debugger.commands).toEqual([
+    expect(view?.webContents.debugger.commands.filter(({ method }) => method.startsWith('Input.'))).toEqual([
       {
         method: 'Input.dispatchMouseEvent',
         params: { type: 'mousePressed', x: 240, y: 160, button: 'left', clickCount: 1 },
@@ -355,6 +355,7 @@ describe('ElectronNativeBrowserController agent operations', () => {
     view?.webContents.setScriptResults([
       {
         revision: 'rev-1',
+        documentId: 'inbox-document',
         title: 'Inbox',
         url: 'https://mail.example.test/',
         visibleText: 'Inbox Compose',
@@ -388,6 +389,15 @@ describe('ElectronNativeBrowserController agent operations', () => {
       nodes: [{ ref: 'b1', role: 'button', name: 'Compose' }],
     });
     expect(observation).not.toHaveProperty('nodes.0.selector');
+    expect(view?.webContents.executedScripts[1]).toContain(
+      'state.documentId !== "inbox-document"',
+    );
+    expect(view?.webContents.executedScripts[1]).toContain(
+      'state.elements.get("b1")',
+    );
+    expect(view?.webContents.executedScripts[1]).not.toContain(
+      'state.revision !== "rev-1"',
+    );
     expect(
       view?.webContents.debugger.commands.filter((command) =>
         command.method.startsWith('Input.'),
@@ -402,6 +412,46 @@ describe('ElectronNativeBrowserController agent operations', () => {
         params: { type: 'mouseReleased', x: 140, y: 140, button: 'left', clickCount: 1 },
       },
     ]);
+    await controller.destroy();
+  });
+
+  it('does not resend an unchanged canvas capture to the model', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    const canvasObservation = {
+      revision: 'rev-canvas-1',
+      title: 'Canvas editor',
+      url: 'https://editor.example.test/',
+      visibleText: 'Design editor',
+      viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
+      nodes: [],
+      visualSurface: {
+        kind: 'canvas',
+        bounds: { x: 0, y: 0, width: 800, height: 600 },
+      },
+    };
+    view?.webContents.setScriptResults([canvasObservation, canvasObservation]);
+    view?.webContents.setCaptureResult(new FakeNativeImage('same-canvas-frame'));
+
+    const first = await controller.executeAgentAction('ws-1', {
+      kind: 'observe',
+      mode: 'auto',
+    });
+    const second = await controller.executeAgentAction('ws-1', {
+      kind: 'observe',
+      mode: 'auto',
+    });
+
+    expect(first).toMatchObject({
+      mediaType: 'image/jpeg',
+      base64: Buffer.from('same-canvas-frame').toString('base64'),
+    });
+    expect(second).not.toHaveProperty('base64');
+    expect(second).not.toHaveProperty('mediaType');
+    expect(second).toMatchObject({
+      visualRevision: (first as { visualRevision: string }).visualRevision,
+    });
     await controller.destroy();
   });
 
@@ -439,15 +489,19 @@ describe('ElectronNativeBrowserController agent operations', () => {
     view?.webContents.debugger.setResult('DOM.getBoxModel', {
       model: { border: [100, 200, 220, 200, 220, 240, 100, 240] },
     });
+    view?.webContents.debugger.setResult('DOM.getNodeForLocation', { backendNodeId: 77 });
 
     const observation = await controller.executeAgentAction('ws-1', {
       kind: 'observe',
       mode: 'semantic',
       maxNodes: 20,
     });
+    const observedRef = (observation as { nodes: Array<{ ref: string }> }).nodes[0]?.ref;
+    expect(observedRef).toBeDefined();
+    if (!observedRef) throw new Error('accessibility observation returns a stable ref');
     await controller.executeAgentAction('ws-1', {
       kind: 'click',
-      target: { type: 'ref', ref: 'b1', revision: 'rev-frame-1' },
+      target: { type: 'ref', ref: observedRef, revision: 'rev-frame-1' },
     });
 
     expect(observation).toMatchObject({
@@ -471,6 +525,52 @@ describe('ElectronNativeBrowserController agent operations', () => {
         },
       ]),
     );
+    await controller.destroy();
+  });
+
+  it('rejects an accessibility ref when the CDP hit-test resolves a different node', async () => {
+    const controller = await createController(views);
+    await controller.open({ workspaceId: 'ws-1' });
+    const view = views[0];
+    view?.webContents.setScriptResults([
+      {
+        revision: 'rev-frame-2',
+        title: 'Embedded editor',
+        url: 'https://editor.example.test/',
+        visibleText: 'Editor',
+        viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
+        nodes: [],
+      },
+      true,
+    ]);
+    view?.webContents.debugger.setResult('Page.getFrameTree', {
+      frameTree: { frame: { id: 'main-frame' } },
+    });
+    view?.webContents.debugger.setResult('Accessibility.getFullAXTree', {
+      nodes: [{
+        nodeId: 'ax-save',
+        backendDOMNodeId: 77,
+        role: { value: 'button' },
+        name: { value: 'Save' },
+      }],
+    });
+    view?.webContents.debugger.setResult('DOM.getBoxModel', {
+      model: { border: [100, 200, 220, 200, 220, 240, 100, 240] },
+    });
+
+    const observation = await controller.executeAgentAction('ws-1', {
+      kind: 'observe',
+      mode: 'semantic',
+      maxNodes: 20,
+    });
+    const observedRef = (observation as { nodes: Array<{ ref: string }> }).nodes[0]?.ref;
+    if (!observedRef) throw new Error('accessibility observation returns a stable ref');
+    view?.webContents.debugger.setResult('DOM.getNodeForLocation', { backendNodeId: 88 });
+
+    await expect(controller.executeAgentAction('ws-1', {
+      kind: 'click',
+      target: { type: 'ref', ref: observedRef, revision: 'rev-frame-2' },
+    })).rejects.toThrow('UNRELIABLE_TARGET');
     await controller.destroy();
   });
 
@@ -1153,6 +1253,7 @@ class FakeWebContents extends EventEmitter {
   private deferredScript: Promise<unknown> | null = null;
   private deferredLoad: Promise<void> | null = null;
   private emitDomReadyOnLoad = false;
+  private captureResult: FakeNativeImage | null = null;
   private popupHandler: ((details: { url: string; disposition: string }) => {
     action: 'allow' | 'deny';
     createWindow?: (options: PopupCreateWindowOptions) => unknown;
@@ -1172,6 +1273,10 @@ class FakeWebContents extends EventEmitter {
 
   setDeferredLoad(value: Promise<void>): void {
     this.deferredLoad = value;
+  }
+
+  setCaptureResult(value: FakeNativeImage): void {
+    this.captureResult = value;
   }
 
   emitDomReadyDuringLoad(): void {
@@ -1231,9 +1336,30 @@ class FakeWebContents extends EventEmitter {
     if (this.emitDomReadyOnLoad) this.emit('dom-ready');
     return this.deferredLoad ?? Promise.resolve();
   }
-  capturePage(...args: unknown[]): Promise<never> {
+  capturePage(...args: unknown[]): Promise<FakeNativeImage> {
     this.captureCalls.push(args);
-    return Promise.reject(new Error('not used'));
+    if (!this.captureResult) return Promise.reject(new Error('not used'));
+    return Promise.resolve(this.captureResult);
+  }
+}
+
+class FakeNativeImage {
+  constructor(private readonly data: string) {}
+
+  getSize(): { width: number; height: number } {
+    return { width: 800, height: 600 };
+  }
+
+  resize(): FakeNativeImage {
+    return this;
+  }
+
+  toJPEG(): Buffer {
+    return Buffer.from(this.data);
+  }
+
+  toPNG(): Buffer {
+    return Buffer.from(this.data);
   }
 }
 
@@ -1266,7 +1392,9 @@ class FakeDebugger extends EventEmitter {
 
   sendCommand(method: string, params?: unknown): Promise<unknown> {
     this.commands.push({ method, params });
-    return Promise.resolve(this.results.get(method));
+    if (this.results.has(method)) return Promise.resolve(this.results.get(method));
+    if (method === 'DOM.getNodeForLocation') return Promise.resolve({ backendNodeId: 1 });
+    return Promise.resolve(undefined);
   }
 }
 

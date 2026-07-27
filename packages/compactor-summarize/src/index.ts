@@ -69,11 +69,14 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
       const priorSeq = events
         .filter((e): e is MoxxyEvent & { type: 'compaction' } => e.type === 'compaction')
         .reduce((max, e) => Math.max(max, e.replacedRange[1]), -1);
-      const startIdx = events.findIndex((e) => e.seq > priorSeq);
+      const tail = events.filter(
+        (event) =>
+          event.seq > priorSeq &&
+          event.type !== 'compaction',
+      );
 
       const firstEvent = events[0]!;
       const lastEvent = events[events.length - 1]!;
-      const tail = startIdx < 0 ? [] : events.slice(startIdx);
       const turnIds = unique(tail.map((e) => e.turnId));
       if (turnIds.length <= keepRecent) {
         return {
@@ -101,6 +104,7 @@ export function createSummarizeCompactor(opts: SummarizeOptions = {}): Compactor
       // range honest; any trailing old turns are picked up on the next call once
       // the high-water mark advances.
       const toCompact = new Set(turnIds.slice(0, turnIds.length - keepRecent));
+      if (ctx?.activeTurnId) toCompact.delete(ctx.activeTurnId);
       const slice: MoxxyEvent[] = [];
       for (const e of tail) {
         if (!toCompact.has(e.turnId)) break;

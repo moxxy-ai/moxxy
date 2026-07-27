@@ -7,6 +7,7 @@ import type { ToolCallVerdict } from './hooks.js';
 // barrel here closes that loop into a real import cycle.
 import type { CollectedToolUse } from './mode/collect-stream.js';
 import type { StuckLoopDetector, StuckSignal } from './mode/stuck-loop.js';
+import { validToolResultContextPolicy } from './tool-result-context.js';
 
 /**
  * Execute a single tool-use end-to-end: dispatch `dispatchToolCall` hooks, run
@@ -73,6 +74,7 @@ export async function* dispatchToolCall(
     });
 
     try {
+      const tool = ctx.tools.get(t.name);
       const output = await ctx.tools.execute(t.name, actualInput, ctx.signal, {
         callId: t.id,
         sessionId: String(ctx.sessionId),
@@ -81,6 +83,16 @@ export async function* dispatchToolCall(
         ...(ctx.subagents ? { subagents: ctx.subagents } : {}),
       });
       executed = true;
+      let contextPolicy;
+      if (tool?.contextPolicy) {
+        try {
+          const candidate = tool.contextPolicy(actualInput, output);
+          contextPolicy = validToolResultContextPolicy(candidate) ?? undefined;
+        } catch {
+          // A presentation/context hint must never turn a completed side effect
+          // into a failed tool call. Omit the hint and preserve the real result.
+        }
+      }
       yield await ctx.emit({
         type: 'tool_result',
         sessionId: ctx.sessionId,
@@ -89,6 +101,7 @@ export async function* dispatchToolCall(
         callId: asToolCallId(t.id),
         ok: true,
         output,
+        ...(contextPolicy ? { contextPolicy } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

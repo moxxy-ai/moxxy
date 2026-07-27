@@ -116,6 +116,37 @@ describe('estimateContextTokens', () => {
     expect(tokens).toBeLessThan(50);
   });
 
+  it('charges image tool results by semantic text plus a fixed multimodal budget, never base64 length', () => {
+    const output = {
+      mediaType: 'image/jpeg',
+      base64: 'A'.repeat(1_500_000),
+      forModel: 'Active Canva tab with a selected page background.',
+    };
+    const log = reader([
+      event(0, { type: 'user_prompt', turnId: tid, source: 'user', text: 'change the background' }),
+      event(1, {
+        type: 'tool_call_requested',
+        turnId: tid,
+        source: 'model',
+        callId: asToolCallId('browser-observe'),
+        name: 'browser_session',
+        input: { action: { kind: 'observe' } },
+      }),
+      event(2, {
+        type: 'tool_result',
+        turnId: tid,
+        source: 'tool',
+        callId: asToolCallId('browser-observe'),
+        ok: true,
+        output,
+      }),
+    ]);
+
+    const tokens = estimateContextTokens(log);
+    expect(tokens).toBeGreaterThan(500);
+    expect(tokens).toBeLessThan(5_000);
+  });
+
   it('an explicitly-passed elision state yields the byte-identical estimate', () => {
     // The optional precomputed-state fast path must equal recomputation. Build a
     // log with elision + a recall so the state is non-trivial.

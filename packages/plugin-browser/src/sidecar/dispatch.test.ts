@@ -234,6 +234,37 @@ describe('sidecar dispatch protocol methods (against a pre-seeded handle)', () =
     expect(reply.result).toMatchObject({ width: 1280, height: 720 });
   });
 
+  it('omits an unchanged hybrid screenshot after its visual revision is known', async () => {
+    const { handle } = makeFakeHandle({
+      evalResult: {
+        revision: 'rev-canvas-1',
+        title: 'Canvas editor',
+        url: 'https://editor.example.test/',
+        visibleText: 'Design editor',
+        viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
+        nodes: [],
+        visualSurface: {
+          kind: 'canvas',
+          bounds: { x: 0, y: 0, width: 800, height: 600 },
+        },
+      },
+    });
+    const state: SidecarState = { handle, pendingInstallNotice: null };
+
+    const first = (await dispatch(state, req('observe', { mode: 'auto' }))) as Ok;
+    const second = (await dispatch(state, req('observe', { mode: 'auto' }))) as Ok;
+
+    expect(first.result).toMatchObject({
+      mediaType: 'image/jpeg',
+      base64: Buffer.from('screenshot-bytes').toString('base64'),
+    });
+    expect(second.result).not.toHaveProperty('base64');
+    expect(second.result).not.toHaveProperty('mediaType');
+    expect(second.result).toMatchObject({
+      visualRevision: first.result.visualRevision,
+    });
+  });
+
   it('mouse forwards finite coords to page.mouse.click and returns the url', async () => {
     const { handle, calls } = makeFakeHandle();
     const state: SidecarState = { handle, pendingInstallNotice: null };

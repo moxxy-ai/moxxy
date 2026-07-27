@@ -4,6 +4,7 @@ import type { PermissionRule } from './permission.js';
 import type { SessionId, ToolCallId, TurnId } from './ids.js';
 import type { SubagentSpawner } from './subagent.js';
 import type { ToolIsolationSpec } from './isolation.js';
+import type { ToolResultContextPolicy } from './events.js';
 
 /**
  * A tool the active model provider can execute on its own infrastructure.
@@ -197,6 +198,10 @@ export interface ToolDef {
   readonly hosted?: HostedTool;
   readonly permission?: PermissionRule;
   readonly handler: (input: unknown, ctx: ToolContext) => Promise<unknown> | unknown;
+  readonly contextPolicy?: (
+    input: unknown,
+    output: unknown,
+  ) => ToolResultContextPolicy | undefined;
   /** Opt-in presentation hint. See `ToolCompactPresentation`. */
   readonly compact?: ToolCompactPresentation;
   /**
