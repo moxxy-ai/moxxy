@@ -62,6 +62,28 @@ Configuration is merged from four layers, highest authority first:
 
 The system layer is YAML only on purpose: an executable file there would run as whoever starts moxxy, so a misconfigured `/etc/moxxy` would become a privilege-escalation path.
 
+### Installing a baseline
+
+`moxxy profile enterprise` prints a system-scope config with the security controls already locked. It only prints: the file it belongs in is root-owned and carries site-specific entries (proxy URL, audit sink) that have no safe default, so an operator reviews it before placing it.
+
+```sh
+moxxy profile list
+moxxy profile enterprise                              # review
+moxxy profile enterprise | sudo tee /etc/moxxy/config.yaml
+moxxy doctor                                          # confirm what took effect
+```
+
+### Keeping a fleet on the same plugin set
+
+`plugins.packages` is the install ledger. Commit it with a project, or push it from the system scope, and `moxxy sync` converges a machine on it.
+
+```sh
+moxxy sync            # install what the manifest declares and is missing
+moxxy sync --check    # report drift, exit 1, change nothing
+```
+
+`--check` exits non-zero only for *missing* packages, so it works as a provisioning gate in CI. Sync never removes anything: a package a user installed themselves is reported as extra, and removing it is their call.
+
 ### Locking settings a user must not change
 
 A system config can pin dot-paths. Every listed path is stripped from the user, project, and explicit layers before merging, and the attempt is reported on stderr.

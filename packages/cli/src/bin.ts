@@ -66,6 +66,9 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
       ['self-update status|rollback', 'inspect / roll back self-update transactions'],
       ['perms list|allow|deny|remove|clear|path', 'view / edit the permission policy'],
       ['config show|get|set|path', 'read / edit the moxxy config (user or project scope)'],
+      ['config trust|untrust', 'approve an executable project config so it may run'],
+      ['profile list|<name>', 'print a deployment baseline for the system config scope'],
+      ['sync [--check]', 'reconcile installed plugins with the config manifest'],
       ['memory list|audit|show|revert|prune-stale|path', 'curate long-term memory'],
       ['security audit|isolators|status', 'inspect plugin-security isolation state'],
       ['mcp list|enable|disable|remove|path', 'manage Model Context Protocol servers'],
@@ -224,6 +227,8 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   skills: async () => (await import('./commands/skills.js')).runSkillsCommand,
   plugins: async () => (await import('./commands/plugins.js')).runPluginsCommand,
   channels: async () => (await import('./commands/channels.js')).runChannelsCommand,
+  profile: async () => (await import('./commands/profile.js')).runProfileCommand,
+  sync: async () => (await import('./commands/sync.js')).runSyncCommand,
   'self-update': async () => (await import('./commands/self-update.js')).runSelfUpdateCommand,
 };
 
