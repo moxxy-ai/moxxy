@@ -4,6 +4,7 @@ import type {
   MoxxyEvent,
   MoxxyEventOfType,
   MoxxyEventType,
+  Principal,
   TurnId,
 } from '@moxxy/sdk';
 import { materializeEvent } from './factory.js';
@@ -25,6 +26,7 @@ export class EventLog implements EventLogReader {
   private readonly listeners = new Set<EventListener>();
   private readonly clearListeners = new Set<() => void>();
   private readonly now: () => number;
+  private principal: Principal | undefined;
   /**
    * Lazy secondary indexes so `ofType`/`byTurn` are O(matches) instead of an
    * O(n) full-array `filter` per call (these back hot paths: token-accounting's
@@ -135,8 +137,27 @@ export class EventLog implements EventLogReader {
     return [...this.events];
   }
 
+  /**
+   * Identity stamped onto every appended event. Set by whoever owns the surface
+   * (the CLI resolves the OS account; an authenticated channel resolves its
+   * token's subject), never guessed here.
+   */
+  setPrincipal(principal: Principal | undefined): void {
+    this.principal = principal;
+  }
+
+  /** The identity currently being attributed to, if any. */
+  getPrincipal(): Principal | undefined {
+    return this.principal;
+  }
+
   async append(partial: EmittedEvent): Promise<MoxxyEvent> {
-    const event = materializeEvent(partial, this.base + this.events.length, this.now);
+    const event = materializeEvent(
+      partial,
+      this.base + this.events.length,
+      this.now,
+      this.principal,
+    );
     this.events.push(event);
     this.indexEvent(event);
     // Snapshot listeners so a subscribe/unsubscribe during dispatch (e.g.,

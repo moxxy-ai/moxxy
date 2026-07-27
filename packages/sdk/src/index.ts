@@ -42,6 +42,11 @@ export type {
 
 export type { EventLogReader } from './log.js';
 
+// Identity. The type + pure helpers ride the main barrel; the OS resolver needs
+// `node:os` and is exported from `@moxxy/sdk/server`.
+export type { Principal } from './principal.js';
+export { samePrincipal, formatPrincipal } from './principal.js';
+
 export type {
   RunTurnOptions,
   SessionLogReader,

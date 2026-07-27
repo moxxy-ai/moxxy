@@ -11,6 +11,7 @@ import type {
   PermissionContext,
   PermissionDecision,
   PermissionResolver,
+  Principal,
   TurnId,
   UserPromptAttachment,
 } from '@moxxy/sdk';
@@ -76,6 +77,8 @@ interface ConnectedClient {
   attached: boolean;
   handlesPermission: boolean;
   handlesApproval: boolean;
+  /** Identity this connection asserted at attach (v11), if any. */
+  principal?: Principal;
   /** Turns this client started - aborted if it disconnects. */
   readonly turns: Set<TurnId>;
 }
@@ -272,6 +275,16 @@ export class RunnerServer {
     }
     client.role = params.role;
     client.attached = true;
+    // v11: attribute this connection's work. The session is shared, so the LAST
+    // attach wins for events that follow, which is correct for the common case
+    // (one client, or several clients that are the same local user over the
+    // 0600 socket) and is what makes a transcript say who ran a turn. Per-turn
+    // attribution for genuinely multi-user surfaces belongs to the channel that
+    // authenticates them, which can stamp `actor` on the events it emits.
+    if (params.principal) {
+      client.principal = params.principal;
+      this.session.setPrincipal(params.principal);
+    }
     // Replay per the client's `replay` policy (v6; default 'full'). The start
     // seq is announced via `replay.start` BEFORE the loop so the client can
     // rebase its (empty) mirror — its `ingest` accepts only the next-expected
