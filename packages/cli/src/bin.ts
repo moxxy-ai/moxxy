@@ -112,6 +112,20 @@ const SECTIONS: ReadonlyArray<{ readonly title: string; readonly rows: ReadonlyA
 const ROW_INDENT = 4;
 const RULE_INDENT = 2;
 
+/**
+ * The mascot, but only where a human is looking at it.
+ *
+ * It is 31 rows of art. On a TTY that is the product's face; piped into a file,
+ * a CI log, or `grep`, it is 31 rows of noise ahead of the answer, and it
+ * garbles on a terminal without UTF-8. `NO_COLOR` is honoured as a general
+ * "keep output plain" signal, which is how the rest of the CLI reads it.
+ */
+function banner(): string {
+  if (!process.stdout.isTTY) return '';
+  if (process.env.NO_COLOR || process.env.MOXXY_NO_COLOR) return '';
+  return renderLogo(undefined, { center: true });
+}
+
 function renderHelp(): string {
   const width = process.stdout.columns ?? 80;
 
@@ -191,7 +205,7 @@ function renderHelp(): string {
  */
 const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
   help: async () => async () => {
-    process.stdout.write(renderLogo(undefined, { center: true }) + renderHelp());
+    process.stdout.write(banner() + renderHelp());
     return 0;
   },
   version: async () => async () => {
@@ -199,7 +213,7 @@ const COMMANDS: Record<string, () => Promise<CommandHandler>> = {
     const width = process.stdout.columns ?? 80;
     const line = `moxxy ${v}`;
     const pad = ' '.repeat(Math.max(0, Math.floor((width - line.length) / 2)));
-    process.stdout.write(renderLogo(undefined, { center: true }) + pad + line + '\n');
+    process.stdout.write(banner() + pad + line + '\n');
     return 0;
   },
   init: async () => (await import('./commands/init.js')).runInitCommand,
@@ -331,9 +345,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  process.stderr.write(
-    colors.red(`unknown command: ${argv.command}`) + '\n' + renderHelp(),
-  );
+  process.stderr.write(colors.red(`unknown command: ${argv.command}`) + '\n' + renderHelp());
   return 2;
 }
 

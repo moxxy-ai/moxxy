@@ -121,3 +121,35 @@ describe('deployment profiles', () => {
     expect(config.network).toBeUndefined();
   });
 });
+
+describe('enterprise profile: mobile bind', () => {
+  // The mobile channel binds 0.0.0.0 by default so a physical phone works out
+  // of the box. Correct for a consumer install, wrong for a corporate laptop:
+  // it puts a token-gated listener on the office network.
+  it('pins the mobile channel to loopback and locks it', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-mob-home-'));
+    const project = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-mob-proj-'));
+    const sysDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moxxy-mob-etc-'));
+    const sysFile = path.join(sysDir, 'config.yaml');
+    const prevHome = process.env.MOXXY_HOME;
+    const prevSys = process.env.MOXXY_SYSTEM_CONFIG;
+    process.env.MOXXY_HOME = home;
+    process.env.MOXXY_SYSTEM_CONFIG = sysFile;
+    try {
+      await fs.writeFile(sysFile, findProfile('enterprise')!.yaml);
+      await fs.writeFile(
+        path.join(home, 'config.yaml'),
+        'channels:\n  mobile:\n    bindHost: 0.0.0.0\n',
+      );
+      const { config } = await loadConfig({ cwd: project, warn: () => {} });
+      const mobile = config.channels?.mobile as { bindHost?: string } | undefined;
+      expect(mobile?.bindHost).toBe('127.0.0.1');
+    } finally {
+      if (prevHome === undefined) delete process.env.MOXXY_HOME;
+      else process.env.MOXXY_HOME = prevHome;
+      if (prevSys === undefined) delete process.env.MOXXY_SYSTEM_CONFIG;
+      else process.env.MOXXY_SYSTEM_CONFIG = prevSys;
+      await Promise.all([home, project, sysDir].map((d) => fs.rm(d, { recursive: true, force: true })));
+    }
+  });
+});

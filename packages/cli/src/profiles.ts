@@ -73,6 +73,13 @@ audit:
   # Turn on only if your retention policy accounts for it.
   includePromptText: false
 
+channels:
+  mobile:
+    # Loopback, not the LAN. The mobile channel binds 0.0.0.0 by default so a
+    # physical phone works out of the box; on a corporate laptop that puts a
+    # token-gated listener on the office network. Pair over a tunnel instead.
+    bindHost: 127.0.0.1
+
 # network:
 #   # 'env' (the default) reads http_proxy/https_proxy/no_proxy. Pin a URL here
 #   # to stop a user routing around the proxy by clearing their shell profile.
@@ -90,6 +97,7 @@ locked:
   - plugins.isolator
   - config.allowExecutable
   - audit
+  - channels.mobile.bindHost
 `;
 
 export const PROFILES: ReadonlyArray<ProfileDef> = [

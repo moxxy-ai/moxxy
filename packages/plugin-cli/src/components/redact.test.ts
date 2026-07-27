@@ -62,3 +62,29 @@ describe('isSecretKey', () => {
     expect(isSecretKey('query')).toBe(false);
   });
 });
+
+// The case a key-name-only redactor left wide open: a Bash `command` is not a
+// secret-named field, so the permission dialog printed the bearer token
+// verbatim into scrollback. That is the exact string the dialog exists to show
+// a human, on a terminal that may be recorded or screen-shared.
+describe('secret-shaped values inside ordinary fields', () => {
+  it('masks a bearer token in a Bash command', () => {
+    const out = JSON.stringify(
+      redactSecrets({ command: 'curl -H "Authorization: Bearer sk-ant-api03-SECRET123456" https://x' }),
+    );
+    expect(out).not.toContain('SECRET123456');
+    expect(out).toContain('[redacted]');
+    // The attempt stays legible: a reviewer must still see that a request with
+    // an auth header was proposed.
+    expect(out).toContain('curl');
+  });
+
+  it('masks credentials embedded in a URL argument', () => {
+    const out = JSON.stringify(redactSecrets({ url: 'https://alice:hunter2@internal/api' }));
+    expect(out).not.toContain('hunter2');
+  });
+
+  it('still masks secret-named fields outright', () => {
+    expect(redactSecrets({ apiKey: 'sk-anything' })).toEqual({ apiKey: '[redacted]' });
+  });
+});
