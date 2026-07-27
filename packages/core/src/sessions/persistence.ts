@@ -20,7 +20,13 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { createMutex, type Mutex, type MoxxyEvent, type SessionId } from '@moxxy/sdk';
 import type { EventLogLike, EventPage, SessionMeta, SessionSource } from '@moxxy/sdk';
-import { moxxyPath, writeFileAtomic } from '@moxxy/sdk/server';
+import {
+  ensurePrivateDir,
+  ensurePrivateFile,
+  moxxyPath,
+  PRIVATE_FILE_MODE,
+  writeFileAtomic,
+} from '@moxxy/sdk/server';
 import { createLogger, type Logger } from '../logger.js';
 import { isMoxxyEventShape } from './event-shape.js';
 
@@ -414,9 +420,11 @@ export class SessionPersistence {
   private ensureReady(): Promise<void> {
     if (!this.ready) {
       this.ready = (async () => {
-        await fs.mkdir(this.dir, { recursive: true });
-        const handle = await fs.open(this.logPath, 'a');
-        await handle.close();
+        // Owner-only: a transcript holds every prompt, every file the agent
+        // read, and every command's output. On a shared host the default
+        // 0755/0644 hands all of that to any other local account.
+        await ensurePrivateDir(this.dir);
+        await ensurePrivateFile(this.logPath);
         const existing = await readMetaSidecar(this.dir, this.id);
         const stats = await matchingSessionStatsFromLog(this.id, this.logPath);
         if (existing) {
@@ -683,7 +691,7 @@ export async function restoreEvents(
         });
       } else {
         const repaired = events.map((e) => JSON.stringify(e) + '\n').join('');
-        await writeFileAtomic(logPath, repaired);
+        await writeFileAtomic(logPath, repaired, { mode: PRIVATE_FILE_MODE });
       }
     } catch (err) {
       // Restore still succeeds — the in-memory log is repaired; only the
@@ -843,9 +851,11 @@ export async function seedSessionLog(
   } catch {
     /* no log yet → seed below */
   }
-  await fs.mkdir(dir, { recursive: true });
+  await ensurePrivateDir(dir);
   const reseq = events.map((e, i) => (e.seq === i ? e : ({ ...e, seq: i } as MoxxyEvent)));
-  await writeFileAtomic(logPath, reseq.map((e) => JSON.stringify(e) + '\n').join(''));
+  await writeFileAtomic(logPath, reseq.map((e) => JSON.stringify(e) + '\n').join(''), {
+    mode: PRIVATE_FILE_MODE,
+  });
   return true;
 }
 
@@ -952,9 +962,8 @@ export async function seedSessionMeta(
 ): Promise<void> {
   assertSafeSessionId(sessionId);
   if (await readMetaSidecar(dir, sessionId)) return;
-  await fs.mkdir(dir, { recursive: true });
-  const handle = await fs.open(path.join(dir, `${sessionId}.jsonl`), 'a');
-  await handle.close();
+  await ensurePrivateDir(dir);
+  await ensurePrivateFile(path.join(dir, `${sessionId}.jsonl`));
   const now = new Date().toISOString();
   const meta: SessionMeta = {
     version: SESSION_META_VERSION,
@@ -1094,7 +1103,11 @@ function firstPromptLabel(text: string): string {
 }
 
 async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
-  await writeFileAtomic(target, JSON.stringify(value, null, 2) + '\n');
+  // Sidecars carry the session's cwd and title: same blast radius as the
+  // transcript they describe, so the same owner-only mode.
+  await writeFileAtomic(target, JSON.stringify(value, null, 2) + '\n', {
+    mode: PRIVATE_FILE_MODE,
+  });
 }
 
 function isSessionMeta(v: unknown): v is SessionMeta {

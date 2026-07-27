@@ -20,6 +20,11 @@ export {
   writeFileAtomicSync,
   moxxyHome,
   moxxyPath,
+  ensurePrivateDir,
+  ensurePrivateFile,
+  pruneStaleTempFiles,
+  PRIVATE_DIR_MODE,
+  PRIVATE_FILE_MODE,
 } from './fs-utils.js';
 // Cross-process "fire exactly once" lock (node:fs). Value lives here; its
 // options type is re-exported from the main barrel like other erased types.
