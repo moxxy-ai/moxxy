@@ -1,6 +1,7 @@
 import type { ProviderDef, ProviderHostContext } from '@moxxy/sdk';
 import type { VaultStore } from '@moxxy/plugin-vault';
-import { storedProviderApiKeyName } from '@moxxy/plugin-provider-admin';
+// Subpath, not the barrel: the barrel pulls in the OpenAI SDK (see key-name.ts).
+import { storedProviderApiKeyName } from '@moxxy/plugin-provider-admin/key-name';
 import { resolveProviderApiKey, type ResolveOptions } from './provider-keys.js';
 
 /**

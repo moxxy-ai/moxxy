@@ -512,7 +512,7 @@ function handleMcpServerSelected(id: string, deps: PickerHandlerDeps): void {
   // action label so the picker accurately reads "disable" vs "enable".
   void (async () => {
     try {
-      const { readMcpConfig } = await import('@moxxy/plugin-mcp');
+      const { readMcpConfig } = await import('@moxxy/plugin-mcp/config-io');
       const cfg = await readMcpConfig();
       const server = cfg.servers.find((s) => s.name === id);
       const isDisabled = server?.disabled ?? false;
@@ -552,7 +552,7 @@ function handleMcpAction(serverName: string, id: string, deps: PickerHandlerDeps
   void (async () => {
     try {
       const { readMcpConfig, setServerDisabled, removeServerFromConfig } = await import(
-        '@moxxy/plugin-mcp'
+        '@moxxy/plugin-mcp/config-io'
       );
       if (id === 'remove') {
         const ok = await removeServerFromConfig(serverName);

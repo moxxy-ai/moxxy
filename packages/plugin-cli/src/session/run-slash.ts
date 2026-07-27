@@ -448,7 +448,7 @@ export function openMcpPicker(deps: OpenMcpPickerDeps): void {
   // CLI (moxxy mcp ...) show up immediately on next invocation.
   void (async () => {
     try {
-      const { readMcpConfig } = await import('@moxxy/plugin-mcp');
+      const { readMcpConfig } = await import('@moxxy/plugin-mcp/config-io');
       const cfg = await readMcpConfig();
       if (cfg.servers.length === 0) {
         deps.setSystemNotice('no MCP servers registered — add one in chat via mcp_add_server');
