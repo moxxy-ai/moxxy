@@ -11,7 +11,7 @@ import { LiveToolGroupView } from '../ToolGroupView';
 /**
  * One transcript block, rendered from the shared @moxxy/chat-model fold.
  *
- *   - event(user_prompt)      → right-aligned periwinkle bubble.
+ *   - event(user_prompt)      → avatar + "You" + text on an accent-ruled panel.
  *   - event(assistant_message)→ avatar + name + markdown + copy action.
  *   - event(error/abort)      → centered system note.
  *   - tool-call               → mono summary with status-coloured bar.
