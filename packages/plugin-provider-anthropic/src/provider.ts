@@ -68,7 +68,7 @@ export interface AnthropicProviderConfig {
 // API is a larger change (auth + caching) — deliberately deferred (TECH_DEBT P3 #8).
 // Values verified against the current Anthropic model catalog (2026-07): fable-5,
 // opus-5, opus-4-7 and opus-4-6 carry a 1M context window with a 128k streaming
-// ceiling; sonnet-4-6 is 1M/64k; haiku-4-5 is 200k/64k. fable-5 is Anthropic's most
+// ceiling; sonnet-5 and sonnet-4-6 are 1M/64k; haiku-4-5 is 200k/64k. fable-5 is Anthropic's most
 // capable model (always-on reasoning); the loop never sets `temperature`, which
 // fable-5/opus-5/4.7 reject, so they stream cleanly here, same as opus-4-7 already did.
 // `supportsReasoning` marks models that accept adaptive thinking (`thinking:
@@ -79,6 +79,7 @@ export const anthropicModels: ReadonlyArray<ModelDescriptor> = [
   { id: 'claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
   { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
   { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
+  { id: 'claude-sonnet-5', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
   { id: 'claude-sonnet-4-6', contextWindow: 1_000_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, supportsReasoning: true, hostedTools: ['web_search'] },
   { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, supportsTools: true, supportsStreaming: true, supportsImages: true, supportsDocuments: true, hostedTools: ['web_search'] },
 ];
