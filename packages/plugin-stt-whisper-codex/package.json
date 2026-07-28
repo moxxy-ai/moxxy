@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-stt-whisper-codex",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "description": "OpenAI Codex OAuth speech-to-text transcriber (Whisper family) for moxxy.",
   "keywords": [
     "moxxy",

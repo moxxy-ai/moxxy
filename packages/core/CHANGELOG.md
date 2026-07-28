@@ -1,5 +1,57 @@
 # @moxxy/core
 
+## 0.34.0
+
+### Minor Changes
+
+- ae16897: Ship the audit trail to a central collector: `moxxy security audit-export`, plus a built-in OTLP exporter.
+
+  The local trail answered "what happened on this machine". A fleet needs one place to ask, and a chain head the workstation cannot rewrite. Configure `audit.export.endpoint` and run the command from cron; it exits 1 when it could not drain, so a collector unreachable for a week is visible rather than silently logging "sent 0".
+
+  An exporter is a READER of the already-written trail, driven by a checkpoint, not a second write path. That is what makes shipping survivable: a network sink has to decide mid-turn whether to block, drop, or buffer when the collector is down, while an exporter just retries from the checkpoint. The local hash-chained file stays the system of record, and configuring an export does not weaken it.
+
+  The checkpoint advances only after a batch is durably accepted, so a crash or failure re-sends rather than skips, and each record carries its chain hash to deduplicate on. A 200 carrying `partialSuccess.rejectedLogRecords` counts as a failure: checkpointing past records the collector discarded is the invisible gap this exists to prevent.
+
+  Records map to OTLP logs rather than traces, spoken over plain `fetch` with no `@opentelemetry/*` dependency, which would have added megabytes to a CLI whose bundle budget is enforced at build time. `auditExporter` is a new registry kind, so another destination is a plugin; like audit sinks, a discovered exporter never activates on its own.
+
+  Exporting needs no model provider and boots no session, so a machine with an expired API key still exports.
+
+  `moxxy doctor` gains an `audit-export` row so a scheduled export that silently stopped (broken cron, expired token, moved collector) is visible: the local trail keeps being written either way, so nothing else would look wrong. The backlog excludes the diagnostic's own session, since booting one to ask the question writes a record and a check that always warns teaches people to ignore it.
+
+- e52e2ed: Add `moxxy receipt <turnId>`: a verified account of one run assembled from the audit trail.
+
+  The trail already recorded what happened, but answering "who ran this, what set it off, which rules were in force, and what did it cost" meant reading raw JSONL. A receipt is a projection over those records, so asking for one writes nothing.
+
+  Two records were missing for this to be answerable, and both are now emitted when `audit.enabled` is set: a `policy` record at session start carrying a fingerprint over the settings that decide what the agent may do (counts and effective values only, no secrets or paths), and a `usage` record per provider response carrying token counts. The request and the reply stay in the event log where they belong.
+
+  The enclosing chain is verified before a receipt prints. A broken chain marks the receipt and exits 1, so a receipt from a trail with a deleted record cannot look complete.
+
+- 06e81f8: Add `ToolDef.icon` and `tui.density`.
+
+  **Tool icons.** A surface could only guess a tool's icon from its NAME, via a heuristic that recognised the handful of built-ins it was written against, so every plugin-contributed tool drew the same wrench with no way for its author to say otherwise. Tools now declare `icon`, the session snapshot carries it, and the desktop renders the declared choice with the old heuristic kept as a fallback.
+
+  The vocabulary is closed (`ToolIcon`) rather than a free string: surfaces render wildly differently, and a name no surface owns would fall back everywhere, making the field decorative. A fixed set means each surface maps it exhaustively, and the desktop's map is typed as a total `Record` so adding a member fails to compile instead of silently drawing a wrench. That fired during development, when `copy` was rejected and `clipboard` was added deliberately.
+
+  The desktop reads the map from one `session.info` fetch held in context, because a transcript can hold hundreds of tool rows and a fetching hook per row would mean hundreds of identical IPC calls per screen.
+
+  **Transcript density.** `tui.density: comfortable | compact` sits next to `tui.theme` and `tui.hints`, and is togglable from `/settings`. `compact` drops the blank line between transcript entries, which is what a short split pane needs: on 24 rows, half the screen is otherwise separator. Default is unchanged. All 18 separators across the chat components route through one helper, with a test that fails naming any component that hardcodes one again, since a single stray separator would make compact look half-broken rather than absent.
+
+  Also hardens `useActionCatalog`: `api()` throws synchronously when no transport is configured, which the hook's promise `.catch` could not see. Unguarded that escaped the effect and took down whatever rendered the consumer, so a component that merely enriched its output made a configured transport a hard requirement for rendering. It now degrades to the `loaded: false` state it already models.
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

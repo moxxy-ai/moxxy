@@ -1,5 +1,71 @@
 # @moxxy/desktop
 
+## 0.32.0
+
+### Minor Changes
+
+- f57796b: New logo: two rounded squares woven through each other, replacing the pixel-art
+  mascot everywhere it was the brand mark.
+
+  The mark ships from `assets/brand/` (mark, wordmark, lockups, app icons, social
+  card, one-colour reduction, `build.sh` to regenerate every variant). On desktop
+  it is now inline SVG rather than a raster, so it inherits the surrounding text
+  colour and stays sharp at any size. Loading states turn it a quarter at a time,
+  which is a whole loop because the mark is symmetric under 90 degrees.
+
+  The TUI banner is redrawn as ASCII art of the same mark. The voice-call avatar
+  is deliberately untouched.
+
+### Patch Changes
+
+- da11bd0: Retone the desktop palette away from the candy brand, and pin contrast in CI.
+
+  The palette led with hot pink (`#ec4899`) for every CTA, send button and focus ring, bright cyan for the accent, and pink gradients. That reads as a consumer toy in a room where the app is being evaluated for a fleet. Primary becomes a deep muted blue, the accent a desaturated teal, decorative purple and pink fold into the same family, and the status hues are toned down without losing their meaning.
+
+  Dark mode no longer inherits the accents. The light primary is chosen to carry white text on a near-white surface, and that same ink is close to invisible on a near-black canvas, so each accent now has an explicit dark counterpart lifted into the readable range.
+
+  A palette change is otherwise unverifiable by CI: nothing fails when colours become unreadable. New tests compute WCAG contrast for the pairings that matter in both themes, which caught a pre-existing defect: dim text sat at 2.56:1 on white, below the 3:1 large-text floor. It is darkened to 3.36:1.
+
+  Colours are still declared in two places (the desktop stylesheet is the source of truth, design-tokens mirrors it) and the existing parity test keeps them honest.
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [8c41d00]
+- Updated dependencies [950c1bb]
+- Updated dependencies [5763f92]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [57d157c]
+- Updated dependencies [ff64a0e]
+- Updated dependencies [3b7d350]
+- Updated dependencies [9e35a56]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [5a977cc]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [779f644]
+- Updated dependencies [68f7e20]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [5763f92]
+- Updated dependencies [dfb644a]
+- Updated dependencies [06e81f8]
+- Updated dependencies [acfe644]
+- Updated dependencies [220673e]
+  - @moxxy/cli@0.34.0
+  - @moxxy/sdk@0.34.0
+  - @moxxy/plugin-stt-whisper-codex@0.34.0
+  - @moxxy/client-core@0.13.14
+  - @moxxy/desktop-host@0.14.5
+  - @moxxy/plugin-channel-mobile@0.34.0
+  - @moxxy/runner@0.2.39
+  - @moxxy/chat-model@0.3.25
+  - @moxxy/client-platform-web@0.1.53
+  - @moxxy/desktop-ipc-contract@0.14.10
+  - @moxxy/ipc-server-ws@0.1.52
+  - @moxxy/plugin-vault@0.34.0
+  - @moxxy/workflows-builder@0.1.36
+
 ## 0.31.0
 
 ### Minor Changes
