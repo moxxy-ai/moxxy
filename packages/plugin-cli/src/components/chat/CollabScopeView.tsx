@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { Colors, Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
 import { formatElapsed, truncate, type CollaborationBlock } from '@moxxy/chat-model';
 import { MOTION_ENABLED } from '../motion.js';
 
@@ -32,7 +33,7 @@ export const CollabScopeView: React.FC<{ scope: CollaborationBlock }> = ({ scope
   const headColor = scope.conflicts.length > 0 ? Colors.danger : Colors.busy;
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
         <Text color={headColor}>{Glyphs.filled} </Text>
         <Text bold>collab </Text>

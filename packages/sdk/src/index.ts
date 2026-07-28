@@ -49,6 +49,8 @@ export { samePrincipal, formatPrincipal } from './principal.js';
 
 export { verifyEd25519 } from './signature.js';
 
+export { TOOL_ICONS, isToolIcon, type ToolIcon } from './tool-icon.js';
+
 export type {
   AuditExporterDef,
   AuditExportBatch,

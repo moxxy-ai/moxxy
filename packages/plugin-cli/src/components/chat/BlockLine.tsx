@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
+import { blockGap } from './density.js';
 import { EventLine } from './EventLine.js';
 import { LiveToolBlock } from './LiveToolBlock.js';
 import { ToolCallBlock } from './ToolCallBlock.js';
@@ -88,7 +89,7 @@ const SkillScopeView: React.FC<{
   const runningTools = scope.children.some(hasRunningTool);
   const showChildren = !scope.closed || runningTools || expandToolOutputs;
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
         <Text dimColor>✦ </Text>
         <ShimmerText text={presentation.label} active={presentation.active} />

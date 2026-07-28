@@ -323,6 +323,12 @@ export const moxxyConfigSchema = z.object({
       /** Hide the footer key-hint row when false. */
       hints: z.boolean().optional(),
       /**
+       * Vertical breathing room in the transcript. `compact` drops the blank
+       * line between entries, which is what a short split pane needs: on 24
+       * rows, half the screen is otherwise separator.
+       */
+      density: z.enum(['comfortable', 'compact']).optional(),
+      /**
        * Ctrl+<letter> overrides for the input-editor command hotkeys. Values
        * are single letters; unknown/conflicting letters are ignored at boot.
        */

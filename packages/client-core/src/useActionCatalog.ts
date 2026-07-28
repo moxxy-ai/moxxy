@@ -32,13 +32,22 @@ export function useActionCatalog(workspaceId?: string): ActionCatalog {
   useEffect(() => {
     let cancelled = false;
     const fetchCatalog = (): void => {
-      void api()
-        .invoke('session.info', workspaceId ? { workspaceId } : undefined)
-        .then((info) => {
-          if (cancelled || !info) return;
-          setCatalog({ loaded: true, skills: info.skills, tools: info.tools });
-        })
-        .catch(() => {});
+      // `api()` THROWS synchronously when no transport is configured, which the
+      // promise `.catch` below cannot see. Left unguarded that escapes the
+      // effect and takes down whatever rendered the consumer, so a component
+      // that merely enriches its output would become a hard requirement for a
+      // transport. `loaded: false` already means "no catalog"; this is that.
+      try {
+        void api()
+          .invoke('session.info', workspaceId ? { workspaceId } : undefined)
+          .then((info) => {
+            if (cancelled || !info) return;
+            setCatalog({ loaded: true, skills: info.skills, tools: info.tools });
+          })
+          .catch(() => {});
+      } catch {
+        /* no transport: stay EMPTY */
+      }
     };
     fetchCatalog();
     const off = getPlatform().eventBus?.on(SESSION_INFO_REFRESH_EVENT, fetchCatalog);

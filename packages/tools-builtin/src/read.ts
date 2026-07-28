@@ -3,6 +3,7 @@ import { readHandler } from './read-handler.js';
 
 export const readTool = defineTool({
   name: 'Read',
+  icon: 'file',
   description: 'Read a UTF-8 text file from disk. Returns lines as `cat -n` style numbered text.',
   inputSchema: z.object({
     file_path: z.string().describe('Absolute path or path relative to cwd.'),

@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
 
 /**
  * In-flight streaming indicator: a SINGLE constant-height row showing the tail
@@ -37,7 +38,7 @@ export const StreamingPreview: React.FC<{ content: string; dim?: boolean }> = me
   const shown = lastNonEmptyLineShown(content, innerCols);
 
   return (
-    <Box flexDirection="row" marginTop={1}>
+    <Box flexDirection="row" marginTop={blockGap()}>
       <Box marginRight={1}>
         <Text dimColor>{Glyphs.filled}</Text>
       </Box>

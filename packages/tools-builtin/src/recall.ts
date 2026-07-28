@@ -13,6 +13,7 @@ const SUMMARY_CHARS = 1_500;
  */
 export const recallTool = defineTool({
   name: 'recall',
+  icon: 'search',
   description:
     'Retrieve earlier content that was elided from context to save tokens. ' +
     'Pass the `callId` shown in an "[output elided — recall(...)]" stub to get a ' +

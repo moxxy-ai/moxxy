@@ -6,6 +6,7 @@ import type { ApprovalResolver, ModeBadge } from './mode.js';
 import type { PermissionResolver } from './permission.js';
 import type { ModelDescriptor, ProviderKeyValidation } from './provider.js';
 import type { PluginSetupSpec } from './schemas.js';
+import type { ToolIcon } from './tool-icon.js';
 import type { ToolCompactPresentation } from './tool.js';
 
 /**
@@ -80,6 +81,8 @@ export interface ToolInfo {
   readonly description: string;
   /** Compact presentation hint (plain data - crosses the wire intact). */
   readonly compact?: ToolCompactPresentation;
+  /** Declared icon, so a surface renders the tool's own choice, not a guess. */
+  readonly icon?: ToolIcon;
 }
 
 /** Serializable skill metadata. */

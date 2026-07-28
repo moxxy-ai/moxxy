@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import { Box, Text } from 'ink';
 import { Markdown } from '../Markdown.js';
 import { Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
 
 /**
  * Renders an assistant turn: a white `●` bullet on the first line and
@@ -15,7 +16,7 @@ export const AssistantBlock: React.FC<{ content: string }> = memo(function Assis
 }) {
   if (!content.trim()) return null;
   return (
-    <Box flexDirection="row" marginTop={1}>
+    <Box flexDirection="row" marginTop={blockGap()}>
       <Box flexDirection="column" marginRight={1}>
         <Text dimColor>{Glyphs.filled}</Text>
       </Box>

@@ -7,6 +7,8 @@ import {
 } from '@moxxy/chat-model';
 import { isFileDiffDisplay, type FileDiffDisplay } from '@moxxy/sdk/tool-display';
 import { Icon, type IconName } from '@moxxy/desktop-ui';
+import type { ToolIcon } from '@moxxy/sdk';
+import { useToolIcon } from './ToolIconContext';
 import { ActivityRow } from './ActivityRow';
 import { FileDiffBlock } from './blocks/FileDiffBlock';
 import { preStyle, pretty } from './blocks/block-shared';
@@ -50,7 +52,45 @@ export function statusOf(outcome: ToolCallBlockData['outcome']): 'running' | 'ok
   return outcome.ok ? 'ok' : 'error';
 }
 
-export function iconForTool(name: string): IconName {
+/**
+ * Every `ToolIcon` the SDK defines, mapped to this surface's artwork.
+ *
+ * Typed as a total Record so adding a member to `TOOL_ICONS` fails to compile
+ * here rather than silently rendering a wrench. That is the point of the closed
+ * vocabulary: a new icon is a decision made across surfaces, not a fallback.
+ */
+const TOOL_ICON_ART: Record<ToolIcon, IconName> = {
+  file: 'file',
+  folder: 'folder',
+  search: 'search',
+  edit: 'edit',
+  diff: 'diff',
+  terminal: 'terminal',
+  globe: 'globe',
+  chat: 'chat',
+  workflow: 'workflow',
+  agent: 'agent',
+  settings: 'settings',
+  lock: 'lock',
+  plug: 'plug',
+  mic: 'mic',
+  speaker: 'speaker',
+  smartphone: 'smartphone',
+  workspace: 'workspace',
+  clipboard: 'copy',
+  spark: 'spark',
+  wrench: 'wrench',
+};
+
+/**
+ * A declared icon wins; the name heuristic is only a fallback.
+ *
+ * The heuristic alone could only ever recognise the handful of built-ins it was
+ * written against, so every plugin-contributed tool drew the same wrench with
+ * no way for its author to say otherwise.
+ */
+export function iconForTool(name: string, declared?: ToolIcon): IconName {
+  if (declared && declared in TOOL_ICON_ART) return TOOL_ICON_ART[declared];
   const normalized = name.toLowerCase();
   if (normalized === 'read') return 'file';
   if (normalized === 'grep' || normalized.includes('search')) return 'search';
@@ -122,6 +162,7 @@ export function SkillGroupView({ scope }: { readonly scope: SkillScope }): JSX.E
 
 export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const declared = useToolIcon(tool.name);
   if (isFileDiffResult(tool.outcome)) {
     const display = (tool.outcome.output as { display: FileDiffDisplay }).display;
     if (isFileDiffDisplay(display)) {
@@ -139,7 +180,7 @@ export function ToolRow({ tool }: { readonly tool: ToolRowData }): JSX.Element {
   return (
     <li className="activity-list__item" data-status={status}>
       <button type="button" className="activity-detail-row" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-        <span className="activity-detail-row__icon" aria-hidden><Icon name={iconForTool(tool.name)} size={16} /></span>
+        <span className="activity-detail-row__icon" aria-hidden><Icon name={iconForTool(tool.name, declared)} size={16} /></span>
         <span className={`activity-detail-row__label${status === 'running' ? ' activity-shimmer' : ''}`}>{toolActivityLabel(tool)}</span>
         {status === 'error' ? <span className="activity-detail-row__error">failed</span> : null}
       </button>

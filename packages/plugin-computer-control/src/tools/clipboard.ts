@@ -3,6 +3,7 @@ import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 export const clipboardTool = defineTool({
   name: 'computer_clipboard',
+  icon: 'clipboard',
   description:
     'Read from or write to the macOS clipboard. Use `read` to fetch what the ' +
     'user just copied; use `write` to stage text the user can then paste with ' +
