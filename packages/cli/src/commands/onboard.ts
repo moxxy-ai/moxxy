@@ -4,6 +4,7 @@ import {
   INSTALLABLE_PLUGIN_CATALOG,
   installPluginPackagePinned,
   type PluginCatalogEntry,
+  setCategoryDefault,
 } from '@moxxy/plugin-plugins-admin';
 import { EXIT_AFTER_PAIR_FLAG } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
@@ -12,6 +13,8 @@ import { colors } from '../colors.js';
 import { probeSession } from '../setup.js';
 import { cliVersion } from '../version.js';
 import { runPluginSetupSteps } from '../wizard/plugin-setup-steps.js';
+import { partitionCategories, summariseBlocks } from '../wizard/blocks-step.js';
+import type { CategoryView } from '@moxxy/sdk';
 import { formatHelp } from './help-format.js';
 import { runInitCommand } from './init.js';
 import { runChannelSubcommand } from './run-channel.js';
@@ -275,7 +278,14 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
     );
   }
 
-  // ── Step 5: background service ──────────────────────────────────────────
+  // ── Step 5: the swap axis ───────────────────────────────────────────────
+  // Everything in moxxy is a swappable block. `moxxy plugins defaults` has
+  // always exposed that, but onboarding never said so, and a user who finishes
+  // setup without learning it reaches for config files to change something the
+  // swap axis already owns.
+  await runBlocksStep();
+
+  // ── Step 6: background service ──────────────────────────────────────────
   const spec = serveSpec(new Set(), true);
   let serviceState: 'installed' | 'skipped' | 'unsupported' | 'failed' = 'skipped';
   if (!hasBoolFlag(argv, 'no-service')) {
@@ -339,4 +349,68 @@ export async function runOnboardCommand(argv: ParsedArgv): Promise<number> {
       : `Almost there — finish the steps above, then message your agent on ${colors.bold(channelName)}.`,
   );
   return 0;
+}
+
+/**
+ * Show what the swappable blocks currently resolve to, and offer a swap ONLY
+ * where there is genuinely an alternative.
+ *
+ * On a fresh install most categories hold exactly one registration (the
+ * protected floor). Asking "which compactor?" when there is one compactor
+ * wastes the user's attention and teaches them the wizard asks pointless
+ * questions, so those are summarised, not prompted.
+ *
+ * Best-effort: a probe failure here must not fail onboarding, since nothing in
+ * this step is required to have a working agent.
+ */
+async function runBlocksStep(): Promise<void> {
+  let views: ReadonlyArray<CategoryView>;
+  try {
+    views = await probeSession(
+      {
+        cwd: process.cwd(),
+        skipKeyPrompt: true,
+        tolerateNoProvider: true,
+        skipProviderActivation: true,
+      },
+      (r) => r.session.pluginsAdmin?.categories() ?? [],
+    );
+  } catch {
+    return;
+  }
+
+  const summary = summariseBlocks(views);
+  if (!summary) return;
+  note(
+    `${summary}\n\n${colors.dim('Every one of these is swappable. `moxxy plugins defaults` lists them,')}\n` +
+      `${colors.dim('`moxxy plugins set-default <category> <name>` changes one.')}`,
+    'building blocks',
+  );
+
+  const { swappable } = partitionCategories(views);
+  if (swappable.length === 0) return;
+
+  const wantSwap = await confirm({
+    message: `Change any of the ${swappable.length} block(s) that have alternatives?`,
+    initialValue: false,
+  });
+  if (isCancel(wantSwap) || !wantSwap) return;
+
+  for (const entry of swappable) {
+    const picked = await select({
+      message: `${entry.category}`,
+      options: entry.options.map((name) => ({
+        value: name,
+        label: name === entry.active ? `${name} (current)` : name,
+      })),
+      initialValue: entry.active ?? entry.options[0],
+    });
+    if (isCancel(picked) || picked === entry.active) continue;
+    try {
+      await setCategoryDefault(entry.category, String(picked));
+      log.success(`${entry.category} → ${String(picked)}`);
+    } catch (err) {
+      log.warn(`${entry.category}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }

@@ -194,3 +194,9 @@ export function buildPluginsAdminPlugin(opts: BuildPluginsAdminOpts): Plugin {
     ],
   });
 }
+export {
+  assertInstallAllowed,
+  isInstallPolicy,
+  INSTALL_POLICIES,
+  type InstallPolicy,
+} from './install-policy.js';

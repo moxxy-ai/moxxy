@@ -197,6 +197,7 @@ const terminalInputSchema = z.object({
 export function buildTerminalTool() {
   return defineTool({
     name: 'terminal',
+    icon: 'terminal',
     description:
       'Run a shell command in the user-visible terminal and return its output. ' +
       'The terminal is SHARED with the user — they see what you run and can take over. ' +

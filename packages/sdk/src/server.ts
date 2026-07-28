@@ -20,7 +20,24 @@ export {
   writeFileAtomicSync,
   moxxyHome,
   moxxyPath,
+  ensurePrivateDir,
+  ensurePrivateFile,
+  pruneStaleTempFiles,
+  PRIVATE_DIR_MODE,
+  PRIVATE_FILE_MODE,
 } from './fs-utils.js';
+// The local OS account as a Principal (node:os). The type and its pure helpers
+// ride the main barrel.
+export { resolveOsPrincipal } from './principal-os.js';
+// Outbound proxy support for global `fetch` (dynamic `undici` import). Node-only.
+export {
+  installEgressProxy,
+  readProxyEnv,
+  parseNoProxy,
+  shouldBypassProxy,
+  redactProxyUrl,
+  hasProxy,
+} from './egress.js';
 // Cross-process "fire exactly once" lock (node:fs). Value lives here; its
 // options type is re-exported from the main barrel like other erased types.
 export { CrossProcessFireLock } from './cross-process-lock.js';

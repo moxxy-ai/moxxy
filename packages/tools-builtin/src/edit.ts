@@ -6,6 +6,7 @@ import { MAX_FILE_BYTES, resolvePath } from './util.js';
 
 export const editTool = defineTool({
   name: 'Edit',
+  icon: 'edit',
   description: 'Replace exact string occurrences in a file. Use replace_all to substitute every occurrence; otherwise old_string must be unique.',
   inputSchema: z.object({
     file_path: z.string(),

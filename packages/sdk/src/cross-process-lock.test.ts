@@ -1,10 +1,8 @@
-import { mkdtemp, rm, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
+import path, { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CrossProcessFireLock } from './cross-process-lock.js';
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 describe('CrossProcessFireLock', () => {
   let dir: string;
@@ -40,23 +38,34 @@ describe('CrossProcessFireLock', () => {
   });
 
   it('reclaims a stale marker once its TTL elapses (crashed holder)', async () => {
-    const lock = new CrossProcessFireLock({ dir, ttlMs: 15 });
+    const ttlMs = 1_000;
+    const lock = new CrossProcessFireLock({ dir, ttlMs });
     expect(await lock.claim('k@1')).toBe(true);
     expect(await lock.claim('k@1')).toBe(false);
-    await sleep(40);
-    // The previous holder "crashed"; the marker is now stale and reclaimable.
-    expect(await lock.claim('k@1')).toBe(true);
+    // The previous holder "crashed": advance the CLOCK past the TTL rather than
+    // sleeping, so the test asserts the staleness rule and not the accuracy of
+    // a timer on a loaded machine.
+    expect(await lock.claim('k@1', Date.now() + ttlMs * 5)).toBe(true);
   });
 
+  // Age is set on the FILES and the clock is passed in, rather than produced by
+  // sleeping. Expiry is `now - mtime > ttlMs`, so a sleep-based version races
+  // the scheduler: any pause between claiming the fresh marker and sweeping
+  // that exceeds the TTL expires it too, and a short TTL makes that pause
+  // trivial to hit on a loaded machine.
   it('sweep removes expired markers and leaves fresh ones', async () => {
-    const lock = new CrossProcessFireLock({ dir, ttlMs: 15 });
+    const ttlMs = 1_000;
+    const lock = new CrossProcessFireLock({ dir, ttlMs });
     await lock.claim('old@1');
-    await sleep(40);
     await lock.claim('fresh@1');
-    const removed = await lock.sweep();
-    expect(removed).toBe(1);
-    const remaining = await readdir(dir);
-    expect(remaining).toEqual(['fresh@1.lock']);
+
+    const now = Date.now();
+    const stale = new Date(now - ttlMs * 5);
+    await utimes(join(dir, 'old@1.lock'), stale, stale);
+    await utimes(join(dir, 'fresh@1.lock'), new Date(now), new Date(now));
+
+    expect(await lock.sweep(now)).toBe(1);
+    expect(await readdir(dir)).toEqual(['fresh@1.lock']);
   });
 
   it('sanitizes unsafe key characters into a single marker file', async () => {

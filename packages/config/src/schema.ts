@@ -4,27 +4,58 @@ import { pluginsTreeSchema } from './plugins-tree-schema.js';
 
 export const watcherModeSchema = z.enum(['auto', 'manual', 'off']);
 
+/**
+ * One rule in a config-supplied permission policy.
+ *
+ * `inputMatches` is an UNANCHORED regex (the long-standing contract of the
+ * policy file, never silently anchored). `inputPathPrefix` and `inputGlob` are
+ * anchored alternatives, and an organisation's policy should prefer them: the
+ * obvious `{ Read: { path: '/etc' } }` reads like "under /etc" but as a regex
+ * means "contains /etc anywhere", which over-blocks as a deny and over-grants
+ * as an allow.
+ */
+export const permissionRuleSchema = z.object({
+  name: z.string(),
+  inputMatches: z.record(z.string(), z.string()).optional(),
+  inputPathPrefix: z.record(z.string(), z.string()).optional(),
+  inputGlob: z.record(z.string(), z.string()).optional(),
+  reason: z.string().optional(),
+});
+
 export const permissionsConfigSchema = z.object({
   policyPath: z.string().optional(),
-  allow: z
-    .array(
-      z.object({
-        name: z.string(),
-        inputMatches: z.record(z.string(), z.string()).optional(),
-        reason: z.string().optional(),
-      }),
-    )
-    .optional(),
-  deny: z
-    .array(
-      z.object({
-        name: z.string(),
-        inputMatches: z.record(z.string(), z.string()).optional(),
-        reason: z.string().optional(),
-      }),
-    )
-    .optional(),
+  /**
+   * Rules applied as an IMMUTABLE layer above `~/.moxxy/permissions.json`.
+   * Checked first, never written back, and never removable by an "allow
+   * always" answer. Put them in the system scope with `permissions` in
+   * `locked:` and they become policy a user cannot get rid of.
+   */
+  allow: z.array(permissionRuleSchema).optional(),
+  deny: z.array(permissionRuleSchema).optional(),
 });
+
+/**
+ * A signed policy bundle this host subscribes to.
+ *
+ * The public key is pinned HERE, in config the operator controls, and never
+ * taken from the bundle or its host. A key served alongside the thing it
+ * authenticates proves nothing: whoever can replace the bundle can replace the
+ * key with it.
+ */
+export const policyBundleRefSchema = z.object({
+  /** Expected bundle id. A signature proves who wrote it, not which one it is. */
+  id: z.string().min(1),
+  url: z.string().url(),
+  /** SPKI PEM of the publisher's Ed25519 key. */
+  publicKey: z.string().min(1),
+});
+
+export const policyConfigSchema = z.object({
+  bundles: z.array(policyBundleRefSchema).max(32).optional(),
+});
+
+export type PolicyBundleRef = z.infer<typeof policyBundleRefSchema>;
+export type PolicyConfig = z.infer<typeof policyConfigSchema>;
 
 export const securityConfigSchema = z.object({
   /**
@@ -86,6 +117,84 @@ export const securityConfigSchema = z.object({
    */
   strict: z.boolean().optional(),
 });
+
+/**
+ * Outbound network settings. Node's global `fetch` ignores `HTTPS_PROXY`, so
+ * without this every provider call fails on a network that requires a proxy.
+ */
+export const networkConfigSchema = z
+  .object({
+    /**
+     * `'env'` (the default) reads `http_proxy` / `https_proxy` / `no_proxy`
+     * from the environment. `'off'` forces direct connections even when those
+     * are set. A URL forces that proxy regardless of the environment, which is
+     * what a managed workstation wants so a user cannot unset it by clearing
+     * their shell profile.
+     */
+    proxy: z.union([z.enum(['env', 'off']), z.string().url()]).optional(),
+    /** Bypass rules applied to `proxy`, same syntax as `NO_PROXY`. Merged with
+     *  the environment's `no_proxy` rather than replacing it. */
+    noProxy: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * The audit trail: a tamper-evident record of what was done and for whom,
+ * distinct from the event log (which is the conversation).
+ */
+export const auditConfigSchema = z
+  .object({
+    /** Off by default: an audit trail is a deliberate operator choice, and a
+     *  trail nobody asked for is just another file holding sensitive data. */
+    enabled: z.boolean().optional(),
+    /** Active sink name. Defaults to the protected local floor. */
+    sink: z.string().optional(),
+    /**
+     * Record prompt TEXT rather than only its length and SHA-256. Off by
+     * default: the trail proves what was done, and prompts carry business
+     * content that has no reason to leave the machine. The hash is recorded
+     * either way, so a given prompt can still be PROVEN to be the audited one.
+     */
+    includePromptText: z.boolean().optional(),
+    /** Delete local audit files older than this. Unset keeps them forever,
+     *  which is its own compliance problem. */
+    retentionDays: z.number().int().positive().optional(),
+    /**
+     * Ship the local trail to a central collector.
+     *
+     * ADDITIVE, never a replacement. The hash-chained local file stays the
+     * system of record and is what the exporter reads from, so a collector
+     * being unreachable delays central visibility instead of losing records.
+     * Configuring an export does not weaken `sink`.
+     */
+    export: z
+      .object({
+        /** Registered exporter name. 'otlp' is built in. */
+        exporter: z.string().default('otlp'),
+        endpoint: z.string().url(),
+        /** Static headers, e.g. authorization. Supports ${vault:KEY}. */
+        headers: z.record(z.string(), z.string()).optional(),
+        batchSize: z.number().int().positive().max(10_000).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+/** Secret-vault behaviour. */
+export const vaultConfigSchema = z
+  .object({
+    /**
+     * Demand a human-chosen passphrase instead of generating a key.
+     *
+     * Off by default. A passphrase is a genuine increase in protection, but
+     * making it mandatory turned first run into a hard stop on any host without
+     * an OS keychain (a container, a headless box, CI). An operator who wants
+     * the stronger posture sets this and can lock it from the system scope.
+     */
+    requirePassphrase: z.boolean().optional(),
+  })
+  .strict();
 
 export const embeddingsConfigSchema = z.object({
   /**
@@ -155,7 +264,29 @@ export const contextConfigSchema = z.object({
     .optional(),
 });
 
+/** Settings governing how config itself is loaded. */
+export const configLoadingSchema = z
+  .object({
+    /**
+     * Whether `moxxy.config.{ts,js,mjs,cjs}` may be EXECUTED. Those files are
+     * code, run with the user's full privileges before the permission engine or
+     * any isolator exists. Default true (with trust-on-first-use consent); a
+     * managed host sets false so only YAML data is ever loaded.
+     */
+    allowExecutable: z.boolean().optional(),
+  })
+  .strict();
+
 export const moxxyConfigSchema = z.object({
+  /**
+   * Dot-paths this layer pins, e.g. `['security.enabled', 'network.proxy']`.
+   * Honored ONLY from the system scope: every listed path is stripped from the
+   * user, project, and explicit layers before merging, so a managed setting
+   * cannot be turned off further down. Ignored anywhere else, since a user
+   * config locking keys against itself is meaningless.
+   */
+  locked: z.array(z.string()).optional(),
+  config: configLoadingSchema.optional(),
   /**
    * The unified plugins manifest — the single source of truth for what's
    * installed/enabled (`plugins.packages`) and the active default per category
@@ -177,8 +308,12 @@ export const moxxyConfigSchema = z.object({
     })
     .optional(),
   security: securityConfigSchema.optional(),
+  network: networkConfigSchema.optional(),
+  audit: auditConfigSchema.optional(),
+  vault: vaultConfigSchema.optional(),
   channels: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   permissions: permissionsConfigSchema.optional(),
+  policy: policyConfigSchema.optional(),
   env: z.record(z.string(), z.string()).optional(),
   /** TUI presentation preferences (read at TUI boot; edited via /settings). */
   tui: z
@@ -187,6 +322,12 @@ export const moxxyConfigSchema = z.object({
       theme: z.enum(['default', 'mono']).optional(),
       /** Hide the footer key-hint row when false. */
       hints: z.boolean().optional(),
+      /**
+       * Vertical breathing room in the transcript. `compact` drops the blank
+       * line between entries, which is what a short split pane needs: on 24
+       * rows, half the screen is otherwise separator.
+       */
+      density: z.enum(['comfortable', 'compact']).optional(),
       /**
        * Ctrl+<letter> overrides for the input-editor command hotkeys. Values
        * are single letters; unknown/conflicting letters are ignored at boot.
@@ -209,6 +350,9 @@ export type ContextConfig = z.infer<typeof contextConfigSchema>;
 export type ElisionConfig = z.infer<typeof elisionConfigSchema>;
 export type WatcherMode = z.infer<typeof watcherModeSchema>;
 export type PermissionsConfig = z.infer<typeof permissionsConfigSchema>;
+export type NetworkConfig = z.infer<typeof networkConfigSchema>;
+export type AuditConfig = z.infer<typeof auditConfigSchema>;
+export type VaultConfig = z.infer<typeof vaultConfigSchema>;
 export type EmbeddingsConfig = z.infer<typeof embeddingsConfigSchema>;
 export type SecurityConfig = z.infer<typeof securityConfigSchema>;
 

@@ -47,12 +47,32 @@ describe('createMcpPlugin', () => {
   });
 
   it('connects servers in parallel and bounds boot at the slowest, not the sum (u86-5)', async () => {
-    // Two servers whose listTools each take ~50ms. Serial boot would take
-    // ~100ms; parallel ~50ms. Assert well under the serial sum and that both
-    // tool sets land in server order.
+    // Parallelism is asserted by observing CONCURRENCY, not elapsed time. The
+    // previous version slept 50ms per server and required the whole boot under
+    // 90ms, which is a measurement of the machine: two parallel 50ms sleeps
+    // routinely exceed that under a loaded suite, and it duly failed in CI.
+    // Counting how many listTools calls are in flight at once proves the same
+    // property and cannot be wrong because the box is busy.
+    let inFlight = 0;
+    let peakInFlight = 0;
+    const release: Array<() => void> = [];
+    const gate = (): Promise<void> =>
+      new Promise<void>((resolve) => {
+        release.push(resolve);
+        // Let both servers reach the gate before either is allowed to finish;
+        // serial boot could never get the second one here.
+        if (release.length === 2) for (const r of release) r();
+        // Fallback so a SERIAL implementation fails on the assertion below
+        // (peak of 1) instead of deadlocking into an opaque test timeout.
+        else setTimeout(resolve, 200);
+      });
+
     const slowClient = (name: string): McpClientLike => ({
       async listTools() {
-        await new Promise((r) => setTimeout(r, 50));
+        inFlight += 1;
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        await gate();
+        inFlight -= 1;
         return { tools: [{ name: 'ping', description: 'p', inputSchema: { type: 'object' } }] };
       },
       async callTool() {
@@ -60,16 +80,17 @@ describe('createMcpPlugin', () => {
       },
       async close() {},
     });
-    const start = Date.now();
+
     const plugin = await createMcpPlugin({
       servers: [{ name: 'a', command: 'noop' }, { name: 'b', command: 'noop' }],
       clientFactory: async (s) => slowClient(s.name),
     });
-    const elapsed = Date.now() - start;
+
     const tools = plugin.tools;
     assertDefined(tools, 'plugin.tools present after createMcpPlugin');
+    // Order is still by server, not by completion.
     expect(tools.map((t) => t.name)).toEqual(['mcp__a__ping', 'mcp__b__ping']);
-    expect(elapsed).toBeLessThan(90); // < the ~100ms serial sum
+    expect(peakInFlight).toBe(2);
   });
 
   it('closes already-connected clients when a later server fails to connect', async () => {

@@ -140,3 +140,38 @@ describe('resolveValue worst-case guards', () => {
     await expect(resolveValue(node, vault)).rejects.toThrow(/nested too deeply/);
   });
 });
+
+// `${vault:KEY}` used to mean two different things: in config it always hit the
+// local vault, while `ctx.getSecret` in a tool went through whatever
+// SecretProvider was active. Taking a LOOKUP FUNCTION is what makes the two
+// uniform, so the same placeholder resolves the same way everywhere.
+describe('resolving through an arbitrary secret lookup', () => {
+  it('resolves a string through a function, not just a VaultStore', async () => {
+    const lookup = async (name: string): Promise<string | null> =>
+      name === 'TOKEN' ? 'from-remote-store' : null;
+    expect(await resolveString('Bearer ${vault:TOKEN}', lookup)).toBe('Bearer from-remote-store');
+  });
+
+  it('resolves nested config values through a function', async () => {
+    const lookup = async (name: string): Promise<string | null> =>
+      name === 'KEY' ? 'sk-remote' : null;
+    const out = await resolveValue(
+      { plugins: { provider: { items: { openai: { config: { apiKey: '${vault:KEY}' } } } } } },
+      lookup,
+    );
+    expect(JSON.stringify(out)).toContain('sk-remote');
+  });
+
+  // A missing secret must still be a hard error whichever store was asked, or a
+  // typo silently becomes an empty credential and surfaces as a 401 later.
+  it('throws on a missing entry regardless of the source', async () => {
+    const lookup = async (): Promise<string | null> => null;
+    await expect(resolveString('${vault:NOPE}', lookup)).rejects.toThrow(/missing required entry/);
+  });
+
+  // Existing callers pass the vault object; that must keep working unchanged.
+  it('still accepts a VaultStore directly', async () => {
+    const vault = { get: async (n: string) => (n === 'A' ? 'a' : null) } as never;
+    expect(await resolveString('${vault:A}', vault)).toBe('a');
+  });
+});

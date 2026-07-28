@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-mcp",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "description": "MCP (Model Context Protocol) client plugin for moxxy — connect to MCP servers and surface their tools.",
   "keywords": [
     "moxxy",
@@ -30,6 +30,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./config-io": {
+      "types": "./dist/admin/config-io.d.ts",
+      "import": "./dist/admin/config-io.js"
     }
   },
   "files": [

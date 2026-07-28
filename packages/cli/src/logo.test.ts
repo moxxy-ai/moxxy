@@ -14,7 +14,7 @@ function firstLine(out: string): string {
 }
 
 describe('renderLogo', () => {
-  it('shows the full mascot on a wide terminal, left-aligned with no leading pad', () => {
+  it('shows the full mark on a wide terminal, left-aligned with no leading pad', () => {
     // The init wizard banner relies on the default being left-flush so the
     // clack `┌` corner connects under it.
     expect(firstLine(renderLogo(80))).toBe(LOGO_LINES[0]);

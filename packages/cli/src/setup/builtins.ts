@@ -142,6 +142,9 @@ const CATEGORY_REGISTRIES: ReadonlyArray<{
   { category: 'viewRenderer', reg: (s) => s.viewRenderers },
   { category: 'tunnelProvider', reg: (s) => s.tunnelProviders },
   { category: 'eventStore', reg: (s) => s.eventStores },
+  { category: 'auditSink', reg: (s) => s.auditSinks },
+  { category: 'auditExporter', reg: (s) => s.auditExporters },
+  { category: 'secretProvider', reg: (s) => s.secretProviders },
   { category: 'reflector', reg: (s) => s.reflectors },
 ];
 

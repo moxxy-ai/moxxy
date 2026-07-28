@@ -67,7 +67,14 @@ async function startServer(
   const addr = server.address() as AddressInfo;
   return {
     baseUrl: `http://127.0.0.1:${addr.port}`,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise((resolve) => {
+        // `close()` alone only stops NEW connections; a keep-alive socket the
+        // client pool is still holding keeps the callback pending, which turns
+        // a finished test into a hung or non-zero-exit run at teardown.
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
   };
 }
 

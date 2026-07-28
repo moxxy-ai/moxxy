@@ -16,6 +16,9 @@ import type {
   ViewRendererDef,
   TunnelProviderDef,
   WorkflowExecutorDef,
+  AuditSinkDef,
+  AuditExporterDef,
+  SecretProviderDef,
   EventStoreDef,
   ReflectorDef,
 } from '@moxxy/sdk';
@@ -45,6 +48,9 @@ export interface RegistryNameRecord {
   readonly isolatorNames: ReadonlyArray<string>;
   readonly workflowExecutorNames: ReadonlyArray<string>;
   readonly eventStoreNames: ReadonlyArray<string>;
+  readonly auditSinkNames: ReadonlyArray<string>;
+  readonly auditExporterNames: ReadonlyArray<string>;
+  readonly secretProviderNames: ReadonlyArray<string>;
   readonly reflectorNames: ReadonlyArray<string>;
 }
 
@@ -245,6 +251,39 @@ export const REGISTRY_KINDS: ReadonlyArray<RegistryKind<unknown>> = [
     register: (o, e: EventStoreDef) => o.eventStores.register(e),
     unregister: (o, n) => o.eventStores.unregister(n),
   } satisfies RegistryKind<EventStoreDef>,
+  {
+    kind: 'auditSink',
+    recordField: 'auditSinkNames',
+    defs: (p) => p.auditSinks ?? [],
+    nameOf: (a: AuditSinkDef) => a.name,
+    // Throw-on-duplicate `register`, and no auto-activation. A sink's entire
+    // purpose is to send recorded actions off the machine, so a discovered one
+    // becoming active on its own would be an exfiltration path wearing a
+    // compliance hat. The operator opts in via `audit.sink`.
+    register: (o, a: AuditSinkDef) => o.auditSinks.register(a),
+    unregister: (o, n) => o.auditSinks.unregister(n),
+  } satisfies RegistryKind<AuditSinkDef>,
+  {
+    kind: 'auditExporter',
+    recordField: 'auditExporterNames',
+    defs: (p) => p.auditExporters ?? [],
+    nameOf: (e: AuditExporterDef) => e.name,
+    // Same posture as auditSink: an exporter exists to send recorded actions
+    // off the machine, so discovery must not activate one. `audit.export` does.
+    register: (o, e: AuditExporterDef) => o.auditExporters.register(e),
+    unregister: (o, n) => o.auditExporters.unregister(n),
+  } satisfies RegistryKind<AuditExporterDef>,
+  {
+    kind: 'secretProvider',
+    recordField: 'secretProviderNames',
+    defs: (p) => p.secretProviders ?? [],
+    nameOf: (sp: SecretProviderDef) => sp.name,
+    // Throw-on-duplicate, no auto-activation. A secret provider is asked for
+    // plaintext credentials BY NAME, so one that activated itself on discovery
+    // would be a credential-harvesting path wearing a convenience hat.
+    register: (o, sp: SecretProviderDef) => o.secretProviders.register(sp),
+    unregister: (o, n) => o.secretProviders.unregister(n),
+  } satisfies RegistryKind<SecretProviderDef>,
   {
     kind: 'reflector',
     recordField: 'reflectorNames',

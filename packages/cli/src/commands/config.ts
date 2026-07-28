@@ -1,4 +1,12 @@
-import { loadConfig, setConfigValue, type ConfigScope } from '@moxxy/config';
+import * as path from 'node:path';
+import {
+  listTrustedConfigs,
+  loadConfig,
+  setConfigValue,
+  trustConfig,
+  untrustConfig,
+  type ConfigScope,
+} from '@moxxy/config';
 import type { ParsedArgv } from '../argv.js';
 import { stringFlag } from '../argv-helpers.js';
 import { printError } from '../errors.js';
@@ -16,6 +24,9 @@ const HELP = formatHelp({
         ['get <path>', 'print the merged value at a dot-path (JSON)'],
         ['set <path> <value>', 'set a value (JSON-parsed; bare words stay strings)'],
         ['path', 'print which config files are in effect'],
+        ['trust [file]', 'approve an executable config so it may run (default: ./moxxy.config.ts)'],
+        ['trust --list', 'show approved executable configs'],
+        ['untrust <file>', 'withdraw approval'],
       ],
     },
     {
@@ -109,6 +120,18 @@ export async function runConfigCommand(argv: ParsedArgv): Promise<number> {
         return 1;
       }
     }
+    case 'trust':
+      return await runTrust(argv);
+    case 'untrust': {
+      const target = path.resolve(argv.positional[1] ?? 'moxxy.config.ts');
+      const removed = await untrustConfig(target);
+      process.stdout.write(
+        removed
+          ? `withdrew approval for ${target}\n`
+          : colors.dim(`no approval on file for ${target}\n`),
+      );
+      return 0;
+    }
     case 'path': {
       const { sources } = await loadConfig({ cwd: process.cwd() });
       if (sources.length === 0) {
@@ -124,5 +147,41 @@ export async function runConfigCommand(argv: ParsedArgv): Promise<number> {
     default:
       process.stdout.write(HELP);
       return sub ? 2 : 0;
+  }
+}
+
+/**
+ * Approve an executable config so the loader may run it.
+ *
+ * The counterpart to the interactive prompt, for hosts that have nobody to ask:
+ * a daemon, a container image, a provisioning script. Approval is recorded
+ * against the file's CONTENT, so editing it revokes the approval by
+ * construction.
+ */
+async function runTrust(argv: ParsedArgv): Promise<number> {
+  if (argv.flags.list === true) {
+    const entries = await listTrustedConfigs();
+    if (entries.length === 0) {
+      process.stdout.write(colors.dim('no executable configs approved\n'));
+      return 0;
+    }
+    for (const entry of entries) {
+      process.stdout.write(
+        `${entry.path}\n  ${colors.dim(`sha256 ${entry.sha256.slice(0, 16)}…  ${entry.trustedAt}`)}\n`,
+      );
+    }
+    return 0;
+  }
+  const target = path.resolve(argv.positional[1] ?? 'moxxy.config.ts');
+  try {
+    const hash = await trustConfig(target);
+    process.stdout.write(
+      `approved ${target}\n` +
+        colors.dim(`  sha256 ${hash.slice(0, 16)}…  editing the file will ask again\n`),
+    );
+    return 0;
+  } catch (err) {
+    printError(err instanceof Error ? err.message : String(err));
+    return 1;
   }
 }

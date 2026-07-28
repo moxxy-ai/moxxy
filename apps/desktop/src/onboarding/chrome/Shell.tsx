@@ -9,8 +9,8 @@
  * rest of the app — and follows the light/dark theme the same way.
  */
 
+import { MoxxyMark } from '@/components/MoxxyMark';
 import { Icon } from '@moxxy/desktop-ui';
-import { asset } from '@/lib/asset';
 
 const SURFACE = 'var(--color-main-bg)';
 // A whisper darker than the main pane so the step rail registers as its
@@ -50,12 +50,7 @@ export function Shell({
         }}
       >
         <header style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img
-            src={asset('logo.png')}
-            alt=""
-            aria-hidden
-            style={{ height: 40, width: 'auto', objectFit: 'contain', imageRendering: 'pixelated' }}
-          />
+          <MoxxyMark size={40} />
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
             <span style={{ fontSize: 14, fontWeight: 700 }}>MoxxyAI</span>
             <span

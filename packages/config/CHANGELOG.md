@@ -1,5 +1,59 @@
 # @moxxy/config
 
+## 0.34.0
+
+### Minor Changes
+
+- ae16897: Ship the audit trail to a central collector: `moxxy security audit-export`, plus a built-in OTLP exporter.
+
+  The local trail answered "what happened on this machine". A fleet needs one place to ask, and a chain head the workstation cannot rewrite. Configure `audit.export.endpoint` and run the command from cron; it exits 1 when it could not drain, so a collector unreachable for a week is visible rather than silently logging "sent 0".
+
+  An exporter is a READER of the already-written trail, driven by a checkpoint, not a second write path. That is what makes shipping survivable: a network sink has to decide mid-turn whether to block, drop, or buffer when the collector is down, while an exporter just retries from the checkpoint. The local hash-chained file stays the system of record, and configuring an export does not weaken it.
+
+  The checkpoint advances only after a batch is durably accepted, so a crash or failure re-sends rather than skips, and each record carries its chain hash to deduplicate on. A 200 carrying `partialSuccess.rejectedLogRecords` counts as a failure: checkpointing past records the collector discarded is the invisible gap this exists to prevent.
+
+  Records map to OTLP logs rather than traces, spoken over plain `fetch` with no `@opentelemetry/*` dependency, which would have added megabytes to a CLI whose bundle budget is enforced at build time. `auditExporter` is a new registry kind, so another destination is a plugin; like audit sinks, a discovered exporter never activates on its own.
+
+  Exporting needs no model provider and boots no session, so a machine with an expired API key still exports.
+
+  `moxxy doctor` gains an `audit-export` row so a scheduled export that silently stopped (broken cron, expired token, moved collector) is visible: the local trail keeps being written either way, so nothing else would look wrong. The backlog excludes the diagnostic's own session, since booting one to ask the question writes a record and a check that always warns teaches people to ignore it.
+
+- e52e2ed: Add signed policy bundles and `moxxy policy`.
+
+  Permission rules could already be pushed from the system config, which works on one machine. Across a fleet every rule change became a file change on every host, and a host that missed one looked exactly like a host that got it. A bundle is a signed document published once and subscribed to by `policy.bundles`, carrying a revision that lands in the audit trail, so `moxxy receipt` proves which revision any past run executed under.
+
+  A bundle carries permission rules and nothing else. Not `registryUrl`, not a key, not a proxy, not `security.enabled`, and one carrying any of them is rejected rather than quietly stripped. It arrives over the network, so the worst case for whoever controls that host stays "they can deny things and break the fleet" instead of "they can loosen us".
+
+  Loading fails closed: a configured bundle that cannot be verified stops the session rather than running without the rules the machine is supposed to enforce. The last verified copy is cached and carries a session through an outage, re-verified against the pinned key on every read. A bad signature is never treated as unavailable, or anyone answering for the URL could pin a fleet to an old revision by serving garbage.
+
+  `moxxy policy` shows the rules in force with each rule's origin; `--check` exits 1 when a host is serving off a stale cache. The Ed25519 verifier moved to `@moxxy/sdk` as `verifyEd25519`, since policy has to bind on a machine with no plugins installed and a control you can disable by uninstalling something is not a control.
+
+- 06e81f8: Add `ToolDef.icon` and `tui.density`.
+
+  **Tool icons.** A surface could only guess a tool's icon from its NAME, via a heuristic that recognised the handful of built-ins it was written against, so every plugin-contributed tool drew the same wrench with no way for its author to say otherwise. Tools now declare `icon`, the session snapshot carries it, and the desktop renders the declared choice with the old heuristic kept as a fallback.
+
+  The vocabulary is closed (`ToolIcon`) rather than a free string: surfaces render wildly differently, and a name no surface owns would fall back everywhere, making the field decorative. A fixed set means each surface maps it exhaustively, and the desktop's map is typed as a total `Record` so adding a member fails to compile instead of silently drawing a wrench. That fired during development, when `copy` was rejected and `clipboard` was added deliberately.
+
+  The desktop reads the map from one `session.info` fetch held in context, because a transcript can hold hundreds of tool rows and a fetching hook per row would mean hundreds of identical IPC calls per screen.
+
+  **Transcript density.** `tui.density: comfortable | compact` sits next to `tui.theme` and `tui.hints`, and is togglable from `/settings`. `compact` drops the blank line between transcript entries, which is what a short split pane needs: on 24 rows, half the screen is otherwise separator. Default is unchanged. All 18 separators across the chat components route through one helper, with a test that fails naming any component that hardcodes one again, since a single stray separator would make compact look half-broken rather than absent.
+
+  Also hardens `useActionCatalog`: `api()` throws synchronously when no transport is configured, which the hook's promise `.catch` could not see. Unguarded that escaped the effect and took down whatever rendered the consumer, so a component that merely enriched its output made a configured transport a hard requirement for rendering. It now degrades to the `loaded: false` state it already models.
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

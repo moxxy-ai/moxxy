@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/plugin-channel-imessage",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "description": "iMessage channel for moxxy via a localhost BlueBubbles server (macOS only). Sends text with the apple-script method and receives via the BlueBubbles socket.io feed, driving the Session from allow-listed handles (your own self-chat by default). Immutable chunked replies; autonomous allow-list permission model.",
   "keywords": [
     "moxxy",

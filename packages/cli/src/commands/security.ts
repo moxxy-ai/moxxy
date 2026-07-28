@@ -6,6 +6,7 @@ import { printError } from '../errors.js';
 import { colors } from '../colors.js';
 import { formatHelp } from './help-format.js';
 import type { AuditEntry } from '@moxxy/plugin-security';
+import { listAuditDays, verifyAuditDay } from '@moxxy/core';
 
 const HELP = formatHelp({
   title: 'moxxy security',
@@ -19,6 +20,10 @@ const HELP = formatHelp({
         ['audit --by-package', 'declared/total rollup per contributing plugin'],
         ['isolators', 'list available Isolator impls'],
         ['status', 'show enabled state, default isolator, and declaration/ratchet modes'],
+        ['audit-log', 'list days with an audit trail and verify each hash chain'],
+        ['audit-log <YYYY-MM-DD>', 'verify one day and print its record count + chain head'],
+        ['audit-export', 'ship the trail to the collector in audit.export'],
+        ['audit-export --dry-run', 'report what would be sent, send nothing'],
       ],
     },
   ],
@@ -29,6 +34,13 @@ export async function runSecurityCommand(argv: ParsedArgv): Promise<number> {
   if (sub === 'help' || helpRequested(argv)) {
     process.stdout.write(HELP);
     return 0;
+  }
+
+  // Reading the audit trail needs no session: the files are the source of
+  // truth, and booting one would append to the very trail being verified.
+  if (sub === 'audit-log') return await runAuditLog(argv);
+  if (sub === 'audit-export') {
+    return await (await import('./audit-export.js')).runAuditExportCommand(argv);
   }
 
   const { config, security } = await bootSessionWithConfig(argv, {
@@ -240,4 +252,43 @@ function formatCapabilities(caps: Readonly<Record<string, unknown>> | undefined)
   if (env?.length) bits.push(`env(${env.length})`);
   if (typeof caps.timeMs === 'number') bits.push(`time:${caps.timeMs}ms`);
   return colors.dim(bits.join(' '));
+}
+
+/**
+ * Verify the local audit trail's hash chains.
+ *
+ * Chaining makes the trail tamper-EVIDENT, not tamper-proof: whoever can write
+ * the file can recompute the whole chain. What it catches is the realistic
+ * threat, silent selective deletion, and this command is how an operator
+ * actually checks. Exit code 1 on a broken chain so a cron job or a compliance
+ * check can gate on it.
+ */
+async function runAuditLog(argv: ParsedArgv): Promise<number> {
+  const requested = argv.positional[1];
+  const days = requested ? [requested] : await listAuditDays();
+  if (days.length === 0) {
+    process.stdout.write(
+      colors.dim('no audit trail found (enable it with `audit.enabled: true`)\n'),
+    );
+    return 0;
+  }
+
+  let broken = 0;
+  for (const day of days) {
+    const verdict = await verifyAuditDay(day);
+    if (verdict.ok) {
+      const head = verdict.head ? verdict.head.slice(0, 12) : '(empty)';
+      process.stdout.write(
+        `${colors.bold(day)}  ${String(verdict.count).padStart(6)} records  ` +
+          `${colors.dim(`head ${head}`)}\n`,
+      );
+      continue;
+    }
+    broken++;
+    process.stdout.write(
+      `${colors.bold(day)}  ${colors.red('CHAIN BROKEN')} at record ${verdict.brokenAt}\n` +
+        `  ${colors.dim(verdict.reason)}\n`,
+    );
+  }
+  return broken > 0 ? 1 : 0;
 }

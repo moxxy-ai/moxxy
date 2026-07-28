@@ -573,3 +573,77 @@ describe('checkCapabilityManifest', () => {
     expect(checkCapabilityManifest({}, { timeMs: 500 }).capabilityMismatch).toBe(false);
   });
 });
+
+describe('authenticated registry mirror', () => {
+  let cacheDir: string;
+  beforeEach(() => {
+    // Own cache dir per test: a verified cache short-circuits the fetch, which
+    // would make the header assertions silently stop exercising anything.
+    cacheDir = mkdtempSync(path.join(os.tmpdir(), 'mox-reg-auth-'));
+  });
+  afterEach(() => rmSync(cacheDir, { recursive: true, force: true }));
+
+  const INDEX = JSON.stringify({ version: 1, generatedAt: '2026-01-01T00:00:00Z', entries: [] });
+
+  // A real Ed25519 public key: with the BAKED key empty (unprovisioned) the
+  // remote path is skipped entirely, so without this the fetch never happens
+  // and an `every()` assertion over an empty array passes vacuously. That is
+  // exactly how the first draft of these tests "passed".
+  const publicKeyPem = generateKeyPairSync('ed25519').publicKey.export({
+    type: 'spki',
+    format: 'pem',
+  }) as string;
+
+  const capturingFetch = () => {
+    const seen: Array<{ url: string; auth?: string }> = [];
+    const fetchImpl = async (url: string, init?: { headers?: Record<string, string> }) => {
+      seen.push({ url, ...(init?.headers?.authorization ? { auth: init.headers.authorization } : {}) });
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new TextEncoder().encode(INDEX).buffer,
+        text: async () => 'not-a-real-signature',
+      };
+    };
+    return { seen, fetchImpl };
+  };
+
+  it('sends no authorization header when no token is configured', async () => {
+    const { seen, fetchImpl } = capturingFetch();
+    await fetchSignedRegistry({ fetch: fetchImpl as never, url: 'https://mirror.internal/i.json', publicKeyPem, cacheDir });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((r) => r.auth === undefined)).toBe(true);
+  });
+
+  // The signature lives beside the index, so a mirror that gates one gates the
+  // other; omitting the header on `.sig` would fail in a way that looks like a
+  // missing signature rather than like an auth problem.
+  it('sends the bearer token on BOTH the index and its signature', async () => {
+    const { seen, fetchImpl } = capturingFetch();
+    await fetchSignedRegistry({
+      fetch: fetchImpl as never,
+      url: 'https://mirror.internal/i.json',
+      token: 'tok-123',
+      publicKeyPem,
+      cacheDir,
+    });
+    expect(seen).toHaveLength(2);
+    expect(seen.map((r) => r.auth)).toEqual(['Bearer tok-123', 'Bearer tok-123']);
+    expect(seen.some((r) => r.url.endsWith('.sig'))).toBe(true);
+  });
+
+  // Authentication is about REACHING the mirror. It must not become a way to
+  // trust one: an authenticated mirror serving an unsigned index is refused
+  // exactly like an anonymous one.
+  it('still refuses a badly-signed index from an authenticated mirror', async () => {
+    const { fetchImpl } = capturingFetch();
+    const result = await fetchSignedRegistry({
+      fetch: fetchImpl as never,
+      url: 'https://mirror.internal/i.json',
+      token: 'tok-123',
+      publicKeyPem,
+      cacheDir,
+    });
+    expect(result.source).toBe('fallback');
+  });
+});

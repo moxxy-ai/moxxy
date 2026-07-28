@@ -1,5 +1,24 @@
 # @moxxy/plugin-channel-imessage
 
+## 0.34.0
+
+### Patch Changes
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/core@0.34.0
+  - @moxxy/sdk@0.34.0
+  - @moxxy/channel-kit@0.34.0
+  - @moxxy/plugin-vault@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

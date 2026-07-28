@@ -1,6 +1,8 @@
+import type { ConfigSource } from './load-config.js';
+import type { AuditHandle } from '@moxxy/core';
 import type { EventStoreSession, Session } from '@moxxy/core';
 import type { PermissionResolver } from '@moxxy/sdk';
-import type { MoxxyConfig } from '@moxxy/config';
+import type { MoxxyConfig, PolicySourceRecord } from '@moxxy/config';
 import type { VaultStore } from '@moxxy/plugin-vault';
 import type { MemoryStore } from '@moxxy/plugin-memory';
 import type { SchedulerPoller, ScheduleStore } from '@moxxy/plugin-scheduler';
@@ -96,9 +98,11 @@ export type BootStep =
   | { kind: 'ready' };
 
 export interface SetupResult {
+  /** Signed policy bundles that were verified for this session. */
+  readonly policySources: ReadonlyArray<PolicySourceRecord>;
   readonly session: Session;
   readonly config: MoxxyConfig;
-  readonly configSources: ReadonlyArray<{ scope: 'project' | 'user' | 'explicit'; path: string }>;
+  readonly configSources: ReadonlyArray<ConfigSource>;
   readonly vault: VaultStore;
   /** The memory plugin's store ('memory' service); undefined on a slim boot without the plugin. */
   readonly memory: MemoryStore | undefined;
@@ -116,6 +120,8 @@ export interface SetupResult {
   };
   /** Active EventStore session handle. Null when `disableSessionPersistence` is set. */
   readonly persistence: EventStoreSession | null;
+  /** Audit-trail handle, or null when `audit.enabled` is off. */
+  readonly audit: AuditHandle | null;
   /** Security plugin handle. `audit()` lists every tool's isolation
    *  status; `registry` exposes the available `Isolator` impls. The
    *  plugin itself is a no-op until `security.enabled: true`. */

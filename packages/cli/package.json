@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/cli",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "description": "moxxy command-line agent: TUI, one-shot prompts, setup, services, and API-key or installed-CLI subscription providers.",
   "keywords": [
     "moxxy",
@@ -40,6 +40,7 @@
   "files": [
     "dist",
     "!dist/**/*.map",
+    "!dist/metafile-*.json",
     "README.md"
   ],
   "publishConfig": {
@@ -56,6 +57,7 @@
   },
   "dependencies": {
     "@moxxy/sdk": "workspace:*",
+    "undici": "^6.26.0",
     "zod": "catalog:"
   },
   "optionalDependencies": {

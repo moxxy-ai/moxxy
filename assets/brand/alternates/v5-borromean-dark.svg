@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="bo0" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="-35" y="-16" width="70" height="32" fill="#000" transform="translate(185.998 94.515) rotate(29.491)"/>
+      <rect x="-35" y="-16" width="70" height="32" fill="#000" transform="translate(156.553 144.485) rotate(89.491)"/>
+    </mask>
+    <mask id="bo1" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="-35" y="-16" width="70" height="32" fill="#000" transform="translate(99.447 144.485) rotate(-150.509)"/>
+      <rect x="-35" y="-16" width="70" height="32" fill="#000" transform="translate(128 194.97) rotate(149.491)"/>
+    </mask>
+    <mask id="bo2" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="-35" y="-16" width="70" height="32" fill="#000" transform="translate(128 95.03) rotate(-30.509)"/>
+      <rect x="-35" y="-16" width="70" height="32" fill="#000" transform="translate(70.002 94.515) rotate(-90.509)"/>
+    </mask>
+  </defs>
+  <g transform="translate(0 8.5)">
+  <g fill="none" stroke-width="20">
+    <g mask="url(#bo0)"><circle cx="128" cy="94" r="58" stroke="#FFFFFF"/></g>
+    <g mask="url(#bo1)"><circle cx="157.445" cy="145" r="58" stroke="#FF4A1E"/></g>
+    <g mask="url(#bo2)"><circle cx="98.555" cy="145" r="58" stroke="#FFFFFF"/></g>
+  </g>
+  </g>
+</svg>

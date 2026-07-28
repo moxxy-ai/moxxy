@@ -28,6 +28,7 @@ const MAX_BYTES = 1_500_000;
 
 export const screenshotTool = defineTool({
   name: 'computer_screenshot',
+  icon: 'workspace',
   description:
     'Take a screenshot of the macOS desktop. Returns base64-encoded image bytes ' +
     'the model can see directly. By default the image is downscaled to 1280px ' +

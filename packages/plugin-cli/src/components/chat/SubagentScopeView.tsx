@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { Colors, Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
 import { DotColors, formatElapsed, truncate, type SubagentBlock } from '@moxxy/chat-model';
 import { MOTION_ENABLED } from '../motion.js';
 
@@ -22,7 +23,7 @@ export const SubagentScopeView: React.FC<{ scope: SubagentBlock }> = ({ scope })
       : DotColors.subagent;
   const state = scope.error ? 'failed' : running ? 'running' : 'done';
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
         <Text color={dotColor}>{Glyphs.filled} </Text>
         <Text bold>{`agent `}</Text>

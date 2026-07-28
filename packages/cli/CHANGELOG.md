@@ -1,5 +1,245 @@
 # @moxxy/cli
 
+## 0.34.0
+
+### Minor Changes
+
+- ae16897: Ship the audit trail to a central collector: `moxxy security audit-export`, plus a built-in OTLP exporter.
+
+  The local trail answered "what happened on this machine". A fleet needs one place to ask, and a chain head the workstation cannot rewrite. Configure `audit.export.endpoint` and run the command from cron; it exits 1 when it could not drain, so a collector unreachable for a week is visible rather than silently logging "sent 0".
+
+  An exporter is a READER of the already-written trail, driven by a checkpoint, not a second write path. That is what makes shipping survivable: a network sink has to decide mid-turn whether to block, drop, or buffer when the collector is down, while an exporter just retries from the checkpoint. The local hash-chained file stays the system of record, and configuring an export does not weaken it.
+
+  The checkpoint advances only after a batch is durably accepted, so a crash or failure re-sends rather than skips, and each record carries its chain hash to deduplicate on. A 200 carrying `partialSuccess.rejectedLogRecords` counts as a failure: checkpointing past records the collector discarded is the invisible gap this exists to prevent.
+
+  Records map to OTLP logs rather than traces, spoken over plain `fetch` with no `@opentelemetry/*` dependency, which would have added megabytes to a CLI whose bundle budget is enforced at build time. `auditExporter` is a new registry kind, so another destination is a plugin; like audit sinks, a discovered exporter never activates on its own.
+
+  Exporting needs no model provider and boots no session, so a machine with an expired API key still exports.
+
+  `moxxy doctor` gains an `audit-export` row so a scheduled export that silently stopped (broken cron, expired token, moved collector) is visible: the local trail keeps being written either way, so nothing else would look wrong. The backlog excludes the diagnostic's own session, since booting one to ask the question writes a record and a check that always warns teaches people to ignore it.
+
+- d9ae119: Add an audit trail: a tamper-evident record of what was done and for whom.
+
+  `audit log` previously appeared in this codebase only in comments. What existed was the event log: the conversation, complete and local, with no retention, no export, no tamper evidence, and full of payloads nobody wants forwarded to a SIEM.
+
+  `AuditSink` is a new swappable block, registered like every other, with a protected hash-chained local floor writing owner-only JSONL under `~/.moxxy/audit/`. Each record commits to its predecessor's hash, so removing or editing one breaks every hash after it. `moxxy security audit-log` verifies the chains and exits 1 on a break, so a scheduled compliance check can gate on it. Chaining is tamper-EVIDENT, not tamper-proof: it catches silent selective deletion, which is the realistic threat.
+
+  Records are bounded and redacted at the projection boundary, so a single line is safe to forward. Prompt text is recorded only when `audit.includePromptText` is set; the SHA-256 always is, so a given prompt stays provable without the trail disclosing it. Tool inputs are redacted alongside a hash of the original.
+
+  Off unless `audit.enabled` is set. A discovered plugin's sink is registered but never auto-activated: a sink's whole purpose is to send recorded actions elsewhere, so silent adoption would be an exfiltration path.
+
+  Also new in `@moxxy/sdk`: `redactSecrets` / `redactSecretText`, which mask by value SHAPE as well as by field name, so a bearer token inside a Bash `command` is caught.
+
+- 950c1bb: Add a system config scope, lockable settings, and consent for executable project configs.
+
+  There was no layer above the user's own config, so an organisation could not state "security.enabled is true and you may not turn it off". A system scope (`/etc/moxxy/config.yaml`, `%PROGRAMDATA%\moxxy\config.yaml`, or `$MOXXY_SYSTEM_CONFIG`) now loads first, and its `locked: [...]` dot-paths are stripped from the user, project, and explicit layers before merging. It is YAML only: an executable file there would run as whoever starts moxxy.
+
+  `moxxy.config.ts` is code, executed with your full privileges before the permission engine, the vault, or any isolator exists, and the project search walks upward, so entering a cloned repository ran its config silently. Moxxy now asks first and records approval against the file's content, so an edit asks again. Non-interactive runs skip an unapproved file rather than executing unreviewed code; `moxxy config trust` pre-approves one for daemons and container images, and a system config can set `config.allowExecutable: false` to forbid them outright.
+
+  New commands: `moxxy config trust [file]`, `moxxy config trust --list`, `moxxy config untrust <file>`.
+
+  **Behaviour change:** a project `moxxy.config.ts` that used to load silently now requires one-time approval. YAML configs are unaffected.
+
+- 6d8fdcd: Support outbound HTTP proxies, so moxxy runs on networks that require one.
+
+  Node's global `fetch` ignores `HTTPS_PROXY`, and every provider call goes through it, so on a proxied corporate network the first request failed with an opaque error and no setting fixed it. A global dispatcher is now installed at startup from `http_proxy` / `https_proxy` / `no_proxy`, with full `NO_PROXY` semantics (`*`, domain suffixes, port qualifiers, IPv6). `undici` is imported only when a proxy is actually configured.
+
+  A new `network` config block can override the environment: `proxy: 'off'` forces direct connections, and a URL pins a proxy the user cannot route around by clearing their shell profile. `network.noProxy` merges with the environment's rules rather than replacing them.
+
+  `moxxy doctor` reports the effective proxy (credentials masked) and warns when a proxy is in use without `NODE_EXTRA_CA_CERTS`, which is the usual cause of `UNABLE_TO_VERIFY_LEAF_SIGNATURE` behind a TLS-terminating proxy.
+
+- 220673e: Authenticate to an internal plugin registry.
+
+  The install-policy work let an operator point at an internal mirror, but gave no way to authenticate to it, so a mirror behind SSO was unreachable. `hostCredentialName()` derives a canonical secret name from a host (`registry.example.internal` becomes `MOXXY_CREDENTIAL_REGISTRY_EXAMPLE_INTERNAL`), and the registry fetch sends it as a bearer token on both the index and its signature.
+
+  The credential is resolved through whatever `SecretProvider` the machine has active, which is why there is no separate credential registry: a host credential is a named secret plus a convention, so the store an organisation already plugged in serves these too.
+
+  Authentication decides only whether the index is reachable. The Ed25519 verification is unchanged and still decides whether the bytes are trusted, so an authenticated mirror serving an unsigned index is refused exactly like an anonymous one.
+
+  `Session.resolveSecret` exposes the same resolver tool handlers get, so host-side callers go through the active provider instead of reaching past it to the local vault.
+
+- 57d157c: Add an install policy and a config-pinned plugin registry.
+
+  `moxxy plugins install` ran `npm install` against whatever spec it was given: a bare name, `name@version`, a git URL, or a filesystem path. On a personal machine that is the point. On a managed fleet it meant the supply chain had no boundary, and an organisation had no way to draw one.
+
+  `plugins.installPolicy` takes `open` (the default, unchanged behaviour), `registry-only` (accept only packages the signed Ed25519 index vouches for, which also pins an exact version), or `denied` (nothing installs at runtime, for an image built once and shipped).
+
+  It is enforced inside the install function rather than at the CLI surface, because the `install_plugin` model tool reaches the same path. A policy the agent could route around by asking itself would not be a policy.
+
+  `plugins.registryUrl` moves the index location into config so the system scope can pin an internal mirror. It was previously reachable only through `MOXXY_REGISTRY_URL`, a variable a user can unset, which makes it useless as a control. Whatever the URL serves must still verify against the key baked into the CLI, so this is a source decision, not a trust decision.
+
+  The enterprise profile now sets `registry-only` and locks it.
+
+- 3b7d350: Apply config permission rules, and add anchored path matchers.
+
+  `permissions.allow` and `permissions.deny` were declared in the config schema but never applied: only `permissions.policyPath` was read. The config surface was dead, so there was no way for an operator to push a permission rule at all.
+
+  They now form an immutable layer above `~/.moxxy/permissions.json`: checked first, never written back, and not removable by editing that file, by answering "allow always", or by deleting it. From the system scope with `permissions` in `locked:`, that is a rule a user cannot get rid of. Decision order is managed deny, file deny, managed allow, file allow.
+
+  Two anchored matchers join the existing unanchored `inputMatches`, whose semantics are unchanged. `inputPathPrefix` compares path segments, so `/srv/app` covers `/srv/app/x` but not `/srv/apple`, and `..` is normalised away before comparison. `inputGlob` anchors the whole value, with `*` staying inside a path segment and `**` crossing. An organisation's policy should prefer them: `{ Read: { path: '/etc' } }` as a regex means "contains /etc anywhere", which over-blocks as a deny and over-grants as an allow.
+
+- b25850c: Harden local state and the plugin install path.
+
+  Plugin installs now run npm with `--ignore-scripts`, so a package's (or a transitive dependency's) install hooks no longer execute with the user's privileges before its declared capabilities are ever read. `moxxy plugins install --allow-scripts` opts one install back in for native modules that compile or fetch a binding; the `install_plugin` model tool deliberately cannot reach that flag.
+
+  `~/.moxxy` is now created `0700`, and session transcripts, their sidecars, and `permissions.json` are written `0600`. Files left world-readable by an earlier version are tightened in place the next time they are used. A boot-time janitor removes atomic-write temp files abandoned by a killed process.
+
+  New in `@moxxy/sdk/server`: `ensurePrivateDir`, `ensurePrivateFile`, `pruneStaleTempFiles`, `PRIVATE_DIR_MODE`, `PRIVATE_FILE_MODE`.
+
+- 63b1df5: Attribute the event log to a `Principal`, so a transcript records who acted.
+
+  Until now events carried `source` (a category: user, model, tool, …) but no subject, which meant a transcript proved a machine did something rather than that a person did. Audit, role-based policy, and cost attribution all need the subject, and retrofitting it later is far more expensive than adding it now.
+
+  `EventBase.actor` is a new optional field stamped on every appended event, and `AppContext.actor` exposes the same identity to lifecycle hooks so a policy or audit hook can answer "who is asking". The CLI attributes sessions to the local OS account (`os` issuer, worth exactly as much as local account separation); a channel that authenticates its users overrides it with `session.setPrincipal`.
+
+  Runner protocol v11: `attach` carries an optional `principal`, so a thin client's work is attributed on the runner's authoritative log. Additive, so older clients keep working and their events stay unattributed. `moxxy doctor` reports the identity in force.
+
+  The field is optional on purpose: the event log is append-only and persisted, so sessions recorded before this replay unattributed and must keep doing so. Treat absent as unattributed, never as an error.
+
+- 5a977cc: Add `moxxy profile` and `moxxy sync`: install a baseline, then keep a fleet on it.
+
+  `moxxy profile enterprise` prints a system-scope config with the security controls already set and locked: isolation enforced through a real process boundary, undeclared third-party tools denied, executable project configs refused, audit on. It only prints, and its site-specific entries (proxy URL, audit sink) ship commented out. The file belongs in a root-owned location and a profile that guessed a proxy would be wrong everywhere, so the operator reviews and places it.
+
+  `moxxy sync` reconciles installed plugins against the merged `plugins.packages` manifest, which makes that map the reproducible, reviewable description of what a workstation runs. `--check` reports drift and exits 1 without changing anything, so it gates a provisioning pipeline. Sync installs what is missing and reports what is extra; it never removes a package a user chose to install.
+
+  Extras are identified from the plugin host's own bundled-versus-discovered flag rather than from package names, so the bundled kernel is never reported as drift.
+
+- 3dfc2f3: Make the secret store a swappable block.
+
+  The built-in vault (AES-256-GCM, OS-keychain unlocked) is a good design for one machine and unusable for a fleet: no central issuance, no rotation, no way to revoke a single workstation. Every organisation already runs something that does those three things.
+
+  `SecretProvider` is a new registry-backed block. The vault is registered by the host as the protected floor, so an external store (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault, 1Password) sits above it and resolution falls back to the vault for anything the provider does not hold. That makes adoption incremental: point `plugins.secretProvider.default` at a store and move secrets over one at a time.
+
+  A provider that throws is not treated as a miss. An unreachable store or an expired token surfaces as a failure, because silently falling through to the local vault would mean a machine running on credentials the operator believes they revoked.
+
+  Deliberately one block, not two: a host-scoped credential is a named secret with a naming convention on top, so a separate `CredentialProvider` registry would be a second overlapping abstraction to keep in sync.
+
+  Known limitation: `${vault:KEY}` placeholders in config still resolve against the local vault, because config is loaded before plugins register. Tool-facing `ctx.getSecret(name)` goes through the active provider.
+
+- e52e2ed: Add signed policy bundles and `moxxy policy`.
+
+  Permission rules could already be pushed from the system config, which works on one machine. Across a fleet every rule change became a file change on every host, and a host that missed one looked exactly like a host that got it. A bundle is a signed document published once and subscribed to by `policy.bundles`, carrying a revision that lands in the audit trail, so `moxxy receipt` proves which revision any past run executed under.
+
+  A bundle carries permission rules and nothing else. Not `registryUrl`, not a key, not a proxy, not `security.enabled`, and one carrying any of them is rejected rather than quietly stripped. It arrives over the network, so the worst case for whoever controls that host stays "they can deny things and break the fleet" instead of "they can loosen us".
+
+  Loading fails closed: a configured bundle that cannot be verified stops the session rather than running without the rules the machine is supposed to enforce. The last verified copy is cached and carries a session through an outage, re-verified against the pinned key on every read. A bad signature is never treated as unavailable, or anyone answering for the URL could pin a fleet to an old revision by serving garbage.
+
+  `moxxy policy` shows the rules in force with each rule's origin; `--check` exits 1 when a host is serving off a stale cache. The Ed25519 verifier moved to `@moxxy/sdk` as `verifyEd25519`, since policy has to bind on a machine with no plugins installed and a control you can disable by uninstalling something is not a control.
+
+- e52e2ed: Add `moxxy receipt <turnId>`: a verified account of one run assembled from the audit trail.
+
+  The trail already recorded what happened, but answering "who ran this, what set it off, which rules were in force, and what did it cost" meant reading raw JSONL. A receipt is a projection over those records, so asking for one writes nothing.
+
+  Two records were missing for this to be answerable, and both are now emitted when `audit.enabled` is set: a `policy` record at session start carrying a fingerprint over the settings that decide what the agent may do (counts and effective values only, no secrets or paths), and a `usage` record per provider response carrying token counts. The request and the reply stay in the event log where they belong.
+
+  The enclosing chain is verified before a receipt prints. A broken chain marks the receipt and exits 1, so a receipt from a trail with a deleted record cannot look complete.
+
+- 06e81f8: Add `ToolDef.icon` and `tui.density`.
+
+  **Tool icons.** A surface could only guess a tool's icon from its NAME, via a heuristic that recognised the handful of built-ins it was written against, so every plugin-contributed tool drew the same wrench with no way for its author to say otherwise. Tools now declare `icon`, the session snapshot carries it, and the desktop renders the declared choice with the old heuristic kept as a fallback.
+
+  The vocabulary is closed (`ToolIcon`) rather than a free string: surfaces render wildly differently, and a name no surface owns would fall back everywhere, making the field decorative. A fixed set means each surface maps it exhaustively, and the desktop's map is typed as a total `Record` so adding a member fails to compile instead of silently drawing a wrench. That fired during development, when `copy` was rejected and `clipboard` was added deliberately.
+
+  The desktop reads the map from one `session.info` fetch held in context, because a transcript can hold hundreds of tool rows and a fetching hook per row would mean hundreds of identical IPC calls per screen.
+
+  **Transcript density.** `tui.density: comfortable | compact` sits next to `tui.theme` and `tui.hints`, and is togglable from `/settings`. `compact` drops the blank line between transcript entries, which is what a short split pane needs: on 24 rows, half the screen is otherwise separator. Default is unchanged. All 18 separators across the chat components route through one helper, with a test that fails naming any component that hardcodes one again, since a single stray separator would make compact look half-broken rather than absent.
+
+  Also hardens `useActionCatalog`: `api()` throws synchronously when no transport is configured, which the hook's promise `.catch` could not see. Unguarded that escaped the effect and took down whatever rendered the consumer, so a component that merely enriched its output made a configured transport a hard requirement for rendering. It now degrades to the `loaded: false` state it already models.
+
+- 220673e: Stop demanding a vault passphrase on first run.
+
+  The master key was resolved from `MOXXY_VAULT_PASSPHRASE`, then the OS keychain, then a cached key at `~/.moxxy/vault.key`, and finally an interactive passphrase prompt. On macOS the keychain means nobody is ever asked, but on a host without one, a container, a headless Linux box, CI, that prompt was the last resort and a hard stop on a non-TTY.
+
+  A randomly generated 256-bit key now sits between the disk cache and the prompt. It gives the same protection against what this vault is actually for, which is a key leaking through config committed to git, a transcript, or a log. It does not protect against someone who can already read a `0600` file in the user's home; an OS keychain or a passphrase does raise that bar, and `moxxy doctor` now says so when a generated or file-backed key is in use.
+
+  Generation only happens when the key can be **persisted**. A generated key that could not be stored is unrecoverable, so every secret written under it would be lost on the next run; there the prompt is better precisely because the user can reproduce it from memory.
+
+  `vault.requirePassphrase: true` restores the old behaviour, and an operator can lock it from the system scope.
+
+### Patch Changes
+
+- 8c41d00: Cut two vendor SDKs out of the published binary: 5.81 MB to 3.93 MB (-32%).
+
+  Neither was imported on purpose. Reading the string helper `providerApiKeyName` from `@moxxy/plugin-provider-admin` also loaded its factory and with it the ~1 MB `openai` SDK; reading `~/.moxxy/mcp.json` through `@moxxy/plugin-mcp`'s barrel loaded `@modelcontextprotocol/sdk` and its `ajv` dependency. Together that was 1.9 MB, a third of the binary, for two config helpers.
+
+  Both helpers already lived in clean leaf modules, so they are now exported as subpaths (`@moxxy/plugin-provider-admin/key-name`, `@moxxy/plugin-mcp/config-io`) and the CLI and TUI import those instead of the package barrels.
+
+  The build now fails if either SDK reappears. That check lives in the tsup config rather than in dependency-cruiser: cross-package imports in this workspace resolve to `dist/`, which the dep-cruiser config excludes, so a rule there would silently pass forever.
+
+- 5763f92: Add the three documents a security review asks for.
+
+  Everything the enterprise work added was invisible to a buyer: `docs/` had no deployment guide, no threat model, and no statement of what leaves the machine.
+
+  `docs/threat-model.md` names the adversaries considered and, deliberately, the ones that are not, then states what each control is actually worth. It has a section for the places where a name promises more than the mechanism delivers: the audit trail is tamper-evident and not tamper-proof, the vault protects against leakage and not local access, in-process isolation is best-effort by construction, and `inputMatches` patterns are unanchored.
+
+  `docs/data-flow.md` lists every outbound request by host and trigger. There is no telemetry, and the single unattended request is the TUI's version check against `registry.npmjs.org`, which is named rather than glossed over.
+
+  `docs/deployment.md` goes from `moxxy profile enterprise` to a verified workstation, including the step that confirms a locked key actually resists a user override, because a misspelled lock looks exactly like a working one.
+
+  Also corrects `SECURITY.md`, which still described a passphrase fallback the vault no longer demands.
+
+- ff64a0e: Load commands on dispatch: `moxxy --version` goes from 301 ms to 83 ms.
+
+  `bin.ts` statically imported all 24 command modules plus the session bootstrap, so any invocation evaluated the module graph of the entire program. A `--cpu-prof` run confirmed `react/index.js` really did execute just to print a version string, because the TUI channel is reachable from that graph.
+
+  Commands are now dispatched through lazy loaders, so a command pays only for itself. The boot art and tagline moved to a new `@moxxy/plugin-cli/logo-data` subpath, which is a pure data module, so `--help` no longer reaches the Ink runtime either. A test walks the eager import graph from `bin.ts` and fails if the TUI runtime or the session bootstrap becomes statically reachable again.
+
+  The binary grows by about 90 KB (3.94 to 4.03 MB) from esbuild's lazy-initialiser wrappers. That is the trade: a slightly larger artifact for a startup that no longer scales with the number of commands.
+
+- 9e35a56: Surface the swappable blocks during onboarding, and make the audit sink swappable.
+
+  Everything in moxxy is a swappable block: the loop, the compactor, the cache strategy, the isolator, the event store, the audit sink. `moxxy plugins defaults` has always exposed that, but onboarding never mentioned it, so a user could finish setup without learning the central idea and would then reach for config files to change something the swap axis already owns.
+
+  Onboarding now shows what each block resolves to, and offers a swap only for categories that genuinely have an alternative. On a fresh install most hold exactly one registration, and asking "which compactor?" when there is one compactor teaches the user that the wizard wastes their time.
+
+  The `auditSink` registry added with the audit trail was missing from the category-swap surface, so the one block introduced as swappable was the one block you could not swap. It now appears in `moxxy plugins defaults` alongside the rest.
+
+- 779f644: TUI polish: stop leaking bearer tokens into scrollback, drop the banner from piped output, degrade the status line on narrow terminals.
+
+  The permission dialog redacted by field NAME only, so a Bash call's `command` printed `curl -H "Authorization: Bearer sk-ant-…"` verbatim. That is the exact string the dialog exists to show a human, on a terminal that may be recorded or screen-shared. It now uses the SDK redactor, which also masks secret-shaped values inside ordinary fields, so the TUI and the audit trail mask the same things.
+
+  `--help` and `--version` no longer print the 31-row mascot when stdout is not a TTY, or when `NO_COLOR` is set. It stays on an interactive terminal, where it is the product's face rather than noise ahead of the answer.
+
+  The status line now drops segments by terminal width instead of wrapping, which in an Ink flex row reads as broken rather than degraded. Order of loss is version chip, MCP count, model id, context meter, keeping what changes most often. Width is tracked live, so a resize re-tiers instead of freezing the layout at mount.
+
+  The enterprise profile now pins the mobile channel to loopback. It binds `0.0.0.0` by default so a physical phone works out of the box, which on a corporate laptop puts a token-gated listener on the office network.
+
+- 5763f92: Two more tests that measured the machine rather than the behaviour.
+
+  The HTTP channel's auth-disabled test guessed a port in 50000-60000 and copied it onto a second channel with `Object.assign`, which is exactly the `EADDRINUSE` flake the file's own helper exists to avoid. It failed CI on a docs-only PR. It now uses the same `port: 0` plus `boundPort` pattern as every other test in that file.
+
+  The MCP parallel-boot test slept 50 ms per server and required the whole boot under 90 ms. Two parallel 50 ms sleeps routinely exceed that on a loaded suite. It now asserts the property directly by observing how many `listTools` calls are in flight at once, which cannot be wrong because the box is busy.
+
+- dfb644a: Make three load-sensitive tests deterministic.
+
+  Each asserted wall-clock timing rather than behaviour, so a local `pnpm test` could not distinguish a regression from a busy machine.
+
+  `CrossProcessFireLock` used a 15 ms TTL with a real sleep: any scheduling pause between claiming the fresh marker and sweeping expired it too. It now sets file mtimes and passes the already-injectable clock, with no sleep at all.
+
+  The workflows "fires once across two concurrent runners" test raised its `vi.waitFor` budget to 20 s while vitest's default test timeout stayed 10 s, so the generous budget was dead code and the test died first. It now declares its own timeout.
+
+  `isolator-subprocess`'s cooperative-abort test asserted that the production 150 ms grace was enough for a child to be scheduled and flush. `abortGraceMs` is now injectable and the test passes a generous value, so it asserts the mechanism while the production default is unchanged.
+
+  A repo-wide scan found no other test whose internal wait budget exceeds its own timeout.
+
+- acfe644: Resolve `${vault:KEY}` the same way everywhere.
+
+  A placeholder in config was always resolved against the local vault, because config loads before any plugin registers. Meanwhile `ctx.getSecret(name)` inside a tool went through whatever `SecretProvider` the machine had active. The same syntax meant two different things, so an organisation that plugged in an external store found it served tools but not config.
+
+  The placeholder resolver now takes a lookup function rather than a `VaultStore`, and the session re-resolves config through `session.resolveSecret` once plugins have registered. On a machine with no external provider the result is identical and the extra pass is a no-op walk. Existing callers that pass the vault object keep working.
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+
 ## 0.33.0
 
 ### Minor Changes

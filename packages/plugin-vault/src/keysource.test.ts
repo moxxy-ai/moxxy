@@ -171,7 +171,10 @@ describe('createCombinedKeySource', () => {
     expect(inKeytar).toBe(diskVal);
   });
 
-  it('interactive prompt is the last resort and persists to BOTH keytar and disk', async () => {
+  // The prompt is no longer the default last resort: a key is GENERATED
+  // instead, so a host without an OS keychain is not a hard stop. These cases
+  // opt back in, which is what `vault.requirePassphrase: true` does.
+  it('the prompt, when required, persists to BOTH keytar and disk', async () => {
     let prompts = 0;
     const src = createCombinedKeySource({
       passphrasePrompt: async () => {
@@ -179,6 +182,7 @@ describe('createCombinedKeySource', () => {
         return 'my-passphrase';
       },
       diskKeyPath,
+      requirePassphrase: true,
     });
     const salt = generateSalt();
     const key = await src.obtain(salt);
@@ -200,6 +204,7 @@ describe('createCombinedKeySource', () => {
       passphrasePrompt: async () => 'pw',
       disableKeytar: true,
       diskKeyPath,
+      requirePassphrase: true,
     });
     const key = await src.obtain(generateSalt());
     expect(src.name).toBe('passphrase');
@@ -215,6 +220,7 @@ describe('createCombinedKeySource', () => {
     const src = createCombinedKeySource({
       passphrasePrompt: async () => 'pw',
       diskKeyPath: false,
+      requirePassphrase: true,
     });
     const key = await src.obtain(generateSalt());
     expect(src.name).toBe('passphrase');
@@ -255,7 +261,7 @@ describe('createCombinedKeySource', () => {
     expect(onDisk).toBe(key.toString('base64'));
   });
 
-  it('falls through to the prompt when keytar throws and disk is empty', async () => {
+  it('falls through to the prompt when keytar throws, disk is empty, and a passphrase is required', async () => {
     keytarState.failGet = true; // keychain unavailable
     let prompted = false;
     const src = createCombinedKeySource({
@@ -264,6 +270,7 @@ describe('createCombinedKeySource', () => {
         return 'pw';
       },
       diskKeyPath,
+      requirePassphrase: true,
     });
     await src.obtain(generateSalt());
     expect(prompted).toBe(true);
@@ -281,5 +288,72 @@ describe('createStaticKeySource', () => {
     expect(await src.obtain(generateSalt())).toBe(key);
     // No persist hook on the static source.
     expect(src.persist).toBeUndefined();
+  });
+});
+
+describe('generated key (no passphrase demanded)', () => {
+  // The behaviour the whole change is for: a host with no OS keychain and no
+  // cached key used to hit a passphrase prompt, which is a hard stop on a
+  // non-TTY (a container, a headless box, CI).
+  it('generates and persists a key instead of prompting', async () => {
+    keytarState.failGet = true;
+    let prompted = false;
+    const src = createCombinedKeySource({
+      passphrasePrompt: async () => {
+        prompted = true;
+        return 'pw';
+      },
+      disableKeytar: true,
+      diskKeyPath,
+    });
+
+    const key = await src.obtain(generateSalt());
+
+    expect(prompted).toBe(false);
+    expect(src.name).toBe('generated');
+    expect(key.length).toBe(32);
+    expect((await fs.readFile(diskKeyPath, 'utf8')).trim()).toBe(key.toString('base64'));
+  });
+
+  // A generated key we cannot store is unrecoverable: every secret written
+  // under it would be lost on the next run. The prompt is better there
+  // precisely because the user can reproduce it from memory.
+  it('falls back to the prompt when the generated key cannot be persisted', async () => {
+    keytarState.failGet = true;
+    keytarState.failSet = true;
+    let prompted = false;
+    const src = createCombinedKeySource({
+      passphrasePrompt: async () => {
+        prompted = true;
+        return 'pw';
+      },
+      diskKeyPath: false, // no disk cache either: nowhere to keep it
+    });
+
+    await src.obtain(generateSalt());
+
+    expect(prompted).toBe(true);
+    expect(src.name).toBe('passphrase');
+  });
+
+  // A second run must reuse the stored key, or every previously-written secret
+  // becomes undecryptable.
+  it('reuses the generated key on the next run', async () => {
+    const first = createCombinedKeySource({
+      passphrasePrompt: async () => 'unused',
+      disableKeytar: true,
+      diskKeyPath,
+    });
+    const a = await first.obtain(generateSalt());
+
+    const second = createCombinedKeySource({
+      passphrasePrompt: async () => 'unused',
+      disableKeytar: true,
+      diskKeyPath,
+    });
+    const b = await second.obtain(generateSalt());
+
+    expect(b.toString('base64')).toBe(a.toString('base64'));
+    expect(second.name).toContain('file:');
   });
 });

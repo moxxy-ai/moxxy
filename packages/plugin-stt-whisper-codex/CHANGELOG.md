@@ -1,5 +1,29 @@
 # @moxxy/plugin-stt-whisper-codex
 
+## 0.34.0
+
+### Patch Changes
+
+- 68f7e20: Make two flaky tests deterministic.
+
+  The screenshot test shelled out to the real macOS `screencapture`, so it needed a display, the host to be macOS, and Screen Recording permission. Worse, it accepted a thrown error as a pass, so on any machine lacking that permission (every CI runner) it verified nothing while still reporting green. The process layer is now faked, so the contract it exists to protect (returning `{ mediaType, base64 }` rather than a stringified blob the model cannot decode) is asserted on every platform, along with the capture-failure, byte-cap, platform-gate and temp-file-cleanup paths that had no cover at all.
+
+  The whisper test harness closed its HTTP servers with `close()` alone, which stops new connections but leaves a keep-alive socket holding the callback pending. `closeAllConnections()` now runs first. This is the most likely mechanism behind the occasional "all tests pass, exit 1" on that package, but that failure never reproduced across roughly ten runs and CI, so it is hardening rather than a proven fix.
+
+- Updated dependencies [ae16897]
+- Updated dependencies [d9ae119]
+- Updated dependencies [6d8fdcd]
+- Updated dependencies [220673e]
+- Updated dependencies [b25850c]
+- Updated dependencies [63b1df5]
+- Updated dependencies [3dfc2f3]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [e52e2ed]
+- Updated dependencies [06e81f8]
+  - @moxxy/sdk@0.34.0
+  - @moxxy/plugin-provider-openai-codex@0.34.0
+  - @moxxy/plugin-stt-whisper@0.34.0
+
 ## 0.33.0
 
 ### Patch Changes

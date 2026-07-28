@@ -3,7 +3,7 @@
  * while a skill's body streams in from disk.
  */
 
-import { asset } from '@/lib/asset';
+import { MoxxyMark } from '@/components/MoxxyMark';
 
 export function LoadingHero(): JSX.Element {
   return (
@@ -18,13 +18,7 @@ export function LoadingHero(): JSX.Element {
         gap: 10,
       }}
     >
-      <img
-        src={asset('logo.png')}
-        alt=""
-        aria-hidden
-        className="moxxy-avatar-loader moxxy-avatar-loader--sm"
-        style={{ width: 64, height: 'auto', imageRendering: 'pixelated' }}
-      />
+      <MoxxyMark size={64} className="moxxy-avatar-loader moxxy-avatar-loader--sm" />
       Loading…
     </div>
   );

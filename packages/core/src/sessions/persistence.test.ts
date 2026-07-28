@@ -389,6 +389,51 @@ describe('SessionPersistence', () => {
     detach();
   });
 
+  // A transcript holds every prompt, every file the agent read, and every
+  // command's output. Default umask would leave it 0644 inside a 0755 dir,
+  // readable by any other local account on a shared host.
+  it.skipIf(process.platform === 'win32')(
+    'persists the transcript, sidecar, and their directory owner-only',
+    async () => {
+      const dir = path.join(await makeTempDir(), 'sessions');
+      const id = '01PRIVATEMODE00000000000000';
+      const log = new EventLog();
+      const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+      const detach = persistence.attach(log);
+      await log.append({ type: 'user_prompt', text: 'read ~/.ssh/config', source: 'user' } as never);
+      await persistence.flush();
+      await waitForFile(path.join(dir, `${id}.json`));
+
+      expect((await fs.stat(dir)).mode & 0o777).toBe(0o700);
+      expect((await fs.stat(path.join(dir, `${id}.jsonl`))).mode & 0o777).toBe(0o600);
+      expect((await fs.stat(path.join(dir, `${id}.json`))).mode & 0o777).toBe(0o600);
+      detach();
+    },
+  );
+
+  // Installs predating the owner-only rule have a 0755 dir and 0644 logs on
+  // disk; `mkdir` is a no-op on an existing path, so mode alone never fixes
+  // them. Attaching must tighten what is already there.
+  it.skipIf(process.platform === 'win32')(
+    'tightens a pre-existing world-readable sessions dir and log',
+    async () => {
+      const dir = path.join(await makeTempDir(), 'sessions');
+      const id = '01LEGACYMODE000000000000000';
+      await fs.mkdir(dir, { recursive: true });
+      await fs.chmod(dir, 0o755);
+      await fs.writeFile(path.join(dir, `${id}.jsonl`), '', 'utf8');
+      await fs.chmod(path.join(dir, `${id}.jsonl`), 0o644);
+
+      const persistence = new SessionPersistence({ sessionId: id as never, cwd: '/tmp/p', dir });
+      const detach = persistence.attach(new EventLog());
+      await waitForFile(path.join(dir, `${id}.json`));
+
+      expect((await fs.stat(dir)).mode & 0o777).toBe(0o700);
+      expect((await fs.stat(path.join(dir, `${id}.jsonl`))).mode & 0o777).toBe(0o600);
+      detach();
+    },
+  );
+
   it('log.clear() truncates the JSONL so wiped history cannot resurrect on resume', async () => {
     const dir = await makeTempDir();
     const id = '01CLEARTRUNCATE00000000000';

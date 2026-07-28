@@ -9,6 +9,7 @@ import {
   type FileDiffDisplay,
 } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
 
 /** Lines shown before the diff is collapsed (Ctrl+O expands to the full set).
  *  Generous enough that a typical single-hunk edit shows in full. */
@@ -67,7 +68,7 @@ export const FileDiffView: React.FC<{
   );
   const dotColor = display.mode === 'create' ? Colors.active : 'cyan';
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
         <Text color={dotColor}>{Glyphs.filled} </Text>
         <Text bold>{fileDiffVerb(display)}</Text>

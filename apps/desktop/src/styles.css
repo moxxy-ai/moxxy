@@ -26,31 +26,31 @@
   /* Text — same high-contrast navy as the landing headlines. */
   --color-text:          #0f172a;
   --color-text-muted:    #475569;
-  --color-text-dim:      #94a3b8;
+  --color-text-dim:      #7f8da4;
 
   /* Sidebar — pure white. The chat column sits a hair off-white
    * (rgb(252,252,255)) so the columns still register as separate
    * against each other and against the lavender canvas. */
   --color-sidebar-bg:        #ffffff;
   --color-sidebar-bg-hover:  #f4f5fb;
-  --color-sidebar-bg-active: #fdf2f8;   /* brand-pink wash for the active row */
+  --color-sidebar-bg-active: #eef2f7;   /* cool wash for the active row */
   --color-sidebar-text:      #0f172a;
   --color-sidebar-text-dim:  #6b7194;
   --color-sidebar-border:    #e3e5f0;
 
   /* Accents — pink primary (CTA), cyan secondary, emerald success. */
-  --color-primary:        #ec4899;   /* hot pink — CTAs, send button, focus glow */
-  --color-primary-strong: #db2777;
-  --color-primary-soft:   #fdf2f8;
-  --color-send:           #ec4899;   /* CTA / send share the brand pink */
-  --color-accent:         #22d3ee;   /* cyan — the "your AI" gradient stop */
-  --color-accent-strong:  #06b6d4;
-  --color-purple:         #8b5cf6;
-  --color-green:          #10b981;
-  --color-amber:          #f59e0b;
-  --color-pink:           #ec4899;
-  --color-red:            #ef4444;
-  --color-purple-strong:  #7c3aed;   /* readable violet for text on the purple tints */
+  --color-primary:        #2f5d8f;   /* deep muted blue: CTAs, send, focus ring */
+  --color-primary-strong: #24486e;
+  --color-primary-soft:   #eef2f7;
+  --color-send:           #2f5d8f;   /* CTA and send share the primary */
+  --color-accent:         #3f7f92;   /* desaturated teal: the secondary gradient stop */
+  --color-accent-strong:  #2f6577;
+  --color-purple:         #6b6f9c;
+  --color-green:          #2f855a;
+  --color-amber:          #b7791f;
+  --color-pink:           #2f5d8f;
+  --color-red:            #c53030;
+  --color-purple-strong:  #4f5480;   /* readable violet for text on the purple tints */
 
   /* Status tints — the tailwind-derived washes the transcript blocks and
    * composer chips use for error/ok/attention states. Solid (not alpha)
@@ -79,9 +79,9 @@
   --color-code-bg:      #f1f3fb;
 
   /* Brand gradients */
-  --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
-  --grad-cta:     linear-gradient(135deg, #ec4899 0%, #db2777 100%);
-  --grad-accent:  linear-gradient(135deg, #38bdf8 0%, #22d3ee 100%);
+  --grad-user:    linear-gradient(135deg, #2f5d8f 0%, #4a7bb0 100%);
+  --grad-cta:     linear-gradient(135deg, #2f5d8f 0%, #24486e 100%);
+  --grad-accent:  linear-gradient(135deg, #4a7bb0 0%, #3f7f92 100%);
 
   /* Typography */
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
@@ -137,7 +137,7 @@
    * register as separate surfaces in the dark. */
   --color-sidebar-bg:        #0d0e16;
   --color-sidebar-bg-hover:  #171927;
-  --color-sidebar-bg-active: #2b1622;   /* dark plum — the brand-pink wash on dark */
+  --color-sidebar-bg-active: #1b2430;   /* cool slate wash on dark */
   --color-sidebar-text:      #e8eaf6;
   --color-sidebar-text-dim:  #8b91b0;
   --color-sidebar-border:    #1f2233;
@@ -145,18 +145,18 @@
   /* Brand accents survive dark unchanged (re-declared so the parity
    * test can assert full coverage), EXCEPT the near-white pink-50
    * "soft" wash which flips to the dark plum. */
-  --color-primary:        #ec4899;
-  --color-primary-strong: #db2777;
-  --color-primary-soft:   #2b1622;
-  --color-send:           #ec4899;
-  --color-accent:         #22d3ee;
-  --color-accent-strong:  #06b6d4;
-  --color-purple:         #8b5cf6;
-  --color-green:          #10b981;
-  --color-amber:          #f59e0b;
-  --color-pink:           #ec4899;
-  --color-red:            #ef4444;
-  --color-purple-strong:  #a78bfa;   /* violet text lightens for contrast on dark tints */
+  --color-primary:        #6f9ecf;
+  --color-primary-strong: #8fb6df;
+  --color-primary-soft:   #1b2430;
+  --color-send:           #6f9ecf;
+  --color-accent:         #78a9b8;
+  --color-accent-strong:  #8fbecb;
+  --color-purple:         #9298c4;
+  --color-green:          #5aa87c;
+  --color-amber:          #c99a45;
+  --color-pink:           #6f9ecf;
+  --color-red:            #d97070;
+  --color-purple-strong:  #aab0d6;   /* violet text lightens for contrast on dark tints */
 
   /* Status tints — deep desaturated washes in the same lightness band as
    * the dark --color-primary-soft plum; text accents lighten instead. */
@@ -180,9 +180,9 @@
   /* Inline code pops a step LIGHTER than the card it sits on. */
   --color-code-bg:      #262b40;
 
-  --grad-user:    linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
-  --grad-cta:     linear-gradient(135deg, #ec4899 0%, #db2777 100%);
-  --grad-accent:  linear-gradient(135deg, #38bdf8 0%, #22d3ee 100%);
+  --grad-user:    linear-gradient(135deg, #2f5d8f 0%, #4a7bb0 100%);
+  --grad-cta:     linear-gradient(135deg, #2f5d8f 0%, #24486e 100%);
+  --grad-accent:  linear-gradient(135deg, #4a7bb0 0%, #3f7f92 100%);
 
   /* Legacy literal aliases — see the note above the alias block. */
   --color-bg-card-hover:   #1d2030;
@@ -594,44 +594,30 @@ code, kbd, pre, .mono { font-family: var(--font-mono); }
   border-color: var(--color-primary);
 }
 
-@keyframes moxxy-bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-8px); }
+/* A quarter turn, not a full one: the mark is symmetric under 90 degrees, so
+ * the loop closes on itself with no visible seam. Rotating the whole mark also
+ * keeps the weave honest, because the mask that lifts the ink strand at four
+ * crossings turns with the strands instead of sliding off them. */
+@keyframes moxxy-mark-turn {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(90deg); }
 }
 
-@keyframes moxxy-mini-bob {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-2px); }
-}
-
-/* Branded avatar loader. Gentle bob so it reads as "she's working"
- * instead of "your app is frozen."  Used in Splash, ReconnectBanner,
- * and inline "Loading…" heroes. */
+/* Branded loader. The mark turns so it reads as "working" instead of
+ * "frozen." Used in Splash, ReconnectBanner, and inline "Loading…" heroes. */
 .moxxy-avatar-loader {
   display: inline-block;
-  animation: moxxy-bob 2.2s ease-in-out infinite;
+  animation: moxxy-mark-turn 3.4s linear infinite;
 }
 
 .moxxy-avatar-loader--sm {
-  animation: moxxy-mini-bob 1.6s ease-in-out infinite;
+  animation-duration: 2.2s;
 }
 
-/* Plain ring spinner for the cold-start splash / loading screen — the
- * logo mark read poorly blown up on those large empty surfaces, so we
- * use a neutral brand-pink ring there instead. Mirrors the inline CSS
- * in index.html's #splash-fallback so both loaders look identical. */
-.moxxy-splash-spinner {
-  display: inline-block;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 3px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
-  border-top-color: var(--color-primary);
-  animation: moxxy-splash-spin 0.8s linear infinite;
-}
-
-@keyframes moxxy-splash-spin {
-  to { transform: rotate(360deg); }
+@media (prefers-reduced-motion: reduce) {
+  .moxxy-avatar-loader {
+    animation: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

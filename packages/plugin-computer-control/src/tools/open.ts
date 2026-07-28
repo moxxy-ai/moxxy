@@ -3,6 +3,7 @@ import { ensureDarwin, procFailureCause, runProcess } from '../shell.js';
 
 export const openTool = defineTool({
   name: 'computer_open',
+  icon: 'globe',
   description:
     'Open a URL, file path, or .app bundle via macOS `open`. Use this to ' +
     'launch / activate a specific app or jump to a web page. The model should ' +

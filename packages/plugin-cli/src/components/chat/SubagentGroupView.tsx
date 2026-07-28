@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Colors, Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
 import {
   DotColors,
   formatTokensK,
@@ -50,7 +51,7 @@ export const SubagentGroupView: React.FC<{
 
   if (!expandToolOutputs) {
     return (
-      <Box marginTop={1}>
+      <Box marginTop={blockGap()}>
         <Text color={dotColor}>{Glyphs.filled} </Text>
         <Text>{header}</Text>
         <Text dimColor>{' (ctrl+o to expand)'}</Text>
@@ -59,7 +60,7 @@ export const SubagentGroupView: React.FC<{
   }
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={blockGap()}>
       <Box>
         <Text color={dotColor}>{Glyphs.filled} </Text>
         <Text>{header}</Text>

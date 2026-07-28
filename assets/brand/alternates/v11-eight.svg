@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <mask id="ea" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="-40" y="-19" width="80" height="38" fill="#000" transform="translate(97.341 128) rotate(-36.129)"/>
+    </mask>
+    <mask id="eb" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">
+      <rect width="256" height="256" fill="#fff"/>
+      <rect x="-40" y="-19" width="80" height="38" fill="#000" transform="translate(158.659 128) rotate(143.871)"/>
+    </mask>
+  </defs>
+  <g fill="none" stroke-width="24">
+    <g mask="url(#ea)"><circle cx="128" cy="86" r="52" stroke="#0B0D12"/></g>
+    <g mask="url(#eb)"><circle cx="128" cy="170" r="52" stroke="#FF4A1E"/></g>
+  </g>
+</svg>

@@ -4,6 +4,7 @@ import type {
   EmittedEvent,
   LoopGuardSettings,
   MoxxyEvent,
+  Principal,
   RunTurnOptions,
   SessionId,
   SessionInfo,
@@ -35,6 +36,10 @@ import { EmbedderRegistry } from './registries/embedders.js';
 import { IsolatorRegistry } from './registries/isolators.js';
 import { WorkflowExecutorRegistry } from './registries/workflow-executors.js';
 import { EventStoreRegistry } from './registries/event-stores.js';
+import { AuditExporterRegistry } from './registries/audit-exporters.js';
+import { AuditSinkRegistry } from './registries/audit-sinks.js';
+import { SecretProviderRegistry } from './registries/secret-providers.js';
+import { jsonlAuditSink } from './audit/jsonl-audit-sink.js';
 import { ReflectorRegistry } from './registries/reflectors.js';
 import { ServiceRegistryImpl } from './registries/services.js';
 import { jsonlEventStore } from './sessions/jsonl-event-store.js';
@@ -138,6 +143,19 @@ export class Session implements ClientSession, SessionRuntime {
   readonly isolators: IsolatorRegistry;
   readonly workflowExecutors: WorkflowExecutorRegistry;
   readonly eventStores: EventStoreRegistry;
+  readonly auditSinks: AuditSinkRegistry;
+  readonly auditExporters: AuditExporterRegistry;
+  /**
+   * Resolve a named secret, through whatever SecretProvider the host wired.
+   * The same function tool handlers receive as `ctx.getSecret`; exposed here so
+   * a HOST-side caller (resolving a credential for an internal registry, say)
+   * goes through the active provider instead of reaching past it to the vault.
+   * Undefined when no resolver was supplied.
+   */
+  readonly resolveSecret?: (name: string) => Promise<string | null>;
+  /** External secret stores. No core floor: the vault is a plugin, so the
+   *  host registers it as the protected floor at boot. */
+  readonly secretProviders: SecretProviderRegistry;
   /**
    * The learning-loop block: watches finished turns and proposes memory/skill
    * improvements. NULLABLE — no core-seeded floor, so it stays empty until a
@@ -209,6 +227,7 @@ export class Session implements ClientSession, SessionRuntime {
       cwd: this.cwd,
       ...(opts.secretResolver ? { secretResolver: opts.secretResolver } : {}),
     });
+    if (opts.secretResolver) this.resolveSecret = opts.secretResolver;
     this.providers = new ProviderRegistry();
     this.modes = new ModeRegistry();
     this.compactors = new CompactorRegistry();
@@ -281,6 +300,14 @@ export class Session implements ClientSession, SessionRuntime {
     // Seed the built-in JSONL store as the protected floor — the storage backend
     // behind the event log always exists and can be swapped but never removed.
     this.eventStores.register(jsonlEventStore, { protected: true });
+    this.auditSinks = new AuditSinkRegistry();
+    this.auditExporters = new AuditExporterRegistry();
+    // The hash-chained local sink is the protected floor. A discovered plugin's
+    // sink registers alongside it but never auto-activates: a sink's whole job
+    // is to send recorded actions somewhere else, so silent adoption would be
+    // an exfiltration path wearing a compliance hat.
+    this.auditSinks.register(jsonlAuditSink, { protected: true });
+    this.secretProviders = new SecretProviderRegistry();
     // Reflectors are nullable — no core floor is seeded, so reflection stays off
     // until a reflector plugin registers one. Published on the service registry
     // so a discovery-loaded driver (the reflector plugin's own hooks) can resolve
@@ -334,6 +361,9 @@ export class Session implements ClientSession, SessionRuntime {
       isolators: this.isolators,
       workflowExecutors: this.workflowExecutors,
       eventStores: this.eventStores,
+      auditSinks: this.auditSinks,
+      auditExporters: this.auditExporters,
+      secretProviders: this.secretProviders,
       reflectors: this.reflectors,
       requirements: this.requirements,
       dispatcher: this.dispatcher,
@@ -385,6 +415,26 @@ export class Session implements ClientSession, SessionRuntime {
   /** Install/replace the generic approval resolver. Pass null to clear. */
   setApprovalResolver(resolver: ApprovalResolver | null): void {
     this.approvalResolver = resolver;
+  }
+
+  /**
+   * Attribute everything this session appends to `principal`.
+   *
+   * Set by whoever owns the surface and can actually vouch for the identity:
+   * the CLI resolves the OS account, an authenticated channel resolves its
+   * token's subject. Core never guesses one, because an identity core invented
+   * would be worth nothing to an auditor.
+   *
+   * Pass `undefined` to go back to unattributed, which is what a surface with
+   * no notion of a user should do rather than inventing a placeholder.
+   */
+  setPrincipal(principal: Principal | undefined): void {
+    this.log.setPrincipal(principal);
+  }
+
+  /** The identity this session currently attributes to, if any. */
+  get principal(): Principal | undefined {
+    return this.log.getPrincipal();
   }
 
   /**
@@ -471,12 +521,17 @@ export class Session implements ClientSession, SessionRuntime {
     if (!this.envSnapshot) {
       this.envSnapshot = Object.freeze({ ...process.env });
     }
+    // Read the principal per call rather than caching it with `envSnapshot`:
+    // a channel can re-attribute mid-session (a second user pairs, a token
+    // rotates) and a hook must see the identity in force NOW.
+    const actor = this.log.getPrincipal();
     return {
       sessionId: this.id,
       cwd: this.cwd,
       log: this.log.asReader(),
       env: this.envSnapshot,
       services: this.services,
+      ...(actor ? { actor } : {}),
     };
   }
 
@@ -541,6 +596,7 @@ export class Session implements ClientSession, SessionRuntime {
         name: t.name,
         description: t.description,
         ...(t.compact ? { compact: t.compact } : {}),
+        ...(t.icon ? { icon: t.icon } : {}),
       })),
       skills: this.skills.list().map((s) => ({ id: s.id, name: s.frontmatter.name })),
       commands: this.commands.list().map((c) => ({

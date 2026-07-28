@@ -1,6 +1,6 @@
 {
   "name": "@moxxy/sdk",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "description": "Typed public surface for the moxxy framework: event types, define* factories, lifecycle hook signatures.",
   "keywords": [
     "moxxy",
@@ -74,13 +74,20 @@
     "clean": "rm -rf dist .turbo"
   },
   "peerDependencies": {
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "undici": "^6.21.0"
   },
   "devDependencies": {
     "@moxxy/tsconfig": "workspace:*",
     "@moxxy/vitest-preset": "workspace:*",
     "typescript": "catalog:",
+    "undici": "^6.21.0",
     "vitest": "catalog:",
     "zod": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "undici": {
+      "optional": true
+    }
   }
 }

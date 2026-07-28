@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="moxxy">
+  <title>moxxy</title>
+  <!-- Full bleed and fully opaque: iOS masks the corners itself and rejects an
+       icon with an alpha channel, so this one must not be rounded. -->
+  <defs>
+    <linearGradient id="moxxy-sq-bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#161B27"/><stop offset="1" stop-color="#0B0D12"/>
+    </linearGradient>
+    <mask id="moxxy-sq-weave" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <rect width="1024" height="1024" fill="#000"/>
+      <g transform="translate(137.1 137.1) scale(2.929)">
+        <circle cx="188" cy="153" r="27" fill="#fff"/>
+        <circle cx="103" cy="188" r="27" fill="#fff"/>
+        <circle cx="68" cy="103" r="27" fill="#fff"/>
+        <circle cx="153" cy="68" r="27" fill="#fff"/>
+      </g>
+    </mask>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#moxxy-sq-bg)"/>
+  <g transform="translate(137.1 137.1) scale(2.929)" fill="none" stroke-width="22" stroke-linejoin="round">
+    <rect x="68" y="68" width="120" height="120" rx="12" stroke="#FFFFFF"/>
+    <rect x="68" y="68" width="120" height="120" rx="12" stroke="#FF4A1E" transform="rotate(45 128 128)"/>
+  </g>
+  <g mask="url(#moxxy-sq-weave)">
+    <g transform="translate(137.1 137.1) scale(2.929)" fill="none" stroke-width="22" stroke-linejoin="round">
+      <rect x="68" y="68" width="120" height="120" rx="12" stroke="#FFFFFF"/>
+    </g>
+  </g>
+</svg>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { asset } from '@/lib/asset';
+import { MoxxyMark } from '@/components/MoxxyMark';
 import {
   ConnectionBridge,
   isConnected,
@@ -442,14 +442,7 @@ function ReconnectBanner({ label }: { readonly label: string }): JSX.Element {
         zIndex: 50,
       }}
     >
-      <img
-        src={asset('logo.png')}
-        alt=""
-        aria-hidden="true"
-        className="moxxy-avatar-loader moxxy-avatar-loader--sm"
-        height={28}
-        style={{ height: 28, width: 'auto', objectFit: 'contain', imageRendering: 'pixelated' }}
-      />
+      <MoxxyMark size={28} className="moxxy-avatar-loader moxxy-avatar-loader--sm" />
       {label}
     </div>
   );

@@ -38,7 +38,8 @@ export function buildWebSearchTool(opts: BuildWebSearchToolOptions = {}) {
   const adapter = opts.adapter ?? duckDuckGoHtmlAdapter;
   return defineTool({
     name: 'web_search',
-    description:
+    icon: 'search',
+  description:
       'Search the public web for current information and return source URLs with snippets. On models with provider-hosted web search this fallback is replaced automatically by the provider; otherwise it uses the configured local search adapter.',
     inputSchema: z.object({
       query: z.string().trim().min(1).max(1_000).describe('Search query.'),

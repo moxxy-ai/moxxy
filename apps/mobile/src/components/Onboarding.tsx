@@ -24,7 +24,7 @@ import { Button, Card } from '@/ui/kit';
 import { MobileIcon, type MobileIconName } from './MobileIcon';
 import { QrScannerSheet } from './QrScannerSheet';
 
-const moxxyMascot = require('../../assets/moxxy-mascot-transparent.png') as ImageSourcePropType;
+const moxxyMark = require('../../assets/moxxy-mark.png') as ImageSourcePropType;
 const SEEN_KEY = 'moxxy.onboarding.seen';
 
 interface Slide {
@@ -156,7 +156,7 @@ function PairingScreen() {
           <View style={sx('items-center')}>
             <View style={sx('items-center justify-center', { height: 140, width: 140 })}>
               <View style={sx('absolute rounded-full', { backgroundColor: colors.primary, height: 140, opacity: 0.1, width: 140 })} />
-              <Image source={moxxyMascot} resizeMode="contain" accessibilityLabel="Moxxy assistant mascot waving" style={{ height: 128, width: 128 }} />
+              <Image source={moxxyMark} resizeMode="contain" accessibilityLabel="Moxxy" style={{ height: 128, width: 128 }} />
             </View>
             <Text style={sx('mt-4 text-[13px] font-black uppercase tracking-wide text-primary')}>Moxxy Mobile</Text>
             <Text style={sx('mt-1 text-[26px] font-black text-text text-center', { letterSpacing: -0.5 })}>Connect to your Mac</Text>

@@ -4,7 +4,7 @@ import { pickSlogan, selectLogo } from '../logo-data.js';
 import { LogoLine } from './LogoLine.js';
 
 /**
- * Banner shown at the top of the TUI: the moxxy mascot rendered dim-gray,
+ * Banner shown at the top of the TUI: the moxxy mark rendered dim-gray,
  * plus a rotating slogan. Steps down to the `MOXXY` wordmark and then a
  * one-line text mark on narrower terminals (see `selectLogo`).
  */

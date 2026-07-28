@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://moxxy.ai">
-    <img src="https://moxxy.ai/moxxy-head-256.png" alt="moxxy" width="120" />
+    <img src="assets/brand/moxxy-mark-dark.svg" alt="moxxy" width="120" />
   </a>
 </p>
 
@@ -85,6 +85,9 @@ See the [getting started guide](docs/getting-started.md) for provider setup, cha
 - [Getting started](docs/getting-started.md)
 - [Features and channels](docs/features.md)
 - [Developer guide](docs/developer-guide.md)
+- [Deploying in an organisation](docs/deployment.md)
+- [Threat model](docs/threat-model.md)
+- [What leaves the machine](docs/data-flow.md)
 - [Configuration reference](docs/configuration.md)
 - [How moxxy is built](docs/engineering.md)
 - [Security policy and hardening](SECURITY.md)

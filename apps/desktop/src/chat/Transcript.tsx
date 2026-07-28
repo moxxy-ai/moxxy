@@ -9,6 +9,7 @@ import {
 } from '@moxxy/chat-model';
 import { buildRenderNodes, groupToolNodes, type Extension, type RenderNode } from '@moxxy/client-core';
 import { BlockView, StreamingAssistant } from './BlockView';
+import { ToolIconProvider } from './ToolIconContext';
 import { ToolGroupView } from './ToolGroupView';
 import { ExtensionCard } from './ExtensionCard';
 import { ThinkingIndicator } from './ThinkingIndicator';
@@ -221,8 +222,11 @@ export function Transcript({
   }, [nodes, workspaceId]);
 
   return (
-    // Relative wrapper so the jump-to-latest button can float over the
-    // scroller without joining the virtualised content.
+    // One catalog fetch for the whole transcript; every tool row reads the
+    // declared icon from context rather than asking for it per row.
+    <ToolIconProvider workspaceId={workspaceId}>
+    {/* Relative wrapper so the jump-to-latest button can float over the
+        scroller without joining the virtualised content. */}
     <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <Virtuoso<RenderNode>
         ref={virtuosoRef}
@@ -267,5 +271,6 @@ export function Transcript({
       />
       <JumpToLatest visible={!atBottom} unread={newBelow} onJump={jumpToLatest} />
     </div>
+    </ToolIconProvider>
   );
 }

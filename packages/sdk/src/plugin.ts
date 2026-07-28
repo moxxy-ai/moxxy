@@ -17,6 +17,9 @@ import type { ViewRendererDef } from './view-renderer.js';
 import type { TunnelProviderDef } from './tunnel.js';
 import type { WorkflowExecutorDef } from './workflow.js';
 import type { EventStoreDef } from './event-store.js';
+import type { AuditSinkDef } from './audit.js';
+import type { AuditExporterDef } from './audit-export.js';
+import type { SecretProviderDef } from './secret-provider.js';
 import type { ReflectorDef } from './reflector.js';
 
 export type PluginKind = 'tools' | 'provider' | 'mode' | 'compactor' | 'cache-strategy' | 'view-renderer' | 'tunnel-provider' | 'mcp' | 'cli' | 'channel' | 'surface' | 'hooks' | 'agent' | 'command' | 'transcriber' | 'synthesizer' | 'embedder' | 'isolator' | 'workflow-executor' | 'event-store' | 'reflector';
@@ -54,6 +57,13 @@ export interface PluginSpec {
    * boundary, since the store sees every event). See {@link EventStoreDef}.
    */
   readonly eventStores?: ReadonlyArray<EventStoreDef>;
+  /** Audit-trail sinks (syslog, OTel, S3, webhook). Registered alongside the
+   *  protected local floor; never auto-activated, see registry-kinds. */
+  readonly auditSinks?: ReadonlyArray<AuditSinkDef>;
+  readonly auditExporters?: ReadonlyArray<AuditExporterDef>;
+  /** External secret stores (Vault, AWS/Azure, 1Password). Registered
+   *  alongside the vault floor; never auto-activated. */
+  readonly secretProviders?: ReadonlyArray<SecretProviderDef>;
   /**
    * Reflector backends — the learning-loop block that watches a finished turn
    * and *proposes* memory/skill improvements without silently writing. One

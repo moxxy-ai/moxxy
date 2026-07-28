@@ -12,13 +12,15 @@ import {
   resolveCatalogEntry,
   resolveCatalogPackageName,
   resolveInstallSource,
+  isInstallPolicy,
+  type InstallPolicy,
   searchInstallablePlugins,
   setCategoryDefault,
   setPluginEnabled,
   undeclaredToolsWarning,
   type InstallCapabilityReport,
 } from '@moxxy/plugin-plugins-admin';
-import { isFirstPartyPackage } from '@moxxy/sdk';
+import { hostCredentialName, isFirstPartyPackage } from '@moxxy/sdk';
 import type { ParsedArgv } from '../argv.js';
 import { argvToSetupOptions, bootSession, hasBoolFlag, helpRequested } from '../argv-helpers.js';
 import { probeSession } from '../setup.js';
@@ -39,8 +41,8 @@ const HELP = formatHelp({
         ['list', 'list loaded + disabled plugins and the install catalog'],
         ['search <query>', 'search npm + catalog for installable plugins'],
         [
-          'install <spec> [--version v] [--ref r] [--yes]',
-          'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting)',
+          'install <spec> [--version v] [--ref r] [--yes] [--allow-scripts]',
+          'install from catalog id, npm, GitHub, or path (--yes: accept a third-party capability surface without prompting; --allow-scripts: permit the package’s npm install hooks to run, needed only by native modules, off by default)',
         ],
         ['remove <pkg>', 'uninstall a plugin package'],
         ['enable <pkg>', 'enable (plug in) a plugin'],
@@ -183,10 +185,16 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
   // maintainer key is unprovisioned) — a signed entry contributes its exact,
   // signature-covered version as the pin. Pin precedence:
   // user --version > signed index > cliVersion lockstep > latest.
+  // Config decides both the source (an internal mirror) and the policy. Read
+  // through a probe so the system scope's pin applies, not just the env var.
+  const policyCfg = await readInstallConfig(argv);
   const resolved =
     version || ref
       ? undefined
-      : await resolveInstallSource(target);
+      : await resolveInstallSource(target, {
+          ...(policyCfg.registryUrl ? { url: policyCfg.registryUrl } : {}),
+          ...(policyCfg.token ? { token: policyCfg.token } : {}),
+        });
   const spec =
     resolved?.spec ??
     buildInstallSpec({
@@ -199,10 +207,23 @@ async function runInstall(argv: ParsedArgv): Promise<number> {
     // Bare first-party specs pin to the CLI version (co-published via the
     // fixed changeset group); a pin that 404s retries latest with a warning.
     // Explicit --version/--ref specs pass through untouched.
+    // Lifecycle scripts are banned by default (see NPM_INSTALL_FLAGS). Only an
+    // explicit human `--allow-scripts` lifts that, and only for this one
+    // install. Needed by native modules that fetch/compile a binding at
+    // install time (node-pty, onnxruntime-node behind the transformers
+    // embedder), which otherwise degrade to their documented fallbacks.
+    const allowScripts = argv.flags['allow-scripts'] === true;
+    if (allowScripts) {
+      process.stderr.write(
+        colors.dim(`--allow-scripts: ${spec} may execute install hooks with your privileges\n`),
+      );
+    }
     const result = await installPluginPackagePinned({
       packageName: spec,
+      ...(policyCfg.policy ? { policy: policyCfg.policy } : {}),
       ...(resolved?.pinnedVersion ? { pinnedVersion: resolved.pinnedVersion } : {}),
       ...(cliVersion() ? { cliVersion: cliVersion()! } : {}),
+      ...(allowScripts ? { allowScripts } : {}),
       onWarn: (msg) => process.stderr.write(colors.dim(msg) + '\n'),
     });
     if (resolved?.origin === 'signed' && resolved.pinnedVersion) {
@@ -499,4 +520,47 @@ function stringFlag(argv: ParsedArgv, name: string): string | undefined {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The install-source and install-policy settings in force.
+ *
+ * Read through a probe rather than from the environment, so a pin in the SYSTEM
+ * config scope actually binds: `MOXXY_REGISTRY_URL` alone is a variable a user
+ * can unset, which makes it useless as a control.
+ */
+async function readInstallConfig(
+  argv: ParsedArgv,
+): Promise<{ policy?: InstallPolicy; registryUrl?: string; token?: string }> {
+  try {
+    return await probeSession(
+      argvToSetupOptions(argv, {
+        skipKeyPrompt: true,
+        tolerateNoProvider: true,
+        skipProviderActivation: true,
+      }),
+      async ({ config, session }) => {
+        const registryUrl = config.plugins?.registryUrl;
+        // An internal mirror usually sits behind auth. The credential is a
+        // named secret under a host convention, resolved through whatever
+        // SecretProvider the machine has active, so this needs no notion of
+        // where secrets actually live.
+        const secretName = registryUrl ? hostCredentialName(registryUrl) : null;
+        const token = secretName
+          ? await session.resolveSecret?.(secretName).catch(() => null)
+          : null;
+        return {
+          ...(isInstallPolicy(config.plugins?.installPolicy)
+            ? { policy: config.plugins.installPolicy }
+            : {}),
+          ...(registryUrl ? { registryUrl } : {}),
+          ...(token ? { token } : {}),
+        };
+      },
+    );
+  } catch {
+    // A probe failure must not silently DROP a restriction, so fail closed on
+    // the policy while leaving the source at its default.
+    return { policy: 'denied' };
+  }
 }

@@ -64,6 +64,21 @@ export const pluginsTreeSchema = z
   .object({
     /** Install/enable ledger keyed by npm package name. */
     packages: z.record(z.string(), pluginSettingsSchema).optional(),
+    /**
+     * How much freedom this machine has over what it installs.
+     * `open` (default) installs anything; `registry-only` accepts only packages
+     * the signed index vouches for; `denied` installs nothing. Enforced inside
+     * the install path, so the `install_plugin` model tool is bound by it too.
+     */
+    installPolicy: z.enum(['open', 'registry-only', 'denied']).optional(),
+    /**
+     * Signed plugin index to consult. Config-settable so the system scope can
+     * pin an internal mirror; previously this was reachable only through the
+     * `MOXXY_REGISTRY_URL` env var, which a user can simply unset. Whatever the
+     * URL serves must still verify against the baked key, so this is a
+     * SOURCE decision, not a trust decision.
+     */
+    registryUrl: z.string().url().optional(),
     // Swap axis — one slot per ActiveDef registry kind.
     provider: providerSlotSchema.optional(),
     mode: categorySlotSchema.optional(),

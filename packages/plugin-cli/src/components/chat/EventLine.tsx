@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { MoxxyEvent, TriggerOrigin } from '@moxxy/sdk';
 import { Colors, Glyphs } from '../../theme.js';
+import { blockGap } from './density.js';
 import { truncate } from '@moxxy/chat-model';
 import { AssistantBlock } from './AssistantBlock.js';
 
@@ -13,7 +14,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
     case 'user_prompt':
       if (event.origin) {
         return (
-          <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column" marginTop={blockGap()}>
             <Box>
               <Text dimColor>{`${Glyphs.filled} ${formatTriggerOrigin(event.origin)} · `}</Text>
               <Text>{event.origin.name}</Text>
@@ -32,7 +33,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // bar, so they don't dominate the transcript.
       if (event.source && event.source !== 'user') {
         return (
-          <Box marginTop={1}>
+          <Box marginTop={blockGap()}>
             <Text dimColor>{`${Glyphs.midDot} ${event.text}`}</Text>
           </Box>
         );
@@ -54,7 +55,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // and what the model receives are untouched — this only tightens
       // the echo render.
       return (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={blockGap()}>
           <Box flexDirection="row">
             <Box flexDirection="column" marginRight={1} flexShrink={0}>
               <Text>{Glyphs.prompt}</Text>
@@ -73,7 +74,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // expanded — show a static withheld marker.
       if (event.redacted) {
         return (
-          <Box marginTop={1}>
+          <Box marginTop={blockGap()}>
             <Text dimColor>{`${Glyphs.pending} reasoning withheld`}</Text>
           </Box>
         );
@@ -84,7 +85,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       // since Ink has no native collapse affordance.
       if (expandToolOutputs) {
         return (
-          <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column" marginTop={blockGap()}>
             <Text dimColor>{`${Glyphs.pending} thinking`}</Text>
             <Box marginLeft={2}>
               <Text dimColor>{content}</Text>
@@ -94,7 +95,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       }
       const firstLine = content.split('\n').find((l) => l.trim()) ?? '';
       return (
-        <Box marginTop={1}>
+        <Box marginTop={blockGap()}>
           <Text dimColor>{`${Glyphs.pending} thinking · ${truncate(firstLine, 100)}`}</Text>
         </Box>
       );
@@ -105,7 +106,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       return null;
     case 'skill_created':
       return (
-        <Box marginTop={1}>
+        <Box marginTop={blockGap()}>
           <Text dimColor>{Glyphs.filled} </Text>
           <Text bold>skill created</Text>
           <Text dimColor>  {event.name}</Text>
@@ -119,14 +120,14 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       );
     case 'compaction':
       return (
-        <Box marginTop={1}>
+        <Box marginTop={blockGap()}>
           <Text dimColor>⤺ </Text>
           <Text dimColor>{formatCompactionEvent(event)}</Text>
         </Box>
       );
     case 'error':
       return (
-        <Box marginTop={1}>
+        <Box marginTop={blockGap()}>
           <Text color={Colors.danger}>{Glyphs.filled} </Text>
           <Text color={Colors.danger}>error: </Text>
           <Text>{event.message}</Text>
@@ -134,7 +135,7 @@ export const EventLine: React.FC<{ event: MoxxyEvent; expandToolOutputs?: boolea
       );
     case 'abort':
       return (
-        <Box marginTop={1}>
+        <Box marginTop={blockGap()}>
           <Text color={Colors.busy}>⏹ aborted: {event.reason}</Text>
         </Box>
       );

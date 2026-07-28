@@ -264,3 +264,97 @@ describe('PermissionEngine', () => {
     }
   });
 });
+
+describe('immutable (config-supplied) rules', () => {
+  const call = (name: string, input: unknown) => ({ name, input }) as never;
+
+  it('a managed deny beats a file allow', () => {
+    const engine = new PermissionEngine({ allow: [{ name: 'bash' }], deny: [] });
+    engine.setImmutableRules({ allow: [], deny: [{ name: 'bash', reason: 'no shell' }] });
+    expect(engine.check(call('bash', {}))).toEqual({ mode: 'deny', reason: 'no shell' });
+  });
+
+  // "allow always" is an answer the agent can provoke, so it must not be able
+  // to defeat a rule the operator pushed.
+  it('a later allow-always answer cannot defeat a managed deny', async () => {
+    const engine = new PermissionEngine();
+    engine.setImmutableRules({ allow: [], deny: [{ name: 'bash' }] });
+    await engine.addAllow({ name: 'bash' });
+    expect(engine.check(call('bash', {}))?.mode).toBe('deny');
+  });
+
+  it('a managed allow grants without touching the file policy', () => {
+    const engine = new PermissionEngine();
+    engine.setImmutableRules({ allow: [{ name: 'Read' }], deny: [] });
+    expect(engine.check(call('Read', {}))?.mode).toBe('allow');
+    expect(engine.policySnapshot.allow).toEqual([]);
+  });
+
+  it('falls through to the file layer when no managed rule matches', () => {
+    const engine = new PermissionEngine({ allow: [{ name: 'Glob' }], deny: [] });
+    engine.setImmutableRules({ allow: [], deny: [{ name: 'bash' }] });
+    expect(engine.check(call('Glob', {}))?.mode).toBe('allow');
+  });
+
+  it('is empty by default, so nothing changes without config', () => {
+    expect(new PermissionEngine().getImmutableRules()).toEqual({ allow: [], deny: [] });
+  });
+});
+
+describe('anchored matchers', () => {
+  const call = (name: string, input: unknown) => ({ name, input }) as never;
+  const denyPrefix = (prefix: string) =>
+    new PermissionEngine({ allow: [], deny: [{ name: 'Read', inputPathPrefix: { path: prefix } }] });
+
+  it('matches a path at or under the prefix', () => {
+    const e = denyPrefix('/srv/app');
+    expect(e.check(call('Read', { path: '/srv/app' }))?.mode).toBe('deny');
+    expect(e.check(call('Read', { path: '/srv/app/x/y.txt' }))?.mode).toBe('deny');
+  });
+
+  // The exact trap the unanchored regex sets: '/srv/app' must not cover
+  // '/srv/apple', and must not match merely because it appears somewhere.
+  it('does not match a sibling that shares a name prefix', () => {
+    expect(denyPrefix('/srv/app').check(call('Read', { path: '/srv/apple/x' }))).toBeNull();
+  });
+
+  it('does not match the prefix appearing mid-path', () => {
+    expect(denyPrefix('/srv/app').check(call('Read', { path: '/tmp/srv/app/x' }))).toBeNull();
+  });
+
+  // A traversal must not escape a prefix an operator meant as a boundary.
+  it('normalises .. before comparing', () => {
+    const e = denyPrefix('/srv/app');
+    expect(e.check(call('Read', { path: '/srv/app/../../etc/passwd' }))).toBeNull();
+    expect(e.check(call('Read', { path: '/srv/app/sub/../ok.txt' }))?.mode).toBe('deny');
+  });
+
+  it('globs are anchored whole-value', () => {
+    const e = new PermissionEngine({
+      allow: [],
+      deny: [{ name: 'Read', inputGlob: { path: '/etc/*.conf' } }],
+    });
+    expect(e.check(call('Read', { path: '/etc/nginx.conf' }))?.mode).toBe('deny');
+    expect(e.check(call('Read', { path: '/etc/nginx.conf.bak' }))).toBeNull();
+    // A single star must not cross a separator.
+    expect(e.check(call('Read', { path: '/etc/sub/nginx.conf' }))).toBeNull();
+  });
+
+  it('** crosses separators', () => {
+    const e = new PermissionEngine({
+      allow: [],
+      deny: [{ name: 'Read', inputGlob: { path: '/etc/**/*.conf' } }],
+    });
+    expect(e.check(call('Read', { path: '/etc/a/b/nginx.conf' }))?.mode).toBe('deny');
+  });
+
+  // A glob must never be able to smuggle in regex syntax.
+  it('escapes regex metacharacters in a glob', () => {
+    const e = new PermissionEngine({
+      allow: [],
+      deny: [{ name: 'Read', inputGlob: { path: '/etc/a+b.txt' } }],
+    });
+    expect(e.check(call('Read', { path: '/etc/a+b.txt' }))?.mode).toBe('deny');
+    expect(e.check(call('Read', { path: '/etc/aaab.txt' }))).toBeNull();
+  });
+});

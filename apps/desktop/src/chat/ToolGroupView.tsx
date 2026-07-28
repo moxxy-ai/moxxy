@@ -6,6 +6,7 @@ import {
 } from '@moxxy/chat-model';
 import { ActivityRow } from './ActivityRow';
 import { iconForTool, statusOf, ToolRow, useActivityDisclosure, type ToolRowData } from './SkillGroupView';
+import { useToolIcon } from './ToolIconContext';
 
 function errorCount(rows: ReadonlyArray<ToolRowData>): number {
   return rows.filter((row) => statusOf(row.outcome) === 'error').length;
@@ -51,10 +52,11 @@ export function LiveToolGroupView({ block }: { readonly block: LiveToolBlockData
   const [open, toggle] = useActivityDisclosure(running);
   const errors = errorCount(rows);
   const latest = block.calls.at(-1);
+  const latestIcon = useToolIcon(latest?.request.name ?? '');
   return (
     <div className="activity-block" data-testid="block-live-tools">
       <ActivityRow
-        icon={latest ? iconForTool(latest.request.name) : 'wrench'}
+        icon={latest ? iconForTool(latest.request.name, latestIcon) : 'wrench'}
         label={buildCompactSummary(block.calls, running)}
         meta={errors > 0 ? `${errors} failed` : undefined}
         active={running}
