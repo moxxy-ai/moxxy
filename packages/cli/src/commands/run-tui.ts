@@ -214,6 +214,9 @@ async function applyTuiPreferences(argv: ParsedArgv): Promise<void> {
     if (tui.hints === false && process.env.MOXXY_TUI_HINTS === undefined) {
       process.env.MOXXY_TUI_HINTS = '0';
     }
+    if (tui.density && process.env.MOXXY_TUI_DENSITY === undefined) {
+      process.env.MOXXY_TUI_DENSITY = tui.density;
+    }
     if (tui.keys && process.env.MOXXY_TUI_KEYS === undefined) {
       process.env.MOXXY_TUI_KEYS = JSON.stringify(tui.keys);
     }

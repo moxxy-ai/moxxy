@@ -120,6 +120,7 @@ function looksBinary(content: string): boolean {
 
 export const grepTool = defineTool({
   name: 'Grep',
+  icon: 'search',
   description: 'Recursively search files for a regex pattern. Returns lines as `path:line:text`.',
   inputSchema: z.object({
     pattern: z.string().min(1),

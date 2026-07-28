@@ -6,6 +6,7 @@ import { MAX_FILE_BYTES, resolvePath } from './util.js';
 
 export const writeTool = defineTool({
   name: 'Write',
+  icon: 'file',
   description: 'Write a UTF-8 file to disk, creating parent directories as needed. Overwrites if exists.',
   inputSchema: z.object({
     file_path: z.string(),

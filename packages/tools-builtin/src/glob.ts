@@ -5,6 +5,7 @@ import { clampString, globToRegExp, IGNORED_DIR_NAMES, MAX_WALK_DEPTH, resolvePa
 
 export const globTool = defineTool({
   name: 'Glob',
+  icon: 'folder',
   description: 'Find files by glob pattern (e.g. "src/**/*.ts"). Returns absolute paths sorted by mtime descending.',
   inputSchema: z.object({
     pattern: z.string().min(1),

@@ -121,6 +121,15 @@ export const SETTINGS_KNOBS: ReadonlyArray<SettingsKnob> = [
     next: (c) => ((c.tui?.theme ?? 'default') === 'default' ? 'mono' : 'default'),
   },
   {
+    id: 'tui-density',
+    label: 'Transcript density',
+    description: 'compact drops the blank line between entries (for short panes)',
+    kind: 'enum',
+    dotPath: 'tui.density',
+    current: (c) => c.tui?.density ?? 'comfortable',
+    next: (c) => ((c.tui?.density ?? 'comfortable') === 'comfortable' ? 'compact' : 'comfortable'),
+  },
+  {
     id: 'tui-hints',
     label: 'Footer hints',
     description: 'the dim key-hint row under the input',
