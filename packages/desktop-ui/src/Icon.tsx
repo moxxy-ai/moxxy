@@ -38,6 +38,7 @@ export type IconName =
   | 'workflow'
   | 'settings'
   | 'agent'
+  | 'user'
   | 'workspace'
   | 'folder'
   | 'terminal'
@@ -246,6 +247,12 @@ const paths: Record<IconName, JSX.Element> = {
       <circle cx="9" cy="13" r="1" fill="currentColor" />
       <circle cx="15" cy="13" r="1" fill="currentColor" />
       <path d="M9 17h6" />
+    </>
+  ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="3.75" />
+      <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
     </>
   ),
   workspace: (
