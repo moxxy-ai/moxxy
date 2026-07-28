@@ -562,15 +562,31 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
     const a = await boot('runner-A');
     const b = await boot('runner-B');
     try {
-      await fs.writeFile(path.join(watchedDir, 'note.txt'), 'hello');
-      // Wait until at least one runner has fired. Generous timeout: under
-      // full-suite load the fs watcher + debounce routinely exceeded 4s,
-      // making this the repo's flakiest test (TECH_DEBT 2026-07-03) — the
-      // assertion is about AT-MOST-ONCE semantics, not latency.
-      await vi.waitFor(() => expect(runs.length).toBeGreaterThanOrEqual(1), {
-        timeout: 20000,
-        interval: 50,
-      });
+      // Write, and write AGAIN if nothing fired, until a run is observed.
+      //
+      // `fs.watch(dir, { recursive: true })` is FSEvents on macOS, and the
+      // stream is not delivering yet when the call returns. A single write
+      // issued right after boot lands in that gap and is dropped outright, so
+      // no waiting rescues it: the event never comes. That is what made this
+      // the repo's flakiest test, and why raising the timeout did not help.
+      //
+      // Retrying is safe, and does not weaken the at-most-once assertion,
+      // because duplicates collapse twice over: the 600ms debounce coalesces
+      // events per watch key, and the `wf-file:` fire lock (3s TTL) coalesces
+      // fires per key across BOTH runners. So extra writes cannot manufacture
+      // the second run this test exists to rule out. We stop at the first
+      // observed run regardless, and a genuinely dead watcher still fails,
+      // because the attempts are bounded.
+      const attempts = 10;
+      for (let i = 0; i < attempts && runs.length === 0; i++) {
+        await fs.writeFile(path.join(watchedDir, 'note.txt'), `hello ${i}`);
+        // Past the 600ms debounce, plus slack for a loaded machine.
+        await vi.waitFor(() => expect(runs.length).toBeGreaterThanOrEqual(1), {
+          timeout: 1500,
+          interval: 25,
+        }).catch(() => undefined);
+      }
+      expect(runs.length, 'the fs watcher never delivered an event').toBeGreaterThanOrEqual(1);
       // ...then give the other runner ample time to (wrongly) also fire. It must
       // not: the cross-process lock lets exactly one claim the change.
       await new Promise((r) => setTimeout(r, 700));
@@ -579,10 +595,6 @@ describe('buildWorkflowsIntegration afterWorkflow wiring', () => {
       a.stop();
       b.stop();
     }
-    // Test timeout must exceed the waitFor budget above. It did not: the
-    // waitFor was raised to 20s to survive load, but vitest's default test
-    // timeout is 10s, so the test died first and the generous budget was dead
-    // code. That is the failure this test has been showing under load.
   }, 40_000);
 
   it('stop() cancels a pending fileChanged debounce so it does not fire after teardown', async () => {
