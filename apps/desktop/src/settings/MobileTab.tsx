@@ -221,7 +221,7 @@ export function MobileTab(): JSX.Element {
                     padding: '8px 10px',
                     // Deliberate literals: terminal-style chip is dark in both
                     // themes (same as the AboutTab update log).
-                    background: '#0f172a',
+                    background: '#0b0d12',
                     color: '#e2e8f0',
                     borderRadius: 8,
                     whiteSpace: 'nowrap',

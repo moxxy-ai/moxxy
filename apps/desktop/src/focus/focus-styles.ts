@@ -86,7 +86,7 @@ export const style = {
     border: '2px solid var(--focus-panel-bg)',
     borderRadius: 999,
     background: 'var(--color-primary)',
-    boxShadow: '0 0 10px rgba(236, 72, 153, 0.7)',
+    boxShadow: '0 0 10px rgba(255, 74, 30, 0.7)',
     pointerEvents: 'none',
   },
   focusPet: {
@@ -103,7 +103,7 @@ export const style = {
     inset: '23% 2% 3%',
     zIndex: -1,
     borderRadius: '50%',
-    background: 'radial-gradient(ellipse at 52% 58%, rgba(236, 72, 153, 0.3), transparent 68%)',
+    background: 'radial-gradient(ellipse at 52% 58%, rgba(255, 74, 30, 0.3), transparent 68%)',
     opacity: 0.48,
     transform: 'scale(0.92)',
     pointerEvents: 'none',
@@ -247,7 +247,7 @@ export const style = {
     width: 22,
     height: 22,
     boxSizing: 'border-box',
-    border: '3px solid rgba(236, 72, 153, 0.22)',
+    border: '3px solid rgba(255, 74, 30, 0.22)',
     borderTopColor: 'var(--color-primary)',
     borderRadius: 999,
     pointerEvents: 'none',
@@ -378,7 +378,7 @@ export const style = {
     height: 5,
     borderRadius: 999,
     background: 'var(--color-primary)',
-    boxShadow: '0 0 14px rgba(236, 72, 153, 0.8)',
+    boxShadow: '0 0 14px rgba(255, 74, 30, 0.8)',
   },
   focusAskTitle: {
     margin: 0,
@@ -467,10 +467,10 @@ export const style = {
     color: 'var(--focus-ask-text)',
   },
   focusAskButtonPrimary: {
-    background: 'linear-gradient(135deg, #ec4899, #d946ef)',
+    background: 'linear-gradient(135deg, #d13d14, #9c2409)',
     borderColor: 'rgba(255, 255, 255, 0.18)',
     color: '#ffffff',
-    boxShadow: '0 10px 22px rgba(236, 72, 153, 0.25)',
+    boxShadow: '0 10px 22px rgba(196, 49, 15, 0.25)',
   },
   focusAskButtonDisabled: {
     opacity: 0.45,
@@ -565,7 +565,7 @@ export const style = {
     justifyContent: 'center',
   },
   actionBtnActive: {
-    background: 'rgba(236, 72, 153, 0.14)',
+    background: 'rgba(255, 74, 30, 0.14)',
     color: 'var(--color-primary)',
     borderRadius: 11,
   },
@@ -794,7 +794,7 @@ export const style = {
     height: 34,
     border: 'none',
     borderRadius: 10,
-    background: 'linear-gradient(135deg, #ec4899, #d946ef)',
+    background: 'linear-gradient(135deg, #d13d14, #9c2409)',
     color: '#fff',
     cursor: 'pointer',
     display: 'inline-flex',
@@ -819,50 +819,50 @@ if (typeof document !== 'undefined') {
   styleTag.id = 'focus-keyframes';
   styleTag.textContent = `
     :root {
-      --color-text: #0f172a;
-      --color-text-muted: #475569;
-      --color-text-dim: #94a3b8;
-      --color-primary: #ec4899;
-      --color-primary-strong: #db2777;
-      --color-primary-soft: #fdf2f8;
+      --color-text: #0b0d12;
+      --color-text-muted: #55596b;
+      --color-text-dim: #8a8f9f;
+      --color-primary: #c4310f;
+      --color-primary-strong: #9c2409;
+      --color-primary-soft: #fff1ec;
       --color-surface: #ffffff;
-      --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
-      --color-red: #ef4444;
-      --color-card-border: #e3e5f0;
-      --color-card-border-strong: #cdd1e3;
-      --color-code-bg: #f1f3fb;
-      --color-bg-card-hover: #f4f5fa;
+      --grad-user: linear-gradient(135deg, #c4310f 0%, #e2551f 100%);
+      --color-red: #c53030;
+      --color-card-border: #e4e4ea;
+      --color-card-border-strong: #d3d4dc;
+      --color-code-bg: #f2f2f5;
+      --color-bg-card-hover: #f7f7f9;
       --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
       --focus-panel-bg: #ffffff;
-      --focus-panel-border: rgba(15, 23, 42, 0.14);
-      --focus-panel-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
-      --focus-text: #0f172a;
+      --focus-panel-border: rgba(11, 13, 18, 0.14);
+      --focus-panel-shadow: 0 14px 32px rgba(11, 13, 18, 0.18);
+      --focus-text: #0b0d12;
       --focus-muted: #64748b;
-      --focus-dim: #94a3b8;
-      --focus-divider: rgba(15, 23, 42, 0.12);
-      --focus-subtle-border: rgba(15, 23, 42, 0.08);
-      --focus-action-hover-bg: rgba(15, 23, 42, 0.06);
+      --focus-dim: #8a8f9f;
+      --focus-divider: rgba(11, 13, 18, 0.12);
+      --focus-subtle-border: rgba(11, 13, 18, 0.08);
+      --focus-action-hover-bg: rgba(11, 13, 18, 0.06);
       --focus-action-danger-bg: rgba(239, 68, 68, 0.12);
       --focus-preview-bg: rgba(255, 255, 255, 0.96);
       --focus-preview-border: rgba(203, 213, 225, 0.75);
       --focus-preview-shadow: none;
-      --focus-preview-text: #0f172a;
+      --focus-preview-text: #0b0d12;
       --focus-composer-bg: #ffffff;
       --focus-input-bg: #f8fafc;
-      --focus-input-border: rgba(15, 23, 42, 0.12);
+      --focus-input-border: rgba(11, 13, 18, 0.12);
       --focus-ask-bg: rgba(255, 255, 255, 0.97);
-      --focus-ask-border: rgba(15, 23, 42, 0.14);
-      --focus-ask-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
-      --focus-ask-text: #0f172a;
-      --focus-ask-title: #0f172a;
-      --focus-ask-body: #475569;
-      --focus-ask-kicker: #db2777;
-      --focus-ask-detail-bg: rgba(15, 23, 42, 0.045);
-      --focus-ask-detail-border: rgba(15, 23, 42, 0.10);
-      --focus-ask-detail-text: #1e293b;
-      --focus-ask-neutral-bg: rgba(15, 23, 42, 0.06);
-      --focus-ask-neutral-border: rgba(15, 23, 42, 0.10);
+      --focus-ask-border: rgba(11, 13, 18, 0.14);
+      --focus-ask-shadow: 0 18px 44px rgba(11, 13, 18, 0.18);
+      --focus-ask-text: #0b0d12;
+      --focus-ask-title: #0b0d12;
+      --focus-ask-body: #55596b;
+      --focus-ask-kicker: #c4310f;
+      --focus-ask-detail-bg: rgba(11, 13, 18, 0.045);
+      --focus-ask-detail-border: rgba(11, 13, 18, 0.10);
+      --focus-ask-detail-text: #21252f;
+      --focus-ask-neutral-bg: rgba(11, 13, 18, 0.06);
+      --focus-ask-neutral-border: rgba(11, 13, 18, 0.10);
       --focus-ask-danger-bg: rgba(239, 68, 68, 0.10);
       --focus-ask-danger-border: rgba(239, 68, 68, 0.22);
       --focus-ask-danger-text: #b91c1c;
@@ -870,38 +870,38 @@ if (typeof document !== 'undefined') {
     }
 
     [data-theme="dark"] {
-      --color-text: #e8eaf6;
-      --color-text-muted: #a4abc8;
-      --color-text-dim: #697091;
-      --color-primary: #ec4899;
-      --color-primary-strong: #db2777;
-      --color-primary-soft: #2b1622;
-      --color-surface: #1b1e2b;
-      --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
-      --color-red: #ef4444;
-      --color-card-border: #262a3c;
-      --color-card-border-strong: #363c54;
-      --color-code-bg: #262b40;
-      --color-bg-card-hover: #1d2030;
+      --color-text: #edeef2;
+      --color-text-muted: #9096a6;
+      --color-text-dim: #6b7284;
+      --color-primary: #ff6a44;
+      --color-primary-strong: #ff4a1e;
+      --color-primary-soft: #2e1409;
+      --color-surface: #1a1e28;
+      --grad-user: linear-gradient(135deg, #ff6a44 0%, #ff9a5e 100%);
+      --color-red: #d97070;
+      --color-card-border: #232833;
+      --color-card-border-strong: #333947;
+      --color-code-bg: #232833;
+      --color-bg-card-hover: #191d26;
 
-      --focus-panel-bg: #161823;
+      --focus-panel-bg: #12151d;
       --focus-panel-border: rgba(148, 163, 184, 0.22);
       --focus-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.42);
-      --focus-text: #e8eaf6;
-      --focus-muted: #a4abc8;
-      --focus-dim: #697091;
+      --focus-text: #edeef2;
+      --focus-muted: #9096a6;
+      --focus-dim: #6b7284;
       --focus-divider: rgba(148, 163, 184, 0.18);
       --focus-subtle-border: rgba(148, 163, 184, 0.14);
       --focus-action-hover-bg: rgba(255, 255, 255, 0.08);
       --focus-action-danger-bg: rgba(239, 68, 68, 0.16);
-      --focus-preview-bg: rgba(22, 24, 35, 0.96);
+      --focus-preview-bg: rgba(18, 21, 29, 0.96);
       --focus-preview-border: rgba(148, 163, 184, 0.24);
       --focus-preview-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
       --focus-preview-text: #f8fafc;
-      --focus-composer-bg: #101117;
+      --focus-composer-bg: #0b0d12;
       --focus-input-bg: #121420;
-      --focus-input-border: #262a3c;
-      --focus-ask-bg: rgba(22, 24, 35, 0.97);
+      --focus-input-border: #232833;
+      --focus-ask-bg: rgba(18, 21, 29, 0.97);
       --focus-ask-border: rgba(148, 163, 184, 0.22);
       --focus-ask-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
       --focus-ask-text: #f8fafc;
@@ -921,34 +921,34 @@ if (typeof document !== 'undefined') {
 
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme]) {
-        --color-text: #e8eaf6;
-        --color-text-muted: #a4abc8;
-        --color-text-dim: #697091;
-        --color-primary-soft: #2b1622;
-        --color-surface: #1b1e2b;
-        --grad-user: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);
-        --color-card-border: #262a3c;
-        --color-card-border-strong: #363c54;
-        --color-code-bg: #262b40;
-        --color-bg-card-hover: #1d2030;
-        --focus-panel-bg: #161823;
+        --color-text: #edeef2;
+        --color-text-muted: #9096a6;
+        --color-text-dim: #6b7284;
+        --color-primary-soft: #2e1409;
+        --color-surface: #1a1e28;
+        --grad-user: linear-gradient(135deg, #ff6a44 0%, #ff9a5e 100%);
+        --color-card-border: #232833;
+        --color-card-border-strong: #333947;
+        --color-code-bg: #232833;
+        --color-bg-card-hover: #191d26;
+        --focus-panel-bg: #12151d;
         --focus-panel-border: rgba(148, 163, 184, 0.22);
         --focus-panel-shadow: 0 16px 38px rgba(0, 0, 0, 0.42);
-        --focus-text: #e8eaf6;
-        --focus-muted: #a4abc8;
-        --focus-dim: #697091;
+        --focus-text: #edeef2;
+        --focus-muted: #9096a6;
+        --focus-dim: #6b7284;
         --focus-divider: rgba(148, 163, 184, 0.18);
         --focus-subtle-border: rgba(148, 163, 184, 0.14);
         --focus-action-hover-bg: rgba(255, 255, 255, 0.08);
         --focus-action-danger-bg: rgba(239, 68, 68, 0.16);
-        --focus-preview-bg: rgba(22, 24, 35, 0.96);
+        --focus-preview-bg: rgba(18, 21, 29, 0.96);
         --focus-preview-border: rgba(148, 163, 184, 0.24);
         --focus-preview-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
         --focus-preview-text: #f8fafc;
-        --focus-composer-bg: #101117;
+        --focus-composer-bg: #0b0d12;
         --focus-input-bg: #121420;
-        --focus-input-border: #262a3c;
-        --focus-ask-bg: rgba(22, 24, 35, 0.97);
+        --focus-input-border: #232833;
+        --focus-ask-bg: rgba(18, 21, 29, 0.97);
         --focus-ask-border: rgba(148, 163, 184, 0.22);
         --focus-ask-shadow: 0 22px 54px rgba(0, 0, 0, 0.48);
         --focus-ask-text: #f8fafc;

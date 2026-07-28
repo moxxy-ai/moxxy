@@ -825,8 +825,8 @@ describe('FocusWidget theme', () => {
     render(<FocusWidget />);
 
     expect(focusCss()).toContain('[data-theme="dark"]');
-    expect(focusCss()).toContain('--focus-panel-bg: #161823');
-    expect(focusCss()).toContain('--focus-preview-bg: rgba(22, 24, 35, 0.96)');
+    expect(focusCss()).toContain('--focus-panel-bg: #12151d');
+    expect(focusCss()).toContain('--focus-preview-bg: rgba(18, 21, 29, 0.96)');
   });
 });
 
