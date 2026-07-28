@@ -1,5 +1,12 @@
 # @moxxy/workspaces-app
 
+## 0.4.9
+
+### Patch Changes
+
+- Updated dependencies [5164d4b]
+  - @moxxy/design-tokens@0.3.0
+
 ## 0.4.8
 
 ### Patch Changes
