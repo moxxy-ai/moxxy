@@ -38,7 +38,7 @@ describe('provision', () => {
   it('skips installing a bundled provider but configures it + stores the key', async () => {
     const eff = makeEffects({ loadedProviderNames: new Set(['anthropic']) });
     const res = await provision(
-      { provider: 'anthropic', key: 'sk-x', model: 'claude-opus-4-8' },
+      { provider: 'anthropic', key: 'sk-x', model: 'claude-opus-5' },
       eff,
     );
     expect(eff.install).not.toHaveBeenCalled();
@@ -46,7 +46,7 @@ describe('provision', () => {
     expect(eff.storeSecret).toHaveBeenCalledWith(expect.any(String), 'sk-x', ['anthropic']);
     expect(res.keyStored).toBe(true);
     expect(eff.writeConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ providerSlug: 'anthropic', providerBundled: true, model: 'claude-opus-4-8' }),
+      expect.objectContaining({ providerSlug: 'anthropic', providerBundled: true, model: 'claude-opus-5' }),
     );
   });
 
@@ -80,7 +80,7 @@ describe('provision', () => {
     }));
   });
 
-  it.each(['claude-fable-5', 'claude-opus-4-8'])('persists an explicit %s selection', async (model) => {
+  it.each(['claude-fable-5', 'claude-opus-5'])('persists an explicit %s selection', async (model) => {
     const eff = makeEffects({ loadedProviderNames: new Set(['claude-code']) });
     await provision({ provider: 'claude-code', model }, eff);
     expect(eff.writeConfig).toHaveBeenCalledWith(expect.objectContaining({

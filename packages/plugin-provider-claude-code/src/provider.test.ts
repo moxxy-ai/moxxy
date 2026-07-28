@@ -59,7 +59,8 @@ describe('claude-code provider definition', () => {
     expect(claudeCodeProviderDef.models.map((model) => model.id)).toEqual([
       'claude-sonnet-4-6',
       'claude-fable-5',
-      'claude-opus-4-8',
+      'claude-opus-5',
+      'claude-sonnet-5',
       'claude-opus-4-7',
       'claude-opus-4-6',
       'claude-haiku-4-5-20251001',
@@ -290,7 +291,7 @@ describe('claude-code provider definition', () => {
     expect(args).not.toContain('bypassPermissions');
   });
 
-  it.each(['claude-fable-5', 'claude-opus-4-8'])('passes the selected %s model as an exact structured argument', async (model) => {
+  it.each(['claude-fable-5', 'claude-opus-5'])('passes the selected %s model as an exact structured argument', async (model) => {
     const dir = await makeFakeClaude([
       { type: 'result', subtype: 'success', is_error: false, usage: { input_tokens: 1, output_tokens: 1 } },
     ]);

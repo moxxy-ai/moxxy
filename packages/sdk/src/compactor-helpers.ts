@@ -118,7 +118,7 @@ function safeJsonLen(v: unknown): number {
  *
  * `config.model` is a free-form, unvalidated string, and providers happily
  * serve ids that aren't in their fixed descriptor list — a newer release
- * (`claude-opus-4-8`), a dated id, or a model registered at runtime via
+ * (`claude-opus-5`), a dated id, or a model registered at runtime via
  * provider-admin. So an exact `models.find(m => m.id === ctx.model)` often
  * MISSES, and both auto-compaction and auto-elision used to silently turn into
  * permanent no-ops for the whole session (the context then grows unbounded and
