@@ -1,5 +1,12 @@
 # @moxxy/skills-builtin
 
+## 0.0.49
+
+### Patch Changes
+
+- Updated dependencies [57f0810]
+  - @moxxy/sdk@0.35.0
+
 ## 0.0.48
 
 ### Patch Changes

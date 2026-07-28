@@ -28,7 +28,8 @@ const textOnlyCapabilities = {
 export const claudeCodeModels: ReadonlyArray<ModelDescriptor> = [
   { id: CLAUDE_CODE_DEFAULT_MODEL, contextWindow: 1_000_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
   { id: 'claude-fable-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
-  { id: 'claude-opus-4-8', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
+  { id: 'claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
+  { id: 'claude-sonnet-5', contextWindow: 1_000_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },
   { id: 'claude-opus-4-7', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
   { id: 'claude-opus-4-6', contextWindow: 1_000_000, maxOutputTokens: 128_000, ...textOnlyCapabilities },
   { id: 'claude-haiku-4-5-20251001', contextWindow: 200_000, maxOutputTokens: 64_000, ...textOnlyCapabilities },

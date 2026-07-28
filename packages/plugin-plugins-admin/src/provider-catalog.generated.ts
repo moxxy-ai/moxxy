@@ -15,7 +15,7 @@ export const PROVIDER_PLUGIN_CATALOG = [
     ],
     "provider": {
       "auth": "key",
-      "defaultModel": "claude-opus-4-8",
+      "defaultModel": "claude-opus-5",
       "recommended": true
     }
   },

@@ -24,6 +24,23 @@ or recorded-on-purpose decision.
 
 ## Resolved ledger
 
+- [med, tests/determinism, RESOLVED 2026-07-28] The workflows
+  `fileChanged`-across-two-runners test was still failing (1 in 6 idle, 2 in 3
+  under load) after being declared fixed on 2026-07-27. The earlier fix treated
+  it as a timing budget problem; it is not one. `fs.watch(dir, {recursive:true})`
+  is FSEvents on macOS and is not delivering when the call returns, so the single
+  write issued right after boot fell into that gap and was dropped outright. No
+  waiting rescues a dropped event, which is why a bigger timeout changed nothing.
+  The test now writes in a bounded retry loop and stops at the first observed
+  run. Retrying cannot weaken the at-most-once assertion because duplicates
+  collapse twice: the 600 ms debounce coalesces events per watch key, and the
+  `wf-file:` fire lock (3 s TTL) coalesces fires per key across both runners.
+  Verified 12/12 idle, 6/6 under a full `turbo run test --force`, and
+  mutation-checked both ways: disabling the fire lock still fails with "got 2",
+  and a watcher that never registers fails in 15 s with a named message rather
+  than hanging. `packages/cli/src/setup/workflows.test.ts`.
+
+
 - [med, tests/determinism, RESOLVED 2026-07-27] Three suites failed only under
   full-suite parallelism, which made a local `pnpm test` unable to distinguish a
   regression from load. Each was a test asserting wall-clock timing rather than
@@ -33,7 +50,8 @@ or recorded-on-purpose decision.
   all. The workflows `fileChanged`-across-two-runners test raised its `vi.waitFor`
   budget to 20 s while vitest's default TEST timeout stayed 10 s, so the generous
   budget was dead code and the test died first; it now declares its own 40 s
-  timeout. `isolator-subprocess`'s cooperative-abort test asserted that the
+  timeout. THAT DIAGNOSIS WAS INCOMPLETE and the test kept failing (see the
+  2026-07-28 entry below). `isolator-subprocess`'s cooperative-abort test asserted that the
   production 150 ms grace was enough for a child to be scheduled AND flush, which
   is a measurement of machine load; `abortGraceMs` is now injectable and the test
   passes a generous value, asserting the mechanism while the production default
