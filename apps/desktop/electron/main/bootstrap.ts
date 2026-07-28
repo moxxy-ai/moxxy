@@ -37,6 +37,7 @@ import {
 import { BUNDLED_UPDATE_PUBLIC_KEY } from './update-key.js';
 import { FLOOR_RUNNER_PROTOCOL } from './floor-runner-protocol.js';
 import { registerAppAssetSchemePrivileged } from './app-scheme.js';
+import { pinRendererHostToLoopback } from './renderer-host.js';
 
 // MUST run before any `app.getPath('userData')` below. `userData` resolves to
 // `…/Application Support/<app.getName()>`, and in a packaged build Electron
@@ -60,6 +61,12 @@ app.setName('MoxxyAI Workspaces');
 // downgrade). The privileges live in `./app-scheme` so this and `index.ts`
 // can't disagree.
 registerAppAssetSchemePrivileged();
+
+// Same prologue, same reason: Chromium reads the resolver switch when the
+// network stack initialises, which is before `whenReady`. Without it the
+// packaged renderer's hostname has to be resolved by public DNS, so one missing
+// A-record blanks every installed app.
+pinRendererHostToLoopback(app);
 
 /** Dir holding this bootstrap + the baked floor `index.js` (…/dist-electron/main). */
 const floorMainDir = import.meta.dirname;

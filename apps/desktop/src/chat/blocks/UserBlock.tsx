@@ -145,20 +145,18 @@ export function UserBlock({
       {(text.length > 0 || !hasAttachments) && (
         <div
           style={{
-            padding: '12px 16px',
-            // Solid contrast-safe base UNDER the gradient: if the lightest
-            // gradient stop resolves too pale in a given theme, the dark base
-            // (and the text-shadow below) keep the white prompt text legible.
-            backgroundColor: 'var(--color-primary-strong)',
-            backgroundImage: 'var(--grad-user)',
-            color: '#fff',
-            // Guarantees the white text stays readable over the lightest stop.
-            textShadow: '0 1px 2px rgba(15, 23, 42, 0.45)',
-            borderRadius: '16px 16px 4px 16px',
+            // Just the text. The gradient bubble it replaces carried a solid
+            // base, a gradient, white ink, a text-shadow and a drop shadow, all
+            // to keep one short line readable against itself. Right alignment
+            // already says whose turn this is, so none of that chrome was
+            // paying for the noise it added.
+            padding: '2px 0',
+            color: 'var(--color-text)',
+            fontWeight: 500,
+            textAlign: 'right',
             whiteSpace: 'pre-wrap',
             lineHeight: 1.55,
             fontSize: 14.5,
-            boxShadow: '0 6px 18px -10px color-mix(in srgb, var(--color-primary) 55%, transparent)',
           }}
         >
           {text}
